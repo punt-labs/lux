@@ -148,6 +148,9 @@ reportMissingTypeStubs = false
 [[tool.pyright.executionEnvironments]]
 root = "tests"
 reportPrivateUsage = false
+reportUnknownVariableType = false
+reportUnknownArgumentType = false
+reportUnknownMemberType = false
 
 [tool.pytest.ini_options]
 minversion = "8.0"

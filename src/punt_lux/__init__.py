@@ -9,4 +9,9 @@ try:
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "0.0.0"
 
-__all__: list[str] = []
+from punt_lux.protocol import decode_frame, encode_frame
+
+__all__ = [
+    "decode_frame",
+    "encode_frame",
+]
