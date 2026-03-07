@@ -59,13 +59,15 @@ class TestDisplay:
     def test_display_calls_server(self) -> None:
         """display command constructs DisplayServer and calls run()."""
         with patch("punt_lux.display.DisplayServer") as mock_cls:
-            runner.invoke(app, ["display"])
+            result = runner.invoke(app, ["display"])
+            assert result.exit_code == 0
             mock_cls.assert_called_once_with(None)
             mock_cls.return_value.run.assert_called_once()
 
     def test_display_with_socket(self) -> None:
         with patch("punt_lux.display.DisplayServer") as mock_cls:
-            runner.invoke(app, ["display", "--socket", "/tmp/test.sock"])
+            result = runner.invoke(app, ["display", "--socket", "/tmp/test.sock"])
+            assert result.exit_code == 0
             mock_cls.assert_called_once_with("/tmp/test.sock")
 
 
