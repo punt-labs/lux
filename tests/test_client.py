@@ -209,6 +209,54 @@ class TestSendMessages:
 
             shutil.rmtree(short_dir, ignore_errors=True)
 
+    def test_show_buffers_interleaved_event(self, tmp_path: Path) -> None:
+        """show() returns AckMessage even when a non-ack arrives first."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            msg = recv_message(server_conn, timeout=5)
+            assert isinstance(msg, SceneMessage)
+            # Send an interaction *before* the ack
+            send_message(
+                server_conn,
+                InteractionMessage(
+                    element_id="b1", action="click", ts=time.time(), value=True
+                ),
+            )
+            send_message(server_conn, AckMessage(scene_id="s1", ts=time.time()))
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+                ack = client.show(
+                    "s1",
+                    elements=[TextElement(id="t1", content="Hello")],
+                )
+                assert ack is not None
+                assert ack.scene_id == "s1"
+                # The interleaved interaction should be buffered for recv()
+                buffered = client.recv(timeout=0.5)
+                assert isinstance(buffered, InteractionMessage)
+                assert buffered.element_id == "b1"
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
     def test_update_sends_patches(self, tmp_path: Path) -> None:
         """update() sends an UpdateMessage and receives AckMessage."""
         import tempfile

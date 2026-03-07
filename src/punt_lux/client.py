@@ -20,6 +20,7 @@ import contextlib
 import logging
 import socket
 import time
+from collections import deque
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -71,7 +72,7 @@ class LuxClient:
         self._recv_timeout = recv_timeout
         self._sock: socket.socket | None = None
         self._ready: ReadyMessage | None = None
-        self._pending: list[Message] = []
+        self._pending: deque[Message] = deque()
 
     # -- context manager ---------------------------------------------------
 
@@ -217,16 +218,27 @@ class LuxClient:
         Returns ``None`` on timeout.
         """
         if self._pending:
-            return self._pending.pop(0)
+            return self._pending.popleft()
         sock = self._require_connected()
         t = timeout if timeout is not None else self._recv_timeout
         return recv_message(sock, timeout=t)
 
     def _recv_ack(self) -> AckMessage | None:
-        """Receive expecting an AckMessage.  Buffers non-ack messages."""
-        msg = self.recv()
-        if isinstance(msg, AckMessage):
-            return msg
-        if msg is not None:
+        """Receive expecting an AckMessage.  Buffers non-ack messages.
+
+        Reads directly from the socket until an AckMessage arrives or the
+        timeout elapses, so that previously buffered non-ack messages do
+        not prevent seeing a newer AckMessage on the wire.
+        """
+        sock = self._require_connected()
+        deadline = time.monotonic() + self._recv_timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            msg = recv_message(sock, timeout=remaining)
+            if msg is None:
+                return None
+            if isinstance(msg, AckMessage):
+                return msg
             self._pending.append(msg)
-        return None
