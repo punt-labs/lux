@@ -147,13 +147,6 @@ include = ["src", "tests"]
 reportMissingTypeStubs = false
 
 [[tool.pyright.executionEnvironments]]
-root = "src/punt_lux/display.py"
-reportUnknownVariableType = false
-reportUnknownArgumentType = false
-reportUnknownMemberType = false
-reportMissingModuleSource = false
-
-[[tool.pyright.executionEnvironments]]
 root = "tests"
 reportPrivateUsage = false
 reportUnknownVariableType = false

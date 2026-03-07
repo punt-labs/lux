@@ -1,3 +1,5 @@
+# pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
+# pyright: reportUnknownArgumentType=false, reportMissingModuleSource=false
 """Lux display server — ImGui render loop with non-blocking Unix socket IPC.
 
 Listens on a Unix domain socket for protocol messages and renders scenes
