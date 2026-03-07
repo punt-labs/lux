@@ -162,7 +162,7 @@ class TestRapidSceneUpdates:
             server_conn = _mini_display_server(sock_path, ready_event)
             assert server_conn is not None
             for _ in range(NUM_RAPID_SCENES):
-                msg = recv_message(server_conn, timeout=10)
+                msg = recv_message(server_conn, timeout=5)
                 if msg is None:
                     break
                 assert isinstance(msg, SceneMessage)
@@ -191,8 +191,8 @@ class TestRapidSceneUpdates:
                 assert len(acked_ids) == NUM_RAPID_SCENES
                 assert acked_ids == [f"s{i}" for i in range(NUM_RAPID_SCENES)]
         finally:
-            t.join(timeout=5)
             _cleanup(short_dir, server_conn)
+            t.join(timeout=5)
 
         assert ack_count == NUM_RAPID_SCENES
 
@@ -208,7 +208,7 @@ class TestRapidSceneUpdates:
             server_conn = _mini_display_server(sock_path, ready_event)
             assert server_conn is not None
             for _ in range(NUM_RAPID_SCENES):
-                msg = recv_message(server_conn, timeout=10)
+                msg = recv_message(server_conn, timeout=5)
                 if msg is None:
                     break
                 assert isinstance(msg, SceneMessage)
@@ -233,8 +233,8 @@ class TestRapidSceneUpdates:
             elapsed = time.monotonic() - t0
             assert elapsed < 10.0, f"Took {elapsed:.2f}s for {NUM_RAPID_SCENES} scenes"
         finally:
-            t.join(timeout=5)
             _cleanup(short_dir, server_conn)
+            t.join(timeout=5)
 
 
 # ---------------------------------------------------------------------------
@@ -291,12 +291,14 @@ class TestGracefulDisconnection:
         short_dir, sock_path = _short_sock_path()
         server_conn: socket.socket | None = None
         ready_event = threading.Event()
+        client_connected = threading.Event()
 
         def serve() -> None:
             nonlocal server_conn
             server_conn = _mini_display_server(sock_path, ready_event)
             assert server_conn is not None
-            time.sleep(0.1)
+            # Wait for client to finish handshake before closing
+            client_connected.wait(timeout=5)
             server_conn.close()
             server_conn = None
 
@@ -306,11 +308,12 @@ class TestGracefulDisconnection:
 
         try:
             with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+                client_connected.set()
                 msg = client.recv(timeout=2.0)
                 assert msg is None
         finally:
-            t.join(timeout=5)
             _cleanup(short_dir, server_conn)
+            t.join(timeout=5)
 
 
 # ---------------------------------------------------------------------------
