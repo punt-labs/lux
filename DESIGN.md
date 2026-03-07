@@ -130,6 +130,7 @@ imgui-bundle bundles window management, backend abstraction (SDL/GLFW), and 21 e
 ### Rejected: Qt (PySide6)
 
 Qt has native widgets, accessibility, and mature Python bindings. But:
+
 - Retained-mode widget lifecycle is wrong for LLM-driven UI (create, update, destroy objects).
 - 100MB+ dependency vs 10.6MB.
 - The LLM would be constrained to pre-designed widget arrangements rather than composing freely.
@@ -161,6 +162,7 @@ Unix domain socket (`AF_UNIX`, `SOCK_STREAM`) with 4-byte big-endian length-pref
 ### Spike Findings (Spike B)
 
 Measured on macOS, Python stdlib:
+
 - Content update ack (burst): ~10ms median
 - Ping-pong RTT: ~21ms median
 - Click event RTT: ~20ms median
@@ -177,7 +179,7 @@ Measured on macOS, Python stdlib:
 
 ### Socket Discovery
 
-```
+```text
 $XDG_RUNTIME_DIR/lux/display.sock      (preferred, per XDG spec)
 /tmp/lux-$USER/display.sock             (fallback)
 LUX_SOCKET env var                      (override)
@@ -328,6 +330,7 @@ The JSON vocabulary maps ImGui's ~250 primitives into categorized element kinds.
 ### Categories
 
 **Display elements** (output only):
+
 - `text` — with styles: heading, body, caption, code, colored
 - `image` — PNG/JPEG by file path or base64 inline
 - `markdown` — rendered via imgui_md extension
@@ -336,6 +339,7 @@ The JSON vocabulary maps ImGui's ~250 primitives into categorized element kinds.
 - `spinner` — loading indicator
 
 **Interactive elements** (generate events back):
+
 - `button` — standard, small, arrow, image variants
 - `checkbox` — boolean toggle
 - `slider` — float or int with range
@@ -346,24 +350,29 @@ The JSON vocabulary maps ImGui's ~250 primitives into categorized element kinds.
 - `selectable` — clickable item in a list
 
 **Data display elements**:
+
 - `table` — rows, columns, headers, sortable
 - `plot` — wraps ImPlot: line, scatter, bar, heatmap (data as arrays)
 - `tree` — collapsible tree nodes
 
 **Drawing elements** (ImDrawList):
+
 - `draw` — list of draw commands: line, rect, circle, triangle, bezier, text, polyline. This is the low-level paintbrush within the declarative model.
 
 **Layout elements**:
+
 - `group` — wraps children with layout (rows, columns, grid)
 - `tab_bar` — tabbed sections
 - `collapsing_header` — collapsible section
 
 **Code path**:
+
 - `render_function` — Python source code, gated by user consent (DES-004)
 
 ### State Management for Interactive Elements
 
 ImGui requires persistent state for inputs (slider values, checkbox states, text buffers). The display maintains a state dict keyed by element ID. When an interactive element appears in a scene, the display:
+
 1. Initializes state from the element's `value` field (if present)
 2. On user interaction, updates the local state and sends an `interaction` event
 3. On subsequent scenes, the element's `value` field overrides the local state (client is authoritative)
