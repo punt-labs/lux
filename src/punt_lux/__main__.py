@@ -19,5 +19,16 @@ def version() -> None:
     print(f"lux {__version__}")
 
 
+@app.command()
+def display(
+    socket: str | None = typer.Option(None, "--socket", "-s", help="Socket path"),
+) -> None:
+    """Start the Lux display server."""
+    from punt_lux.display import DisplayServer
+
+    server = DisplayServer(socket)
+    server.run()
+
+
 if __name__ == "__main__":
     app()
