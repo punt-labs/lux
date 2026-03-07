@@ -122,7 +122,12 @@ def _create_texture(path: str) -> int | None:
 class DisplayServer:
     """ImGui display server with non-blocking Unix socket IPC."""
 
-    def __init__(self, socket_path: str | None = None) -> None:
+    def __init__(
+        self,
+        socket_path: str | None = None,
+        *,
+        test_auto_click: bool = False,
+    ) -> None:
         self._socket_path = Path(socket_path or str(default_socket_path()))
         self._server_sock: socket.socket | None = None
         self._clients: list[socket.socket] = []
@@ -130,6 +135,7 @@ class DisplayServer:
         self._current_scene: SceneMessage | None = None
         self._event_queue: list[InteractionMessage] = []
         self._textures = TextureCache()
+        self._test_auto_click = test_auto_click
 
     @property
     def socket_path(self) -> Path:
@@ -272,6 +278,8 @@ class DisplayServer:
             self._current_scene = msg
             self._event_queue.clear()
             self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
+            if self._test_auto_click:
+                self._auto_click_buttons(msg)
         elif isinstance(msg, UpdateMessage):
             self._apply_update(msg)
             self._send_to_client(
@@ -309,6 +317,21 @@ class DisplayServer:
                         continue
                     if hasattr(elem, k):
                         setattr(elem, k, v)
+
+    def _auto_click_buttons(self, msg: SceneMessage) -> None:
+        """Enqueue synthetic clicks for all buttons in a scene (test mode)."""
+        for elem in msg.elements:
+            if elem.kind == "button":
+                eid: str = getattr(elem, "id", "")
+                action: str = getattr(elem, "action", None) or eid
+                self._event_queue.append(
+                    InteractionMessage(
+                        element_id=eid,
+                        action=action,
+                        ts=time.time(),
+                        value=True,
+                    )
+                )
 
     # -- rendering ---------------------------------------------------------
 

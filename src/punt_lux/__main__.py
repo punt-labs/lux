@@ -46,11 +46,16 @@ def status(
 @app.command()
 def display(
     socket: str | None = typer.Option(None, "--socket", "-s", help="Socket path"),
+    test_auto_click: bool = typer.Option(
+        False,
+        "--test-auto-click",
+        help="Auto-fire click events for buttons (testing)",
+    ),
 ) -> None:
     """Start the Lux display server."""
     from punt_lux.display import DisplayServer
 
-    server = DisplayServer(socket)
+    server = DisplayServer(socket, test_auto_click=test_auto_click)
     server.run()
 
 

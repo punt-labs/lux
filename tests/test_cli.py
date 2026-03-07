@@ -61,14 +61,20 @@ class TestDisplay:
         with patch("punt_lux.display.DisplayServer") as mock_cls:
             result = runner.invoke(app, ["display"])
             assert result.exit_code == 0
-            mock_cls.assert_called_once_with(None)
+            mock_cls.assert_called_once_with(None, test_auto_click=False)
             mock_cls.return_value.run.assert_called_once()
 
     def test_display_with_socket(self) -> None:
         with patch("punt_lux.display.DisplayServer") as mock_cls:
             result = runner.invoke(app, ["display", "--socket", "/tmp/test.sock"])
             assert result.exit_code == 0
-            mock_cls.assert_called_once_with("/tmp/test.sock")
+            mock_cls.assert_called_once_with("/tmp/test.sock", test_auto_click=False)
+
+    def test_display_with_test_auto_click(self) -> None:
+        with patch("punt_lux.display.DisplayServer") as mock_cls:
+            result = runner.invoke(app, ["display", "--test-auto-click"])
+            assert result.exit_code == 0
+            mock_cls.assert_called_once_with(None, test_auto_click=True)
 
 
 class TestNoArgs:
