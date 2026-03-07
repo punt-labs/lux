@@ -241,9 +241,13 @@ def _element_to_dict(elem: Element) -> dict[str, Any]:
     return d
 
 
-def _element_from_dict(d: dict[str, Any]) -> Element:
-    """Deserialize a dict to the appropriate Element dataclass."""
-    kind = d.get("kind", "")
+def element_from_dict(d: dict[str, Any]) -> Element:
+    """Deserialize a dict to the appropriate Element dataclass.
+
+    Accepts dicts matching this module's element schema or as supplied by
+    MCP tool callers.  Missing ``content``/``label`` keys default to ``""``.
+    """
+    kind = d.get("kind", "text")
     if kind == "image":
         return ImageElement(
             id=d["id"],
@@ -255,11 +259,13 @@ def _element_from_dict(d: dict[str, Any]) -> Element:
             height=d.get("height"),
         )
     if kind == "text":
-        return TextElement(id=d["id"], content=d["content"], style=d.get("style"))
+        return TextElement(
+            id=d["id"], content=d.get("content", ""), style=d.get("style")
+        )
     if kind == "button":
         return ButtonElement(
             id=d["id"],
-            label=d["label"],
+            label=d.get("label", ""),
             action=d.get("action"),
             disabled=d.get("disabled", False),
         )
@@ -402,7 +408,7 @@ def message_from_dict(d: dict[str, Any]) -> Message:
     msg_type = d.get("type", "")
 
     if msg_type == "scene":
-        elements = [_element_from_dict(e) for e in d.get("elements", [])]
+        elements = [element_from_dict(e) for e in d.get("elements", [])]
         return SceneMessage(
             id=d["id"],
             elements=elements,

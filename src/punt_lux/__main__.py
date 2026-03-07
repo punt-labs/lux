@@ -54,5 +54,13 @@ def display(
     server.run()
 
 
+@app.command()
+def serve() -> None:
+    """Start the Lux MCP server (stdio transport)."""
+    from punt_lux.server import mcp
+
+    mcp.run(transport="stdio")
+
+
 if __name__ == "__main__":
     app()
