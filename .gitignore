@@ -1,0 +1,9 @@
+.claude/
+!.claude/settings.json
+!.claude/hooks/
+.biff.local
+
+# Spike/scratch files
+spikes/
+.tmp/*
+!.tmp/.gitkeep
