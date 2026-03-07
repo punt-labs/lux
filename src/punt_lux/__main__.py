@@ -32,8 +32,11 @@ def status(
     running = is_display_running(path)
 
     if running:
-        pid = int(pid_file_path(path).read_text().strip())
-        print(f"Display running (pid {pid}) at {path}")
+        try:
+            pid = int(pid_file_path(path).read_text().strip())
+            print(f"Display running (pid {pid}) at {path}")
+        except (OSError, ValueError):
+            print(f"Display running at {path} (pid unknown)")
     else:
         print(f"Display not running at {path}")
 
