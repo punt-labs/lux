@@ -8,13 +8,17 @@ from unittest.mock import MagicMock, patch
 from punt_lux.protocol import (
     AckMessage,
     CheckboxElement,
+    CollapsingHeaderElement,
     ColorPickerElement,
     ComboElement,
     DrawElement,
+    GroupElement,
     InputTextElement,
     InteractionMessage,
     PongMessage,
     SliderElement,
+    TabBarElement,
+    WindowElement,
     element_from_dict,
 )
 from punt_lux.server import clear, ping, recv, show, update
@@ -118,6 +122,81 @@ class TestElementFromDict:
         assert elem.width == 400
         assert elem.height == 300
         assert elem.commands == []
+
+    def test_group_element(self) -> None:
+        elem = element_from_dict(
+            {
+                "kind": "group",
+                "id": "g1",
+                "layout": "columns",
+                "children": [{"kind": "text", "id": "t1", "content": "Hi"}],
+            }
+        )
+        assert isinstance(elem, GroupElement)
+        assert elem.layout == "columns"
+        assert len(elem.children) == 1
+
+    def test_group_defaults(self) -> None:
+        elem = element_from_dict({"kind": "group", "id": "g1"})
+        assert isinstance(elem, GroupElement)
+        assert elem.layout == "rows"
+        assert elem.children == []
+
+    def test_tab_bar_element(self) -> None:
+        elem = element_from_dict(
+            {
+                "kind": "tab_bar",
+                "id": "tb1",
+                "tabs": [
+                    {
+                        "label": "A",
+                        "children": [{"kind": "text", "id": "t1", "content": "In A"}],
+                    },
+                ],
+            }
+        )
+        assert isinstance(elem, TabBarElement)
+        assert len(elem.tabs) == 1
+        assert elem.tabs[0]["label"] == "A"
+
+    def test_collapsing_header_element(self) -> None:
+        elem = element_from_dict(
+            {
+                "kind": "collapsing_header",
+                "id": "ch1",
+                "label": "Details",
+                "default_open": True,
+                "children": [{"kind": "button", "id": "b1", "label": "Go"}],
+            }
+        )
+        assert isinstance(elem, CollapsingHeaderElement)
+        assert elem.label == "Details"
+        assert elem.default_open is True
+        assert len(elem.children) == 1
+
+    def test_window_element(self) -> None:
+        elem = element_from_dict(
+            {
+                "kind": "window",
+                "id": "w1",
+                "title": "Panel",
+                "x": 100,
+                "y": 50,
+                "children": [{"kind": "text", "id": "t1", "content": "Hi"}],
+            }
+        )
+        assert isinstance(elem, WindowElement)
+        assert elem.title == "Panel"
+        assert elem.x == 100
+        assert len(elem.children) == 1
+
+    def test_window_defaults(self) -> None:
+        elem = element_from_dict({"kind": "window", "id": "w1"})
+        assert isinstance(elem, WindowElement)
+        assert elem.title == ""
+        assert elem.width == 300.0
+        assert elem.no_move is False
+        assert elem.children == []
 
     def test_unknown_kind_raises(self) -> None:
         import pytest

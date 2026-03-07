@@ -19,7 +19,7 @@ import select
 import socket
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 
 import numpy as np
 from PIL import Image
@@ -36,9 +36,11 @@ from punt_lux.protocol import (
     AckMessage,
     CheckboxElement,
     ClearMessage,
+    CollapsingHeaderElement,
     ColorPickerElement,
     ComboElement,
     FrameReader,
+    GroupElement,
     InputTextElement,
     InteractionMessage,
     PingMessage,
@@ -47,7 +49,9 @@ from punt_lux.protocol import (
     ReadyMessage,
     SceneMessage,
     SliderElement,
+    TabBarElement,
     UpdateMessage,
+    WindowElement,
     encode_message,
 )
 
@@ -201,6 +205,34 @@ def _widget_value(elem: Element) -> Any:
         from imgui_bundle import ImVec4
 
         return ImVec4(r / 255.0, g / 255.0, b / 255.0, 1.0)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Recursive element tree helpers
+# ---------------------------------------------------------------------------
+
+
+def _get_children(elem: Element) -> list[list[Any]]:
+    """Return all child lists owned by a container element."""
+    if isinstance(elem, (GroupElement, CollapsingHeaderElement, WindowElement)):
+        return [elem.children]
+    if isinstance(elem, TabBarElement):
+        return [t.get("children", []) for t in elem.tabs]
+    return []
+
+
+def _find_element(
+    elements: list[Element], target_id: str
+) -> tuple[list[Element], int] | None:
+    """Find element by id, returning (parent_list, index). Recurses into containers."""
+    for i, e in enumerate(elements):
+        if getattr(e, "id", None) == target_id:
+            return (elements, i)
+        for child_list in _get_children(e):
+            result = _find_element(child_list, target_id)
+            if result is not None:
+                return result
     return None
 
 
@@ -388,23 +420,16 @@ class DisplayServer:
         scene = self._current_scene
         if scene is None or scene.id != msg.scene_id:
             return
-        elements = scene.elements
         for patch in msg.patches:
-            idx = next(
-                (
-                    i
-                    for i, e in enumerate(elements)
-                    if getattr(e, "id", None) == patch.id
-                ),
-                None,
-            )
-            if idx is None:
+            result = _find_element(scene.elements, patch.id)
+            if result is None:
                 continue
+            parent_list, idx = result
             if patch.remove:
-                elements.pop(idx)
+                parent_list.pop(idx)
                 self._widget_state.set(patch.id, None)
             elif patch.set:
-                elem = elements[idx]
+                elem = parent_list[idx]
                 for k, v in patch.set.items():
                     if k in ("id", "kind"):
                         continue
@@ -526,6 +551,10 @@ class DisplayServer:
         "radio": "_render_radio",
         "color_picker": "_render_color_picker",
         "draw": "_render_draw",
+        "group": "_render_group",
+        "tab_bar": "_render_tab_bar",
+        "collapsing_header": "_render_collapsing_header",
+        "window": "_render_window",
     }
 
     def _render_element(self, elem: Element) -> None:
@@ -763,6 +792,70 @@ class DisplayServer:
                     value=hex_val,
                 )
             )
+
+    # -- container rendering -----------------------------------------------
+
+    def _render_group(self, elem: Element) -> None:
+        from imgui_bundle import imgui
+
+        grp = cast("GroupElement", elem)
+        layout = grp.layout
+        for i, child in enumerate(grp.children):
+            if layout == "columns" and i > 0:
+                imgui.same_line()
+            self._render_element(child)
+
+    def _render_tab_bar(self, elem: Element) -> None:
+        from imgui_bundle import imgui
+
+        tb = cast("TabBarElement", elem)
+        if imgui.begin_tab_bar(f"##{tb.id}"):
+            for tab in tb.tabs:
+                tab_label: str = tab.get("label", "Tab")
+                if imgui.begin_tab_item(tab_label)[0]:
+                    for child in tab.get("children", []):
+                        self._render_element(child)
+                    imgui.end_tab_item()
+            imgui.end_tab_bar()
+
+    def _render_collapsing_header(self, elem: Element) -> None:
+        from imgui_bundle import imgui
+
+        ch = cast("CollapsingHeaderElement", elem)
+        flags = imgui.TreeNodeFlags_.default_open.value if ch.default_open else 0
+        if imgui.collapsing_header(f"{ch.label}##{ch.id}", flags=flags):
+            for child in ch.children:
+                self._render_element(child)
+
+    def _render_window(self, elem: Element) -> None:
+        from imgui_bundle import imgui
+
+        win = cast("WindowElement", elem)
+        flags = 0
+        if win.no_move:
+            flags |= imgui.WindowFlags_.no_move.value
+        if win.no_resize:
+            flags |= imgui.WindowFlags_.no_resize.value
+        if win.no_collapse:
+            flags |= imgui.WindowFlags_.no_collapse.value
+        if win.no_title_bar:
+            flags |= imgui.WindowFlags_.no_title_bar.value
+        if win.no_scrollbar:
+            flags |= imgui.WindowFlags_.no_scrollbar.value
+        if win.auto_resize:
+            flags |= imgui.WindowFlags_.always_auto_resize.value
+
+        imgui.set_next_window_pos((win.x, win.y), imgui.Cond_.first_use_ever.value)
+        imgui.set_next_window_size(
+            (win.width, win.height), imgui.Cond_.first_use_ever.value
+        )
+
+        title = win.title or win.id
+        expanded, _ = imgui.begin(f"{title}##{win.id}", flags=flags)
+        if expanded:
+            for child in win.children:
+                self._render_element(child)
+        imgui.end()
 
     # -- draw element rendering --------------------------------------------
 

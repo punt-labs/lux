@@ -77,6 +77,18 @@ def show(
     Canvas element:
       Draw:         {"kind": "draw", "id": "d1", "commands": [...]}
 
+    Layout containers (nest other elements as children):
+      Group:        {"kind": "group", "id": "g1", "layout": "columns",
+                     "children": [{"kind": "text", ...}, ...]}
+      Tab bar:      {"kind": "tab_bar", "id": "tb1",
+                     "tabs": [{"label": "Tab 1", "children": [...]}, ...]}
+      Collapsing:   {"kind": "collapsing_header", "id": "ch1",
+                     "label": "Details", "default_open": true,
+                     "children": [...]}
+      Window:       {"kind": "window", "id": "w1", "title": "Panel",
+                     "x": 50, "y": 50, "width": 300, "height": 200,
+                     "children": [...]}
+
     Returns ``"ack:<scene_id>"`` on success or ``"timeout"`` if the
     display doesn't respond.
     """

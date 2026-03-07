@@ -158,6 +158,56 @@ class DrawElement:
     )
 
 
+@dataclass
+class GroupElement:
+    """A layout container that arranges children in rows or columns."""
+
+    id: str
+    kind: Literal["group"] = "group"
+    layout: str = "rows"  # "rows" | "columns"
+    children: list[Any] = field(default_factory=lambda: list[Any]())
+
+
+@dataclass
+class TabBarElement:
+    """A tabbed container. Each tab has a label and child elements."""
+
+    id: str
+    kind: Literal["tab_bar"] = "tab_bar"
+    tabs: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
+
+
+@dataclass
+class CollapsingHeaderElement:
+    """A collapsible section with a label and child elements."""
+
+    id: str
+    kind: Literal["collapsing_header"] = "collapsing_header"
+    label: str = ""
+    default_open: bool = False
+    children: list[Any] = field(default_factory=lambda: list[Any]())
+
+
+@dataclass
+class WindowElement:
+    """A movable, resizable sub-window inside the display."""
+
+    id: str
+    kind: Literal["window"] = "window"
+    title: str = ""
+    x: float = 50.0
+    y: float = 50.0
+    width: float = 300.0
+    height: float = 200.0
+    no_move: bool = False
+    no_resize: bool = False
+    no_collapse: bool = False
+    no_title_bar: bool = False
+    no_scrollbar: bool = False
+    auto_resize: bool = False
+    children: list[Any] = field(default_factory=lambda: list[Any]())
+
+
 Element = (
     ImageElement
     | TextElement
@@ -170,6 +220,10 @@ Element = (
     | RadioElement
     | ColorPickerElement
     | DrawElement
+    | GroupElement
+    | TabBarElement
+    | CollapsingHeaderElement
+    | WindowElement
 )
 
 # ---------------------------------------------------------------------------
@@ -417,6 +471,67 @@ def _draw_to_dict(elem: DrawElement) -> dict[str, Any]:
     return d
 
 
+def _group_to_dict(elem: GroupElement) -> dict[str, Any]:
+    return {
+        "kind": elem.kind,
+        "id": elem.id,
+        "layout": elem.layout,
+        "children": [_element_to_dict(c) for c in elem.children],
+    }
+
+
+def _tab_bar_to_dict(elem: TabBarElement) -> dict[str, Any]:
+    return {
+        "kind": elem.kind,
+        "id": elem.id,
+        "tabs": [
+            {
+                "label": t["label"],
+                "children": [_element_to_dict(c) for c in t.get("children", [])],
+            }
+            for t in elem.tabs
+        ],
+    }
+
+
+def _collapsing_header_to_dict(elem: CollapsingHeaderElement) -> dict[str, Any]:
+    d: dict[str, Any] = {
+        "kind": elem.kind,
+        "id": elem.id,
+        "label": elem.label,
+        "children": [_element_to_dict(c) for c in elem.children],
+    }
+    if elem.default_open:
+        d["default_open"] = True
+    return d
+
+
+def _window_elem_to_dict(elem: WindowElement) -> dict[str, Any]:
+    d: dict[str, Any] = {
+        "kind": elem.kind,
+        "id": elem.id,
+        "title": elem.title,
+        "x": elem.x,
+        "y": elem.y,
+        "width": elem.width,
+        "height": elem.height,
+        "children": [_element_to_dict(c) for c in elem.children],
+    }
+    if elem.no_move:
+        d["no_move"] = True
+    if elem.no_resize:
+        d["no_resize"] = True
+    if elem.no_collapse:
+        d["no_collapse"] = True
+    if elem.no_title_bar:
+        d["no_title_bar"] = True
+    if elem.no_scrollbar:
+        d["no_scrollbar"] = True
+    if elem.auto_resize:
+        d["auto_resize"] = True
+    return d
+
+
 _ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
     ImageElement: _image_to_dict,
     TextElement: _text_to_dict,
@@ -429,6 +544,10 @@ _ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
     RadioElement: _radio_to_dict,
     ColorPickerElement: _color_picker_to_dict,
     DrawElement: _draw_to_dict,
+    GroupElement: _group_to_dict,
+    TabBarElement: _tab_bar_to_dict,
+    CollapsingHeaderElement: _collapsing_header_to_dict,
+    WindowElement: _window_elem_to_dict,
 }
 
 
@@ -536,6 +655,52 @@ def _draw_from_dict(d: dict[str, Any]) -> DrawElement:
     )
 
 
+def _group_from_dict(d: dict[str, Any]) -> GroupElement:
+    return GroupElement(
+        id=d["id"],
+        layout=d.get("layout", "rows"),
+        children=[element_from_dict(c) for c in d.get("children", [])],
+    )
+
+
+def _tab_bar_from_dict(d: dict[str, Any]) -> TabBarElement:
+    tabs: list[dict[str, Any]] = [
+        {
+            "label": t.get("label", "Tab"),
+            "children": [element_from_dict(c) for c in t.get("children", [])],
+        }
+        for t in d.get("tabs", [])
+    ]
+    return TabBarElement(id=d["id"], tabs=tabs)
+
+
+def _collapsing_header_from_dict(d: dict[str, Any]) -> CollapsingHeaderElement:
+    return CollapsingHeaderElement(
+        id=d["id"],
+        label=d.get("label", ""),
+        default_open=d.get("default_open", False),
+        children=[element_from_dict(c) for c in d.get("children", [])],
+    )
+
+
+def _window_from_dict(d: dict[str, Any]) -> WindowElement:
+    return WindowElement(
+        id=d["id"],
+        title=d.get("title", ""),
+        x=d.get("x", 50.0),
+        y=d.get("y", 50.0),
+        width=d.get("width", 300.0),
+        height=d.get("height", 200.0),
+        no_move=d.get("no_move", False),
+        no_resize=d.get("no_resize", False),
+        no_collapse=d.get("no_collapse", False),
+        no_title_bar=d.get("no_title_bar", False),
+        no_scrollbar=d.get("no_scrollbar", False),
+        auto_resize=d.get("auto_resize", False),
+        children=[element_from_dict(c) for c in d.get("children", [])],
+    )
+
+
 _ELEMENT_DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Element]] = {
     "image": _image_from_dict,
     "text": _text_from_dict,
@@ -548,6 +713,10 @@ _ELEMENT_DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Element]] = {
     "radio": _radio_from_dict,
     "color_picker": _color_picker_from_dict,
     "draw": _draw_from_dict,
+    "group": _group_from_dict,
+    "tab_bar": _tab_bar_from_dict,
+    "collapsing_header": _collapsing_header_from_dict,
+    "window": _window_from_dict,
 }
 
 
