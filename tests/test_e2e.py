@@ -8,8 +8,10 @@ Run with: uv run pytest -m e2e
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -19,26 +21,53 @@ from punt_lux.client import LuxClient
 from punt_lux.protocol import ButtonElement, InteractionMessage, TextElement
 
 
-def _wait_for_socket(sock_path: Path, timeout: float = 10.0) -> None:
-    """Poll until the socket file appears or timeout."""
+def _short_sock_path() -> tuple[str, Path]:
+    """Create a short temp dir + socket path (Unix sockets have ~104 char limit)."""
+    d = tempfile.mkdtemp(prefix="lux-")
+    return d, Path(d) / "d.sock"
+
+
+def _wait_for_socket(
+    sock_path: Path,
+    proc: subprocess.Popen[bytes],
+    timeout: float = 10.0,
+) -> None:
+    """Poll until the socket file appears, the process exits, or timeout."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if sock_path.exists():
             return
+        rc = proc.poll()
+        if rc is not None:
+            stderr = proc.stderr.read().decode() if proc.stderr else ""
+            msg = f"Display server exited with code {rc} before creating socket"
+            if stderr:
+                msg += f": {stderr[:500]}"
+            raise RuntimeError(msg)
         time.sleep(0.1)
     msg = f"Display server did not create socket at {sock_path} within {timeout}s"
     raise TimeoutError(msg)
+
+
+def _terminate(proc: subprocess.Popen[bytes]) -> None:
+    """Terminate a subprocess, escalating to kill if needed."""
+    proc.terminate()
+    try:
+        proc.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.wait(timeout=5)
 
 
 @pytest.mark.e2e
 class TestWalkingSkeleton:
     """Walking skeleton: display subprocess + client round-trip + interaction."""
 
-    def test_scene_ack_and_ping(self, tmp_path: Path) -> None:
+    def test_scene_ack_and_ping(self) -> None:
         """Start display, connect, send scene with image+buttons, ping, shutdown."""
-        sock_path = tmp_path / "display.sock"
+        short_dir, sock_path = _short_sock_path()
         # Create a minimal PNG for the image element
-        img_path = tmp_path / "test.png"
+        img_path = Path(short_dir) / "test.png"
         img_path.write_bytes(
             b"\x89PNG\r\n\x1a\n"
             b"\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01"
@@ -53,7 +82,7 @@ class TestWalkingSkeleton:
             stderr=subprocess.PIPE,
         )
         try:
-            _wait_for_socket(sock_path)
+            _wait_for_socket(sock_path, proc)
 
             with LuxClient(sock_path, auto_spawn=False, connect_timeout=5.0) as client:
                 assert client.is_connected
@@ -85,12 +114,12 @@ class TestWalkingSkeleton:
                 assert pong is not None
                 assert pong.ts is not None
         finally:
-            proc.terminate()
-            proc.wait(timeout=5)
+            _terminate(proc)
+            shutil.rmtree(short_dir, ignore_errors=True)
 
-    def test_button_interaction_via_auto_click(self, tmp_path: Path) -> None:
+    def test_button_interaction_via_auto_click(self) -> None:
         """Display with --test-auto-click fires interaction events for buttons."""
-        sock_path = tmp_path / "display.sock"
+        short_dir, sock_path = _short_sock_path()
 
         proc = subprocess.Popen(
             [
@@ -106,7 +135,7 @@ class TestWalkingSkeleton:
             stderr=subprocess.PIPE,
         )
         try:
-            _wait_for_socket(sock_path)
+            _wait_for_socket(sock_path, proc)
 
             with LuxClient(sock_path, auto_spawn=False, connect_timeout=5.0) as client:
                 # Send scene with 2 buttons
@@ -132,8 +161,8 @@ class TestWalkingSkeleton:
                 assert actions == {"alpha", "beta"}
                 assert all(e.value is True for e in events)
         finally:
-            proc.terminate()
-            proc.wait(timeout=5)
+            _terminate(proc)
+            shutil.rmtree(short_dir, ignore_errors=True)
 
 
 @pytest.mark.e2e
