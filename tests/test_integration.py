@@ -148,7 +148,7 @@ def test_socket_bidirectional(
 
 
 class TestRapidSceneUpdates:
-    """Send 100 scenes in a burst, verify every one is acked."""
+    """Send 100 scenes sequentially and verify each one is acked."""
 
     @pytest.mark.integration
     def test_bulk_scenes_zero_drops(self) -> None:
@@ -174,7 +174,7 @@ class TestRapidSceneUpdates:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5)
 
         try:
             with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
@@ -219,7 +219,7 @@ class TestRapidSceneUpdates:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5)
 
         try:
             t0 = time.monotonic()
@@ -259,12 +259,18 @@ class TestGracefulDisconnection:
             server_conn = _mini_display_server(sock_path, ready_event)
             assert server_conn is not None
             client_closed.wait(timeout=5)
-            msg = recv_message(server_conn, timeout=2)
-            server_saw_eof = msg is None
+            # Use raw recv to distinguish EOF (b"") from timeout
+            server_conn.settimeout(2.0)
+            try:
+                data = server_conn.recv(1)
+            except TimeoutError:
+                server_saw_eof = False
+            else:
+                server_saw_eof = data == b""
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5)
 
         try:
             client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
@@ -296,7 +302,7 @@ class TestGracefulDisconnection:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5)
 
         try:
             with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
@@ -339,7 +345,7 @@ class TestReconnection:
 
             t1 = threading.Thread(target=serve1, daemon=True)
             t1.start()
-            ready1.wait(timeout=5)
+            assert ready1.wait(timeout=5)
 
             with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client1:
                 ack = client1.show(
@@ -372,7 +378,7 @@ class TestReconnection:
 
             t2 = threading.Thread(target=serve2, daemon=True)
             t2.start()
-            ready2.wait(timeout=5)
+            assert ready2.wait(timeout=5)
 
             with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client2:
                 ack = client2.show(
