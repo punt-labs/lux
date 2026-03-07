@@ -781,6 +781,8 @@ class DisplayServer:
         canvas_max = ImVec2(canvas_pos.x + width, canvas_pos.y + height)
         draw_list = imgui.get_window_draw_list()
 
+        draw_list.push_clip_rect(canvas_min, canvas_max, True)  # noqa: FBT003
+
         if bg_color is not None:
             draw_list.add_rect_filled(
                 canvas_min, canvas_max, _hex_to_imgui_color(bg_color)
@@ -793,6 +795,7 @@ class DisplayServer:
             except (KeyError, IndexError, TypeError, ValueError):
                 logger.debug("Skipping malformed draw command: %s", cmd)
 
+        draw_list.pop_clip_rect()
         imgui.dummy(ImVec2(width, height))
         _ = eid  # used for future interaction tracking
 
