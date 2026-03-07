@@ -225,6 +225,9 @@ class DisplayServer:
                 self._handle_message(sock, msg)
         except (ConnectionError, OSError):
             self._remove_client(sock)
+        except ValueError:
+            logger.warning("Malformed message from fd %d, disconnecting", sock.fileno())
+            self._remove_client(sock)
 
     def _remove_client(self, sock: socket.socket) -> None:
         fd = sock.fileno()
@@ -382,9 +385,10 @@ class DisplayServer:
     # -- event flushing ----------------------------------------------------
 
     def _flush_events(self) -> None:
-        if not self._event_queue or not self._clients:
+        if not self._event_queue:
             return
-        for event in self._event_queue:
-            for client in list(self._clients):
-                self._send_to_client(client, event)
+        if self._clients:
+            for event in self._event_queue:
+                for client in list(self._clients):
+                    self._send_to_client(client, event)
         self._event_queue.clear()

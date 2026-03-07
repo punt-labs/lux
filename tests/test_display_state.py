@@ -239,6 +239,56 @@ class TestApplyUpdateProtectsIdentity:
 # -----------------------------------------------------------------------
 
 
+# -----------------------------------------------------------------------
+# Fix 4: Malformed messages disconnect client instead of crashing
+# -----------------------------------------------------------------------
+
+
+class TestMalformedMessageDisconnects:
+    def test_invalid_json_disconnects_client(self) -> None:
+        """A client sending invalid JSON should be disconnected, not crash."""
+        server = _make_server()
+        sock = _mock_sock()
+        server._clients.append(sock)
+        from punt_lux.protocol import FrameReader
+
+        reader = FrameReader()
+        server._readers[sock.fileno()] = reader
+
+        # Feed a frame with invalid JSON (valid length prefix, bad payload)
+        import struct
+
+        bad_payload = b"not json"
+        frame = struct.pack("!I", len(bad_payload)) + bad_payload
+        sock.recv.return_value = frame
+
+        server._read_from_client(sock)
+
+        # Client should be disconnected, not crash
+        assert sock not in server._clients
+
+    def test_unknown_message_type_disconnects_client(self) -> None:
+        """A client sending an unknown message type should be disconnected."""
+        import json
+        import struct
+
+        server = _make_server()
+        sock = _mock_sock()
+        server._clients.append(sock)
+        from punt_lux.protocol import FrameReader
+
+        reader = FrameReader()
+        server._readers[sock.fileno()] = reader
+
+        payload = json.dumps({"type": "bogus"}).encode("utf-8")
+        frame = struct.pack("!I", len(payload)) + payload
+        sock.recv.return_value = frame
+
+        server._read_from_client(sock)
+
+        assert sock not in server._clients
+
+
 class TestFlushEvents:
     def test_flush_clears_queue(self) -> None:
         server = _make_server()
@@ -252,7 +302,7 @@ class TestFlushEvents:
 
         assert len(server._event_queue) == 0
 
-    def test_flush_noop_when_no_clients(self) -> None:
+    def test_flush_clears_queue_even_without_clients(self) -> None:
         server = _make_server()
         server._event_queue.append(
             InteractionMessage(element_id="b1", action="click", ts=1.0)
@@ -260,8 +310,8 @@ class TestFlushEvents:
 
         server._flush_events()
 
-        # Events stay queued when no clients to receive them
-        assert len(server._event_queue) == 1
+        # Events are cleared to prevent stale accumulation
+        assert len(server._event_queue) == 0
 
     def test_flush_noop_when_no_events(self) -> None:
         server = _make_server()
