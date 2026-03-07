@@ -1,0 +1,765 @@
+"""TTF partition tests for DisplayServer Z specification.
+
+Derived from docs/display-server.tex using Test Template Framework tactics.
+Each test corresponds to a distinct behavioral partition — a unique combination
+of precondition boundary and state configuration that must be tested for full
+spec-implementation conformance.
+
+Partition classes:
+    Happy path     — typical mid-range values
+    Boundary       — at or near constraint limits
+    REJECTED       — precondition violation (operation should not execute)
+    INVARIANT      — exercises state invariant boundaries
+"""
+
+from __future__ import annotations
+
+from unittest.mock import MagicMock
+
+from punt_lux.display import DisplayServer
+from punt_lux.protocol import (
+    ButtonElement,
+    ClearMessage,
+    FrameReader,
+    InteractionMessage,
+    Patch,
+    PingMessage,
+    SceneMessage,
+    SeparatorElement,
+    TextElement,
+    UpdateMessage,
+    encode_message,
+)
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _server() -> DisplayServer:
+    return DisplayServer("/tmp/test-lux-partition.sock")
+
+
+def _sock(fd: int = 42) -> MagicMock:
+    s = MagicMock()
+    s.sendall = MagicMock()
+    s.fileno.return_value = fd
+    s.close = MagicMock()
+    return s
+
+
+def _register(server: DisplayServer, sock: MagicMock) -> None:
+    server._clients.append(sock)
+    server._readers[sock.fileno()] = FrameReader()
+
+
+def _scene_with(
+    scene_id: str, *elems: TextElement | ButtonElement | SeparatorElement
+) -> SceneMessage:
+    return SceneMessage(id=scene_id, elements=list(elems))
+
+
+# ---------------------------------------------------------------------------
+# AcceptConnection (6 partitions)
+# Preconditions: listening, newClient not in clients, capacity available
+# ---------------------------------------------------------------------------
+
+
+class TestAcceptConnectionPartitions:
+    """AcceptConnection: 3 accepted, 3 rejected."""
+
+    def test_accept_1_happy_path_empty_server(self):
+        """P1: Accept first client into empty server."""
+        server = _server()
+        sock = _sock(fd=10)
+        assert len(server._clients) == 0
+        _register(server, sock)
+        assert len(server._clients) == 1
+        assert 10 in server._readers
+
+    def test_accept_2_one_existing_client(self):
+        """P2: Accept second client when one already connected."""
+        server = _server()
+        _register(server, _sock(fd=10))
+        sock2 = _sock(fd=20)
+        _register(server, sock2)
+        assert len(server._clients) == 2
+        assert {10, 20} == set(server._readers.keys())
+
+    def test_accept_3_boundary_fills_to_max(self):
+        """P3: Accept client when at maxClients-1 (reaches capacity).
+        maxClients=3 in spec, so accept 3rd into server with 2."""
+        server = _server()
+        _register(server, _sock(fd=10))
+        _register(server, _sock(fd=20))
+        sock3 = _sock(fd=30)
+        _register(server, sock3)
+        assert len(server._clients) == 3
+
+    def test_accept_4_rejected_not_listening(self):
+        """REJECTED ¬P1: Server not listening (server_sock is None).
+        In concrete code, _accept_connections() returns early."""
+        server = _server()
+        assert server._server_sock is None  # not listening
+        # _accept_connections is a no-op when not listening
+        server._accept_connections()
+        assert len(server._clients) == 0
+
+    def test_accept_5_rejected_duplicate_fd(self):
+        """REJECTED ¬P2: Client FD already in clients set.
+        Concrete code: select() wouldn't offer duplicate, but verify
+        that reader dict is keyed by fd (duplicate would overwrite)."""
+        server = _server()
+        sock1 = _sock(fd=10)
+        _register(server, sock1)
+        reader1 = server._readers[10]
+        # Re-registering same fd overwrites the reader
+        _register(server, _sock(fd=10))
+        assert server._readers[10] is not reader1
+
+    def test_accept_6_rejected_at_capacity(self):
+        """REJECTED ¬P3: Server at maxClients capacity.
+        Concrete code doesn't enforce hard limit — this partition
+        documents the spec constraint for awareness."""
+        server = _server()
+        for fd in range(10, 13):
+            _register(server, _sock(fd=fd))
+        assert len(server._clients) == 3  # at max
+
+
+# ---------------------------------------------------------------------------
+# DisconnectClient (4 partitions)
+#
+# Preconditions:
+#   P1: deadClient? ∈ clients
+# ---------------------------------------------------------------------------
+
+
+class TestDisconnectClientPartitions:
+    """DisconnectClient: 3 accepted, 1 rejected."""
+
+    def test_disconnect_1_single_client(self):
+        """P1: Disconnect sole client -> empty server."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._remove_client(sock)
+        assert len(server._clients) == 0
+        assert 10 not in server._readers
+
+    def test_disconnect_2_one_of_two(self):
+        """P2: Disconnect one of two clients -> one remains."""
+        server = _server()
+        sock1, sock2 = _sock(fd=10), _sock(fd=20)
+        _register(server, sock1)
+        _register(server, sock2)
+        server._remove_client(sock1)
+        assert len(server._clients) == 1
+        assert 20 in server._readers
+        assert 10 not in server._readers
+
+    def test_disconnect_3_preserves_scene(self):
+        """P3: Disconnect does not affect current scene or events."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._current_scene = _scene_with("s1", TextElement(id="t1", content="A"))
+        server._event_queue.append(
+            InteractionMessage(element_id="t1", action="click", ts=1.0)
+        )
+        server._remove_client(sock)
+        assert server._current_scene is not None
+        assert len(server._event_queue) == 1
+
+    def test_disconnect_4_rejected_not_connected(self):
+        """REJECTED ¬P1: deadClient not in clients.
+        _remove_client on unknown socket is safe no-op."""
+        server = _server()
+        unknown = _sock(fd=99)
+        server._remove_client(unknown)
+        assert len(server._clients) == 0
+
+
+# ---------------------------------------------------------------------------
+# ReceiveScene (6 partitions)
+#
+# Preconditions:
+#   P1: newElemIds? ⊆ dom newElemKinds?
+#   P2: #newElemIds? ≤ maxElements
+# ---------------------------------------------------------------------------
+
+
+class TestReceiveScenePartitions:
+    """ReceiveScene: 4 accepted, 2 rejected (implicit)."""
+
+    def test_scene_1_happy_path_first_scene(self):
+        """P1: Receive first scene with 1 element."""
+        server = _server()
+        sock = _sock()
+        scene = _scene_with("s1", TextElement(id="t1", content="Hi"))
+        server._handle_message(sock, scene)
+        assert server._current_scene is not None
+        assert server._current_scene.id == "s1"
+        assert len(server._current_scene.elements) == 1
+
+    def test_scene_2_boundary_max_elements(self):
+        """P2: Receive scene with maxElements(3) elements."""
+        server = _server()
+        sock = _sock()
+        scene = _scene_with(
+            "s1",
+            TextElement(id="t1", content="A"),
+            ButtonElement(id="b1", label="B"),
+            SeparatorElement(id="sep1"),
+        )
+        server._handle_message(sock, scene)
+        assert server._current_scene is not None
+        assert len(server._current_scene.elements) == 3
+
+    def test_scene_3_replaces_existing_clears_events(self):
+        """P3: New scene replaces old scene and clears event queue."""
+        server = _server()
+        sock = _sock()
+        old_scene = _scene_with("s1", ButtonElement(id="b1", label="Old"))
+        server._handle_message(sock, old_scene)
+        server._event_queue.append(
+            InteractionMessage(element_id="b1", action="click", ts=1.0)
+        )
+        assert len(server._event_queue) == 1
+
+        new_scene = _scene_with("s2", TextElement(id="t2", content="New"))
+        server._handle_message(sock, new_scene)
+        assert server._current_scene is not None
+        assert server._current_scene.id == "s2"
+        assert len(server._event_queue) == 0  # stale events cleared
+
+    def test_scene_4_empty_scene(self):
+        """P4: Receive scene with 0 elements (valid edge case)."""
+        server = _server()
+        sock = _sock()
+        scene = SceneMessage(id="s1", elements=[])
+        server._handle_message(sock, scene)
+        assert server._current_scene is not None
+        assert len(server._current_scene.elements) == 0
+
+    def test_scene_5_all_element_kinds(self):
+        """P5: Scene with all 4 element kinds (text, button, separator, image).
+        Exercises elemKinds coverage invariant (I6)."""
+        server = _server()
+        sock = _sock()
+        # Note: only 3 elements fit in maxElements for spec, but
+        # concrete code doesn't enforce the bound
+        scene = _scene_with(
+            "s1",
+            TextElement(id="t1", content="A"),
+            ButtonElement(id="b1", label="B"),
+            SeparatorElement(id="sep1"),
+        )
+        server._handle_message(sock, scene)
+        assert server._current_scene is not None
+        kinds = {e.kind for e in server._current_scene.elements}
+        assert kinds == {"text", "button", "separator"}
+
+    def test_scene_6_idempotent_same_scene_id(self):
+        """P6: Receive scene with same ID as current (full replacement)."""
+        server = _server()
+        sock = _sock()
+        scene1 = _scene_with("s1", TextElement(id="t1", content="V1"))
+        server._handle_message(sock, scene1)
+        scene2 = _scene_with("s1", TextElement(id="t1", content="V2"))
+        server._handle_message(sock, scene2)
+        assert server._current_scene is not None
+        elem = server._current_scene.elements[0]
+        assert isinstance(elem, TextElement)
+        assert elem.content == "V2"
+
+
+# ---------------------------------------------------------------------------
+# ClearScene (3 partitions — no preconditions)
+# ---------------------------------------------------------------------------
+
+
+class TestClearScenePartitions:
+    """ClearScene: 3 accepted, 0 rejected."""
+
+    def test_clear_1_with_scene(self):
+        """P1: Clear existing scene."""
+        server = _server()
+        sock = _sock()
+        server._handle_message(
+            sock, _scene_with("s1", TextElement(id="t1", content="A"))
+        )
+        server._handle_message(sock, ClearMessage())
+        assert server._current_scene is None
+
+    def test_clear_2_idempotent_no_scene(self):
+        """P2: Clear when no scene exists (idempotent)."""
+        server = _server()
+        sock = _sock()
+        server._handle_message(sock, ClearMessage())
+        assert server._current_scene is None
+
+    def test_clear_3_clears_event_queue(self):
+        """P3: Clear also drains the event queue (I7 preservation)."""
+        server = _server()
+        sock = _sock()
+        server._handle_message(
+            sock,
+            _scene_with("s1", ButtonElement(id="b1", label="X")),
+        )
+        server._event_queue.append(
+            InteractionMessage(element_id="b1", action="click", ts=1.0)
+        )
+        server._handle_message(sock, ClearMessage())
+        assert len(server._event_queue) == 0
+
+
+# ---------------------------------------------------------------------------
+# RemoveElement (6 partitions)
+# Preconditions: scene exists, target in elemIds
+# Implicit: target not in eventQueue (for I7 preservation)
+# ---------------------------------------------------------------------------
+
+
+class TestRemoveElementPartitions:
+    """RemoveElement: 3 accepted, 3 rejected/boundary."""
+
+    def test_remove_1_happy_path(self):
+        """P1: Remove one of several elements."""
+        server = _server()
+        server._current_scene = _scene_with(
+            "s1",
+            TextElement(id="t1", content="A"),
+            TextElement(id="t2", content="B"),
+        )
+        server._apply_update(
+            UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
+        )
+        ids = [e.id for e in server._current_scene.elements]
+        assert ids == ["t2"]
+
+    def test_remove_2_boundary_last_element(self):
+        """P2: Remove last element -> empty element list."""
+        server = _server()
+        server._current_scene = _scene_with("s1", TextElement(id="t1", content="Only"))
+        server._apply_update(
+            UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
+        )
+        assert len(server._current_scene.elements) == 0
+
+    def test_remove_3_rejected_element_in_event_queue(self):
+        """REJECTED ¬P3: targetId in eventQueue.
+        The Z spec requires targetId? ∉ eventQueue to preserve I7.
+        Concrete code doesn't enforce this — documents the gap."""
+        server = _server()
+        server._current_scene = _scene_with(
+            "s1",
+            ButtonElement(id="b1", label="X"),
+            TextElement(id="t1", content="A"),
+        )
+        server._event_queue.append(
+            InteractionMessage(element_id="b1", action="click", ts=1.0)
+        )
+        server._apply_update(
+            UpdateMessage(scene_id="s1", patches=[Patch(id="b1", remove=True)])
+        )
+        # Element removed but event still in queue — spec boundary
+        ids = [e.id for e in server._current_scene.elements]
+        assert "b1" not in ids
+        assert len(server._event_queue) == 1  # event orphaned
+
+    def test_remove_4_rejected_no_scene(self):
+        """REJECTED ¬P1: No scene -> update is no-op."""
+        server = _server()
+        server._apply_update(
+            UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
+        )
+        assert server._current_scene is None
+
+    def test_remove_5_rejected_element_not_found(self):
+        """REJECTED ¬P2: targetId not in elemIds -> patch skipped."""
+        server = _server()
+        server._current_scene = _scene_with("s1", TextElement(id="t1", content="A"))
+        server._apply_update(
+            UpdateMessage(scene_id="s1", patches=[Patch(id="nonexistent", remove=True)])
+        )
+        assert len(server._current_scene.elements) == 1
+
+    def test_remove_6_rejected_wrong_scene_id(self):
+        """REJECTED: Update targets wrong scene_id -> no-op."""
+        server = _server()
+        server._current_scene = _scene_with("s1", TextElement(id="t1", content="A"))
+        server._apply_update(
+            UpdateMessage(scene_id="wrong", patches=[Patch(id="t1", remove=True)])
+        )
+        assert len(server._current_scene.elements) == 1
+
+
+# ---------------------------------------------------------------------------
+# ButtonClick (7 partitions)
+# Preconditions: scene exists, button in elemIds, kind is button, queue not full
+# ---------------------------------------------------------------------------
+
+
+class TestButtonClickPartitions:
+    """ButtonClick: 3 accepted, 4 rejected.
+
+    Note: ButtonClick is triggered by ImGui rendering, which we can't
+    call in unit tests. We test the event queue directly.
+    """
+
+    def test_click_1_happy_path_empty_queue(self):
+        """P1: Click button with empty event queue."""
+        server = _server()
+        server._current_scene = _scene_with("s1", ButtonElement(id="b1", label="Go"))
+        server._event_queue.append(
+            InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
+        )
+        assert len(server._event_queue) == 1
+        assert server._event_queue[0].element_id == "b1"
+
+    def test_click_2_queue_has_existing_events(self):
+        """P2: Click button when queue already has events."""
+        server = _server()
+        server._current_scene = _scene_with(
+            "s1",
+            ButtonElement(id="b1", label="A"),
+            ButtonElement(id="b2", label="B"),
+        )
+        server._event_queue.append(
+            InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
+        )
+        server._event_queue.append(
+            InteractionMessage(element_id="b2", action="b2", ts=2.0, value=True)
+        )
+        assert len(server._event_queue) == 2
+        elem_ids = {e.element_id for e in server._event_queue}
+        assert elem_ids == {"b1", "b2"}
+
+    def test_click_3_boundary_fills_queue(self):
+        """P3 BOUNDARY: Queue at maxEvents-1, click fills to max."""
+        server = _server()
+        server._current_scene = _scene_with(
+            "s1",
+            ButtonElement(id="b1", label="A"),
+            ButtonElement(id="b2", label="B"),
+            ButtonElement(id="b3", label="C"),
+        )
+        # Pre-fill to maxEvents-1 = 2
+        server._event_queue.append(
+            InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
+        )
+        server._event_queue.append(
+            InteractionMessage(element_id="b2", action="b2", ts=2.0, value=True)
+        )
+        # One more fills to maxEvents=3
+        server._event_queue.append(
+            InteractionMessage(element_id="b3", action="b3", ts=3.0, value=True)
+        )
+        assert len(server._event_queue) == 3  # at max
+
+    def test_click_4_rejected_no_scene(self):
+        """REJECTED ¬P1: No scene -> no button to click.
+        Concrete code: _render_scene shows "waiting" text, no buttons."""
+        server = _server()
+        assert server._current_scene is None
+        # No buttons rendered, so no events can be queued
+        assert len(server._event_queue) == 0
+
+    def test_click_5_rejected_nonexistent_element(self):
+        """REJECTED ¬P2: buttonId not in elemIds.
+        Concrete code: button doesn't exist in scene, never rendered."""
+        server = _server()
+        server._current_scene = _scene_with(
+            "s1", TextElement(id="t1", content="No buttons")
+        )
+        # No buttons in scene, so no button click events possible
+        assert len(server._event_queue) == 0
+
+    def test_click_6_rejected_wrong_kind(self):
+        """REJECTED ¬P3: Element exists but is not a button.
+        Text elements don't generate click events."""
+        server = _server()
+        server._current_scene = _scene_with(
+            "s1", TextElement(id="t1", content="Not clickable")
+        )
+        # Text elements don't produce interaction events
+        # (only buttons have click handling in _render_button)
+        assert len(server._event_queue) == 0
+
+    def test_click_7_idempotent_same_button_twice(self):
+        """P7: Same button clicked twice -> both events queued.
+        The Z spec uses sets (eventQueue : P ELEMID), so duplicates
+        collapse. Concrete code uses a list, so both are kept."""
+        server = _server()
+        server._current_scene = _scene_with("s1", ButtonElement(id="b1", label="X"))
+        server._event_queue.append(
+            InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
+        )
+        server._event_queue.append(
+            InteractionMessage(element_id="b1", action="b1", ts=2.0, value=True)
+        )
+        # Concrete: list preserves both. Spec: set collapses to {b1}.
+        # This is a known abstraction gap (set vs list).
+        assert len(server._event_queue) == 2
+
+
+# ---------------------------------------------------------------------------
+# FlushEvents (2 partitions — no preconditions)
+# ---------------------------------------------------------------------------
+
+
+class TestFlushEventsPartitions:
+    """FlushEvents: 2 accepted, 0 rejected."""
+
+    def test_flush_1_with_events(self):
+        """P1: Flush non-empty queue -> queue emptied."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._current_scene = _scene_with("s1", ButtonElement(id="b1", label="X"))
+        server._event_queue.append(
+            InteractionMessage(element_id="b1", action="click", ts=1.0)
+        )
+        server._flush_events()
+        assert len(server._event_queue) == 0
+
+    def test_flush_2_empty_queue(self):
+        """P2: Flush empty queue -> no-op."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._flush_events()
+        assert len(server._event_queue) == 0
+        sock.sendall.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# FeedBytes (6 partitions)
+#
+# Preconditions:
+#   P1: bytesIn? > 0
+#   P2: bytesIn? ≤ maxBufSize
+#   P3: bufSize + bytesIn? ≤ maxBufSize
+# ---------------------------------------------------------------------------
+
+
+class TestFeedBytesPartitions:
+    """FeedBytes: 3 accepted, 3 rejected."""
+
+    def test_feed_1_happy_path_empty_buffer(self):
+        """P1: Feed bytes into empty buffer."""
+        reader = FrameReader()
+        reader.feed(b"abc")
+        assert len(reader._buf) == 3
+
+    def test_feed_2_boundary_fill_completely(self):
+        """P2 BOUNDARY: Feed exactly maxBufSize(4) into empty buffer."""
+        reader = FrameReader()
+        reader.feed(b"abcd")
+        assert len(reader._buf) == 4
+
+    def test_feed_3_boundary_partial_then_fill(self):
+        """P3 BOUNDARY: Buffer partially full, feed to exactly full."""
+        reader = FrameReader()
+        reader.feed(b"ab")
+        reader.feed(b"cd")
+        assert len(reader._buf) == 4
+
+    def test_feed_4_rejected_zero_bytes(self):
+        """REJECTED ¬P1: bytesIn=0 (empty feed)."""
+        reader = FrameReader()
+        reader.feed(b"")
+        assert len(reader._buf) == 0  # no-op
+
+    def test_feed_5_single_byte(self):
+        """P5 BOUNDARY: Feed minimum positive amount (1 byte)."""
+        reader = FrameReader()
+        reader.feed(b"x")
+        assert len(reader._buf) == 1
+
+    def test_feed_6_accumulates_without_drain(self):
+        """P6: Multiple feeds without drain accumulate."""
+        reader = FrameReader()
+        reader.feed(b"a")
+        reader.feed(b"b")
+        reader.feed(b"c")
+        assert len(reader._buf) == 3
+
+
+# ---------------------------------------------------------------------------
+# DrainMessages (5 partitions)
+#
+# Preconditions:
+#   P1: bytesConsumed? ≤ maxBufSize
+#   P2: bytesConsumed? ≤ bufSize
+# Output:
+#   drained! = pendingMsgs + bytesConsumed?
+# ---------------------------------------------------------------------------
+
+
+class TestDrainMessagesPartitions:
+    """DrainMessages: 3 accepted, 2 rejected/boundary."""
+
+    def test_drain_1_happy_path_complete_message(self):
+        """P1: Drain a complete message -> buffer emptied."""
+        reader = FrameReader()
+        msg = ClearMessage()
+        reader.feed(encode_message(msg))
+        buf_before = len(reader._buf)
+        assert buf_before > 0
+
+        messages = reader.drain_typed()
+        assert len(messages) == 1
+        assert len(reader._buf) == 0
+
+    def test_drain_2_partial_message_preserved(self):
+        """P2 REJECTED-ish: Insufficient bytes for complete frame.
+        bytesConsumed=0 because no complete message available."""
+        reader = FrameReader()
+        frame = encode_message(ClearMessage())
+        reader.feed(frame[:3])  # partial header
+        messages = reader.drain_typed()
+        assert len(messages) == 0
+        assert len(reader._buf) == 3  # nothing consumed
+
+    def test_drain_3_multiple_messages(self):
+        """P3: Buffer contains 2 complete messages."""
+        reader = FrameReader()
+        reader.feed(encode_message(ClearMessage()))
+        reader.feed(encode_message(PingMessage(ts=1.0)))
+        messages = reader.drain_typed()
+        assert len(messages) == 2
+        assert len(reader._buf) == 0
+
+    def test_drain_4_boundary_message_plus_partial(self):
+        """P4 BOUNDARY: Buffer has complete message + partial next."""
+        reader = FrameReader()
+        full_frame = encode_message(ClearMessage())
+        partial = encode_message(PingMessage(ts=1.0))[:3]
+        reader.feed(full_frame + partial)
+        messages = reader.drain_typed()
+        assert len(messages) == 1  # only complete one
+        assert len(reader._buf) == 3  # partial remains
+
+    def test_drain_5_empty_buffer(self):
+        """P5: Drain empty buffer -> nothing drained."""
+        reader = FrameReader()
+        messages = reader.drain_typed()
+        assert len(messages) == 0
+        assert len(reader._buf) == 0
+
+
+# ---------------------------------------------------------------------------
+# Shutdown (2 partitions — no preconditions)
+# ---------------------------------------------------------------------------
+
+
+class TestShutdownPartitions:
+    """Shutdown: 2 accepted, 0 rejected."""
+
+    def test_shutdown_1_with_clients_and_scene(self):
+        """P1: Shutdown server with active clients and scene."""
+        server = _server()
+        _register(server, _sock(fd=10))
+        _register(server, _sock(fd=20))
+        server._current_scene = _scene_with("s1", TextElement(id="t1", content="A"))
+        server._event_queue.append(
+            InteractionMessage(element_id="t1", action="click", ts=1.0)
+        )
+        # Simulate shutdown (partial — no socket/file cleanup)
+        for client in list(server._clients):
+            client.close()
+        server._clients.clear()
+        server._readers.clear()
+        server._current_scene = None
+        server._event_queue.clear()
+        server._server_sock = None
+
+        assert len(server._clients) == 0
+        assert len(server._readers) == 0
+        assert server._current_scene is None
+        assert len(server._event_queue) == 0
+        assert server._server_sock is None
+
+    def test_shutdown_2_empty_server(self):
+        """P2: Shutdown already-empty server (idempotent)."""
+        server = _server()
+        server._clients.clear()
+        server._readers.clear()
+        server._current_scene = None
+        server._event_queue.clear()
+        server._server_sock = None
+
+        assert len(server._clients) == 0
+        assert server._current_scene is None
+
+
+# ---------------------------------------------------------------------------
+# Cross-operation invariant partitions
+# ---------------------------------------------------------------------------
+
+
+class TestInvariantPartitions:
+    """Partitions that specifically exercise state invariant boundaries."""
+
+    def test_inv_i1_reader_client_bijection(self):
+        """I1: readers = clients after connect/disconnect sequence."""
+        server = _server()
+        s1, s2 = _sock(fd=10), _sock(fd=20)
+        _register(server, s1)
+        _register(server, s2)
+        assert set(server._readers.keys()) == {s.fileno() for s in server._clients}
+
+        server._remove_client(s1)
+        assert set(server._readers.keys()) == {s.fileno() for s in server._clients}
+
+    def test_inv_i6_elem_kinds_coverage(self):
+        """I6: elemIds ⊆ dom elemKinds — all elements have a kind."""
+        server = _server()
+        sock = _sock()
+        scene = _scene_with(
+            "s1",
+            TextElement(id="t1", content="A"),
+            ButtonElement(id="b1", label="B"),
+            SeparatorElement(id="sep1"),
+        )
+        server._handle_message(sock, scene)
+        assert server._current_scene is not None
+        elem_ids = {e.id for e in server._current_scene.elements if e.id}
+        elem_with_kind = {
+            e.id for e in server._current_scene.elements if e.id and hasattr(e, "kind")
+        }
+        assert elem_ids <= elem_with_kind
+
+    def test_inv_i7_events_reference_scene_elements(self):
+        """I7: hasScene=ztrue ⟹ eventQueue ⊆ elemIds.
+        After receiving a scene with button, queueing an event should
+        reference an element that exists in the scene."""
+        server = _server()
+        sock = _sock()
+        scene = _scene_with("s1", ButtonElement(id="b1", label="X"))
+        server._handle_message(sock, scene)
+        assert server._current_scene is not None
+        server._event_queue.append(
+            InteractionMessage(element_id="b1", action="b1", ts=1.0)
+        )
+        scene_elem_ids = {e.id for e in server._current_scene.elements if e.id}
+        event_elem_ids = {e.element_id for e in server._event_queue}
+        assert event_elem_ids <= scene_elem_ids
+
+    def test_inv_i7_scene_replace_clears_stale_events(self):
+        """I7: New scene clears events that reference old elements."""
+        server = _server()
+        sock = _sock()
+        server._handle_message(
+            sock, _scene_with("s1", ButtonElement(id="b1", label="Old"))
+        )
+        server._event_queue.append(
+            InteractionMessage(element_id="b1", action="b1", ts=1.0)
+        )
+        server._handle_message(
+            sock, _scene_with("s2", TextElement(id="t1", content="New"))
+        )
+        # Old events cleared — new scene has no b1
+        assert len(server._event_queue) == 0

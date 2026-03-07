@@ -274,6 +274,7 @@ An update message removes an element by ID from the current scene.
   \where
   hasScene = ztrue \\
   targetId? \in elemIds \\
+  targetId? \notin eventQueue \\
   elemIds' = elemIds \setminus \{ targetId? \} \\
   elemKinds' = \{ targetId? \} \ndres elemKinds \\
   sceneId' = sceneId \\
