@@ -6,8 +6,9 @@ Listens on a Unix domain socket for protocol messages and renders scenes
 using imgui-bundle. Socket I/O is polled every frame via ``select()`` with
 zero timeout — no threads, no asyncio.
 
-This module imports ImGui and OpenGL. It must never be imported by unit tests
-(no GPU in CI). Use ``punt_lux.paths`` for socket discovery without ImGui.
+This module imports numpy and Pillow at module level but defers ImGui and
+OpenGL imports to method bodies. It can be imported by unit tests (for state
+machine testing) but ``run()`` requires a GPU-capable environment.
 """
 
 from __future__ import annotations
@@ -30,6 +31,8 @@ from punt_lux.paths import (
     write_pid_file,
 )
 from punt_lux.protocol import (
+    HEADER_SIZE,
+    MAX_MESSAGE_SIZE,
     AckMessage,
     ClearMessage,
     FrameReader,
@@ -183,7 +186,11 @@ class DisplayServer:
         cleanup_stale_socket(self._socket_path)
         self._socket_path.parent.mkdir(parents=True, exist_ok=True)
         if self._socket_path.exists():
-            self._socket_path.unlink()
+            if self._socket_path.is_socket():
+                self._socket_path.unlink()
+            else:
+                msg = f"Path exists and is not a socket: {self._socket_path}"
+                raise RuntimeError(msg)
         self._server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._server_sock.bind(str(self._socket_path))
         self._server_sock.listen(5)
@@ -221,6 +228,10 @@ class DisplayServer:
                 self._remove_client(sock)
                 return
             reader.feed(data)
+            if reader.buffer_size > MAX_MESSAGE_SIZE + HEADER_SIZE:
+                logger.warning("Buffer overflow from fd %d", sock.fileno())
+                self._remove_client(sock)
+                return
             for msg in reader.drain_typed():
                 self._handle_message(sock, msg)
         except (ConnectionError, OSError):
@@ -287,7 +298,7 @@ class DisplayServer:
                     if k in ("id", "kind"):
                         continue
                     if hasattr(elem, k):
-                        object.__setattr__(elem, k, v)
+                        setattr(elem, k, v)
 
     # -- rendering ---------------------------------------------------------
 

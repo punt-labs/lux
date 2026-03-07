@@ -493,6 +493,11 @@ class FrameReader:
     def __init__(self) -> None:
         self._buf = bytearray()
 
+    @property
+    def buffer_size(self) -> int:
+        """Current size of the internal read buffer in bytes."""
+        return len(self._buf)
+
     def feed(self, data: bytes) -> None:
         """Append raw bytes received from the socket."""
         self._buf.extend(data)

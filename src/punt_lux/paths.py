@@ -59,7 +59,7 @@ def cleanup_stale_socket(socket_path: Path) -> None:
     """Remove socket and PID file if the owning process is dead."""
     if is_display_running(socket_path):
         return
-    if socket_path.exists():
+    if socket_path.exists() and socket_path.is_socket():
         socket_path.unlink(missing_ok=True)
     pid_path = pid_file_path(socket_path)
     if pid_path.exists():

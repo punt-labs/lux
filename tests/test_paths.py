@@ -74,15 +74,39 @@ class TestIsDisplayRunning:
 
 
 class TestCleanupStaleSocket:
-    def test_removes_stale_files(self, tmp_path: Path) -> None:
-        sock = tmp_path / "display.sock"
+    def test_removes_stale_socket(self, tmp_path: Path) -> None:
+        # Use a short path for the socket — macOS limits AF_UNIX to ~104 chars
+        import socket
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        pid_path = sock_path.with_suffix(".sock.pid")
+
+        try:
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            s.bind(str(sock_path))
+            s.close()
+            pid_path.write_text("999999999")
+
+            cleanup_stale_socket(sock_path)
+
+            assert not sock_path.exists()
+            assert not pid_path.exists()
+        finally:
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_preserves_non_socket_file(self, tmp_path: Path) -> None:
+        sock_path = tmp_path / "display.sock"
         pid_path = tmp_path / "display.sock.pid"
-        sock.touch()
+        sock_path.touch()  # regular file, not a socket
         pid_path.write_text("999999999")
 
-        cleanup_stale_socket(sock)
+        cleanup_stale_socket(sock_path)
 
-        assert not sock.exists()
+        assert sock_path.exists()  # not deleted — safety check
         assert not pid_path.exists()
 
     def test_preserves_running(self, tmp_path: Path) -> None:
