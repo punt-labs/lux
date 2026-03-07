@@ -1,0 +1,177 @@
+[project]
+name = "punt-lux"
+version = "0.0.0"
+description = "The paintbrush for Claude. A visual output surface for AI agents — diagrams, tables, images, and interactive controls."
+readme = "README.md"
+requires-python = ">=3.13"
+license = "MIT"
+authors = [
+    { name = "Punt Labs" },
+]
+classifiers = [
+    "Development Status :: 1 - Planning",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "imgui-bundle>=1.6.0",
+    "Pillow>=11.0.0",
+    "numpy>=2.0.0",
+    "PyOpenGL>=3.1.0",
+    "typer>=0.15.0,<1",
+    "rich>=13.0.0,<14",
+    "fastmcp>=3.0.0,<4",
+    "pydantic>=2.0.0,<3",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.13.0",
+    "mypy>=1.18.1",
+    "pyright>=1.1.400",
+    "pytest>=8.4.2",
+    "pytest-cov>=6.0.0",
+]
+
+[project.scripts]
+lux = "punt_lux.__main__:app"
+
+[project.urls]
+Homepage = "https://github.com/punt-labs/lux"
+Repository = "https://github.com/punt-labs/lux"
+"Bug Tracker" = "https://github.com/punt-labs/lux/issues"
+
+[build-system]
+requires = ["uv_build>=0.9.14,<0.10.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "punt_lux"
+
+[tool.ruff]
+line-length = 88
+target-version = "py313"
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "N",    # pep8-naming
+    "SIM",  # flake8-simplify
+    "TCH",  # flake8-type-checking
+    "TID",  # flake8-tidy-imports
+    "RUF",  # Ruff-specific rules
+    "S",    # flake8-bandit (security)
+    "BLE",  # flake8-blind-except
+    "T10",  # flake8-debugger
+    "T20",  # flake8-print
+    "A",    # flake8-builtins
+    "ERA",  # flake8-eradicate (commented code)
+    "PIE",  # flake8-pie
+    "RSE",  # flake8-raise
+    "ARG",  # flake8-unused-arguments
+    "RET",  # flake8-return
+    "PERF", # perflint
+    "PTH",  # flake8-use-pathlib
+    "ISC",  # flake8-implicit-str-concat
+    "FBT",  # flake8-boolean-trap
+    "C90",  # mccabe complexity
+]
+extend-select = ["PLC0415"]
+
+ignore = [
+    "TC001",  # Move import into TYPE_CHECKING - too aggressive
+    "TC003",  # Move standard lib import into TYPE_CHECKING
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "S105", "S106", "S108", "T20", "SLF001", "ARG", "FBT", "PLC0415", "A002"]
+"src/punt_lux/__main__.py" = ["T20", "FBT", "PLC0415"]
+"src/punt_lux/cli.py" = ["T20", "FBT", "PLC0415"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+
+[tool.ruff.lint.isort]
+known-first-party = ["punt_lux"]
+combine-as-imports = true
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+enable_error_code = ["ignore-without-code"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+[[tool.mypy.overrides]]
+module = [
+    "imgui_bundle.*",
+    "OpenGL.*",
+    "typer.*",
+]
+ignore_missing_imports = true
+
+[tool.pyright]
+pythonVersion = "3.13"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+include = ["src", "tests"]
+reportMissingTypeStubs = false
+
+[[tool.pyright.executionEnvironments]]
+root = "tests"
+reportPrivateUsage = false
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-ra -q -m 'not slow and not integration and not e2e'"
+testpaths = ["tests"]
+markers = [
+    "slow: marks tests as slow",
+    "integration: marks integration tests requiring display process",
+    "e2e: marks end-to-end tests requiring full stack",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["tests/*", "*/test_*.py"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "def __str__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
+precision = 2
