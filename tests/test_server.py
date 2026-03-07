@@ -5,39 +5,44 @@ from __future__ import annotations
 import time
 from unittest.mock import MagicMock, patch
 
-from punt_lux.protocol import AckMessage, InteractionMessage, PongMessage
-from punt_lux.server import _build_element, clear, ping, recv, show, update
+from punt_lux.protocol import (
+    AckMessage,
+    InteractionMessage,
+    PongMessage,
+    element_from_dict,
+)
+from punt_lux.server import clear, ping, recv, show, update
 
 
-class TestBuildElement:
+class TestElementFromDict:
     def test_text_element(self) -> None:
-        elem = _build_element(
+        elem = element_from_dict(
             {"kind": "text", "id": "t1", "content": "Hello", "style": "heading"}
         )
         assert elem.kind == "text"
         assert elem.id == "t1"
 
     def test_button_element(self) -> None:
-        elem = _build_element({"kind": "button", "id": "b1", "label": "Click"})
+        elem = element_from_dict({"kind": "button", "id": "b1", "label": "Click"})
         assert elem.kind == "button"
 
     def test_image_element(self) -> None:
-        elem = _build_element({"kind": "image", "id": "i1", "path": "/img.png"})
+        elem = element_from_dict({"kind": "image", "id": "i1", "path": "/img.png"})
         assert elem.kind == "image"
 
     def test_separator_element(self) -> None:
-        elem = _build_element({"kind": "separator"})
+        elem = element_from_dict({"kind": "separator"})
         assert elem.kind == "separator"
 
     def test_default_kind_is_text(self) -> None:
-        elem = _build_element({"id": "t1", "content": "Hi"})
+        elem = element_from_dict({"id": "t1", "content": "Hi"})
         assert elem.kind == "text"
 
     def test_unknown_kind_raises(self) -> None:
         import pytest
 
         with pytest.raises(ValueError, match="Unknown element kind"):
-            _build_element({"kind": "bogus", "id": "x"})
+            element_from_dict({"kind": "bogus", "id": "x"})
 
 
 def _mock_client() -> MagicMock:
@@ -99,15 +104,17 @@ class TestClearTool:
 
 
 class TestPingTool:
+    @patch("punt_lux.server.time")
     @patch("punt_lux.server._get_client")
-    def test_ping_returns_rtt(self, mock_get: MagicMock) -> None:
+    def test_ping_returns_rtt(self, mock_get: MagicMock, mock_time: MagicMock) -> None:
         client = _mock_client()
-        ts = time.time()
+        ts = 1000.0
+        mock_time.time.return_value = ts + 0.042
         client.ping.return_value = PongMessage(ts=ts, display_ts=ts + 0.005)
         mock_get.return_value = client
 
         result = ping()
-        assert result.startswith("pong:rtt=")
+        assert result == "pong:rtt=0.042s"
 
     @patch("punt_lux.server._get_client")
     def test_ping_timeout(self, mock_get: MagicMock) -> None:
