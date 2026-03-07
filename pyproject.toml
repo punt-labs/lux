@@ -95,6 +95,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "S105", "S106", "S108", "T20", "SLF001", "ARG", "FBT", "PLC0415", "A002"]
 "src/punt_lux/__main__.py" = ["T20", "FBT", "PLC0415"]
+"src/punt_lux/display.py" = ["PLC0415"]
 "src/punt_lux/cli.py" = ["T20", "FBT", "PLC0415"]
 
 [tool.ruff.format]

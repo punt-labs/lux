@@ -9,6 +9,7 @@ try:
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "0.0.0"
 
+from punt_lux.paths import default_socket_path, ensure_display
 from punt_lux.protocol import (
     AckMessage,
     ButtonElement,
@@ -49,8 +50,10 @@ __all__ = [
     "UpdateMessage",
     "WindowMessage",
     "decode_frame",
+    "default_socket_path",
     "encode_frame",
     "encode_message",
+    "ensure_display",
     "message_from_dict",
     "message_to_dict",
     "recv_message",
