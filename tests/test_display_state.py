@@ -131,6 +131,22 @@ class TestPollClientsSkipsRemoved:
         server._read_from_client(sock)
         sock.recv.assert_not_called()
 
+    def test_double_remove_is_idempotent(self) -> None:
+        """Calling _remove_client twice must not crash."""
+        server = _make_server()
+        sock = _mock_sock()
+        server._clients.append(sock)
+        from punt_lux.protocol import FrameReader
+
+        server._readers[sock.fileno()] = FrameReader()
+
+        server._remove_client(sock)
+        assert sock not in server._clients
+
+        # Second call is a no-op, not a crash
+        server._remove_client(sock)
+        assert sock not in server._clients
+
 
 # -----------------------------------------------------------------------
 # Fix 3: _apply_update must not mutate id or kind

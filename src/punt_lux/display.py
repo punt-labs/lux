@@ -234,6 +234,8 @@ class DisplayServer:
                 return
             for msg in reader.drain_typed():
                 self._handle_message(sock, msg)
+                if sock not in self._clients:
+                    return  # removed during handle (e.g. send failed)
         except (ConnectionError, OSError):
             self._remove_client(sock)
         except ValueError:
@@ -241,10 +243,15 @@ class DisplayServer:
             self._remove_client(sock)
 
     def _remove_client(self, sock: socket.socket) -> None:
-        fd = sock.fileno()
-        if sock in self._clients:
-            self._clients.remove(sock)
-        self._readers.pop(fd, None)
+        if sock not in self._clients:
+            return  # already removed — make idempotent
+        self._clients.remove(sock)
+        try:
+            fd = sock.fileno()
+        except OSError:
+            fd = None
+        if fd is not None:
+            self._readers.pop(fd, None)
         with contextlib.suppress(OSError):
             sock.close()
         logger.debug("Client disconnected (remaining: %d)", len(self._clients))
