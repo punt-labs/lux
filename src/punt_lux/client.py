@@ -147,6 +147,7 @@ class LuxClient:
                 self._sock.close()
             self._sock = None
             self._ready = None
+            self._pending.clear()
 
     # -- sending -----------------------------------------------------------
 
