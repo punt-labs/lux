@@ -1,0 +1,419 @@
+%
+% display-server.tex
+%
+% Z Specification for the Lux Display Server
+% Formal model of DisplayServer._on_frame() and FrameReader
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{Lux Display Server: A Z Specification}
+\author{Formal Model of Frame Lifecycle, Client Management, and Scene State}
+\date{March 2026}
+\hypersetup{
+  pdftitle={Lux Display Server: A Z Specification},
+  pdfauthor={Punt Labs},
+  pdfsubject={Z Specification},
+  pdfcreator={fuzz/probcli}
+}
+\maketitle
+
+\tableofcontents
+\newpage
+
+% ===================================================================
+\section{Introduction}
+% ===================================================================
+
+The Lux display server is an ImGui render loop that listens on a Unix
+domain socket and renders scenes.  Each frame, it accepts new
+connections, polls clients for messages, renders the current scene,
+and flushes interaction events.
+
+This specification models the stateful core:
+\begin{itemize}
+  \item Client connection tracking and FrameReader association
+  \item Scene replacement, incremental patching, and clearing
+  \item Message dispatch (scene, update, clear, ping)
+  \item Interaction event generation and broadcast
+  \item The FrameReader streaming buffer
+\end{itemize}
+
+We abstract away ImGui rendering (it is stateless from the
+protocol's perspective) and focus on the state that the protocol
+cares about.
+
+% ===================================================================
+\section{Basic Types}
+% ===================================================================
+
+\begin{zed}
+  [FD, ELEMID, SCENEID, RAWBYTES, ACTION]
+\end{zed}
+
+$FD$ models socket file descriptors.  $ELEMID$ and $SCENEID$ are
+opaque identifiers for elements and scenes.  $RAWBYTES$ represents
+a chunk of bytes received from a socket.  $ACTION$ identifies
+the action string on a button click.
+
+% ===================================================================
+\section{Free Types}
+% ===================================================================
+
+% Boolean type (fuzz doesn't have built-in boolean)
+\begin{zed}
+  ZBOOL ::= ztrue | zfalse
+\end{zed}
+
+Element kinds supported in Phase~1:
+\begin{zed}
+  ElementKind ::= ekText | ekButton | ekSeparator | ekImage
+\end{zed}
+
+Client message types:
+\begin{zed}
+  ClientMsgType ::= cmScene | cmUpdate | cmClear | cmPing
+\end{zed}
+
+Display message types (sent back to clients):
+\begin{zed}
+  DisplayMsgType ::= dmReady | dmAck | dmPong | dmInteraction
+\end{zed}
+
+% ===================================================================
+\section{Global Constants}
+% ===================================================================
+
+\begin{axdef}
+  maxClients : \nat \\
+  maxElements : \nat \\
+  maxEvents : \nat \\
+  maxBufSize : \nat
+  \where
+  maxClients = 64 \\
+  maxElements = 1000 \\
+  maxEvents = 256 \\
+  maxBufSize = 16777216
+\end{axdef}
+
+% ===================================================================
+\section{Element}
+% ===================================================================
+
+An element within a scene.  We model only the identity and kind;
+the rendering attributes (content, label, path, etc.)\ are opaque
+to the protocol state machine.
+
+\begin{schema}{Element}
+  elemId : ELEMID \\
+  elemKind : ElementKind
+\end{schema}
+
+% ===================================================================
+\section{Scene}
+% ===================================================================
+
+A scene is an ordered list of elements with a unique scene ID.
+Element IDs within a scene must be unique.
+
+\begin{schema}{Scene}
+  sceneId : SCENEID \\
+  elements : \seq Element
+  \where
+  \# elements \leq maxElements \\
+  \forall i, j : \dom elements @
+\quad~ i \neq j \implies
+\quad~ (elements~i).elemId \neq (elements~j).elemId
+\end{schema}
+
+% ===================================================================
+\section{FrameReader}
+% ===================================================================
+
+The FrameReader accumulates raw bytes from a socket and tracks
+how many complete messages are available for draining.
+
+We abstract the buffer as a natural number (bytes accumulated)
+and track how many complete messages have been parsed.
+
+\begin{schema}{FrameReaderState}
+  bufSize : \nat \\
+  pendingMsgs : \nat
+  \where
+  bufSize \leq maxBufSize
+\end{schema}
+
+\begin{schema}{InitFrameReaderState}
+  FrameReaderState'
+  \where
+  bufSize' = 0 \\
+  pendingMsgs' = 0
+\end{schema}
+
+Feeding bytes into the reader increases the buffer size.
+
+\begin{schema}{FeedBytes}
+  \Delta FrameReaderState \\
+  bytesIn? : \nat
+  \where
+  bytesIn? > 0 \\
+  bufSize + bytesIn? \leq maxBufSize \\
+  bufSize' = bufSize + bytesIn? \\
+  pendingMsgs' = pendingMsgs
+\end{schema}
+
+Draining extracts all complete messages, reducing the buffer.
+The number of messages drained is non-deterministic (depends on
+message boundaries within the byte stream).
+
+\begin{schema}{DrainMessages}
+  \Delta FrameReaderState \\
+  drained! : \nat \\
+  bytesConsumed? : \nat
+  \where
+  bytesConsumed? \leq bufSize \\
+  bufSize' = bufSize - bytesConsumed? \\
+  pendingMsgs' = 0 \\
+  drained! = pendingMsgs + bytesConsumed?
+\end{schema}
+
+% ===================================================================
+\section{Display Server State}
+% ===================================================================
+
+The server tracks connected clients, their FrameReaders, the
+current scene (if any), and a queue of pending interaction events.
+
+\begin{schema}{DisplayServer}
+  clients : \power FD \\
+  readers : FD \pfun FrameReaderState \\
+  hasScene : ZBOOL \\
+  currentScene : Scene \\
+  eventQueue : \seq ELEMID \\
+  listening : ZBOOL
+  \where
+  \dom readers = clients \\
+  \# clients \leq maxClients \\
+  \# eventQueue \leq maxEvents \\
+  hasScene = ztrue \implies
+\quad~ (\forall eid : \ran eventQueue @
+\quad~\quad~ eid \in \{ e : \ran (currentScene.elements) @ e.elemId \})
+\end{schema}
+
+The key invariants are:
+\begin{enumerate}
+  \item Every client has exactly one FrameReader ($\dom readers = clients$).
+  \item Client count is bounded.
+  \item Queued events reference elements in the current scene.
+\end{enumerate}
+
+% ===================================================================
+\section{Initialization}
+% ===================================================================
+
+\begin{schema}{InitDisplayServer}
+  DisplayServer'
+  \where
+  clients' = \emptyset \\
+  readers' = \emptyset \\
+  hasScene' = zfalse \\
+  eventQueue' = \langle \rangle \\
+  listening' = ztrue
+\end{schema}
+
+\begin{schema}{Init}
+  InitDisplayServer
+\end{schema}
+
+% ===================================================================
+\section{Operations}
+% ===================================================================
+
+% -------------------------------------------------------------------
+\subsection{Accept Connection}
+% -------------------------------------------------------------------
+
+A new client connects.  We allocate a fresh FrameReader for it.
+
+\begin{schema}{AcceptConnection}
+  \Delta DisplayServer \\
+  newClient? : FD
+  \where
+  listening = ztrue \\
+  newClient? \notin clients \\
+  \# clients < maxClients \\
+  clients' = clients \cup \{ newClient? \} \\
+  (\exists frs : FrameReaderState |
+\quad~ frs.bufSize = 0 \land frs.pendingMsgs = 0 @
+\quad~ readers' = readers \cup \{ newClient? \mapsto frs \}) \\
+  hasScene' = hasScene \\
+  currentScene' = currentScene \\
+  eventQueue' = eventQueue \\
+  listening' = listening
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Disconnect Client}
+% -------------------------------------------------------------------
+
+A client disconnects (error or clean close).
+
+\begin{schema}{DisconnectClient}
+  \Delta DisplayServer \\
+  deadClient? : FD
+  \where
+  deadClient? \in clients \\
+  clients' = clients \setminus \{ deadClient? \} \\
+  readers' = \{ deadClient? \} \ndres readers \\
+  hasScene' = hasScene \\
+  currentScene' = currentScene \\
+  eventQueue' = eventQueue \\
+  listening' = listening
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Receive Scene}
+% -------------------------------------------------------------------
+
+A client sends a new scene, replacing any existing one.
+The event queue is cleared since old element references are stale.
+
+\begin{schema}{ReceiveScene}
+  \Delta DisplayServer \\
+  newScene? : Scene
+  \where
+  hasScene' = ztrue \\
+  currentScene' = newScene? \\
+  eventQueue' = \langle \rangle \\
+  clients' = clients \\
+  readers' = readers \\
+  listening' = listening
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Clear Scene}
+% -------------------------------------------------------------------
+
+A client sends a clear message, removing all content.
+
+\begin{schema}{ClearScene}
+  \Delta DisplayServer
+  \where
+  hasScene' = zfalse \\
+  eventQueue' = \langle \rangle \\
+  clients' = clients \\
+  readers' = readers \\
+  listening' = listening
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Remove Element (Patch)}
+% -------------------------------------------------------------------
+
+An update message removes an element by ID from the current scene.
+
+\begin{schema}{RemoveElement}
+  \Delta DisplayServer \\
+  targetId? : ELEMID
+  \where
+  hasScene = ztrue \\
+  targetId? \in \{ e : \ran (currentScene.elements) @ e.elemId \} \\
+  currentScene'.sceneId = currentScene.sceneId \\
+  \ran (currentScene'.elements) =
+\quad~ \{ e : \ran (currentScene.elements) | e.elemId \neq targetId? \} \\
+  \# currentScene'.elements = \# currentScene.elements - 1 \\
+  hasScene' = hasScene \\
+  eventQueue' = eventQueue \\
+  clients' = clients \\
+  readers' = readers \\
+  listening' = listening
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Button Click (Interaction)}
+% -------------------------------------------------------------------
+
+The display detects a button click.  An interaction event is queued
+for broadcast to all clients.
+
+\begin{schema}{ButtonClick}
+  \Delta DisplayServer \\
+  buttonId? : ELEMID
+  \where
+  hasScene = ztrue \\
+  buttonId? \in \{ e : \ran (currentScene.elements) |
+\quad~ e.elemKind = ekButton @ e.elemId \} \\
+  eventQueue' = eventQueue \cat \langle buttonId? \rangle \\
+  \# eventQueue < maxEvents \\
+  hasScene' = hasScene \\
+  currentScene' = currentScene \\
+  clients' = clients \\
+  readers' = readers \\
+  listening' = listening
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Flush Events}
+% -------------------------------------------------------------------
+
+At the end of each frame, queued events are broadcast to all
+clients and the queue is emptied.
+
+\begin{schema}{FlushEvents}
+  \Delta DisplayServer
+  \where
+  eventQueue' = \langle \rangle \\
+  hasScene' = hasScene \\
+  currentScene' = currentScene \\
+  clients' = clients \\
+  readers' = readers \\
+  listening' = listening
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Shutdown}
+% -------------------------------------------------------------------
+
+The display server shuts down: all clients are disconnected,
+the scene is cleared, events are flushed.
+
+\begin{schema}{Shutdown}
+  \Delta DisplayServer
+  \where
+  clients' = \emptyset \\
+  readers' = \emptyset \\
+  hasScene' = zfalse \\
+  eventQueue' = \langle \rangle \\
+  listening' = zfalse
+\end{schema}
+
+% ===================================================================
+\section{System Invariants}
+% ===================================================================
+
+The key properties maintained across all operations:
+
+\begin{enumerate}
+  \item \textbf{Reader--client bijection}: Every connected client
+    has exactly one FrameReader, and every FrameReader belongs to
+    a connected client ($\dom readers = clients$).
+
+  \item \textbf{Event validity}: Queued interaction events reference
+    elements that exist in the current scene.
+
+  \item \textbf{Bounded resources}: Client count, element count,
+    event queue length, and buffer sizes are all bounded.
+
+  \item \textbf{Scene atomicity}: A new scene completely replaces
+    the old one and clears stale events.
+
+  \item \textbf{Unique element IDs}: Within a scene, no two elements
+    share an ID.
+\end{enumerate}
+
+\end{document}

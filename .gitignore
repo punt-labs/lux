@@ -7,3 +7,11 @@
 spikes/
 .tmp/*
 !.tmp/.gitkeep
+docs/fuzz.sty
+docs/*.mf
+docs/*.pk
+docs/*.tfm
+docs/*.aux
+docs/*.log
+docs/*.fuzz
+docs/*.toc
