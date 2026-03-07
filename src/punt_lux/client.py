@@ -202,12 +202,17 @@ class LuxClient:
         """Send a ping and wait for the pong response."""
         sock = self._require_connected()
         send_message(sock, PingMessage(ts=time.time()))
-        msg = recv_message(sock, timeout=self._recv_timeout)
-        if isinstance(msg, PongMessage):
-            return msg
-        if msg is not None:
+        deadline = time.monotonic() + self._recv_timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            msg = recv_message(sock, timeout=remaining)
+            if msg is None:
+                return None
+            if isinstance(msg, PongMessage):
+                return msg
             self._pending.append(msg)
-        return None
 
     # -- receiving ---------------------------------------------------------
 
