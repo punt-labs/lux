@@ -144,6 +144,20 @@ class ColorPickerElement:
     value: str = "#FFFFFF"
 
 
+@dataclass
+class DrawElement:
+    """A 2D canvas with draw commands (line, rect, circle, etc.)."""
+
+    id: str
+    kind: Literal["draw"] = "draw"
+    width: int = 400
+    height: int = 300
+    bg_color: str | None = None
+    commands: list[dict[str, Any]] = field(
+        default_factory=lambda: list[dict[str, Any]]()
+    )
+
+
 Element = (
     ImageElement
     | TextElement
@@ -155,6 +169,7 @@ Element = (
     | InputTextElement
     | RadioElement
     | ColorPickerElement
+    | DrawElement
 )
 
 # ---------------------------------------------------------------------------
@@ -389,6 +404,19 @@ def _color_picker_to_dict(elem: ColorPickerElement) -> dict[str, Any]:
     }
 
 
+def _draw_to_dict(elem: DrawElement) -> dict[str, Any]:
+    d: dict[str, Any] = {
+        "kind": elem.kind,
+        "id": elem.id,
+        "width": elem.width,
+        "height": elem.height,
+        "commands": elem.commands,
+    }
+    if elem.bg_color is not None:
+        d["bg_color"] = elem.bg_color
+    return d
+
+
 _ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
     ImageElement: _image_to_dict,
     TextElement: _text_to_dict,
@@ -400,6 +428,7 @@ _ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
     InputTextElement: _input_text_to_dict,
     RadioElement: _radio_to_dict,
     ColorPickerElement: _color_picker_to_dict,
+    DrawElement: _draw_to_dict,
 }
 
 
@@ -497,6 +526,16 @@ def _color_picker_from_dict(d: dict[str, Any]) -> ColorPickerElement:
     )
 
 
+def _draw_from_dict(d: dict[str, Any]) -> DrawElement:
+    return DrawElement(
+        id=d["id"],
+        width=d.get("width", 400),
+        height=d.get("height", 300),
+        bg_color=d.get("bg_color"),
+        commands=d.get("commands", []),
+    )
+
+
 _ELEMENT_DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Element]] = {
     "image": _image_from_dict,
     "text": _text_from_dict,
@@ -508,6 +547,7 @@ _ELEMENT_DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Element]] = {
     "input_text": _input_text_from_dict,
     "radio": _radio_from_dict,
     "color_picker": _color_picker_from_dict,
+    "draw": _draw_from_dict,
 }
 
 

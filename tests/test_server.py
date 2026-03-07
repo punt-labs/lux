@@ -10,6 +10,7 @@ from punt_lux.protocol import (
     CheckboxElement,
     ColorPickerElement,
     ComboElement,
+    DrawElement,
     InputTextElement,
     InteractionMessage,
     PongMessage,
@@ -97,6 +98,26 @@ class TestElementFromDict:
         )
         assert isinstance(elem, ColorPickerElement)
         assert elem.value == "#FF0000"
+
+    def test_draw_element(self) -> None:
+        elem = element_from_dict(
+            {
+                "kind": "draw",
+                "id": "d1",
+                "width": 200,
+                "commands": [{"cmd": "line", "p1": [0, 0], "p2": [10, 10]}],
+            }
+        )
+        assert isinstance(elem, DrawElement)
+        assert elem.width == 200
+        assert len(elem.commands) == 1
+
+    def test_draw_element_defaults(self) -> None:
+        elem = element_from_dict({"kind": "draw", "id": "d1"})
+        assert isinstance(elem, DrawElement)
+        assert elem.width == 400
+        assert elem.height == 300
+        assert elem.commands == []
 
     def test_unknown_kind_raises(self) -> None:
         import pytest

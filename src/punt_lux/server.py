@@ -58,10 +58,10 @@ def show(
     """Display a scene in the Lux window.
 
     Replaces the current window contents with the given elements.
-    Each element is a dict with a ``kind`` field.
+    Each element is a dict with a ``kind`` field (defaults to "text").
 
     Display elements:
-      Text:         {"kind": "text", "id": "t1", "content": "Hello", "style": "heading"}
+      Text:         {"kind": "text", "id": "t1", "content": "Hello"}
       Button:       {"kind": "button", "id": "b1", "label": "Click me"}
       Image:        {"kind": "image", "id": "i1", "path": "/path/to/img.png"}
       Separator:    {"kind": "separator"}
@@ -73,6 +73,9 @@ def show(
       Input text:   {"kind": "input_text", "id": "it1", "label": "Name"}
       Radio:        {"kind": "radio", "id": "r1", "items": ["A","B"]}
       Color picker: {"kind": "color_picker", "id": "cp1", "label": "Bg"}
+
+    Canvas element:
+      Draw:         {"kind": "draw", "id": "d1", "commands": [...]}
 
     Returns ``"ack:<scene_id>"`` on success or ``"timeout"`` if the
     display doesn't respond.
