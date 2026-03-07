@@ -7,17 +7,23 @@ import pytest
 from punt_lux.protocol import (
     AckMessage,
     ButtonElement,
+    CheckboxElement,
     ClearMessage,
+    ColorPickerElement,
+    ComboElement,
     FrameReader,
     ImageElement,
+    InputTextElement,
     InteractionMessage,
     Message,
     Patch,
     PingMessage,
     PongMessage,
+    RadioElement,
     ReadyMessage,
     SceneMessage,
     SeparatorElement,
+    SliderElement,
     TextElement,
     UpdateMessage,
     WindowMessage,
@@ -67,6 +73,43 @@ class TestElements:
     def test_separator_with_id(self):
         e = SeparatorElement(id="sep1")
         assert e.id == "sep1"
+
+    def test_slider_element(self):
+        e = SliderElement(id="sl1", label="Volume", value=50.0, min=0.0, max=100.0)
+        assert e.kind == "slider"
+        assert e.value == 50.0
+        assert not e.integer
+
+    def test_slider_integer(self):
+        e = SliderElement(id="sl2", label="Count", integer=True)
+        assert e.integer
+
+    def test_checkbox_element(self):
+        e = CheckboxElement(id="cb1", label="Enable")
+        assert e.kind == "checkbox"
+        assert e.value is False
+
+    def test_combo_element(self):
+        e = ComboElement(id="co1", label="Choice", items=["A", "B"], selected=1)
+        assert e.kind == "combo"
+        assert e.items == ["A", "B"]
+        assert e.selected == 1
+
+    def test_input_text_element(self):
+        e = InputTextElement(id="it1", label="Name", hint="Enter name")
+        assert e.kind == "input_text"
+        assert e.hint == "Enter name"
+        assert e.value == ""
+
+    def test_radio_element(self):
+        e = RadioElement(id="r1", label="Pick", items=["X", "Y"])
+        assert e.kind == "radio"
+        assert e.selected == 0
+
+    def test_color_picker_element(self):
+        e = ColorPickerElement(id="cp1", label="Color")
+        assert e.kind == "color_picker"
+        assert e.value == "#FFFFFF"
 
 
 # ---------------------------------------------------------------------------
@@ -209,6 +252,112 @@ class TestSerialization:
         scene = SceneMessage(id="s1", elements=[e])
         d = message_to_dict(scene)
         assert "disabled" not in d["elements"][0]
+
+    def test_slider_roundtrip(self):
+        e = SliderElement(id="sl1", label="Vol", value=50.0, min=0.0, max=100.0)
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        elem = restored.elements[0]
+        assert isinstance(elem, SliderElement)
+        assert elem.value == 50.0
+        assert elem.format == "%.1f"
+
+    def test_slider_integer_flag_roundtrip(self):
+        e = SliderElement(id="sl2", label="N", integer=True)
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        assert d["elements"][0]["integer"] is True
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert isinstance(restored.elements[0], SliderElement)
+        assert restored.elements[0].integer is True
+
+    def test_slider_integer_false_excluded(self):
+        e = SliderElement(id="sl3", label="X")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        assert "integer" not in d["elements"][0]
+
+    def test_checkbox_roundtrip(self):
+        e = CheckboxElement(id="cb1", label="On", value=True)
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        elem = restored.elements[0]
+        assert isinstance(elem, CheckboxElement)
+        assert elem.value is True
+
+    def test_combo_roundtrip(self):
+        e = ComboElement(id="co1", label="Pick", items=["A", "B", "C"], selected=2)
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        elem = restored.elements[0]
+        assert isinstance(elem, ComboElement)
+        assert elem.items == ["A", "B", "C"]
+        assert elem.selected == 2
+
+    def test_input_text_roundtrip(self):
+        e = InputTextElement(id="it1", label="Name", value="Alice", hint="who?")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        elem = restored.elements[0]
+        assert isinstance(elem, InputTextElement)
+        assert elem.value == "Alice"
+        assert elem.hint == "who?"
+
+    def test_input_text_hint_excluded_when_empty(self):
+        e = InputTextElement(id="it2", label="X")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        assert "hint" not in d["elements"][0]
+
+    def test_radio_roundtrip(self):
+        e = RadioElement(id="r1", label="Opt", items=["X", "Y"], selected=1)
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        elem = restored.elements[0]
+        assert isinstance(elem, RadioElement)
+        assert elem.items == ["X", "Y"]
+        assert elem.selected == 1
+
+    def test_color_picker_roundtrip(self):
+        e = ColorPickerElement(id="cp1", label="Bg", value="#FF0000")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        elem = restored.elements[0]
+        assert isinstance(elem, ColorPickerElement)
+        assert elem.value == "#FF0000"
+
+    def test_mixed_interactive_scene_roundtrip(self):
+        original = SceneMessage(
+            id="s1",
+            elements=[
+                TextElement(id="t1", content="Settings"),
+                SliderElement(id="sl1", label="Vol", value=75.0),
+                CheckboxElement(id="cb1", label="Mute"),
+                ComboElement(id="co1", label="Output", items=["Speakers", "Phones"]),
+                InputTextElement(id="it1", label="Name"),
+                RadioElement(id="r1", label="Mode", items=["A", "B"]),
+                ColorPickerElement(id="cp1", label="Theme"),
+                SeparatorElement(),
+                ButtonElement(id="b1", label="Apply"),
+            ],
+        )
+        d = message_to_dict(original)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert len(restored.elements) == 9
 
 
 # ---------------------------------------------------------------------------

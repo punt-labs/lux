@@ -7,8 +7,13 @@ from unittest.mock import MagicMock, patch
 
 from punt_lux.protocol import (
     AckMessage,
+    CheckboxElement,
+    ColorPickerElement,
+    ComboElement,
+    InputTextElement,
     InteractionMessage,
     PongMessage,
+    SliderElement,
     element_from_dict,
 )
 from punt_lux.server import clear, ping, recv, show, update
@@ -45,6 +50,53 @@ class TestElementFromDict:
     def test_button_defaults_label_to_empty(self) -> None:
         elem = element_from_dict({"kind": "button", "id": "b1"})
         assert elem.label == ""  # type: ignore[union-attr]
+
+    def test_slider_element(self) -> None:
+        elem = element_from_dict(
+            {"kind": "slider", "id": "sl1", "label": "Vol", "value": 50.0}
+        )
+        assert elem.kind == "slider"
+        assert elem.id == "sl1"
+
+    def test_slider_defaults(self) -> None:
+        elem = element_from_dict({"kind": "slider", "id": "sl1"})
+        assert isinstance(elem, SliderElement)
+        assert elem.label == ""
+        assert elem.value == 0.0
+
+    def test_checkbox_element(self) -> None:
+        elem = element_from_dict(
+            {"kind": "checkbox", "id": "cb1", "label": "On", "value": True}
+        )
+        assert isinstance(elem, CheckboxElement)
+        assert elem.value is True
+
+    def test_combo_element(self) -> None:
+        elem = element_from_dict(
+            {"kind": "combo", "id": "co1", "label": "Pick", "items": ["A", "B"]}
+        )
+        assert isinstance(elem, ComboElement)
+        assert elem.items == ["A", "B"]
+
+    def test_input_text_element(self) -> None:
+        elem = element_from_dict(
+            {"kind": "input_text", "id": "it1", "label": "Name", "hint": "who?"}
+        )
+        assert isinstance(elem, InputTextElement)
+        assert elem.hint == "who?"
+
+    def test_radio_element(self) -> None:
+        elem = element_from_dict(
+            {"kind": "radio", "id": "r1", "label": "Opt", "items": ["X", "Y"]}
+        )
+        assert elem.kind == "radio"
+
+    def test_color_picker_element(self) -> None:
+        elem = element_from_dict(
+            {"kind": "color_picker", "id": "cp1", "label": "Bg", "value": "#FF0000"}
+        )
+        assert isinstance(elem, ColorPickerElement)
+        assert elem.value == "#FF0000"
 
     def test_unknown_kind_raises(self) -> None:
         import pytest
