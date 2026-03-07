@@ -31,6 +31,7 @@ from punt_lux.protocol import (
     SeparatorElement,
     SliderElement,
     TabBarElement,
+    TableElement,
     TextElement,
     TreeElement,
     UpdateMessage,
@@ -229,6 +230,24 @@ class TestElements:
         e = TreeElement(id="tr1")
         assert e.label == ""
         assert e.nodes == []
+
+    def test_table_element(self):
+        e = TableElement(
+            id="tbl1",
+            columns=["Name", "Score"],
+            rows=[["Alice", 95], ["Bob", 87]],
+            flags=["borders", "row_bg", "resizable"],
+        )
+        assert e.kind == "table"
+        assert e.columns == ["Name", "Score"]
+        assert len(e.rows) == 2
+        assert e.flags == ["borders", "row_bg", "resizable"]
+
+    def test_table_element_defaults(self):
+        e = TableElement(id="tbl1")
+        assert e.columns == []
+        assert e.rows == []
+        assert e.flags == ["borders", "row_bg"]
 
 
 # ---------------------------------------------------------------------------
@@ -598,6 +617,34 @@ class TestSerialization:
         tree = restored.elements[0]
         assert isinstance(tree, TreeElement)
         assert tree.nodes == []
+
+    def test_table_roundtrip(self):
+        e = TableElement(
+            id="tbl1",
+            columns=["Name", "Score"],
+            rows=[["Alice", 95], ["Bob", 87]],
+            flags=["borders", "row_bg", "sortable"],
+        )
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        tbl = restored.elements[0]
+        assert isinstance(tbl, TableElement)
+        assert tbl.columns == ["Name", "Score"]
+        assert tbl.rows == [["Alice", 95], ["Bob", 87]]
+        assert tbl.flags == ["borders", "row_bg", "sortable"]
+
+    def test_table_empty_roundtrip(self):
+        e = TableElement(id="tbl1")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        tbl = restored.elements[0]
+        assert isinstance(tbl, TableElement)
+        assert tbl.columns == []
+        assert tbl.rows == []
 
     def test_collapsing_header_default_open_excluded_when_false(self):
         e = CollapsingHeaderElement(id="ch1", label="Section")

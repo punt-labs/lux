@@ -19,6 +19,7 @@ from punt_lux.protocol import (
     SelectableElement,
     SliderElement,
     TabBarElement,
+    TableElement,
     TreeElement,
     WindowElement,
     element_from_dict,
@@ -234,6 +235,28 @@ class TestElementFromDict:
         assert isinstance(elem, TreeElement)
         assert elem.label == ""
         assert elem.nodes == []
+
+    def test_table_element(self) -> None:
+        elem = element_from_dict(
+            {
+                "kind": "table",
+                "id": "tbl1",
+                "columns": ["Name", "Score"],
+                "rows": [["Alice", 95], ["Bob", 87]],
+                "flags": ["borders", "row_bg", "resizable"],
+            }
+        )
+        assert isinstance(elem, TableElement)
+        assert elem.columns == ["Name", "Score"]
+        assert len(elem.rows) == 2
+        assert "resizable" in elem.flags
+
+    def test_table_defaults(self) -> None:
+        elem = element_from_dict({"kind": "table", "id": "tbl1"})
+        assert isinstance(elem, TableElement)
+        assert elem.columns == []
+        assert elem.rows == []
+        assert elem.flags == ["borders", "row_bg"]
 
     def test_unknown_kind_raises(self) -> None:
         import pytest
