@@ -39,7 +39,7 @@ def _wait_for_socket(
             return
         rc = proc.poll()
         if rc is not None:
-            stderr = proc.stderr.read().decode() if proc.stderr else ""
+            stderr = proc.stderr.read().decode(errors="replace") if proc.stderr else ""
             msg = f"Display server exited with code {rc} before creating socket"
             if stderr:
                 msg += f": {stderr[:500]}"

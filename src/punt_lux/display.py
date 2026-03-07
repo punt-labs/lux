@@ -319,9 +319,9 @@ class DisplayServer:
                         setattr(elem, k, v)
 
     def _auto_click_buttons(self, msg: SceneMessage) -> None:
-        """Enqueue synthetic clicks for all buttons in a scene (test mode)."""
+        """Enqueue synthetic clicks for enabled buttons in a scene (test mode)."""
         for elem in msg.elements:
-            if elem.kind == "button":
+            if elem.kind == "button" and not getattr(elem, "disabled", False):
                 eid: str = getattr(elem, "id", "")
                 action: str = getattr(elem, "action", None) or eid
                 self._event_queue.append(
