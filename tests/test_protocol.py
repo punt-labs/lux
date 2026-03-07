@@ -11,10 +11,12 @@ from punt_lux.protocol import (
     ButtonElement,
     CheckboxElement,
     ClearMessage,
+    CollapsingHeaderElement,
     ColorPickerElement,
     ComboElement,
     DrawElement,
     FrameReader,
+    GroupElement,
     ImageElement,
     InputTextElement,
     InteractionMessage,
@@ -27,8 +29,10 @@ from punt_lux.protocol import (
     SceneMessage,
     SeparatorElement,
     SliderElement,
+    TabBarElement,
     TextElement,
     UpdateMessage,
+    WindowElement,
     WindowMessage,
     decode_frame,
     encode_frame,
@@ -126,6 +130,79 @@ class TestElements:
     def test_draw_element_defaults(self):
         e = DrawElement(id="d1")
         assert e.commands == []
+
+    def test_group_element(self):
+        child = TextElement(id="t1", content="hi")
+        e = GroupElement(id="g1", layout="columns", children=[child])
+        assert e.kind == "group"
+        assert e.layout == "columns"
+        assert len(e.children) == 1
+
+    def test_group_element_defaults(self):
+        e = GroupElement(id="g1")
+        assert e.layout == "rows"
+        assert e.children == []
+
+    def test_tab_bar_element(self):
+        e = TabBarElement(
+            id="tb1",
+            tabs=[{"label": "Tab A", "children": [TextElement(id="t1", content="A")]}],
+        )
+        assert e.kind == "tab_bar"
+        assert len(e.tabs) == 1
+
+    def test_collapsing_header_element(self):
+        e = CollapsingHeaderElement(
+            id="ch1",
+            label="Details",
+            default_open=True,
+            children=[TextElement(id="t1", content="inside")],
+        )
+        assert e.kind == "collapsing_header"
+        assert e.default_open is True
+        assert e.label == "Details"
+
+    def test_collapsing_header_defaults(self):
+        e = CollapsingHeaderElement(id="ch1")
+        assert e.label == ""
+        assert e.default_open is False
+        assert e.children == []
+
+    def test_window_element(self):
+        e = WindowElement(
+            id="w1",
+            title="Panel",
+            x=100,
+            y=50,
+            width=400,
+            height=300,
+            children=[TextElement(id="t1", content="inside")],
+        )
+        assert e.kind == "window"
+        assert e.title == "Panel"
+        assert e.x == 100
+        assert len(e.children) == 1
+
+    def test_window_element_defaults(self):
+        e = WindowElement(id="w1")
+        assert e.title == ""
+        assert e.x == 50.0
+        assert e.y == 50.0
+        assert e.width == 300.0
+        assert e.height == 200.0
+        assert e.no_move is False
+        assert e.no_resize is False
+        assert e.no_collapse is False
+        assert e.no_title_bar is False
+        assert e.no_scrollbar is False
+        assert e.auto_resize is False
+        assert e.children == []
+
+    def test_window_element_flags(self):
+        e = WindowElement(id="w1", no_move=True, no_resize=True, auto_resize=True)
+        assert e.no_move is True
+        assert e.no_resize is True
+        assert e.auto_resize is True
 
 
 # ---------------------------------------------------------------------------
@@ -377,6 +454,217 @@ class TestSerialization:
         scene = SceneMessage(id="s1", elements=[e])
         d = message_to_dict(scene)
         assert "bg_color" not in d["elements"][0]
+
+    def test_group_roundtrip(self):
+        e = GroupElement(
+            id="g1",
+            layout="columns",
+            children=[
+                TextElement(id="t1", content="Left"),
+                ButtonElement(id="b1", label="Right"),
+            ],
+        )
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        grp = restored.elements[0]
+        assert isinstance(grp, GroupElement)
+        assert grp.layout == "columns"
+        assert len(grp.children) == 2
+        assert isinstance(grp.children[0], TextElement)
+        assert isinstance(grp.children[1], ButtonElement)
+
+    def test_tab_bar_roundtrip(self):
+        e = TabBarElement(
+            id="tb1",
+            tabs=[
+                {
+                    "label": "Tab 1",
+                    "children": [TextElement(id="t1", content="Content 1")],
+                },
+                {
+                    "label": "Tab 2",
+                    "children": [
+                        ButtonElement(id="b1", label="Action"),
+                        SliderElement(id="sl1", label="Vol"),
+                    ],
+                },
+            ],
+        )
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        tb = restored.elements[0]
+        assert isinstance(tb, TabBarElement)
+        assert len(tb.tabs) == 2
+        assert tb.tabs[0]["label"] == "Tab 1"
+        assert isinstance(tb.tabs[0]["children"][0], TextElement)
+        assert len(tb.tabs[1]["children"]) == 2
+
+    def test_collapsing_header_roundtrip(self):
+        e = CollapsingHeaderElement(
+            id="ch1",
+            label="Advanced",
+            default_open=True,
+            children=[
+                CheckboxElement(id="cb1", label="Debug"),
+                SliderElement(id="sl1", label="Level"),
+            ],
+        )
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        ch = restored.elements[0]
+        assert isinstance(ch, CollapsingHeaderElement)
+        assert ch.label == "Advanced"
+        assert ch.default_open is True
+        assert len(ch.children) == 2
+
+    def test_collapsing_header_default_open_excluded_when_false(self):
+        e = CollapsingHeaderElement(id="ch1", label="Section")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        assert "default_open" not in d["elements"][0]
+
+    def test_nested_group_in_tab_bar_roundtrip(self):
+        inner = GroupElement(
+            id="g1",
+            layout="columns",
+            children=[
+                TextElement(id="t1", content="A"),
+                TextElement(id="t2", content="B"),
+            ],
+        )
+        outer = TabBarElement(
+            id="tb1",
+            tabs=[{"label": "Layout", "children": [inner]}],
+        )
+        scene = SceneMessage(id="s1", elements=[outer])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        tb = restored.elements[0]
+        assert isinstance(tb, TabBarElement)
+        grp = tb.tabs[0]["children"][0]
+        assert isinstance(grp, GroupElement)
+        assert len(grp.children) == 2
+
+    def test_window_roundtrip(self):
+        e = WindowElement(
+            id="w1",
+            title="Settings",
+            x=100,
+            y=50,
+            width=400,
+            height=300,
+            no_resize=True,
+            children=[
+                TextElement(id="t1", content="Hello from window"),
+                SliderElement(id="sl1", label="Vol"),
+                ButtonElement(id="b1", label="OK"),
+            ],
+        )
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        win = restored.elements[0]
+        assert isinstance(win, WindowElement)
+        assert win.title == "Settings"
+        assert win.x == 100
+        assert win.width == 400
+        assert win.no_resize is True
+        assert win.no_move is False
+        assert len(win.children) == 3
+
+    def test_window_flags_excluded_when_false(self):
+        e = WindowElement(id="w1")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        elem_d = d["elements"][0]
+        for flag in (
+            "no_move",
+            "no_resize",
+            "no_collapse",
+            "no_title_bar",
+            "no_scrollbar",
+            "auto_resize",
+        ):
+            assert flag not in elem_d
+
+    def test_multiple_windows_roundtrip(self):
+        w1 = WindowElement(
+            id="w1",
+            title="Left",
+            x=10,
+            y=10,
+            children=[TextElement(id="t1", content="Panel 1")],
+        )
+        w2 = WindowElement(
+            id="w2",
+            title="Right",
+            x=320,
+            y=10,
+            children=[TextElement(id="t2", content="Panel 2")],
+        )
+        scene = SceneMessage(id="s1", elements=[w1, w2])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert len(restored.elements) == 2
+        assert isinstance(restored.elements[0], WindowElement)
+        assert isinstance(restored.elements[1], WindowElement)
+        assert restored.elements[0].title == "Left"
+        assert restored.elements[1].title == "Right"
+
+    def test_window_with_nested_containers_roundtrip(self):
+        grp = GroupElement(
+            id="g1",
+            layout="columns",
+            children=[
+                ButtonElement(id="b1", label="A"),
+                ButtonElement(id="b2", label="B"),
+            ],
+        )
+        win = WindowElement(
+            id="w1",
+            title="Complex",
+            children=[
+                grp,
+                CollapsingHeaderElement(
+                    id="ch1",
+                    label="More",
+                    children=[TextElement(id="t1", content="nested")],
+                ),
+            ],
+        )
+        scene = SceneMessage(id="s1", elements=[win])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        r_win = restored.elements[0]
+        assert isinstance(r_win, WindowElement)
+        assert isinstance(r_win.children[0], GroupElement)
+        assert isinstance(r_win.children[1], CollapsingHeaderElement)
+
+    def test_deeply_nested_containers_roundtrip(self):
+        leaf = TextElement(id="leaf", content="deep")
+        ch = CollapsingHeaderElement(id="ch1", label="Inner", children=[leaf])
+        grp = GroupElement(id="g1", children=[ch])
+        scene = SceneMessage(id="s1", elements=[grp])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        r_grp = restored.elements[0]
+        assert isinstance(r_grp, GroupElement)
+        r_ch = r_grp.children[0]
+        assert isinstance(r_ch, CollapsingHeaderElement)
+        r_leaf = r_ch.children[0]
+        assert isinstance(r_leaf, TextElement)
+        assert r_leaf.content == "deep"
 
     def test_mixed_interactive_scene_roundtrip(self):
         original = SceneMessage(
