@@ -9,6 +9,7 @@ try:
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "0.0.0"
 
+from punt_lux.client import LuxClient
 from punt_lux.paths import default_socket_path, ensure_display
 from punt_lux.protocol import (
     AckMessage,
@@ -41,6 +42,7 @@ __all__ = [
     "FrameReader",
     "ImageElement",
     "InteractionMessage",
+    "LuxClient",
     "PingMessage",
     "PongMessage",
     "ReadyMessage",
