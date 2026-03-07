@@ -587,6 +587,7 @@ class DisplayServer:
         "window": "_render_window",
         "selectable": "_render_selectable",
         "tree": "_render_tree",
+        "table": "_render_table",
     }
 
     def _render_element(self, elem: Element) -> None:
@@ -960,6 +961,45 @@ class DisplayServer:
                 value={"node_id": node_id, "label": label},
             )
         )
+
+    # -- table rendering ---------------------------------------------------
+
+    def _render_table(self, elem: Element) -> None:
+        from imgui_bundle import imgui
+
+        tbl: Any = elem
+        eid: str = tbl.id
+        columns: list[str] = tbl.columns
+        rows: list[list[Any]] = tbl.rows
+        flags_list: list[str] = tbl.flags
+
+        flag_map = {
+            "borders": imgui.TableFlags_.borders.value,
+            "row_bg": imgui.TableFlags_.row_bg.value,
+            "resizable": imgui.TableFlags_.resizable.value,
+            "sortable": imgui.TableFlags_.sortable.value,
+        }
+        table_flags = 0
+        for f in flags_list:
+            table_flags |= flag_map.get(f, 0)
+
+        num_cols = len(columns)
+        if num_cols == 0:
+            return
+
+        if imgui.begin_table(f"##{eid}", num_cols, table_flags):
+            for col_name in columns:
+                imgui.table_setup_column(col_name)
+            imgui.table_headers_row()
+
+            for row in rows:
+                imgui.table_next_row()
+                for col_idx, cell in enumerate(row):
+                    if col_idx < num_cols:
+                        imgui.table_set_column_index(col_idx)
+                        imgui.text(str(cell))
+
+            imgui.end_table()
 
     # -- draw element rendering --------------------------------------------
 

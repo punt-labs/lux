@@ -80,6 +80,12 @@ def show(
                      "nodes": [{"label": "src", "children": [
                        {"label": "main.py"}]}]}
 
+    Data elements:
+      Table:        {"kind": "table", "id": "tbl1",
+                     "columns": ["Name", "Score"],
+                     "rows": [["Alice", 95], ["Bob", 87]],
+                     "flags": ["borders", "row_bg"]}
+
     Canvas element:
       Draw:         {"kind": "draw", "id": "d1", "commands": [...]}
 

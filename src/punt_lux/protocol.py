@@ -233,6 +233,17 @@ class TreeElement:
     nodes: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
 
 
+@dataclass
+class TableElement:
+    """A data table with columns and rows."""
+
+    id: str
+    kind: Literal["table"] = "table"
+    columns: list[str] = field(default_factory=lambda: list[str]())
+    rows: list[list[Any]] = field(default_factory=lambda: list[list[Any]]())
+    flags: list[str] = field(default_factory=lambda: ["borders", "row_bg"])
+
+
 Element = (
     ImageElement
     | TextElement
@@ -251,6 +262,7 @@ Element = (
     | WindowElement
     | SelectableElement
     | TreeElement
+    | TableElement
 )
 
 # ---------------------------------------------------------------------------
@@ -579,6 +591,16 @@ def _tree_to_dict(elem: TreeElement) -> dict[str, Any]:
     }
 
 
+def _table_to_dict(elem: TableElement) -> dict[str, Any]:
+    return {
+        "kind": elem.kind,
+        "id": elem.id,
+        "columns": elem.columns,
+        "rows": elem.rows,
+        "flags": elem.flags,
+    }
+
+
 _ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
     ImageElement: _image_to_dict,
     TextElement: _text_to_dict,
@@ -597,6 +619,7 @@ _ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
     WindowElement: _window_elem_to_dict,
     SelectableElement: _selectable_to_dict,
     TreeElement: _tree_to_dict,
+    TableElement: _table_to_dict,
 }
 
 
@@ -783,6 +806,15 @@ def _tree_from_dict(d: dict[str, Any]) -> TreeElement:
     )
 
 
+def _table_from_dict(d: dict[str, Any]) -> TableElement:
+    return TableElement(
+        id=d["id"],
+        columns=d.get("columns", []),
+        rows=d.get("rows", []),
+        flags=d.get("flags", ["borders", "row_bg"]),
+    )
+
+
 _ELEMENT_DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Element]] = {
     "image": _image_from_dict,
     "text": _text_from_dict,
@@ -801,6 +833,7 @@ _ELEMENT_DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Element]] = {
     "window": _window_from_dict,
     "selectable": _selectable_from_dict,
     "tree": _tree_from_dict,
+    "table": _table_from_dict,
 }
 
 
