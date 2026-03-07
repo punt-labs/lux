@@ -170,7 +170,24 @@ def _parse_hex_color(hex_str: str) -> tuple[int, int, int, int]:
 
 def _color_to_hex(r: float, g: float, b: float) -> str:
     """Convert float RGB (0-1) to hex string."""
-    return f"#{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}"
+    ri = int(max(0.0, min(1.0, r)) * 255)
+    gi = int(max(0.0, min(1.0, g)) * 255)
+    bi = int(max(0.0, min(1.0, b)) * 255)
+    return f"#{ri:02X}{gi:02X}{bi:02X}"
+
+
+def _widget_value(elem: Element) -> Any:
+    """Extract the current widget value from an element for WidgetState."""
+    if isinstance(elem, (SliderElement, CheckboxElement, InputTextElement)):
+        return elem.value
+    if isinstance(elem, (ComboElement, RadioElement)):
+        return elem.selected
+    if isinstance(elem, ColorPickerElement):
+        r, g, b, _a = _parse_hex_color(elem.value)
+        from imgui_bundle import ImVec4
+
+        return ImVec4(r / 255.0, g / 255.0, b / 255.0, 1.0)
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -378,6 +395,14 @@ class DisplayServer:
                         continue
                     if hasattr(elem, k):
                         setattr(elem, k, v)
+                # Sync widget state so ImGui reflects patched values
+                eid = getattr(elem, "id", None)
+                if eid is not None and patch.set.keys() & {
+                    "value",
+                    "selected",
+                    "items",
+                }:
+                    self._widget_state.set(eid, _widget_value(elem))
 
     def _auto_click_buttons(self, msg: SceneMessage) -> None:
         """Enqueue synthetic interactions for testable elements (test mode)."""
@@ -393,7 +418,17 @@ class DisplayServer:
                         value=True,
                     )
                 )
-            elif isinstance(elem, (SliderElement, CheckboxElement)):
+            elif isinstance(elem, SliderElement):
+                val: int | float = int(elem.value) if elem.integer else elem.value
+                self._event_queue.append(
+                    InteractionMessage(
+                        element_id=elem.id,
+                        action="changed",
+                        ts=time.time(),
+                        value=val,
+                    )
+                )
+            elif isinstance(elem, CheckboxElement):
                 self._event_queue.append(
                     InteractionMessage(
                         element_id=elem.id,
@@ -611,7 +646,11 @@ class DisplayServer:
         label: str = co.label
         items: list[str] = co.items
 
-        current = self._widget_state.ensure(eid, co.selected)
+        initial = max(0, min(co.selected, len(items) - 1)) if items else 0
+        current = self._widget_state.ensure(eid, initial)
+        if not items:
+            imgui.text(f"{label}: (empty)")
+            return
         changed, new_val = imgui.combo(f"{label}##{eid}", current, items)
         if changed:
             self._widget_state.set(eid, new_val)
