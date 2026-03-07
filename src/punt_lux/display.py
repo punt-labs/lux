@@ -201,7 +201,10 @@ class DisplayServer:
             return
         readable, _, _ = select.select([self._server_sock], [], [], 0)
         if readable:
-            conn, _ = self._server_sock.accept()
+            try:
+                conn, _ = self._server_sock.accept()
+            except (BlockingIOError, OSError):
+                return
             conn.setblocking(False)  # noqa: FBT003
             self._clients.append(conn)
             self._readers[conn.fileno()] = FrameReader()
@@ -390,8 +393,8 @@ class DisplayServer:
 
         img: Any = elem
         path: str | None = img.path
-        width: int = img.width or 200
-        height: int = img.height or 150
+        width: int = img.width if img.width is not None else 200
+        height: int = img.height if img.height is not None else 150
 
         tex_id = self._textures.get_or_load(path) if path else None
         if tex_id is not None:
