@@ -77,7 +77,85 @@ class SeparatorElement:
     id: str | None = None
 
 
-Element = ImageElement | TextElement | ButtonElement | SeparatorElement
+@dataclass
+class SliderElement:
+    """A numeric slider."""
+
+    id: str
+    label: str
+    kind: Literal["slider"] = "slider"
+    value: float = 0.0
+    min: float = 0.0
+    max: float = 100.0
+    format: str = "%.1f"
+    integer: bool = False
+
+
+@dataclass
+class CheckboxElement:
+    """A boolean checkbox."""
+
+    id: str
+    label: str
+    kind: Literal["checkbox"] = "checkbox"
+    value: bool = False
+
+
+@dataclass
+class ComboElement:
+    """A dropdown combo box."""
+
+    id: str
+    label: str
+    kind: Literal["combo"] = "combo"
+    items: list[str] = field(default_factory=lambda: list[str]())
+    selected: int = 0
+
+
+@dataclass
+class InputTextElement:
+    """A single-line text input."""
+
+    id: str
+    label: str
+    kind: Literal["input_text"] = "input_text"
+    value: str = ""
+    hint: str = ""
+
+
+@dataclass
+class RadioElement:
+    """A set of radio buttons."""
+
+    id: str
+    label: str
+    kind: Literal["radio"] = "radio"
+    items: list[str] = field(default_factory=lambda: list[str]())
+    selected: int = 0
+
+
+@dataclass
+class ColorPickerElement:
+    """An RGB color picker."""
+
+    id: str
+    label: str
+    kind: Literal["color_picker"] = "color_picker"
+    value: str = "#FFFFFF"
+
+
+Element = (
+    ImageElement
+    | TextElement
+    | ButtonElement
+    | SeparatorElement
+    | SliderElement
+    | CheckboxElement
+    | ComboElement
+    | InputTextElement
+    | RadioElement
+    | ColorPickerElement
+)
 
 # ---------------------------------------------------------------------------
 # Client -> Display messages
@@ -201,10 +279,9 @@ def _strip_none(d: dict[str, Any]) -> dict[str, Any]:
     return {k: v for k, v in d.items() if v is not None}
 
 
-def _element_to_dict(elem: Element) -> dict[str, Any]:
-    """Serialize an Element dataclass to a JSON-compatible dict."""
-    if isinstance(elem, ImageElement):
-        d: dict[str, Any] = {
+def _image_to_dict(elem: ImageElement) -> dict[str, Any]:
+    return _strip_none(
+        {
             "kind": elem.kind,
             "id": elem.id,
             "path": elem.path,
@@ -214,31 +291,224 @@ def _element_to_dict(elem: Element) -> dict[str, Any]:
             "width": elem.width,
             "height": elem.height,
         }
-        return _strip_none(d)
-    if isinstance(elem, TextElement):
-        return _strip_none(
-            {
-                "kind": elem.kind,
-                "id": elem.id,
-                "content": elem.content,
-                "style": elem.style,
-            }
-        )
-    if isinstance(elem, ButtonElement):
-        d = {
+    )
+
+
+def _text_to_dict(elem: TextElement) -> dict[str, Any]:
+    return _strip_none(
+        {
             "kind": elem.kind,
             "id": elem.id,
-            "label": elem.label,
-            "action": elem.action,
+            "content": elem.content,
+            "style": elem.style,
         }
-        if elem.disabled:
-            d["disabled"] = True
-        return _strip_none(d)
-    # SeparatorElement
-    d = {"kind": elem.kind}
+    )
+
+
+def _button_to_dict(elem: ButtonElement) -> dict[str, Any]:
+    d: dict[str, Any] = {
+        "kind": elem.kind,
+        "id": elem.id,
+        "label": elem.label,
+        "action": elem.action,
+    }
+    if elem.disabled:
+        d["disabled"] = True
+    return _strip_none(d)
+
+
+def _separator_to_dict(elem: SeparatorElement) -> dict[str, Any]:
+    d: dict[str, Any] = {"kind": elem.kind}
     if elem.id is not None:
         d["id"] = elem.id
     return d
+
+
+def _slider_to_dict(elem: SliderElement) -> dict[str, Any]:
+    d: dict[str, Any] = {
+        "kind": elem.kind,
+        "id": elem.id,
+        "label": elem.label,
+        "value": elem.value,
+        "min": elem.min,
+        "max": elem.max,
+        "format": elem.format,
+    }
+    if elem.integer:
+        d["integer"] = True
+    return d
+
+
+def _checkbox_to_dict(elem: CheckboxElement) -> dict[str, Any]:
+    return {
+        "kind": elem.kind,
+        "id": elem.id,
+        "label": elem.label,
+        "value": elem.value,
+    }
+
+
+def _combo_to_dict(elem: ComboElement) -> dict[str, Any]:
+    return {
+        "kind": elem.kind,
+        "id": elem.id,
+        "label": elem.label,
+        "items": elem.items,
+        "selected": elem.selected,
+    }
+
+
+def _input_text_to_dict(elem: InputTextElement) -> dict[str, Any]:
+    d: dict[str, Any] = {
+        "kind": elem.kind,
+        "id": elem.id,
+        "label": elem.label,
+        "value": elem.value,
+    }
+    if elem.hint:
+        d["hint"] = elem.hint
+    return d
+
+
+def _radio_to_dict(elem: RadioElement) -> dict[str, Any]:
+    return {
+        "kind": elem.kind,
+        "id": elem.id,
+        "label": elem.label,
+        "items": elem.items,
+        "selected": elem.selected,
+    }
+
+
+def _color_picker_to_dict(elem: ColorPickerElement) -> dict[str, Any]:
+    return {
+        "kind": elem.kind,
+        "id": elem.id,
+        "label": elem.label,
+        "value": elem.value,
+    }
+
+
+_ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
+    ImageElement: _image_to_dict,
+    TextElement: _text_to_dict,
+    ButtonElement: _button_to_dict,
+    SeparatorElement: _separator_to_dict,
+    SliderElement: _slider_to_dict,
+    CheckboxElement: _checkbox_to_dict,
+    ComboElement: _combo_to_dict,
+    InputTextElement: _input_text_to_dict,
+    RadioElement: _radio_to_dict,
+    ColorPickerElement: _color_picker_to_dict,
+}
+
+
+def _element_to_dict(elem: Element) -> dict[str, Any]:
+    """Serialize an Element dataclass to a JSON-compatible dict."""
+    serializer = _ELEMENT_SERIALIZERS.get(type(elem))
+    if serializer is not None:
+        result: dict[str, Any] = serializer(elem)
+        return result
+    msg = f"Unknown element type: {type(elem)}"
+    raise TypeError(msg)
+
+
+def _image_from_dict(d: dict[str, Any]) -> ImageElement:
+    return ImageElement(
+        id=d["id"],
+        path=d.get("path"),
+        data=d.get("data"),
+        format=d.get("format"),
+        alt=d.get("alt"),
+        width=d.get("width"),
+        height=d.get("height"),
+    )
+
+
+def _text_from_dict(d: dict[str, Any]) -> TextElement:
+    return TextElement(id=d["id"], content=d.get("content", ""), style=d.get("style"))
+
+
+def _button_from_dict(d: dict[str, Any]) -> ButtonElement:
+    return ButtonElement(
+        id=d["id"],
+        label=d.get("label", ""),
+        action=d.get("action"),
+        disabled=d.get("disabled", False),
+    )
+
+
+def _separator_from_dict(d: dict[str, Any]) -> SeparatorElement:
+    return SeparatorElement(id=d.get("id"))
+
+
+def _slider_from_dict(d: dict[str, Any]) -> SliderElement:
+    return SliderElement(
+        id=d["id"],
+        label=d.get("label", ""),
+        value=d.get("value", 0.0),
+        min=d.get("min", 0.0),
+        max=d.get("max", 100.0),
+        format=d.get("format", "%.1f"),
+        integer=d.get("integer", False),
+    )
+
+
+def _checkbox_from_dict(d: dict[str, Any]) -> CheckboxElement:
+    return CheckboxElement(
+        id=d["id"],
+        label=d.get("label", ""),
+        value=d.get("value", False),
+    )
+
+
+def _combo_from_dict(d: dict[str, Any]) -> ComboElement:
+    return ComboElement(
+        id=d["id"],
+        label=d.get("label", ""),
+        items=d.get("items", []),
+        selected=d.get("selected", 0),
+    )
+
+
+def _input_text_from_dict(d: dict[str, Any]) -> InputTextElement:
+    return InputTextElement(
+        id=d["id"],
+        label=d.get("label", ""),
+        value=d.get("value", ""),
+        hint=d.get("hint", ""),
+    )
+
+
+def _radio_from_dict(d: dict[str, Any]) -> RadioElement:
+    return RadioElement(
+        id=d["id"],
+        label=d.get("label", ""),
+        items=d.get("items", []),
+        selected=d.get("selected", 0),
+    )
+
+
+def _color_picker_from_dict(d: dict[str, Any]) -> ColorPickerElement:
+    return ColorPickerElement(
+        id=d["id"],
+        label=d.get("label", ""),
+        value=d.get("value", "#FFFFFF"),
+    )
+
+
+_ELEMENT_DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Element]] = {
+    "image": _image_from_dict,
+    "text": _text_from_dict,
+    "button": _button_from_dict,
+    "separator": _separator_from_dict,
+    "slider": _slider_from_dict,
+    "checkbox": _checkbox_from_dict,
+    "combo": _combo_from_dict,
+    "input_text": _input_text_from_dict,
+    "radio": _radio_from_dict,
+    "color_picker": _color_picker_from_dict,
+}
 
 
 def element_from_dict(d: dict[str, Any]) -> Element:
@@ -248,29 +518,9 @@ def element_from_dict(d: dict[str, Any]) -> Element:
     MCP tool callers.  Missing ``content``/``label`` keys default to ``""``.
     """
     kind = d.get("kind", "text")
-    if kind == "image":
-        return ImageElement(
-            id=d["id"],
-            path=d.get("path"),
-            data=d.get("data"),
-            format=d.get("format"),
-            alt=d.get("alt"),
-            width=d.get("width"),
-            height=d.get("height"),
-        )
-    if kind == "text":
-        return TextElement(
-            id=d["id"], content=d.get("content", ""), style=d.get("style")
-        )
-    if kind == "button":
-        return ButtonElement(
-            id=d["id"],
-            label=d.get("label", ""),
-            action=d.get("action"),
-            disabled=d.get("disabled", False),
-        )
-    if kind == "separator":
-        return SeparatorElement(id=d.get("id"))
+    deserializer = _ELEMENT_DESERIALIZERS.get(kind)
+    if deserializer is not None:
+        return deserializer(d)
     msg = f"Unknown element kind: {kind!r}"
     raise ValueError(msg)
 

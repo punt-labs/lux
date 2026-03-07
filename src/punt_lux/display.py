@@ -19,7 +19,7 @@ import select
 import socket
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import numpy as np
 from PIL import Image
@@ -34,13 +34,19 @@ from punt_lux.protocol import (
     HEADER_SIZE,
     MAX_MESSAGE_SIZE,
     AckMessage,
+    CheckboxElement,
     ClearMessage,
+    ColorPickerElement,
+    ComboElement,
     FrameReader,
+    InputTextElement,
     InteractionMessage,
     PingMessage,
     PongMessage,
+    RadioElement,
     ReadyMessage,
     SceneMessage,
+    SliderElement,
     UpdateMessage,
     encode_message,
 )
@@ -115,6 +121,79 @@ def _create_texture(path: str) -> int | None:
 
 
 # ---------------------------------------------------------------------------
+# Widget state (persistent across ImGui frames)
+# ---------------------------------------------------------------------------
+
+
+class WidgetState:
+    """Key-value store for interactive widget state across ImGui frames."""
+
+    def __init__(self) -> None:
+        self._state: dict[str, Any] = {}
+
+    def get(self, element_id: str, default: Any = None) -> Any:
+        return self._state.get(element_id, default)
+
+    def set(self, element_id: str, value: Any) -> None:
+        self._state[element_id] = value
+
+    def ensure(self, element_id: str, default: Any) -> Any:
+        if element_id not in self._state:
+            self._state[element_id] = default
+        return self._state[element_id]
+
+    def clear(self) -> None:
+        self._state.clear()
+
+
+# ---------------------------------------------------------------------------
+# Color conversion helpers
+# ---------------------------------------------------------------------------
+
+
+def _parse_hex_color(hex_str: str) -> tuple[int, int, int, int]:
+    """Parse a hex color string to (r, g, b, a) ints 0-255."""
+    h = hex_str.lstrip("#")
+    try:
+        if len(h) == 6:
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+            return (r, g, b, 255)
+        if len(h) == 8:
+            r, g, b, a = (
+                int(h[0:2], 16),
+                int(h[2:4], 16),
+                int(h[4:6], 16),
+                int(h[6:8], 16),
+            )
+            return (r, g, b, a)
+    except ValueError:
+        logger.warning("Invalid hex color %r; using fallback white", hex_str)
+    return (255, 255, 255, 255)
+
+
+def _color_to_hex(r: float, g: float, b: float) -> str:
+    """Convert float RGB (0-1) to hex string."""
+    ri = int(max(0.0, min(1.0, r)) * 255)
+    gi = int(max(0.0, min(1.0, g)) * 255)
+    bi = int(max(0.0, min(1.0, b)) * 255)
+    return f"#{ri:02X}{gi:02X}{bi:02X}"
+
+
+def _widget_value(elem: Element) -> Any:
+    """Extract the current widget value from an element for WidgetState."""
+    if isinstance(elem, (SliderElement, CheckboxElement, InputTextElement)):
+        return elem.value
+    if isinstance(elem, (ComboElement, RadioElement)):
+        return elem.selected
+    if isinstance(elem, ColorPickerElement):
+        r, g, b, _a = _parse_hex_color(elem.value)
+        from imgui_bundle import ImVec4
+
+        return ImVec4(r / 255.0, g / 255.0, b / 255.0, 1.0)
+    return None
+
+
+# ---------------------------------------------------------------------------
 # Display server
 # ---------------------------------------------------------------------------
 
@@ -135,6 +214,7 @@ class DisplayServer:
         self._current_scene: SceneMessage | None = None
         self._event_queue: list[InteractionMessage] = []
         self._textures = TextureCache()
+        self._widget_state = WidgetState()
         self._test_auto_click = test_auto_click
 
     @property
@@ -277,6 +357,7 @@ class DisplayServer:
         if isinstance(msg, SceneMessage):
             self._current_scene = msg
             self._event_queue.clear()
+            self._widget_state.clear()
             self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
             if self._test_auto_click:
                 self._auto_click_buttons(msg)
@@ -310,6 +391,7 @@ class DisplayServer:
                 continue
             if patch.remove:
                 elements.pop(idx)
+                self._widget_state.set(patch.id, None)
             elif patch.set:
                 elem = elements[idx]
                 for k, v in patch.set.items():
@@ -317,9 +399,17 @@ class DisplayServer:
                         continue
                     if hasattr(elem, k):
                         setattr(elem, k, v)
+                # Sync widget state so ImGui reflects patched values
+                eid = getattr(elem, "id", None)
+                if eid is not None and patch.set.keys() & {
+                    "value",
+                    "selected",
+                    "items",
+                }:
+                    self._widget_state.set(eid, _widget_value(elem))
 
     def _auto_click_buttons(self, msg: SceneMessage) -> None:
-        """Enqueue synthetic clicks for enabled buttons in a scene (test mode)."""
+        """Enqueue synthetic interactions for testable elements (test mode)."""
         for elem in msg.elements:
             if elem.kind == "button" and not getattr(elem, "disabled", False):
                 eid: str = getattr(elem, "id", "")
@@ -330,6 +420,71 @@ class DisplayServer:
                         action=action,
                         ts=time.time(),
                         value=True,
+                    )
+                )
+            elif isinstance(elem, SliderElement):
+                val: int | float = int(elem.value) if elem.integer else elem.value
+                self._event_queue.append(
+                    InteractionMessage(
+                        element_id=elem.id,
+                        action="changed",
+                        ts=time.time(),
+                        value=val,
+                    )
+                )
+            elif isinstance(elem, CheckboxElement):
+                self._event_queue.append(
+                    InteractionMessage(
+                        element_id=elem.id,
+                        action="changed",
+                        ts=time.time(),
+                        value=elem.value,
+                    )
+                )
+            elif isinstance(elem, ComboElement):
+                item_text = (
+                    elem.items[elem.selected]
+                    if 0 <= elem.selected < len(elem.items)
+                    else ""
+                )
+                self._event_queue.append(
+                    InteractionMessage(
+                        element_id=elem.id,
+                        action="changed",
+                        ts=time.time(),
+                        value={"index": elem.selected, "item": item_text},
+                    )
+                )
+            elif isinstance(elem, InputTextElement):
+                self._event_queue.append(
+                    InteractionMessage(
+                        element_id=elem.id,
+                        action="changed",
+                        ts=time.time(),
+                        value=elem.value,
+                    )
+                )
+            elif isinstance(elem, RadioElement):
+                item_text = (
+                    elem.items[elem.selected]
+                    if 0 <= elem.selected < len(elem.items)
+                    else ""
+                )
+                self._event_queue.append(
+                    InteractionMessage(
+                        element_id=elem.id,
+                        action="changed",
+                        ts=time.time(),
+                        value={"index": elem.selected, "item": item_text},
+                    )
+                )
+            elif isinstance(elem, ColorPickerElement):
+                self._event_queue.append(
+                    InteractionMessage(
+                        element_id=elem.id,
+                        action="changed",
+                        ts=time.time(),
+                        value=elem.value,
                     )
                 )
 
@@ -348,20 +503,27 @@ class DisplayServer:
         for elem in self._current_scene.elements:
             self._render_element(elem)
 
+    _RENDERERS: ClassVar[dict[str, str]] = {
+        "text": "_render_text",
+        "button": "_render_button",
+        "separator": "_render_separator",
+        "image": "_render_image",
+        "slider": "_render_slider",
+        "checkbox": "_render_checkbox",
+        "combo": "_render_combo",
+        "input_text": "_render_input_text",
+        "radio": "_render_radio",
+        "color_picker": "_render_color_picker",
+    }
+
     def _render_element(self, elem: Element) -> None:
-        kind: str = elem.kind  # widen from Literal to str for extensibility
-        if kind == "text":
-            self._render_text(elem)
-        elif kind == "button":
-            self._render_button(elem)
-        elif kind == "separator":
-            self._render_separator()
-        elif kind == "image":
-            self._render_image(elem)
+        method_name = self._RENDERERS.get(elem.kind)
+        if method_name is not None:
+            getattr(self, method_name)(elem)
         else:
             from imgui_bundle import imgui
 
-            imgui.text(f"[unsupported element: {kind}]")
+            imgui.text(f"[unsupported element: {elem.kind}]")
 
     def _render_text(self, elem: Element) -> None:
         from imgui_bundle import ImVec4, imgui
@@ -406,7 +568,7 @@ class DisplayServer:
         if disabled:
             imgui.end_disabled()
 
-    def _render_separator(self) -> None:
+    def _render_separator(self, _elem: Element) -> None:
         from imgui_bundle import imgui
 
         imgui.separator()
@@ -425,6 +587,170 @@ class DisplayServer:
         else:
             alt: str = img.alt or path or "(image)"
             imgui.text(f"[{alt}]")
+
+    def _render_slider(self, elem: Element) -> None:
+        from imgui_bundle import imgui
+
+        sl: Any = elem
+        eid: str = sl.id
+        label: str = sl.label
+        v_min: float = sl.min
+        v_max: float = sl.max
+        fmt: str = sl.format
+        is_int: bool = sl.integer
+
+        current = self._widget_state.ensure(eid, sl.value)
+
+        new_val: int | float
+        if is_int:
+            changed, new_val = imgui.slider_int(
+                f"{label}##{eid}", int(current), int(v_min), int(v_max)
+            )
+        else:
+            changed, new_val = imgui.slider_float(
+                f"{label}##{eid}", float(current), float(v_min), float(v_max), fmt
+            )
+
+        if changed:
+            self._widget_state.set(eid, new_val)
+            self._event_queue.append(
+                InteractionMessage(
+                    element_id=eid,
+                    action="changed",
+                    ts=time.time(),
+                    value=new_val,
+                )
+            )
+
+    def _render_checkbox(self, elem: Element) -> None:
+        from imgui_bundle import imgui
+
+        cb: Any = elem
+        eid: str = cb.id
+        label: str = cb.label
+
+        current = self._widget_state.ensure(eid, cb.value)
+        changed, new_val = imgui.checkbox(f"{label}##{eid}", current)
+        if changed:
+            self._widget_state.set(eid, new_val)
+            self._event_queue.append(
+                InteractionMessage(
+                    element_id=eid,
+                    action="changed",
+                    ts=time.time(),
+                    value=new_val,
+                )
+            )
+
+    def _render_combo(self, elem: Element) -> None:
+        from imgui_bundle import imgui
+
+        co: Any = elem
+        eid: str = co.id
+        label: str = co.label
+        items: list[str] = co.items
+
+        initial = max(0, min(co.selected, len(items) - 1)) if items else 0
+        current = self._widget_state.ensure(eid, initial)
+        if not items:
+            imgui.text(f"{label}: (empty)")
+            return
+        if current < 0 or current >= len(items):
+            current = 0
+            self._widget_state.set(eid, current)
+        changed, new_val = imgui.combo(f"{label}##{eid}", current, items)
+        if changed:
+            self._widget_state.set(eid, new_val)
+            item_text = items[new_val] if 0 <= new_val < len(items) else ""
+            self._event_queue.append(
+                InteractionMessage(
+                    element_id=eid,
+                    action="changed",
+                    ts=time.time(),
+                    value={"index": new_val, "item": item_text},
+                )
+            )
+
+    def _render_input_text(self, elem: Element) -> None:
+        from imgui_bundle import imgui
+
+        it: Any = elem
+        eid: str = it.id
+        label: str = it.label
+        hint: str = it.hint
+
+        current = self._widget_state.ensure(eid, it.value)
+
+        if hint:
+            changed, new_val = imgui.input_text_with_hint(
+                f"{label}##{eid}", hint, current
+            )
+        else:
+            changed, new_val = imgui.input_text(f"{label}##{eid}", current)
+
+        if changed:
+            self._widget_state.set(eid, new_val)
+            self._event_queue.append(
+                InteractionMessage(
+                    element_id=eid,
+                    action="changed",
+                    ts=time.time(),
+                    value=new_val,
+                )
+            )
+
+    def _render_radio(self, elem: Element) -> None:
+        from imgui_bundle import imgui
+
+        rd: Any = elem
+        eid: str = rd.id
+        label: str = rd.label
+        items: list[str] = rd.items
+
+        current: int = self._widget_state.ensure(eid, rd.selected)
+
+        if label:
+            imgui.text(label)
+
+        for i, item in enumerate(items):
+            if imgui.radio_button(f"{item}##{eid}_{i}", current == i) and current != i:
+                self._widget_state.set(eid, i)
+                self._event_queue.append(
+                    InteractionMessage(
+                        element_id=eid,
+                        action="changed",
+                        ts=time.time(),
+                        value={"index": i, "item": item},
+                    )
+                )
+                current = i
+            if i < len(items) - 1:
+                imgui.same_line()
+
+    def _render_color_picker(self, elem: Element) -> None:
+        from imgui_bundle import ImVec4, imgui
+
+        cp: Any = elem
+        eid: str = cp.id
+        label: str = cp.label
+        hex_str: str = cp.value
+
+        r, g, b, _a = _parse_hex_color(hex_str)
+        initial = ImVec4(r / 255.0, g / 255.0, b / 255.0, 1.0)
+        current = self._widget_state.ensure(eid, initial)
+
+        changed, new_color = imgui.color_edit3(f"{label}##{eid}", current)
+        if changed:
+            self._widget_state.set(eid, new_color)
+            hex_val = _color_to_hex(new_color[0], new_color[1], new_color[2])
+            self._event_queue.append(
+                InteractionMessage(
+                    element_id=eid,
+                    action="changed",
+                    ts=time.time(),
+                    value=hex_val,
+                )
+            )
 
     # -- event flushing ----------------------------------------------------
 

@@ -30,7 +30,9 @@ mcp = FastMCP(
     "lux",
     instructions=(
         "Lux is a visual output surface. Use these tools to display "
-        "text, images, buttons, and separators in a window the user can see."
+        "text, images, buttons, separators, and interactive elements "
+        "(sliders, checkboxes, combos, text inputs, radio buttons, "
+        "color pickers) in a window the user can see."
     ),
 )
 
@@ -56,13 +58,21 @@ def show(
     """Display a scene in the Lux window.
 
     Replaces the current window contents with the given elements.
-    Each element is a dict with a ``kind`` field: ``"text"``, ``"button"``,
-    ``"image"``, or ``"separator"``.
+    Each element is a dict with a ``kind`` field.
 
-    Text element:   {"kind": "text", "id": "t1", "content": "Hello", "style": "heading"}
-    Button element: {"kind": "button", "id": "b1", "label": "Click me"}
-    Image element:  {"kind": "image", "id": "i1", "path": "/path/to/img.png"}
-    Separator:      {"kind": "separator"}
+    Display elements:
+      Text:         {"kind": "text", "id": "t1", "content": "Hello", "style": "heading"}
+      Button:       {"kind": "button", "id": "b1", "label": "Click me"}
+      Image:        {"kind": "image", "id": "i1", "path": "/path/to/img.png"}
+      Separator:    {"kind": "separator"}
+
+    Interactive elements (generate "changed" events via recv):
+      Slider:       {"kind": "slider", "id": "sl1", "label": "Vol"}
+      Checkbox:     {"kind": "checkbox", "id": "cb1", "label": "On"}
+      Combo:        {"kind": "combo", "id": "co1", "items": ["A","B"]}
+      Input text:   {"kind": "input_text", "id": "it1", "label": "Name"}
+      Radio:        {"kind": "radio", "id": "r1", "items": ["A","B"]}
+      Color picker: {"kind": "color_picker", "id": "cp1", "label": "Bg"}
 
     Returns ``"ack:<scene_id>"`` on success or ``"timeout"`` if the
     display doesn't respond.
