@@ -206,7 +206,8 @@ class DisplayServer:
         for sock in errored:
             self._remove_client(sock)
         for sock in readable:
-            self._read_from_client(sock)
+            if sock in self._clients:
+                self._read_from_client(sock)
 
     def _read_from_client(self, sock: socket.socket) -> None:
         reader = self._readers.get(sock.fileno())
@@ -243,6 +244,7 @@ class DisplayServer:
     def _handle_message(self, sock: socket.socket, msg: Message) -> None:
         if isinstance(msg, SceneMessage):
             self._current_scene = msg
+            self._event_queue.clear()
             self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
         elif isinstance(msg, UpdateMessage):
             self._apply_update(msg)
@@ -252,6 +254,7 @@ class DisplayServer:
             )
         elif isinstance(msg, ClearMessage):
             self._current_scene = None
+            self._event_queue.clear()
         elif isinstance(msg, PingMessage):
             self._send_to_client(sock, PongMessage(ts=msg.ts, display_ts=time.time()))
 
@@ -276,6 +279,8 @@ class DisplayServer:
             elif patch.set:
                 elem = elements[idx]
                 for k, v in patch.set.items():
+                    if k in ("id", "kind"):
+                        continue
                     if hasattr(elem, k):
                         object.__setattr__(elem, k, v)
 
