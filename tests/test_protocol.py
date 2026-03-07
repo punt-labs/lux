@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from punt_lux.protocol import (
@@ -11,6 +13,7 @@ from punt_lux.protocol import (
     ClearMessage,
     ColorPickerElement,
     ComboElement,
+    DrawElement,
     FrameReader,
     ImageElement,
     InputTextElement,
@@ -110,6 +113,19 @@ class TestElements:
         e = ColorPickerElement(id="cp1", label="Color")
         assert e.kind == "color_picker"
         assert e.value == "#FFFFFF"
+
+    def test_draw_element(self):
+        cmds: list[dict[str, Any]] = [{"cmd": "line", "p1": [0, 0], "p2": [10, 10]}]
+        e = DrawElement(id="d1", commands=cmds)
+        assert e.kind == "draw"
+        assert e.width == 400
+        assert e.height == 300
+        assert e.bg_color is None
+        assert len(e.commands) == 1
+
+    def test_draw_element_defaults(self):
+        e = DrawElement(id="d1")
+        assert e.commands == []
 
 
 # ---------------------------------------------------------------------------
@@ -338,6 +354,29 @@ class TestSerialization:
         elem = restored.elements[0]
         assert isinstance(elem, ColorPickerElement)
         assert elem.value == "#FF0000"
+
+    def test_draw_roundtrip(self):
+        cmds: list[dict[str, Any]] = [
+            {"cmd": "rect", "min": [10, 10], "max": [50, 50], "color": "#FF0000"},
+        ]
+        e = DrawElement(
+            id="d1", width=200, height=100, bg_color="#000000", commands=cmds
+        )
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        elem = restored.elements[0]
+        assert isinstance(elem, DrawElement)
+        assert elem.width == 200
+        assert elem.bg_color == "#000000"
+        assert len(elem.commands) == 1
+
+    def test_draw_bg_color_excluded_when_none(self):
+        e = DrawElement(id="d1")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        assert "bg_color" not in d["elements"][0]
 
     def test_mixed_interactive_scene_roundtrip(self):
         original = SceneMessage(
