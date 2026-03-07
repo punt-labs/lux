@@ -37,6 +37,7 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy src/ tests/ &
 ```
 
 ## Standards References
+
 - [GitHub](https://github.com/punt-labs/punt-kit/blob/main/standards/github.md)
 - [Workflow](https://github.com/punt-labs/punt-kit/blob/main/standards/workflow.md)
 - [Python](https://github.com/punt-labs/punt-kit/blob/main/standards/python.md)
