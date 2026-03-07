@@ -486,7 +486,7 @@ def _tab_bar_to_dict(elem: TabBarElement) -> dict[str, Any]:
         "id": elem.id,
         "tabs": [
             {
-                "label": t["label"],
+                "label": t.get("label", "Tab"),
                 "children": [_element_to_dict(c) for c in t.get("children", [])],
             }
             for t in elem.tabs

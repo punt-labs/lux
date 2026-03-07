@@ -222,6 +222,18 @@ def _get_children(elem: Element) -> list[list[Any]]:
     return []
 
 
+def _collect_ids(elem: Element) -> list[str]:
+    """Collect all element IDs in a subtree (including the root)."""
+    ids: list[str] = []
+    eid = getattr(elem, "id", None)
+    if eid is not None:
+        ids.append(eid)
+    for child_list in _get_children(elem):
+        for child in child_list:
+            ids.extend(_collect_ids(child))
+    return ids
+
+
 def _find_element(
     elements: list[Element], target_id: str
 ) -> tuple[list[Element], int] | None:
@@ -258,6 +270,7 @@ class DisplayServer:
         self._event_queue: list[InteractionMessage] = []
         self._textures = TextureCache()
         self._widget_state = WidgetState()
+        self._dirty_windows: set[str] = set()
         self._test_auto_click = test_auto_click
 
     @property
@@ -426,23 +439,28 @@ class DisplayServer:
                 continue
             parent_list, idx = result
             if patch.remove:
-                parent_list.pop(idx)
-                self._widget_state.set(patch.id, None)
+                removed = parent_list.pop(idx)
+                for eid in _collect_ids(removed):
+                    self._widget_state.set(eid, None)
             elif patch.set:
-                elem = parent_list[idx]
-                for k, v in patch.set.items():
-                    if k in ("id", "kind"):
-                        continue
-                    if hasattr(elem, k):
-                        setattr(elem, k, v)
-                # Sync widget state so ImGui reflects patched values
-                eid = getattr(elem, "id", None)
-                if eid is not None and patch.set.keys() & {
-                    "value",
-                    "selected",
-                    "items",
-                }:
-                    self._widget_state.set(eid, _widget_value(elem))
+                self._apply_patch_set(parent_list[idx], patch.set)
+
+    def _apply_patch_set(self, elem: Element, fields: dict[str, Any]) -> None:
+        """Apply a set-patch to an element and sync widget/window state."""
+        for k, v in fields.items():
+            if k in ("id", "kind"):
+                continue
+            if hasattr(elem, k):
+                setattr(elem, k, v)
+        eid = getattr(elem, "id", None)
+        if eid is not None and fields.keys() & {"value", "selected", "items"}:
+            self._widget_state.set(eid, _widget_value(elem))
+        if (
+            eid is not None
+            and isinstance(elem, WindowElement)
+            and fields.keys() & {"x", "y", "width", "height"}
+        ):
+            self._dirty_windows.add(eid)
 
     def _auto_click_buttons(self, msg: SceneMessage) -> None:
         """Enqueue synthetic interactions for testable elements (test mode)."""
@@ -845,10 +863,13 @@ class DisplayServer:
         if win.auto_resize:
             flags |= imgui.WindowFlags_.always_auto_resize.value
 
-        imgui.set_next_window_pos((win.x, win.y), imgui.Cond_.first_use_ever.value)
-        imgui.set_next_window_size(
-            (win.width, win.height), imgui.Cond_.first_use_ever.value
-        )
+        if win.id in self._dirty_windows:
+            cond = imgui.Cond_.always.value
+            self._dirty_windows.discard(win.id)
+        else:
+            cond = imgui.Cond_.first_use_ever.value
+        imgui.set_next_window_pos((win.x, win.y), cond)
+        imgui.set_next_window_size((win.width, win.height), cond)
 
         title = win.title or win.id
         expanded, _ = imgui.begin(f"{title}##{win.id}", flags=flags)
