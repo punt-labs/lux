@@ -74,6 +74,12 @@ def show(
       Radio:        {"kind": "radio", "id": "r1", "items": ["A","B"]}
       Color picker: {"kind": "color_picker", "id": "cp1", "label": "Bg"}
 
+    List elements:
+      Selectable:   {"kind": "selectable", "id": "s1", "label": "Item"}
+      Tree:         {"kind": "tree", "id": "tr1", "label": "Files",
+                     "nodes": [{"label": "src", "children": [
+                       {"label": "main.py"}]}]}
+
     Canvas element:
       Draw:         {"kind": "draw", "id": "d1", "commands": [...]}
 

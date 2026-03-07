@@ -208,6 +208,31 @@ class WindowElement:
     children: list[Any] = field(default_factory=lambda: list[Any]())
 
 
+@dataclass
+class SelectableElement:
+    """A toggleable list item."""
+
+    id: str
+    label: str
+    kind: Literal["selectable"] = "selectable"
+    selected: bool = False
+
+
+@dataclass
+class TreeElement:
+    """A collapsible tree with recursive nodes.
+
+    Each node in ``nodes`` is a dict with ``"label"`` (str) and optional
+    ``"children"`` (list of nodes).  Leaf nodes omit ``"children"`` or
+    use an empty list.
+    """
+
+    id: str
+    kind: Literal["tree"] = "tree"
+    label: str = ""
+    nodes: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
+
+
 Element = (
     ImageElement
     | TextElement
@@ -224,6 +249,8 @@ Element = (
     | TabBarElement
     | CollapsingHeaderElement
     | WindowElement
+    | SelectableElement
+    | TreeElement
 )
 
 # ---------------------------------------------------------------------------
@@ -532,6 +559,26 @@ def _window_elem_to_dict(elem: WindowElement) -> dict[str, Any]:
     return d
 
 
+def _selectable_to_dict(elem: SelectableElement) -> dict[str, Any]:
+    d: dict[str, Any] = {
+        "kind": elem.kind,
+        "id": elem.id,
+        "label": elem.label,
+    }
+    if elem.selected:
+        d["selected"] = True
+    return d
+
+
+def _tree_to_dict(elem: TreeElement) -> dict[str, Any]:
+    return {
+        "kind": elem.kind,
+        "id": elem.id,
+        "label": elem.label,
+        "nodes": elem.nodes,
+    }
+
+
 _ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
     ImageElement: _image_to_dict,
     TextElement: _text_to_dict,
@@ -548,6 +595,8 @@ _ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
     TabBarElement: _tab_bar_to_dict,
     CollapsingHeaderElement: _collapsing_header_to_dict,
     WindowElement: _window_elem_to_dict,
+    SelectableElement: _selectable_to_dict,
+    TreeElement: _tree_to_dict,
 }
 
 
@@ -701,6 +750,39 @@ def _window_from_dict(d: dict[str, Any]) -> WindowElement:
     )
 
 
+def _selectable_from_dict(d: dict[str, Any]) -> SelectableElement:
+    return SelectableElement(
+        id=d["id"],
+        label=d.get("label", ""),
+        selected=d.get("selected", False),
+    )
+
+
+def _normalize_tree_nodes(raw: Any) -> list[dict[str, Any]]:
+    """Coerce tree nodes to a valid list of node dicts, non-mutating."""
+    if not isinstance(raw, list):
+        return []
+    result: list[dict[str, Any]] = []
+    for item in cast("list[Any]", raw):  # type: ignore[redundant-cast]
+        if not isinstance(item, dict):
+            continue
+        src = cast("dict[str, Any]", item)
+        node: dict[str, Any] = {k: v for k, v in src.items() if k != "children"}
+        raw_children = src.get("children")
+        if raw_children is not None:
+            node["children"] = _normalize_tree_nodes(raw_children)
+        result.append(node)
+    return result
+
+
+def _tree_from_dict(d: dict[str, Any]) -> TreeElement:
+    return TreeElement(
+        id=d["id"],
+        label=d.get("label", ""),
+        nodes=_normalize_tree_nodes(d.get("nodes", [])),
+    )
+
+
 _ELEMENT_DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Element]] = {
     "image": _image_from_dict,
     "text": _text_from_dict,
@@ -717,6 +799,8 @@ _ELEMENT_DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Element]] = {
     "tab_bar": _tab_bar_from_dict,
     "collapsing_header": _collapsing_header_from_dict,
     "window": _window_from_dict,
+    "selectable": _selectable_from_dict,
+    "tree": _tree_from_dict,
 }
 
 

@@ -27,10 +27,12 @@ from punt_lux.protocol import (
     RadioElement,
     ReadyMessage,
     SceneMessage,
+    SelectableElement,
     SeparatorElement,
     SliderElement,
     TabBarElement,
     TextElement,
+    TreeElement,
     UpdateMessage,
     WindowElement,
     WindowMessage,
@@ -203,6 +205,30 @@ class TestElements:
         assert e.no_move is True
         assert e.no_resize is True
         assert e.auto_resize is True
+
+    def test_selectable_element(self):
+        e = SelectableElement(id="s1", label="Item A", selected=True)
+        assert e.kind == "selectable"
+        assert e.selected is True
+
+    def test_selectable_defaults(self):
+        e = SelectableElement(id="s1", label="X")
+        assert e.selected is False
+
+    def test_tree_element(self):
+        nodes: list[dict[str, Any]] = [
+            {"label": "src", "children": [{"label": "main.py"}, {"label": "lib.py"}]},
+            {"label": "README.md"},
+        ]
+        e = TreeElement(id="tr1", label="Project", nodes=nodes)
+        assert e.kind == "tree"
+        assert e.label == "Project"
+        assert len(e.nodes) == 2
+
+    def test_tree_element_defaults(self):
+        e = TreeElement(id="tr1")
+        assert e.label == ""
+        assert e.nodes == []
 
 
 # ---------------------------------------------------------------------------
@@ -522,6 +548,56 @@ class TestSerialization:
         assert ch.label == "Advanced"
         assert ch.default_open is True
         assert len(ch.children) == 2
+
+    def test_selectable_roundtrip(self):
+        e = SelectableElement(id="s1", label="Option A", selected=True)
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        elem = restored.elements[0]
+        assert isinstance(elem, SelectableElement)
+        assert elem.label == "Option A"
+        assert elem.selected is True
+
+    def test_selectable_selected_excluded_when_false(self):
+        e = SelectableElement(id="s1", label="X")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        assert "selected" not in d["elements"][0]
+
+    def test_tree_roundtrip(self):
+        nodes: list[dict[str, Any]] = [
+            {
+                "label": "src",
+                "children": [
+                    {"label": "main.py"},
+                    {"label": "utils.py"},
+                ],
+            },
+            {"label": "README.md"},
+        ]
+        e = TreeElement(id="tr1", label="Project", nodes=nodes)
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        tree = restored.elements[0]
+        assert isinstance(tree, TreeElement)
+        assert tree.label == "Project"
+        assert len(tree.nodes) == 2
+        assert tree.nodes[0]["label"] == "src"
+        assert len(tree.nodes[0]["children"]) == 2
+
+    def test_tree_empty_nodes_roundtrip(self):
+        e = TreeElement(id="tr1", label="Empty")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        tree = restored.elements[0]
+        assert isinstance(tree, TreeElement)
+        assert tree.nodes == []
 
     def test_collapsing_header_default_open_excluded_when_false(self):
         e = CollapsingHeaderElement(id="ch1", label="Section")
