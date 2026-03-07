@@ -48,6 +48,7 @@ from punt_lux.protocol import (
     RadioElement,
     ReadyMessage,
     SceneMessage,
+    SelectableElement,
     SliderElement,
     TabBarElement,
     UpdateMessage,
@@ -198,6 +199,8 @@ def _widget_value(elem: Element) -> Any:
     """Extract the current widget value from an element for WidgetState."""
     if isinstance(elem, (SliderElement, CheckboxElement, InputTextElement)):
         return elem.value
+    if isinstance(elem, SelectableElement):
+        return elem.selected
     if isinstance(elem, (ComboElement, RadioElement)):
         return elem.selected
     if isinstance(elem, ColorPickerElement):
@@ -541,6 +544,15 @@ class DisplayServer:
                         value=elem.value,
                     )
                 )
+            elif isinstance(elem, SelectableElement):
+                self._event_queue.append(
+                    InteractionMessage(
+                        element_id=elem.id,
+                        action="clicked",
+                        ts=time.time(),
+                        value=not elem.selected,
+                    )
+                )
 
     # -- rendering ---------------------------------------------------------
 
@@ -573,6 +585,8 @@ class DisplayServer:
         "tab_bar": "_render_tab_bar",
         "collapsing_header": "_render_collapsing_header",
         "window": "_render_window",
+        "selectable": "_render_selectable",
+        "tree": "_render_tree",
     }
 
     def _render_element(self, elem: Element) -> None:
@@ -877,6 +891,75 @@ class DisplayServer:
             for child in win.children:
                 self._render_element(child)
         imgui.end()
+
+    # -- selectable and tree rendering -------------------------------------
+
+    def _render_selectable(self, elem: Element) -> None:
+        from imgui_bundle import imgui
+
+        sel: Any = elem
+        eid: str = sel.id
+        label: str = sel.label
+
+        current: bool = self._widget_state.ensure(eid, sel.selected)
+        clicked, new_val = imgui.selectable(f"{label}##{eid}", current)
+        if clicked:
+            self._widget_state.set(eid, new_val)
+            self._event_queue.append(
+                InteractionMessage(
+                    element_id=eid,
+                    action="clicked",
+                    ts=time.time(),
+                    value=new_val,
+                )
+            )
+
+    def _render_tree(self, elem: Element) -> None:
+        from imgui_bundle import imgui
+
+        tree: Any = elem
+        eid: str = tree.id
+        label: str = tree.label
+        nodes: list[dict[str, Any]] = tree.nodes
+
+        if label:
+            imgui.text(label)
+        for i, node in enumerate(nodes):
+            self._render_tree_node(node, f"{eid}_{i}", eid)
+
+    def _render_tree_node(
+        self, node: dict[str, Any], node_id: str, tree_id: str
+    ) -> None:
+        from imgui_bundle import imgui
+
+        label: str = node.get("label", "")
+        children: list[dict[str, Any]] = node.get("children", [])
+
+        if children:
+            opened = imgui.tree_node(f"{label}##{node_id}")
+            if imgui.is_item_clicked():
+                self._emit_node_click(tree_id, node_id, label)
+            if opened:
+                for i, child in enumerate(children):
+                    self._render_tree_node(child, f"{node_id}_{i}", tree_id)
+                imgui.tree_pop()
+        else:
+            leaf = imgui.TreeNodeFlags_.leaf.value
+            no_push = imgui.TreeNodeFlags_.no_tree_push_on_open.value
+            flags = leaf | no_push
+            imgui.tree_node_ex(f"{label}##{node_id}", flags)
+            if imgui.is_item_clicked():
+                self._emit_node_click(tree_id, node_id, label)
+
+    def _emit_node_click(self, tree_id: str, node_id: str, label: str) -> None:
+        self._event_queue.append(
+            InteractionMessage(
+                element_id=tree_id,
+                action="node_clicked",
+                ts=time.time(),
+                value={"node_id": node_id, "label": label},
+            )
+        )
 
     # -- draw element rendering --------------------------------------------
 

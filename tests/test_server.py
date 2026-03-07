@@ -16,8 +16,10 @@ from punt_lux.protocol import (
     InputTextElement,
     InteractionMessage,
     PongMessage,
+    SelectableElement,
     SliderElement,
     TabBarElement,
+    TreeElement,
     WindowElement,
     element_from_dict,
 )
@@ -197,6 +199,41 @@ class TestElementFromDict:
         assert elem.width == 300.0
         assert elem.no_move is False
         assert elem.children == []
+
+    def test_selectable_element(self) -> None:
+        elem = element_from_dict(
+            {"kind": "selectable", "id": "s1", "label": "Item", "selected": True}
+        )
+        assert isinstance(elem, SelectableElement)
+        assert elem.label == "Item"
+        assert elem.selected is True
+
+    def test_selectable_defaults(self) -> None:
+        elem = element_from_dict({"kind": "selectable", "id": "s1"})
+        assert isinstance(elem, SelectableElement)
+        assert elem.label == ""
+        assert elem.selected is False
+
+    def test_tree_element(self) -> None:
+        elem = element_from_dict(
+            {
+                "kind": "tree",
+                "id": "tr1",
+                "label": "Files",
+                "nodes": [
+                    {"label": "src", "children": [{"label": "main.py"}]},
+                ],
+            }
+        )
+        assert isinstance(elem, TreeElement)
+        assert elem.label == "Files"
+        assert len(elem.nodes) == 1
+
+    def test_tree_defaults(self) -> None:
+        elem = element_from_dict({"kind": "tree", "id": "tr1"})
+        assert isinstance(elem, TreeElement)
+        assert elem.label == ""
+        assert elem.nodes == []
 
     def test_unknown_kind_raises(self) -> None:
         import pytest
