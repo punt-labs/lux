@@ -9,9 +9,50 @@ try:
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "0.0.0"
 
-from punt_lux.protocol import decode_frame, encode_frame
+from punt_lux.protocol import (
+    AckMessage,
+    ButtonElement,
+    ClearMessage,
+    FrameReader,
+    ImageElement,
+    InteractionMessage,
+    PingMessage,
+    PongMessage,
+    ReadyMessage,
+    SceneMessage,
+    SeparatorElement,
+    TextElement,
+    UpdateMessage,
+    WindowMessage,
+    decode_frame,
+    encode_frame,
+    encode_message,
+    message_from_dict,
+    message_to_dict,
+    recv_message,
+    send_message,
+)
 
 __all__ = [
+    "AckMessage",
+    "ButtonElement",
+    "ClearMessage",
+    "FrameReader",
+    "ImageElement",
+    "InteractionMessage",
+    "PingMessage",
+    "PongMessage",
+    "ReadyMessage",
+    "SceneMessage",
+    "SeparatorElement",
+    "TextElement",
+    "UpdateMessage",
+    "WindowMessage",
     "decode_frame",
     "encode_frame",
+    "encode_message",
+    "message_from_dict",
+    "message_to_dict",
+    "recv_message",
+    "send_message",
 ]
