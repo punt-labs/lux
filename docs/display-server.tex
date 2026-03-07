@@ -46,7 +46,9 @@ This specification models the stateful core:
 
 We abstract away ImGui rendering (it is stateless from the
 protocol's perspective) and focus on the state that the protocol
-cares about.
+cares about.  Element ordering and event queue ordering are
+abstracted to sets for ProB animatability --- $\seq$ types
+cause unbounded enumeration during model checking.
 
 % ===================================================================
 \section{Basic Types}
@@ -89,126 +91,56 @@ Display message types (sent back to clients):
 \section{Global Constants}
 % ===================================================================
 
+% Animation-friendly bounds.  Production values (64, 1000, 256, 16M)
+% are too large for ProB's state space --- reduce for model checking.
 \begin{axdef}
   maxClients : \nat \\
   maxElements : \nat \\
   maxEvents : \nat \\
   maxBufSize : \nat
   \where
-  maxClients = 64 \\
-  maxElements = 1000 \\
-  maxEvents = 256 \\
-  maxBufSize = 16777216
+  maxClients = 3 \\
+  maxElements = 3 \\
+  maxEvents = 3 \\
+  maxBufSize = 4
 \end{axdef}
-
-% ===================================================================
-\section{Element}
-% ===================================================================
-
-An element within a scene.  We model only the identity and kind;
-the rendering attributes (content, label, path, etc.)\ are opaque
-to the protocol state machine.
-
-\begin{schema}{Element}
-  elemId : ELEMID \\
-  elemKind : ElementKind
-\end{schema}
-
-% ===================================================================
-\section{Scene}
-% ===================================================================
-
-A scene is an ordered list of elements with a unique scene ID.
-Element IDs within a scene must be unique.
-
-\begin{schema}{Scene}
-  sceneId : SCENEID \\
-  elements : \seq Element
-  \where
-  \# elements \leq maxElements \\
-  \forall i, j : \dom elements @
-\quad~ i \neq j \implies
-\quad~ (elements~i).elemId \neq (elements~j).elemId
-\end{schema}
-
-% ===================================================================
-\section{FrameReader}
-% ===================================================================
-
-The FrameReader accumulates raw bytes from a socket and tracks
-how many complete messages are available for draining.
-
-We abstract the buffer as a natural number (bytes accumulated)
-and track how many complete messages have been parsed.
-
-\begin{schema}{FrameReaderState}
-  bufSize : \nat \\
-  pendingMsgs : \nat
-  \where
-  bufSize \leq maxBufSize
-\end{schema}
-
-\begin{schema}{InitFrameReaderState}
-  FrameReaderState'
-  \where
-  bufSize' = 0 \\
-  pendingMsgs' = 0
-\end{schema}
-
-Feeding bytes into the reader increases the buffer size.
-
-\begin{schema}{FeedBytes}
-  \Delta FrameReaderState \\
-  bytesIn? : \nat
-  \where
-  bytesIn? > 0 \\
-  bufSize + bytesIn? \leq maxBufSize \\
-  bufSize' = bufSize + bytesIn? \\
-  pendingMsgs' = pendingMsgs
-\end{schema}
-
-Draining extracts all complete messages, reducing the buffer.
-The number of messages drained is non-deterministic (depends on
-message boundaries within the byte stream).
-
-\begin{schema}{DrainMessages}
-  \Delta FrameReaderState \\
-  drained! : \nat \\
-  bytesConsumed? : \nat
-  \where
-  bytesConsumed? \leq bufSize \\
-  bufSize' = bufSize - bytesConsumed? \\
-  pendingMsgs' = 0 \\
-  drained! = pendingMsgs + bytesConsumed?
-\end{schema}
 
 % ===================================================================
 \section{Display Server State}
 % ===================================================================
 
-The server tracks connected clients, their FrameReaders, the
-current scene (if any), and a queue of pending interaction events.
+The server tracks connected clients, the current scene (if any),
+a set of pending interaction events, and the FrameReader buffer
+state.  All fields are flattened into a single state schema for
+ProB animatability.
 
 \begin{schema}{DisplayServer}
   clients : \power FD \\
-  readers : FD \pfun FrameReaderState \\
+  readers : \power FD \\
   hasScene : ZBOOL \\
-  currentScene : Scene \\
-  eventQueue : \seq ELEMID \\
-  listening : ZBOOL
+  sceneId : SCENEID \\
+  elemIds : \power ELEMID \\
+  elemKinds : ELEMID \pfun ElementKind \\
+  eventQueue : \power ELEMID \\
+  listening : ZBOOL \\
+  bufSize : \nat \\
+  pendingMsgs : \nat
   \where
-  \dom readers = clients \\
+  readers = clients \\
   \# clients \leq maxClients \\
+  \# elemIds \leq maxElements \\
   \# eventQueue \leq maxEvents \\
+  bufSize \leq maxBufSize \\
+  elemIds \subseteq \dom elemKinds \\
   hasScene = ztrue \implies
-\quad~ (\forall eid : \ran eventQueue @
-\quad~\quad~ eid \in \{ e : \ran (currentScene.elements) @ e.elemId \})
+\quad~ eventQueue \subseteq elemIds
 \end{schema}
 
 The key invariants are:
 \begin{enumerate}
-  \item Every client has exactly one FrameReader ($\dom readers = clients$).
-  \item Client count is bounded.
+  \item Every client has a FrameReader ($readers = clients$).
+  \item Client count, element count, event queue, and buffer are bounded.
+  \item Element kinds are defined for all elements in the scene.
   \item Queued events reference elements in the current scene.
 \end{enumerate}
 
@@ -216,18 +148,18 @@ The key invariants are:
 \section{Initialization}
 % ===================================================================
 
-\begin{schema}{InitDisplayServer}
+\begin{schema}{Init}
   DisplayServer'
   \where
   clients' = \emptyset \\
   readers' = \emptyset \\
   hasScene' = zfalse \\
-  eventQueue' = \langle \rangle \\
-  listening' = ztrue
-\end{schema}
-
-\begin{schema}{Init}
-  InitDisplayServer
+  elemIds' = \emptyset \\
+  elemKinds' = \emptyset \\
+  eventQueue' = \emptyset \\
+  listening' = ztrue \\
+  bufSize' = 0 \\
+  pendingMsgs' = 0
 \end{schema}
 
 % ===================================================================
@@ -248,13 +180,15 @@ A new client connects.  We allocate a fresh FrameReader for it.
   newClient? \notin clients \\
   \# clients < maxClients \\
   clients' = clients \cup \{ newClient? \} \\
-  (\exists frs : FrameReaderState |
-\quad~ frs.bufSize = 0 \land frs.pendingMsgs = 0 @
-\quad~ readers' = readers \cup \{ newClient? \mapsto frs \}) \\
+  readers' = readers \cup \{ newClient? \} \\
   hasScene' = hasScene \\
-  currentScene' = currentScene \\
+  sceneId' = sceneId \\
+  elemIds' = elemIds \\
+  elemKinds' = elemKinds \\
   eventQueue' = eventQueue \\
-  listening' = listening
+  listening' = listening \\
+  bufSize' = bufSize \\
+  pendingMsgs' = pendingMsgs
 \end{schema}
 
 % -------------------------------------------------------------------
@@ -269,11 +203,15 @@ A client disconnects (error or clean close).
   \where
   deadClient? \in clients \\
   clients' = clients \setminus \{ deadClient? \} \\
-  readers' = \{ deadClient? \} \ndres readers \\
+  readers' = readers \setminus \{ deadClient? \} \\
   hasScene' = hasScene \\
-  currentScene' = currentScene \\
+  sceneId' = sceneId \\
+  elemIds' = elemIds \\
+  elemKinds' = elemKinds \\
   eventQueue' = eventQueue \\
-  listening' = listening
+  listening' = listening \\
+  bufSize' = bufSize \\
+  pendingMsgs' = pendingMsgs
 \end{schema}
 
 % -------------------------------------------------------------------
@@ -285,14 +223,22 @@ The event queue is cleared since old element references are stale.
 
 \begin{schema}{ReceiveScene}
   \Delta DisplayServer \\
-  newScene? : Scene
+  newSceneId? : SCENEID \\
+  newElemIds? : \power ELEMID \\
+  newElemKinds? : ELEMID \pfun ElementKind
   \where
+  newElemIds? \subseteq \dom newElemKinds? \\
+  \# newElemIds? \leq maxElements \\
   hasScene' = ztrue \\
-  currentScene' = newScene? \\
-  eventQueue' = \langle \rangle \\
+  sceneId' = newSceneId? \\
+  elemIds' = newElemIds? \\
+  elemKinds' = newElemKinds? \\
+  eventQueue' = \emptyset \\
   clients' = clients \\
   readers' = readers \\
-  listening' = listening
+  listening' = listening \\
+  bufSize' = bufSize \\
+  pendingMsgs' = pendingMsgs
 \end{schema}
 
 % -------------------------------------------------------------------
@@ -305,10 +251,15 @@ A client sends a clear message, removing all content.
   \Delta DisplayServer
   \where
   hasScene' = zfalse \\
-  eventQueue' = \langle \rangle \\
+  sceneId' = sceneId \\
+  elemIds' = elemIds \\
+  elemKinds' = elemKinds \\
+  eventQueue' = \emptyset \\
   clients' = clients \\
   readers' = readers \\
-  listening' = listening
+  listening' = listening \\
+  bufSize' = bufSize \\
+  pendingMsgs' = pendingMsgs
 \end{schema}
 
 % -------------------------------------------------------------------
@@ -322,16 +273,17 @@ An update message removes an element by ID from the current scene.
   targetId? : ELEMID
   \where
   hasScene = ztrue \\
-  targetId? \in \{ e : \ran (currentScene.elements) @ e.elemId \} \\
-  currentScene'.sceneId = currentScene.sceneId \\
-  \ran (currentScene'.elements) =
-\quad~ \{ e : \ran (currentScene.elements) | e.elemId \neq targetId? \} \\
-  \# currentScene'.elements = \# currentScene.elements - 1 \\
+  targetId? \in elemIds \\
+  elemIds' = elemIds \setminus \{ targetId? \} \\
+  elemKinds' = \{ targetId? \} \ndres elemKinds \\
+  sceneId' = sceneId \\
   hasScene' = hasScene \\
   eventQueue' = eventQueue \\
   clients' = clients \\
   readers' = readers \\
-  listening' = listening
+  listening' = listening \\
+  bufSize' = bufSize \\
+  pendingMsgs' = pendingMsgs
 \end{schema}
 
 % -------------------------------------------------------------------
@@ -346,15 +298,19 @@ for broadcast to all clients.
   buttonId? : ELEMID
   \where
   hasScene = ztrue \\
-  buttonId? \in \{ e : \ran (currentScene.elements) |
-\quad~ e.elemKind = ekButton @ e.elemId \} \\
-  eventQueue' = eventQueue \cat \langle buttonId? \rangle \\
+  buttonId? \in elemIds \\
+  elemKinds~buttonId? = ekButton \\
   \# eventQueue < maxEvents \\
+  eventQueue' = eventQueue \cup \{ buttonId? \} \\
   hasScene' = hasScene \\
-  currentScene' = currentScene \\
+  sceneId' = sceneId \\
+  elemIds' = elemIds \\
+  elemKinds' = elemKinds \\
   clients' = clients \\
   readers' = readers \\
-  listening' = listening
+  listening' = listening \\
+  bufSize' = bufSize \\
+  pendingMsgs' = pendingMsgs
 \end{schema}
 
 % -------------------------------------------------------------------
@@ -367,11 +323,67 @@ clients and the queue is emptied.
 \begin{schema}{FlushEvents}
   \Delta DisplayServer
   \where
-  eventQueue' = \langle \rangle \\
+  eventQueue' = \emptyset \\
   hasScene' = hasScene \\
-  currentScene' = currentScene \\
+  sceneId' = sceneId \\
+  elemIds' = elemIds \\
+  elemKinds' = elemKinds \\
   clients' = clients \\
   readers' = readers \\
+  listening' = listening \\
+  bufSize' = bufSize \\
+  pendingMsgs' = pendingMsgs
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Feed Bytes}
+% -------------------------------------------------------------------
+
+Feeding bytes into the FrameReader increases the buffer size.
+
+\begin{schema}{FeedBytes}
+  \Delta DisplayServer \\
+  bytesIn? : \nat
+  \where
+  bytesIn? > 0 \\
+  bytesIn? \leq maxBufSize \\
+  bufSize + bytesIn? \leq maxBufSize \\
+  bufSize' = bufSize + bytesIn? \\
+  pendingMsgs' = pendingMsgs \\
+  clients' = clients \\
+  readers' = readers \\
+  hasScene' = hasScene \\
+  sceneId' = sceneId \\
+  elemIds' = elemIds \\
+  elemKinds' = elemKinds \\
+  eventQueue' = eventQueue \\
+  listening' = listening
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Drain Messages}
+% -------------------------------------------------------------------
+
+Draining extracts all complete messages from the FrameReader,
+reducing the buffer.
+
+\begin{schema}{DrainMessages}
+  \Delta DisplayServer \\
+  drained! : \nat \\
+  bytesConsumed? : \nat
+  \where
+  bytesConsumed? \leq maxBufSize \\
+  bytesConsumed? \leq bufSize \\
+  bufSize' = bufSize - bytesConsumed? \\
+  pendingMsgs' = 0 \\
+  drained! = pendingMsgs + bytesConsumed? \\
+  clients' = clients \\
+  readers' = readers \\
+  hasScene' = hasScene \\
+  sceneId' = sceneId \\
+  elemIds' = elemIds \\
+  elemKinds' = elemKinds \\
+  eventQueue' = eventQueue \\
   listening' = listening
 \end{schema}
 
@@ -388,8 +400,13 @@ the scene is cleared, events are flushed.
   clients' = \emptyset \\
   readers' = \emptyset \\
   hasScene' = zfalse \\
-  eventQueue' = \langle \rangle \\
-  listening' = zfalse
+  sceneId' = sceneId \\
+  elemIds' = elemIds \\
+  elemKinds' = elemKinds \\
+  eventQueue' = \emptyset \\
+  listening' = zfalse \\
+  bufSize' = bufSize \\
+  pendingMsgs' = pendingMsgs
 \end{schema}
 
 % ===================================================================
@@ -400,8 +417,8 @@ The key properties maintained across all operations:
 
 \begin{enumerate}
   \item \textbf{Reader--client bijection}: Every connected client
-    has exactly one FrameReader, and every FrameReader belongs to
-    a connected client ($\dom readers = clients$).
+    has a FrameReader, and every FrameReader belongs to
+    a connected client ($readers = clients$).
 
   \item \textbf{Event validity}: Queued interaction events reference
     elements that exist in the current scene.
@@ -412,8 +429,8 @@ The key properties maintained across all operations:
   \item \textbf{Scene atomicity}: A new scene completely replaces
     the old one and clears stale events.
 
-  \item \textbf{Unique element IDs}: Within a scene, no two elements
-    share an ID.
+  \item \textbf{Element kind coverage}: Every element ID in the
+    scene has a corresponding kind in the kind map.
 \end{enumerate}
 
 \end{document}

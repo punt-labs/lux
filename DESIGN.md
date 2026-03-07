@@ -430,3 +430,75 @@ Lux must work on macOS and Linux. Windows is a bonus if free (imgui-bundle has W
 ### Why
 
 Punt Labs tools target developers and AI agents working in terminals. macOS and Linux cover the primary user base. Windows support is nice-to-have but not a blocking requirement.
+
+---
+
+## DES-009: Z Specification — ProB Animatability Constraints
+
+**Date:** 2026-03-07
+**Status:** SETTLED
+**Topic:** How to write Z specifications that ProB can animate and model-check
+
+### Context
+
+The display server has a formal Z specification (`docs/display-server.tex`) type-checked with fuzz and model-checked with ProB. Getting a fuzz-valid spec to also work in ProB required several structural changes. These lessons apply to all future Z specs in this project.
+
+### Constraint 1: Single Flat State Schema
+
+ProB merges all state schemas into one B machine. The `Init` schema must set **all** state variables from **all** schemas. If you have separate state schemas (e.g., `FrameReaderState` and `DisplayServer`), either:
+
+- Merge them into one schema (preferred), or
+- Ensure `Init` explicitly declares and assigns every variable from every schema
+
+ProB's heuristic: it looks for a schema named exactly `Init` whose declaration part includes exactly one schema reference (`State'`). If Init doesn't cover all state variables, ProB won't recognize it as the initialization.
+
+### Constraint 2: No Schema Types as Values
+
+ProB cannot handle schema types as function ranges or record values. This means:
+
+- **Bad**: `currentScene : Scene` where `Scene` is a schema
+- **Bad**: `readers : FD \pfun FrameReaderState`
+- **Good**: Flatten schema fields directly into the state (`sceneId : SCENEID`, `elemIds : \power ELEMID`, etc.)
+
+Schema types are fine for documentation and fuzz type-checking, but the state schema must use only basic types, given sets, free types, powersets, and partial functions over those.
+
+### Constraint 3: Avoid `\seq` — Use `\power` Instead
+
+`\seq T` translates to `1..n \tfun T` in B, which is an infinite type (sequences of any length). ProB must enumerate all possible lengths, causing unbounded enumeration even with `MAXINT` set. In contrast, `\power T` is a finite powerset bounded by `DEFAULT_SETSIZE`.
+
+- **Bad**: `elemIds : \seq ELEMID` (unbounded enumeration)
+- **Good**: `elemIds : \power ELEMID` (bounded by given set cardinality)
+
+This loses ordering information. For invariant checking, ordering is rarely relevant — the key properties (membership, cardinality, subset relationships) are preserved with sets.
+
+### Constraint 4: Bound All Inputs
+
+Every input variable (`?` decorated) must have a finite range for ProB to enumerate. Implicit bounds from predicates are sometimes not enough.
+
+- **Bad**: `bytesIn? > 0` with no upper bound
+- **Good**: `bytesIn? > 0 \\ bytesIn? \leq maxBufSize`
+
+### Constraint 5: Animation-Friendly Constants
+
+Production constants (64, 1000, 16M) create enormous state spaces. Use small constants (3-4) in the spec for model checking. Document the production values in a comment.
+
+### Constraint 6: No `Init*` Name Collisions
+
+ProB searches for initialization schemas using a name heuristic. If any schema starts with `Init` (e.g., `InitFrameReaderState`), ProB may select it instead of the intended `Init` schema. Rename subsidiary init schemas (e.g., `ResetFrameReader`).
+
+### Constraint 7: Frame All Variables in Every Operation
+
+Every `\Delta State` operation must explicitly set **every** primed state variable. Unset variables cause "reading undefined variable" errors. This is verbose but necessary — ProB's B translation doesn't support Z's convention of leaving unmentioned variables unchanged via schema inclusion.
+
+### Makefile Targets
+
+```bash
+make fuzz SPEC=docs/display-server.tex   # Type-check with fuzz
+make prob SPEC=docs/display-server.tex   # Full ProB suite (init, animate, CBC, model check)
+```
+
+Default ProB parameters: `DEFAULT_SETSIZE=2`, `MAXINT=4`, `TIME_OUT=60000`. Override via make variables:
+
+```bash
+make prob SPEC=docs/foo.tex PROB_SETSIZE=3 PROB_MAXINT=8
+```
