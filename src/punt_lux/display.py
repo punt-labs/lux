@@ -154,17 +154,20 @@ class WidgetState:
 def _parse_hex_color(hex_str: str) -> tuple[int, int, int, int]:
     """Parse a hex color string to (r, g, b, a) ints 0-255."""
     h = hex_str.lstrip("#")
-    if len(h) == 6:
-        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-        return (r, g, b, 255)
-    if len(h) == 8:
-        r, g, b, a = (
-            int(h[0:2], 16),
-            int(h[2:4], 16),
-            int(h[4:6], 16),
-            int(h[6:8], 16),
-        )
-        return (r, g, b, a)
+    try:
+        if len(h) == 6:
+            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+            return (r, g, b, 255)
+        if len(h) == 8:
+            r, g, b, a = (
+                int(h[0:2], 16),
+                int(h[2:4], 16),
+                int(h[4:6], 16),
+                int(h[6:8], 16),
+            )
+            return (r, g, b, a)
+    except ValueError:
+        logger.warning("Invalid hex color %r; using fallback white", hex_str)
     return (255, 255, 255, 255)
 
 
@@ -388,6 +391,7 @@ class DisplayServer:
                 continue
             if patch.remove:
                 elements.pop(idx)
+                self._widget_state.set(patch.id, None)
             elif patch.set:
                 elem = elements[idx]
                 for k, v in patch.set.items():
@@ -651,6 +655,9 @@ class DisplayServer:
         if not items:
             imgui.text(f"{label}: (empty)")
             return
+        if current < 0 or current >= len(items):
+            current = 0
+            self._widget_state.set(eid, current)
         changed, new_val = imgui.combo(f"{label}##{eid}", current, items)
         if changed:
             self._widget_state.set(eid, new_val)
