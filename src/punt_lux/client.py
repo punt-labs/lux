@@ -28,6 +28,7 @@ from punt_lux.protocol import (
     AckMessage,
     ClearMessage,
     PingMessage,
+    PongMessage,
     ReadyMessage,
     SceneMessage,
     UpdateMessage,
@@ -70,6 +71,7 @@ class LuxClient:
         self._recv_timeout = recv_timeout
         self._sock: socket.socket | None = None
         self._ready: ReadyMessage | None = None
+        self._pending: list[Message] = []
 
     # -- context manager ---------------------------------------------------
 
@@ -122,7 +124,15 @@ class LuxClient:
         self._sock = sock
         self._socket_path = path
 
-        ready = recv_message(sock, timeout=self._connect_timeout)
+        try:
+            ready = recv_message(sock, timeout=self._connect_timeout)
+        except Exception:
+            self.close()
+            raise
+        if ready is None:
+            self.close()
+            msg = f"Handshake timed out after {self._connect_timeout}s at {path}"
+            raise RuntimeError(msg)
         if not isinstance(ready, ReadyMessage):
             self.close()
             msg = f"Expected ReadyMessage, got {type(ready).__name__}"
@@ -186,28 +196,36 @@ class LuxClient:
         sock = self._require_connected()
         send_message(sock, ClearMessage())
 
-    def ping(self) -> Message | None:
+    def ping(self) -> PongMessage | None:
         """Send a ping and wait for the pong response."""
         sock = self._require_connected()
         send_message(sock, PingMessage(ts=time.time()))
-        return recv_message(sock, timeout=self._recv_timeout)
+        msg = recv_message(sock, timeout=self._recv_timeout)
+        if isinstance(msg, PongMessage):
+            return msg
+        if msg is not None:
+            self._pending.append(msg)
+        return None
 
     # -- receiving ---------------------------------------------------------
 
     def recv(self, timeout: float | None = None) -> Message | None:
         """Receive the next message from the display.
 
-        Returns ``None`` on timeout.  Typical messages:
-        :class:`InteractionMessage`, :class:`WindowMessage`,
-        :class:`AckMessage`, :class:`PongMessage`.
+        Returns buffered messages first, then reads from the socket.
+        Returns ``None`` on timeout.
         """
+        if self._pending:
+            return self._pending.pop(0)
         sock = self._require_connected()
         t = timeout if timeout is not None else self._recv_timeout
         return recv_message(sock, timeout=t)
 
     def _recv_ack(self) -> AckMessage | None:
-        """Receive expecting an AckMessage.  Returns None on timeout."""
+        """Receive expecting an AckMessage.  Buffers non-ack messages."""
         msg = self.recv()
         if isinstance(msg, AckMessage):
             return msg
+        if msg is not None:
+            self._pending.append(msg)
         return None
