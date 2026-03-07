@@ -38,6 +38,14 @@ class TestElementFromDict:
         elem = element_from_dict({"id": "t1", "content": "Hi"})
         assert elem.kind == "text"
 
+    def test_text_defaults_content_to_empty(self) -> None:
+        elem = element_from_dict({"kind": "text", "id": "t1"})
+        assert elem.content == ""  # type: ignore[union-attr]
+
+    def test_button_defaults_label_to_empty(self) -> None:
+        elem = element_from_dict({"kind": "button", "id": "b1"})
+        assert elem.label == ""  # type: ignore[union-attr]
+
     def test_unknown_kind_raises(self) -> None:
         import pytest
 

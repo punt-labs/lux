@@ -244,7 +244,7 @@ def _element_to_dict(elem: Element) -> dict[str, Any]:
 def element_from_dict(d: dict[str, Any]) -> Element:
     """Deserialize a dict to the appropriate Element dataclass.
 
-    Accepts dicts as produced by :func:`element_to_dict` or as supplied by
+    Accepts dicts matching this module's element schema or as supplied by
     MCP tool callers.  Missing ``content``/``label`` keys default to ``""``.
     """
     kind = d.get("kind", "text")
