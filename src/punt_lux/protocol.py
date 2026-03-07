@@ -13,7 +13,7 @@ import socket
 import struct
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -476,8 +476,11 @@ def decode_frame(data: bytes) -> tuple[dict[str, Any], bytes]:
     if len(data) < HEADER_SIZE + length:
         msg = "Incomplete frame payload"
         raise ValueError(msg)
-    payload: dict[str, Any] = json.loads(data[HEADER_SIZE : HEADER_SIZE + length])
-    return payload, data[HEADER_SIZE + length :]
+    raw = json.loads(data[HEADER_SIZE : HEADER_SIZE + length])
+    if not isinstance(raw, dict):
+        msg = f"Expected JSON object, got {type(raw).__name__}"
+        raise ValueError(msg)
+    return cast("dict[str, Any]", raw), data[HEADER_SIZE + length :]
 
 
 class FrameReader:
@@ -508,8 +511,12 @@ class FrameReader:
             if len(self._buf) < total:
                 break
             payload_bytes = bytes(self._buf[HEADER_SIZE:total])
+            raw = json.loads(payload_bytes)
+            if not isinstance(raw, dict):
+                msg = f"Expected JSON object, got {type(raw).__name__}"
+                raise ValueError(msg)
             del self._buf[:total]
-            messages.append(json.loads(payload_bytes))
+            messages.append(cast("dict[str, Any]", raw))
         return messages
 
     def drain_typed(self) -> list[Message]:
@@ -529,6 +536,7 @@ def send_message(sock: socket.socket, msg: Message) -> None:
 
 def recv_message(sock: socket.socket, timeout: float = 5.0) -> Message | None:
     """Receive a single framed message. Returns None on timeout."""
+    prev_timeout = sock.gettimeout()
     sock.settimeout(timeout)
     try:
         header = _recv_exact(sock, HEADER_SIZE)
@@ -545,7 +553,7 @@ def recv_message(sock: socket.socket, timeout: float = 5.0) -> Message | None:
     except TimeoutError:
         return None
     finally:
-        sock.settimeout(None)
+        sock.settimeout(prev_timeout)
 
 
 def _recv_exact(sock: socket.socket, n: int) -> bytes | None:
