@@ -18,6 +18,8 @@ import logging
 import select
 import socket
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
@@ -253,6 +255,21 @@ def _find_element(
 
 
 # ---------------------------------------------------------------------------
+# Render function per-element state
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _RenderFnState:
+    """Lifecycle state for a single render_function element."""
+
+    source: str = ""
+    dialog: Any = None  # ConsentDialog | None
+    executor: Any = None  # CodeExecutor | None
+    denied: bool = False
+
+
+# ---------------------------------------------------------------------------
 # Display server
 # ---------------------------------------------------------------------------
 
@@ -276,6 +293,7 @@ class DisplayServer:
         self._widget_state = WidgetState()
         self._dirty_windows: set[str] = set()
         self._agent_menus: list[dict[str, Any]] = []
+        self._render_fn_state: dict[str, _RenderFnState] = {}
         self._themes: list[Any] = []
         self._test_auto_click = test_auto_click
 
@@ -519,6 +537,7 @@ class DisplayServer:
             self._current_scene = msg
             self._event_queue.clear()
             self._widget_state.clear()
+            self._render_fn_state.clear()
             if msg.id != prev_id:
                 for elem in msg.elements:
                     if isinstance(elem, WindowElement):
@@ -700,6 +719,7 @@ class DisplayServer:
         "progress": "_render_progress",
         "spinner": "_render_spinner",
         "markdown": "_render_markdown",
+        "render_function": "_render_render_function",
     }
 
     def _render_element(self, elem: Element) -> None:
@@ -1208,6 +1228,85 @@ class DisplayServer:
             from imgui_bundle import imgui
 
             imgui.text_unformatted(md.content)
+
+    # -- render_function element -------------------------------------------
+
+    def _make_event_callback(
+        self, eid: str
+    ) -> Callable[[str, dict[str, Any] | None], None]:
+        """Create an event callback that routes ctx.send() to the event queue."""
+
+        def _cb(action: str, data: dict[str, Any] | None) -> None:
+            self._event_queue.append(
+                InteractionMessage(
+                    element_id=eid,
+                    action=action,
+                    ts=time.time(),
+                    value=data,
+                )
+            )
+
+        return _cb
+
+    def _render_render_function(self, elem: Element) -> None:
+        from imgui_bundle import ImVec4, imgui
+
+        from punt_lux.ast_check import check_source
+        from punt_lux.consent import ConsentDialog, ConsentResult
+        from punt_lux.runtime import CodeExecutor
+
+        rf: Any = elem
+        eid: str = rf.id
+        source: str = rf.source
+
+        # Get or create per-element state
+        state = self._render_fn_state.get(eid)
+        if state is None or state.source != source:
+            old_executor = state.executor if state is not None else None
+            warnings = check_source(source)
+            state = _RenderFnState(
+                source=source,
+                dialog=ConsentDialog(source, warnings),
+                executor=old_executor,  # preserve for hot_reload
+            )
+            self._render_fn_state[eid] = state
+
+        # Phase 1: Consent pending
+        if state.dialog is not None:
+            result = state.dialog.draw()
+            if result == ConsentResult.ALLOWED:
+                state.dialog = None
+                old: CodeExecutor | None = state.executor
+                if old is not None:
+                    state.executor = old.hot_reload(source)
+                else:
+                    state.executor = CodeExecutor(
+                        source,
+                        event_callback=self._make_event_callback(eid),
+                    )
+            elif result == ConsentResult.DENIED:
+                state.dialog = None
+                state.denied = True
+            return
+
+        # Phase 2: Denied
+        if state.denied:
+            imgui.text_colored(
+                ImVec4(1.0, 0.4, 0.4, 1.0), f"[{eid}] Code execution denied"
+            )
+            return
+
+        # Phase 3: Running (or errored)
+        if state.executor is not None:
+            executor: CodeExecutor = state.executor
+            if executor.has_error:
+                imgui.text_colored(
+                    ImVec4(1.0, 0.3, 0.3, 1.0),
+                    f"Error: {executor.error_message}",
+                )
+                return
+            avail = imgui.get_content_region_avail()
+            executor.render(imgui.get_io().delta_time, avail.x, avail.y)
 
     # -- draw element rendering --------------------------------------------
 

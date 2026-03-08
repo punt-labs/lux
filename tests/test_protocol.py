@@ -30,6 +30,7 @@ from punt_lux.protocol import (
     ProgressElement,
     RadioElement,
     ReadyMessage,
+    RenderFunctionElement,
     SceneMessage,
     SelectableElement,
     SeparatorElement,
@@ -301,6 +302,17 @@ class TestElements:
         e = MarkdownElement(id="md1", content="# Hello\n\n**Bold**")
         assert e.kind == "markdown"
         assert e.content == "# Hello\n\n**Bold**"
+
+    def test_render_function_element(self):
+        e = RenderFunctionElement(id="rf1", source="def render(ctx):\n    pass")
+        assert e.kind == "render_function"
+        assert e.source == "def render(ctx):\n    pass"
+        assert e.id == "rf1"
+
+    def test_render_function_element_defaults(self):
+        e = RenderFunctionElement(id="rf1", source="def render(ctx): pass")
+        assert e.kind == "render_function"
+        assert e.tooltip is None
 
     def test_tooltip_field(self):
         e = TextElement(id="t1", content="hi", tooltip="help text")
@@ -825,6 +837,20 @@ class TestSerialization:
         elem = restored.elements[0]
         assert isinstance(elem, MarkdownElement)
         assert elem.content == "# Title\n\nParagraph."
+
+    def test_render_function_roundtrip(self):
+        source = (
+            "def render(ctx):\n    from imgui_bundle import imgui\n    imgui.text('hi')"
+        )
+        e = RenderFunctionElement(id="rf1", source=source)
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        elem = restored.elements[0]
+        assert isinstance(elem, RenderFunctionElement)
+        assert elem.source == source
+        assert elem.id == "rf1"
 
     def test_tooltip_roundtrip(self):
         e = TextElement(id="t1", content="hover me", tooltip="help")

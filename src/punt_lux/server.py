@@ -101,6 +101,10 @@ def show(
     Canvas element:
       Draw:         {"kind": "draw", "id": "d1", "commands": [...]}
 
+    Code-on-demand (shows consent dialog, then runs each frame):
+      Render fn:    {"kind": "render_function", "id": "rf1",
+                     "source": "def render(ctx):\\n    ..."}
+
     Layout containers (nest other elements as children):
       Group:        {"kind": "group", "id": "g1", "layout": "columns",
                      "children": [{"kind": "text", ...}, ...]}
