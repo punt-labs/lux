@@ -1,7 +1,7 @@
 """Lux MCP server — expose display tools to AI agents.
 
-Provides FastMCP tools: ``show``, ``update``, ``clear``, ``ping``,
-and ``recv``.
+Provides FastMCP tools: ``show``, ``show_table``, ``show_dashboard``,
+``update``, ``clear``, ``ping``, and ``recv``.
 Uses :class:`LuxClient` under the hood with lazy connection on first call.
 
 Run via stdio transport::
@@ -45,10 +45,10 @@ mcp = FastMCP(
         "- Use window for floating panels (inspector, detail views)\n"
         "- Nest containers freely: groups inside tabs, windows inside groups\n\n"
         "Common patterns:\n"
-        "- Dashboard: metric cards (text in groups) + plot + table\n"
-        "- Data explorer: combo/input filters + table + collapsing detail\n"
+        "- Data explorer: use show_table() for filterable tables with detail\n"
+        "- Dashboard: use show_dashboard() for metrics + charts + table\n"
         "- Form: input_text + combo + checkbox + button for submission\n"
-        "- Monitor: progress bars + spinner + auto-refreshing text"
+        "- Custom layout: use show() to compose any element tree"
     ),
 )
 
@@ -169,6 +169,210 @@ def show(
         return f"ack:{ack.scene_id}"
 
     return _with_reconnect(_call)
+
+
+@mcp.tool()
+def show_table(
+    scene_id: str,
+    columns: list[str],
+    rows: list[list[Any]],
+    filters: list[dict[str, Any]] | None = None,
+    detail: dict[str, Any] | None = None,
+    flags: list[str] | None = None,
+    title: str | None = None,
+) -> str:
+    """Display a filterable data table with optional detail panel.
+
+    This is a convenience wrapper around ``show()`` for the most common
+    pattern: a searchable, filterable table with drill-down detail.
+    Filters and detail run at 60fps in the display — zero round trips.
+
+    Args:
+        scene_id: Unique identifier for this scene.
+        columns: Column headers (e.g., ["ID", "Title", "Status"]).
+        rows: Table data — each row is a list matching columns order.
+        filters: Built-in filter controls rendered above the table.
+            Two types:
+              Search:  {"type": "search", "column": [0, 1],
+                        "hint": "Filter by ID or title..."}
+              Combo:   {"type": "combo", "column": 2, "label": "Status",
+                        "items": ["All", "Open", "Closed"]}
+            First combo item should be "All" (no filter). Include only
+            values that exist in the data. 1-3 filters is ideal.
+        detail: Drill-down panel shown when a row is selected.
+            Structure:
+              {"fields": ["ID", "Status", "Priority"],
+               "rows": [["ISS-1", "Open", "P1"], ...],
+               "body": ["Full description for row 1...", ...]}
+            ``detail.rows`` **and** ``detail.body`` must both be
+            parallel to ``rows`` (same count, same order). Each
+            entry in ``detail.body`` is the expanded text for the
+            corresponding row.
+        flags: Table flags (default: ["borders", "row_bg"]).
+        title: Window title.
+
+    Example — issue explorer with search, status filter, and detail::
+
+        show_table(
+            scene_id="issues",
+            columns=["ID", "Title", "Status", "Priority"],
+            rows=[
+                ["ISS-1", "Fix login timeout", "Open", "P1"],
+                ["ISS-2", "Add dark mode", "In Progress", "P2"],
+            ],
+            filters=[
+                {"type": "search", "column": [0, 1],
+                 "hint": "Filter by ID or title..."},
+                {"type": "combo", "column": 2, "label": "Status",
+                 "items": ["All", "Open", "In Progress"]},
+            ],
+            detail={
+                "fields": ["ID", "Status", "Priority", "Assignee"],
+                "rows": [
+                    ["ISS-1", "Open", "P1", "alice"],
+                    ["ISS-2", "In Progress", "P2", "bob"],
+                ],
+                "body": [
+                    "Login flow times out after 30s on slow connections.",
+                    "Add system-wide dark mode toggle.",
+                ],
+            },
+            title="Issue Explorer",
+        )
+    """
+    table: dict[str, Any] = {
+        "kind": "table",
+        "id": "table",
+        "columns": columns,
+        "rows": rows,
+        "flags": flags if flags is not None else ["borders", "row_bg"],
+    }
+    if filters is not None:
+        table["filters"] = filters
+    if detail is not None:
+        table["detail"] = detail
+    return show(scene_id, [table], title=title)
+
+
+@mcp.tool()
+def show_dashboard(
+    scene_id: str,
+    metrics: list[dict[str, str]] | None = None,
+    charts: list[dict[str, Any]] | None = None,
+    table_columns: list[str] | None = None,
+    table_rows: list[list[Any]] | None = None,
+    title: str | None = None,
+) -> str:
+    """Display a dashboard with metric cards, charts, and a data table.
+
+    This is a convenience wrapper around ``show()`` for the dashboard
+    pattern: metric cards across the top, charts in the middle, and a
+    summary table at the bottom. All sections are optional — include
+    only the ones relevant to your data.
+
+    Args:
+        scene_id: Unique identifier for this scene.
+        metrics: Key-value metric cards displayed in a row.
+            Each dict: {"label": "Total Users", "value": "1,234"}.
+            2-5 cards is ideal for a single-glance overview.
+        charts: Plot elements displayed below the metrics.
+            Each dict is a plot config:
+              {"id": "p1", "title": "Trend",
+               "x_label": "Time", "y_label": "Value",
+               "series": [{"label": "requests", "type": "line",
+                           "x": [1,2,3], "y": [10,20,15]}]}
+            Series types: "line" (trends), "bar" (comparisons),
+            "scatter" (correlations).
+        table_columns: Column headers for the summary table.
+        table_rows: Rows for the summary table.
+        title: Window title.
+
+    Example — test results dashboard::
+
+        show_dashboard(
+            scene_id="test-results",
+            metrics=[
+                {"label": "Total", "value": "142"},
+                {"label": "Passed", "value": "137"},
+                {"label": "Failed", "value": "5"},
+                {"label": "Duration", "value": "2m 34s"},
+            ],
+            charts=[{
+                "id": "duration-chart",
+                "title": "Test Duration by Suite",
+                "x_label": "Suite", "y_label": "Seconds",
+                "series": [{"label": "duration", "type": "bar",
+                            "x": [1, 2, 3],
+                            "y": [45, 82, 27]}],
+            }],
+            table_columns=["Test", "Status", "Duration"],
+            table_rows=[
+                ["test_login", "PASS", "1.2s"],
+                ["test_upload", "FAIL", "5.0s"],
+            ],
+            title="Test Results",
+        )
+    """
+    elements: list[dict[str, Any]] = []
+
+    sections: list[list[dict[str, Any]]] = []
+
+    if metrics:
+        cards = [
+            {
+                "kind": "group",
+                "id": f"metric-{i}",
+                "children": [
+                    {"kind": "text", "id": f"metric-label-{i}", "content": m["label"]},
+                    {
+                        "kind": "text",
+                        "id": f"metric-value-{i}",
+                        "content": m["value"],
+                        "style": "heading",
+                    },
+                ],
+            }
+            for i, m in enumerate(metrics)
+        ]
+        sections.append(
+            [
+                {
+                    "kind": "group",
+                    "id": "metrics-row",
+                    "layout": "columns",
+                    "children": cards,
+                }
+            ]
+        )
+
+    if charts:
+        chart_elements: list[dict[str, Any]] = []
+        for i, chart in enumerate(charts):
+            plot: dict[str, Any] = {**chart, "kind": "plot"}
+            if "id" not in plot:
+                plot["id"] = f"chart-{i}"
+            chart_elements.append(plot)
+        sections.append(chart_elements)
+
+    if table_columns is not None:
+        sections.append(
+            [
+                {
+                    "kind": "table",
+                    "id": "dashboard-table",
+                    "columns": table_columns,
+                    "rows": table_rows if table_rows is not None else [],
+                    "flags": ["borders", "row_bg"],
+                }
+            ]
+        )
+
+    for i, section in enumerate(sections):
+        elements.extend(section)
+        if i < len(sections) - 1:
+            elements.append({"kind": "separator"})
+
+    return show(scene_id, elements, title=title)
 
 
 @mcp.tool()
