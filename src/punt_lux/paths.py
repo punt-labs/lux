@@ -87,13 +87,15 @@ def ensure_display(socket_path: Path | None = None, timeout: float = 5.0) -> Pat
 
     socket_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = log_file_path(socket_path).open("w")
-    subprocess.Popen(  # noqa: S603
-        [sys.executable, "-m", "punt_lux", "display", "--socket", str(socket_path)],
-        start_new_session=True,
-        stdout=log_file,
-        stderr=log_file,
-    )
-    log_file.close()
+    try:
+        subprocess.Popen(  # noqa: S603
+            [sys.executable, "-m", "punt_lux", "display", "--socket", str(socket_path)],
+            start_new_session=True,
+            stdout=log_file,
+            stderr=log_file,
+        )
+    finally:
+        log_file.close()
 
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:

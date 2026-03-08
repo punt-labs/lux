@@ -390,30 +390,35 @@ class DisplayServer:
 
     def _show_agent_menu(self, imgui: Any, menu: dict[str, Any]) -> None:
         if imgui.begin_menu(menu.get("label", "Custom")):
-            for item in menu.get("items", []):
-                if item.get("label") == "---":
-                    imgui.separator()
-                    continue
-                enabled = item.get("enabled", True)
-                clicked, _ = imgui.menu_item(
-                    item["label"],
-                    item.get("shortcut", ""),
-                    False,  # noqa: FBT003
-                    enabled,
-                )
-                if clicked and "id" in item:
-                    self._event_queue.append(
-                        InteractionMessage(
-                            element_id=item["id"],
-                            action="menu",
-                            ts=time.time(),
-                            value={
-                                "menu": menu.get("label", "Custom"),
-                                "item": item["label"],
-                            },
-                        )
+            try:
+                for item in menu.get("items", []):
+                    label = item.get("label")
+                    if label is None:
+                        continue
+                    if label == "---":
+                        imgui.separator()
+                        continue
+                    enabled = item.get("enabled", True)
+                    clicked, _ = imgui.menu_item(
+                        label,
+                        item.get("shortcut", ""),
+                        False,  # noqa: FBT003
+                        enabled,
                     )
-            imgui.end_menu()
+                    if clicked and "id" in item:
+                        self._event_queue.append(
+                            InteractionMessage(
+                                element_id=item["id"],
+                                action="menu",
+                                ts=time.time(),
+                                value={
+                                    "menu": menu.get("label", "Custom"),
+                                    "item": label,
+                                },
+                            )
+                        )
+            finally:
+                imgui.end_menu()
 
     # -- socket lifecycle --------------------------------------------------
 
