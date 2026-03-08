@@ -356,37 +356,43 @@ class DisplayServer:
         from imgui_bundle import hello_imgui
 
         if imgui.begin_menu("Theme"):
-            for theme in self._themes:
-                name = theme.name.replace("_", " ").title()
-                if imgui.menu_item(name, "", False)[0]:  # noqa: FBT003
-                    hello_imgui.apply_theme(theme)
-            imgui.end_menu()
+            try:
+                for theme in self._themes:
+                    name = theme.name.replace("_", " ").title()
+                    if imgui.menu_item(name, "", False)[0]:  # noqa: FBT003
+                        hello_imgui.apply_theme(theme)
+            finally:
+                imgui.end_menu()
 
     def _show_window_menu(self, imgui: Any) -> None:
         from imgui_bundle import hello_imgui
 
         if imgui.begin_menu("Window"):
-            if imgui.menu_item("Reset Size", "", False)[0]:  # noqa: FBT003
-                params = hello_imgui.get_runner_params()
-                params.app_window_params.window_geometry.size = (800, 600)
-            imgui.end_menu()
+            try:
+                if imgui.menu_item("Reset Size", "", False)[0]:  # noqa: FBT003
+                    params = hello_imgui.get_runner_params()
+                    params.app_window_params.window_geometry.size = (800, 600)
+            finally:
+                imgui.end_menu()
 
     def _show_lux_menu(self, imgui: Any) -> None:
         from imgui_bundle import hello_imgui
 
         if imgui.begin_menu("Lux"):
-            from punt_lux import __version__
+            try:
+                from punt_lux import __version__
 
-            imgui.menu_item(
-                f"Lux v{__version__}",
-                "",
-                False,  # noqa: FBT003
-                False,  # noqa: FBT003
-            )
-            imgui.separator()
-            if imgui.menu_item("Quit", "Cmd+Q", False)[0]:  # noqa: FBT003
-                hello_imgui.get_runner_params().app_shall_exit = True
-            imgui.end_menu()
+                imgui.menu_item(
+                    f"Lux v{__version__}",
+                    "",
+                    False,  # noqa: FBT003
+                    False,  # noqa: FBT003
+                )
+                imgui.separator()
+                if imgui.menu_item("Quit", "Cmd+Q", False)[0]:  # noqa: FBT003
+                    hello_imgui.get_runner_params().app_shall_exit = True
+            finally:
+                imgui.end_menu()
 
     def _show_agent_menu(self, imgui: Any, menu: dict[str, Any]) -> None:
         if imgui.begin_menu(menu.get("label", "Custom")):
