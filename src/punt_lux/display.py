@@ -295,6 +295,7 @@ class DisplayServer:
         self._agent_menus: list[dict[str, Any]] = []
         self._render_fn_state: dict[str, _RenderFnState] = {}
         self._themes: list[Any] = []
+        self._decorated: bool = True
         self._test_auto_click = test_auto_click
 
     @property
@@ -400,9 +401,43 @@ class DisplayServer:
                 imgui.separator()
 
                 _, wp.top_most = imgui.menu_item("Always on Top", "", wp.top_most)
-                _, wp.borderless = imgui.menu_item("Borderless", "", wp.borderless)
+
+                clicked, _ = imgui.menu_item("Borderless", "", not self._decorated)
+                if clicked:
+                    self._decorated = not self._decorated
+                    self._set_glfw_decorated(decorated=self._decorated)
             finally:
                 imgui.end_menu()
+
+    @staticmethod
+    def _set_glfw_decorated(*, decorated: bool) -> None:
+        """Toggle window decoration at runtime via GLFW."""
+        import ctypes
+        import importlib.resources
+
+        from imgui_bundle import hello_imgui
+
+        glfw_decorated = 0x00020005  # GLFW_DECORATED
+        window_addr = hello_imgui.get_glfw_window_address()  # type: ignore[attr-defined]
+
+        # Locate libglfw shipped alongside imgui_bundle
+        bundle_dir = Path(importlib.resources.files("imgui_bundle"))  # type: ignore[arg-type]
+        glfw_path = bundle_dir / "libglfw.dylib"
+        if not glfw_path.exists():
+            logger.warning("Cannot find libglfw.dylib — borderless toggle unavailable")
+            return
+
+        glfw_lib = ctypes.cdll.LoadLibrary(str(glfw_path))
+        glfw_lib.glfwSetWindowAttrib.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_int,
+        ]
+        glfw_lib.glfwSetWindowAttrib(
+            ctypes.c_void_p(window_addr),
+            glfw_decorated,
+            int(decorated),
+        )
 
     def _show_lux_menu(self, imgui: Any) -> None:
         from imgui_bundle import hello_imgui
