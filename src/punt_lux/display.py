@@ -556,6 +556,7 @@ class DisplayServer:
         elif isinstance(msg, ClearMessage):
             self._current_scene = None
             self._event_queue.clear()
+            self._render_fn_state.clear()
         elif isinstance(msg, MenuMessage):
             self._agent_menus = msg.menus
         elif isinstance(msg, PingMessage):
