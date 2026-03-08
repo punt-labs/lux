@@ -19,6 +19,7 @@ from punt_lux.protocol import (
     PlotElement,
     PongMessage,
     ProgressElement,
+    RenderFunctionElement,
     SelectableElement,
     SliderElement,
     SpinnerElement,
@@ -329,6 +330,26 @@ class TestElementFromDict:
         elem = element_from_dict({"kind": "markdown", "id": "md1"})
         assert isinstance(elem, MarkdownElement)
         assert elem.content == ""
+
+    def test_render_function_element(self) -> None:
+        elem = element_from_dict(
+            {
+                "kind": "render_function",
+                "id": "rf1",
+                "source": "def render(ctx):\n    pass",
+            }
+        )
+        assert isinstance(elem, RenderFunctionElement)
+        assert elem.source == "def render(ctx):\n    pass"
+        assert elem.id == "rf1"
+
+    def test_render_function_element_defaults(self) -> None:
+        elem = element_from_dict(
+            {"kind": "render_function", "id": "rf1", "source": "def render(ctx): pass"}
+        )
+        assert isinstance(elem, RenderFunctionElement)
+        assert elem.kind == "render_function"
+        assert elem.tooltip is None
 
     def test_tooltip_from_dict(self) -> None:
         elem = element_from_dict(

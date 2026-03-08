@@ -18,6 +18,8 @@ import logging
 import select
 import socket
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, cast
 
@@ -253,6 +255,21 @@ def _find_element(
 
 
 # ---------------------------------------------------------------------------
+# Render function per-element state
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class _RenderFnState:
+    """Lifecycle state for a single render_function element."""
+
+    source: str = ""
+    dialog: Any = None  # ConsentDialog | None
+    executor: Any = None  # CodeExecutor | None
+    denied: bool = False
+
+
+# ---------------------------------------------------------------------------
 # Display server
 # ---------------------------------------------------------------------------
 
@@ -276,7 +293,10 @@ class DisplayServer:
         self._widget_state = WidgetState()
         self._dirty_windows: set[str] = set()
         self._agent_menus: list[dict[str, Any]] = []
+        self._render_fn_state: dict[str, _RenderFnState] = {}
         self._themes: list[Any] = []
+        self._decorated: bool = True
+        self._opacity: float = 1.0
         self._test_auto_click = test_auto_click
 
     @property
@@ -296,6 +316,9 @@ class DisplayServer:
         runner_params.imgui_window_params.show_menu_app = False
         runner_params.imgui_window_params.show_menu_view = False
         runner_params.imgui_window_params.show_menu_view_themes = False
+        runner_params.imgui_window_params.show_status_bar = False
+        runner_params.imgui_window_params.show_status_fps = False
+        runner_params.imgui_window_params.remember_status_bar_settings = False
         runner_params.callbacks.show_menus = self._show_menus
         runner_params.callbacks.post_init = self._on_post_init
         runner_params.callbacks.show_gui = self._on_frame
@@ -310,9 +333,10 @@ class DisplayServer:
 
     def _on_post_init(self) -> None:
         """Called once the OpenGL context is ready."""
-        from imgui_bundle import hello_imgui
+        from imgui_bundle import hello_imgui, imgui_md
 
         self._themes = list(hello_imgui.ImGuiTheme_)
+        imgui_md.initialize_markdown()
         self._setup_socket()
         write_pid_file(self._socket_path)
         logger.info("Display server listening on %s", self._socket_path)
@@ -369,11 +393,72 @@ class DisplayServer:
 
         if imgui.begin_menu("Window"):
             try:
+                params = hello_imgui.get_runner_params()
+                wp = params.app_window_params
+
                 if imgui.menu_item("Reset Size", "", False)[0]:  # noqa: FBT003
-                    params = hello_imgui.get_runner_params()
-                    params.app_window_params.window_geometry.size = (800, 600)
+                    hello_imgui.change_window_size((800, 600))
+
+                imgui.separator()
+
+                _, wp.top_most = imgui.menu_item("Always on Top", "", wp.top_most)
+
+                clicked, _ = imgui.menu_item("Borderless", "", not self._decorated)
+                if clicked:
+                    self._decorated = not self._decorated
+                    self._set_glfw_decorated(decorated=self._decorated)
+
+                imgui.separator()
+
+                changed, value = imgui.slider_float("Opacity", self._opacity, 0.2, 1.0)
+                if changed:
+                    self._opacity = value
+                    self._set_glfw_opacity(opacity=value)
             finally:
                 imgui.end_menu()
+
+    @staticmethod
+    def _set_glfw_decorated(*, decorated: bool) -> None:
+        """Toggle window decoration at runtime via GLFW.
+
+        Uses RTLD_NOLOAD to grab the already-loaded libglfw handle
+        rather than loading a second copy (which triggers duplicate
+        Objective-C class warnings on macOS).
+        """
+        import ctypes
+
+        from imgui_bundle import hello_imgui
+
+        glfw_decorated = 0x00020005  # GLFW_DECORATED
+        window_addr = hello_imgui.get_glfw_window_address()  # type: ignore[attr-defined]
+
+        # RTLD_NOLOAD (0x10 on macOS) returns the existing handle
+        # without loading a second copy of the library.
+        rtld_noload = 0x10
+        glfw_lib = ctypes.CDLL("libglfw.3.dylib", mode=rtld_noload)
+        glfw_lib.glfwSetWindowAttrib.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_int,
+            ctypes.c_int,
+        ]
+        glfw_lib.glfwSetWindowAttrib(
+            ctypes.c_void_p(window_addr),
+            glfw_decorated,
+            int(decorated),
+        )
+
+    @staticmethod
+    def _set_glfw_opacity(*, opacity: float) -> None:
+        """Set window opacity at runtime via GLFW."""
+        import ctypes
+
+        from imgui_bundle import hello_imgui
+
+        window_addr = hello_imgui.get_glfw_window_address()  # type: ignore[attr-defined]
+        rtld_noload = 0x10
+        glfw_lib = ctypes.CDLL("libglfw.3.dylib", mode=rtld_noload)
+        glfw_lib.glfwSetWindowOpacity.argtypes = [ctypes.c_void_p, ctypes.c_float]
+        glfw_lib.glfwSetWindowOpacity(ctypes.c_void_p(window_addr), opacity)
 
     def _show_lux_menu(self, imgui: Any) -> None:
         from imgui_bundle import hello_imgui
@@ -519,6 +604,7 @@ class DisplayServer:
             self._current_scene = msg
             self._event_queue.clear()
             self._widget_state.clear()
+            self._render_fn_state.clear()
             if msg.id != prev_id:
                 for elem in msg.elements:
                     if isinstance(elem, WindowElement):
@@ -535,6 +621,7 @@ class DisplayServer:
         elif isinstance(msg, ClearMessage):
             self._current_scene = None
             self._event_queue.clear()
+            self._render_fn_state.clear()
         elif isinstance(msg, MenuMessage):
             self._agent_menus = msg.menus
         elif isinstance(msg, PingMessage):
@@ -553,6 +640,7 @@ class DisplayServer:
                 removed = parent_list.pop(idx)
                 for eid in _collect_ids(removed):
                     self._widget_state.set(eid, None)
+                    self._render_fn_state.pop(eid, None)
             elif patch.set:
                 self._apply_patch_set(parent_list[idx], patch.set)
 
@@ -700,6 +788,7 @@ class DisplayServer:
         "progress": "_render_progress",
         "spinner": "_render_spinner",
         "markdown": "_render_markdown",
+        "render_function": "_render_render_function",
     }
 
     def _render_element(self, elem: Element) -> None:
@@ -1104,8 +1193,9 @@ class DisplayServer:
             return
 
         if imgui.begin_table(f"##{eid}", num_cols, table_flags):
+            stretch = imgui.TableColumnFlags_.width_stretch.value
             for col_name in columns:
-                imgui.table_setup_column(col_name)
+                imgui.table_setup_column(col_name, stretch)
             imgui.table_headers_row()
 
             for row in rows:
@@ -1113,7 +1203,7 @@ class DisplayServer:
                 for col_idx, cell in enumerate(row):
                     if col_idx < num_cols:
                         imgui.table_set_column_index(col_idx)
-                        imgui.text(str(cell))
+                        imgui.text_wrapped(str(cell))
 
             imgui.end_table()
 
@@ -1208,6 +1298,86 @@ class DisplayServer:
             from imgui_bundle import imgui
 
             imgui.text_unformatted(md.content)
+
+    # -- render_function element -------------------------------------------
+
+    def _make_event_callback(
+        self, eid: str
+    ) -> Callable[[str, dict[str, Any] | None], None]:
+        """Create an event callback that routes ctx.send() to the event queue."""
+
+        def _cb(action: str, data: dict[str, Any] | None) -> None:
+            self._event_queue.append(
+                InteractionMessage(
+                    element_id=eid,
+                    action=action,
+                    ts=time.time(),
+                    value=data,
+                )
+            )
+
+        return _cb
+
+    def _render_render_function(self, elem: Element) -> None:
+        from imgui_bundle import ImVec4, imgui
+
+        from punt_lux.ast_check import check_source
+        from punt_lux.consent import ConsentDialog, ConsentResult
+        from punt_lux.runtime import CodeExecutor
+
+        rf: Any = elem
+        eid: str = rf.id
+        source: str = rf.source
+
+        # Get or create per-element state
+        state = self._render_fn_state.get(eid)
+        if state is None or state.source != source:
+            old_executor = state.executor if state is not None else None
+            warnings = check_source(source)
+            state = _RenderFnState(
+                source=source,
+                dialog=ConsentDialog(source, warnings),
+                executor=old_executor,  # preserve for hot_reload
+            )
+            self._render_fn_state[eid] = state
+
+        # Phase 1: Consent pending
+        if state.dialog is not None:
+            result = state.dialog.draw()
+            if result == ConsentResult.ALLOWED:
+                state.dialog = None
+                old: CodeExecutor | None = state.executor
+                if old is not None:
+                    state.executor = old.hot_reload(source)
+                else:
+                    state.executor = CodeExecutor(
+                        source,
+                        event_callback=self._make_event_callback(eid),
+                    )
+            elif result == ConsentResult.DENIED:
+                state.dialog = None
+                state.executor = None
+                state.denied = True
+            return
+
+        # Phase 2: Denied
+        if state.denied:
+            imgui.text_colored(
+                ImVec4(1.0, 0.4, 0.4, 1.0), f"[{eid}] Code execution denied"
+            )
+            return
+
+        # Phase 3: Running (or errored)
+        if state.executor is not None:
+            executor: CodeExecutor = state.executor
+            if executor.has_error:
+                imgui.text_colored(
+                    ImVec4(1.0, 0.3, 0.3, 1.0),
+                    f"Error: {executor.error_message}",
+                )
+                return
+            avail = imgui.get_content_region_avail()
+            executor.render(imgui.get_io().delta_time, avail.x, avail.y)
 
     # -- draw element rendering --------------------------------------------
 
