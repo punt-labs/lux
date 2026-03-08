@@ -80,7 +80,7 @@ class CodeExecutor:
         """Compile source and extract the render function."""
         try:
             code = compile(self.source, "<render_function>", "exec")
-        except SyntaxError as exc:
+        except (SyntaxError, ValueError) as exc:
             self._error = f"SyntaxError: {exc}"
             self._error_tb = traceback.format_exc()
             return
@@ -101,8 +101,13 @@ class CodeExecutor:
 
     @property
     def has_error(self) -> bool:
-        """Whether the executor is in an error state."""
-        return self._error is not None
+        """Whether the executor is in an error state.
+
+        True when there is an explicit error message *or* when compilation
+        failed to produce a render function.  This prevents ``clear_error()``
+        from masking compile-time failures.
+        """
+        return self._error is not None or self._render_fn is None
 
     @property
     def error_message(self) -> str | None:

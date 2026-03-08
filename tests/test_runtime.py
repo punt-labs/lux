@@ -57,6 +57,15 @@ class TestCodeExecutorConstruction:
         assert executor.error_message is not None
         assert "SyntaxError" in executor.error_message
 
+    def test_null_byte_error(self) -> None:
+        executor = CodeExecutor("x = 1\x00")
+        assert executor.has_error
+        assert executor.error_message is not None
+        assert (
+            "SyntaxError" in executor.error_message
+            or "ValueError" in executor.error_message
+        )
+
     def test_module_level_error(self) -> None:
         executor = CodeExecutor("raise ValueError('boom')")
         assert executor.has_error
@@ -116,11 +125,21 @@ class TestCodeExecutorRender:
         executor.render(0.016, 800.0, 600.0)  # Should not raise
         assert executor._frame == 0
 
-    def test_clear_error(self) -> None:
-        executor = CodeExecutor("def render(ctx): pass")
-        executor._error = "test error"
+    def test_clear_error_after_runtime_error(self) -> None:
+        source = "def render(ctx): raise RuntimeError('boom')"
+        executor = CodeExecutor(source)
+        executor.render(0.016, 800.0, 600.0)
+        assert executor.has_error
         executor.clear_error()
+        # Runtime error cleared — render fn still exists, so healthy
         assert not executor.has_error
+
+    def test_clear_error_after_compile_error(self) -> None:
+        executor = CodeExecutor("def (broken")
+        assert executor.has_error
+        executor.clear_error()
+        # Compile error: _render_fn is None, so still in error state
+        assert executor.has_error
 
     def test_event_callback_from_render(self) -> None:
         received: list[tuple[str, dict[str, Any] | None]] = []
