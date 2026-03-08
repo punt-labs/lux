@@ -14,12 +14,14 @@ from punt_lux.protocol import (
     ClearMessage,
     Element,
     InteractionMessage,
+    MenuMessage,
     Patch,
     PingMessage,
     SceneMessage,
     SeparatorElement,
     TextElement,
     UpdateMessage,
+    WindowElement,
 )
 
 
@@ -101,6 +103,54 @@ class TestEventQueueClearedOnSceneReplace:
 
         # Ping should not affect event queue
         assert len(server._event_queue) == 1
+
+    def test_menu_message_stores_agent_menus(self) -> None:
+        server = _make_server()
+        sock = _mock_sock()
+        menus = [{"label": "Tools", "items": [{"label": "Run", "id": "run"}]}]
+
+        server._handle_message(sock, MenuMessage(menus=menus))
+
+        assert server._agent_menus == menus
+
+    def test_menu_message_replaces_previous_menus(self) -> None:
+        server = _make_server()
+        sock = _mock_sock()
+        server._agent_menus = [{"label": "Old", "items": []}]
+
+        new_menus = [{"label": "New", "items": [{"label": "Go", "id": "go"}]}]
+        server._handle_message(sock, MenuMessage(menus=new_menus))
+
+        assert server._agent_menus == new_menus
+
+    def test_same_scene_id_does_not_dirty_windows(self) -> None:
+        """Re-sending a scene with the same ID should not force window positions."""
+        server = _make_server()
+        sock = _mock_sock()
+        win = WindowElement(id="w1", title="Panel", x=10, y=10)
+        scene = SceneMessage(id="s1", elements=[win])
+
+        server._handle_message(sock, scene)
+        assert "w1" in server._dirty_windows
+
+        # Consume the dirty flag (simulates first render)
+        server._dirty_windows.clear()
+
+        # Same scene ID again — windows should NOT be re-dirtied
+        server._handle_message(sock, scene)
+        assert "w1" not in server._dirty_windows
+
+    def test_new_scene_id_dirties_windows(self) -> None:
+        """A new scene ID should mark windows dirty for initial positioning."""
+        server = _make_server()
+        sock = _mock_sock()
+        win = WindowElement(id="w1", title="Panel", x=10, y=10)
+
+        server._handle_message(sock, SceneMessage(id="s1", elements=[win]))
+        server._dirty_windows.clear()
+
+        server._handle_message(sock, SceneMessage(id="s2", elements=[win]))
+        assert "w1" in server._dirty_windows
 
 
 # -----------------------------------------------------------------------

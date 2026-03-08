@@ -504,12 +504,14 @@ class DisplayServer:
 
     def _handle_message(self, sock: socket.socket, msg: Message) -> None:
         if isinstance(msg, SceneMessage):
+            prev_id = self._current_scene.id if self._current_scene else None
             self._current_scene = msg
             self._event_queue.clear()
             self._widget_state.clear()
-            for elem in msg.elements:
-                if isinstance(elem, WindowElement):
-                    self._dirty_windows.add(elem.id)
+            if msg.id != prev_id:
+                for elem in msg.elements:
+                    if isinstance(elem, WindowElement):
+                        self._dirty_windows.add(elem.id)
             self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
             if self._test_auto_click:
                 self._auto_click_buttons(msg)

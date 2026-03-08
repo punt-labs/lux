@@ -366,22 +366,21 @@ def main() -> None:
             while True:
                 msg = client.recv(timeout=0.1)
 
+                # Process any received event first
+                need_refresh = False
+                if msg is not None and isinstance(msg, InteractionMessage):
+                    ts = time.strftime("%H:%M:%S")
+                    print(f"[{ts}] {msg.element_id}: {msg.action} = {msg.value}")
+                    if handle_event(msg, state):
+                        need_refresh = True
+
                 # Refresh status panel every 2s (uptime counter)
                 now = time.monotonic()
                 if now - last_refresh > 2.0:
                     last_refresh = now
-                    client.show("menu-demo", build_scene(state))
-                    continue
+                    need_refresh = True
 
-                if msg is None:
-                    continue
-                if not isinstance(msg, InteractionMessage):
-                    continue
-
-                ts = time.strftime("%H:%M:%S")
-                print(f"[{ts}] {msg.element_id}: {msg.action} = {msg.value}")
-
-                if handle_event(msg, state):
+                if need_refresh:
                     client.show("menu-demo", build_scene(state))
 
         except KeyboardInterrupt:
