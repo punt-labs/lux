@@ -1719,23 +1719,17 @@ class DisplayServer:
         for f in flags_list:
             table_flags |= flag_map.get(f, 0)
 
-        # Cache column weights — only recompute when data changes
+        # Cache column weights — recompute when rows object or widths change.
+        # id(rows) changes on update() since _apply_patch_set creates a new list.
         weight_cache_key = f"__tbl_wcache_{eid}"
         cached = self._widget_state.get(weight_cache_key)
-        num_rows = len(rows)
+        rows_id = id(rows)
         cw_sig = tuple(tbl.column_widths) if tbl.column_widths else None
-        if (
-            cached is not None
-            and cached[0] == num_cols
-            and cached[1] == num_rows
-            and cached[2] == cw_sig
-        ):
-            weights = cached[3]
+        if cached is not None and cached[0] == rows_id and cached[1] == cw_sig:
+            weights = cached[2]
         else:
             weights = _table_column_weights(columns, rows, tbl.column_widths)
-            self._widget_state.set(
-                weight_cache_key, (num_cols, num_rows, cw_sig, weights)
-            )
+            self._widget_state.set(weight_cache_key, (rows_id, cw_sig, weights))
 
         scene_id = self._current_scene.id if self._current_scene else ""
         imgui_id = f"##{scene_id}/{eid}"

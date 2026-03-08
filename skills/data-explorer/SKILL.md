@@ -40,55 +40,55 @@ You need:
 
 ## Phase 2: Design the Filters
 
-Choose filter controls based on the data shape. Use the fewest filters that cover the most common exploration paths.
+**Prefer built-in table filters** (DES-018) — these run at 60fps in the display server with zero round trips. Use separate filter elements + `recv()`/`update()` only when you need custom logic that built-in filters can't handle (e.g., numeric ranges, cross-field filters, external lookups).
 
-| Data pattern | Filter control | Element kind |
-|-------------|---------------|-------------|
-| Categorical field (status, type, category) | Dropdown | `combo` with `items` list |
-| Boolean field (active, archived, passing) | Toggle | `checkbox` |
-| Free-text search (name, description, title) | Search box | `input_text` with `hint` |
-| Numeric range (score, count, price) | Range display | `text` showing current range + `slider` |
+### Built-in Filters (preferred)
+
+Add a `filters` array to the `table` element. Two types are available:
+
+| Data pattern | Filter type | Config |
+|-------------|------------|--------|
+| Free-text search (name, title, description) | `search` | `column: [0, 1]` — which columns to search |
+| Categorical field (status, type, category) | `combo` | `column: 2, items: ["All", "open", "closed"]` |
 
 **Rules:**
 
 - 1-3 filters is ideal. More than 4 overwhelms the UI.
 - Always include a text search if the data has a name/title/description field.
-- Put the most selective filter first (the one that reduces the most rows).
-- Every filter element needs a unique `id` — you will match on these IDs when handling events.
+- Include only values that exist in the data for combo items.
+- The first combo item should be "All" (no filter).
+
+### Built-in Detail Panel (preferred)
+
+Add a `detail` object to the table for drill-down. This renders a list/detail view with fields and body text, driven entirely by data — no round trips.
+
+### Separate Filter Elements (advanced)
+
+For filters that built-in types can't handle (numeric ranges, sliders, cross-field logic), use separate elements and the `recv()`/`update()` loop:
+
+| Data pattern | Element kind |
+|-------------|-------------|
+| Boolean field (active, archived) | `checkbox` |
+| Numeric range (score, price) | `slider` |
+| Custom compound filter | `input_text` + custom logic |
 
 ## Phase 3: Compose the Layout
 
 Build the element tree following the data explorer pattern.
 
-### Pattern: Filters → Table → Detail
+### Pattern: Table with Built-in Filters + Detail
 
-**Filters** — Use a `group` with `layout: "columns"` containing the filter controls. This places them in a horizontal row at the top.
-
-**Result count** — Use a `text` element showing the count of visible rows (e.g., "Showing 12 of 45 records"). Update this when filters change.
-
-**Data table** — Use `table` with `flags: ["borders", "row_bg"]` for readability. Include all rows initially (no pre-filtering). Use `column_widths` if some columns need more space than others.
-
-**Detail panel** — Use a `collapsing_header` at the bottom containing `text` elements with the full record details. Start collapsed. When the user selects a row, update this panel with that row's details.
+A single `table` element with `filters` and `detail` gives you a complete data explorer with zero round trips — search, filter, row selection, and detail panel all run at 60fps in the display server.
 
 ### Reference Example
 
-This is the canonical form — a searchable, filterable list of issues. Adapt freely to any tabular data: search results, log entries, test cases, inventory, API responses.
+This is the canonical form — a searchable, filterable list of issues with drill-down detail. Adapt freely to any tabular data: search results, log entries, test cases, inventory, API responses.
 
 ```json
 {
   "scene_id": "data-explorer",
   "title": "Issue Explorer",
   "elements": [
-    {
-      "kind": "group", "id": "filters", "layout": "columns",
-      "children": [
-        {"kind": "input_text", "id": "search", "label": "Search", "hint": "Filter by title...", "value": ""},
-        {"kind": "combo", "id": "status-filter", "label": "Status", "items": ["All", "Open", "Closed", "In Progress"], "selected": 0},
-        {"kind": "combo", "id": "priority-filter", "label": "Priority", "items": ["All", "P0", "P1", "P2", "P3"], "selected": 0}
-      ]
-    },
-    {"kind": "separator"},
-    {"kind": "text", "id": "result-count", "content": "Showing 24 of 24 issues"},
     {
       "kind": "table", "id": "data-table",
       "columns": ["ID", "Title", "Status", "Priority", "Assignee"],
@@ -99,14 +99,29 @@ This is the canonical form — a searchable, filterable list of issues. Adapt fr
         ["ISS-004", "Memory leak in worker", "Open", "P0", "alice"],
         ["ISS-005", "Refactor auth module", "Closed", "P2", "bob"]
       ],
+      "filters": [
+        {"type": "search", "column": [0, 1], "hint": "Filter by ID or title..."},
+        {"type": "combo", "column": 2, "items": ["All", "Open", "In Progress", "Closed"], "label": "Status"},
+        {"type": "combo", "column": 3, "items": ["All", "P0", "P1", "P2", "P3"], "label": "Priority"}
+      ],
+      "detail": {
+        "fields": ["ID", "Status", "Priority", "Assignee", "Created"],
+        "rows": [
+          ["ISS-001", "Open", "P1", "alice", "2026-03-01"],
+          ["ISS-002", "In Progress", "P2", "bob", "2026-03-02"],
+          ["ISS-003", "Open", "P3", "carol", "2026-03-03"],
+          ["ISS-004", "Open", "P0", "alice", "2026-03-04"],
+          ["ISS-005", "Closed", "P2", "bob", "2026-03-05"]
+        ],
+        "body": [
+          "The login flow times out after 30s on slow connections...",
+          "Add system-wide dark mode toggle with persistent preference.",
+          "API docs are outdated after the v2 migration.",
+          "Worker process leaks ~10MB/hour under sustained load.",
+          "Auth module has accumulated tech debt — extract into clean service."
+        ]
+      },
       "flags": ["borders", "row_bg"]
-    },
-    {"kind": "separator"},
-    {
-      "kind": "collapsing_header", "id": "detail-panel", "label": "Details",
-      "children": [
-        {"kind": "text", "id": "detail-content", "content": "Select a row to see details."}
-      ]
     }
   ]
 }
@@ -124,50 +139,30 @@ This is the canonical form — a searchable, filterable list of issues. Adapt fr
 
 Call `set_theme("imgui_colors_light")` before showing — light themes work best for data-dense views. Then call `show()` with the composed element tree.
 
-## Phase 5: Interaction Loop
+## Phase 5: Interaction
 
-This is the core of the data explorer. Tell the user the filters are live, then handle interactions as they report them.
+With built-in filters and detail, the data explorer is fully interactive without any `recv()`/`update()` loop. Tell the user:
 
-### Handling Filter Changes
+- **Search** and **filter dropdowns** work instantly (no round trips)
+- **Click any row** to see its full details in the side panel
+- The result count updates automatically as filters narrow the view
 
-When the user says they changed a filter (or you call `recv()` and get an event):
+### When recv/update IS needed
 
-1. **Parse the event** — `recv()` returns strings like `interaction:element=search,action=changed,value=fix` or `interaction:element=status-filter,action=selected,value=1`
-2. **Apply all active filters** to the full data set to compute the visible rows
-3. **Update the table** via `update()` — patch `data-table` with new `rows` and `result-count` with new count text
+Use the `recv()`/`update()` loop only for operations that require LLM orchestration:
 
-```json
-{
-  "scene_id": "data-explorer",
-  "patches": [
-    {"id": "data-table", "set": {"rows": [["ISS-001", "Fix login timeout", "Open", "P1", "alice"]]}},
-    {"id": "result-count", "set": {"content": "Showing 1 of 24 issues"}}
-  ]
-}
-```
-
-### Handling Row Selection
-
-If the data table has selectable rows, update the detail panel when a row is selected:
+- **Actions on selected row** — "Close this issue", "Assign to me" (requires external API calls)
+- **Data refresh** — re-reading from a changing data source (add a "Refresh" button)
+- **Custom filter logic** — numeric ranges, cross-field filters, or external lookups that built-in filters can't handle
 
 ```json
 {
   "scene_id": "data-explorer",
   "patches": [
-    {"id": "detail-content", "set": {"content": "ISS-001: Fix login timeout\n\nStatus: Open\nPriority: P1\nAssignee: alice\nCreated: 2026-03-01\n\nThe login flow times out after 30s on slow connections..."}}
+    {"id": "data-table", "set": {"rows": [/* refreshed data */]}}
   ]
 }
 ```
-
-### Interaction Flow
-
-For each `recv()` event:
-
-- `element=search` → re-filter rows where title/name contains the search text (case-insensitive)
-- `element=<combo-filter>` → re-filter rows where the field matches the selected item (skip if "All")
-- `element=<checkbox-filter>` → include/exclude rows based on boolean field
-
-Always apply **all** active filters together (AND logic), not just the one that changed. Recompute from the full data set each time.
 
 ## Phase 6: Refresh (Optional)
 
