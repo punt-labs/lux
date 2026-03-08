@@ -97,6 +97,7 @@ ignore = [
 "demos/*" = ["T20", "S311", "C901"]
 "src/punt_lux/__main__.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/consent.py" = ["PLC0415"]
+"src/punt_lux/runtime.py" = ["S102", "BLE001"]
 "src/punt_lux/display.py" = ["PLC0415"]
 "src/punt_lux/cli.py" = ["T20", "FBT", "PLC0415"]
 
