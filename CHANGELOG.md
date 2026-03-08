@@ -9,7 +9,7 @@
   for AI agents to display text, tables, images, buttons, and interactive controls
 - **Protocol** — framed JSON message protocol with element types: text, separator, image,
   button, table, markdown, group, collapsing_header, tab_bar, render_function
-- **Interactive controls** — slider, checkbox, combo, text_input, radio, color_picker
+- **Interactive controls** — slider, checkbox, combo, input_text, radio, color_picker
   with event routing back to agents via `recv()`
 - **Render functions** — `render_function` element kind for agent-submitted Python code
   with AST safety scanning, consent dialog, and sandboxed execution
@@ -17,7 +17,7 @@
 - **Auto-reconnect** — MCP tools automatically reconnect on broken pipe when display
   server restarts
 - **Client library** — `LuxClient` context manager for Python callers
-- **CLI** — `lux display` to launch the display server, `lux mcp` for MCP server
+- **CLI** — `lux display` to launch the display server, `lux serve` for MCP server
 
 ### Fixed
 

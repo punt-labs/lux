@@ -1,6 +1,6 @@
 # Contributing to Lux
 
-Thank you for your interest in contributing to lux. This guide covers what you need to get started.
+Thank you for your interest in contributing to Lux. This guide covers what you need to get started.
 
 ## Getting Started
 
