@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from typing import Any
 
 from fastmcp import FastMCP
@@ -46,6 +47,26 @@ def _get_client() -> LuxClient:
         _client = LuxClient()
         _client.connect()
     return _client
+
+
+def _with_reconnect[T](fn: Callable[[], T]) -> T:
+    """Run *fn* with one automatic reconnect on broken pipe.
+
+    If the display server restarts, the cached socket dies silently —
+    ``is_connected`` still returns True because the socket object exists.
+    This wrapper catches the resulting ``OSError`` (including
+    ``BrokenPipeError``), tears down the stale client, connects a fresh
+    one, and retries *fn* exactly once.
+    """
+    global _client
+    try:
+        return fn()
+    except OSError:
+        logger.info("Connection lost, reconnecting to display")
+        if _client is not None:
+            _client.close()
+            _client = None
+        return fn()
 
 
 @mcp.tool()
@@ -123,12 +144,16 @@ def show(
     Returns ``"ack:<scene_id>"`` on success or ``"timeout"`` if the
     display doesn't respond.
     """
-    client = _get_client()
     typed_elements = [element_from_dict(e) for e in elements]
-    ack = client.show(scene_id, typed_elements, title=title, layout=layout)
-    if ack is None:
-        return "timeout"
-    return f"ack:{ack.scene_id}"
+
+    def _call() -> str:
+        client = _get_client()
+        ack = client.show(scene_id, typed_elements, title=title, layout=layout)
+        if ack is None:
+            return "timeout"
+        return f"ack:{ack.scene_id}"
+
+    return _with_reconnect(_call)
 
 
 @mcp.tool()
@@ -145,7 +170,6 @@ def update(
     Returns ``"ack:<scene_id>"`` on success or ``"timeout"`` if the
     display doesn't respond.
     """
-    client = _get_client()
     typed_patches = [
         Patch(
             id=p["id"],
@@ -155,10 +179,15 @@ def update(
         )
         for p in patches
     ]
-    ack = client.update(scene_id, typed_patches)
-    if ack is None:
-        return "timeout"
-    return f"ack:{ack.scene_id}"
+
+    def _call() -> str:
+        client = _get_client()
+        ack = client.update(scene_id, typed_patches)
+        if ack is None:
+            return "timeout"
+        return f"ack:{ack.scene_id}"
+
+    return _with_reconnect(_call)
 
 
 @mcp.tool()
@@ -172,30 +201,42 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
 
     Menu item clicks generate interaction events via recv().
     """
-    client = _get_client()
-    client.set_menu(menus)
-    return "ok"
+
+    def _call() -> str:
+        client = _get_client()
+        client.set_menu(menus)
+        return "ok"
+
+    return _with_reconnect(_call)
 
 
 @mcp.tool()
 def clear() -> str:
     """Clear the Lux display window. Removes all content."""
-    client = _get_client()
-    client.clear()
-    return "cleared"
+
+    def _call() -> str:
+        client = _get_client()
+        client.clear()
+        return "cleared"
+
+    return _with_reconnect(_call)
 
 
 @mcp.tool()
 def ping() -> str:
     """Ping the display server. Returns round-trip time or "timeout"."""
-    client = _get_client()
-    pong = client.ping()
-    if pong is None:
-        return "timeout"
-    if pong.ts is not None:
-        rtt = time.time() - pong.ts
-        return f"pong:rtt={rtt:.3f}s"
-    return "pong"
+
+    def _call() -> str:
+        client = _get_client()
+        pong = client.ping()
+        if pong is None:
+            return "timeout"
+        if pong.ts is not None:
+            rtt = time.time() - pong.ts
+            return f"pong:rtt={rtt:.3f}s"
+        return "pong"
+
+    return _with_reconnect(_call)
 
 
 @mcp.tool()
@@ -204,13 +245,17 @@ def recv(timeout: float = 1.0) -> str:
 
     Returns a description of the event or "none" if no event within timeout.
     """
-    client = _get_client()
-    msg = client.recv(timeout=timeout)
-    if msg is None:
-        return "none"
-    if isinstance(msg, InteractionMessage):
-        return (
-            f"interaction:element={msg.element_id},"
-            f"action={msg.action},value={msg.value}"
-        )
-    return f"event:{type(msg).__name__}"
+
+    def _call() -> str:
+        client = _get_client()
+        msg = client.recv(timeout=timeout)
+        if msg is None:
+            return "none"
+        if isinstance(msg, InteractionMessage):
+            return (
+                f"interaction:element={msg.element_id},"
+                f"action={msg.action},value={msg.value}"
+            )
+        return f"event:{type(msg).__name__}"
+
+    return _with_reconnect(_call)
