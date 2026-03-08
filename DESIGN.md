@@ -1144,19 +1144,19 @@ The table list portion stays fixed; only the detail panel scrolls. This mimics s
 Filters and detail compose naturally. When filters are active:
 
 - Clicking a filtered row looks up the original index, not the visible position
-- Changing filters does not clear the selection (the selected row may disappear from view but reappear when filters change back)
-- The detail panel always shows data for the last-selected original row
+- Changing filters auto-selects the first visible row so the detail panel always shows relevant content (prevents stale detail for a row that is no longer visible)
+- The detail panel always shows data for the currently selected original row
 
 #### What Does NOT Move to the Display Server
 
 | Capability | Why it stays with the LLM |
 |-----------|--------------------------|
-| Pagination | Loading next/previous pages requires knowing the data source |
+| Data-source pagination | Loading next/previous pages requires knowing the data source (the display server handles scroll-based rendering of loaded rows natively via ImGui's table clipper) |
 | Dynamic detail | Detail content that depends on external lookups (API calls, file reads) |
 | Actions on selected row | "Close this issue", "Assign to me" — requires LLM orchestration |
 | Multi-row selection | Bulk operations need LLM-driven logic |
 
-These remain in the `recv()` → `update()` loop. Pagination in particular was intentionally left to the LLM to keep the display server stateless about data sources.
+These remain in the `recv()` → `update()` loop. Data-source pagination in particular was intentionally left to the LLM to keep the display server stateless about data sources. Scroll-based rendering of loaded rows is handled natively by ImGui's table clipper and requires no protocol support.
 
 ### Rejected: Separate Detail Element
 

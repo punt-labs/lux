@@ -1685,8 +1685,8 @@ class DisplayServer:
         for f in flags_list:
             table_flags |= flag_map.get(f, 0)
 
-        just_rows = [ir[1] for ir in indexed_rows]
-        weights = _table_column_weights(columns, just_rows, tbl.column_widths)
+        # Compute weights from full rows (not filtered) so layout stays stable
+        weights = _table_column_weights(columns, rows, tbl.column_widths)
 
         scene_id = self._current_scene.id if self._current_scene else ""
         imgui_id = f"##{scene_id}/{eid}"

@@ -41,6 +41,7 @@ from punt_lux.protocol import (
     TableElement,
     TableFilter,
     TextElement,
+    ThemeMessage,
     TreeElement,
     UpdateMessage,
     WindowElement,
@@ -412,6 +413,13 @@ class TestMessages:
         restored = message_from_dict(d)
         assert isinstance(restored, MenuMessage)
         assert restored.menus == menus
+
+    def test_theme_message_roundtrip(self):
+        original = ThemeMessage(theme="imgui_colors_light")
+        d = message_to_dict(original)
+        restored = message_from_dict(d)
+        assert isinstance(restored, ThemeMessage)
+        assert restored.theme == "imgui_colors_light"
 
 
 # ---------------------------------------------------------------------------

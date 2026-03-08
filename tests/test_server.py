@@ -29,7 +29,7 @@ from punt_lux.protocol import (
     WindowElement,
     element_from_dict,
 )
-from punt_lux.server import clear, ping, recv, set_menu, show, update
+from punt_lux.server import clear, ping, recv, set_menu, set_theme, show, update
 
 
 class TestElementFromDict:
@@ -384,6 +384,17 @@ class TestSetMenuTool:
         result = set_menu(menus)
         assert result == "ok"
         client.set_menu.assert_called_once_with(menus)
+
+
+class TestSetThemeTool:
+    @patch("punt_lux.server._get_client")
+    def test_set_theme_returns_theme_name(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+
+        result = set_theme("imgui_colors_light")
+        assert result == "theme:imgui_colors_light"
+        client.set_theme.assert_called_once_with("imgui_colors_light")
 
 
 class TestShowTool:
