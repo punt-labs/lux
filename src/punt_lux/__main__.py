@@ -96,6 +96,49 @@ def status(
     raise typer.Exit(code=0 if running else 1)
 
 
+def _check_fonts(_check: _CheckFn) -> None:
+    """Check for system fonts used by the display server."""
+    import platform
+    from pathlib import Path
+
+    def _first_existing(*candidates: str) -> str | None:
+        for p in candidates:
+            if Path(p).is_file():
+                return p
+        return None
+
+    if platform.system() == "Darwin":
+        primary = _first_existing(
+            "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+            "/System/Library/Fonts/Helvetica.ttc",
+        )
+        sym = _first_existing("/System/Library/Fonts/Apple Symbols.ttf")
+        hint = ""  # macOS always has these
+    else:
+        primary = _first_existing(
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/TTF/DejaVuSans.ttf",
+            "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+            "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+        )
+        sym = _first_existing(
+            "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
+            "/usr/share/fonts/noto/NotoSansSymbols2-Regular.ttf",
+        )
+        hint = " \u2014 apt install fonts-dejavu-core or fonts-noto"
+
+    if primary:
+        _check(_OK, f"Font: {primary}", required=False)
+    else:
+        _check(_FAIL, f"No Unicode font found{hint} (falls back to Latin-only)", required=False)
+
+    if sym:
+        _check(_OK, f"Symbol font: {sym}", required=False)
+    else:
+        _check(_OPTIONAL, "No symbol font found (math symbols may not render)", required=False)
+
+
 def _check_plugin(
     _check: _CheckFn,
 ) -> None:
@@ -164,6 +207,9 @@ def doctor(
         _check(_OK, "imgui-bundle installed")
     except ImportError:
         _check(_FAIL, "imgui-bundle not installed")
+
+    # Fonts (not required — falls back to ImGui default, but Unicode won't render)
+    _check_fonts(_check)
 
     # Display server
     path = Path(socket) if socket else default_socket_path()
