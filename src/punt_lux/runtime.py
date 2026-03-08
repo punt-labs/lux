@@ -81,7 +81,7 @@ class CodeExecutor:
         try:
             code = compile(self.source, "<render_function>", "exec")
         except (SyntaxError, ValueError) as exc:
-            self._error = f"SyntaxError: {exc}"
+            self._error = f"{type(exc).__name__}: {exc}"
             self._error_tb = traceback.format_exc()
             return
 
@@ -124,10 +124,20 @@ class CodeExecutor:
         """Persistent state dict shared across frames."""
         return self._state
 
+    _NO_RENDER_FN = "Source must define a callable `render(ctx)` function"
+
     def clear_error(self) -> None:
-        """Clear the error state."""
+        """Clear the error state.
+
+        If compilation failed to produce a render function, a fallback error
+        message is kept so that ``has_error`` and ``error_message`` stay
+        consistent.
+        """
         self._error = None
         self._error_tb = None
+
+        if self._render_fn is None:
+            self._error = self._NO_RENDER_FN
 
     def render(self, dt: float, width: float, height: float) -> None:
         """Call the render function for one frame.

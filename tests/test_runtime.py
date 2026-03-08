@@ -140,6 +140,9 @@ class TestCodeExecutorRender:
         executor.clear_error()
         # Compile error: _render_fn is None, so still in error state
         assert executor.has_error
+        # Fallback message ensures error_message is never None when has_error
+        assert executor.error_message is not None
+        assert "render(ctx)" in executor.error_message
 
     def test_event_callback_from_render(self) -> None:
         received: list[tuple[str, dict[str, Any] | None]] = []
