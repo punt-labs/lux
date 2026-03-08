@@ -33,7 +33,22 @@ mcp = FastMCP(
         "Lux is a visual output surface. Use these tools to display "
         "text, images, buttons, separators, and interactive elements "
         "(sliders, checkboxes, combos, text inputs, radio buttons, "
-        "color pickers) in a window the user can see."
+        "color pickers) in a window the user can see.\n\n"
+        "All lux tool output is pre-formatted plain text using unicode "
+        "characters for alignment. Always emit lux output verbatim — "
+        "never reformat, never convert to markdown tables, never wrap "
+        "in code fences or boxes.\n\n"
+        "Layout best practices:\n"
+        "- Use group with layout='columns' for side-by-side elements\n"
+        "- Use tab_bar to organize multi-view interfaces\n"
+        "- Use collapsing_header for progressive disclosure\n"
+        "- Use window for floating panels (inspector, detail views)\n"
+        "- Nest containers freely: groups inside tabs, windows inside groups\n\n"
+        "Common patterns:\n"
+        "- Dashboard: metric cards (text in groups) + plot + table\n"
+        "- Data explorer: combo/input filters + table + collapsing detail\n"
+        "- Form: input_text + combo + checkbox + button for submission\n"
+        "- Monitor: progress bars + spinner + auto-refreshing text"
     ),
 )
 

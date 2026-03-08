@@ -2,6 +2,7 @@
 !.claude/settings.json
 !.claude/hooks/
 .biff.local
+.mcp.json
 
 # Spike/scratch files
 spikes/
