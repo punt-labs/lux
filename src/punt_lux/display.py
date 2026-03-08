@@ -1199,10 +1199,15 @@ class DisplayServer:
             imgui.text(label)
 
     def _render_markdown(self, elem: Element) -> None:
-        from imgui_bundle import imgui_md
-
         md: Any = elem
-        imgui_md.render_unindented(md.content)
+        try:
+            from imgui_bundle import imgui_md
+
+            imgui_md.render_unindented(md.content)
+        except ImportError:
+            from imgui_bundle import imgui
+
+            imgui.text_unformatted(md.content)
 
     # -- draw element rendering --------------------------------------------
 
