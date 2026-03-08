@@ -16,7 +16,7 @@ from typing import Any, cast
 class RenderContext:
     """Per-frame context passed to user-defined render functions.
 
-    Attributes are updated each frame by CodeExecutor before calling
+    A fresh instance is created each frame by CodeExecutor and passed to
     ``render(ctx)``.
     """
 
