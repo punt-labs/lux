@@ -43,6 +43,7 @@ from punt_lux.protocol import (
     GroupElement,
     InputTextElement,
     InteractionMessage,
+    MenuMessage,
     PingMessage,
     PongMessage,
     RadioElement,
@@ -274,6 +275,8 @@ class DisplayServer:
         self._textures = TextureCache()
         self._widget_state = WidgetState()
         self._dirty_windows: set[str] = set()
+        self._agent_menus: list[dict[str, Any]] = []
+        self._themes: list[Any] = []
         self._test_auto_click = test_auto_click
 
     @property
@@ -289,17 +292,27 @@ class DisplayServer:
         runner_params = hello_imgui.RunnerParams()
         runner_params.app_window_params.window_title = "Lux Display"
         runner_params.app_window_params.window_geometry.size = (800, 600)
+        runner_params.imgui_window_params.show_menu_bar = True
+        runner_params.imgui_window_params.show_menu_app = False
+        runner_params.imgui_window_params.show_menu_view = False
+        runner_params.imgui_window_params.show_menu_view_themes = False
+        runner_params.callbacks.show_menus = self._show_menus
         runner_params.callbacks.post_init = self._on_post_init
         runner_params.callbacks.show_gui = self._on_frame
         runner_params.callbacks.before_exit = self._on_exit
         runner_params.fps_idling.fps_idle = 30.0
 
-        immapp.run(runner_params)
+        addons = immapp.AddOnsParams()
+        addons.with_implot = True
+        immapp.run(runner_params, addons)
 
     # -- ImGui callbacks ---------------------------------------------------
 
     def _on_post_init(self) -> None:
         """Called once the OpenGL context is ready."""
+        from imgui_bundle import hello_imgui
+
+        self._themes = list(hello_imgui.ImGuiTheme_)
         self._setup_socket()
         write_pid_file(self._socket_path)
         logger.info("Display server listening on %s", self._socket_path)
@@ -324,6 +337,94 @@ class DisplayServer:
         self._socket_path.unlink(missing_ok=True)
         remove_pid_file(self._socket_path)
         logger.info("Display server stopped")
+
+    # -- menu bar ----------------------------------------------------------
+
+    def _show_menus(self) -> None:
+        from imgui_bundle import imgui
+
+        try:
+            self._show_lux_menu(imgui)
+            self._show_theme_menu(imgui)
+            self._show_window_menu(imgui)
+            for menu in self._agent_menus:
+                self._show_agent_menu(imgui, menu)
+        except Exception:
+            logger.exception("Error rendering menus")
+
+    def _show_theme_menu(self, imgui: Any) -> None:
+        from imgui_bundle import hello_imgui
+
+        if imgui.begin_menu("Theme"):
+            try:
+                for theme in self._themes:
+                    name = theme.name.replace("_", " ").title()
+                    if imgui.menu_item(name, "", False)[0]:  # noqa: FBT003
+                        hello_imgui.apply_theme(theme)
+            finally:
+                imgui.end_menu()
+
+    def _show_window_menu(self, imgui: Any) -> None:
+        from imgui_bundle import hello_imgui
+
+        if imgui.begin_menu("Window"):
+            try:
+                if imgui.menu_item("Reset Size", "", False)[0]:  # noqa: FBT003
+                    params = hello_imgui.get_runner_params()
+                    params.app_window_params.window_geometry.size = (800, 600)
+            finally:
+                imgui.end_menu()
+
+    def _show_lux_menu(self, imgui: Any) -> None:
+        from imgui_bundle import hello_imgui
+
+        if imgui.begin_menu("Lux"):
+            try:
+                from punt_lux import __version__
+
+                imgui.menu_item(
+                    f"Lux v{__version__}",
+                    "",
+                    False,  # noqa: FBT003
+                    False,  # noqa: FBT003
+                )
+                imgui.separator()
+                if imgui.menu_item("Quit", "Cmd+Q", False)[0]:  # noqa: FBT003
+                    hello_imgui.get_runner_params().app_shall_exit = True
+            finally:
+                imgui.end_menu()
+
+    def _show_agent_menu(self, imgui: Any, menu: dict[str, Any]) -> None:
+        if imgui.begin_menu(menu.get("label", "Custom")):
+            try:
+                for item in menu.get("items", []):
+                    label = item.get("label")
+                    if label is None:
+                        continue
+                    if label == "---":
+                        imgui.separator()
+                        continue
+                    enabled = item.get("enabled", True)
+                    clicked, _ = imgui.menu_item(
+                        label,
+                        item.get("shortcut", ""),
+                        False,  # noqa: FBT003
+                        enabled,
+                    )
+                    if clicked and "id" in item:
+                        self._event_queue.append(
+                            InteractionMessage(
+                                element_id=item["id"],
+                                action="menu",
+                                ts=time.time(),
+                                value={
+                                    "menu": menu.get("label", "Custom"),
+                                    "item": label,
+                                },
+                            )
+                        )
+            finally:
+                imgui.end_menu()
 
     # -- socket lifecycle --------------------------------------------------
 
@@ -414,9 +515,14 @@ class DisplayServer:
 
     def _handle_message(self, sock: socket.socket, msg: Message) -> None:
         if isinstance(msg, SceneMessage):
+            prev_id = self._current_scene.id if self._current_scene else None
             self._current_scene = msg
             self._event_queue.clear()
             self._widget_state.clear()
+            if msg.id != prev_id:
+                for elem in msg.elements:
+                    if isinstance(elem, WindowElement):
+                        self._dirty_windows.add(elem.id)
             self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
             if self._test_auto_click:
                 self._auto_click_buttons(msg)
@@ -429,6 +535,8 @@ class DisplayServer:
         elif isinstance(msg, ClearMessage):
             self._current_scene = None
             self._event_queue.clear()
+        elif isinstance(msg, MenuMessage):
+            self._agent_menus = msg.menus
         elif isinstance(msg, PingMessage):
             self._send_to_client(sock, PongMessage(ts=msg.ts, display_ts=time.time()))
 
@@ -588,16 +696,24 @@ class DisplayServer:
         "selectable": "_render_selectable",
         "tree": "_render_tree",
         "table": "_render_table",
+        "plot": "_render_plot",
+        "progress": "_render_progress",
+        "spinner": "_render_spinner",
+        "markdown": "_render_markdown",
     }
 
     def _render_element(self, elem: Element) -> None:
+        from imgui_bundle import imgui
+
         method_name = self._RENDERERS.get(elem.kind)
         if method_name is not None:
             getattr(self, method_name)(elem)
         else:
-            from imgui_bundle import imgui
-
             imgui.text(f"[unsupported element: {elem.kind}]")
+
+        tooltip = getattr(elem, "tooltip", None)
+        if tooltip:
+            imgui.set_item_tooltip(tooltip)
 
     def _render_text(self, elem: Element) -> None:
         from imgui_bundle import ImVec4, imgui
@@ -1000,6 +1116,98 @@ class DisplayServer:
                         imgui.text(str(cell))
 
             imgui.end_table()
+
+    # -- plot rendering ----------------------------------------------------
+
+    def _render_plot(self, elem: Element) -> None:
+        from imgui_bundle import ImVec2, implot
+
+        plt: Any = elem
+        eid: str = plt.id
+        title: str = plt.title
+        plot_title = title if "##" in title else f"{title}##{eid}"
+
+        if implot.begin_plot(plot_title, ImVec2(plt.width, plt.height)):
+            if plt.x_label or plt.y_label:
+                implot.setup_axes(plt.x_label or "", plt.y_label or "")
+
+            for series in plt.series:
+                s_label: str = series.get("label", "data")
+                s_type: str = series.get("type", "line")
+                x_data = np.array(series.get("x", []), dtype=np.float64)
+                y_data = np.array(series.get("y", []), dtype=np.float64)
+
+                if len(x_data) == 0 or len(y_data) == 0:
+                    continue
+
+                if s_type == "line":
+                    implot.plot_line(s_label, x_data, y_data)
+                elif s_type == "scatter":
+                    implot.plot_scatter(s_label, x_data, y_data)
+                elif s_type == "bar":
+                    try:
+                        implot.plot_bars(s_label, x_data, y_data, 0.67)
+                    except TypeError:
+                        implot.plot_bars(s_label, y_data, 0.67)
+
+            implot.end_plot()
+
+    # -- progress, spinner, markdown rendering ------------------------------
+
+    def _render_progress(self, elem: Element) -> None:
+        from imgui_bundle import ImVec2, imgui
+
+        prog: Any = elem
+        fraction: float = prog.fraction
+        label: str = prog.label
+        overlay = label if label else f"{int(fraction * 100)}%"
+        imgui.progress_bar(fraction, ImVec2(-1, 0), overlay)
+
+    def _render_spinner(self, elem: Element) -> None:
+        from imgui_bundle import imgui
+
+        sp: Any = elem
+        eid: str = sp.id
+        label: str = sp.label
+        radius: float = sp.radius
+        color_hex: str = sp.color
+
+        try:
+            from imgui_bundle import imspinner
+
+            r, g, b, _a = _parse_hex_color(color_hex)
+            from imgui_bundle import ImVec4
+
+            color = ImVec4(r / 255.0, g / 255.0, b / 255.0, 1.0)
+            im_color = imgui.ImColor(color)
+            imspinner.spinner_ang_triple(
+                f"##spin_{eid}",
+                radius,
+                radius * 0.6,
+                radius * 0.3,
+                2.5,
+                im_color,
+                im_color,
+                im_color,
+            )
+        except ImportError:
+            dots = "." * (int(imgui.get_time() * 3) % 4)
+            imgui.text(f"[loading{dots}]")
+
+        if label:
+            imgui.same_line()
+            imgui.text(label)
+
+    def _render_markdown(self, elem: Element) -> None:
+        md: Any = elem
+        try:
+            from imgui_bundle import imgui_md
+
+            imgui_md.render_unindented(md.content)
+        except ImportError:
+            from imgui_bundle import imgui
+
+            imgui.text_unformatted(md.content)
 
     # -- draw element rendering --------------------------------------------
 

@@ -22,12 +22,13 @@ import socket
 import time
 from collections import deque
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from punt_lux.paths import default_socket_path, ensure_display
 from punt_lux.protocol import (
     AckMessage,
     ClearMessage,
+    MenuMessage,
     PingMessage,
     PongMessage,
     ReadyMessage,
@@ -192,6 +193,11 @@ class LuxClient:
         msg = UpdateMessage(scene_id=scene_id, patches=patches)
         send_message(sock, msg)
         return self._recv_ack()
+
+    def set_menu(self, menus: list[dict[str, Any]]) -> None:
+        """Set custom menu bar entries."""
+        sock = self._require_connected()
+        send_message(sock, MenuMessage(menus=menus))
 
     def clear(self) -> None:
         """Clear all content from the display."""

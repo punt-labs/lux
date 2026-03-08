@@ -15,16 +15,20 @@ from punt_lux.protocol import (
     GroupElement,
     InputTextElement,
     InteractionMessage,
+    MarkdownElement,
+    PlotElement,
     PongMessage,
+    ProgressElement,
     SelectableElement,
     SliderElement,
+    SpinnerElement,
     TabBarElement,
     TableElement,
     TreeElement,
     WindowElement,
     element_from_dict,
 )
-from punt_lux.server import clear, ping, recv, show, update
+from punt_lux.server import clear, ping, recv, set_menu, show, update
 
 
 class TestElementFromDict:
@@ -258,6 +262,84 @@ class TestElementFromDict:
         assert elem.rows == []
         assert elem.flags == ["borders", "row_bg"]
 
+    def test_plot_element(self) -> None:
+        elem = element_from_dict(
+            {
+                "kind": "plot",
+                "id": "p1",
+                "title": "Trend",
+                "x_label": "Time",
+                "y_label": "Value",
+                "series": [
+                    {"label": "y", "type": "line", "x": [1, 2, 3], "y": [10, 20, 15]},
+                ],
+            }
+        )
+        assert isinstance(elem, PlotElement)
+        assert elem.title == "Trend"
+        assert elem.x_label == "Time"
+        assert len(elem.series) == 1
+
+    def test_plot_defaults(self) -> None:
+        elem = element_from_dict({"kind": "plot", "id": "p1"})
+        assert isinstance(elem, PlotElement)
+        assert elem.title == ""
+        assert elem.x_label == ""
+        assert elem.y_label == ""
+        assert elem.width == -1
+        assert elem.height == 300
+        assert elem.series == []
+
+    def test_progress_element(self) -> None:
+        elem = element_from_dict(
+            {"kind": "progress", "id": "pg1", "fraction": 0.75, "label": "75%"}
+        )
+        assert isinstance(elem, ProgressElement)
+        assert elem.fraction == 0.75
+        assert elem.label == "75%"
+
+    def test_progress_defaults(self) -> None:
+        elem = element_from_dict({"kind": "progress", "id": "pg1"})
+        assert isinstance(elem, ProgressElement)
+        assert elem.fraction == 0.0
+        assert elem.label == ""
+
+    def test_spinner_element(self) -> None:
+        elem = element_from_dict(
+            {"kind": "spinner", "id": "sp1", "label": "Wait", "radius": 20.0}
+        )
+        assert isinstance(elem, SpinnerElement)
+        assert elem.label == "Wait"
+        assert elem.radius == 20.0
+
+    def test_spinner_defaults(self) -> None:
+        elem = element_from_dict({"kind": "spinner", "id": "sp1"})
+        assert isinstance(elem, SpinnerElement)
+        assert elem.radius == 16.0
+        assert elem.color == "#3399FF"
+
+    def test_markdown_element(self) -> None:
+        elem = element_from_dict(
+            {"kind": "markdown", "id": "md1", "content": "**bold**"}
+        )
+        assert isinstance(elem, MarkdownElement)
+        assert elem.content == "**bold**"
+
+    def test_markdown_defaults(self) -> None:
+        elem = element_from_dict({"kind": "markdown", "id": "md1"})
+        assert isinstance(elem, MarkdownElement)
+        assert elem.content == ""
+
+    def test_tooltip_from_dict(self) -> None:
+        elem = element_from_dict(
+            {"kind": "text", "id": "t1", "content": "hi", "tooltip": "help"}
+        )
+        assert elem.tooltip == "help"
+
+    def test_tooltip_default_none(self) -> None:
+        elem = element_from_dict({"kind": "text", "id": "t1", "content": "hi"})
+        assert elem.tooltip is None
+
     def test_unknown_kind_raises(self) -> None:
         import pytest
 
@@ -269,6 +351,18 @@ def _mock_client() -> MagicMock:
     client = MagicMock()
     client.is_connected = True
     return client
+
+
+class TestSetMenuTool:
+    @patch("punt_lux.server._get_client")
+    def test_set_menu_returns_ok(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+
+        menus = [{"label": "Tools", "items": [{"label": "Run", "id": "run"}]}]
+        result = set_menu(menus)
+        assert result == "ok"
+        client.set_menu.assert_called_once_with(menus)
 
 
 class TestShowTool:

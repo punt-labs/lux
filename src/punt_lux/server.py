@@ -85,6 +85,18 @@ def show(
                      "columns": ["Name", "Score"],
                      "rows": [["Alice", 95], ["Bob", 87]],
                      "flags": ["borders", "row_bg"]}
+      Plot:         {"kind": "plot", "id": "p1", "title": "Trend",
+                     "x_label": "Time", "y_label": "Value",
+                     "series": [{"label": "y", "type": "line",
+                       "x": [1,2,3], "y": [10,20,15]}]}
+
+    Status elements:
+      Progress:     {"kind": "progress", "id": "pg1", "fraction": 0.73}
+      Spinner:      {"kind": "spinner", "id": "sp1", "label": "Loading..."}
+
+    Rich text:
+      Markdown:     {"kind": "markdown", "id": "md1",
+                     "content": "# Title\\n\\nBold **text**."}
 
     Canvas element:
       Draw:         {"kind": "draw", "id": "d1", "commands": [...]}
@@ -100,6 +112,9 @@ def show(
       Window:       {"kind": "window", "id": "w1", "title": "Panel",
                      "x": 50, "y": 50, "width": 300, "height": 200,
                      "children": [...]}
+
+    All elements with an id support an optional ``"tooltip"`` field
+    (string shown on hover).
 
     Returns ``"ack:<scene_id>"`` on success or ``"timeout"`` if the
     display doesn't respond.
@@ -140,6 +155,22 @@ def update(
     if ack is None:
         return "timeout"
     return f"ack:{ack.scene_id}"
+
+
+@mcp.tool()
+def set_menu(menus: list[dict[str, Any]]) -> str:
+    """Add custom menus to the Lux display menu bar.
+
+    Each menu: {"label": "Tools", "items": [
+        {"label": "Run", "id": "run_btn"},
+        {"label": "---"},  # separator
+    ]}
+
+    Menu item clicks generate interaction events via recv().
+    """
+    client = _get_client()
+    client.set_menu(menus)
+    return "ok"
 
 
 @mcp.tool()

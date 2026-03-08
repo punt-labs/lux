@@ -37,6 +37,11 @@ def pid_file_path(socket_path: Path) -> Path:
     return socket_path.with_suffix(".sock.pid")
 
 
+def log_file_path(socket_path: Path) -> Path:
+    """Return the log file path for a given socket path."""
+    return socket_path.with_suffix(".sock.log")
+
+
 def is_display_running(socket_path: Path) -> bool:
     """Check whether a display server is alive at *socket_path*."""
     pid_path = pid_file_path(socket_path)
@@ -81,12 +86,16 @@ def ensure_display(socket_path: Path | None = None, timeout: float = 5.0) -> Pat
     cleanup_stale_socket(socket_path)
 
     socket_path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.Popen(  # noqa: S603
-        [sys.executable, "-m", "punt_lux", "display", "--socket", str(socket_path)],
-        start_new_session=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    log_file = log_file_path(socket_path).open("w")
+    try:
+        subprocess.Popen(  # noqa: S603
+            [sys.executable, "-m", "punt_lux", "display", "--socket", str(socket_path)],
+            start_new_session=True,
+            stdout=log_file,
+            stderr=log_file,
+        )
+    finally:
+        log_file.close()
 
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
