@@ -307,20 +307,27 @@ def _render_filter_combo(
         widget_state.set(sid, new_idx)
 
 
+# Type alias: (original_row_index, row_data)
+IndexedRow = tuple[int, list[Any]]
+
+
 def _apply_table_filters(
     filters: list[Any] | None,
     rows: list[list[Any]],
     table_id: str,
     widget_state: WidgetState,
     imgui: Any,
-) -> list[list[Any]]:
-    """Render built-in filter controls and return only matching rows.
+) -> list[IndexedRow]:
+    """Render built-in filter controls and return matching rows with indices.
 
     Each filter's widget state is stored under an internal ID that won't
     collide with user element IDs (``__tbl_`` prefix).
+    Returns ``(original_index, row)`` tuples so detail lookup works
+    through filters.
     """
+    indexed: list[IndexedRow] = list(enumerate(rows))
     if not filters:
-        return rows
+        return indexed
 
     for f_idx, filt in enumerate(filters):
         if f_idx > 0:
@@ -330,7 +337,7 @@ def _apply_table_filters(
         elif filt.type == "combo":
             _render_filter_combo(filt, f_idx, table_id, widget_state, imgui)
 
-    visible = _filter_rows(filters, rows, table_id, widget_state)
+    visible = _filter_indexed_rows(filters, indexed, table_id, widget_state)
     total = len(rows)
     shown = len(visible)
     if shown < total:
@@ -341,13 +348,13 @@ def _apply_table_filters(
     return visible
 
 
-def _filter_rows(
+def _filter_indexed_rows(
     filters: list[Any],
-    rows: list[list[Any]],
+    rows: list[IndexedRow],
     table_id: str,
     widget_state: WidgetState,
-) -> list[list[Any]]:
-    """Apply all active filters to rows with AND logic."""
+) -> list[IndexedRow]:
+    """Apply all active filters to indexed rows with AND logic."""
     result = rows
     for f_idx, filt in enumerate(filters):
         ftype: str = filt.type
@@ -360,25 +367,162 @@ def _filter_rows(
             col = filt.column
             cols = col if isinstance(col, list) else [col]
             result = [
-                row
-                for row in result
-                if any(query_lower in str(row[c]).lower() for c in cols if c < len(row))
+                ir
+                for ir in result
+                if any(
+                    query_lower in str(ir[1][c]).lower() for c in cols if c < len(ir[1])
+                )
             ]
         elif ftype == "combo":
-            sid = f"__tbl_combo_{f_idx}_{table_id}"
-            selected_idx: int = widget_state.get(sid, 0)
-            items: list[str] = filt.items or []
-            if selected_idx == 0 or not items:
-                continue  # "All" selected or no items
-            selected_val = items[selected_idx] if selected_idx < len(items) else ""
-            col = filt.column
-            col_idx = col if isinstance(col, int) else col[0]
-            result = [
-                row
-                for row in result
-                if col_idx < len(row) and str(row[col_idx]) == selected_val
-            ]
+            result = _filter_combo(filt, f_idx, table_id, widget_state, result)
     return result
+
+
+def _filter_combo(
+    filt: Any,
+    f_idx: int,
+    table_id: str,
+    widget_state: WidgetState,
+    rows: list[IndexedRow],
+) -> list[IndexedRow]:
+    """Apply a single combo filter to indexed rows."""
+    sid = f"__tbl_combo_{f_idx}_{table_id}"
+    selected_idx: int = widget_state.get(sid, 0)
+    items: list[str] = filt.items or []
+    if selected_idx == 0 or not items:
+        return rows
+    selected_val = items[selected_idx] if selected_idx < len(items) else ""
+    col = filt.column
+    col_idx = col if isinstance(col, int) else col[0]
+    return [
+        ir
+        for ir in rows
+        if col_idx < len(ir[1]) and str(ir[1][col_idx]) == selected_val
+    ]
+
+
+def _render_table_rows(
+    indexed_rows: list[IndexedRow],
+    num_cols: int,
+    *,
+    selectable: bool,
+    table_id: str,
+    widget_state: WidgetState,
+    sel_key: str,
+    imgui: Any,
+) -> int:
+    """Render table body rows, with optional row selection for detail views.
+
+    Returns the currently selected original row index (-1 if none).
+    """
+    selected_orig: int = widget_state.ensure(sel_key, -1)
+    for orig_idx, row in indexed_rows:
+        imgui.table_next_row()
+        for col_idx, cell in enumerate(row):
+            if col_idx >= num_cols:
+                continue
+            imgui.table_set_column_index(col_idx)
+            if col_idx == 0 and selectable:
+                is_sel = orig_idx == selected_orig
+                flags = imgui.SelectableFlags_.span_all_columns.value
+                clicked, _ = imgui.selectable(
+                    f"{cell}##{table_id}_{orig_idx}",
+                    is_sel,
+                    flags,
+                )
+                if clicked:
+                    widget_state.set(sel_key, orig_idx)
+                    selected_orig = orig_idx
+            else:
+                imgui.text_wrapped(str(cell))
+    return selected_orig
+
+
+def _render_table_detail(
+    detail: Any,
+    row_idx: int,
+    table_id: str,
+    imgui: Any,
+) -> None:
+    """Render the detail panel for a selected table row.
+
+    Draws a separator, then a scrollable child region containing:
+    - Heading from the first detail field
+    - 2-column metadata grid (Field | Value | Field | Value)
+    - Separator
+    - Body text (wrapped, scrollable)
+    """
+    fields: list[str] = detail.fields
+    detail_rows: list[list[Any]] = detail.rows
+    body_list: list[str] = detail.body
+
+    if row_idx >= len(detail_rows) or row_idx >= len(body_list):
+        return
+
+    row_data = detail_rows[row_idx]
+    body = body_list[row_idx]
+
+    imgui.separator()
+
+    # Scrollable child region — takes all remaining height
+    avail = imgui.get_content_region_avail()
+    child_h = max(avail.y, 100.0)
+    child_id = f"__tbl_detail__{table_id}"
+    if imgui.begin_child(child_id, imgui.ImVec2(0, child_h)):
+        # Heading from first field value
+        if row_data:
+            heading = str(row_data[0])
+            if len(row_data) > 1:
+                heading = f"{row_data[0]}: {row_data[1]}"
+            imgui.text(heading)
+            imgui.separator()
+
+        # 2-column metadata grid
+        _render_detail_field_grid(fields, row_data, table_id, imgui)
+
+        if body:
+            imgui.separator()
+            imgui.text_wrapped(body)
+
+    imgui.end_child()
+
+
+def _render_detail_field_grid(
+    fields: list[str],
+    values: list[Any],
+    table_id: str,
+    imgui: Any,
+) -> None:
+    """Render fields as a 2-column grid: Field | Value | Field | Value."""
+    n = min(len(fields), len(values))
+    if n == 0:
+        return
+
+    grid_id = f"__tbl_fgrid__{table_id}"
+    tflags = imgui.TableFlags_.borders.value
+    if imgui.begin_table(grid_id, 4, tflags):
+        stretch = imgui.TableColumnFlags_.width_stretch.value
+        imgui.table_setup_column("Field", stretch, 1.0)
+        imgui.table_setup_column("Value", stretch, 2.0)
+        imgui.table_setup_column("Field", stretch, 1.0)
+        imgui.table_setup_column("Value", stretch, 2.0)
+
+        # Pair fields: (0,1), (2,3), (4,5), ...
+        for i in range(0, n, 2):
+            imgui.table_next_row()
+            # Left pair
+            imgui.table_set_column_index(0)
+            imgui.text(fields[i])
+            imgui.table_set_column_index(1)
+            imgui.text(str(values[i]))
+            # Right pair (if exists)
+            if i + 1 < n:
+                imgui.table_set_column_index(2)
+                imgui.text(fields[i + 1])
+                imgui.table_set_column_index(3)
+                imgui.text(str(values[i + 1]))
+
+        imgui.end_table()
 
 
 def _table_column_weights(
@@ -1341,13 +1485,15 @@ class DisplayServer:
         rows: list[list[Any]] = tbl.rows
         flags_list: list[str] = tbl.flags
         filters: list[Any] | None = tbl.filters
+        detail: Any | None = tbl.detail
+        has_detail = detail is not None
 
         num_cols = len(columns)
         if num_cols == 0:
             return
 
-        # Render built-in filters and get visible rows
-        visible_rows = _apply_table_filters(
+        # Render built-in filters and get visible rows with indices
+        indexed_rows = _apply_table_filters(
             filters,
             rows,
             eid,
@@ -1365,10 +1511,12 @@ class DisplayServer:
         for f in flags_list:
             table_flags |= flag_map.get(f, 0)
 
-        weights = _table_column_weights(columns, visible_rows, tbl.column_widths)
+        just_rows = [ir[1] for ir in indexed_rows]
+        weights = _table_column_weights(columns, just_rows, tbl.column_widths)
 
         scene_id = self._current_scene.id if self._current_scene else ""
         imgui_id = f"##{scene_id}/{eid}"
+        sel_key = f"__tbl_sel_{eid}"
 
         if imgui.begin_table(imgui_id, num_cols, table_flags):
             stretch = imgui.TableColumnFlags_.width_stretch.value
@@ -1376,14 +1524,22 @@ class DisplayServer:
                 imgui.table_setup_column(col_name, stretch, weights[col_idx])
             imgui.table_headers_row()
 
-            for row in visible_rows:
-                imgui.table_next_row()
-                for col_idx, cell in enumerate(row):
-                    if col_idx < num_cols:
-                        imgui.table_set_column_index(col_idx)
-                        imgui.text_wrapped(str(cell))
-
+            selected_orig = _render_table_rows(
+                indexed_rows,
+                num_cols,
+                selectable=has_detail,
+                table_id=eid,
+                widget_state=self._widget_state,
+                sel_key=sel_key,
+                imgui=imgui,
+            )
             imgui.end_table()
+
+        else:
+            selected_orig = self._widget_state.ensure(sel_key, -1)
+
+        if has_detail and selected_orig >= 0:
+            _render_table_detail(detail, selected_orig, eid, imgui)
 
     # -- plot rendering ----------------------------------------------------
 

@@ -1064,3 +1064,104 @@ An alternative design would let any combo or input_text element declare a `filte
 ### Rejected: Client-Side Filter Scripts
 
 Small JavaScript-like filter functions evaluated in the display (e.g., `row => row[4] > 1000`). This blurs the line with render_function and raises the same consent questions. The declarative filter types (search, combo) cover the common cases without running user-provided code.
+
+## DES-019: Built-In Table Detail Panel — Row Selection with Split Layout
+
+**Date:** 2026-03-08
+**Status:** ACCEPTED
+**Topic:** Whether row-selection → detail-panel should be built into the table element or handled by the LLM via recv/update
+
+### Context
+
+List/detail is one of the most common UI patterns: click an item in a list, see its details below. DES-018 moved filtering into the display server at 0ms latency. The same argument applies to detail panels — when the user clicks a row, the ~6.4s recv/update round trip to show pre-known detail data is unnecessary friction.
+
+The LLM already knows the detail data at `show()` time. The question: can we send it all upfront and let the display server handle the selection → detail rendering locally?
+
+### Design
+
+Add an optional `detail` field to `TableElement`. When present, clicking a row renders a detail panel below the table. The display server handles selection state and detail rendering entirely — no events emitted, no round trips.
+
+#### Protocol Addition
+
+```python
+@dataclass(frozen=True)
+class TableDetail:
+    """Detail data for each row, rendered when the row is selected."""
+    fields: list[str]          # field names (e.g., ["ID", "Title", "Status", ...])
+    rows: list[list[Any]]      # one row per table row, values for each field
+    body: list[str]            # one body text per table row (long-form content)
+```
+
+```python
+@dataclass(frozen=True)
+class TableElement:
+    # ... existing fields ...
+    detail: TableDetail | None = None  # NEW
+```
+
+The `detail.rows` and `detail.body` lists are parallel to the table's `rows` — index 0 maps to table row 0, etc. This avoids key-based lookups and keeps the protocol simple.
+
+#### JSON Wire Format
+
+```json
+{
+  "kind": "table", "id": "issue-list",
+  "columns": ["ID", "Title", "Status"],
+  "rows": [
+    ["ISS-001", "Fix login timeout", "Open"],
+    ["ISS-002", "Add dark mode", "In Progress"]
+  ],
+  "detail": {
+    "fields": ["ID", "Title", "Status", "Priority", "Assignee", "Created"],
+    "rows": [
+      ["ISS-001", "Fix login timeout", "Open", "P1", "alice", "2026-03-01"],
+      ["ISS-002", "Add dark mode", "In Progress", "P2", "bob", "2026-03-02"]
+    ],
+    "body": [
+      "The login flow times out after 30s on slow connections...",
+      "Users have requested a dark theme for reduced eye strain..."
+    ]
+  },
+  "flags": ["borders", "row_bg"]
+}
+```
+
+#### Display Server Behavior
+
+When `detail` is present:
+
+1. **Selectable rows** — Table rows use `imgui.selectable()` with `span_all_columns` in column 0. Clicking a row stores its original index in widget state (`__tbl_sel_{table_id}`).
+2. **Index tracking** — When filters are active (DES-018), visible row N maps to a different original row index. The renderer tracks `IndexedRow = tuple[int, list[Any]]` through filtering so detail lookup uses the correct original index.
+3. **Detail panel** — Rendered in a scrollable `imgui.begin_child()` region that takes all remaining vertical space. Contains:
+   - **Heading** — First field value (typically the title) rendered as bold separator text
+   - **Field grid** — 2-column layout using a 4-column ImGui table (Field₁ | Value₁ | Field₂ | Value₂), fields paired two per row
+   - **Body** — Full text content with word wrapping, separated from the field grid
+
+The table list portion stays fixed; only the detail panel scrolls. This mimics standard list/detail UIs (email clients, file browsers, issue trackers).
+
+#### Interaction with DES-018 Filters
+
+Filters and detail compose naturally. When filters are active:
+
+- Clicking a filtered row looks up the original index, not the visible position
+- Changing filters does not clear the selection (the selected row may disappear from view but reappear when filters change back)
+- The detail panel always shows data for the last-selected original row
+
+#### What Does NOT Move to the Display Server
+
+| Capability | Why it stays with the LLM |
+|-----------|--------------------------|
+| Pagination | Loading next/previous pages requires knowing the data source |
+| Dynamic detail | Detail content that depends on external lookups (API calls, file reads) |
+| Actions on selected row | "Close this issue", "Assign to me" — requires LLM orchestration |
+| Multi-row selection | Bulk operations need LLM-driven logic |
+
+These remain in the `recv()` → `update()` loop. Pagination in particular was intentionally left to the LLM to keep the display server stateless about data sources.
+
+### Rejected: Separate Detail Element
+
+An alternative would be a standalone `detail_panel` element type linked to a table by ID. This adds cross-element references (same issue as rejected in DES-018). Embedding detail data *in* the table element keeps it self-contained — one element, one dataset, one render path.
+
+### Rejected: Key-Based Row Matching
+
+Instead of parallel arrays, detail rows could use a key field to match table rows. This adds complexity (key extraction, lookup maps) for no practical benefit — the LLM constructs both arrays at the same time and can trivially keep them aligned.

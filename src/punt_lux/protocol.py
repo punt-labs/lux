@@ -266,6 +266,23 @@ class TableFilter:
 
 
 @dataclass
+class TableDetail:
+    """Detail data for a built-in list/detail view.
+
+    Each array is parallel to the parent ``TableElement.rows``:
+    ``rows[i]`` provides the detail metadata and ``body[i]`` provides
+    the long-form text for the *i*-th list row.
+
+    ``fields`` names the metadata columns.  The display renders them
+    as a 2-column grid (Field | Value | Field | Value).
+    """
+
+    fields: list[str]
+    rows: list[list[Any]]
+    body: list[str]
+
+
+@dataclass
 class TableElement:
     """A data table with columns and rows."""
 
@@ -276,6 +293,7 @@ class TableElement:
     flags: list[str] = field(default_factory=lambda: ["borders", "row_bg"])
     column_widths: list[float] | None = None
     filters: list[TableFilter] | None = None
+    detail: TableDetail | None = None
     tooltip: str | None = None
 
 
@@ -712,6 +730,18 @@ def _tree_to_dict(elem: TreeElement) -> dict[str, Any]:
     }
 
 
+def _table_detail_to_dict(d: TableDetail) -> dict[str, Any]:
+    return {"fields": d.fields, "rows": d.rows, "body": d.body}
+
+
+def _table_detail_from_dict(d: dict[str, Any]) -> TableDetail:
+    return TableDetail(
+        fields=d.get("fields", []),
+        rows=d.get("rows", []),
+        body=d.get("body", []),
+    )
+
+
 def _table_filter_to_dict(f: TableFilter) -> dict[str, Any]:
     d: dict[str, Any] = {"type": f.type, "column": f.column}
     if f.hint:
@@ -745,6 +775,8 @@ def _table_to_dict(elem: TableElement) -> dict[str, Any]:
         d["column_widths"] = elem.column_widths
     if elem.filters is not None:
         d["filters"] = [_table_filter_to_dict(f) for f in elem.filters]
+    if elem.detail is not None:
+        d["detail"] = _table_detail_to_dict(elem.detail)
     return d
 
 
@@ -1018,6 +1050,10 @@ def _table_from_dict(d: dict[str, Any]) -> TableElement:
     filters: list[TableFilter] | None = None
     if raw_filters is not None:
         filters = [_table_filter_from_dict(f) for f in raw_filters]
+    raw_detail = d.get("detail")
+    detail: TableDetail | None = None
+    if raw_detail is not None:
+        detail = _table_detail_from_dict(raw_detail)
     return TableElement(
         id=d["id"],
         columns=d.get("columns", []),
@@ -1025,6 +1061,7 @@ def _table_from_dict(d: dict[str, Any]) -> TableElement:
         flags=d.get("flags", ["borders", "row_bg"]),
         column_widths=d.get("column_widths"),
         filters=filters,
+        detail=detail,
     )
 
 
