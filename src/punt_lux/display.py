@@ -331,9 +331,10 @@ class DisplayServer:
 
     def _on_post_init(self) -> None:
         """Called once the OpenGL context is ready."""
-        from imgui_bundle import hello_imgui
+        from imgui_bundle import hello_imgui, imgui_md
 
         self._themes = list(hello_imgui.ImGuiTheme_)
+        imgui_md.initialize_markdown()
         self._setup_socket()
         write_pid_file(self._socket_path)
         logger.info("Display server listening on %s", self._socket_path)
