@@ -4,25 +4,26 @@ This project follows [Punt Labs standards](https://github.com/punt-labs/punt-kit
 
 ## What Is Lux?
 
-Lux is the **visual counterpart to Vox** (punt-vox). Vox gives agents a voice; Lux gives agents visual output — image and diagram generation with multi-provider support. It generalizes `langlearn-imagegen` into a standalone building block that any project can compose.
+Lux is a **visual output surface for Claude Code**. Vox gives agents a voice; Lux gives agents a screen — tables, charts, dashboards, and interactive elements rendered in a native ImGui window via Unix socket IPC.
 
 - **PyPI package**: `punt-lux`
 - **CLI command**: `lux`
-- **Projection surfaces**: library, CLI, MCP server, REST API (universal access pattern)
-- **Stage**: alpha (v0.0.0)
+- **Projection surfaces**: library, CLI, MCP server, plugin
+- **Stage**: v0.5.0
 
 ### Capabilities
 
-- Multi-backend image generation (swap providers without changing calling code)
-- Diagrams, illustrations, and visual assets from text descriptions
-- Batch generation for learning materials and documentation
+- Composable element tree: text, tables, plots, buttons, inputs, sliders, checkboxes, combos, color pickers
+- Layout containers: groups (columns), tabs, collapsing headers, floating windows
+- Built-in table filtering (search + combo) at 60fps with zero MCP round-trips
+- Scene-based updates via JSON patch protocol over Unix sockets
+- Auto-spawn: display server starts on first `show()` call
 
 ### Key Relationships
 
-- **Vox** (`../tts/`) — audio counterpart; Lux follows the same architectural patterns
-- **langlearn-imagegen** (`../langlearn-imagegen/`) — predecessor; Lux generalizes this into a standalone block
+- **Vox** (`../vox/`) — audio counterpart; Lux follows the same plugin/release patterns
 - **LangLearn** (`../langlearn/`) — orchestrator that will compose Lux for visual assets
-- **Persona** (planned) — will provide character/style hints that Lux can consume
+- **claude-plugins** (`../claude-plugins/`) — marketplace catalog entry
 
 ### Punt Labs Context
 
@@ -51,6 +52,37 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy src/ tests/ &
 - [Python](https://github.com/punt-labs/punt-kit/blob/main/standards/python.md)
 - [CLI](https://github.com/punt-labs/punt-kit/blob/main/standards/cli.md)
 - [Distribution](https://github.com/punt-labs/punt-kit/blob/main/standards/distribution.md)
+
+## Release Process
+
+Lux is a **CLI + Plugin Hybrid** project. Releases publish to both PyPI and the marketplace.
+
+### Release command
+
+```bash
+punt release <version>
+```
+
+### Propagation checklist (post-release)
+
+After `punt release` completes, three manual propagation steps are required:
+
+1. **Marketplace catalog** — update `claude-plugins/.claude-plugin/marketplace.json` with the new `ref` tag and `version`, commit, push
+2. **install-all.sh** — update `punt-kit/install-all.sh` with the new install.sh SHA (`git log -1 --format='%H' -- install.sh`), commit, push to main
+3. **install.sh SHA in README** — if the README references a pinned install.sh URL, update the SHA there too
+
+### Release scripts
+
+| Script | Purpose |
+|--------|---------|
+| `scripts/release-plugin.sh` | Swaps plugin.json name from `lux-dev` → `lux`, removes dev commands. Called by `punt release`. |
+| `scripts/restore-dev-plugin.sh` | Restores dev plugin state on main after a release tag. Called by `punt release`. |
+
+### Gotchas from v0.5.0 release
+
+- `.gitignore` must cover all transient files (`.coverage`, `*.ini`, `demos/`, `__pycache__/`, LaTeX build artifacts) — `punt release` checks for a clean working tree
+- The release-plugin.sh and restore-dev-plugin.sh scripts must exist before first release — `punt release` expects them for hybrid projects
+- Marketplace propagation is not automatic — `punt release` does not create a PR in claude-plugins
 
 ## Available Tooling
 

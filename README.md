@@ -18,10 +18,38 @@ The design follows Smalltalk's Morphic model: every visible element is a composa
 ## Quick Start
 
 ```bash
-uv pip install -e .        # Install from source
-lux display &              # Start the display server
-lux serve                  # Start the MCP server (stdio)
+curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/d7679bd/install.sh | sh
 ```
+
+Restart Claude Code twice. The Lux display window opens automatically when agents send visual output.
+
+<details>
+<summary>Manual install (if you already have uv)</summary>
+
+```bash
+uv tool install punt-lux
+```
+
+Then install the plugin via the marketplace:
+
+```bash
+claude plugin marketplace add punt-labs/claude-plugins
+claude plugin install lux@punt-labs
+```
+
+</details>
+
+<details>
+<summary>Verify before running</summary>
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/d7679bd/install.sh -o install.sh
+shasum -a 256 install.sh
+cat install.sh
+sh install.sh
+```
+
+</details>
 
 <details>
 <summary>Run a demo</summary>
