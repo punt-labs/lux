@@ -131,12 +131,17 @@ def _check_fonts(_check: _CheckFn) -> None:
     if primary:
         _check(_OK, f"Font: {primary}", required=False)
     else:
-        _check(_FAIL, f"No Unicode font found{hint} (falls back to Latin-only)", required=False)
+        msg = f"No Unicode font found{hint} (falls back to Latin-only)"
+        _check(_FAIL, msg, required=False)
 
     if sym:
         _check(_OK, f"Symbol font: {sym}", required=False)
     else:
-        _check(_OPTIONAL, "No symbol font found (math symbols may not render)", required=False)
+        _check(
+            _OPTIONAL,
+            "No symbol font found (math symbols may not render)",
+            required=False,
+        )
 
 
 def _check_plugin(
