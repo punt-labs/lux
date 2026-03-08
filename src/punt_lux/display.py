@@ -1125,8 +1125,9 @@ class DisplayServer:
             return
 
         if imgui.begin_table(f"##{eid}", num_cols, table_flags):
+            stretch = imgui.TableColumnFlags_.width_stretch.value
             for col_name in columns:
-                imgui.table_setup_column(col_name)
+                imgui.table_setup_column(col_name, stretch)
             imgui.table_headers_row()
 
             for row in rows:
@@ -1134,7 +1135,7 @@ class DisplayServer:
                 for col_idx, cell in enumerate(row):
                     if col_idx < num_cols:
                         imgui.table_set_column_index(col_idx)
-                        imgui.text(str(cell))
+                        imgui.text_wrapped(str(cell))
 
             imgui.end_table()
 
