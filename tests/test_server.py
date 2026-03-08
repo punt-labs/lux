@@ -510,10 +510,10 @@ class TestShowDashboardTool:
         )
         assert result == "ack:d1"
         elements = client.show.call_args[0][1]
-        # metrics group + separator
+        # metrics group only (no trailing separator for single section)
+        assert len(elements) == 1
         assert elements[0].kind == "group"
         assert len(elements[0].children) == 2
-        assert elements[1].kind == "separator"
 
     @patch("punt_lux.server._get_client")
     def test_dashboard_all_sections(self, mock_get: MagicMock) -> None:

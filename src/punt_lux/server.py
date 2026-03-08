@@ -243,7 +243,7 @@ def show_table(
         "id": "table",
         "columns": columns,
         "rows": rows,
-        "flags": flags or ["borders", "row_bg"],
+        "flags": flags if flags is not None else ["borders", "row_bg"],
     }
     if filters is not None:
         table["filters"] = filters
@@ -313,6 +313,8 @@ def show_dashboard(
     """
     elements: list[dict[str, Any]] = []
 
+    sections: list[list[dict[str, Any]]] = []
+
     if metrics:
         cards = [
             {
@@ -330,34 +332,43 @@ def show_dashboard(
             }
             for i, m in enumerate(metrics)
         ]
-        elements.append(
-            {
-                "kind": "group",
-                "id": "metrics-row",
-                "layout": "columns",
-                "children": cards,
-            }
+        sections.append(
+            [
+                {
+                    "kind": "group",
+                    "id": "metrics-row",
+                    "layout": "columns",
+                    "children": cards,
+                }
+            ]
         )
-        elements.append({"kind": "separator"})
 
     if charts:
+        chart_elements: list[dict[str, Any]] = []
         for chart in charts:
-            plot: dict[str, Any] = {"kind": "plot", **chart}
+            plot: dict[str, Any] = {**chart, "kind": "plot"}
             if "id" not in plot:
                 plot["id"] = f"chart-{len(elements)}"
-            elements.append(plot)
-        elements.append({"kind": "separator"})
+            chart_elements.append(plot)
+        sections.append(chart_elements)
 
-    if table_columns and table_rows:
-        elements.append(
-            {
-                "kind": "table",
-                "id": "dashboard-table",
-                "columns": table_columns,
-                "rows": table_rows,
-                "flags": ["borders", "row_bg"],
-            }
+    if table_columns is not None:
+        sections.append(
+            [
+                {
+                    "kind": "table",
+                    "id": "dashboard-table",
+                    "columns": table_columns,
+                    "rows": table_rows if table_rows is not None else [],
+                    "flags": ["borders", "row_bg"],
+                }
+            ]
         )
+
+    for i, section in enumerate(sections):
+        elements.extend(section)
+        if i < len(sections) - 1:
+            elements.append({"kind": "separator"})
 
     return show(scene_id, elements, title=title)
 
