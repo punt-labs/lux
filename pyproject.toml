@@ -27,7 +27,7 @@ dependencies = [
     "pydantic>=2.0.0,<3",
 ]
 
-[dependency-groups]
+[project.optional-dependencies]
 dev = [
     "ruff>=0.13.0",
     "mypy>=1.18.1",
