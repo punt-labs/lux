@@ -469,13 +469,12 @@ def _render_table_detail(
     child_h = max(avail.y, 100.0)
     child_id = f"__tbl_detail__{table_id}"
     if imgui.begin_child(child_id, imgui.ImVec2(0, child_h)):
-        # Heading from first field value
+        # Banner heading from first two field values
         if row_data:
             heading = str(row_data[0])
             if len(row_data) > 1:
                 heading = f"{row_data[0]}: {row_data[1]}"
-            imgui.text(heading)
-            imgui.separator()
+            imgui.separator_text(heading)
 
         # 2-column metadata grid
         _render_detail_field_grid(fields, row_data, table_id, imgui)
