@@ -946,3 +946,121 @@ The model never touches config files directly — it uses the MCP or CLI layer. 
 ```gitignore
 .lux/
 ```
+
+---
+
+## DES-018: Built-In Table Filtering — Client-Side Search, Sort, and Combo Filters
+
+**Date:** 2026-03-08
+**Status:** ACCEPTED
+**Topic:** Whether filtering and search should be built into the table element or handled by the LLM via recv/update
+
+### Context
+
+The data explorer skill (DES-014 era) requires an interaction loop where the LLM receives filter events via `recv()`, recomputes filtered rows, and sends them back via `update()`. This works, but the LLM is doing mechanical work — case-insensitive substring matching, exact-match dropdown filtering — at ~6.4s round-trip latency (recv + update). The user experiences a multi-second delay for what should be instant keystroke response.
+
+The question: should filtering be a **display server capability** (built into the table element) or an **LLM responsibility** (handled via the event loop)?
+
+### Design
+
+Add an optional `filters` field to `TableElement`. When present, the display server renders filter controls above the table and applies them at render time (60fps). No events are emitted for filter changes — the display handles it locally.
+
+#### Protocol Addition
+
+```python
+@dataclass(frozen=True)
+class TableFilter:
+    """A filter control rendered above a table."""
+    type: Literal["search", "combo"]
+    column: int | list[int]       # column index(es) to filter on
+    hint: str = ""                # placeholder text (search only)
+    items: list[str] | None = None  # dropdown items (combo only, first item = "All")
+```
+
+```python
+@dataclass(frozen=True)
+class TableElement:
+    # ... existing fields ...
+    filters: list[TableFilter] | None = None  # NEW
+```
+
+#### JSON Wire Format
+
+```json
+{
+  "kind": "table", "id": "pkg-table",
+  "columns": ["Package", "Version", "Status", "License", "Downloads"],
+  "rows": [
+    ["punt-biff", "0.12.1", "Active", "MIT", "3,241"],
+    ["punt-quarry", "0.10.1", "Active", "MIT", "2,887"],
+    ["punt-lux", "0.0.1", "Beta", "MIT", "412"]
+  ],
+  "filters": [
+    {"type": "search", "column": [0, 1], "hint": "Filter by name..."},
+    {"type": "combo", "column": 2, "items": ["All", "Active", "Deprecated", "Beta"]},
+    {"type": "combo", "column": 3, "items": ["All", "MIT", "Apache-2.0", "BSD-3"]}
+  ],
+  "flags": ["borders", "row_bg"]
+}
+```
+
+#### Display Server Behavior
+
+Each frame, the table renderer:
+
+1. Reads current filter state (search text, combo selections) from ImGui widget state
+2. Iterates full `rows`, applying all filters with AND logic
+3. Renders only matching rows
+
+Filter logic per type:
+
+- **search**: case-insensitive substring match against the specified column(s). If `column` is a list, matches if *any* listed column contains the search text (OR within search, AND across filters).
+- **combo**: exact match against `str(cell_value)`. First item in `items` is treated as "All" (no filter applied when selected).
+
+A result count line (`"Showing N of M"`) is rendered automatically between the filters and the table body.
+
+#### What Does NOT Move to the Display Server
+
+| Capability | Why it stays with the LLM |
+|-----------|--------------------------|
+| Detail panel updates | Row selection → rich details requires understanding the data |
+| Computed filters | Filters on derived values (e.g., "overdue" from a date field) need logic |
+| Cross-table updates | Filtering one table affects another — requires orchestration |
+| Data refresh | Re-reading the source (file, API, command) is an I/O operation |
+| Custom filter logic | OR-within-category, range sliders, regex — future extensions |
+
+These remain in the `recv()` → `update()` loop. The LLM handles intelligence; the display handles mechanics.
+
+### The Three Layers
+
+| Layer | Who | Latency | Examples |
+|-------|-----|---------|---------|
+| **Built-in safe** | Display server, declarative | 0ms (render-time) | Search, combo filter, sort by column |
+| **LLM-driven** | recv() → update() loop | ~6.4s | Detail panel, computed fields, cross-table |
+| **Code-on-demand** | render_function, consent gate | 0ms (render-time) | Custom visualizations, games |
+
+Built-in filtering occupies the same trust level as the existing dispatch table — it's safe by construction because the display server only does predefined operations (substring match, exact match) on data the LLM already provided. No arbitrary code, no consent required.
+
+### Impact on the Data Explorer Skill
+
+The skill becomes simpler. Instead of teaching the LLM to build a filter → recv → update loop, it teaches the LLM to declare `filters` on the table element. The interaction section shrinks from "Phase 5: Interaction Loop" to "Phase 5: Detail Panel (Optional)" — only needed if the explorer includes a detail view.
+
+The skill should document both paths: built-in filters for the common case, recv/update for custom behavior.
+
+### Sort by Column (Future Extension)
+
+A natural follow-on is built-in column sorting (click header to sort). This would be another declarative flag:
+
+```json
+{"kind": "table", "sortable": true, ...}
+```
+
+The display server handles sort state and re-orders rows at render time. Not in scope for the initial implementation but designed to fit the same pattern.
+
+### Rejected: Linked Elements (Combo X Filters Table Y)
+
+An alternative design would let any combo or input_text element declare a `filters_table` link to a table ID. This is more flexible (filters can live anywhere in the layout) but adds a new concept — cross-element references. The simpler design (filters are *part of* the table) avoids this complexity and covers the primary use case. If layout flexibility is needed, the LLM can always fall back to the recv/update path.
+
+### Rejected: Client-Side Filter Scripts
+
+Small JavaScript-like filter functions evaluated in the display (e.g., `row => row[4] > 1000`). This blurs the line with render_function and raises the same consent questions. The declarative filter types (search, combo) cover the common cases without running user-provided code.
