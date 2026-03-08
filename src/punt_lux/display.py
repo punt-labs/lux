@@ -155,6 +155,12 @@ class WidgetState:
     def clear(self) -> None:
         self._state.clear()
 
+    def clear_suffix(self, suffix: str) -> None:
+        """Remove all keys ending with *suffix*."""
+        keys = [k for k in self._state if k.endswith(suffix)]
+        for k in keys:
+            del self._state[k]
+
 
 # ---------------------------------------------------------------------------
 # Color conversion helpers
@@ -296,7 +302,13 @@ def _render_filter_combo(
     """Render a combo dropdown for a table filter."""
     sid = f"__tbl_combo_{f_idx}_{table_id}"
     items: list[str] = filt.items or []
+    if not items:
+        return
     current_idx: int = widget_state.ensure(sid, 0)
+    # Clamp index to valid range (items may change via update())
+    if current_idx < 0 or current_idx >= len(items):
+        current_idx = 0
+        widget_state.set(sid, 0)
     label = filt.label or "Filter"
     imgui.set_next_item_width(140)
     changed, new_idx = imgui.combo(
@@ -361,7 +373,9 @@ def _apply_table_filters(
 
     # Detect filter changes
     curr_snap = _get_filter_snapshot(filters, table_id, widget_state)
-    filters_changed = prev_snap != "" and curr_snap != prev_snap
+    # Treat initial snapshot (prev_snap == "") as a change so pagination
+    # resets and first row auto-selects when filters are first introduced.
+    filters_changed = curr_snap != prev_snap
     widget_state.set(snap_key, curr_snap)
 
     visible = _filter_indexed_rows(filters, indexed, table_id, widget_state)
@@ -396,7 +410,9 @@ def _filter_indexed_rows(
                 ir
                 for ir in result
                 if any(
-                    query_lower in str(ir[1][c]).lower() for c in cols if c < len(ir[1])
+                    query_lower in str(ir[1][c]).lower()
+                    for c in cols
+                    if 0 <= c < len(ir[1])
                 )
             ]
         elif ftype == "combo":
@@ -417,9 +433,13 @@ def _filter_combo(
     sid = f"__tbl_combo_{f_idx}_{table_id}"
     selected_idx: int = widget_state.get(sid, 0)
     items: list[str] = filt.items or []
-    if selected_idx == 0 or not items:
+    if not items or selected_idx == 0:
         return rows
-    selected_val = items[selected_idx] if selected_idx < len(items) else ""
+    # Reset stale index (e.g. items changed via update()) to "All"
+    if selected_idx < 0 or selected_idx >= len(items):
+        widget_state.set(sid, 0)
+        return rows
+    selected_val = items[selected_idx]
     col_idx: int = filt.column[0]
     return [
         ir
@@ -632,8 +652,14 @@ def _table_column_weights(
     max cell string length per column.
     """
     num_cols = len(columns)
-    if explicit and len(explicit) == num_cols:
-        return explicit
+    if explicit is not None:
+        if len(explicit) == num_cols:
+            return explicit
+        logger.warning(
+            "Ignoring explicit column weights: have %d columns but %d weights",
+            num_cols,
+            len(explicit),
+        )
     weights = [float(len(col)) for col in columns]
     for row in rows:
         for col_idx, cell in enumerate(row):
@@ -1122,6 +1148,8 @@ class DisplayServer:
                 for eid in _collect_ids(removed):
                     self._widget_state.set(eid, None)
                     self._render_fn_state.pop(eid, None)
+                    # Clean up internal table filter/selection/page keys
+                    self._widget_state.clear_suffix(f"_{eid}")
             elif patch.set:
                 self._apply_patch_set(parent_list[idx], patch.set)
 

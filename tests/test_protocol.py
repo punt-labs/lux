@@ -816,6 +816,21 @@ class TestSerialization:
         assert tbl.detail.rows == [["1", "open", "alice"], ["2", "closed", "bob"]]
         assert tbl.detail.body == ["Bug description", "Feature description"]
 
+    def test_table_with_column_widths_roundtrip(self):
+        e = TableElement(
+            id="tbl1",
+            columns=["ID", "Title", "Status"],
+            rows=[["1", "Fix bug", "open"]],
+            column_widths=[1.0, 4.0, 2.0],
+        )
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        tbl = restored.elements[0]
+        assert isinstance(tbl, TableElement)
+        assert tbl.column_widths == [1.0, 4.0, 2.0]
+
     def test_table_filter_combo_requires_items(self):
         with pytest.raises(ValueError, match="requires non-empty 'items'"):
             TableFilter(type="combo", column=0)
