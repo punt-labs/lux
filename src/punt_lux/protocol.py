@@ -784,8 +784,12 @@ def _table_filter_to_dict(f: TableFilter) -> dict[str, Any]:
 
 
 def _table_filter_from_dict(d: dict[str, Any]) -> TableFilter:
+    ftype = d["type"]
+    if ftype not in ("search", "combo"):
+        msg = f"Unknown table filter type: {ftype!r}"
+        raise ValueError(msg)
     return TableFilter(
-        type=d["type"],
+        type=ftype,
         column=d["column"],
         hint=d.get("hint", ""),
         items=d.get("items"),

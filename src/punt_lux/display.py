@@ -401,6 +401,8 @@ def _filter_indexed_rows(
             ]
         elif ftype == "combo":
             result = _filter_combo(filt, f_idx, table_id, widget_state, result)
+        else:
+            logger.warning("Unknown filter type %r in table %s", ftype, table_id)
     return result
 
 
@@ -758,7 +760,10 @@ class DisplayServer:
 
         primary, merge_fonts = self._find_fonts()
         if primary is None:
-            logger.warning("No Unicode font found — using ImGui default")
+            logger.error(
+                "No Unicode font found — using ImGui default (Latin-only). "
+                "Unicode symbols will not render correctly."
+            )
             return
 
         params = hello_imgui.FontLoadingParams()
