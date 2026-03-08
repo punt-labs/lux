@@ -28,6 +28,7 @@ _SUSPICIOUS_MODULES = [
     "signal",
     "socket",
     "subprocess",
+    "sys",
     "urllib",
 ]
 
@@ -93,12 +94,12 @@ class TestSyntaxErrors:
     def test_syntax_error_returns_warning(self) -> None:
         warnings = check_source("def (broken")
         assert len(warnings) == 1
-        assert "syntax" in warnings[0].lower()
+        assert "failed to parse" in warnings[0].lower()
 
     def test_null_byte_returns_warning(self) -> None:
         warnings = check_source("x = 1\x00")
         assert len(warnings) == 1
-        assert "syntax" in warnings[0].lower()
+        assert "failed to parse" in warnings[0].lower()
 
 
 class TestCombined:

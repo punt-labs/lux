@@ -22,6 +22,7 @@ _SUSPICIOUS_MODULES: frozenset[str] = frozenset(
         "signal",
         "socket",
         "subprocess",
+        "sys",
         "urllib",
     }
 )
@@ -42,7 +43,7 @@ _SUSPICIOUS_CALLS: frozenset[str] = frozenset(
     }
 )
 
-# Attribute-access roots that suggest system access
+# Roots flagged when used as call targets (e.g. subprocess.run())
 _SUSPICIOUS_ATTRS: frozenset[str] = frozenset(
     {
         "os",
@@ -95,14 +96,13 @@ class _WarningVisitor(ast.NodeVisitor):
 def check_source(source: str) -> list[str]:
     """Parse Python source and return a list of warning strings.
 
-    Returns an empty list if the source is clean.  Returns a syntax error
-    warning if the source fails to parse (the compile step will catch the
-    actual error).
+    Returns an empty list if the source is clean.  Returns a warning with the
+    underlying parse error message if the source fails to parse.
     """
     try:
         tree = ast.parse(source)
-    except (SyntaxError, ValueError):
-        return ["Source has syntax errors — will fail at compile time"]
+    except (SyntaxError, ValueError) as exc:
+        return [f"Source has syntax errors — failed to parse: {exc}"]
 
     visitor = _WarningVisitor()
     visitor.visit(tree)
