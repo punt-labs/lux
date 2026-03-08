@@ -440,11 +440,13 @@ def _filter_combo(
         widget_state.set(sid, 0)
         return rows
     selected_val = items[selected_idx]
+    if not filt.column:
+        return rows
     col_idx: int = filt.column[0]
     return [
         ir
         for ir in rows
-        if col_idx < len(ir[1]) and str(ir[1][col_idx]) == selected_val
+        if 0 <= col_idx < len(ir[1]) and str(ir[1][col_idx]) == selected_val
     ]
 
 
@@ -1713,8 +1715,23 @@ class DisplayServer:
         for f in flags_list:
             table_flags |= flag_map.get(f, 0)
 
-        # Compute weights from full rows (not filtered) so layout stays stable
-        weights = _table_column_weights(columns, rows, tbl.column_widths)
+        # Cache column weights — only recompute when data changes
+        weight_cache_key = f"__tbl_wcache_{eid}"
+        cached = self._widget_state.get(weight_cache_key)
+        num_rows = len(rows)
+        cw_sig = tuple(tbl.column_widths) if tbl.column_widths else None
+        if (
+            cached is not None
+            and cached[0] == num_cols
+            and cached[1] == num_rows
+            and cached[2] == cw_sig
+        ):
+            weights = cached[3]
+        else:
+            weights = _table_column_weights(columns, rows, tbl.column_widths)
+            self._widget_state.set(
+                weight_cache_key, (num_cols, num_rows, cw_sig, weights)
+            )
 
         scene_id = self._current_scene.id if self._current_scene else ""
         imgui_id = f"##{scene_id}/{eid}"
