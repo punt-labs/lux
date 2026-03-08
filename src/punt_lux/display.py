@@ -311,23 +311,44 @@ def _render_filter_combo(
 IndexedRow = tuple[int, list[Any]]
 
 
+def _get_filter_snapshot(
+    filters: list[Any],
+    table_id: str,
+    widget_state: WidgetState,
+) -> str:
+    """Return a string snapshot of current filter state for change detection."""
+    parts: list[str] = []
+    for f_idx, filt in enumerate(filters):
+        if filt.type == "search":
+            sid = f"__tbl_search_{f_idx}_{table_id}"
+            parts.append(widget_state.get(sid, ""))
+        elif filt.type == "combo":
+            sid = f"__tbl_combo_{f_idx}_{table_id}"
+            parts.append(str(widget_state.get(sid, 0)))
+    return "|".join(parts)
+
+
 def _apply_table_filters(
     filters: list[Any] | None,
     rows: list[list[Any]],
     table_id: str,
     widget_state: WidgetState,
     imgui: Any,
-) -> list[IndexedRow]:
+) -> tuple[list[IndexedRow], bool]:
     """Render built-in filter controls and return matching rows with indices.
 
     Each filter's widget state is stored under an internal ID that won't
     collide with user element IDs (``__tbl_`` prefix).
-    Returns ``(original_index, row)`` tuples so detail lookup works
-    through filters.
+    Returns ``(indexed_rows, filters_changed)`` — the bool is True when
+    filter state changed this frame (for auto-selecting the first row).
     """
     indexed: list[IndexedRow] = list(enumerate(rows))
     if not filters:
-        return indexed
+        return indexed, False
+
+    # Snapshot filter state before rendering (widgets may update state)
+    snap_key = f"__tbl_fsnap_{table_id}"
+    prev_snap: str = widget_state.get(snap_key, "")
 
     for f_idx, filt in enumerate(filters):
         if f_idx > 0:
@@ -337,6 +358,11 @@ def _apply_table_filters(
         elif filt.type == "combo":
             _render_filter_combo(filt, f_idx, table_id, widget_state, imgui)
 
+    # Detect filter changes
+    curr_snap = _get_filter_snapshot(filters, table_id, widget_state)
+    filters_changed = prev_snap != "" and curr_snap != prev_snap
+    widget_state.set(snap_key, curr_snap)
+
     visible = _filter_indexed_rows(filters, indexed, table_id, widget_state)
     total = len(rows)
     shown = len(visible)
@@ -345,7 +371,7 @@ def _apply_table_filters(
     else:
         imgui.text_disabled(f"{total} rows")
 
-    return visible
+    return visible, filters_changed
 
 
 def _filter_indexed_rows(
@@ -401,6 +427,51 @@ def _filter_combo(
     ]
 
 
+_ROWS_PER_PAGE = 10
+
+
+def _render_table_pagination(
+    total_rows: int,
+    table_id: str,
+    widget_state: WidgetState,
+    page_key: str,
+    imgui: Any,
+) -> tuple[int, int, bool]:
+    """Render pagination controls and return (start, end, page_changed)."""
+    if total_rows <= _ROWS_PER_PAGE:
+        return 0, total_rows, False
+
+    page: int = widget_state.ensure(page_key, 0)
+    total_pages = (total_rows + _ROWS_PER_PAGE - 1) // _ROWS_PER_PAGE
+    page = max(0, min(page, total_pages - 1))
+    page_changed = False
+
+    start = page * _ROWS_PER_PAGE
+    end = min(start + _ROWS_PER_PAGE, total_rows)
+
+    if imgui.button(f"<< Prev##{table_id}_prev"):
+        new_page = max(0, page - 1)
+        if new_page != page:
+            page = new_page
+            page_changed = True
+            widget_state.set(page_key, page)
+            start = page * _ROWS_PER_PAGE
+            end = min(start + _ROWS_PER_PAGE, total_rows)
+    imgui.same_line()
+    imgui.text(f"Page {page + 1} of {total_pages}")
+    imgui.same_line()
+    if imgui.button(f"Next >>##{table_id}_next"):
+        new_page = min(total_pages - 1, page + 1)
+        if new_page != page:
+            page = new_page
+            page_changed = True
+            widget_state.set(page_key, page)
+            start = page * _ROWS_PER_PAGE
+            end = min(start + _ROWS_PER_PAGE, total_rows)
+
+    return start, end, page_changed
+
+
 def _render_table_rows(
     indexed_rows: list[IndexedRow],
     num_cols: int,
@@ -438,16 +509,49 @@ def _render_table_rows(
     return selected_orig
 
 
+def _handle_table_keyboard_nav(
+    indexed_rows: list[IndexedRow],
+    selected_orig: int,
+    sel_key: str,
+    widget_state: WidgetState,
+    imgui: Any,
+) -> int:
+    """Handle up/down arrow keyboard navigation for selectable table rows."""
+    if not indexed_rows or selected_orig < 0:
+        return selected_orig
+
+    # Build ordered list of original indices in display order
+    orig_indices = [orig_idx for orig_idx, _ in indexed_rows]
+    if selected_orig not in orig_indices:
+        return selected_orig
+
+    cur_pos = orig_indices.index(selected_orig)
+
+    if imgui.is_key_pressed(imgui.Key.up_arrow) and cur_pos > 0:
+        new_orig = orig_indices[cur_pos - 1]
+        widget_state.set(sel_key, new_orig)
+        return new_orig
+
+    if imgui.is_key_pressed(imgui.Key.down_arrow) and cur_pos < len(orig_indices) - 1:
+        new_orig = orig_indices[cur_pos + 1]
+        widget_state.set(sel_key, new_orig)
+        return new_orig
+
+    return selected_orig
+
+
 def _render_table_detail(
     detail: Any,
     row_idx: int,
     table_id: str,
     imgui: Any,
+    *,
+    table_row: list[Any] | None = None,
 ) -> None:
     """Render the detail panel for a selected table row.
 
     Draws a separator, then a scrollable child region containing:
-    - Heading from the first detail field
+    - Heading derived from the table row (ID: Title) or detail row fallback
     - 2-column metadata grid (Field | Value | Field | Value)
     - Separator
     - Body text (wrapped, scrollable)
@@ -469,11 +573,12 @@ def _render_table_detail(
     child_h = max(avail.y, 100.0)
     child_id = f"__tbl_detail__{table_id}"
     if imgui.begin_child(child_id, imgui.ImVec2(0, child_h)):
-        # Banner heading from first two field values
-        if row_data:
-            heading = str(row_data[0])
-            if len(row_data) > 1:
-                heading = f"{row_data[0]}: {row_data[1]}"
+        # Banner heading from table row (ID: Title) or detail row fallback
+        heading_src = table_row if table_row else row_data
+        if heading_src:
+            heading = str(heading_src[0])
+            if len(heading_src) > 1:
+                heading = f"{heading_src[0]}: {heading_src[1]}"
             imgui.separator_text(heading)
 
         # 2-column metadata grid
@@ -1492,7 +1597,7 @@ class DisplayServer:
             return
 
         # Render built-in filters and get visible rows with indices
-        indexed_rows = _apply_table_filters(
+        indexed_rows, filters_changed = _apply_table_filters(
             filters,
             rows,
             eid,
@@ -1516,6 +1621,28 @@ class DisplayServer:
         scene_id = self._current_scene.id if self._current_scene else ""
         imgui_id = f"##{scene_id}/{eid}"
         sel_key = f"__tbl_sel_{eid}"
+        page_key = f"__tbl_page_{eid}"
+
+        # Reset page to 0 when filters change
+        if filters_changed:
+            self._widget_state.set(page_key, 0)
+
+        # Paginate — slice visible rows to current page
+        start, end, page_changed = _render_table_pagination(
+            len(indexed_rows),
+            eid,
+            self._widget_state,
+            page_key,
+            imgui,
+        )
+        page_rows = indexed_rows[start:end]
+
+        # Auto-select first row on initial load, page change, or filter change
+        current_sel: int = self._widget_state.ensure(sel_key, -1)
+        needs_auto_select = current_sel < 0 or page_changed or filters_changed
+        if has_detail and needs_auto_select and page_rows:
+            first_orig = page_rows[0][0]
+            self._widget_state.set(sel_key, first_orig)
 
         if imgui.begin_table(imgui_id, num_cols, table_flags):
             stretch = imgui.TableColumnFlags_.width_stretch.value
@@ -1524,7 +1651,7 @@ class DisplayServer:
             imgui.table_headers_row()
 
             selected_orig = _render_table_rows(
-                indexed_rows,
+                page_rows,
                 num_cols,
                 selectable=has_detail,
                 table_id=eid,
@@ -1537,8 +1664,25 @@ class DisplayServer:
         else:
             selected_orig = self._widget_state.ensure(sel_key, -1)
 
+        # Keyboard navigation — up/down arrows move selection
+        if has_detail:
+            selected_orig = _handle_table_keyboard_nav(
+                page_rows,
+                selected_orig,
+                sel_key,
+                self._widget_state,
+                imgui,
+            )
+
         if has_detail and selected_orig >= 0:
-            _render_table_detail(detail, selected_orig, eid, imgui)
+            tbl_row = rows[selected_orig] if selected_orig < len(rows) else None
+            _render_table_detail(
+                detail,
+                selected_orig,
+                eid,
+                imgui,
+                table_row=tbl_row,
+            )
 
     # -- plot rendering ----------------------------------------------------
 
