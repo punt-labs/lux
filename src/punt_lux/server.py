@@ -204,8 +204,10 @@ def show_table(
               {"fields": ["ID", "Status", "Priority"],
                "rows": [["ISS-1", "Open", "P1"], ...],
                "body": ["Full description for row 1...", ...]}
-            ``detail.rows`` must be parallel to ``rows`` (same count,
-            same order). ``detail.body`` is the expanded text per row.
+            ``detail.rows`` **and** ``detail.body`` must both be
+            parallel to ``rows`` (same count, same order). Each
+            entry in ``detail.body`` is the expanded text for the
+            corresponding row.
         flags: Table flags (default: ["borders", "row_bg"]).
         title: Window title.
 
@@ -345,10 +347,10 @@ def show_dashboard(
 
     if charts:
         chart_elements: list[dict[str, Any]] = []
-        for chart in charts:
+        for i, chart in enumerate(charts):
             plot: dict[str, Any] = {**chart, "kind": "plot"}
             if "id" not in plot:
-                plot["id"] = f"chart-{len(elements)}"
+                plot["id"] = f"chart-{i}"
             chart_elements.append(plot)
         sections.append(chart_elements)
 
