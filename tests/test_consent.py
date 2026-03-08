@@ -27,6 +27,10 @@ class TestConsentDialog:
         dialog = ConsentDialog("print('hello')")
         assert dialog.source == "print('hello')"
 
+    def test_source_lines_cached(self) -> None:
+        dialog = ConsentDialog("a = 1\nb = 2\nc = 3")
+        assert dialog.source_lines == ["a = 1", "b = 2", "c = 3"]
+
     def test_warnings_default_empty(self) -> None:
         dialog = ConsentDialog("x = 1")
         assert dialog.warnings == []

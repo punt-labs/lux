@@ -36,7 +36,8 @@ class ConsentDialog:
 
     def __init__(self, source: str, warnings: list[str] | None = None) -> None:
         self.source = source
-        self.warnings = warnings or []
+        self.source_lines = source.split("\n")
+        self.warnings: list[str] = [] if warnings is None else list(warnings)
         self._result = ConsentResult.PENDING
         self._opened = False
         self.created_at = time.monotonic()
@@ -103,23 +104,23 @@ class ConsentDialog:
         # Source code in a scrollable child region
         imgui.text("Source code:")
         avail = imgui.get_content_region_avail()
-        code_height = avail.y - 50  # room for buttons
+        code_height = max(avail.y - 50, 80)  # room for buttons, min 80px
 
         imgui.push_style_color(imgui.Col_.child_bg.value, (0.1, 0.1, 0.12, 1.0))
-        if imgui.begin_child(
+        imgui.begin_child(
             "code_view", (0, code_height), child_flags=imgui.ChildFlags_.borders.value
-        ):
-            try:
-                for i, line in enumerate(self.source.split("\n"), 1):
-                    imgui.push_style_color(imgui.Col_.text.value, (0.5, 0.5, 0.5, 1.0))
-                    imgui.text(f"{i:4d} ")
-                    imgui.pop_style_color()
-                    imgui.same_line()
-                    imgui.push_style_color(imgui.Col_.text.value, (0.7, 0.9, 0.7, 1.0))
-                    imgui.text(line)
-                    imgui.pop_style_color()
-            finally:
-                imgui.end_child()
+        )
+        try:
+            for i, line in enumerate(self.source_lines, 1):
+                imgui.push_style_color(imgui.Col_.text.value, (0.5, 0.5, 0.5, 1.0))
+                imgui.text(f"{i:4d} ")
+                imgui.pop_style_color()
+                imgui.same_line()
+                imgui.push_style_color(imgui.Col_.text.value, (0.7, 0.9, 0.7, 1.0))
+                imgui.text(line)
+                imgui.pop_style_color()
+        finally:
+            imgui.end_child()
         imgui.pop_style_color()
 
         imgui.spacing()
