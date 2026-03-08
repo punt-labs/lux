@@ -2,8 +2,8 @@
 
 NOT a security boundary — a user-facing signal shown in the consent dialog.
 The real security is the consent prompt itself.  The scanner flags suspicious
-imports, builtin calls, and attribute access so the user can make an informed
-decision.
+imports, builtin calls, and selected attribute calls so the user can make an
+informed decision.
 """
 
 from __future__ import annotations
@@ -101,7 +101,7 @@ def check_source(source: str) -> list[str]:
     """
     try:
         tree = ast.parse(source)
-    except SyntaxError:
+    except (SyntaxError, ValueError):
         return ["Source has syntax errors — will fail at compile time"]
 
     visitor = _WarningVisitor()

@@ -95,6 +95,11 @@ class TestSyntaxErrors:
         assert len(warnings) == 1
         assert "syntax" in warnings[0].lower()
 
+    def test_null_byte_returns_warning(self) -> None:
+        warnings = check_source("x = 1\x00")
+        assert len(warnings) == 1
+        assert "syntax" in warnings[0].lower()
+
 
 class TestCombined:
     def test_multiple_warnings(self) -> None:
