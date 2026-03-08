@@ -4,6 +4,8 @@
 
 [![License](https://img.shields.io/github/license/punt-labs/lux)](LICENSE)
 [![CI](https://img.shields.io/github/actions/workflow/status/punt-labs/lux/test.yml?label=CI)](https://github.com/punt-labs/lux/actions/workflows/test.yml)
+[![PyPI](https://img.shields.io/pypi/v/punt-lux)](https://pypi.org/project/punt-lux/)
+[![Python](https://img.shields.io/pypi/pyversions/punt-lux)](https://pypi.org/project/punt-lux/)
 
 Lux gives AI agents a window they can draw into. It runs an ImGui display server on the local machine, connected by Unix socket IPC. Agents send JSON element trees via MCP tools; the display renders them at 60fps. The protocol is the API surface --- if an agent can describe it as JSON, Lux renders it.
 
@@ -11,7 +13,7 @@ The design follows Smalltalk's Morphic model: every visible element is a composa
 
 **Platforms:** macOS, Linux
 
-**Stage:** alpha (v0.0.0) --- protocol is stable, not yet published to PyPI
+**Stage:** alpha --- protocol is stable, not yet published to PyPI
 
 ## Quick Start
 
@@ -158,10 +160,16 @@ The display server and MCP server are separate processes. The MCP server is a th
 
 Client code can also use `LuxClient` directly as a Python library, bypassing MCP. The demos do this.
 
+## Documentation
+
+[Design Log](DESIGN.md) |
+[Changelog](CHANGELOG.md) |
+[Contributing](CONTRIBUTING.md)
+
 ## Development
 
 ```bash
-uv sync                        # Install dependencies
+uv sync --extra dev            # Install dependencies
 uv run ruff check .            # Lint
 uv run ruff format --check .   # Check formatting
 uv run mypy src/ tests/        # Type check (mypy)
