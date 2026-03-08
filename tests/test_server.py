@@ -29,7 +29,17 @@ from punt_lux.protocol import (
     WindowElement,
     element_from_dict,
 )
-from punt_lux.server import clear, ping, recv, set_menu, set_theme, show, update
+from punt_lux.server import (
+    clear,
+    ping,
+    recv,
+    set_menu,
+    set_theme,
+    show,
+    show_dashboard,
+    show_table,
+    update,
+)
 
 
 class TestElementFromDict:
@@ -416,6 +426,131 @@ class TestShowTool:
 
         result = show("s1", [{"kind": "text", "id": "t1", "content": "Hi"}])
         assert result == "timeout"
+
+
+class TestShowTableTool:
+    @patch("punt_lux.server._get_client")
+    def test_show_table_minimal(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.show.return_value = AckMessage(scene_id="t1", ts=time.time())
+        mock_get.return_value = client
+
+        result = show_table(
+            "t1",
+            columns=["Name", "Score"],
+            rows=[["Alice", 95], ["Bob", 87]],
+        )
+        assert result == "ack:t1"
+        client.show.assert_called_once()
+        elements = client.show.call_args[0][1]
+        assert len(elements) == 1
+        assert isinstance(elements[0], TableElement)
+        assert elements[0].columns == ["Name", "Score"]
+        assert elements[0].flags == ["borders", "row_bg"]
+
+    @patch("punt_lux.server._get_client")
+    def test_show_table_with_filters_and_detail(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.show.return_value = AckMessage(scene_id="t2", ts=time.time())
+        mock_get.return_value = client
+
+        result = show_table(
+            "t2",
+            columns=["ID", "Title", "Status"],
+            rows=[["1", "Fix bug", "Open"]],
+            filters=[
+                {"type": "search", "column": [0, 1], "hint": "Search..."},
+                {"type": "combo", "column": 2, "items": ["All", "Open"]},
+            ],
+            detail={
+                "fields": ["ID", "Status"],
+                "rows": [["1", "Open"]],
+                "body": ["A bug that needs fixing."],
+            },
+            title="Issues",
+        )
+        assert result == "ack:t2"
+        elements = client.show.call_args[0][1]
+        table = elements[0]
+        assert isinstance(table, TableElement)
+        assert table.filters is not None
+        assert len(table.filters) == 2
+        assert table.detail is not None
+        assert table.detail.fields == ["ID", "Status"]
+
+    @patch("punt_lux.server._get_client")
+    def test_show_table_custom_flags(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.show.return_value = AckMessage(scene_id="t3", ts=time.time())
+        mock_get.return_value = client
+
+        show_table(
+            "t3",
+            columns=["A"],
+            rows=[["x"]],
+            flags=["borders", "resizable"],
+        )
+        elements = client.show.call_args[0][1]
+        assert elements[0].flags == ["borders", "resizable"]
+
+
+class TestShowDashboardTool:
+    @patch("punt_lux.server._get_client")
+    def test_dashboard_metrics_only(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.show.return_value = AckMessage(scene_id="d1", ts=time.time())
+        mock_get.return_value = client
+
+        result = show_dashboard(
+            "d1",
+            metrics=[
+                {"label": "Users", "value": "100"},
+                {"label": "Revenue", "value": "$5k"},
+            ],
+        )
+        assert result == "ack:d1"
+        elements = client.show.call_args[0][1]
+        # metrics group + separator
+        assert elements[0].kind == "group"
+        assert len(elements[0].children) == 2
+        assert elements[1].kind == "separator"
+
+    @patch("punt_lux.server._get_client")
+    def test_dashboard_all_sections(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.show.return_value = AckMessage(scene_id="d2", ts=time.time())
+        mock_get.return_value = client
+
+        show_dashboard(
+            "d2",
+            metrics=[{"label": "Total", "value": "42"}],
+            charts=[
+                {
+                    "id": "c1",
+                    "title": "Trend",
+                    "series": [{"label": "y", "type": "line", "x": [1], "y": [1]}],
+                }
+            ],
+            table_columns=["Name", "Value"],
+            table_rows=[["test", "pass"]],
+            title="Dashboard",
+        )
+        elements = client.show.call_args[0][1]
+        kinds = [e.kind for e in elements]
+        assert "group" in kinds  # metrics
+        assert "plot" in kinds  # chart
+        assert "table" in kinds  # table
+        assert kinds.count("separator") == 2
+
+    @patch("punt_lux.server._get_client")
+    def test_dashboard_empty(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.show.return_value = AckMessage(scene_id="d3", ts=time.time())
+        mock_get.return_value = client
+
+        show_dashboard("d3")
+        elements = client.show.call_args[0][1]
+        assert elements == []
 
 
 class TestUpdateTool:
