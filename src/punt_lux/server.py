@@ -226,6 +226,26 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
 
 
 @mcp.tool()
+def set_theme(theme: str) -> str:
+    """Set the Lux display theme.
+
+    Available themes (snake_case names):
+      imgui_colors_light, imgui_colors_dark, imgui_colors_classic,
+      darcula, darcula_darker, material_flat, photoshop_style,
+      grey_flat, cherry, light_rounded, microsoft_style, from_imgui_colors_dark
+
+    Example: set_theme("imgui_colors_light") for dashboards and data views.
+    """
+
+    def _call() -> str:
+        client = _get_client()
+        client.set_theme(theme)
+        return f"theme:{theme}"
+
+    return _with_reconnect(_call)
+
+
+@mcp.tool()
 def clear() -> str:
     """Clear the Lux display window. Removes all content."""
 

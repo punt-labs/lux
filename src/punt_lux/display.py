@@ -54,6 +54,7 @@ from punt_lux.protocol import (
     SelectableElement,
     SliderElement,
     TabBarElement,
+    ThemeMessage,
     UpdateMessage,
     WindowElement,
     encode_message,
@@ -254,6 +255,27 @@ def _find_element(
     return None
 
 
+def _table_column_weights(
+    columns: list[str],
+    rows: list[list[Any]],
+    explicit: list[float] | None,
+) -> list[float]:
+    """Compute proportional column weights for ImGui table_setup_column.
+
+    Uses explicit weights when provided, otherwise auto-sizes by scanning
+    max cell string length per column.
+    """
+    num_cols = len(columns)
+    if explicit and len(explicit) == num_cols:
+        return explicit
+    weights = [float(len(col)) for col in columns]
+    for row in rows:
+        for col_idx, cell in enumerate(row):
+            if col_idx < num_cols:
+                weights[col_idx] = max(weights[col_idx], float(len(str(cell))))
+    return [max(w, 1.0) for w in weights]
+
+
 # ---------------------------------------------------------------------------
 # Render function per-element state
 # ---------------------------------------------------------------------------
@@ -387,6 +409,16 @@ class DisplayServer:
                         hello_imgui.apply_theme(theme)
             finally:
                 imgui.end_menu()
+
+    def _apply_theme(self, theme_name: str) -> None:
+        """Apply a theme by snake_case name (e.g. 'imgui_colors_light')."""
+        from imgui_bundle import hello_imgui
+
+        for theme in self._themes:
+            if theme.name == theme_name:
+                hello_imgui.apply_theme(theme)
+                return
+        logger.warning("Unknown theme %r", theme_name)
 
     def _show_window_menu(self, imgui: Any) -> None:
         from imgui_bundle import hello_imgui
@@ -600,18 +632,7 @@ class DisplayServer:
 
     def _handle_message(self, sock: socket.socket, msg: Message) -> None:
         if isinstance(msg, SceneMessage):
-            prev_id = self._current_scene.id if self._current_scene else None
-            self._current_scene = msg
-            self._event_queue.clear()
-            self._widget_state.clear()
-            self._render_fn_state.clear()
-            if msg.id != prev_id:
-                for elem in msg.elements:
-                    if isinstance(elem, WindowElement):
-                        self._dirty_windows.add(elem.id)
-            self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
-            if self._test_auto_click:
-                self._auto_click_buttons(msg)
+            self._handle_scene(sock, msg)
         elif isinstance(msg, UpdateMessage):
             self._apply_update(msg)
             self._send_to_client(
@@ -624,8 +645,24 @@ class DisplayServer:
             self._render_fn_state.clear()
         elif isinstance(msg, MenuMessage):
             self._agent_menus = msg.menus
+        elif isinstance(msg, ThemeMessage):
+            self._apply_theme(msg.theme)
         elif isinstance(msg, PingMessage):
             self._send_to_client(sock, PongMessage(ts=msg.ts, display_ts=time.time()))
+
+    def _handle_scene(self, sock: socket.socket, msg: SceneMessage) -> None:
+        prev_id = self._current_scene.id if self._current_scene else None
+        self._current_scene = msg
+        self._event_queue.clear()
+        self._widget_state.clear()
+        self._render_fn_state.clear()
+        if msg.id != prev_id:
+            for elem in msg.elements:
+                if isinstance(elem, WindowElement):
+                    self._dirty_windows.add(elem.id)
+        self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
+        if self._test_auto_click:
+            self._auto_click_buttons(msg)
 
     def _apply_update(self, msg: UpdateMessage) -> None:
         scene = self._current_scene
@@ -1192,10 +1229,17 @@ class DisplayServer:
         if num_cols == 0:
             return
 
-        if imgui.begin_table(f"##{eid}", num_cols, table_flags):
+        weights = _table_column_weights(columns, rows, tbl.column_widths)
+
+        # Namespace ImGui ID with scene_id so column widths persist
+        # per-scene, not globally across different uses of the same table id.
+        scene_id = self._current_scene.id if self._current_scene else ""
+        imgui_id = f"##{scene_id}/{eid}"
+
+        if imgui.begin_table(imgui_id, num_cols, table_flags):
             stretch = imgui.TableColumnFlags_.width_stretch.value
-            for col_name in columns:
-                imgui.table_setup_column(col_name, stretch)
+            for col_idx, col_name in enumerate(columns):
+                imgui.table_setup_column(col_name, stretch, weights[col_idx])
             imgui.table_headers_row()
 
             for row in rows:

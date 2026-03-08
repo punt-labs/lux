@@ -64,6 +64,12 @@ if [[ "$TOOL_NAME" == "set_menu" ]]; then
   exit 0
 fi
 
+if [[ "$TOOL_NAME" == "set_theme" ]]; then
+  THEME=$(echo "$RESULT" | sed -n 's/^theme://p')
+  emit "◻ theme:${THEME}" "$RESULT"
+  exit 0
+fi
+
 if [[ "$TOOL_NAME" == "clear" ]]; then
   emit "◻ cleared" ""
   exit 0

@@ -259,6 +259,7 @@ class TableElement:
     columns: list[str] = field(default_factory=lambda: list[str]())
     rows: list[list[Any]] = field(default_factory=lambda: list[list[Any]]())
     flags: list[str] = field(default_factory=lambda: ["borders", "row_bg"])
+    column_widths: list[float] | None = None
     tooltip: str | None = None
 
 
@@ -405,7 +406,22 @@ class MenuMessage:
     type: Literal["menu"] = "menu"
 
 
-ClientMessage = SceneMessage | UpdateMessage | ClearMessage | PingMessage | MenuMessage
+@dataclass
+class ThemeMessage:
+    """Set the display theme."""
+
+    theme: str  # snake_case theme name (e.g. "imgui_colors_light")
+    type: Literal["theme"] = "theme"
+
+
+ClientMessage = (
+    SceneMessage
+    | UpdateMessage
+    | ClearMessage
+    | PingMessage
+    | MenuMessage
+    | ThemeMessage
+)
 
 # ---------------------------------------------------------------------------
 # Display -> Client messages
@@ -1155,6 +1171,11 @@ def _register_serializers() -> None:  # noqa: C901
 
     _MESSAGE_SERIALIZERS[MenuMessage] = _menu
 
+    def _theme(m: ThemeMessage) -> dict[str, Any]:
+        return {"type": m.type, "theme": m.theme}
+
+    _MESSAGE_SERIALIZERS[ThemeMessage] = _theme
+
     def _ready(m: ReadyMessage) -> dict[str, Any]:
         d: dict[str, Any] = {"type": m.type, "version": m.version}
         if m.capabilities:
@@ -1205,6 +1226,8 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
         return ClearMessage()
     if msg_type == "menu":
         return MenuMessage(menus=d.get("menus", []))
+    if msg_type == "theme":
+        return ThemeMessage(theme=d["theme"])
     if msg_type == "ping":
         return PingMessage(ts=d.get("ts"))
     if msg_type == "ready":

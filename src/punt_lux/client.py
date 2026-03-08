@@ -33,6 +33,7 @@ from punt_lux.protocol import (
     PongMessage,
     ReadyMessage,
     SceneMessage,
+    ThemeMessage,
     UpdateMessage,
     recv_message,
     send_message,
@@ -198,6 +199,11 @@ class LuxClient:
         """Set custom menu bar entries."""
         sock = self._require_connected()
         send_message(sock, MenuMessage(menus=menus))
+
+    def set_theme(self, theme: str) -> None:
+        """Set the display theme by name (e.g. 'imgui_colors_light')."""
+        sock = self._require_connected()
+        send_message(sock, ThemeMessage(theme=theme))
 
     def clear(self) -> None:
         """Clear all content from the display."""
