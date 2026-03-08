@@ -141,7 +141,7 @@ All elements with an `id` support an optional `tooltip` field (string shown on h
 
 ## Architecture
 
-```
+```text
 Agent (Claude Code)
   │ MCP (stdio)
   ▼
