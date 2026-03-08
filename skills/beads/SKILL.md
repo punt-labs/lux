@@ -39,7 +39,8 @@ from punt_lux.protocol import element_from_dict
 
 issues = [json.loads(l) for l in open('.beads/issues.jsonl')]
 issues = [i for i in issues if i.get('status') in ('open', 'in_progress')]
-issues.sort(key=lambda i: (i.get('priority', 4), i.get('updated_at', '')))
+issues.sort(key=lambda i: i.get('updated_at', ''), reverse=True)
+issues.sort(key=lambda i: i.get('priority', 4))
 
 rows, dr, bodies, statuses, types = [], [], [], set(), set()
 for i in issues:
