@@ -1,8 +1,9 @@
 """ImGui consent dialog for code-on-demand.
 
 Shows a modal with the source code and any AST warnings.
-The user clicks Allow or Deny.  This is the security boundary —
-the AST scanner is just a UX signal, the consent prompt is the gate.
+The user clicks Allow or Deny.  Designed to be the security boundary
+when wired into the display server — the AST scanner provides UX
+signals, this dialog provides the gate.
 """
 
 from __future__ import annotations
@@ -40,7 +41,7 @@ class ConsentDialog:
         self.warnings: list[str] = [] if warnings is None else list(warnings)
         self._result = ConsentResult.PENDING
         self._opened = False
-        self.created_at = time.monotonic()
+        self.created_at = time.time()
 
     @property
     def result(self) -> ConsentResult:
