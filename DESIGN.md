@@ -659,3 +659,52 @@ The consent, AST scanner, and runtime modules are imported inside `_render_rende
 ### Design Principle: Continuity of Data, Discontinuity of Trust
 
 Each source change is a new trust decision (consent required), but application state persists so the user doesn't lose their work. This mirrors Smalltalk's live coding model where you can modify methods while objects retain their instance variables — except with a consent gate at each code change.
+
+---
+
+## DES-013: Window Chrome and Transparency Options
+
+**Date**: 2026-03-07
+**Status**: Implemented (borderless + top_most), documented (transparency)
+
+### Context
+
+The Lux display runs as an independent window alongside the terminal. Users want HUD-like behavior: a frameless overlay that floats above other windows. This requires understanding what HelloImGui's `AppWindowParams` exposes and what requires backend-level access.
+
+### Available AppWindowParams
+
+HelloImGui's `AppWindowParams` exposes these window chrome options:
+
+| Param | Type | What it does |
+|---|---|---|
+| `borderless` | bool | Frameless window — no title bar, no OS chrome |
+| `borderless_movable` | bool | Draggable from any point when borderless |
+| `borderless_resizable` | bool | Resizable from edges when borderless |
+| `borderless_closable` | bool | Show a close button in borderless frame |
+| `borderless_highlight_color` | ImVec4 | Accent color for the borderless frame |
+| `top_most` | bool | Always-on-top (all platforms) |
+| `hidden` | bool | Start hidden (for tray-style apps) |
+| `resizable` | bool | Standard resizable toggle |
+
+### Transparency Analysis
+
+Three levels of transparency exist, with decreasing feasibility:
+
+1. **Window-level opacity** (whole window, uniform alpha): Achievable at runtime via `glfwSetWindowOpacity()` through the raw GLFW handle (`hello_imgui.get_glfw_window_address()`). Requires ctypes/cffi bridge.
+
+2. **Transparent framebuffer** (see-through background, opaque content): Requires `GLFW_TRANSPARENT_FRAMEBUFFER` hint set *before* window creation. HelloImGui's Python bindings don't expose pre-creation window hints. Would need an upstream patch or a monkey-patched init sequence.
+
+3. **Per-pixel alpha compositing**: Requires platform-specific compositing (macOS `NSWindow.alphaValue` + `NSWindow.isOpaque = false`). Beyond HelloImGui's abstraction layer.
+
+### Decision
+
+- **Borderless + top_most**: Implemented as toggleable menu items under Window menu. These use `hello_imgui.get_runner_params()` at runtime, which HelloImGui applies on the next frame.
+- **Window-level opacity**: Deferred — requires GLFW handle bridge (bead lux-zlw.1).
+- **Transparent framebuffer**: Deferred — requires upstream HelloImGui changes or pre-init hook.
+- **Per-pixel transparency**: Out of scope — platform-specific, not portable.
+
+### Runtime Toggle Behavior
+
+Borderless and top_most are toggled via the Window menu. When borderless mode is active, the custom menu bar (Lux, Theme, Window) remains accessible because HelloImGui renders it inside the ImGui content area, not in the OS title bar. The `borderless_movable` flag ensures the window remains draggable.
+
+Note: `remember_status_bar_settings` is set to `False` to prevent HelloImGui's ini file from overriding our programmatic settings (see status bar fix in this PR).

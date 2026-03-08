@@ -391,8 +391,16 @@ class DisplayServer:
 
         if imgui.begin_menu("Window"):
             try:
+                params = hello_imgui.get_runner_params()
+                wp = params.app_window_params
+
                 if imgui.menu_item("Reset Size", "", False)[0]:  # noqa: FBT003
                     hello_imgui.change_window_size((800, 600))
+
+                imgui.separator()
+
+                _, wp.top_most = imgui.menu_item("Always on Top", "", wp.top_most)
+                _, wp.borderless = imgui.menu_item("Borderless", "", wp.borderless)
             finally:
                 imgui.end_menu()
 
