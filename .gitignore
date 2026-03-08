@@ -3,11 +3,19 @@
 !.claude/hooks/
 .biff.local
 .mcp.json
+.vox/
+.vscode/
+.coverage
+__pycache__/
+*.ini
 
 # Spike/scratch files
 spikes/
+demos/
 .tmp/*
 !.tmp/.gitkeep
+
+# LaTeX build artifacts
 docs/fuzz.sty
 docs/*.mf
 docs/*.pk
@@ -16,3 +24,8 @@ docs/*.aux
 docs/*.log
 docs/*.fuzz
 docs/*.toc
+docs/*.fdb_latexmk
+docs/*.fls
+docs/*.out
+docs/*.pdf
+docs/*.synctex.gz
