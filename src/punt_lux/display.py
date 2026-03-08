@@ -296,6 +296,7 @@ class DisplayServer:
         self._render_fn_state: dict[str, _RenderFnState] = {}
         self._themes: list[Any] = []
         self._decorated: bool = True
+        self._opacity: float = 1.0
         self._test_auto_click = test_auto_click
 
     @property
@@ -406,6 +407,13 @@ class DisplayServer:
                 if clicked:
                     self._decorated = not self._decorated
                     self._set_glfw_decorated(decorated=self._decorated)
+
+                imgui.separator()
+
+                changed, value = imgui.slider_float("Opacity", self._opacity, 0.2, 1.0)
+                if changed:
+                    self._opacity = value
+                    self._set_glfw_opacity(opacity=value)
             finally:
                 imgui.end_menu()
 
@@ -438,6 +446,19 @@ class DisplayServer:
             glfw_decorated,
             int(decorated),
         )
+
+    @staticmethod
+    def _set_glfw_opacity(*, opacity: float) -> None:
+        """Set window opacity at runtime via GLFW."""
+        import ctypes
+
+        from imgui_bundle import hello_imgui
+
+        window_addr = hello_imgui.get_glfw_window_address()  # type: ignore[attr-defined]
+        rtld_noload = 0x10
+        glfw_lib = ctypes.CDLL("libglfw.3.dylib", mode=rtld_noload)
+        glfw_lib.glfwSetWindowOpacity.argtypes = [ctypes.c_void_p, ctypes.c_float]
+        glfw_lib.glfwSetWindowOpacity(ctypes.c_void_p(window_addr), opacity)
 
     def _show_lux_menu(self, imgui: Any) -> None:
         from imgui_bundle import hello_imgui
