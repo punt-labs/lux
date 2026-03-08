@@ -72,6 +72,8 @@ class ConsentDialog:
             self.MODAL_TITLE, None, imgui.WindowFlags_.no_resize.value
         )
         if not opened:
+            # Modal dismissed (e.g. Esc key) — treat as denial
+            self._result = ConsentResult.DENIED
             return self._result
 
         try:
@@ -95,7 +97,9 @@ class ConsentDialog:
             imgui.push_style_color(imgui.Col_.text.value, (1.0, 0.85, 0.0, 1.0))
             imgui.text("Warnings:")
             for w in self.warnings:
-                imgui.bullet_text(w)
+                imgui.bullet()
+                imgui.same_line()
+                imgui.text_unformatted(w)
             imgui.pop_style_color()
             imgui.spacing()
             imgui.separator()
@@ -107,21 +111,25 @@ class ConsentDialog:
         code_height = max(avail.y - 50, 80)  # room for buttons, min 80px
 
         imgui.push_style_color(imgui.Col_.child_bg.value, (0.1, 0.1, 0.12, 1.0))
-        imgui.begin_child(
-            "code_view", (0, code_height), child_flags=imgui.ChildFlags_.borders.value
-        )
         try:
-            for i, line in enumerate(self.source_lines, 1):
-                imgui.push_style_color(imgui.Col_.text.value, (0.5, 0.5, 0.5, 1.0))
-                imgui.text(f"{i:4d} ")
-                imgui.pop_style_color()
-                imgui.same_line()
-                imgui.push_style_color(imgui.Col_.text.value, (0.7, 0.9, 0.7, 1.0))
-                imgui.text(line)
-                imgui.pop_style_color()
+            imgui.begin_child(
+                "code_view",
+                (0, code_height),
+                child_flags=imgui.ChildFlags_.borders.value,
+            )
+            try:
+                for i, line in enumerate(self.source_lines, 1):
+                    imgui.push_style_color(imgui.Col_.text.value, (0.5, 0.5, 0.5, 1.0))
+                    imgui.text(f"{i:4d} ")
+                    imgui.pop_style_color()
+                    imgui.same_line()
+                    imgui.push_style_color(imgui.Col_.text.value, (0.7, 0.9, 0.7, 1.0))
+                    imgui.text_unformatted(line)
+                    imgui.pop_style_color()
+            finally:
+                imgui.end_child()
         finally:
-            imgui.end_child()
-        imgui.pop_style_color()
+            imgui.pop_style_color()
 
         imgui.spacing()
         self._draw_buttons(imgui)

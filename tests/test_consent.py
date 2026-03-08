@@ -49,4 +49,4 @@ class TestConsentDialog:
 
     def test_created_at_set(self) -> None:
         dialog = ConsentDialog("x = 1")
-        assert dialog.created_at > 0
+        assert isinstance(dialog.created_at, float)
