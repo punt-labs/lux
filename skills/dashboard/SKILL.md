@@ -34,6 +34,7 @@ Determine what to display. Look at `$ARGUMENTS` and conversation context:
 - If vague ("show me a dashboard"), ask what metrics matter — don't guess
 
 You need at minimum **one** of:
+
 - Key-value metrics (numbers with labels)
 - Time series or categorical data (for charts)
 - Tabular data (rows and columns)
@@ -47,6 +48,7 @@ Build the element tree following the dashboard pattern. Adapt to what you have �
 **Metric cards** — Use a `group` with `layout: "columns"` containing `text` elements. Each card shows a label and a value. Use 2-5 cards; more than 5 loses the single-glance property.
 
 **Charts** — Use `plot` elements for trends, comparisons, or distributions. Pick the right series type:
+
 - `line` for time series and trends
 - `bar` for comparisons and categories
 - `scatter` for correlations
