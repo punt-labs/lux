@@ -10,12 +10,15 @@ allowed-tools:
   - mcp__plugin_lux_lux__show
   - mcp__plugin_lux_lux__update
   - mcp__plugin_lux_lux__recv
+  - mcp__plugin_lux_lux__set_theme
   - mcp__plugin_lux-dev_lux__show
   - mcp__plugin_lux-dev_lux__update
   - mcp__plugin_lux-dev_lux__recv
+  - mcp__plugin_lux-dev_lux__set_theme
   - mcp__lux__show
   - mcp__lux__update
   - mcp__lux__recv
+  - mcp__lux__set_theme
 ---
 
 # /lux:dashboard — Visual Dashboard Composer
@@ -31,6 +34,7 @@ Determine what to display. Look at `$ARGUMENTS` and conversation context:
 - If vague ("show me a dashboard"), ask what metrics matter — don't guess
 
 You need at minimum **one** of:
+
 - Key-value metrics (numbers with labels)
 - Time series or categorical data (for charts)
 - Tabular data (rows and columns)
@@ -44,6 +48,7 @@ Build the element tree following the dashboard pattern. Adapt to what you have �
 **Metric cards** — Use a `group` with `layout: "columns"` containing `text` elements. Each card shows a label and a value. Use 2-5 cards; more than 5 loses the single-glance property.
 
 **Charts** — Use `plot` elements for trends, comparisons, or distributions. Pick the right series type:
+
 - `line` for time series and trends
 - `bar` for comparisons and categories
 - `scatter` for correlations
@@ -104,7 +109,7 @@ This is the canonical form. Adapt freely — fewer metrics, different chart type
 
 ## Phase 3: Display
 
-Call `show()` with the composed element tree. Use a descriptive `scene_id` (e.g., `"test-dashboard"`, `"sales-metrics"`).
+Call `set_theme("imgui_colors_light")` before showing the dashboard — light themes work best for data-dense views with tables and charts. Then call `show()` with the composed element tree. Use a descriptive `scene_id` (e.g., `"test-dashboard"`, `"sales-metrics"`).
 
 ## Phase 4: Interaction (Optional)
 

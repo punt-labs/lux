@@ -13,7 +13,7 @@ The design follows Smalltalk's Morphic model: every visible element is a composa
 
 **Platforms:** macOS, Linux
 
-**Stage:** alpha --- protocol is stable, not yet published to PyPI
+**Stage:** alpha --- protocol is stable, published on PyPI as `punt-lux`
 
 ## Quick Start
 
