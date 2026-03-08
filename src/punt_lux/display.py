@@ -314,6 +314,9 @@ class DisplayServer:
         runner_params.imgui_window_params.show_menu_app = False
         runner_params.imgui_window_params.show_menu_view = False
         runner_params.imgui_window_params.show_menu_view_themes = False
+        runner_params.imgui_window_params.show_status_bar = False
+        runner_params.imgui_window_params.show_status_fps = False
+        runner_params.imgui_window_params.remember_status_bar_settings = False
         runner_params.callbacks.show_menus = self._show_menus
         runner_params.callbacks.post_init = self._on_post_init
         runner_params.callbacks.show_gui = self._on_frame
@@ -388,8 +391,7 @@ class DisplayServer:
         if imgui.begin_menu("Window"):
             try:
                 if imgui.menu_item("Reset Size", "", False)[0]:  # noqa: FBT003
-                    params = hello_imgui.get_runner_params()
-                    params.app_window_params.window_geometry.size = (800, 600)
+                    hello_imgui.change_window_size((800, 600))
             finally:
                 imgui.end_menu()
 
