@@ -411,23 +411,23 @@ class DisplayServer:
 
     @staticmethod
     def _set_glfw_decorated(*, decorated: bool) -> None:
-        """Toggle window decoration at runtime via GLFW."""
+        """Toggle window decoration at runtime via GLFW.
+
+        Uses RTLD_NOLOAD to grab the already-loaded libglfw handle
+        rather than loading a second copy (which triggers duplicate
+        Objective-C class warnings on macOS).
+        """
         import ctypes
-        import importlib.resources
 
         from imgui_bundle import hello_imgui
 
         glfw_decorated = 0x00020005  # GLFW_DECORATED
         window_addr = hello_imgui.get_glfw_window_address()  # type: ignore[attr-defined]
 
-        # Locate libglfw shipped alongside imgui_bundle
-        bundle_dir = Path(importlib.resources.files("imgui_bundle"))  # type: ignore[arg-type]
-        glfw_path = bundle_dir / "libglfw.dylib"
-        if not glfw_path.exists():
-            logger.warning("Cannot find libglfw.dylib — borderless toggle unavailable")
-            return
-
-        glfw_lib = ctypes.cdll.LoadLibrary(str(glfw_path))
+        # RTLD_NOLOAD (0x10 on macOS) returns the existing handle
+        # without loading a second copy of the library.
+        rtld_noload = 0x10
+        glfw_lib = ctypes.CDLL("libglfw.3.dylib", mode=rtld_noload)
         glfw_lib.glfwSetWindowAttrib.argtypes = [
             ctypes.c_void_p,
             ctypes.c_int,
