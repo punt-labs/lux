@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import platform
 import select
 import socket
 import time
@@ -699,6 +700,81 @@ class DisplayServer:
     def socket_path(self) -> Path:
         return self._socket_path
 
+    # -- font loading ------------------------------------------------------
+
+    @staticmethod
+    def _find_fonts() -> tuple[str | None, list[str]]:
+        """Find system fonts for broad Unicode coverage.
+
+        Returns ``(primary, merge_fonts)`` where *primary* is a text font
+        with good coverage and *merge_fonts* are symbol fonts merged on
+        top to fill gaps (e.g. mathematical angle brackets, Z notation).
+        """
+        primary: str | None = None
+        merge: list[str] = []
+
+        if platform.system() == "Darwin":
+            for p in (
+                "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+                "/System/Library/Fonts/Helvetica.ttc",
+            ):
+                if Path(p).is_file():
+                    primary = p
+                    break
+            # Apple Symbols fills gaps (math angle brackets U+27E8/E9, etc.)
+            sym = "/System/Library/Fonts/Apple Symbols.ttf"
+            if Path(sym).is_file():
+                merge.append(sym)
+        else:
+            # Linux — DejaVu has good symbol coverage; Noto as fallback
+            for p in (
+                "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+                "/usr/share/fonts/TTF/DejaVuSans.ttf",
+                "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
+                "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
+                "/usr/share/fonts/noto/NotoSans-Regular.ttf",
+            ):
+                if Path(p).is_file():
+                    primary = p
+                    break
+            # Noto Sans Symbols for anything DejaVu misses
+            for sym in (
+                "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
+                "/usr/share/fonts/noto/NotoSansSymbols2-Regular.ttf",
+            ):
+                if Path(sym).is_file():
+                    merge.append(sym)
+                    break
+
+        return primary, merge
+
+    def _load_fonts(self) -> None:
+        """hello_imgui ``load_additional_fonts`` callback.
+
+        Loads a system font with Unicode symbol coverage as the default
+        font, replacing ImGui's built-in ProggyClean (Latin-only).
+        A second symbol font is merged on top to fill remaining gaps
+        (Z notation angle brackets, additional mathematical symbols).
+        """
+        from imgui_bundle import hello_imgui
+
+        primary, merge_fonts = self._find_fonts()
+        if primary is None:
+            logger.warning("No Unicode font found — using ImGui default")
+            return
+
+        params = hello_imgui.FontLoadingParams()
+        params.inside_assets = False
+        hello_imgui.load_font(primary, 15.0, params)
+        logger.info("Loaded primary font: %s", primary)
+
+        for sym_path in merge_fonts:
+            merge_params = hello_imgui.FontLoadingParams()
+            merge_params.inside_assets = False
+            merge_params.merge_to_last_font = True
+            hello_imgui.load_font(sym_path, 15.0, merge_params)
+            logger.info("Merged symbol font: %s", sym_path)
+
     # -- public entry point ------------------------------------------------
 
     def run(self) -> None:
@@ -715,6 +791,7 @@ class DisplayServer:
         runner_params.imgui_window_params.show_status_bar = False
         runner_params.imgui_window_params.show_status_fps = False
         runner_params.imgui_window_params.remember_status_bar_settings = False
+        runner_params.callbacks.load_additional_fonts = self._load_fonts
         runner_params.callbacks.show_menus = self._show_menus
         runner_params.callbacks.post_init = self._on_post_init
         runner_params.callbacks.show_gui = self._on_frame
