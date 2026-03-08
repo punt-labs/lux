@@ -572,6 +572,7 @@ class DisplayServer:
                 removed = parent_list.pop(idx)
                 for eid in _collect_ids(removed):
                     self._widget_state.set(eid, None)
+                    self._render_fn_state.pop(eid, None)
             elif patch.set:
                 self._apply_patch_set(parent_list[idx], patch.set)
 
@@ -1286,6 +1287,7 @@ class DisplayServer:
                     )
             elif result == ConsentResult.DENIED:
                 state.dialog = None
+                state.executor = None
                 state.denied = True
             return
 
