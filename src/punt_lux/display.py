@@ -255,6 +255,132 @@ def _find_element(
     return None
 
 
+def _render_filter_search(
+    filt: Any,
+    f_idx: int,
+    table_id: str,
+    widget_state: WidgetState,
+    imgui: Any,
+) -> None:
+    """Render a search input for a table filter."""
+    sid = f"__tbl_search_{f_idx}_{table_id}"
+    current: str = widget_state.ensure(sid, "")
+    label = filt.label or "Search"
+    imgui.set_next_item_width(180)
+    hint: str = filt.hint or ""
+    if hint:
+        changed, new_val = imgui.input_text_with_hint(
+            f"{label}##{sid}",
+            hint,
+            current,
+            256,
+        )
+    else:
+        changed, new_val = imgui.input_text(
+            f"{label}##{sid}",
+            current,
+            256,
+        )
+    if changed:
+        widget_state.set(sid, new_val)
+
+
+def _render_filter_combo(
+    filt: Any,
+    f_idx: int,
+    table_id: str,
+    widget_state: WidgetState,
+    imgui: Any,
+) -> None:
+    """Render a combo dropdown for a table filter."""
+    sid = f"__tbl_combo_{f_idx}_{table_id}"
+    items: list[str] = filt.items or []
+    current_idx: int = widget_state.ensure(sid, 0)
+    label = filt.label or "Filter"
+    imgui.set_next_item_width(140)
+    changed, new_idx = imgui.combo(
+        f"{label}##{sid}",
+        current_idx,
+        items,
+    )
+    if changed:
+        widget_state.set(sid, new_idx)
+
+
+def _apply_table_filters(
+    filters: list[Any] | None,
+    rows: list[list[Any]],
+    table_id: str,
+    widget_state: WidgetState,
+    imgui: Any,
+) -> list[list[Any]]:
+    """Render built-in filter controls and return only matching rows.
+
+    Each filter's widget state is stored under an internal ID that won't
+    collide with user element IDs (``__tbl_`` prefix).
+    """
+    if not filters:
+        return rows
+
+    for f_idx, filt in enumerate(filters):
+        if f_idx > 0:
+            imgui.same_line()
+        if filt.type == "search":
+            _render_filter_search(filt, f_idx, table_id, widget_state, imgui)
+        elif filt.type == "combo":
+            _render_filter_combo(filt, f_idx, table_id, widget_state, imgui)
+
+    visible = _filter_rows(filters, rows, table_id, widget_state)
+    total = len(rows)
+    shown = len(visible)
+    if shown < total:
+        imgui.text_disabled(f"Showing {shown} of {total}")
+    else:
+        imgui.text_disabled(f"{total} rows")
+
+    return visible
+
+
+def _filter_rows(
+    filters: list[Any],
+    rows: list[list[Any]],
+    table_id: str,
+    widget_state: WidgetState,
+) -> list[list[Any]]:
+    """Apply all active filters to rows with AND logic."""
+    result = rows
+    for f_idx, filt in enumerate(filters):
+        ftype: str = filt.type
+        if ftype == "search":
+            sid = f"__tbl_search_{f_idx}_{table_id}"
+            query: str = widget_state.get(sid, "")
+            if not query:
+                continue
+            query_lower = query.lower()
+            col = filt.column
+            cols = col if isinstance(col, list) else [col]
+            result = [
+                row
+                for row in result
+                if any(query_lower in str(row[c]).lower() for c in cols if c < len(row))
+            ]
+        elif ftype == "combo":
+            sid = f"__tbl_combo_{f_idx}_{table_id}"
+            selected_idx: int = widget_state.get(sid, 0)
+            items: list[str] = filt.items or []
+            if selected_idx == 0 or not items:
+                continue  # "All" selected or no items
+            selected_val = items[selected_idx] if selected_idx < len(items) else ""
+            col = filt.column
+            col_idx = col if isinstance(col, int) else col[0]
+            result = [
+                row
+                for row in result
+                if col_idx < len(row) and str(row[col_idx]) == selected_val
+            ]
+    return result
+
+
 def _table_column_weights(
     columns: list[str],
     rows: list[list[Any]],
@@ -1214,6 +1340,20 @@ class DisplayServer:
         columns: list[str] = tbl.columns
         rows: list[list[Any]] = tbl.rows
         flags_list: list[str] = tbl.flags
+        filters: list[Any] | None = tbl.filters
+
+        num_cols = len(columns)
+        if num_cols == 0:
+            return
+
+        # Render built-in filters and get visible rows
+        visible_rows = _apply_table_filters(
+            filters,
+            rows,
+            eid,
+            self._widget_state,
+            imgui,
+        )
 
         flag_map = {
             "borders": imgui.TableFlags_.borders.value,
@@ -1225,14 +1365,8 @@ class DisplayServer:
         for f in flags_list:
             table_flags |= flag_map.get(f, 0)
 
-        num_cols = len(columns)
-        if num_cols == 0:
-            return
+        weights = _table_column_weights(columns, visible_rows, tbl.column_widths)
 
-        weights = _table_column_weights(columns, rows, tbl.column_widths)
-
-        # Namespace ImGui ID with scene_id so column widths persist
-        # per-scene, not globally across different uses of the same table id.
         scene_id = self._current_scene.id if self._current_scene else ""
         imgui_id = f"##{scene_id}/{eid}"
 
@@ -1242,7 +1376,7 @@ class DisplayServer:
                 imgui.table_setup_column(col_name, stretch, weights[col_idx])
             imgui.table_headers_row()
 
-            for row in rows:
+            for row in visible_rows:
                 imgui.table_next_row()
                 for col_idx, cell in enumerate(row):
                     if col_idx < num_cols:

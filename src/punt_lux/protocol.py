@@ -251,6 +251,21 @@ class TreeElement:
 
 
 @dataclass
+class TableFilter:
+    """A built-in filter control rendered above a table.
+
+    - ``search``: case-insensitive substring match on specified column(s).
+    - ``combo``: exact match dropdown; first item is treated as "All" (no filter).
+    """
+
+    type: Literal["search", "combo"]
+    column: int | list[int]  # column index(es) to filter on
+    hint: str = ""  # placeholder text (search only)
+    items: list[str] | None = None  # dropdown items (combo only)
+    label: str = ""  # optional label for the control
+
+
+@dataclass
 class TableElement:
     """A data table with columns and rows."""
 
@@ -260,6 +275,7 @@ class TableElement:
     rows: list[list[Any]] = field(default_factory=lambda: list[list[Any]]())
     flags: list[str] = field(default_factory=lambda: ["borders", "row_bg"])
     column_widths: list[float] | None = None
+    filters: list[TableFilter] | None = None
     tooltip: str | None = None
 
 
@@ -696,14 +712,40 @@ def _tree_to_dict(elem: TreeElement) -> dict[str, Any]:
     }
 
 
+def _table_filter_to_dict(f: TableFilter) -> dict[str, Any]:
+    d: dict[str, Any] = {"type": f.type, "column": f.column}
+    if f.hint:
+        d["hint"] = f.hint
+    if f.items is not None:
+        d["items"] = f.items
+    if f.label:
+        d["label"] = f.label
+    return d
+
+
+def _table_filter_from_dict(d: dict[str, Any]) -> TableFilter:
+    return TableFilter(
+        type=d["type"],
+        column=d["column"],
+        hint=d.get("hint", ""),
+        items=d.get("items"),
+        label=d.get("label", ""),
+    )
+
+
 def _table_to_dict(elem: TableElement) -> dict[str, Any]:
-    return {
+    d: dict[str, Any] = {
         "kind": elem.kind,
         "id": elem.id,
         "columns": elem.columns,
         "rows": elem.rows,
         "flags": elem.flags,
     }
+    if elem.column_widths is not None:
+        d["column_widths"] = elem.column_widths
+    if elem.filters is not None:
+        d["filters"] = [_table_filter_to_dict(f) for f in elem.filters]
+    return d
 
 
 def _plot_to_dict(elem: PlotElement) -> dict[str, Any]:
@@ -972,11 +1014,17 @@ def _tree_from_dict(d: dict[str, Any]) -> TreeElement:
 
 
 def _table_from_dict(d: dict[str, Any]) -> TableElement:
+    raw_filters = d.get("filters")
+    filters: list[TableFilter] | None = None
+    if raw_filters is not None:
+        filters = [_table_filter_from_dict(f) for f in raw_filters]
     return TableElement(
         id=d["id"],
         columns=d.get("columns", []),
         rows=d.get("rows", []),
         flags=d.get("flags", ["borders", "row_bg"]),
+        column_widths=d.get("column_widths"),
+        filters=filters,
     )
 
 
