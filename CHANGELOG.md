@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-08
+
 ### Added
 
 - **Display server** — ImGui-based visual output surface with non-blocking socket IPC
