@@ -14,7 +14,7 @@ Thank you for your interest in contributing to lux. This guide covers what you n
 ```bash
 git clone https://github.com/punt-labs/lux.git
 cd lux
-uv sync --all-extras
+uv sync --extra dev
 ```
 
 ### Verify your setup
@@ -85,7 +85,7 @@ New features should have unit tests at minimum.
 
 ## Code Standards
 
-- **Full type annotations** on every function signature. No `Any`.
+- **Full type annotations** on every function signature. Avoid `Any` unless required by third-party APIs (e.g., ImGui bindings).
 - **Double quotes.** Line length 88.
 - **Immutable data models.** `@dataclass(frozen=True)` or pydantic with immutability.
 - **No duplication.** If you see two copies, extract one abstraction.
