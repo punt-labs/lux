@@ -267,6 +267,9 @@ class TableFilter:
     def __post_init__(self) -> None:
         if isinstance(self.column, int):
             self.column = [self.column]
+        if not self.column:
+            msg = "TableFilter requires non-empty 'column'"
+            raise ValueError(msg)
         if self.type == "combo" and not self.items:
             msg = "TableFilter type='combo' requires non-empty 'items'"
             raise ValueError(msg)

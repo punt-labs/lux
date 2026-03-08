@@ -338,7 +338,7 @@ def _get_filter_snapshot(
         elif filt.type == "combo":
             sid = f"__tbl_combo_{f_idx}_{table_id}"
             parts.append(str(widget_state.get(sid, 0)))
-    return "|".join(parts)
+    return "\x00".join(parts)
 
 
 def _apply_table_filters(
@@ -466,7 +466,11 @@ def _render_table_pagination(
 
     page: int = widget_state.ensure(page_key, 0)
     total_pages = (total_rows + _ROWS_PER_PAGE - 1) // _ROWS_PER_PAGE
-    page = max(0, min(page, total_pages - 1))
+    clamped = max(0, min(page, total_pages - 1))
+    # Persist clamped value (e.g. after rows shrink from update/filter)
+    if clamped != page:
+        widget_state.set(page_key, clamped)
+    page = clamped
     prev_page = page
 
     if imgui.button(f"<< Prev##{table_id}_prev") and page > 0:
