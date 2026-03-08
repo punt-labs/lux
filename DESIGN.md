@@ -708,3 +708,241 @@ Three levels of transparency exist, with decreasing feasibility:
 Borderless and top_most are toggled via the Window menu. When borderless mode is active, the custom menu bar (Lux, Theme, Window) remains accessible because HelloImGui renders it inside the ImGui content area, not in the OS title bar. The `borderless_movable` flag ensures the window remains draggable.
 
 Note: `remember_status_bar_settings` is set to `False` to prevent HelloImGui's ini file from overriding our programmatic settings (see status bar fix in this PR).
+
+---
+
+## DES-014: Command & Hook Architecture — CLI-First with Plugin Projection
+
+**Date:** 2026-03-08
+**Status:** ACCEPTED
+**Topic:** How Lux exposes user commands, hooks, and slash commands following punt-kit standards
+
+### Context
+
+Lux has MCP tools (`show`, `update`, `clear`, `ping`, `recv`, `set_menu`, `set_theme`) that agents call to drive the display. But there is no user-facing command vocabulary — no way for a user to say "use Lux for visual output" the way `/vox on` tells the LLM to speak. This ADR defines the full command and hook architecture following [CLI standards](https://github.com/punt-labs/punt-kit/blob/main/standards/cli.md) and [plugin standards](https://github.com/punt-labs/punt-kit/blob/main/standards/plugins.md).
+
+### Core Principle
+
+**The CLI is the complete product.** Every capability is a CLI command first. MCP tools, slash commands, and hooks are projections of CLI functionality. A user who never opens Claude Code can use every feature.
+
+### CLI Command Layers
+
+#### Layer 1: Product Commands
+
+| Command | What it does | MCP projection |
+|---------|-------------|----------------|
+| `lux notify y/n` | Toggle LLM encouragement to use visual output | `notify` MCP tool |
+| `lux theme <name>` | Set the display theme | `set_theme` MCP tool (exists) |
+| `lux status` | Current state: display running, theme, notify mode | `status` MCP tool |
+
+#### Layer 2: Admin Commands
+
+| Command | What it does |
+|---------|-------------|
+| `lux display` | Start the display server (exists) |
+| `lux serve` | Start the MCP server (exists) |
+| `lux version` | Print version (exists) |
+| `lux doctor` | Check health: display server, socket, imgui-bundle |
+| `lux install` | Register MCP server, create config directory |
+| `lux enable` / `lux disable` | Toggle Lux in current project (creates/removes `.lux`) |
+
+#### Layer 3: Hook Dispatchers (Internal)
+
+| Command | What it does |
+|---------|-------------|
+| `lux hook stop` | Decision-block: generate visual summary before session ends |
+| `lux hook post-bash` | Classify Bash output into visual signals |
+| `lux hook session-start` | First-run setup (deploy commands, auto-allow tools) |
+
+Shell scripts are thin gates. Business logic lives in `src/punt_lux/hooks.py` as testable pure functions.
+
+### Slash Commands (Plugin Projection)
+
+| Slash command | Calls | Maps to |
+|--------------|-------|---------|
+| `/lux on` | `notify` MCP tool with `mode: "y"` | `lux notify y` |
+| `/lux off` | `notify` MCP tool with `mode: "n"` | `lux notify n` |
+| `/lux` (no args) | `status` MCP tool | `lux status` |
+
+Slash commands call MCP tools, not Bash → CLI. This follows the MCP-first command pattern from plugin standards.
+
+### Call Path Selection
+
+| Path | Latency | Used by |
+|------|---------|---------|
+| Hook → CLI | ~110ms | Stop hook, PostToolUse Bash, SessionStart |
+| LLM → MCP tool | ~3.2s | Slash commands (`/lux on`, `/lux off`) |
+| ~~LLM → Bash → CLI~~ | ~4.6s | **Avoided.** No slash command uses this path. |
+
+### Why `y/n` Not `y/n/c`
+
+Vox uses `y/n/c` (yes/no/chime-only) because audio has a meaningful middle state: the tool is active (listens for events, plays notification sounds) but doesn't speak full sentences. Lux has no equivalent middle state — the display is either something the LLM should actively use, or it's passive. A "chime" mode for visual output (flash the window? show a badge?) would be contrived. Two states are sufficient.
+
+### Why `notify` Not `on`/`off`
+
+The display server runs independently — `lux on` implies starting/stopping the display, which is wrong. The command toggles whether the LLM is *encouraged* to use the display, not whether the display exists. `notify` matches Vox's vocabulary (`vox notify y/n/c`) and makes the semantic clear: you're configuring notification behavior, not controlling a service.
+
+---
+
+## DES-015: Stop Hook — Decision-Block for Visual Summary
+
+**Date:** 2026-03-08
+**Status:** ACCEPTED
+**Topic:** How the Stop hook forces a visual summary before session end
+
+### Context
+
+When a user's task completes and the LLM is about to stop, there's an opportunity to display a visual summary of what was accomplished — a dashboard, a diff view, a test results table. The Stop hook intercepts the stop event and tells the LLM to generate this visual output before ending.
+
+This follows the same pattern as Vox's Stop hook, which forces a spoken recap before session end.
+
+### Design
+
+The Stop hook is a **decision-block**: it prevents the session from ending and instructs the LLM to take an action first.
+
+```text
+Session ending
+  │
+  ▼
+Stop hook fires
+  │
+  ├── Config says notify: n → allow stop (exit 0, no output)
+  │
+  └── Config says notify: y
+      │
+      ├── No accumulated signals → allow stop
+      │
+      └── Has signals → BLOCK stop
+          │
+          Output: { "decision": "block",
+                    "reason": "Display a visual summary before ending." }
+          │
+          LLM generates visual summary via show() / update()
+          │
+          LLM stops on next attempt (hook sees summary was shown)
+```
+
+### Call Path
+
+```text
+Claude Code Stop event
+  → hooks/stop.sh (thin gate: check .lux/config.md)
+  → lux hook stop (CLI dispatcher)
+  → hooks.py:handle_stop() (pure function)
+  → returns decision JSON
+```
+
+The shell script reads config to check if notify is enabled. If not, exits immediately (no Python startup cost). If enabled, delegates to `lux hook stop` which calls `hooks.py:handle_stop()`.
+
+### Re-entry Guard
+
+The hook must not block indefinitely. After the LLM generates one visual summary (detected by checking if a `show` or `update` tool was called since the last stop attempt), the hook allows the stop. This prevents infinite loops.
+
+Implementation: the PostToolUse hook for Lux MCP tools sets a flag in config when `show` or `update` is called. The Stop hook checks and clears this flag.
+
+### Why Block, Not Suggest
+
+A non-blocking hook would add `additionalContext` suggesting the LLM show a summary. But the LLM is already stopping — it has decided its work is done. A suggestion in additional context is easily ignored. Blocking forces the LLM to act, which is the only way to guarantee the visual summary appears.
+
+---
+
+## DES-016: Signal Accumulation — PostToolUse Bash Classification
+
+**Date:** 2026-03-08
+**Status:** ACCEPTED
+**Topic:** How Bash command output is classified into signals that inform the Stop hook
+
+### Context
+
+The Stop hook needs to know *what happened* during the session to generate a useful visual summary. A session that only edited files needs a diff view. A session that ran tests needs a results table. The PostToolUse Bash hook observes command output and classifies it into signals.
+
+### Design
+
+A PostToolUse hook registered on `Bash` tool calls classifies output into signal categories:
+
+| Signal | Detected by | Visual summary |
+|--------|------------|----------------|
+| `test_results` | pytest/jest/cargo test output patterns | Test results table |
+| `build_output` | make/cargo build/npm build patterns | Build status dashboard |
+| `git_changes` | git diff/status/log output | Diff view or commit summary |
+| `error_output` | Non-zero exit code, stderr patterns | Error details table |
+
+Signals accumulate in `.lux/signals.json` (or equivalent state file) during the session. The Stop hook reads accumulated signals to decide what kind of visual summary to generate.
+
+### Call Path
+
+```text
+Claude Code PostToolUse Bash event
+  → hooks/post-bash.sh (thin gate: check .lux enabled)
+  → lux hook post-bash (CLI dispatcher, reads stdin)
+  → hooks.py:handle_post_bash(data) (pure classifier)
+  → appends signal to state file
+```
+
+### Why Not Classify in the Stop Hook
+
+The Stop hook fires once at session end. By that point, the Bash output is gone — it was consumed by earlier tool calls. The PostToolUse hook observes output as it happens, building up a picture of the session incrementally.
+
+### Signal Storage
+
+Signals are stored in `.lux/signals.json` as a simple array of `{type, timestamp, summary}` objects. The file is cleared at session start (by the SessionStart hook) and read at session end (by the Stop hook). This is session-scoped ephemeral state, not persistent configuration.
+
+---
+
+## DES-017: Config State — `.lux/config.md` with YAML Frontmatter
+
+**Date:** 2026-03-08
+**Status:** ACCEPTED
+**Topic:** Where Lux stores per-project configuration
+
+### Context
+
+Lux needs to store per-project state: whether notify is enabled, the current theme, accumulated signals. This follows the same pattern as Vox's `.vox/config.md`.
+
+### Design
+
+```text
+.lux/
+  config.md          # YAML frontmatter + markdown (LLM-readable context)
+  signals.json       # Session-scoped ephemeral state (cleared each session)
+```
+
+#### `config.md` format
+
+```markdown
+---
+notify: "y"
+theme: "imgui_colors_light"
+---
+
+# Lux Configuration
+
+Visual output is enabled for this project. The LLM will use the Lux display
+surface for dashboards, data views, and visual summaries.
+```
+
+The YAML frontmatter stores machine-readable config. The markdown body provides LLM-readable context that hooks inject as `additionalContext` during SessionStart.
+
+### Why `.lux/` Not `.claude/lux.local.md`
+
+The `.claude/` directory is for Claude Code's own state. Tool-specific config lives in its own dotdir (`.vox/`, `.biff/`, `.lux/`). This keeps tool state independent of Claude Code's lifecycle and makes it visible to non-Claude consumers (CLI users, scripts).
+
+### Who Writes Config
+
+| Writer | What | Path |
+|--------|------|------|
+| `lux notify y/n` (CLI) | Sets `notify` field | Direct YAML write |
+| `notify` MCP tool | Sets `notify` field | Calls same function as CLI |
+| `lux theme <name>` (CLI) | Sets `theme` field | Direct YAML write |
+| `set_theme` MCP tool | Sets `theme` field | Calls same function as CLI |
+| SessionStart hook | Creates config if missing, clears signals | Shell + CLI |
+
+The model never touches config files directly — it uses the MCP or CLI layer. This is a hard rule from punt-kit CLI standards.
+
+### Gitignore
+
+`.lux/` should be gitignored. It contains user-specific state (notify preference, session signals) that should not be committed. Add to project `.gitignore`:
+
+```gitignore
+.lux/
+```
