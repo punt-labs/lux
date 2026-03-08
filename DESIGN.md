@@ -608,12 +608,14 @@ The `_render_render_function` method runs one of three phases per frame:
 Two distinct paths were verified empirically:
 
 **Cold reload** — `show()` (full scene replacement):
+
 - `_handle_message` for `SceneMessage` calls `self._render_fn_state.clear()`
 - Old executor is dropped, state dict is lost
 - New consent required, fresh `CodeExecutor`, `ctx.state` starts empty
 - Frame counter resets to 0
 
 **Hot reload** — `update()` (patch source on existing element):
+
 - `_apply_patch_set` changes the element's `source` field via `setattr`
 - Next render frame detects `state.source != source`
 - Old executor is stashed in the new `_RenderFnState`
@@ -627,7 +629,7 @@ Two distinct paths were verified empirically:
 
 `ctx.send(action, data)` inside user code routes back to the agent through the existing event queue:
 
-```
+```text
 render(ctx) → ctx.send("clicked", {"frame": 452})
            → _event_callback(action, data)
            → _make_event_callback closure captures element_id
