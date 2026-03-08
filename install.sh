@@ -152,7 +152,7 @@ cleanup_https_rewrite
 
 info "Verifying installation..."
 printf '\n'
-"$BINARY" --version || true
+"$BINARY" version || true
 printf '\n'
 
 # --- Done ---
