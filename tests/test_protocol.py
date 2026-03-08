@@ -20,16 +20,21 @@ from punt_lux.protocol import (
     ImageElement,
     InputTextElement,
     InteractionMessage,
+    MarkdownElement,
+    MenuMessage,
     Message,
     Patch,
     PingMessage,
+    PlotElement,
     PongMessage,
+    ProgressElement,
     RadioElement,
     ReadyMessage,
     SceneMessage,
     SelectableElement,
     SeparatorElement,
     SliderElement,
+    SpinnerElement,
     TabBarElement,
     TableElement,
     TextElement,
@@ -249,6 +254,62 @@ class TestElements:
         assert e.rows == []
         assert e.flags == ["borders", "row_bg"]
 
+    def test_plot_element(self):
+        series = [
+            {"label": "y", "type": "line", "x": [1, 2, 3], "y": [10, 20, 15]},
+        ]
+        e = PlotElement(id="p1", title="Trend", series=series)
+        assert e.kind == "plot"
+        assert e.title == "Trend"
+        assert len(e.series) == 1
+        assert e.width == -1
+        assert e.height == 300
+
+    def test_plot_element_defaults(self):
+        e = PlotElement(id="p1")
+        assert e.title == ""
+        assert e.x_label == ""
+        assert e.y_label == ""
+        assert e.width == -1
+        assert e.height == 300
+        assert e.series == []
+
+    def test_progress_element(self):
+        e = ProgressElement(id="pg1", fraction=0.73, label="73%")
+        assert e.kind == "progress"
+        assert e.fraction == 0.73
+        assert e.label == "73%"
+
+    def test_progress_element_defaults(self):
+        e = ProgressElement(id="pg1")
+        assert e.fraction == 0.0
+        assert e.label == ""
+
+    def test_spinner_element(self):
+        e = SpinnerElement(id="sp1", label="Loading", radius=20.0, color="#FF0000")
+        assert e.kind == "spinner"
+        assert e.radius == 20.0
+        assert e.color == "#FF0000"
+
+    def test_spinner_element_defaults(self):
+        e = SpinnerElement(id="sp1")
+        assert e.label == ""
+        assert e.radius == 16.0
+        assert e.color == "#3399FF"
+
+    def test_markdown_element(self):
+        e = MarkdownElement(id="md1", content="# Hello\n\n**Bold**")
+        assert e.kind == "markdown"
+        assert e.content == "# Hello\n\n**Bold**"
+
+    def test_tooltip_field(self):
+        e = TextElement(id="t1", content="hi", tooltip="help text")
+        assert e.tooltip == "help text"
+
+    def test_tooltip_default_is_none(self):
+        e = ButtonElement(id="b1", label="OK")
+        assert e.tooltip is None
+
 
 # ---------------------------------------------------------------------------
 # Message construction
@@ -301,6 +362,42 @@ class TestMessages:
     def test_pong_message(self):
         msg = PongMessage(ts=1.0, display_ts=2.0)
         assert msg.display_ts == 2.0
+
+    def test_menu_message(self):
+        menus = [
+            {
+                "label": "Tools",
+                "items": [
+                    {"label": "Run Script", "id": "run_script"},
+                    {"label": "---"},
+                    {"label": "Settings", "id": "settings", "shortcut": "Ctrl+,"},
+                ],
+            },
+        ]
+        msg = MenuMessage(menus=menus)
+        assert msg.type == "menu"
+        assert len(msg.menus) == 1
+        assert msg.menus[0]["label"] == "Tools"
+
+    def test_menu_message_defaults(self):
+        msg = MenuMessage(menus=[])
+        assert msg.type == "menu"
+        assert msg.menus == []
+
+    def test_menu_roundtrip(self):
+        menus = [
+            {
+                "label": "Custom",
+                "items": [
+                    {"label": "Action", "id": "act1", "enabled": False},
+                ],
+            },
+        ]
+        original = MenuMessage(menus=menus)
+        d = message_to_dict(original)
+        restored = message_from_dict(d)
+        assert isinstance(restored, MenuMessage)
+        assert restored.menus == menus
 
 
 # ---------------------------------------------------------------------------
@@ -645,6 +742,104 @@ class TestSerialization:
         assert isinstance(tbl, TableElement)
         assert tbl.columns == []
         assert tbl.rows == []
+
+    def test_plot_roundtrip(self):
+        series = [
+            {"label": "line1", "type": "line", "x": [1, 2, 3], "y": [10, 20, 15]},
+            {"label": "pts", "type": "scatter", "x": [1, 2], "y": [5, 8]},
+        ]
+        e = PlotElement(
+            id="p1",
+            title="My Plot",
+            x_label="X",
+            y_label="Y",
+            width=500,
+            height=400,
+            series=series,
+        )
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        plot = restored.elements[0]
+        assert isinstance(plot, PlotElement)
+        assert plot.title == "My Plot"
+        assert plot.x_label == "X"
+        assert plot.y_label == "Y"
+        assert plot.width == 500
+        assert plot.height == 400
+        assert len(plot.series) == 2
+
+    def test_plot_empty_roundtrip(self):
+        e = PlotElement(id="p1")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        plot = restored.elements[0]
+        assert isinstance(plot, PlotElement)
+        assert plot.series == []
+        assert plot.title == ""
+
+    def test_progress_roundtrip(self):
+        e = ProgressElement(id="pg1", fraction=0.5, label="Half")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        elem = restored.elements[0]
+        assert isinstance(elem, ProgressElement)
+        assert elem.fraction == 0.5
+        assert elem.label == "Half"
+
+    def test_progress_label_excluded_when_empty(self):
+        e = ProgressElement(id="pg1", fraction=0.3)
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        assert "label" not in d["elements"][0]
+
+    def test_spinner_roundtrip(self):
+        e = SpinnerElement(id="sp1", label="Wait", radius=20.0, color="#FF0000")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        elem = restored.elements[0]
+        assert isinstance(elem, SpinnerElement)
+        assert elem.label == "Wait"
+        assert elem.radius == 20.0
+        assert elem.color == "#FF0000"
+
+    def test_spinner_label_excluded_when_empty(self):
+        e = SpinnerElement(id="sp1")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        assert "label" not in d["elements"][0]
+
+    def test_markdown_roundtrip(self):
+        e = MarkdownElement(id="md1", content="# Title\n\nParagraph.")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        elem = restored.elements[0]
+        assert isinstance(elem, MarkdownElement)
+        assert elem.content == "# Title\n\nParagraph."
+
+    def test_tooltip_roundtrip(self):
+        e = TextElement(id="t1", content="hover me", tooltip="help")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        assert d["elements"][0]["tooltip"] == "help"
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert restored.elements[0].tooltip == "help"
+
+    def test_tooltip_excluded_when_none(self):
+        e = TextElement(id="t1", content="no tip")
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        assert "tooltip" not in d["elements"][0]
 
     def test_collapsing_header_default_open_excluded_when_false(self):
         e = CollapsingHeaderElement(id="ch1", label="Section")

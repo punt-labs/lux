@@ -502,3 +502,66 @@ Default ProB parameters: `DEFAULT_SETSIZE=2`, `MAXINT=4`, `TIME_OUT=60000`. Over
 ```bash
 make prob SPEC=docs/foo.tex PROB_SETSIZE=3 PROB_MAXINT=8
 ```
+
+---
+
+## DES-010: PlotElement — ImPlot Title/ID Separation
+
+**Date:** 2026-03-07
+**Status:** ACCEPTED (known limitation)
+**Topic:** How plot titles interact with ImGui's `##` ID separator
+
+### Design
+
+ImGui uses `##` as a delimiter to separate the visible label from the internal ID (e.g., `"My Plot##p1"` displays "My Plot" but uses "p1" as the ImGui ID). The `_render_plot` method appends `##{element_id}` to the title automatically — **unless** the title already contains `##`, in which case it assumes the caller embedded an explicit ID.
+
+```python
+plot_title = title if "##" in title else f"{title}##{eid}"
+```
+
+### Known Limitation
+
+If a plot title legitimately contains `##` as display text (e.g., `"Issue ##42 Trend"`), the renderer will not append the element ID, causing ImGui to parse the fragment after `##` as the ID. This could produce incorrect IDs or visual glitches if two plots share the same post-`##` fragment.
+
+### Why Accept This
+
+- `##` in display text is extremely rare — it's an ImGui convention, not natural language.
+- The alternative (always stripping and re-appending) adds complexity for a near-zero probability case.
+- This matches the pattern used in the spike code (`spikes/d-json-vocabulary/renderer.py`).
+- Users who need `##` in titles can work around it by pre-appending their own `##id` suffix.
+
+### If This Causes Bugs
+
+Replace the heuristic with unconditional append: strip any existing `##` suffix from the title, then always append `##{eid}`. This is a one-line change in `display.py:_render_plot`.
+
+---
+
+## DES-011: PlotElement — `plot_bars` API Compatibility
+
+**Date:** 2026-03-07
+**Status:** ACCEPTED
+**Topic:** `implot.plot_bars` signature varies across imgui-bundle versions
+
+### Design
+
+The `_render_plot` method wraps `implot.plot_bars` in a `try/except TypeError` fallback:
+
+```python
+try:
+    implot.plot_bars(s_label, x_data, y_data, 0.67)
+except TypeError:
+    implot.plot_bars(s_label, y_data, 0.67)
+```
+
+### Why
+
+Across imgui-bundle versions, `plot_bars` has two signatures:
+
+1. `plot_bars(label, x_values, y_values, bar_width)` — newer versions with explicit x positions
+2. `plot_bars(label, values, bar_width)` — older versions with implicit x positions (0, 1, 2, ...)
+
+The `try/except` handles both without requiring a minimum version pin. The fallback loses explicit x-positioning, which means bar charts will use sequential integer positions instead of the caller's x values on older versions.
+
+### If This Causes Confusion
+
+Pin a minimum imgui-bundle version in `pyproject.toml` and remove the fallback.

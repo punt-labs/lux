@@ -41,6 +41,7 @@ class ImageElement:
     alt: str | None = None
     width: int | None = None
     height: int | None = None
+    tooltip: str | None = None
 
     def __post_init__(self) -> None:
         if self.path is None and self.data is None:
@@ -56,6 +57,7 @@ class TextElement:
     content: str
     kind: Literal["text"] = "text"
     style: str | None = None  # "body", "heading", "caption", "code"
+    tooltip: str | None = None
 
 
 @dataclass
@@ -67,6 +69,7 @@ class ButtonElement:
     kind: Literal["button"] = "button"
     action: str | None = None
     disabled: bool = False
+    tooltip: str | None = None
 
 
 @dataclass
@@ -75,6 +78,7 @@ class SeparatorElement:
 
     kind: Literal["separator"] = "separator"
     id: str | None = None
+    tooltip: str | None = None
 
 
 @dataclass
@@ -89,6 +93,7 @@ class SliderElement:
     max: float = 100.0
     format: str = "%.1f"
     integer: bool = False
+    tooltip: str | None = None
 
 
 @dataclass
@@ -99,6 +104,7 @@ class CheckboxElement:
     label: str
     kind: Literal["checkbox"] = "checkbox"
     value: bool = False
+    tooltip: str | None = None
 
 
 @dataclass
@@ -110,6 +116,7 @@ class ComboElement:
     kind: Literal["combo"] = "combo"
     items: list[str] = field(default_factory=lambda: list[str]())
     selected: int = 0
+    tooltip: str | None = None
 
 
 @dataclass
@@ -121,6 +128,7 @@ class InputTextElement:
     kind: Literal["input_text"] = "input_text"
     value: str = ""
     hint: str = ""
+    tooltip: str | None = None
 
 
 @dataclass
@@ -132,6 +140,7 @@ class RadioElement:
     kind: Literal["radio"] = "radio"
     items: list[str] = field(default_factory=lambda: list[str]())
     selected: int = 0
+    tooltip: str | None = None
 
 
 @dataclass
@@ -142,6 +151,7 @@ class ColorPickerElement:
     label: str
     kind: Literal["color_picker"] = "color_picker"
     value: str = "#FFFFFF"
+    tooltip: str | None = None
 
 
 @dataclass
@@ -156,6 +166,7 @@ class DrawElement:
     commands: list[dict[str, Any]] = field(
         default_factory=lambda: list[dict[str, Any]]()
     )
+    tooltip: str | None = None
 
 
 @dataclass
@@ -166,6 +177,7 @@ class GroupElement:
     kind: Literal["group"] = "group"
     layout: str = "rows"  # "rows" | "columns"
     children: list[Any] = field(default_factory=lambda: list[Any]())
+    tooltip: str | None = None
 
 
 @dataclass
@@ -175,6 +187,7 @@ class TabBarElement:
     id: str
     kind: Literal["tab_bar"] = "tab_bar"
     tabs: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
+    tooltip: str | None = None
 
 
 @dataclass
@@ -186,6 +199,7 @@ class CollapsingHeaderElement:
     label: str = ""
     default_open: bool = False
     children: list[Any] = field(default_factory=lambda: list[Any]())
+    tooltip: str | None = None
 
 
 @dataclass
@@ -206,6 +220,7 @@ class WindowElement:
     no_scrollbar: bool = False
     auto_resize: bool = False
     children: list[Any] = field(default_factory=lambda: list[Any]())
+    tooltip: str | None = None
 
 
 @dataclass
@@ -216,6 +231,7 @@ class SelectableElement:
     label: str
     kind: Literal["selectable"] = "selectable"
     selected: bool = False
+    tooltip: str | None = None
 
 
 @dataclass
@@ -231,6 +247,7 @@ class TreeElement:
     kind: Literal["tree"] = "tree"
     label: str = ""
     nodes: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
+    tooltip: str | None = None
 
 
 @dataclass
@@ -242,6 +259,55 @@ class TableElement:
     columns: list[str] = field(default_factory=lambda: list[str]())
     rows: list[list[Any]] = field(default_factory=lambda: list[list[Any]]())
     flags: list[str] = field(default_factory=lambda: ["borders", "row_bg"])
+    tooltip: str | None = None
+
+
+@dataclass
+class PlotElement:
+    """A 2D plot with one or more data series (line, scatter, bar)."""
+
+    id: str
+    kind: Literal["plot"] = "plot"
+    title: str = ""
+    x_label: str = ""
+    y_label: str = ""
+    width: float = -1  # -1 = auto-fill available width
+    height: float = 300
+    series: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
+    tooltip: str | None = None
+
+
+@dataclass
+class ProgressElement:
+    """A progress bar."""
+
+    id: str
+    kind: Literal["progress"] = "progress"
+    fraction: float = 0.0
+    label: str = ""
+    tooltip: str | None = None
+
+
+@dataclass
+class SpinnerElement:
+    """An animated loading spinner."""
+
+    id: str
+    kind: Literal["spinner"] = "spinner"
+    label: str = ""
+    radius: float = 16.0
+    color: str = "#3399FF"
+    tooltip: str | None = None
+
+
+@dataclass
+class MarkdownElement:
+    """A block of rendered markdown text."""
+
+    id: str
+    content: str
+    kind: Literal["markdown"] = "markdown"
+    tooltip: str | None = None
 
 
 Element = (
@@ -263,6 +329,10 @@ Element = (
     | SelectableElement
     | TreeElement
     | TableElement
+    | PlotElement
+    | ProgressElement
+    | SpinnerElement
+    | MarkdownElement
 )
 
 # ---------------------------------------------------------------------------
@@ -316,7 +386,15 @@ class PingMessage:
     ts: float | None = None
 
 
-ClientMessage = SceneMessage | UpdateMessage | ClearMessage | PingMessage
+@dataclass
+class MenuMessage:
+    """Set custom menus in the menu bar (agent-extensible)."""
+
+    menus: list[dict[str, Any]]  # [{label, items: [{label, id, shortcut?, enabled?}]}]
+    type: Literal["menu"] = "menu"
+
+
+ClientMessage = SceneMessage | UpdateMessage | ClearMessage | PingMessage | MenuMessage
 
 # ---------------------------------------------------------------------------
 # Display -> Client messages
@@ -601,6 +679,50 @@ def _table_to_dict(elem: TableElement) -> dict[str, Any]:
     }
 
 
+def _plot_to_dict(elem: PlotElement) -> dict[str, Any]:
+    return {
+        "kind": elem.kind,
+        "id": elem.id,
+        "title": elem.title,
+        "x_label": elem.x_label,
+        "y_label": elem.y_label,
+        "width": elem.width,
+        "height": elem.height,
+        "series": elem.series,
+    }
+
+
+def _progress_to_dict(elem: ProgressElement) -> dict[str, Any]:
+    d: dict[str, Any] = {
+        "kind": elem.kind,
+        "id": elem.id,
+        "fraction": elem.fraction,
+    }
+    if elem.label:
+        d["label"] = elem.label
+    return d
+
+
+def _spinner_to_dict(elem: SpinnerElement) -> dict[str, Any]:
+    d: dict[str, Any] = {
+        "kind": elem.kind,
+        "id": elem.id,
+        "radius": elem.radius,
+        "color": elem.color,
+    }
+    if elem.label:
+        d["label"] = elem.label
+    return d
+
+
+def _markdown_to_dict(elem: MarkdownElement) -> dict[str, Any]:
+    return {
+        "kind": elem.kind,
+        "id": elem.id,
+        "content": elem.content,
+    }
+
+
 _ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
     ImageElement: _image_to_dict,
     TextElement: _text_to_dict,
@@ -620,6 +742,10 @@ _ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
     SelectableElement: _selectable_to_dict,
     TreeElement: _tree_to_dict,
     TableElement: _table_to_dict,
+    PlotElement: _plot_to_dict,
+    ProgressElement: _progress_to_dict,
+    SpinnerElement: _spinner_to_dict,
+    MarkdownElement: _markdown_to_dict,
 }
 
 
@@ -628,6 +754,9 @@ def _element_to_dict(elem: Element) -> dict[str, Any]:
     serializer = _ELEMENT_SERIALIZERS.get(type(elem))
     if serializer is not None:
         result: dict[str, Any] = serializer(elem)
+        tooltip = getattr(elem, "tooltip", None)
+        if tooltip is not None:
+            result["tooltip"] = tooltip
         return result
     msg = f"Unknown element type: {type(elem)}"
     raise TypeError(msg)
@@ -815,6 +944,42 @@ def _table_from_dict(d: dict[str, Any]) -> TableElement:
     )
 
 
+def _plot_from_dict(d: dict[str, Any]) -> PlotElement:
+    return PlotElement(
+        id=d["id"],
+        title=d.get("title", ""),
+        x_label=d.get("x_label", ""),
+        y_label=d.get("y_label", ""),
+        width=d.get("width", -1),
+        height=d.get("height", 300),
+        series=d.get("series", []),
+    )
+
+
+def _progress_from_dict(d: dict[str, Any]) -> ProgressElement:
+    return ProgressElement(
+        id=d["id"],
+        fraction=d.get("fraction", 0.0),
+        label=d.get("label", ""),
+    )
+
+
+def _spinner_from_dict(d: dict[str, Any]) -> SpinnerElement:
+    return SpinnerElement(
+        id=d["id"],
+        label=d.get("label", ""),
+        radius=d.get("radius", 16.0),
+        color=d.get("color", "#3399FF"),
+    )
+
+
+def _markdown_from_dict(d: dict[str, Any]) -> MarkdownElement:
+    return MarkdownElement(
+        id=d["id"],
+        content=d.get("content", ""),
+    )
+
+
 _ELEMENT_DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Element]] = {
     "image": _image_from_dict,
     "text": _text_from_dict,
@@ -834,6 +999,10 @@ _ELEMENT_DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Element]] = {
     "selectable": _selectable_from_dict,
     "tree": _tree_from_dict,
     "table": _table_from_dict,
+    "plot": _plot_from_dict,
+    "progress": _progress_from_dict,
+    "spinner": _spinner_from_dict,
+    "markdown": _markdown_from_dict,
 }
 
 
@@ -846,7 +1015,11 @@ def element_from_dict(d: dict[str, Any]) -> Element:
     kind = d.get("kind", "text")
     deserializer = _ELEMENT_DESERIALIZERS.get(kind)
     if deserializer is not None:
-        return deserializer(d)
+        elem = deserializer(d)
+        tooltip = d.get("tooltip")
+        if tooltip is not None and hasattr(elem, "tooltip"):
+            elem.tooltip = tooltip
+        return elem
     msg = f"Unknown element kind: {kind!r}"
     raise ValueError(msg)
 
@@ -934,7 +1107,7 @@ def message_to_dict(msg: Message) -> dict[str, Any]:
     raise TypeError(msg_str)
 
 
-def _register_serializers() -> None:
+def _register_serializers() -> None:  # noqa: C901
     _MESSAGE_SERIALIZERS[SceneMessage] = _scene_to_dict
     _MESSAGE_SERIALIZERS[UpdateMessage] = _update_to_dict
     _MESSAGE_SERIALIZERS[InteractionMessage] = _interaction_to_dict
@@ -948,6 +1121,11 @@ def _register_serializers() -> None:
 
     _MESSAGE_SERIALIZERS[ClearMessage] = _clear
     _MESSAGE_SERIALIZERS[PingMessage] = _ping
+
+    def _menu(m: MenuMessage) -> dict[str, Any]:
+        return {"type": m.type, "menus": m.menus}
+
+    _MESSAGE_SERIALIZERS[MenuMessage] = _menu
 
     def _ready(m: ReadyMessage) -> dict[str, Any]:
         d: dict[str, Any] = {"type": m.type, "version": m.version}
@@ -979,7 +1157,7 @@ def _register_serializers() -> None:
 _register_serializers()
 
 
-def message_from_dict(d: dict[str, Any]) -> Message:
+def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
     """Deserialize a JSON dict to the appropriate Message dataclass."""
     msg_type = d.get("type", "")
 
@@ -997,6 +1175,8 @@ def message_from_dict(d: dict[str, Any]) -> Message:
         return UpdateMessage(scene_id=d["scene_id"], patches=patches)
     if msg_type == "clear":
         return ClearMessage()
+    if msg_type == "menu":
+        return MenuMessage(menus=d.get("menus", []))
     if msg_type == "ping":
         return PingMessage(ts=d.get("ts"))
     if msg_type == "ready":
