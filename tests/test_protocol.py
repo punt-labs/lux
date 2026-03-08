@@ -37,7 +37,9 @@ from punt_lux.protocol import (
     SliderElement,
     SpinnerElement,
     TabBarElement,
+    TableDetail,
     TableElement,
+    TableFilter,
     TextElement,
     TreeElement,
     UpdateMessage,
@@ -754,6 +756,90 @@ class TestSerialization:
         assert isinstance(tbl, TableElement)
         assert tbl.columns == []
         assert tbl.rows == []
+
+    def test_table_with_filters_roundtrip(self):
+        e = TableElement(
+            id="tbl1",
+            columns=["ID", "Title", "Status"],
+            rows=[["1", "Fix bug", "open"], ["2", "Add feature", "closed"]],
+            filters=[
+                TableFilter(type="search", column=[0, 1], hint="Search..."),
+                TableFilter(
+                    type="combo",
+                    column=2,
+                    items=["All", "open", "closed"],
+                ),
+            ],
+        )
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        tbl = restored.elements[0]
+        assert isinstance(tbl, TableElement)
+        assert tbl.filters is not None
+        assert len(tbl.filters) == 2
+        assert tbl.filters[0].type == "search"
+        assert tbl.filters[0].column == [0, 1]
+        assert tbl.filters[0].hint == "Search..."
+        assert tbl.filters[1].type == "combo"
+        assert tbl.filters[1].column == [2]  # int normalized to list
+        assert tbl.filters[1].items == ["All", "open", "closed"]
+
+    def test_table_with_detail_roundtrip(self):
+        e = TableElement(
+            id="tbl1",
+            columns=["ID", "Title"],
+            rows=[["1", "Fix bug"], ["2", "Add feature"]],
+            detail=TableDetail(
+                fields=["ID", "Status", "Owner"],
+                rows=[["1", "open", "alice"], ["2", "closed", "bob"]],
+                body=["Bug description", "Feature description"],
+            ),
+        )
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        tbl = restored.elements[0]
+        assert isinstance(tbl, TableElement)
+        assert tbl.detail is not None
+        assert tbl.detail.fields == ["ID", "Status", "Owner"]
+        assert tbl.detail.rows == [["1", "open", "alice"], ["2", "closed", "bob"]]
+        assert tbl.detail.body == ["Bug description", "Feature description"]
+
+    def test_table_filter_combo_requires_items(self):
+        with pytest.raises(ValueError, match="requires non-empty 'items'"):
+            TableFilter(type="combo", column=0)
+
+    def test_table_filter_normalizes_column(self):
+        f = TableFilter(type="search", column=3)
+        assert f.column == [3]
+
+    def test_table_detail_validates_parallel_arrays(self):
+        with pytest.raises(ValueError, match="rows/body length mismatch"):
+            TableDetail(fields=["A"], rows=[["x"]], body=["a", "b"])
+
+    def test_table_element_validates_column_widths(self):
+        with pytest.raises(ValueError, match="column_widths length"):
+            TableElement(
+                id="t",
+                columns=["A", "B"],
+                column_widths=[0.5],  # wrong length
+            )
+
+    def test_table_element_validates_detail_rows(self):
+        with pytest.raises(ValueError, match=r"detail\.rows length"):
+            TableElement(
+                id="t",
+                columns=["A"],
+                rows=[["x"], ["y"]],
+                detail=TableDetail(
+                    fields=["A"],
+                    rows=[["x"]],
+                    body=["desc"],
+                ),
+            )
 
     def test_plot_roundtrip(self):
         series = [

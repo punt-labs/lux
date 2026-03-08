@@ -264,6 +264,13 @@ class TableFilter:
     items: list[str] | None = None  # dropdown items (combo only)
     label: str = ""  # optional label for the control
 
+    def __post_init__(self) -> None:
+        if isinstance(self.column, int):
+            self.column = [self.column]
+        if self.type == "combo" and not self.items:
+            msg = "TableFilter type='combo' requires non-empty 'items'"
+            raise ValueError(msg)
+
 
 @dataclass
 class TableDetail:
@@ -281,6 +288,14 @@ class TableDetail:
     rows: list[list[Any]]
     body: list[str]
 
+    def __post_init__(self) -> None:
+        if len(self.rows) != len(self.body):
+            msg = (
+                "TableDetail rows/body length mismatch: "
+                f"{len(self.rows)} vs {len(self.body)}"
+            )
+            raise ValueError(msg)
+
 
 @dataclass
 class TableElement:
@@ -295,6 +310,21 @@ class TableElement:
     filters: list[TableFilter] | None = None
     detail: TableDetail | None = None
     tooltip: str | None = None
+
+    def __post_init__(self) -> None:
+        cw = self.column_widths
+        if cw is not None and len(cw) != len(self.columns):
+            msg = (
+                f"column_widths length ({len(cw)}) "
+                f"must match columns ({len(self.columns)})"
+            )
+            raise ValueError(msg)
+        d = self.detail
+        if d is not None and len(d.rows) != len(self.rows):
+            msg = (
+                f"detail.rows length ({len(d.rows)}) must match rows ({len(self.rows)})"
+            )
+            raise ValueError(msg)
 
 
 @dataclass

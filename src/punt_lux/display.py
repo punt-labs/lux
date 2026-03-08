@@ -391,8 +391,7 @@ def _filter_indexed_rows(
             if not query:
                 continue
             query_lower = query.lower()
-            col = filt.column
-            cols = col if isinstance(col, list) else [col]
+            cols: list[int] = filt.column
             result = [
                 ir
                 for ir in result
@@ -419,8 +418,7 @@ def _filter_combo(
     if selected_idx == 0 or not items:
         return rows
     selected_val = items[selected_idx] if selected_idx < len(items) else ""
-    col = filt.column
-    col_idx = col if isinstance(col, int) else col[0]
+    col_idx: int = filt.column[0]
     return [
         ir
         for ir in rows
