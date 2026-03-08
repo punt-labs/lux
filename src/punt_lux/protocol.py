@@ -1081,21 +1081,17 @@ def _tree_from_dict(d: dict[str, Any]) -> TreeElement:
 
 def _table_from_dict(d: dict[str, Any]) -> TableElement:
     raw_filters = d.get("filters")
-    filters: list[TableFilter] | None = None
-    if raw_filters is not None:
-        filters = [_table_filter_from_dict(f) for f in raw_filters]
     raw_detail = d.get("detail")
-    detail: TableDetail | None = None
-    if raw_detail is not None:
-        detail = _table_detail_from_dict(raw_detail)
     return TableElement(
         id=d["id"],
         columns=d.get("columns", []),
         rows=d.get("rows", []),
         flags=d.get("flags", ["borders", "row_bg"]),
         column_widths=d.get("column_widths"),
-        filters=filters,
-        detail=detail,
+        filters=[_table_filter_from_dict(f) for f in raw_filters]
+        if raw_filters is not None
+        else None,
+        detail=_table_detail_from_dict(raw_detail) if raw_detail is not None else None,
     )
 
 

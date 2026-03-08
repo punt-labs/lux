@@ -445,31 +445,22 @@ def _render_table_pagination(
     page: int = widget_state.ensure(page_key, 0)
     total_pages = (total_rows + _ROWS_PER_PAGE - 1) // _ROWS_PER_PAGE
     page = max(0, min(page, total_pages - 1))
-    page_changed = False
+    prev_page = page
 
-    start = page * _ROWS_PER_PAGE
-    end = min(start + _ROWS_PER_PAGE, total_rows)
-
-    if imgui.button(f"<< Prev##{table_id}_prev"):
-        new_page = max(0, page - 1)
-        if new_page != page:
-            page = new_page
-            page_changed = True
-            widget_state.set(page_key, page)
-            start = page * _ROWS_PER_PAGE
-            end = min(start + _ROWS_PER_PAGE, total_rows)
+    if imgui.button(f"<< Prev##{table_id}_prev") and page > 0:
+        page -= 1
     imgui.same_line()
     imgui.text(f"Page {page + 1} of {total_pages}")
     imgui.same_line()
-    if imgui.button(f"Next >>##{table_id}_next"):
-        new_page = min(total_pages - 1, page + 1)
-        if new_page != page:
-            page = new_page
-            page_changed = True
-            widget_state.set(page_key, page)
-            start = page * _ROWS_PER_PAGE
-            end = min(start + _ROWS_PER_PAGE, total_rows)
+    if imgui.button(f"Next >>##{table_id}_next") and page < total_pages - 1:
+        page += 1
 
+    page_changed = page != prev_page
+    if page_changed:
+        widget_state.set(page_key, page)
+
+    start = page * _ROWS_PER_PAGE
+    end = min(start + _ROWS_PER_PAGE, total_rows)
     return start, end, page_changed
 
 
@@ -561,7 +552,7 @@ def _render_table_detail(
     detail_rows: list[list[Any]] = detail.rows
     body_list: list[str] = detail.body
 
-    if row_idx >= len(detail_rows) or row_idx >= len(body_list):
+    if row_idx >= min(len(detail_rows), len(body_list)):
         return
 
     row_data = detail_rows[row_idx]
@@ -710,41 +701,40 @@ class DisplayServer:
         with good coverage and *merge_fonts* are symbol fonts merged on
         top to fill gaps (e.g. mathematical angle brackets, Z notation).
         """
-        primary: str | None = None
+
+        def _first_existing(*candidates: str) -> str | None:
+            for p in candidates:
+                if Path(p).is_file():
+                    return p
+            return None
+
         merge: list[str] = []
 
         if platform.system() == "Darwin":
-            for p in (
+            primary = _first_existing(
                 "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
                 "/System/Library/Fonts/Helvetica.ttc",
-            ):
-                if Path(p).is_file():
-                    primary = p
-                    break
+            )
             # Apple Symbols fills gaps (math angle brackets U+27E8/E9, etc.)
-            sym = "/System/Library/Fonts/Apple Symbols.ttf"
-            if Path(sym).is_file():
+            sym = _first_existing("/System/Library/Fonts/Apple Symbols.ttf")
+            if sym:
                 merge.append(sym)
         else:
             # Linux — DejaVu has good symbol coverage; Noto as fallback
-            for p in (
+            primary = _first_existing(
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                 "/usr/share/fonts/TTF/DejaVuSans.ttf",
                 "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
                 "/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf",
                 "/usr/share/fonts/noto/NotoSans-Regular.ttf",
-            ):
-                if Path(p).is_file():
-                    primary = p
-                    break
+            )
             # Noto Sans Symbols for anything DejaVu misses
-            for sym in (
+            sym = _first_existing(
                 "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
                 "/usr/share/fonts/noto/NotoSansSymbols2-Regular.ttf",
-            ):
-                if Path(sym).is_file():
-                    merge.append(sym)
-                    break
+            )
+            if sym:
+                merge.append(sym)
 
         return primary, merge
 
