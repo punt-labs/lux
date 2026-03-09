@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 from punt_lux.protocol import (
@@ -30,6 +31,7 @@ from punt_lux.protocol import (
     element_from_dict,
 )
 from punt_lux.server import (
+    _layout_diagram,
     clear,
     ping,
     recv,
@@ -37,6 +39,7 @@ from punt_lux.server import (
     set_theme,
     show,
     show_dashboard,
+    show_diagram,
     show_table,
     update,
 )
@@ -551,6 +554,155 @@ class TestShowDashboardTool:
         show_dashboard("d3")
         elements = client.show.call_args[0][1]
         assert elements == []
+
+
+class TestShowDiagramLayout:
+    """Tests for the diagram layout engine (no display needed)."""
+
+    def test_minimal_diagram(self) -> None:
+        layers = [
+            {
+                "label": "L1",
+                "nodes": [
+                    {"id": "a", "label": "Node A"},
+                    {"id": "b", "label": "Node B"},
+                ],
+            },
+        ]
+        w, h, cmds = _layout_diagram(layers, None)
+        assert w > 0
+        assert h > 0
+        rects = [c for c in cmds if c["cmd"] == "rect"]
+        texts = [c for c in cmds if c["cmd"] == "text"]
+        # 2 nodes * 2 rects each (fill + border) = 4
+        assert len(rects) == 4
+        # 2 node labels + 1 layer label = 3
+        assert len(texts) == 3
+
+    def test_multi_layer_with_edges(self) -> None:
+        layers = [
+            {
+                "label": "Top",
+                "nodes": [
+                    {"id": "a", "label": "A"},
+                    {"id": "b", "label": "B"},
+                ],
+            },
+            {
+                "label": "Mid",
+                "nodes": [
+                    {"id": "c", "label": "C"},
+                ],
+            },
+            {
+                "label": "Bot",
+                "nodes": [
+                    {"id": "d", "label": "D"},
+                    {"id": "e", "label": "E"},
+                ],
+            },
+        ]
+        edges = [
+            {"from": "a", "to": "c", "label": "uses"},
+            {"from": "b", "to": "c"},
+            {"from": "c", "to": "d"},
+            {"from": "c", "to": "e"},
+        ]
+        _w, _h, cmds = _layout_diagram(layers, edges)
+        lines = [c for c in cmds if c["cmd"] == "line"]
+        triangles = [c for c in cmds if c["cmd"] == "triangle"]
+        # 4 edges = 4 lines + 4 arrowheads
+        assert len(lines) == 4
+        assert len(triangles) == 4
+        # edge label "uses" should appear once
+        edge_labels = [c for c in cmds if c["cmd"] == "text" and c["text"] == "uses"]
+        assert len(edge_labels) == 1
+
+    def test_no_edges(self) -> None:
+        layers = [
+            {"label": "Only", "nodes": [{"id": "x", "label": "X"}]},
+        ]
+        _w, _h, cmds = _layout_diagram(layers, None)
+        lines = [c for c in cmds if c["cmd"] == "line"]
+        assert len(lines) == 0
+
+    def test_empty_layer_skipped(self) -> None:
+        layers: list[dict[str, Any]] = [
+            {"label": "Has nodes", "nodes": [{"id": "a", "label": "A"}]},
+            {"label": "Empty", "nodes": []},
+            {"label": "Also has", "nodes": [{"id": "b", "label": "B"}]},
+        ]
+        _w, _h, cmds = _layout_diagram(layers, None)
+        rects = [c for c in cmds if c["cmd"] == "rect"]
+        # 2 nodes * 2 rects = 4
+        assert len(rects) == 4
+
+    def test_long_labels_widen_boxes(self) -> None:
+        short = [{"label": "S", "nodes": [{"id": "s", "label": "Hi"}]}]
+        long = [
+            {
+                "label": "L",
+                "nodes": [
+                    {"id": "l", "label": "A very long node label here"},
+                ],
+            }
+        ]
+        _w1, _h1, cmds1 = _layout_diagram(short, None)
+        _w2, _h2, cmds2 = _layout_diagram(long, None)
+        # extract rect widths
+        r1 = next(c for c in cmds1 if c["cmd"] == "rect")
+        r2 = next(c for c in cmds2 if c["cmd"] == "rect")
+        w1 = r1["max"][0] - r1["min"][0]
+        w2 = r2["max"][0] - r2["min"][0]
+        assert w2 > w1
+
+    def test_detail_adds_height(self) -> None:
+        no_detail = [
+            {
+                "label": "L",
+                "nodes": [
+                    {"id": "a", "label": "A"},
+                ],
+            }
+        ]
+        with_detail = [
+            {
+                "label": "L",
+                "nodes": [
+                    {"id": "a", "label": "A", "detail": "subtitle"},
+                ],
+            }
+        ]
+        _w1, h1, _cmds1 = _layout_diagram(no_detail, None)
+        _w2, h2, _cmds2 = _layout_diagram(with_detail, None)
+        assert h2 > h1
+
+
+class TestShowDiagramTool:
+    @patch("punt_lux.server._get_client")
+    def test_show_diagram_returns_ack(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        client.show.return_value = AckMessage(scene_id="arch", ts=time.time())
+        mock_get.return_value = client
+
+        result = show_diagram(
+            "arch",
+            layers=[
+                {"label": "Top", "nodes": [{"id": "a", "label": "A"}]},
+                {"label": "Bot", "nodes": [{"id": "b", "label": "B"}]},
+            ],
+            edges=[{"from": "a", "to": "b"}],
+            title="Test Diagram",
+        )
+        assert result == "ack:arch"
+
+        # verify show() was called with a draw element
+        elements = client.show.call_args[0][1]
+        assert len(elements) == 1
+        assert isinstance(elements[0], DrawElement)
+        assert elements[0].width > 0
+        assert elements[0].height > 0
+        assert len(elements[0].commands) > 0
 
 
 class TestUpdateTool:

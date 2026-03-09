@@ -1,7 +1,7 @@
 """Lux MCP server — expose display tools to AI agents.
 
 Provides FastMCP tools: ``show``, ``show_table``, ``show_dashboard``,
-``update``, ``clear``, ``ping``, and ``recv``.
+``show_diagram``, ``update``, ``clear``, ``ping``, and ``recv``.
 Uses :class:`LuxClient` under the hood with lazy connection on first call.
 
 Run via stdio transport::
@@ -47,6 +47,7 @@ mcp = FastMCP(
         "Common patterns:\n"
         "- Data explorer: use show_table() for filterable tables with detail\n"
         "- Dashboard: use show_dashboard() for metrics + charts + table\n"
+        "- Architecture diagram: use show_diagram() for boxes + arrows + labels\n"
         "- Form: input_text + combo + checkbox + button for submission\n"
         "- Custom layout: use show() to compose any element tree"
     ),
@@ -373,6 +374,296 @@ def show_dashboard(
             elements.append({"kind": "separator"})
 
     return show(scene_id, elements, title=title)
+
+
+# -- diagram layout engine ---------------------------------------------------
+
+# Layer color palette: (fill, border) pairs cycling per layer.
+_LAYER_COLORS = [
+    ("#2a4a6a", "#4488bb"),  # blue
+    ("#3a2a1a", "#cc8833"),  # orange
+    ("#1a3a2a", "#33aa77"),  # green
+    ("#3a1a1a", "#cc5533"),  # red
+    ("#2a1a3a", "#8855cc"),  # purple
+    ("#1a2a3a", "#3388cc"),  # teal
+]
+
+_CHAR_W = 8  # estimated pixels per character in ImGui default font
+_CHAR_H = 16  # estimated line height
+_PAD_X = 20  # horizontal padding inside boxes
+_PAD_Y = 12  # vertical padding inside boxes
+_MARGIN = 40  # safe margin around entire canvas
+_LAYER_GAP = 30  # vertical gap between layers
+_NODE_GAP = 30  # horizontal gap between nodes
+_LAYER_LABEL_W = 80  # reserved width for layer labels on the left
+
+
+def _text_width(text: str) -> float:
+    return len(text) * _CHAR_W
+
+
+# Position tuple: (x, y, width, height) for each node.
+_Pos = tuple[float, float, float, float]
+
+
+def _measure_nodes(
+    layers: list[dict[str, Any]],
+) -> dict[str, tuple[float, float]]:
+    """Return {node_id: (width, height)} for all nodes."""
+    sizes: dict[str, tuple[float, float]] = {}
+    for layer in layers:
+        for node in layer.get("nodes", []):
+            nid = node["id"]
+            label = node.get("label", nid)
+            detail = node.get("detail", "")
+            tw = max(_text_width(label), _text_width(detail))
+            w = tw + _PAD_X * 2
+            h = _CHAR_H + _PAD_Y * 2 + (_CHAR_H if detail else 0)
+            sizes[nid] = (w, h)
+    return sizes
+
+
+def _position_layers(
+    layers: list[dict[str, Any]],
+    sizes: dict[str, tuple[float, float]],
+) -> tuple[dict[str, _Pos], list[tuple[float, float]], int, int]:
+    """Assign (x, y, w, h) to each node, top-down by layer.
+
+    Returns (positions, layer_y_bands, canvas_w, canvas_h).
+    """
+    positions: dict[str, _Pos] = {}
+    bands: list[tuple[float, float]] = []
+    y: float = _MARGIN
+    max_w: float = 0
+
+    for layer in layers:
+        nodes = layer.get("nodes", [])
+        if not nodes:
+            continue
+        row_h = max(sizes[n["id"]][1] for n in nodes)
+        bands.append((y, y + row_h))
+        x: float = _MARGIN + _LAYER_LABEL_W
+        for node in nodes:
+            nid = node["id"]
+            nw, nh = sizes[nid]
+            positions[nid] = (x, y + (row_h - nh) / 2, nw, nh)
+            x += nw + _NODE_GAP
+        max_w = max(max_w, x - _NODE_GAP + _MARGIN)
+        y += row_h + _LAYER_GAP
+
+    return positions, bands, int(max_w), int(y - _LAYER_GAP + _MARGIN)
+
+
+def _draw_nodes(
+    layers: list[dict[str, Any]],
+    positions: dict[str, _Pos],
+    bands: list[tuple[float, float]],
+) -> list[dict[str, Any]]:
+    """Emit draw commands for layer labels and node boxes."""
+    cmds: list[dict[str, Any]] = []
+    band_idx = 0
+    for li, layer in enumerate(layers):
+        nodes = layer.get("nodes", [])
+        if not nodes:
+            continue
+        fill, border = _LAYER_COLORS[li % len(_LAYER_COLORS)]
+        label = layer.get("label", "")
+        ly_start, ly_end = bands[band_idx]
+        band_idx += 1
+        if label:
+            mid_y = ly_start + (ly_end - ly_start) / 2 - _CHAR_H / 2
+            cmds.append(
+                {
+                    "cmd": "text",
+                    "pos": [_MARGIN, mid_y],
+                    "text": label,
+                    "color": "#666666",
+                }
+            )
+        for node in nodes:
+            cmds.extend(_draw_one_node(node, positions, fill, border))
+    return cmds
+
+
+def _draw_one_node(
+    node: dict[str, Any],
+    positions: dict[str, _Pos],
+    fill: str,
+    border: str,
+) -> list[dict[str, Any]]:
+    """Emit draw commands for a single node box with label and detail."""
+    nid = node["id"]
+    nx, ny, nw, nh = positions[nid]
+    label = node.get("label", nid)
+    detail = node.get("detail", "")
+    cmds: list[dict[str, Any]] = [
+        {
+            "cmd": "rect",
+            "min": [nx, ny],
+            "max": [nx + nw, ny + nh],
+            "rounding": 6,
+            "filled": True,
+            "color": fill,
+        },
+        {
+            "cmd": "rect",
+            "min": [nx, ny],
+            "max": [nx + nw, ny + nh],
+            "rounding": 6,
+            "color": border,
+        },
+        {
+            "cmd": "text",
+            "pos": [nx + (nw - _text_width(label)) / 2, ny + _PAD_Y],
+            "text": label,
+            "color": border,
+        },
+    ]
+    if detail:
+        cmds.append(
+            {
+                "cmd": "text",
+                "pos": [
+                    nx + (nw - _text_width(detail)) / 2,
+                    ny + _PAD_Y + _CHAR_H,
+                ],
+                "text": detail,
+                "color": "#999999",
+            }
+        )
+    return cmds
+
+
+def _draw_edges(
+    edge_list: list[dict[str, Any]],
+    positions: dict[str, _Pos],
+) -> list[dict[str, Any]]:
+    """Emit draw commands for arrows between nodes."""
+    cmds: list[dict[str, Any]] = []
+    for edge in edge_list:
+        src, dst = edge["from"], edge["to"]
+        if src not in positions or dst not in positions:
+            continue
+        sx, sy, sw, sh = positions[src]
+        dx, dy, dw, _dh = positions[dst]
+        p1 = [sx + sw / 2, sy + sh]
+        p2 = [dx + dw / 2, dy]
+        cmds.append(
+            {
+                "cmd": "line",
+                "p1": p1,
+                "p2": p2,
+                "color": "#555555",
+                "thickness": 2,
+            }
+        )
+        ax, ay = p2
+        cmds.append(
+            {
+                "cmd": "triangle",
+                "p1": [ax, ay],
+                "p2": [ax - 5, ay - 8],
+                "p3": [ax + 5, ay - 8],
+                "filled": True,
+                "color": "#555555",
+            }
+        )
+        label = edge.get("label", "")
+        if label:
+            mx = (p1[0] + p2[0]) / 2 - _text_width(label) / 2
+            my = (p1[1] + p2[1]) / 2 - _CHAR_H / 2
+            cmds.append(
+                {
+                    "cmd": "text",
+                    "pos": [mx, my],
+                    "text": label,
+                    "color": "#777777",
+                }
+            )
+    return cmds
+
+
+def _layout_diagram(
+    layers: list[dict[str, Any]],
+    edges: list[dict[str, Any]] | None,
+) -> tuple[int, int, list[dict[str, Any]]]:
+    """Compute positions and emit draw commands for a layered diagram.
+
+    Returns (canvas_width, canvas_height, draw_commands).
+    """
+    sizes = _measure_nodes(layers)
+    positions, bands, canvas_w, canvas_h = _position_layers(layers, sizes)
+    cmds = _draw_nodes(layers, positions, bands)
+    cmds.extend(_draw_edges(edges or [], positions))
+    return canvas_w, canvas_h, cmds
+
+
+@mcp.tool()
+def show_diagram(
+    scene_id: str,
+    layers: list[dict[str, Any]],
+    edges: list[dict[str, Any]] | None = None,
+    title: str | None = None,
+) -> str:
+    """Display a layered architecture diagram with boxes, arrows, and labels.
+
+    Automatically lays out nodes in horizontal layers with color-coded boxes,
+    routed arrows between layers, and safe margins. No manual coordinate
+    placement needed.
+
+    Args:
+        scene_id: Unique identifier for this scene.
+        layers: Layers rendered top-to-bottom. Each layer:
+            {"label": "Layer Name", "nodes": [
+                {"id": "node1", "label": "Display Name", "detail": "subtitle"},
+                {"id": "node2", "label": "Other Node"},
+            ]}
+            ``label`` is shown at the left margin. ``detail`` is an optional
+            second line inside the box.
+        edges: Arrows between nodes across layers.
+            {"from": "node1", "to": "node2", "label": "uses"}
+            Arrows route from the bottom of the source node to the top of
+            the destination node. Labels appear at the midpoint.
+        title: Window title.
+
+    Example — three-tier architecture::
+
+        show_diagram(
+            scene_id="arch",
+            title="System Architecture",
+            layers=[
+                {"label": "Frontend", "nodes": [
+                    {"id": "web", "label": "Web App", "detail": "React SPA"},
+                    {"id": "mobile", "label": "Mobile App", "detail": "Swift"},
+                ]},
+                {"label": "Backend", "nodes": [
+                    {"id": "api", "label": "API Server", "detail": "FastAPI"},
+                ]},
+                {"label": "Storage", "nodes": [
+                    {"id": "db", "label": "PostgreSQL", "detail": "primary"},
+                    {"id": "cache", "label": "Redis", "detail": "sessions"},
+                ]},
+            ],
+            edges=[
+                {"from": "web", "to": "api", "label": "REST"},
+                {"from": "mobile", "to": "api", "label": "REST"},
+                {"from": "api", "to": "db"},
+                {"from": "api", "to": "cache"},
+            ],
+        )
+    """
+    canvas_w, canvas_h, cmds = _layout_diagram(layers, edges)
+
+    draw_element: dict[str, Any] = {
+        "kind": "draw",
+        "id": "diagram",
+        "width": canvas_w,
+        "height": canvas_h,
+        "bg_color": "#1a1a2e",
+        "commands": cmds,
+    }
+
+    return show(scene_id, [draw_element], title=title)
 
 
 @mcp.tool()
