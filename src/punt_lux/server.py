@@ -409,11 +409,17 @@ _Pos = tuple[float, float, float, float]
 def _measure_nodes(
     layers: list[dict[str, Any]],
 ) -> dict[str, tuple[float, float]]:
-    """Return {node_id: (width, height)} for all nodes."""
+    """Return {node_id: (width, height)} for all nodes.
+
+    Raises ValueError if duplicate node IDs are found.
+    """
     sizes: dict[str, tuple[float, float]] = {}
     for layer in layers:
         for node in layer.get("nodes", []):
             nid = node["id"]
+            if nid in sizes:
+                msg = f"duplicate node id: {nid!r}"
+                raise ValueError(msg)
             label = node.get("label", nid)
             detail = node.get("detail", "")
             tw = max(_text_width(label), _text_width(detail))
@@ -436,13 +442,20 @@ def _position_layers(
     y: float = _MARGIN
     max_w: float = 0
 
+    # Dynamic label column: use max layer label width, minimum _LAYER_LABEL_W.
+    label_w: float = _LAYER_LABEL_W
+    for layer in layers:
+        lbl = str(layer.get("label", ""))
+        if lbl:
+            label_w = max(label_w, _text_width(lbl) + _PAD_X)
+
     for layer in layers:
         nodes = layer.get("nodes", [])
         if not nodes:
             continue
         row_h = max(sizes[n["id"]][1] for n in nodes)
         bands.append((y, y + row_h))
-        x: float = _MARGIN + _LAYER_LABEL_W
+        x: float = _MARGIN + label_w
         for node in nodes:
             nid = node["id"]
             nw, nh = sizes[nid]
@@ -451,7 +464,9 @@ def _position_layers(
         max_w = max(max_w, x - _NODE_GAP + _MARGIN)
         y += row_h + _LAYER_GAP
 
-    return positions, bands, int(max_w), int(y - _LAYER_GAP + _MARGIN)
+    canvas_w = int(max_w) if max_w > 0 else _MARGIN * 2
+    canvas_h = int(y - _LAYER_GAP + _MARGIN) if bands else _MARGIN * 2
+    return positions, bands, canvas_w, canvas_h
 
 
 def _draw_nodes(
@@ -558,12 +573,14 @@ def _draw_edges(
             }
         )
         ax, ay = p2
+        # Flip arrowhead if edge goes upward.
+        arrow_dy = -8 if ay >= p1[1] else 8
         cmds.append(
             {
                 "cmd": "triangle",
                 "p1": [ax, ay],
-                "p2": [ax - 5, ay - 8],
-                "p3": [ax + 5, ay - 8],
+                "p2": [ax - 5, ay + arrow_dy],
+                "p3": [ax + 5, ay + arrow_dy],
                 "filled": True,
                 "color": "#555555",
             }
