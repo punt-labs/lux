@@ -1,4 +1,4 @@
-.PHONY: help test lint type check format fuzz prob
+.PHONY: help test lint type check format fuzz prob clean-tex
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -46,3 +46,11 @@ prob: ## Animate and model-check a Z spec with ProB (usage: make prob SPEC=docs/
 		-p MAX_INITIALISATIONS 100 -p MAX_OPERATIONS 5000 2>&1 | \
 		grep -E "states|COUNTER|No counter|COVERED|all open|not all"
 	@echo "prob: $(SPEC) OK"
+
+# LaTeX intermediate files to remove after compilation
+LATEX_ARTIFACTS = docs/*.aux docs/*.log docs/*.out docs/*.bbl docs/*.bcf docs/*.blg \
+                  docs/*.run.xml docs/*.fls docs/*.fdb_latexmk docs/*.synctex.gz \
+                  docs/*.toc docs/*.fuzz docs/*.mf docs/fuzz.sty
+
+clean-tex: ## Remove LaTeX intermediate files
+	@rm -f $(LATEX_ARTIFACTS)
