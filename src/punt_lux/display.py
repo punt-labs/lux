@@ -717,6 +717,7 @@ class DisplayServer:
         self._themes: list[Any] = []
         self._decorated: bool = True
         self._opacity: float = 1.0
+        self._font_scale: float = 1.0
         self._test_auto_click = test_auto_click
 
     @property
@@ -981,6 +982,11 @@ class DisplayServer:
                     False,  # noqa: FBT003
                     False,  # noqa: FBT003
                 )
+                imgui.separator()
+                if imgui.menu_item("Increase Font", "Cmd + +", False)[0]:  # noqa: FBT003
+                    self._font_scale = min(self._font_scale + 0.1, 3.0)
+                if imgui.menu_item("Decrease Font", "Cmd + -", False)[0]:  # noqa: FBT003
+                    self._font_scale = max(self._font_scale - 0.1, 0.5)
                 imgui.separator()
                 if imgui.menu_item("Quit", "Cmd+Q", False)[0]:  # noqa: FBT003
                     hello_imgui.get_runner_params().app_shall_exit = True
@@ -1269,6 +1275,8 @@ class DisplayServer:
 
     def _render_scene(self) -> None:
         from imgui_bundle import imgui
+
+        imgui.get_style().font_scale_main = self._font_scale
 
         if self._current_scene is None:
             imgui.text("Lux Display — waiting for scene...")
