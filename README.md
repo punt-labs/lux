@@ -15,13 +15,15 @@ The design follows Smalltalk's Morphic model: every visible element is a composa
 
 **Stage:** alpha --- protocol is stable, published on PyPI as `punt-lux`
 
+*A Claude Code plugin displaying a project issue board --- the agent reads JSONL, builds a filterable table with detail panel, and renders it in a single tool call. Filters and row selection run at 60fps with zero MCP round-trips.*
+
+![Beads issue board with filterable table and detail panel](docs/beads-board.png)
+
 ![Dashboard with metrics, charts, and data table](docs/dashboard.png)
 
 ![Filterable data explorer with detail panel](docs/data-explorer-filtered.png)
 
 ![Interactive controls: sliders, checkboxes, inputs, color pickers](docs/interactive-controls.png)
-
-![Beads issue board with filterable table and detail panel](docs/beads-board.png)
 
 ## Quick Start
 
