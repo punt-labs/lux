@@ -6,7 +6,7 @@ import json
 import shutil
 import subprocess
 import sys
-from typing import Protocol
+from typing import Protocol, cast
 
 import typer
 
@@ -92,7 +92,13 @@ def cc_session_start() -> None:
     from punt_lux.hooks import emit, handle_session_start
 
     raw = sys.stdin.read() if not sys.stdin.isatty() else "{}"
-    data: dict[str, object] = json.loads(raw)
+    data: dict[str, object] = {}
+    try:
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            data = cast("dict[str, object]", parsed)
+    except json.JSONDecodeError:
+        pass
     result = handle_session_start(data)
     emit(result)
 

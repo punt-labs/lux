@@ -6,7 +6,7 @@ allowed-tools: ["mcp__plugin_lux_lux__display_mode", "mcp__plugin_lux_lux__clear
 
 # /lux command
 
-Enable or disable visual output for this session.
+Enable or disable visual output for this project.
 
 ## Usage
 

@@ -4,6 +4,9 @@ Python components that need config (e.g. server, CLI) import from here.
 Shell hooks (e.g. ``hooks/*.sh``) read the same file via their own
 bash-based reader.  The canonical path is ``.lux/config.md`` in the
 repo root.  All fields return safe defaults when the file is missing.
+
+Only the YAML frontmatter block (between the first ``---`` and the
+next ``---``) is parsed.  Markdown body content is ignored.
 """
 
 from __future__ import annotations
@@ -22,7 +25,20 @@ DEFAULT_CONFIG_PATH = Path(".lux/config.md")
 ALLOWED_CONFIG_KEYS: frozenset[str] = frozenset({"display"})
 
 _FIELD_RE = re.compile(r'^([a-z_]+):\s*"?([^"\n]*)"?\s*$', re.MULTILINE)
-_CLOSING_FENCE_RE = re.compile(r"\n---\s*$", re.MULTILINE)
+
+
+def _extract_frontmatter(text: str) -> str:
+    """Extract YAML frontmatter block from text.
+
+    Returns the text between the first ``---`` and the next ``---``,
+    or empty string if no valid frontmatter is found.
+    """
+    if not text.startswith("---"):
+        return ""
+    end = text.find("\n---", 3)
+    if end == -1:
+        return ""
+    return text[3:end]
 
 
 @functools.lru_cache(maxsize=1)
@@ -62,14 +78,23 @@ class LuxConfig:
     display: str  # "y" | "n"
 
 
-def read_field(field: str, config_path: Path | None = None) -> str | None:
+def read_field(
+    field: str,
+    config_path: Path | None = None,
+) -> str | None:
     """Read a single YAML frontmatter field.  Returns None if absent."""
     path = config_path or DEFAULT_CONFIG_PATH
     if not path.exists():
         return None
     text = path.read_text(encoding="utf-8")
-    pattern = re.compile(rf"^{re.escape(field)}:\s*\"?([^\"\n]*)\"?\s*$", re.MULTILINE)
-    match = pattern.search(text)
+    frontmatter = _extract_frontmatter(text)
+    if not frontmatter:
+        return None
+    pattern = re.compile(
+        rf"^{re.escape(field)}:\s*\"?([^\"\n]*)\"?\s*$",
+        re.MULTILINE,
+    )
+    match = pattern.search(frontmatter)
     if match and match.group(1).strip():
         return match.group(1).strip()
     return None
@@ -81,7 +106,8 @@ def read_config(config_path: Path | None = None) -> LuxConfig:
     fields: dict[str, str] = {}
     if path.exists():
         text = path.read_text(encoding="utf-8")
-        for match in _FIELD_RE.finditer(text):
+        frontmatter = _extract_frontmatter(text)
+        for match in _FIELD_RE.finditer(frontmatter):
             key = match.group(1)
             val = match.group(2).strip()
             if val:
@@ -94,12 +120,17 @@ def read_config(config_path: Path | None = None) -> LuxConfig:
     return LuxConfig(display=display)
 
 
-def write_field(key: str, value: str, config_path: Path | None = None) -> None:
+def write_field(
+    key: str,
+    value: str,
+    config_path: Path | None = None,
+) -> None:
     """Write a single YAML frontmatter field to .lux/config.md.
 
     Updates the field in-place if present, or inserts it before the
     closing ``---`` if absent.  Creates the file with minimal
-    frontmatter if it does not exist.
+    frontmatter if it does not exist.  Only operates within the
+    frontmatter block — markdown body is preserved.
     """
     if key not in ALLOWED_CONFIG_KEYS:
         allowed = ", ".join(sorted(ALLOWED_CONFIG_KEYS))
@@ -112,54 +143,44 @@ def write_field(key: str, value: str, config_path: Path | None = None) -> None:
     replacement = f'{key}: "{value}"'
 
     if not path.exists():
-        path.write_text(f"---\n{replacement}\n---\n")
+        path.write_text(
+            f"---\n{replacement}\n---\n",
+            encoding="utf-8",
+        )
         return
 
-    text = path.read_text()
-    field_re = re.compile(rf"^{re.escape(key)}:\s*\"?[^\"\n]*\"?\s*$", re.MULTILINE)
+    text = path.read_text(encoding="utf-8")
 
-    if field_re.search(text):
-        text = field_re.sub(replacement, text)
-    elif _CLOSING_FENCE_RE.search(text):
-        text = _CLOSING_FENCE_RE.sub(f"\n{replacement}\n---", text, count=1)
-    else:
+    if not text.startswith("---"):
+        logger.warning("Malformed config (no opening ---): %s", path)
+        text = f"---\n{replacement}\n---\n"
+        path.write_text(text, encoding="utf-8")
+        return
+
+    # Find the closing fence (first \n--- after the opening ---)
+    end = text.find("\n---", 3)
+    if end == -1:
         logger.warning("Malformed config (no closing ---): %s", path)
         text = f"---\n{replacement}\n---\n"
-
-    path.write_text(text)
-    logger.info("Config: set %s = %r in %s", key, value, path)
-
-
-def write_fields(updates: dict[str, str], config_path: Path | None = None) -> None:
-    """Write multiple YAML frontmatter fields in a single read-write cycle."""
-    for key in updates:
-        if key not in ALLOWED_CONFIG_KEYS:
-            allowed = ", ".join(sorted(ALLOWED_CONFIG_KEYS))
-            msg = f"Unknown config key '{key}'. Allowed: {allowed}"
-            raise ValueError(msg)
-
-    path = config_path or DEFAULT_CONFIG_PATH
-    path.parent.mkdir(parents=True, exist_ok=True)
-
-    if not path.exists():
-        lines = [f'{k}: "{v}"' for k, v in updates.items()]
-        path.write_text("---\n" + "\n".join(lines) + "\n---\n")
+        path.write_text(text, encoding="utf-8")
         return
 
-    text = path.read_text()
-    for key, value in updates.items():
-        replacement = f'{key}: "{value}"'
-        field_re = re.compile(rf"^{re.escape(key)}:\s*\"?[^\"\n]*\"?\s*$", re.MULTILINE)
-        if field_re.search(text):
-            text = field_re.sub(replacement, text)
-        elif _CLOSING_FENCE_RE.search(text):
-            text = _CLOSING_FENCE_RE.sub(f"\n{replacement}\n---", text, count=1)
-        else:
-            logger.warning("Malformed config (no closing ---): %s", path)
-            lines = [f'{k}: "{v}"' for k, v in updates.items()]
-            text = "---\n" + "\n".join(lines) + "\n---\n"
-            break
+    frontmatter = text[3:end]
+    body = text[end + 4 :]  # after "\n---"
 
-    path.write_text(text)
-    for key, value in updates.items():
-        logger.info("Config: set %s = %r in %s", key, value, path)
+    field_re = re.compile(
+        rf"^{re.escape(key)}:\s*\"?[^\"\n]*\"?\s*$",
+        re.MULTILINE,
+    )
+
+    if field_re.search(frontmatter):
+        frontmatter = field_re.sub(replacement, frontmatter)
+    else:
+        frontmatter = frontmatter.rstrip("\n") + f"\n{replacement}"
+
+    text = f"---{frontmatter}\n---{body}"
+    if not text.endswith("\n"):
+        text += "\n"
+
+    path.write_text(text, encoding="utf-8")
+    logger.info("Config: set %s = %r in %s", key, value, path)

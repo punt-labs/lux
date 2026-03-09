@@ -65,11 +65,14 @@ fi
 # ── Delegate to CLI handler for display mode context ─────────────────
 HOOK_OUTPUT=$(echo '{}' | lux hook session-start 2>/dev/null) || true
 
-if [[ -n "$SETUP_MSG" && -n "$HOOK_OUTPUT" ]]; then
+if [[ -n "$SETUP_MSG" && -n "$HOOK_OUTPUT" ]] && command -v jq &>/dev/null; then
   # Merge setup message into the hook output's additionalContext
   EXISTING=$(echo "$HOOK_OUTPUT" | jq -r '.hookSpecificOutput.additionalContext // ""')
   MERGED="${SETUP_MSG} ${EXISTING}"
   echo "$HOOK_OUTPUT" | jq --arg msg "$MERGED" '.hookSpecificOutput.additionalContext = $msg'
+elif [[ -n "$SETUP_MSG" && -n "$HOOK_OUTPUT" ]]; then
+  # No jq — emit hook output only (setup msg lost but hook still works)
+  echo "$HOOK_OUTPUT"
 elif [[ -n "$SETUP_MSG" ]]; then
   cat <<ENDJSON
 {

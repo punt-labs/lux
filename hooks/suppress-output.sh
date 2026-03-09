@@ -71,13 +71,11 @@ if [[ "$TOOL_NAME" == "set_theme" ]]; then
 fi
 
 if [[ "$TOOL_NAME" == "display_mode" ]]; then
-  MODE=$(echo "$RESULT" | jq -r '.display // empty' 2>/dev/null)
-  if [[ -n "$MODE" ]]; then
-    if [[ "$MODE" == "y" ]]; then
-      emit "◻ display:on" "$RESULT"
-    else
-      emit "◻ display:off" "$RESULT"
-    fi
+  # Result is "display:y" or "display:n"
+  if [[ "$RESULT" == "display:y" ]]; then
+    emit "◻ display:on" "$RESULT"
+  elif [[ "$RESULT" == "display:n" ]]; then
+    emit "◻ display:off" "$RESULT"
   else
     emit "◻ ${RESULT}" "$RESULT"
   fi

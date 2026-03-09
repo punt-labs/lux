@@ -11,7 +11,6 @@ Run via stdio transport::
 
 from __future__ import annotations
 
-import json
 import logging
 import math
 import time
@@ -938,13 +937,14 @@ def display_mode(mode: str | None = None) -> str:
 
     if mode is None:
         cfg = read_config(config_path)
-        return json.dumps({"display": cfg.display})
+        return f"display:{cfg.display}"
 
     if mode not in ("y", "n"):
-        return json.dumps({"error": f"Invalid mode '{mode}'. Use 'y' or 'n'."})
+        msg = f"Invalid mode '{mode}'. Use 'y' or 'n'."
+        raise ValueError(msg)
 
     write_field("display", mode, config_path)
-    return json.dumps({"display": mode})
+    return f"display:{mode}"
 
 
 @mcp.tool()
