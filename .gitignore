@@ -3,6 +3,7 @@
 !.claude/hooks/
 .biff.local
 .mcp.json
+.lux/
 .vox/
 .vscode/
 .coverage

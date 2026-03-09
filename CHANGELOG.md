@@ -4,6 +4,10 @@
 
 ### Added
 
+- **`/lux y` and `/lux n` display mode toggle** — advisory L3 state signal for consumer plugins; persists to `.lux/config.md`
+- **`display_mode` MCP tool** — get or set display mode (`y`/`n`) for LLM callers
+- **`lux enable` / `lux disable` CLI commands** — terminal-facing display mode toggle
+- **`lux hook session-start` CLI dispatcher** — SessionStart hook delegates to Python handler
 - **`show_diagram()` MCP tool** — auto-laid-out architecture diagrams with layers, nodes, edges, and color-coded boxes via draw canvas
 - **`/lux:diagram` skill** — guides agents through building layered box-and-arrow diagrams
 - **Font size controls** — Increase Font / Decrease Font in Lux menu (0.5×–3.0× range)

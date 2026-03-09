@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import sys
@@ -14,6 +15,9 @@ app = typer.Typer(
     help="lux: visual output surface for AI agents.",
     no_args_is_help=True,
 )
+
+hook_app = typer.Typer(hidden=True)
+app.add_typer(hook_app, name="hook")
 
 # ---------------------------------------------------------------------------
 # Symbols for doctor output
@@ -57,6 +61,40 @@ def serve() -> None:
     from punt_lux.server import mcp
 
     mcp.run(transport="stdio")
+
+
+@app.command()
+def enable() -> None:
+    """Enable visual output for this project."""
+    from punt_lux.config import resolve_config_path, write_field
+
+    write_field("display", "y", resolve_config_path())
+    print("Lux display enabled.")
+
+
+@app.command()
+def disable() -> None:
+    """Disable visual output for this project."""
+    from punt_lux.config import resolve_config_path, write_field
+
+    write_field("display", "n", resolve_config_path())
+    print("Lux display disabled.")
+
+
+# ---------------------------------------------------------------------------
+# Hook dispatcher (internal)
+# ---------------------------------------------------------------------------
+
+
+@hook_app.command("session-start")
+def cc_session_start() -> None:
+    """SessionStart — internal hook dispatcher."""
+    from punt_lux.hooks import emit, handle_session_start
+
+    raw = sys.stdin.read() if not sys.stdin.isatty() else "{}"
+    data: dict[str, object] = json.loads(raw)
+    result = handle_session_start(data)
+    emit(result)
 
 
 # ---------------------------------------------------------------------------

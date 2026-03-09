@@ -19,38 +19,37 @@ else
   TOOL_GLOB="mcp__plugin_lux_lux__*"
 fi
 
-ACTIONS=()
+SETUP_MSG=""
 
 # ── Allow MCP tools in user settings if not already allowed ──────────
 if command -v jq &>/dev/null && [[ -f "$SETTINGS" ]]; then
-  CHANGED=false
-
   if ! jq -e ".permissions.allow // [] | map(select(contains(\"$TOOL_PATTERN\"))) | length > 0" "$SETTINGS" >/dev/null 2>&1; then
     TMPFILE="$(mktemp)"
     jq --arg glob "$TOOL_GLOB" '.permissions.allow = (.permissions.allow // []) + [$glob]' "$SETTINGS" > "$TMPFILE"
     mv "$TMPFILE" "$SETTINGS"
-    CHANGED=true
-  fi
-
-  if [[ "$CHANGED" == "true" ]]; then
-    ACTIONS+=("Auto-allowed lux MCP tools in permissions")
+    SETUP_MSG="Lux plugin first-run setup complete. Auto-allowed lux MCP tools in permissions."
   fi
 fi
 
-# ── Notify Claude if anything was set up ─────────────────────────────
-if [[ ${#ACTIONS[@]} -gt 0 ]]; then
-  MSG="Lux plugin first-run setup complete."
-  for action in "${ACTIONS[@]}"; do
-    MSG="$MSG $action."
-  done
+# ── Delegate to CLI handler for display mode context ─────────────────
+HOOK_OUTPUT=$(echo '{}' | lux hook session-start 2>/dev/null) || true
+
+if [[ -n "$SETUP_MSG" && -n "$HOOK_OUTPUT" ]]; then
+  # Merge setup message into the hook output's additionalContext
+  EXISTING=$(echo "$HOOK_OUTPUT" | jq -r '.hookSpecificOutput.additionalContext // ""')
+  MERGED="${SETUP_MSG} ${EXISTING}"
+  echo "$HOOK_OUTPUT" | jq --arg msg "$MERGED" '.hookSpecificOutput.additionalContext = $msg'
+elif [[ -n "$SETUP_MSG" ]]; then
   cat <<ENDJSON
 {
   "hookSpecificOutput": {
     "hookEventName": "SessionStart",
-    "additionalContext": "$MSG"
+    "additionalContext": "$SETUP_MSG"
   }
 }
 ENDJSON
+elif [[ -n "$HOOK_OUTPUT" ]]; then
+  echo "$HOOK_OUTPUT"
 fi
 
 exit 0
