@@ -21,6 +21,8 @@ The design follows Smalltalk's Morphic model: every visible element is a composa
 
 ![Interactive controls: sliders, checkboxes, inputs, color pickers](docs/interactive-controls.png)
 
+![Beads issue board with filterable table and detail panel](docs/beads-board.png)
+
 ## Quick Start
 
 ```bash
