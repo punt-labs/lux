@@ -676,6 +676,24 @@ class TestShowDiagramLayout:
         assert h > 0
         assert cmds == []
 
+    def test_empty_layer_long_label_no_inflate(self) -> None:
+        """Empty layer with long label should NOT inflate label column."""
+        # Layer with nodes + short label.
+        base = [
+            {"label": "S", "nodes": [{"id": "a", "label": "A"}]},
+        ]
+        # Same, but with an empty layer that has a very long label.
+        with_empty: list[dict[str, Any]] = [
+            {"label": "S", "nodes": [{"id": "a", "label": "A"}]},
+            {
+                "label": "This Is A Very Long Empty Layer Label",
+                "nodes": [],
+            },
+        ]
+        w1, _h1, _cmds1 = _layout_diagram(base, None)
+        w2, _h2, _cmds2 = _layout_diagram(with_empty, None)
+        assert w1 == w2
+
     def test_long_layer_labels_widen_column(self) -> None:
         short_label = [
             {"label": "S", "nodes": [{"id": "a", "label": "A"}]},

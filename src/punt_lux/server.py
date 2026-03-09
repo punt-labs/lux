@@ -443,9 +443,12 @@ def _position_layers(
     max_w: float = 0
 
     # Dynamic label column: use max layer label width, minimum _LAYER_LABEL_W.
-    # Only measure labels that would actually be rendered (non-falsy strings).
+    # Only measure labels for layers that have nodes (empty layers are skipped
+    # by _draw_nodes, so their labels never render).
     label_w: float = _LAYER_LABEL_W
     for layer in layers:
+        if not layer.get("nodes"):
+            continue
         raw_label = layer.get("label")
         if not raw_label:
             continue
