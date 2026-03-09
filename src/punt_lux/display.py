@@ -984,11 +984,11 @@ class DisplayServer:
                 )
                 imgui.separator()
                 if imgui.menu_item("Increase Font", "Cmd + +", False)[0]:  # noqa: FBT003
-                    self._font_scale = min(self._font_scale + 0.1, 3.0)
+                    self._font_scale = min(round(self._font_scale + 0.1, 1), 3.0)
                 if imgui.menu_item("Decrease Font", "Cmd + -", False)[0]:  # noqa: FBT003
-                    self._font_scale = max(self._font_scale - 0.1, 0.5)
+                    self._font_scale = max(round(self._font_scale - 0.1, 1), 0.5)
                 imgui.separator()
-                if imgui.menu_item("Quit", "Cmd+Q", False)[0]:  # noqa: FBT003
+                if imgui.menu_item("Quit", "Cmd + Q", False)[0]:  # noqa: FBT003
                     hello_imgui.get_runner_params().app_shall_exit = True
             finally:
                 imgui.end_menu()
