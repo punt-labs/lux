@@ -12,6 +12,7 @@ Run via stdio transport::
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections.abc import Callable
 from typing import Any
@@ -390,11 +391,11 @@ _LAYER_COLORS = [
 
 _CHAR_W = 8  # estimated pixels per character in ImGui default font
 _CHAR_H = 16  # estimated line height
-_PAD_X = 20  # horizontal padding inside boxes
-_PAD_Y = 12  # vertical padding inside boxes
+_PAD_X = 24  # horizontal padding inside boxes
+_PAD_Y = 16  # vertical padding inside boxes
 _MARGIN = 40  # safe margin around entire canvas
-_LAYER_GAP = 30  # vertical gap between layers
-_NODE_GAP = 30  # horizontal gap between nodes
+_LAYER_GAP = 70  # vertical gap between layers
+_NODE_GAP = 60  # horizontal gap between nodes
 _LAYER_LABEL_W = 80  # reserved width for layer labels on the left
 
 
@@ -454,19 +455,34 @@ def _position_layers(
             continue
         label_w = max(label_w, _text_width(str(raw_label)) + _PAD_X)
 
+    # First pass: compute row widths to find max canvas width.
+    content_x = _MARGIN + label_w
+    row_widths: list[float] = []
+    for layer in layers:
+        nodes = layer.get("nodes", [])
+        if not nodes:
+            continue
+        rw = sum(sizes[n["id"]][0] for n in nodes) + _NODE_GAP * (len(nodes) - 1)
+        row_widths.append(rw)
+        max_w = max(max_w, content_x + rw + _MARGIN)
+
+    # Second pass: center each row within the canvas and assign positions.
+    row_idx = 0
     for layer in layers:
         nodes = layer.get("nodes", [])
         if not nodes:
             continue
         row_h = max(sizes[n["id"]][1] for n in nodes)
         bands.append((y, y + row_h))
-        x: float = _MARGIN + label_w
+        rw = row_widths[row_idx]
+        row_idx += 1
+        # Center the row content within the available width.
+        x: float = content_x + (max_w - content_x - _MARGIN - rw) / 2
         for node in nodes:
             nid = node["id"]
             nw, nh = sizes[nid]
             positions[nid] = (x, y + (row_h - nh) / 2, nw, nh)
             x += nw + _NODE_GAP
-        max_w = max(max_w, x - _NODE_GAP + _MARGIN)
         y += row_h + _LAYER_GAP
 
     canvas_w = int(max_w) if max_w > 0 else _MARGIN * 2
@@ -554,20 +570,122 @@ def _draw_one_node(
     return cmds
 
 
+_PORT_INSET = 0.2  # fraction of node width reserved as inset on each side
+
+
+def _spread_ports(
+    edges_by_node: dict[str, list[dict[str, Any]]],
+    positions: dict[str, _Pos],
+    key_field: str,
+) -> dict[tuple[str, str], float]:
+    """Spread edge connection points across a node edge.
+
+    ``key_field`` is the edge field pointing to the *opposite* node
+    (``"to"`` for outgoing, ``"from"`` for incoming), used to sort
+    ports left-to-right by the other endpoint's x-centre.
+    """
+    ports: dict[tuple[str, str], float] = {}
+    for nid, edges in edges_by_node.items():
+        edges.sort(
+            key=lambda e: positions[e[key_field]][0] + positions[e[key_field]][2] / 2,
+        )
+        nx, _ny, nw, _nh = positions[nid]
+        inset = nw * _PORT_INSET
+        usable = nw - 2 * inset
+        count = len(edges)
+        for i, e in enumerate(edges):
+            frac = 0.5 if count == 1 else i / (count - 1)
+            ports[(e["from"], e["to"])] = nx + inset + usable * frac
+    return ports
+
+
+def _assign_ports(
+    edge_list: list[dict[str, Any]],
+    positions: dict[str, _Pos],
+) -> list[tuple[dict[str, Any], list[float], list[float]]]:
+    """Assign spread-out connection points so edges don't overlap.
+
+    Returns list of (edge, p1, p2) tuples.
+    """
+    out_edges: dict[str, list[dict[str, Any]]] = {}
+    in_edges: dict[str, list[dict[str, Any]]] = {}
+    for edge in edge_list:
+        src, dst = edge["from"], edge["to"]
+        if src not in positions or dst not in positions:
+            continue
+        out_edges.setdefault(src, []).append(edge)
+        in_edges.setdefault(dst, []).append(edge)
+
+    out_port = _spread_ports(out_edges, positions, "to")
+    in_port = _spread_ports(in_edges, positions, "from")
+
+    result: list[tuple[dict[str, Any], list[float], list[float]]] = []
+    for edge in edge_list:
+        key = (edge["from"], edge["to"])
+        if key not in out_port:
+            continue
+        sx, sy, sw, sh = positions[edge["from"]]
+        dx, dy, dw, dh = positions[edge["to"]]
+        # Same-layer edges route horizontally (side to side).
+        if abs(sy - dy) < 1:
+            src_cx = sx + sw / 2
+            dst_cx = dx + dw / 2
+            if src_cx < dst_cx:
+                p1 = [sx + sw, sy + sh / 2]
+                p2 = [dx, dy + dh / 2]
+            else:
+                p1 = [sx, sy + sh / 2]
+                p2 = [dx + dw, dy + dh / 2]
+        else:
+            p1 = [out_port[key], sy + sh]
+            p2 = [in_port[key], dy]
+        result.append((edge, p1, p2))
+    return result
+
+
+def _arrowhead(
+    p1: list[float],
+    p2: list[float],
+    size: float = 8,
+    half_w: float = 5,
+) -> dict[str, Any]:
+    """Return a filled triangle arrowhead at p2 aligned to the p1→p2 direction."""
+
+    dx = p2[0] - p1[0]
+    dy = p2[1] - p1[1]
+    length = math.hypot(dx, dy)
+    if length < 0.001:
+        return {
+            "cmd": "triangle",
+            "p1": p2,
+            "p2": p2,
+            "p3": p2,
+            "filled": True,
+            "color": "#555555",
+        }
+    # Unit vector along the line (toward p2) and perpendicular.
+    ux, uy = dx / length, dy / length
+    px, py = -uy, ux  # perpendicular (rotated 90°)
+    # Tip at p2, base pulled back along the line.
+    bx, by = p2[0] - ux * size, p2[1] - uy * size
+    return {
+        "cmd": "triangle",
+        "p1": p2,
+        "p2": [bx + px * half_w, by + py * half_w],
+        "p3": [bx - px * half_w, by - py * half_w],
+        "filled": True,
+        "color": "#555555",
+    }
+
+
 def _draw_edges(
     edge_list: list[dict[str, Any]],
     positions: dict[str, _Pos],
 ) -> list[dict[str, Any]]:
     """Emit draw commands for arrows between nodes."""
     cmds: list[dict[str, Any]] = []
-    for edge in edge_list:
-        src, dst = edge["from"], edge["to"]
-        if src not in positions or dst not in positions:
-            continue
-        sx, sy, sw, sh = positions[src]
-        dx, dy, dw, _dh = positions[dst]
-        p1 = [sx + sw / 2, sy + sh]
-        p2 = [dx + dw / 2, dy]
+    routed = _assign_ports(edge_list, positions)
+    for edge, p1, p2 in routed:
         cmds.append(
             {
                 "cmd": "line",
@@ -577,29 +695,31 @@ def _draw_edges(
                 "thickness": 2,
             }
         )
-        ax, ay = p2
-        # Flip arrowhead if edge goes upward.
-        arrow_dy = -8 if ay >= p1[1] else 8
-        cmds.append(
-            {
-                "cmd": "triangle",
-                "p1": [ax, ay],
-                "p2": [ax - 5, ay + arrow_dy],
-                "p3": [ax + 5, ay + arrow_dy],
-                "filled": True,
-                "color": "#555555",
-            }
-        )
+        # Arrowhead aligned to line direction.
+        cmds.append(_arrowhead(p1, p2))
         label = edge.get("label", "")
         if label:
-            mx = (p1[0] + p2[0]) / 2 - _text_width(label) / 2
+            tw = _text_width(label)
+            mx = (p1[0] + p2[0]) / 2 - tw / 2
             my = (p1[1] + p2[1]) / 2 - _CHAR_H / 2
+            # Background pill behind label for readability.
+            lpad = 4
+            cmds.append(
+                {
+                    "cmd": "rect",
+                    "min": [mx - lpad, my - lpad],
+                    "max": [mx + tw + lpad, my + _CHAR_H + lpad],
+                    "rounding": 4,
+                    "filled": True,
+                    "color": "#1a1a2e",
+                }
+            )
             cmds.append(
                 {
                     "cmd": "text",
                     "pos": [mx, my],
                     "text": label,
-                    "color": "#777777",
+                    "color": "#999999",
                 }
             )
     return cmds
