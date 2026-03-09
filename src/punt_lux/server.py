@@ -443,11 +443,13 @@ def _position_layers(
     max_w: float = 0
 
     # Dynamic label column: use max layer label width, minimum _LAYER_LABEL_W.
+    # Only measure labels that would actually be rendered (non-falsy strings).
     label_w: float = _LAYER_LABEL_W
     for layer in layers:
-        lbl = str(layer.get("label", ""))
-        if lbl:
-            label_w = max(label_w, _text_width(lbl) + _PAD_X)
+        raw_label = layer.get("label")
+        if not raw_label:
+            continue
+        label_w = max(label_w, _text_width(str(raw_label)) + _PAD_X)
 
     for layer in layers:
         nodes = layer.get("nodes", [])
