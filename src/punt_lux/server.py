@@ -20,6 +20,7 @@ from typing import Any
 from fastmcp import FastMCP
 
 from punt_lux.client import LuxClient
+from punt_lux.config import read_config, resolve_config_path, write_field
 from punt_lux.protocol import (
     InteractionMessage,
     Patch,
@@ -920,6 +921,30 @@ def ping() -> str:
         return "pong"
 
     return _with_reconnect(_call)
+
+
+@mcp.tool()
+def display_mode(mode: str | None = None) -> str:
+    """Get or set the display mode.
+
+    When called with no argument, returns the current mode.
+    When called with "y" or "n", sets the mode and returns confirmation.
+
+    The display mode is an advisory signal for consumer plugins.
+    Lux itself always accepts show() calls regardless of mode.
+    """
+    config_path = resolve_config_path()
+
+    if mode is None:
+        cfg = read_config(config_path)
+        return f"display:{cfg.display}"
+
+    if mode not in ("y", "n"):
+        msg = f"Invalid mode '{mode}'. Use 'y' or 'n'."
+        raise ValueError(msg)
+
+    write_field("display", mode, config_path)
+    return f"display:{mode}"
 
 
 @mcp.tool()

@@ -70,6 +70,18 @@ if [[ "$TOOL_NAME" == "set_theme" ]]; then
   exit 0
 fi
 
+if [[ "$TOOL_NAME" == "display_mode" ]]; then
+  # Result is "display:y" or "display:n"
+  if [[ "$RESULT" == "display:y" ]]; then
+    emit "◻ display:on" "$RESULT"
+  elif [[ "$RESULT" == "display:n" ]]; then
+    emit "◻ display:off" "$RESULT"
+  else
+    emit "◻ ${RESULT}" "$RESULT"
+  fi
+  exit 0
+fi
+
 if [[ "$TOOL_NAME" == "clear" ]]; then
   emit "◻ cleared" ""
   exit 0
