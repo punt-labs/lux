@@ -15,6 +15,12 @@ The design follows Smalltalk's Morphic model: every visible element is a composa
 
 **Stage:** alpha --- protocol is stable, published on PyPI as `punt-lux`
 
+![Dashboard with metrics, charts, and data table](docs/dashboard.png)
+
+![Filterable data explorer with detail panel](docs/data-explorer-filtered.png)
+
+![Interactive controls: sliders, checkboxes, inputs, color pickers](docs/interactive-controls.png)
+
 ## Quick Start
 
 ```bash
@@ -83,13 +89,16 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 
 ## MCP Tools
 
-Agents interact with Lux through six MCP tools exposed by `lux serve`:
+Agents interact with Lux through eight MCP tools exposed by `lux serve`:
 
 | Tool | What it does |
 |------|-------------|
 | `show(scene_id, elements)` | Replace the display with a new element tree |
+| `show_table(scene_id, columns, rows)` | Display a filterable data table with optional detail panel |
+| `show_dashboard(scene_id, ...)` | Display a dashboard with metric cards, charts, and a table |
 | `update(scene_id, patches)` | Patch elements by ID (set fields or remove) |
 | `set_menu(menus)` | Add custom menus to the menu bar |
+| `set_theme(theme)` | Switch display theme (dark, light, classic, cherry) |
 | `clear()` | Remove all content from the display |
 | `ping()` | Round-trip latency check |
 | `recv(timeout)` | Read the next interaction event (clicks, changes) |
