@@ -19,11 +19,13 @@ The design follows Smalltalk's Morphic model: every visible element is a composa
 
 ![Beads issue board with filterable table and detail panel](docs/beads-board.png)
 
-![Dashboard with metrics, charts, and data table](docs/dashboard.png)
+*The same list/detail pattern generalizes to any tabular data. Search, combo filters, pagination, and a detail panel --- all driven by a single `show_table()` call.*
 
 ![Filterable data explorer with detail panel](docs/data-explorer-filtered.png)
 
-![Interactive controls: sliders, checkboxes, inputs, color pickers](docs/interactive-controls.png)
+*Dashboards compose metric cards, charts, and tables. `show_dashboard()` builds the layout from structured data --- no manual element positioning needed.*
+
+![Dashboard with metrics, charts, and data table](docs/dashboard.png)
 
 ## Quick Start
 
