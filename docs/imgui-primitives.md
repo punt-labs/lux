@@ -9,12 +9,12 @@ Sources: imgui.h (ocornut/imgui), implot.h (epezent/implot), imgui_bundle (pthom
 
 | Resource | URL |
 |----------|-----|
-| Interactive Explorer (imgui-bundle) | https://traineq.org/imgui_bundle_explorer |
-| ImPlot Online Demo | https://traineq.org/implot_demo/src/implot_demo.html |
-| Pyodide Playground (run in browser) | https://traineq.org/imgui_bundle_online/projects/imgui_bundle_playground/ |
-| imgui-bundle Docs | https://pthom.github.io/imgui_bundle/ |
-| Dear ImGui GitHub | https://github.com/ocornut/imgui |
-| imgui-bundle GitHub | https://github.com/pthom/imgui_bundle |
+| Interactive Explorer (imgui-bundle) | <https://traineq.org/imgui_bundle_explorer> |
+| ImPlot Online Demo | <https://traineq.org/implot_demo/src/implot_demo.html> |
+| Pyodide Playground (run in browser) | <https://traineq.org/imgui_bundle_online/projects/imgui_bundle_playground/> |
+| imgui-bundle Docs | <https://pthom.github.io/imgui_bundle/> |
+| Dear ImGui GitHub | <https://github.com/ocornut/imgui> |
+| imgui-bundle GitHub | <https://github.com/pthom/imgui_bundle> |
 
 ---
 
