@@ -7,6 +7,10 @@
 - **`show_diagram()` MCP tool** — auto-laid-out architecture diagrams with layers, nodes, edges, and color-coded boxes via draw canvas
 - **`/lux:diagram` skill** — guides agents through building layered box-and-arrow diagrams
 
+### Changed
+
+- Diagram layout: wider spacing, centred rows, edge port spreading, horizontal same-layer routing, angle-aligned arrowheads, edge label backgrounds
+
 ### Fixed
 
 - Validate unique node IDs in diagram layout (raise `ValueError` on duplicates)
