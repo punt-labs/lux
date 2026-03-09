@@ -7,81 +7,76 @@ description: >
   visually browse project issues. Also triggered by "issue board", "task board",
   "kanban", "backlog view", or "bd ready in lux".
 allowed-tools:
-  - Bash
-  - mcp__plugin_lux_lux__show
-  - mcp__plugin_lux_lux__update
-  - mcp__plugin_lux_lux__recv
-  - mcp__plugin_lux-dev_lux__show
-  - mcp__plugin_lux-dev_lux__update
-  - mcp__plugin_lux-dev_lux__recv
-  - mcp__lux__show
-  - mcp__lux__update
-  - mcp__lux__recv
+  - Read
+  - mcp__plugin_lux_lux__show_table
+  - mcp__plugin_lux-dev_lux__show_table
+  - mcp__lux__show_table
 ---
 
 # /lux:beads — Beads Issue Board
 
 Display beads issues in a filterable list/detail table in the Lux window.
 
-## Step 1: Render the board
+## Step 1: Read the data
 
 If `.beads/` does not exist, tell the user: "No beads database found. Run `bd init` to set up beads for this project." and stop.
 
-Otherwise, run this **single Bash command**. It reads the JSONL, builds the table payload, and sends it to the lux display server. No manual data munging needed.
+Otherwise, read `.beads/issues.jsonl` using the Read tool. Each line is a JSON object with fields: `id`, `title`, `status`, `priority`, `issue_type`, `description`, `assignee`, `owner`, `created_at`, `updated_at`.
 
-For open issues only (default):
+## Step 2: Build the table data
 
-```bash
-~/.local/share/uv/tools/punt-lux/bin/python3 -c "
-import json, os
-from punt_lux.client import LuxClient
-from punt_lux.protocol import element_from_dict
+From the parsed issues, filter and sort:
 
-issues = [json.loads(l) for l in open('.beads/issues.jsonl')]
-issues = [i for i in issues if i.get('status') in ('open', 'in_progress')]
-issues.sort(key=lambda i: i.get('updated_at', ''), reverse=True)
-issues.sort(key=lambda i: i.get('priority', 4))
+1. **Filter**: Keep only issues where `status` is `"open"` or `"in_progress"` (default). If the user asks for all issues, skip this filter.
+2. **Sort**: Primary sort by `priority` ascending (P1 first), secondary sort by `updated_at` descending (most recent first).
 
-rows, dr, bodies, statuses, types = [], [], [], set(), set()
-for i in issues:
-    s, p, t = i.get('status','open'), i.get('priority',4), i.get('issue_type','task')
-    statuses.add(s); types.add(t)
-    rows.append([i['id'], i.get('title',''), s, f'P{p}', t])
-    dr.append([i['id'], s, f'P{p}', t, i.get('assignee',''), i.get('owner',''), i.get('created_at','')[:10], i.get('updated_at','')[:10]])
-    bodies.append(i.get('description','') or 'No description.')
+Build three parallel arrays (same length, same order):
 
-table = element_from_dict({
-    'kind': 'table', 'id': 'beads-list',
-    'columns': ['ID', 'Title', 'Status', 'P', 'Type'],
-    'rows': rows,
-    'filters': [
-        {'type': 'search', 'column': [0, 1], 'hint': 'Filter by ID or title...'},
-        {'type': 'combo', 'column': 2, 'items': ['All'] + sorted(statuses), 'label': 'Status'},
-        {'type': 'combo', 'column': 4, 'items': ['All'] + sorted(types), 'label': 'Type'},
-    ],
-    'detail': {'fields': ['ID','Status','Priority','Type','Claimed By','Owner','Created','Updated'], 'rows': dr, 'body': bodies},
-    'flags': ['borders', 'row_bg'],
-})
-
-name = os.path.basename(os.getcwd())
-client = LuxClient()
-client.connect()
-ack = client.show('beads-board', [table], title=f'Beads: {name}')
-print(f'ack:{ack.scene_id}' if ack else 'timeout')
-client.close()
-"
+**`rows`** — main table rows, one per issue:
+```
+[id, title, status, "P{priority}", issue_type]
 ```
 
-For all issues (including closed), change the filter line to:
-
-```python
-issues = [json.loads(l) for l in open('.beads/issues.jsonl')]
-# Remove the status filter — keep all issues
+**`detail.rows`** — detail panel fields for each issue:
+```
+[id, status, "P{priority}", issue_type, assignee_or_empty, owner_or_empty, created_at_date, updated_at_date]
 ```
 
-## Step 2: Tell the user
+**`detail.body`** — description text for each issue:
+```
+description or "No description."
+```
 
-After the command prints `ack:beads-board`, tell the user the board is live:
+Collect unique `status` and `issue_type` values for combo filter items.
+
+## Step 3: Call show_table
+
+Call the `show_table` MCP tool with:
+
+- **`scene_id`**: `"beads-board"`
+- **`title`**: `"Beads: {project_name}"` where project_name is the current directory name
+- **`columns`**: `["ID", "Title", "Status", "P", "Type"]`
+- **`rows`**: the main table rows from Step 2
+- **`filters`**:
+  ```json
+  [
+    {"type": "search", "column": [0, 1], "hint": "Filter by ID or title..."},
+    {"type": "combo", "column": 2, "items": ["All", ...sorted_statuses], "label": "Status"},
+    {"type": "combo", "column": 4, "items": ["All", ...sorted_types], "label": "Type"}
+  ]
+  ```
+- **`detail`**:
+  ```json
+  {
+    "fields": ["ID", "Status", "Priority", "Type", "Claimed By", "Owner", "Created", "Updated"],
+    "rows": detail_rows,
+    "body": detail_bodies
+  }
+  ```
+
+## Step 4: Tell the user
+
+After the tool returns success, tell the user the board is live:
 
 - Search and filter dropdowns work instantly (no round trips)
 - Click any row to see its full details in the side panel
@@ -89,10 +84,4 @@ After the command prints `ack:beads-board`, tell the user the board is live:
 
 ## Refreshing
 
-If the user asks to refresh, or after running any `bd` command (close, update, etc.), re-run the same Bash command from Step 1.
-
-## Notes
-
-- The Python path `~/.local/share/uv/tools/punt-lux/bin/python3` is the standard location for uv tool installations. If it doesn't exist, try `python3` directly (works when running inside the lux project).
-- The script connects to the lux display server via Unix socket (auto-spawned on first connection).
-- Epic issues are included — they provide context for child issues.
+If the user asks to refresh, or after running any `bd` command (close, update, etc.), re-read the JSONL and call `show_table` again.
