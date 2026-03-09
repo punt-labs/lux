@@ -6,6 +6,8 @@ import time
 from typing import Any
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from punt_lux.protocol import (
     AckMessage,
     CheckboxElement,
@@ -655,6 +657,54 @@ class TestShowDiagramLayout:
         w1 = r1["max"][0] - r1["min"][0]
         w2 = r2["max"][0] - r2["min"][0]
         assert w2 > w1
+
+    def test_duplicate_node_id_raises(self) -> None:
+        layers = [
+            {"label": "L1", "nodes": [{"id": "a", "label": "A"}]},
+            {"label": "L2", "nodes": [{"id": "a", "label": "A again"}]},
+        ]
+        with pytest.raises(ValueError, match="duplicate node id"):
+            _layout_diagram(layers, None)
+
+    def test_all_empty_layers_safe(self) -> None:
+        layers: list[dict[str, Any]] = [
+            {"label": "Empty1", "nodes": []},
+            {"label": "Empty2", "nodes": []},
+        ]
+        w, h, cmds = _layout_diagram(layers, None)
+        assert w > 0
+        assert h > 0
+        assert cmds == []
+
+    def test_long_layer_labels_widen_column(self) -> None:
+        short_label = [
+            {"label": "S", "nodes": [{"id": "a", "label": "A"}]},
+        ]
+        long_label = [
+            {
+                "label": "Very Long Layer Label Here",
+                "nodes": [{"id": "a", "label": "A"}],
+            },
+        ]
+        w1, _h1, _cmds1 = _layout_diagram(short_label, None)
+        w2, _h2, _cmds2 = _layout_diagram(long_label, None)
+        assert w2 > w1
+
+    def test_upward_edge_arrowhead_flips(self) -> None:
+        layers = [
+            {"label": "Top", "nodes": [{"id": "a", "label": "A"}]},
+            {"label": "Bot", "nodes": [{"id": "b", "label": "B"}]},
+        ]
+        # Edge goes upward: from bot to top.
+        edges = [{"from": "b", "to": "a"}]
+        _w, _h, cmds = _layout_diagram(layers, edges)
+        tri = [c for c in cmds if c["cmd"] == "triangle"]
+        assert len(tri) == 1
+        # Arrowhead tip is at the destination (top node, lower y).
+        # Base points should be BELOW the tip (higher y) for upward arrows.
+        tip_y = tri[0]["p1"][1]
+        base_y = tri[0]["p2"][1]
+        assert base_y > tip_y
 
     def test_detail_adds_height(self) -> None:
         no_detail = [
