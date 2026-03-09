@@ -577,25 +577,28 @@ def _spread_ports(
     edges_by_node: dict[str, list[dict[str, Any]]],
     positions: dict[str, _Pos],
     key_field: str,
-) -> dict[tuple[str, str], float]:
+) -> dict[int, float]:
     """Spread edge connection points across a node edge.
 
     ``key_field`` is the edge field pointing to the *opposite* node
     (``"to"`` for outgoing, ``"from"`` for incoming), used to sort
     ports left-to-right by the other endpoint's x-centre.
+
+    Returns ``{edge_index: x_position}`` keyed by ``_idx`` so parallel
+    edges between the same pair of nodes get distinct ports.
     """
-    ports: dict[tuple[str, str], float] = {}
-    for nid, edges in edges_by_node.items():
+    ports: dict[int, float] = {}
+    for _nid, edges in edges_by_node.items():
         edges.sort(
             key=lambda e: positions[e[key_field]][0] + positions[e[key_field]][2] / 2,
         )
-        nx, _ny, nw, _nh = positions[nid]
+        nx, _ny, nw, _nh = positions[_nid]
         inset = nw * _PORT_INSET
         usable = nw - 2 * inset
         count = len(edges)
         for i, e in enumerate(edges):
             frac = 0.5 if count == 1 else i / (count - 1)
-            ports[(e["from"], e["to"])] = nx + inset + usable * frac
+            ports[e["_idx"]] = nx + inset + usable * frac
     return ports
 
 
@@ -607,6 +610,10 @@ def _assign_ports(
 
     Returns list of (edge, p1, p2) tuples.
     """
+    # Stamp each edge with a unique index for port keying.
+    for idx, edge in enumerate(edge_list):
+        edge["_idx"] = idx
+
     out_edges: dict[str, list[dict[str, Any]]] = {}
     in_edges: dict[str, list[dict[str, Any]]] = {}
     for edge in edge_list:
@@ -621,13 +628,17 @@ def _assign_ports(
 
     result: list[tuple[dict[str, Any], list[float], list[float]]] = []
     for edge in edge_list:
-        key = (edge["from"], edge["to"])
-        if key not in out_port:
+        eidx = edge["_idx"]
+        if eidx not in out_port:
             continue
         sx, sy, sw, sh = positions[edge["from"]]
         dx, dy, dw, dh = positions[edge["to"]]
         # Same-layer edges route horizontally (side to side).
-        if abs(sy - dy) < 1:
+        # Compare vertical centres, not top-y, since different-height nodes
+        # in a centred row have different top-y values.
+        src_cy = sy + sh / 2
+        dst_cy = dy + dh / 2
+        if abs(src_cy - dst_cy) < 1:
             src_cx = sx + sw / 2
             dst_cx = dx + dw / 2
             if src_cx < dst_cx:
@@ -637,8 +648,8 @@ def _assign_ports(
                 p1 = [sx, sy + sh / 2]
                 p2 = [dx + dw, dy + dh / 2]
         else:
-            p1 = [out_port[key], sy + sh]
-            p2 = [in_port[key], dy]
+            p1 = [out_port[eidx], sy + sh]
+            p2 = [in_port[eidx], dy]
         result.append((edge, p1, p2))
     return result
 
