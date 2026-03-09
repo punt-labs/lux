@@ -2,9 +2,47 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`show_diagram()` MCP tool** — auto-laid-out architecture diagrams with layers, nodes, edges, and color-coded boxes via draw canvas
+- **`/lux:diagram` skill** — guides agents through building layered box-and-arrow diagrams
+
+### Fixed
+
+- Validate unique node IDs in diagram layout (raise `ValueError` on duplicates)
+- Dynamic layer label column width based on longest label text
+- Flip arrowhead direction for upward edges in diagrams
+- Safe minimum canvas dimensions when all diagram layers are empty
+- Skip empty-layer labels when computing label column width
+
 ## [0.5.2] - 2026-03-08
 
+### Added
+
+- **`show_table()` MCP tool** — filterable data tables with search, combo filters, and detail panel
+- **`show_dashboard()` MCP tool** — metric cards, charts, and status tables in a single call
+- **`set_theme()` MCP tool** — switch display theme (dark, light, classic, cherry)
+- **`/lux:beads` skill** — rewritten as single-command recipe for beads issue board
+- **`/lux:data-explorer` skill** — interactive filterable table with detail panel
+- **`/lux:dashboard` skill** — metrics, charts, and status overview
+- README screenshots: beads board, data explorer, dashboard
+
+### Fixed
+
+- Beads skill sort order: two-pass stable sort (updated_at desc, then priority asc)
+- PyPI classifiers: added Python 3.14, fixed development status
+
 ## [0.5.1] - 2026-03-08
+
+### Added
+
+- **`install.sh`** — curl | sh installation script
+- **`lux doctor`** — check for Unicode and symbol fonts
+- **`lux install` / `lux uninstall`** — CLI commands per standard
+
+### Changed
+
+- Added acknowledgements for Dear ImGui, imgui-bundle, and FastMCP to README
 
 ## [0.5.0] - 2026-03-08
 
