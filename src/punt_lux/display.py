@@ -167,13 +167,14 @@ class WidgetState:
 # ---------------------------------------------------------------------------
 
 
-def _parse_hex_color(
+def _parse_color(
     color: str | list[int] | tuple[int, ...],
 ) -> tuple[int, int, int, int]:
     """Parse a color value to (r, g, b, a) ints 0-255.
 
     Accepts hex strings (``"#RRGGBB"``, ``"#RRGGBBAA"``) or RGBA
-    lists/tuples (``[r, g, b]`` or ``[r, g, b, a]``).
+    lists/tuples (``[r, g, b]``, ``[r, g, b, a]``, or longer —
+    extra components beyond the fourth are ignored).
     """
     if isinstance(color, (list, tuple)):
         try:
@@ -211,7 +212,7 @@ def _color_to_hex(r: float, g: float, b: float) -> str:
     return f"#{ri:02X}{gi:02X}{bi:02X}"
 
 
-def _hex_to_imgui_color(
+def _to_imgui_color(
     color: str | list[int] | tuple[int, ...],
 ) -> int:
     """Convert a color value to ImGui packed color (ImU32).
@@ -220,7 +221,7 @@ def _hex_to_imgui_color(
     """
     from imgui_bundle import ImVec4, imgui
 
-    r, g, b, a = _parse_hex_color(color)
+    r, g, b, a = _parse_color(color)
     result: int = imgui.get_color_u32(
         ImVec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0)
     )
@@ -236,7 +237,7 @@ def _widget_value(elem: Element) -> Any:
     if isinstance(elem, (ComboElement, RadioElement)):
         return elem.selected
     if isinstance(elem, ColorPickerElement):
-        r, g, b, _a = _parse_hex_color(elem.value)
+        r, g, b, _a = _parse_color(elem.value)
         from imgui_bundle import ImVec4
 
         return ImVec4(r / 255.0, g / 255.0, b / 255.0, 1.0)
@@ -1896,7 +1897,7 @@ class DisplayServer:
         label: str = cp.label
         hex_str: str = cp.value
 
-        r, g, b, _a = _parse_hex_color(hex_str)
+        r, g, b, _a = _parse_color(hex_str)
         initial = ImVec4(r / 255.0, g / 255.0, b / 255.0, 1.0)
         current = self._widget_state.ensure(eid, initial)
 
@@ -2222,7 +2223,7 @@ class DisplayServer:
         try:
             from imgui_bundle import imspinner
 
-            r, g, b, _a = _parse_hex_color(color_hex)
+            r, g, b, _a = _parse_color(color_hex)
             from imgui_bundle import ImVec4
 
             color = ImVec4(r / 255.0, g / 255.0, b / 255.0, 1.0)
@@ -2356,15 +2357,13 @@ class DisplayServer:
         draw_list.push_clip_rect(canvas_min, canvas_max, True)  # noqa: FBT003
 
         if bg_color is not None:
-            draw_list.add_rect_filled(
-                canvas_min, canvas_max, _hex_to_imgui_color(bg_color)
-            )
+            draw_list.add_rect_filled(canvas_min, canvas_max, _to_imgui_color(bg_color))
 
         ox, oy = canvas_pos.x, canvas_pos.y
         for cmd in commands:
             try:
                 self._dispatch_draw_cmd(draw_list, cmd, ox, oy)
-            except (KeyError, IndexError, TypeError, ValueError, AttributeError):
+            except (KeyError, IndexError, TypeError, ValueError):
                 logger.debug("Skipping malformed draw command: %s", cmd)
 
         draw_list.pop_clip_rect()
@@ -2381,7 +2380,7 @@ class DisplayServer:
         from imgui_bundle import ImVec2
 
         cmd_type = cmd.get("cmd", "")
-        color = _hex_to_imgui_color(cmd.get("color", "#FFFFFF"))
+        color = _to_imgui_color(cmd.get("color", "#FFFFFF"))
         thickness: float = cmd.get("thickness", 1.0)
 
         if cmd_type == "line":
