@@ -88,18 +88,26 @@ class TestEventQueueOnSceneChange:
         server = _make_server()
         sock = _mock_sock()
 
-        server._handle_message(sock, _make_scene())
-        # Event for element that won't exist in replacement scene
-        server._event_queue.append(
-            InteractionMessage(element_id="gone", action="gone", ts=1.0, value=True)
+        # First scene has t1, b1, separator, and an extra button b2
+        first = _make_scene(
+            elements=[
+                TextElement(id="t1", content="Hello", style="heading"),
+                ButtonElement(id="b1", label="Keep"),
+                ButtonElement(id="b2", label="Remove"),
+            ]
         )
-        # Event for element that will still exist
+        server._handle_message(sock, first)
+        # Event for b2 (will be removed in replacement)
+        server._event_queue.append(
+            InteractionMessage(element_id="b2", action="b2", ts=1.0, value=True)
+        )
+        # Event for b1 (will survive in replacement)
         server._event_queue.append(
             InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
         )
         assert len(server._event_queue) == 2
 
-        # Re-send same scene_id — only events for surviving elements persist
+        # Replace with scene that keeps t1, b1 but drops b2
         server._handle_message(sock, _make_scene())
 
         assert len(server._event_queue) == 1

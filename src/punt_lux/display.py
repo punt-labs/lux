@@ -1007,6 +1007,7 @@ class DisplayServer:
                     self._scene_widget_state.clear()
                     self._scene_render_fn_state.clear()
                     self._event_queue.clear()
+                    self._dirty_windows.clear()
                     self._widget_state = WidgetState()
                     self._render_fn_state = {}
 
@@ -1233,8 +1234,9 @@ class DisplayServer:
             self._scene_widget_state.clear()
             self._scene_render_fn_state.clear()
             self._event_queue.clear()
-            self._widget_state.clear()
-            self._render_fn_state.clear()
+            self._dirty_windows.clear()
+            self._widget_state = WidgetState()
+            self._render_fn_state = {}
         elif isinstance(msg, MenuMessage):
             self._agent_menus = msg.menus
         elif isinstance(msg, ThemeMessage):
@@ -1243,7 +1245,8 @@ class DisplayServer:
             self._send_to_client(sock, PongMessage(ts=msg.ts, display_ts=time.time()))
 
     def _handle_scene(self, sock: socket.socket, msg: SceneMessage) -> None:
-        is_new = msg.id not in self._scenes
+        old_scene = self._scenes.get(msg.id)
+        is_new = old_scene is None
         self._scenes[msg.id] = msg
         if is_new:
             self._scene_order.append(msg.id)
@@ -1254,13 +1257,19 @@ class DisplayServer:
                 if isinstance(elem, WindowElement):
                     self._dirty_windows.add(elem.id)
         else:
-            # Replace-in-place: reset widget state, drain stale events
+            # Replace-in-place: drain events for elements removed from this scene
+            old_ids: set[str] = set()
+            for elem in old_scene.elements:  # type: ignore[union-attr]
+                old_ids.update(_collect_ids(elem))
+            new_ids: set[str] = set()
+            for elem in msg.elements:
+                new_ids.update(_collect_ids(elem))
+            stale_ids = old_ids - new_ids
+            self._event_queue = [
+                ev for ev in self._event_queue if ev.element_id not in stale_ids
+            ]
             self._scene_widget_state[msg.id].clear()
             self._scene_render_fn_state[msg.id].clear()
-            new_ids = {e.id for e in msg.elements if e.id is not None}
-            self._event_queue = [
-                ev for ev in self._event_queue if ev.element_id in new_ids
-            ]
         self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
         if self._test_auto_click:
             self._auto_click_buttons(msg)
@@ -1450,7 +1459,7 @@ class DisplayServer:
 
     @staticmethod
     def _render_idle(imgui: Any) -> None:
-        """Render an ambient idle screen with dot grid and breathing indicator."""
+        """Render an ambient idle screen with radial light rays and flame."""
         import math
 
         from imgui_bundle import ImVec2, ImVec4
@@ -1588,7 +1597,11 @@ class DisplayServer:
         """Remove a scene and all its associated state."""
         old_order = self._scene_order
         old_idx = old_order.index(scene_id) if scene_id in old_order else -1
-        self._scenes.pop(scene_id, None)
+        dismissed = self._scenes.pop(scene_id, None)
+        if dismissed is not None:
+            for elem in dismissed.elements:
+                if isinstance(elem, WindowElement):
+                    self._dirty_windows.discard(elem.id)
         self._scene_order = [s for s in old_order if s != scene_id]
         self._scene_widget_state.pop(scene_id, None)
         self._scene_render_fn_state.pop(scene_id, None)
