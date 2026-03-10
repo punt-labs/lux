@@ -19,9 +19,9 @@ Display beads issues in a filterable list/detail table in the Lux window.
 
 ## Step 1: Read the data
 
-If `.beads/` does not exist, tell the user: "No beads database found. Run `bd init` to set up beads for this project." and stop.
+Read `.beads/issues.jsonl` using the Read tool. If the file does not exist, tell the user: "No beads database found. Run `bd init` to set up beads for this project." and stop.
 
-Otherwise, read `.beads/issues.jsonl` using the Read tool. Each line is a JSON object with fields: `id`, `title`, `status`, `priority`, `issue_type`, `description`, `assignee`, `owner`, `created_at`, `updated_at`.
+Each line is a JSON object with fields: `id`, `title`, `status`, `priority`, `issue_type`, `description`, `assignee`, `owner`, `created_at`, `updated_at`.
 
 ## Step 2: Build the table data
 
@@ -36,7 +36,8 @@ Build three parallel arrays (same length, same order):
 `[id, title, status, "P{priority}", issue_type]`
 
 **`detail.rows`** — detail panel fields for each issue:
-`[id, status, "P{priority}", issue_type, assignee_or_empty, owner_or_empty, created_at_date, updated_at_date]`
+`[id, status, "P{priority}", issue_type, assignee_or_empty, owner_or_empty, created_at[:10], updated_at[:10]]`
+Truncate `created_at` and `updated_at` to the first 10 characters (date only, e.g. `"2026-03-09"`).
 
 **`detail.body`** — description text for each issue:
 `description or "No description."`
@@ -56,10 +57,12 @@ Call the `show_table` MCP tool with:
   ```json
   [
     {"type": "search", "column": [0, 1], "hint": "Filter by ID or title..."},
-    {"type": "combo", "column": 2, "items": ["All", ...sorted_statuses], "label": "Status"},
-    {"type": "combo", "column": 4, "items": ["All", ...sorted_types], "label": "Type"}
+    {"type": "combo", "column": 2, "items": ["All", "<status-1>", "<status-2>"], "label": "Status"},
+    {"type": "combo", "column": 4, "items": ["All", "<type-1>", "<type-2>"], "label": "Type"}
   ]
   ```
+
+  where the `"items"` arrays are `"All"` followed by the sorted unique `status` or `issue_type` values from the issues.
 
 - **`detail`**:
 
