@@ -1191,7 +1191,7 @@ The font is merged via `hello_imgui.load_font()` with `merge_to_last_font = True
 
 ### Why No Glyph Range Specification
 
-imgui 1.92+ (Lux uses 1.92.7) introduced dynamic font loading: glyphs are rasterized on demand with no need to pre-specify codepoint ranges. Adding a font that contains the target glyphs is sufficient. Earlier imgui versions required explicit `ImFontGlyphRangesBuilder` configuration for non-Latin codepoints.
+imgui 1.92+ introduced dynamic font loading: glyphs are rasterized on demand with no need to pre-specify codepoint ranges. Adding a font that contains the target glyphs is sufficient. Earlier imgui versions required explicit `ImFontGlyphRangesBuilder` configuration for non-Latin codepoints.
 
 ### Font Size and Rasterization
 
