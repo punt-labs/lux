@@ -8,12 +8,11 @@ from __future__ import annotations
 
 import json
 import sys
-from typing import Any
 
 from punt_lux.config import read_config, resolve_config_path
 
 
-def handle_session_start(_data: dict[str, Any]) -> dict[str, Any]:
+def handle_session_start() -> dict[str, object]:
     """SessionStart — read display mode and return context."""
     cfg = read_config(resolve_config_path())
 
@@ -30,6 +29,6 @@ def handle_session_start(_data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def emit(output: dict[str, Any]) -> None:
+def emit(output: dict[str, object]) -> None:
     """Write JSON response to stdout."""
     sys.stdout.write(json.dumps(output) + "\n")
