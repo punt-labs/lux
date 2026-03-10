@@ -23,25 +23,39 @@ SOCK_PATH = default_socket_path()
 PID_PATH = pid_file_path(SOCK_PATH)
 
 
-def main() -> None:
-    # Kill existing display server if running
-    if is_display_running(SOCK_PATH):
-        pid = int(PID_PATH.read_text().strip())
-        print(f"Killing existing display server (PID {pid})...")
-        os.kill(pid, signal.SIGTERM)
-        for _ in range(20):
-            if not is_display_running(SOCK_PATH):
-                break
-            time.sleep(0.25)
-        else:
-            os.kill(pid, signal.SIGKILL)
-            time.sleep(0.1)
+def _kill_existing() -> None:
+    """Kill existing display server if running, with SIGKILL escalation."""
+    if not (is_display_running(SOCK_PATH) and SOCK_PATH.is_socket()):
+        return
 
-    # Clean stale socket and PID file
+    try:
+        pid = int(PID_PATH.read_text().strip())
+    except (OSError, ValueError):
+        return
+
+    print(f"Killing existing display server (PID {pid})...")
+    os.kill(pid, signal.SIGTERM)
+
+    for _ in range(20):
+        if not is_display_running(SOCK_PATH):
+            return
+        time.sleep(0.25)
+
+    os.kill(pid, signal.SIGKILL)
+    for _ in range(20):
+        if not is_display_running(SOCK_PATH):
+            return
+        time.sleep(0.1)
+
+    print("ERROR: existing display server would not exit")
+    sys.exit(1)
+
+
+def main() -> None:
+    _kill_existing()
     cleanup_stale_socket(SOCK_PATH)
     SOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
 
-    # Start display server from local dev source
     print("Starting dev display server...")
     proc = subprocess.Popen(
         [
