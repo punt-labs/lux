@@ -61,6 +61,7 @@ The menu path uses `.clear()` on existing containers. The `ClearMessage` path al
 The Z spec states: `hasScene = ztrue implies eventQueue subseteq elemIds`. The concrete multi-scene extension requires all element IDs in `_event_queue` reference elements in some active scene.
 
 `_dismiss_scene()` does not drain events. Scenario:
+
 1. Scene "s1" has button "b1". User clicks it. Event queued.
 2. User dismisses "s1" via tab close button.
 3. `_dismiss_scene("s1")` removes the scene but leaves the event.

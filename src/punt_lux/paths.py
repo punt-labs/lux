@@ -85,7 +85,8 @@ def ensure_display(socket_path: Path | None = None, timeout: float = 5.0) -> Pat
 
     cleanup_stale_socket(socket_path)
 
-    socket_path.parent.mkdir(parents=True, exist_ok=True)
+    socket_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    socket_path.parent.chmod(0o700)
     log_file = log_file_path(socket_path).open("w")
     try:
         subprocess.Popen(  # noqa: S603
