@@ -1135,7 +1135,7 @@ class DisplayServer:
 
     def _setup_socket(self) -> None:
         cleanup_stale_socket(self._socket_path)
-        self._socket_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+        self._socket_path.parent.mkdir(parents=True, exist_ok=True)
         if self._socket_path.exists():
             if self._socket_path.is_socket():
                 self._socket_path.unlink()
@@ -1599,15 +1599,9 @@ class DisplayServer:
         old_idx = old_order.index(scene_id) if scene_id in old_order else -1
         dismissed = self._scenes.pop(scene_id, None)
         if dismissed is not None:
-            # Drain events and clean up window state for dismissed scene
-            dismissed_ids: set[str] = set()
             for elem in dismissed.elements:
-                dismissed_ids.update(_collect_ids(elem))
                 if isinstance(elem, WindowElement):
                     self._dirty_windows.discard(elem.id)
-            self._event_queue = [
-                ev for ev in self._event_queue if ev.element_id not in dismissed_ids
-            ]
         self._scene_order = [s for s in old_order if s != scene_id]
         self._scene_widget_state.pop(scene_id, None)
         self._scene_render_fn_state.pop(scene_id, None)
