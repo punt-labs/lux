@@ -930,8 +930,8 @@ class DisplayServer:
                 _ak.NSApplication.sharedApplication().setActivationPolicy_(
                     _ak.NSApplicationActivationPolicyAccessory
                 )
-            except ImportError:
-                pass
+            except Exception:  # noqa: BLE001
+                logger.debug("Could not hide Dock icon", exc_info=True)
 
         logger.info("Display server listening on %s", self._socket_path)
 
