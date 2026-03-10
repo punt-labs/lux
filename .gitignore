@@ -29,4 +29,5 @@ docs/*.fdb_latexmk
 docs/*.fls
 docs/*.out
 docs/*.pdf
+!docs/architecture.pdf
 docs/*.synctex.gz

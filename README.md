@@ -205,7 +205,7 @@ Client code can also use `LuxClient` directly as a Python library, bypassing MCP
 
 ## Documentation
 
-[Architecture (LaTeX)](docs/architecture.tex) |
+[Architecture (PDF)](docs/architecture.pdf) |
 [Design Log](DESIGN.md) |
 [Changelog](CHANGELOG.md) |
 [Contributing](CONTRIBUTING.md)
