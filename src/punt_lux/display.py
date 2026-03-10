@@ -1586,12 +1586,19 @@ class DisplayServer:
 
     def _dismiss_scene(self, scene_id: str) -> None:
         """Remove a scene and all its associated state."""
+        old_order = self._scene_order
+        old_idx = old_order.index(scene_id) if scene_id in old_order else -1
         self._scenes.pop(scene_id, None)
-        self._scene_order = [s for s in self._scene_order if s != scene_id]
+        self._scene_order = [s for s in old_order if s != scene_id]
         self._scene_widget_state.pop(scene_id, None)
         self._scene_render_fn_state.pop(scene_id, None)
         if self._active_tab == scene_id:
-            self._active_tab = self._scene_order[0] if self._scene_order else None
+            if self._scene_order:
+                # Select neighbor: next tab, or last if dismissed was rightmost
+                new_idx = min(old_idx, len(self._scene_order) - 1)
+                self._active_tab = self._scene_order[new_idx]
+            else:
+                self._active_tab = None
 
     _RENDERERS: ClassVar[dict[str, str]] = {
         "text": "_render_text",

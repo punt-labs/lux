@@ -550,6 +550,49 @@ class TestMultiScene:
         assert "s1" not in server._scene_render_fn_state
         assert server._active_tab == "s2"
 
+    def test_dismiss_middle_tab_selects_next_neighbor(self) -> None:
+        """Dismissing the middle tab selects the next tab (browser behavior)."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        for sid in ["s1", "s2", "s3"]:
+            server._handle_message(sock, _make_scene(scene_id=sid))
+
+        # Active is s3 (latest). Switch to s2 to test middle dismiss.
+        server._active_tab = "s2"
+        server._dismiss_scene("s2")
+
+        assert server._scene_order == ["s1", "s3"]
+        assert server._active_tab == "s3"  # next neighbor, not first
+
+    def test_dismiss_last_tab_selects_previous(self) -> None:
+        """Dismissing the rightmost tab selects the one before it."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        for sid in ["s1", "s2", "s3"]:
+            server._handle_message(sock, _make_scene(scene_id=sid))
+
+        server._active_tab = "s3"
+        server._dismiss_scene("s3")
+
+        assert server._scene_order == ["s1", "s2"]
+        assert server._active_tab == "s2"  # previous, not first
+
+    def test_dismiss_first_tab_selects_next(self) -> None:
+        """Dismissing the first tab selects the second tab."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        for sid in ["s1", "s2", "s3"]:
+            server._handle_message(sock, _make_scene(scene_id=sid))
+
+        server._active_tab = "s1"
+        server._dismiss_scene("s1")
+
+        assert server._scene_order == ["s2", "s3"]
+        assert server._active_tab == "s2"
+
     def test_active_tab_set_to_newest_scene(self) -> None:
         """Each new scene becomes the active tab."""
         server = _make_server()
