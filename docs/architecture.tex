@@ -1,0 +1,765 @@
+%
+% architecture.tex
+%
+% Lux Technical Architecture Specification
+% Written for principal engineers evaluating the system.
+%
+% Compile: pdflatex architecture.tex
+%
+
+\documentclass[a4paper,10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{longtable}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!80!black},
+  commentstyle=\color{green!50!black},
+  stringstyle=\color{red!60!black},
+  breaklines=true,
+  frame=single,
+  framerule=0.3pt,
+  rulecolor=\color{gray!50},
+  backgroundcolor=\color{gray!5},
+  columns=fullflexible,
+}
+
+\newcommand{\modpath}[1]{\texttt{src/punt\_lux/#1}}
+\newcommand{\tool}[1]{\texttt{#1}}
+\newcommand{\msg}[1]{\texttt{#1}}
+\newcommand{\elem}[1]{\texttt{#1}}
+\newcommand{\field}[1]{\texttt{#1}}
+
+\begin{document}
+
+\title{Lux: Technical Architecture Specification}
+\author{Visual Output Surface for AI Agents}
+\date{March 2026 --- v0.7.0}
+\hypersetup{
+  pdftitle={Lux: Technical Architecture Specification},
+  pdfauthor={Punt Labs},
+  pdfsubject={Architecture},
+  pdfcreator={pdflatex}
+}
+\maketitle
+
+\tableofcontents
+\newpage
+
+% ===================================================================
+\section{Overview}
+% ===================================================================
+
+Lux is a visual output surface for Claude Code.  It renders element
+trees pushed by AI agents via MCP tools into a native ImGui window
+over Unix socket IPC.  The system has four projection surfaces from
+a single codebase: Python library, CLI, MCP server, and Claude Code
+plugin.
+
+The display server owns the render loop.  Agents are clients.  All
+agent--display communication is message-passing over a framed JSON
+protocol on a Unix domain socket.  The display server is
+single-threaded: no threads, no asyncio, no locks.  It polls all
+I/O non-blocking each frame via \texttt{select()}.
+
+\subsection{Design Principles}
+
+\begin{enumerate}[label=\textbf{P\arabic*}.]
+  \item \textbf{Composable element tree.}  Every element kind is
+    small, nestable, and data-driven.  If an agent can describe it
+    as JSON, Lux renders it.
+  \item \textbf{Protocol is the API surface.}  The wire protocol is
+    the only interface between agents and the display.  No shared
+    memory, no function calls, no Python imports required.
+  \item \textbf{Single-threaded simplicity.}  The display server
+    uses a polling event loop with zero threads.  All state is owned
+    by the main thread.  No synchronization primitives.
+  \item \textbf{Incremental by default.}  Scenes can be patched by
+    element ID without replacing the entire tree.  Table filters run
+    at frame rate with zero MCP round-trips.
+  \item \textbf{Multi-scene coexistence.}  Each \tool{show()} call
+    opens a new tab.  Scenes persist until explicitly dismissed or
+    cleared.  Same \field{scene\_id} replaces content in-place.
+\end{enumerate}
+
+% ===================================================================
+\section{System Architecture}
+% ===================================================================
+
+\subsection{Component Map}
+
+\begin{center}
+\begin{tabular}{llp{7cm}}
+\toprule
+\textbf{Module} & \textbf{File} & \textbf{Responsibility} \\
+\midrule
+Protocol    & \modpath{protocol.py}  & Message types, element dataclasses,
+              wire format (framing, serialization, deserialization) \\
+Display     & \modpath{display.py}   & ImGui render loop, socket IPC,
+              scene state, widget state, element renderers, event flush \\
+Client      & \modpath{client.py}    & \texttt{LuxClient} context manager;
+              connects, sends, receives, buffers pending messages \\
+MCP Server  & \modpath{server.py}    & FastMCP tools (\tool{show},
+              \tool{update}, \tool{clear}, \tool{ping}, \tool{recv},
+              convenience wrappers); auto-reconnect \\
+Paths       & \modpath{paths.py}     & Socket discovery, PID lifecycle,
+              auto-spawn \\
+Consent     & \modpath{consent.py}   & ImGui modal for render function
+              approval \\
+Runtime     & \modpath{runtime.py}   & \texttt{CodeExecutor}; compiles
+              and runs render functions per-frame \\
+AST Check   & \modpath{ast\_check.py} & AST visitor for suspicious imports
+              and builtins (UX signal, not security boundary) \\
+Config      & \modpath{config.py}    & \texttt{.lux/config.md} YAML
+              frontmatter; display mode toggle \\
+Hooks       & \modpath{hooks.py}     & Claude Code lifecycle hook handlers \\
+CLI         & \modpath{\_\_main\_\_.py} & Typer CLI: display, serve, enable,
+              disable, status, doctor, install, uninstall \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Data Flow}
+
+Three primary data paths connect agents to the display:
+
+\subsubsection{Write Path (Agent $\to$ Display)}
+
+\begin{enumerate}
+  \item Agent calls MCP tool (e.g., \tool{show()}).
+  \item MCP server creates \texttt{LuxClient}, calls
+    \texttt{client.show(scene\_id, elements)}.
+  \item Client serializes \msg{SceneMessage} as JSON, frames with
+    4-byte big-endian length prefix, sends over Unix socket.
+  \item Display receives frame in \texttt{\_poll\_clients()},
+    deserializes, stores in \texttt{\_scenes} dict.
+  \item Display renders scene each frame via
+    \texttt{\_render\_scene()}.
+  \item Display sends \msg{AckMessage} back to client.
+\end{enumerate}
+
+\subsubsection{Event Path (User $\to$ Agent)}
+
+\begin{enumerate}
+  \item User interacts with widget (click, slider drag, text input).
+  \item Display generates \msg{InteractionMessage} with
+    \field{element\_id}, \field{action}, and \field{value}.
+  \item Message buffered in \texttt{\_event\_queue}.
+  \item Each frame, \texttt{\_flush\_events()} broadcasts all queued
+    messages to all connected clients, then clears the queue.
+  \item Agent calls \tool{recv()} to consume events.
+\end{enumerate}
+
+\subsubsection{Update Path (Incremental Patching)}
+
+\begin{enumerate}
+  \item Agent calls \tool{update(scene\_id, patches)}.
+  \item Display receives \msg{UpdateMessage}, calls
+    \texttt{\_apply\_update()}.
+  \item \texttt{\_find\_element()} locates target by ID via
+    depth-first search through the element tree.
+  \item Patch applied: \field{set} updates fields in-place,
+    \field{remove} deletes element and cleans up widget state.
+  \item Routes to correct scene by \field{scene\_id} (not limited
+    to active tab).
+\end{enumerate}
+
+% ===================================================================
+\section{Wire Protocol}
+% ===================================================================
+
+\subsection{Framing}
+
+Every message is a length-prefixed JSON frame:
+
+\begin{lstlisting}
++------------------+----------------------------+
+| 4 bytes (uint32) |  N bytes (UTF-8 JSON)      |
+| big-endian       |  payload                   |
++------------------+----------------------------+
+\end{lstlisting}
+
+Maximum payload size: 16\,MiB ($2^{24}$ bytes).  The
+\texttt{FrameReader} accumulates partial reads into a byte buffer
+and yields complete frames.  Oversize frames trigger client
+disconnection.
+
+\subsection{Message Types}
+
+\subsubsection{Client $\to$ Display}
+
+\begin{center}
+\begin{tabular}{lp{9cm}}
+\toprule
+\textbf{Type} & \textbf{Purpose} \\
+\midrule
+\msg{SceneMessage}  & Replace or add scene.  Fields: \field{id},
+  \field{elements[]}, \field{title}, \field{layout}. \\
+\msg{UpdateMessage} & Incremental patches.  Fields: \field{scene\_id},
+  \field{patches[]} (each: \field{id}, \field{set}, \field{remove}). \\
+\msg{ClearMessage}  & Remove all scenes and reset state. \\
+\msg{PingMessage}   & Heartbeat.  Field: \field{ts}. \\
+\msg{MenuMessage}   & Set agent-provided menu entries. \\
+\msg{ThemeMessage}   & Apply theme by name. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsubsection{Display $\to$ Client}
+
+\begin{center}
+\begin{tabular}{lp{9cm}}
+\toprule
+\textbf{Type} & \textbf{Purpose} \\
+\midrule
+\msg{ReadyMessage}       & Handshake on connect; protocol version,
+  capabilities. \\
+\msg{AckMessage}         & Acknowledges scene or update; \field{scene\_id},
+  \field{ts}, optional \field{error}. \\
+\msg{InteractionMessage} & User interaction; \field{element\_id},
+  \field{action}, \field{value}, \field{ts}. \\
+\msg{WindowMessage}      & Window lifecycle (resized, closed, focused). \\
+\msg{PongMessage}        & Ping response; round-trip latency probe. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Element Kinds}
+
+25 element kinds organized by category:
+
+\begin{center}
+\begin{longtable}{llp{6cm}}
+\toprule
+\textbf{Category} & \textbf{Element} & \textbf{Notes} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Category} & \textbf{Element} & \textbf{Notes} \\
+\midrule
+\endhead
+Text        & \elem{text}              & Content + style (heading, caption, success, error, code) \\
+            & \elem{markdown}          & CommonMark rendering via imgui\_md \\
+\midrule
+Media       & \elem{image}             & File path or base64 data \\
+\midrule
+Interactive & \elem{button}            & Label, action, disabled flag \\
+            & \elem{slider}            & Min/max/value, integer mode \\
+            & \elem{checkbox}          & Boolean toggle \\
+            & \elem{combo}             & Dropdown selection \\
+            & \elem{input\_text}       & Single-line text input \\
+            & \elem{radio}             & Radio button group \\
+            & \elem{color\_picker}     & RGB/RGBA hex picker \\
+\midrule
+Data        & \elem{table}             & Columns, rows, built-in filters, detail panel, pagination \\
+            & \elem{plot}              & ImPlot: line, scatter, bar series \\
+            & \elem{progress}          & Fraction bar with label \\
+            & \elem{spinner}           & Loading indicator \\
+\midrule
+Lists       & \elem{selectable}        & Click-to-select item \\
+            & \elem{tree}              & Recursive node hierarchy \\
+\midrule
+Drawing     & \elem{draw}              & Canvas with draw commands \\
+            & \elem{render\_function}  & Agent-submitted Python (consent-gated) \\
+\midrule
+Layout      & \elem{group}             & Row or column layout \\
+            & \elem{tab\_bar}          & Tabbed container \\
+            & \elem{collapsing\_header} & Expandable section \\
+            & \elem{window}            & Movable, resizable floating panel \\
+            & \elem{separator}         & Visual divider \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+% ===================================================================
+\section{Display Server Internals}
+% ===================================================================
+
+\subsection{Frame Cycle}
+
+The display server runs an ImGui render loop via \texttt{immapp.run()}.
+Each frame executes four phases in sequence:
+
+\begin{enumerate}
+  \item \textbf{Accept connections.}  \texttt{select()} on server
+    socket with timeout~0.  Accept if readable.  Send
+    \msg{ReadyMessage} to new client.
+  \item \textbf{Poll clients.}  \texttt{select()} on all client
+    sockets with timeout~0.  Read available data into per-client
+    \texttt{FrameReader}.  Dispatch complete messages to
+    \texttt{\_handle\_message()}.  Remove errored sockets.
+  \item \textbf{Render scene.}  If no scenes: render idle screen
+    (flame animation).  If one scene: render directly (no tab bar
+    chrome).  If multiple scenes: render closable tab bar.
+  \item \textbf{Flush events.}  Broadcast all buffered
+    \msg{InteractionMessage}s to all connected clients, then clear
+    the queue.
+\end{enumerate}
+
+All four phases are non-blocking.  The frame completes in
+microseconds when idle.  ImGui handles frame pacing via GLFW vsync.
+
+\subsection{Multi-Scene State}
+
+\begin{center}
+\begin{tabular}{lp{8cm}}
+\toprule
+\textbf{Field} & \textbf{Type and Purpose} \\
+\midrule
+\texttt{\_scenes}              & \texttt{dict[str, SceneMessage]} --- ordered
+  by insertion; keyed by \field{scene\_id}. \\
+\texttt{\_scene\_order}        & \texttt{list[str]} --- explicit tab ordering. \\
+\texttt{\_active\_tab}         & \texttt{str | None} --- currently selected tab. \\
+\texttt{\_scene\_widget\_state} & \texttt{dict[str, WidgetState]} --- per-scene
+  slider/checkbox/combo/text state. \\
+\texttt{\_scene\_render\_fn\_state} & \texttt{dict[str, dict[str, \_RenderFnState]]}
+  --- per-scene render function lifecycle. \\
+\texttt{\_event\_queue}        & \texttt{list[InteractionMessage]} --- global,
+  shared across all scenes. \\
+\texttt{\_dirty\_windows}      & \texttt{set[str]} --- window element IDs
+  needing initial position set. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsubsection{Scene Lifecycle}
+
+\begin{description}[style=nextline]
+  \item[New scene (\field{scene\_id} not in \texttt{\_scenes})]
+    Appended to \texttt{\_scenes} and \texttt{\_scene\_order}.
+    Fresh \texttt{WidgetState} and render function state allocated.
+    Becomes the active tab.  Window elements marked dirty.
+    Existing events preserved.
+
+  \item[Replace-in-place (same \field{scene\_id})]
+    Content replaced in \texttt{\_scenes}.  Widget state and render
+    function state cleared for that scene.  Events for elements
+    that existed in the old scene but not the new scene are drained
+    (using full subtree ID collection via \texttt{\_collect\_ids()}).
+    Events from other scenes are untouched.
+
+  \item[Dismiss (tab close button)]
+    Scene removed from all state dicts.  Window element IDs removed
+    from \texttt{\_dirty\_windows}.  Active tab moves to the adjacent
+    neighbor (next tab, or previous if rightmost was dismissed).
+
+  \item[Clear (\msg{ClearMessage} or menu)]
+    All scenes, widget state, render function state, events,
+    and dirty windows cleared.  Fresh instances allocated
+    (not \texttt{.clear()} on aliased objects).
+\end{description}
+
+\subsubsection{Widget State Swap Pattern}
+
+The 20+ element renderers all read from \texttt{self.\_widget\_state}
+and \texttt{self.\_render\_fn\_state}.  Rather than threading a
+\field{scene\_id} parameter through every method, the display swaps
+the per-scene state dicts into these instance variables before
+rendering each tab:
+
+\begin{lstlisting}[language=Python]
+def _render_scene_tab(self, scene_id: str) -> None:
+    self._widget_state = self._scene_widget_state[scene_id]
+    self._render_fn_state = self._scene_render_fn_state[scene_id]
+    scene = self._scenes[scene_id]
+    for elem in scene.elements:
+        self._render_element(elem)
+\end{lstlisting}
+
+This is the same pattern ImGui itself uses: ``current context.''
+Zero changes required in any renderer method.
+
+\subsection{Table Filtering}
+
+Tables support built-in filtering at frame rate with zero MCP
+round-trips.  The display server renders filter controls (search
+input, combo dropdowns) above the table and applies filters in the
+render loop:
+
+\begin{enumerate}
+  \item Filter state stored in \texttt{WidgetState} with prefixed
+    keys (e.g., \texttt{\_\_tbl\_search\_\{eid\}},\\
+    \texttt{\_\_tbl\_filter\_\{col\}\_\{eid\}}).
+  \item \texttt{\_apply\_table\_filters()} renders controls, snapshots
+    state, detects changes.
+  \item \texttt{\_filter\_indexed\_rows()} applies AND logic across
+    all active filters (case-insensitive substring for search,
+    exact match for combos).
+  \item Pagination resets to page~0 when filters change.
+  \item Detail panel renders a two-column metadata grid plus
+    long-form body text for the selected row.
+\end{enumerate}
+
+% ===================================================================
+\section{IPC and Process Management}
+% ===================================================================
+
+\subsection{Socket Discovery}
+
+Socket path resolution, in priority order:
+
+\begin{enumerate}
+  \item \texttt{\$LUX\_SOCKET} environment variable.
+  \item \texttt{\$XDG\_RUNTIME\_DIR/lux/display.sock}.
+  \item \texttt{/tmp/lux-\$USER/display.sock} (fallback).
+\end{enumerate}
+
+The fallback path is chosen to stay within macOS's $\sim$104-character
+\texttt{AF\_UNIX} path limit.
+
+\subsection{PID Lifecycle}
+
+\begin{itemize}
+  \item PID file written at \texttt{\{socket\_path\}.pid} on server
+    startup.
+  \item Clients verify liveness via \texttt{os.kill(pid, 0)} before
+    connecting.
+  \item Stale socket cleanup: \texttt{cleanup\_stale\_socket()} removes
+    socket and PID file if the process is dead.
+\end{itemize}
+
+\subsection{Auto-Spawn}
+
+\texttt{ensure\_display()} spawns the display server if not running:
+
+\begin{enumerate}
+  \item Checks socket existence and PID liveness.
+  \item If not running, spawns\\
+    \texttt{python -m punt\_lux display -{}-socket \{path\}}\\
+    with \texttt{start\_new\_session=True} (detached from caller's
+    process group).
+  \item Polls socket existence + PID liveness every 100\,ms until
+    ready or 5\,s timeout.
+  \item Display logs to \texttt{\{socket\_path\}.log}.
+\end{enumerate}
+
+\subsection{MCP Server Reconnect}
+
+The MCP server wraps every tool call in
+\texttt{\_with\_reconnect()}: if an \texttt{OSError} (broken pipe)
+occurs, the stale client is closed, a new connection is established,
+and the call is retried exactly once.  No retry loop.
+
+% ===================================================================
+\section{Performance}
+% ===================================================================
+
+\subsection{Frame Budget}
+
+\begin{center}
+\begin{tabular}{lrl}
+\toprule
+\textbf{Parameter} & \textbf{Value} & \textbf{Notes} \\
+\midrule
+Idle FPS            & 30             & \texttt{fps\_idling.fps\_idle = 30.0} \\
+Active FPS          & 60+            & GLFW vsync, GPU-bound \\
+Socket poll timeout & 0              & Non-blocking \texttt{select()} \\
+Max message size    & 16\,MiB        & Hard limit in \texttt{FrameReader} \\
+Connection timeout  & 5.0\,s         & \texttt{ensure\_display()} and handshake \\
+Texture loading     & Lazy           & First render triggers PIL + OpenGL upload \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Critical Path Analysis}
+
+The frame-critical path is:
+
+\begin{enumerate}
+  \item \texttt{select()} on $N$ client sockets --- $O(N)$, $N < 64$
+    in practice.
+  \item \texttt{FrameReader.feed()} --- memcpy into buffer, yield
+    frames.  $O(B)$ where $B$ is bytes received.
+  \item \texttt{\_render\_scene()} --- ImGui draw list calls.
+    $O(E)$ where $E$ is total element count across visible scene.
+  \item \texttt{\_flush\_events()} --- send $K$ events to $N$
+    clients.  $O(K \cdot N)$.
+\end{enumerate}
+
+Table filtering is $O(R \cdot C)$ where $R$ is row count and $C$
+is column count.  This runs every frame but is fast for tables
+under $\sim$10{,}000 rows.  No benchmarks exist for larger tables;
+pagination (configurable page size) bounds visible row rendering.
+
+\subsection{Idle Screen}
+
+The idle screen renders $\sim$60 draw calls per frame: 48 radial
+lines, 3 glow circles, 3 flame shapes (each $\sim$7 bezier
+operations).  This is negligible for a GPU-rendered immediate-mode
+UI at 30\,FPS idle.
+
+\subsection{Memory}
+
+\begin{itemize}
+  \item \textbf{Scene storage.}  Scenes are Python dataclass trees
+    held in memory.  No size limit beyond the 16\,MiB message cap.
+    Each scene is a separate dict entry; dismissed scenes are
+    garbage-collected.
+  \item \textbf{Texture cache.}  OpenGL texture IDs held until
+    \texttt{\_on\_exit()}.  No eviction policy.  Image-heavy scenes
+    accumulate GPU memory.
+  \item \textbf{Widget state.}  Per-scene \texttt{WidgetState} is a
+    flat dict.  Cleared on scene replacement.  No growth concern.
+  \item \textbf{Event queue.}  Flushed every frame.  Bounded by
+    interaction rate ($<$100 events/frame in practice).
+\end{itemize}
+
+\subsection{Known Limitations}
+
+\begin{enumerate}
+  \item \textbf{No event attribution.}  \msg{InteractionMessage}
+    carries \field{element\_id} but not \field{scene\_id}.  If two
+    scenes use the same element ID, events are ambiguous.
+    (Tracked: lux-308.)
+  \item \textbf{No ImGui ID scoping.}  Widget IDs are derived from
+    \field{element\_id} alone, not scoped by scene.  ImGui internal
+    state (focus, open/closed) can bleed between tabs with colliding
+    IDs.
+  \item \textbf{No texture eviction.}  Long-running sessions with
+    many images accumulate GPU memory.
+  \item \textbf{Filter is per-frame.}  Table filtering re-executes
+    every frame even when nothing changed.  Not a problem at current
+    scale but would benefit from dirty-flag optimization for
+    10{,}000+ row tables.
+\end{enumerate}
+
+% ===================================================================
+\section{Security}
+% ===================================================================
+
+\subsection{Threat Model}
+
+The primary trust boundary is the Unix socket.  The display server
+accepts connections from any process that can reach the socket file.
+In the default configuration (\texttt{/tmp/lux-\$USER/}), the socket
+is protected by filesystem permissions (user-only directory).
+
+\begin{center}
+\begin{tabular}{lp{5cm}p{5cm}}
+\toprule
+\textbf{Threat} & \textbf{Description} & \textbf{Mitigation} \\
+\midrule
+Socket hijacking    & Another process connects to the socket and
+  injects scenes or reads events. & Directory permissions (0700) on
+  \texttt{/tmp/lux-\$USER/}. \\
+Malformed messages  & Client sends invalid JSON, unknown message type,
+  or oversize payload. & Disconnects client; no crash. Oversize
+  payloads rejected by FrameReader. \\
+Render function     & Agent-submitted Python code executes arbitrary
+  operations. & Consent dialog with AST warnings.  User must
+  explicitly click Allow. \\
+Resource exhaustion & Scene with millions of elements or very large
+  images. & 16\,MiB message cap.  No element count limit (ImGui
+  handles gracefully). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Render Function Security}
+
+Render functions are the only element kind that executes arbitrary
+code.  The security model is \textbf{consent-based, not
+sandbox-based}:
+
+\begin{enumerate}
+  \item \textbf{AST scanning} (\modpath{ast\_check.py}): a
+    best-effort visitor flags suspicious imports (\texttt{os},
+    \texttt{subprocess}, \texttt{socket}, \texttt{ctypes},
+    \texttt{urllib}, etc.) and dangerous builtins (\texttt{eval},
+    \texttt{exec}, \texttt{open}, \texttt{\_\_import\_\_}).  This is
+    a \emph{UX signal}, not a security boundary.  It can be
+    trivially bypassed (e.g.,\\
+    \texttt{getattr(\_\_builtins\_\_, "eval")}).
+
+  \item \textbf{Consent dialog} (\modpath{consent.py}): an ImGui modal
+    displays the full source code with line numbers and any AST
+    warnings.  The user must click ``Allow'' to proceed.  Dismissing
+    the modal (Esc) is treated as ``Deny.''  Consent is per-element:
+    changing the source code resets consent.
+
+  \item \textbf{Execution} (\modpath{runtime.py}):\\
+    \texttt{CodeExecutor} compiles the source and calls
+    \texttt{render(ctx)} each frame.  The
+    \texttt{RenderContext} provides a persistent state dict,
+    delta time, frame counter, canvas dimensions, and a
+    \texttt{send()} callback for emitting events.  Execution is
+    \textbf{not sandboxed}: the code runs in the display server's
+    process with full access to the Python runtime.  Runtime errors
+    are caught and displayed, not propagated.
+\end{enumerate}
+
+\textbf{Implication}: render functions should be treated as
+user-approved code, equivalent to running a script the user
+downloaded.  The consent dialog provides informed consent, not
+isolation.
+
+\subsection{Protocol Robustness}
+
+\begin{itemize}
+  \item \textbf{Malformed JSON}: client disconnected, not crashed.
+    The display logs the error and removes the client from
+    \texttt{\_clients}.
+  \item \textbf{Unknown message type}: client disconnected.
+  \item \textbf{Oversize frame}: \texttt{FrameReader} checks
+    \texttt{bufSize $\leq$ maxBufSize} and disconnects on violation.
+  \item \textbf{Partial reads}: \texttt{FrameReader} accumulates
+    bytes across frames; no assumption of complete messages per
+    \texttt{recv()}.
+  \item \textbf{Identity fields protected}: \texttt{\_apply\_update()}
+    silently drops patches that attempt to change \field{id} or
+    \field{kind} on an element.
+  \item \textbf{Double-remove idempotent}:
+    \texttt{\_remove\_client()} is safe to call twice on the same
+    socket.
+\end{itemize}
+
+% ===================================================================
+\section{Platform Integration}
+% ===================================================================
+
+\subsection{macOS}
+
+\begin{itemize}
+  \item \textbf{Dock hiding.}  After GLFW initialization
+    (in \texttt{\_on\_post\_init()}), the display server sets\\
+    \texttt{NSApplicationActivationPolicyAccessory}\\
+    on the shared \texttt{NSApplication}.  GLFW's
+    \texttt{glfwInit()} sets the policy to Regular; the post-init
+    call overrides it.  The Dock icon briefly flashes at launch.
+    Requires \texttt{pyobjc-framework-Cocoa} (optional
+    \texttt{display} extra).
+  \item \textbf{Process name.}  \texttt{setproctitle("Lux")} makes
+    the process identifiable in \texttt{ps} and \texttt{top}.  Does
+    not affect Activity Monitor's binary name column.
+  \item \textbf{Font discovery.}  Prefers Arial Unicode or Helvetica;
+    merges Apple Symbols for mathematical/Z notation glyphs.
+  \item \textbf{AF\_UNIX path limit.}  macOS limits Unix socket
+    paths to $\sim$104 characters.\\
+    \texttt{tempfile.mkdtemp(prefix="lux-")}
+    used in tests; production paths are short by design.
+\end{itemize}
+
+\subsection{Linux}
+
+\begin{itemize}
+  \item \textbf{Font discovery.}  DejaVu Sans or Noto Sans; merges
+    Noto Sans Symbols2 for Unicode coverage.
+  \item \textbf{XDG compliance.}  Prefers
+    \texttt{\$XDG\_RUNTIME\_DIR/lux/} for socket placement.
+  \item \textbf{No Dock equivalent.}  Window managers use the X11
+    window title (set to ``Lux'').
+\end{itemize}
+
+% ===================================================================
+\section{MCP Tool Surface}
+% ===================================================================
+
+\begin{center}
+\begin{longtable}{lp{8cm}}
+\toprule
+\textbf{Tool} & \textbf{Signature and Purpose} \\
+\midrule
+\endfirsthead
+\toprule
+\textbf{Tool} & \textbf{Signature and Purpose} \\
+\midrule
+\endhead
+\tool{show}           & \texttt{(scene\_id, elements, title?, layout?)}
+  --- Display a scene.  Comprehensive docstring lists all 25 element
+  kinds with examples. \\
+\tool{show\_table}    & \texttt{(scene\_id, columns, rows, filters?,
+  detail?, title?)} --- Convenience wrapper for filterable data tables
+  with search, combo filters, and detail panel. \\
+\tool{show\_dashboard} & \texttt{(scene\_id, metrics?, charts?,
+  table\_columns?, table\_rows?, title?)} --- Metrics cards + charts +
+  summary table. \\
+\tool{show\_diagram}  & \texttt{(scene\_id, layers, edges?, title?)}
+  --- Layered architecture diagram with auto-layout, routed edges,
+  and arrowheads. \\
+\tool{update}         & \texttt{(scene\_id, patches)} --- Incremental
+  JSON patches targeting elements by ID. \\
+\tool{clear}          & \texttt{()} --- Clear all scenes. \\
+\tool{ping}           & \texttt{()} --- Latency probe; returns
+  \msg{PongMessage}. \\
+\tool{recv}           & \texttt{(timeout?)} --- Receive next event
+  (interaction, window lifecycle). \\
+\tool{set\_menu}      & \texttt{(menus)} --- Set agent-provided menu
+  bar entries. \\
+\tool{set\_theme}     & \texttt{(theme)} --- Apply display theme. \\
+\tool{display\_mode}  & \texttt{(mode?)} --- Get or set display mode
+  (y/n); advisory L3 signal for consumer plugins. \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+% ===================================================================
+\section{Formal Model}
+% ===================================================================
+
+The display server's state machine is formally specified in
+\texttt{docs/display-server.tex} using the Z notation (ISO 13568).
+The specification covers:
+
+\begin{itemize}
+  \item Client connection/disconnection with FrameReader association.
+  \item Scene replacement, incremental patching, and clearing.
+  \item Interaction event generation and broadcast.
+  \item FrameReader streaming buffer invariants.
+\end{itemize}
+
+The specification has been type-checked with Spivey's \texttt{fuzz}
+and model-checked with ProB (7{,}943 reachable states explored).
+Refinement tests in \texttt{tests/test\_display\_refinement.py}
+verify commutativity between the abstract Z operations and the
+concrete Python implementation via an abstraction function
+(\texttt{tests/display\_abstraction.py}).
+
+Partition tests in \texttt{tests/test\_display\_partition.py} derive
+test cases from the Z specification using the Test Template Framework
+(TTF), covering all input space partitions of each operation schema.
+
+\textbf{Note}: the formal model predates multi-scene tabs and models
+a single-scene display.  The abstraction function maps multi-scene
+state to the active tab for backward compatibility.  A specification
+update to model the full multi-scene state is pending.
+
+% ===================================================================
+\section{Test Architecture}
+% ===================================================================
+
+\begin{center}
+\begin{tabular}{lrl}
+\toprule
+\textbf{Test File} & \textbf{Count} & \textbf{What It Tests} \\
+\midrule
+\texttt{test\_display\_state.py}      & 32  & State machine logic (no ImGui) \\
+\texttt{test\_display\_partition.py}   & 51  & TTF-derived partitions from Z spec \\
+\texttt{test\_display\_refinement.py}  & 28  & Abstraction function commutativity \\
+\texttt{test\_protocol.py}            & 97  & Serialization, deserialization, framing \\
+\texttt{test\_server.py}              & 60  & MCP tool behavior (mocked client) \\
+\texttt{test\_client.py}              & 15  & Client library (real sockets, threads) \\
+\texttt{test\_ast\_check.py}          & 41  & AST visitor coverage \\
+\texttt{test\_runtime.py}             & 23  & CodeExecutor lifecycle \\
+\texttt{test\_paths.py}               & 16  & Socket discovery, PID, auto-spawn \\
+\texttt{test\_config.py}              & 16  & Config read/write \\
+\texttt{test\_consent.py}             & 9   & Consent dialog state machine \\
+\texttt{test\_hooks.py}               & 4   & Hook handler output \\
+\texttt{test\_cli.py}                 & 9   & CLI command smoke tests \\
+\texttt{test\_unit.py}                & 6   & Misc unit tests \\
+\texttt{test\_version.py}             & 2   & Version string consistency \\
+\midrule
+\textbf{Total}                        & 443 & \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Quality gates: \texttt{ruff} (lint + format), \texttt{mypy} (strict),
+\texttt{pyright} (strict), \texttt{pytest} (all markers except
+slow/integration/e2e).  Zero violations required.
+
+\end{document}
