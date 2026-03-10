@@ -11,11 +11,10 @@ import subprocess
 import sys
 import time
 
-from punt_lux.paths import default_socket_path
+from punt_lux.paths import default_socket_path, pid_file_path
 
 SOCK_PATH = default_socket_path()
-SOCK_DIR = SOCK_PATH.parent
-PID_PATH = SOCK_DIR / "display.pid"
+PID_PATH = pid_file_path(SOCK_PATH)
 
 
 def main() -> None:
@@ -34,7 +33,7 @@ def main() -> None:
     # Clean stale files
     SOCK_PATH.unlink(missing_ok=True)
     PID_PATH.unlink(missing_ok=True)
-    SOCK_DIR.mkdir(parents=True, exist_ok=True)
+    SOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     # Start display server from local dev source
     print("Starting dev display server...")
@@ -66,7 +65,11 @@ def main() -> None:
         proc.wait()
     except KeyboardInterrupt:
         proc.terminate()
-        proc.wait(timeout=5)
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
 
 
 if __name__ == "__main__":
