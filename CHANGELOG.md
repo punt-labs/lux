@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-03-10
+
 ### Added
 
 - **SMP font coverage** — merge STIX Two Math (macOS) and Noto Sans Math
