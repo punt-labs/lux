@@ -21,7 +21,10 @@ Display beads issues in a filterable list/detail table in the Lux window.
 
 Read `.beads/issues.jsonl` using the Read tool. If the file does not exist, tell the user: "No beads database found. Run `bd init` to set up beads for this project." and stop.
 
-Each line is a JSON object with fields: `id`, `title`, `status`, `priority`, `issue_type`, `description`, `assignee`, `owner`, `created_at`, `updated_at`.
+Each line is a JSON object that may include: `id`, `title`, `status`, `priority`, `issue_type`, `description`, `assignee`, `owner`, `created_at`, `updated_at`. Use these defaults for missing fields:
+
+- `title`: `""`, `status`: `"open"`, `priority`: `3`, `issue_type`: `"task"`
+- `description`, `assignee`, `owner`, `created_at`, `updated_at`: `""`
 
 ## Step 2: Build the table data
 
@@ -49,7 +52,7 @@ Collect unique `status` and `issue_type` values for combo filter items.
 Call the `show_table` MCP tool with:
 
 - **`scene_id`**: `"beads-board"`
-- **`title`**: `"Beads: {project_name}"` where project_name is the current directory name
+- **`title`**: `"Beads"`
 - **`columns`**: `["ID", "Title", "Status", "P", "Type"]`
 - **`rows`**: the main table rows from Step 2
 - **`filters`**:
