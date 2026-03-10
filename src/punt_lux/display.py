@@ -176,10 +176,13 @@ def _parse_hex_color(
     lists/tuples (``[r, g, b]`` or ``[r, g, b, a]``).
     """
     if isinstance(color, (list, tuple)):
-        if len(color) >= 4:
-            return (int(color[0]), int(color[1]), int(color[2]), int(color[3]))
-        if len(color) == 3:
-            return (int(color[0]), int(color[1]), int(color[2]), 255)
+        try:
+            if len(color) >= 4:
+                return (int(color[0]), int(color[1]), int(color[2]), int(color[3]))
+            if len(color) == 3:
+                return (int(color[0]), int(color[1]), int(color[2]), 255)
+        except (TypeError, ValueError):
+            pass
         logger.warning("Invalid RGBA color %r; using fallback white", color)
         return (255, 255, 255, 255)
     h = color.lstrip("#")
