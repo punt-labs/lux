@@ -585,6 +585,53 @@ def _render_table_pagination(
     return start, end, page_changed
 
 
+def _maybe_copy_id(
+    *,
+    copy_id: bool,
+    selected_orig: int,
+    prev_sel: int,
+    row_clicked: bool,
+    rows: list[list[Any]],
+    imgui: Any,
+) -> None:
+    """Copy first column to clipboard on user-initiated row selection.
+
+    Triggers on selection change (keyboard or click) OR explicit
+    same-row re-click.  Uses the ``row_clicked`` signal from
+    ``_render_table_rows`` to avoid false positives from clicks on
+    filter controls, scrollbars, or other non-row widgets.
+    """
+    if not copy_id or not (0 <= selected_orig < len(rows)):
+        return
+    changed = selected_orig != prev_sel
+    if changed or row_clicked:
+        imgui.set_clipboard_text(str(rows[selected_orig][0]))
+
+
+def _parse_table_flags(
+    flags_list: list[str],
+    imgui: Any,
+) -> tuple[int, bool]:
+    """Parse Lux table flags into imgui flags and Lux-level booleans.
+
+    Returns ``(imgui_flags, copy_id)``.
+    """
+    flag_map = {
+        "borders": imgui.TableFlags_.borders.value,
+        "row_bg": imgui.TableFlags_.row_bg.value,
+        "resizable": imgui.TableFlags_.resizable.value,
+        "sortable": imgui.TableFlags_.sortable.value,
+    }
+    imgui_flags = 0
+    copy_id = False
+    for f in flags_list:
+        if f == "copy_id":
+            copy_id = True
+        else:
+            imgui_flags |= flag_map.get(f, 0)
+    return imgui_flags, copy_id
+
+
 def _render_table_rows(
     indexed_rows: list[IndexedRow],
     num_cols: int,
@@ -594,12 +641,15 @@ def _render_table_rows(
     widget_state: WidgetState,
     sel_key: str,
     imgui: Any,
-) -> int:
+) -> tuple[int, bool]:
     """Render table body rows, with optional row selection for detail views.
 
-    Returns the currently selected original row index (-1 if none).
+    Returns ``(selected_orig, row_clicked)`` — the currently selected
+    original row index (-1 if none) and whether a row was clicked this
+    frame (used by ``_maybe_copy_id`` for re-click detection).
     """
     selected_orig: int = widget_state.ensure(sel_key, -1)
+    row_clicked = False
     for orig_idx, row in indexed_rows:
         imgui.table_next_row()
         for col_idx, cell in enumerate(row):
@@ -617,9 +667,10 @@ def _render_table_rows(
                 if clicked:
                     widget_state.set(sel_key, orig_idx)
                     selected_orig = orig_idx
+                    row_clicked = True
             else:
                 imgui.text_wrapped(str(cell))
-    return selected_orig
+    return selected_orig, row_clicked
 
 
 def _handle_table_keyboard_nav(
@@ -2096,15 +2147,7 @@ class DisplayServer:
             imgui,
         )
 
-        flag_map = {
-            "borders": imgui.TableFlags_.borders.value,
-            "row_bg": imgui.TableFlags_.row_bg.value,
-            "resizable": imgui.TableFlags_.resizable.value,
-            "sortable": imgui.TableFlags_.sortable.value,
-        }
-        table_flags = 0
-        for f in flags_list:
-            table_flags |= flag_map.get(f, 0)
+        table_flags, copy_id = _parse_table_flags(flags_list, imgui)
 
         # Cache column weights — recompute when rows object or widths change.
         # id(rows) changes on update() since _apply_patch_set creates a new list.
@@ -2143,6 +2186,8 @@ class DisplayServer:
         if has_detail and needs_auto_select and page_rows:
             first_orig = page_rows[0][0]
             self._widget_state.set(sel_key, first_orig)
+        # Track prev_sel AFTER auto-select so auto-select doesn't trigger copy
+        prev_sel: int = self._widget_state.ensure(sel_key, -1)
 
         if imgui.begin_table(imgui_id, num_cols, table_flags):
             stretch = imgui.TableColumnFlags_.width_stretch.value
@@ -2150,7 +2195,7 @@ class DisplayServer:
                 imgui.table_setup_column(col_name, stretch, weights[col_idx])
             imgui.table_headers_row()
 
-            selected_orig = _render_table_rows(
+            selected_orig, row_clicked = _render_table_rows(
                 page_rows,
                 num_cols,
                 selectable=has_detail,
@@ -2163,6 +2208,7 @@ class DisplayServer:
 
         else:
             selected_orig = self._widget_state.ensure(sel_key, -1)
+            row_clicked = False
 
         # Keyboard navigation — up/down arrows move selection
         if has_detail:
@@ -2173,6 +2219,16 @@ class DisplayServer:
                 self._widget_state,
                 imgui,
             )
+
+        # Copy first column to clipboard on user-initiated selection
+        _maybe_copy_id(
+            copy_id=copy_id,
+            selected_orig=selected_orig,
+            prev_sel=prev_sel,
+            row_clicked=row_clicked,
+            rows=rows,
+            imgui=imgui,
+        )
 
         if has_detail and selected_orig >= 0:
             tbl_row = rows[selected_orig] if selected_orig < len(rows) else None
