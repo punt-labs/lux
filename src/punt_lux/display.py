@@ -167,9 +167,22 @@ class WidgetState:
 # ---------------------------------------------------------------------------
 
 
-def _parse_hex_color(hex_str: str) -> tuple[int, int, int, int]:
-    """Parse a hex color string to (r, g, b, a) ints 0-255."""
-    h = hex_str.lstrip("#")
+def _parse_hex_color(
+    color: str | list[int] | tuple[int, ...],
+) -> tuple[int, int, int, int]:
+    """Parse a color value to (r, g, b, a) ints 0-255.
+
+    Accepts hex strings (``"#RRGGBB"``, ``"#RRGGBBAA"``) or RGBA
+    lists/tuples (``[r, g, b]`` or ``[r, g, b, a]``).
+    """
+    if isinstance(color, (list, tuple)):
+        if len(color) >= 4:
+            return (int(color[0]), int(color[1]), int(color[2]), int(color[3]))
+        if len(color) == 3:
+            return (int(color[0]), int(color[1]), int(color[2]), 255)
+        logger.warning("Invalid RGBA color %r; using fallback white", color)
+        return (255, 255, 255, 255)
+    h = color.lstrip("#")
     try:
         if len(h) == 6:
             r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
@@ -183,7 +196,7 @@ def _parse_hex_color(hex_str: str) -> tuple[int, int, int, int]:
             )
             return (r, g, b, a)
     except ValueError:
-        logger.warning("Invalid hex color %r; using fallback white", hex_str)
+        logger.warning("Invalid hex color %r; using fallback white", color)
     return (255, 255, 255, 255)
 
 
@@ -195,11 +208,16 @@ def _color_to_hex(r: float, g: float, b: float) -> str:
     return f"#{ri:02X}{gi:02X}{bi:02X}"
 
 
-def _hex_to_imgui_color(hex_str: str) -> int:
-    """Convert hex string to ImGui packed color (ImU32)."""
+def _hex_to_imgui_color(
+    color: str | list[int] | tuple[int, ...],
+) -> int:
+    """Convert a color value to ImGui packed color (ImU32).
+
+    Accepts hex strings or RGBA lists/tuples.
+    """
     from imgui_bundle import ImVec4, imgui
 
-    r, g, b, a = _parse_hex_color(hex_str)
+    r, g, b, a = _parse_hex_color(color)
     result: int = imgui.get_color_u32(
         ImVec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0)
     )
@@ -2343,7 +2361,7 @@ class DisplayServer:
         for cmd in commands:
             try:
                 self._dispatch_draw_cmd(draw_list, cmd, ox, oy)
-            except (KeyError, IndexError, TypeError, ValueError):
+            except (KeyError, IndexError, TypeError, ValueError, AttributeError):
                 logger.debug("Skipping malformed draw command: %s", cmd)
 
         draw_list.pop_clip_rect()
