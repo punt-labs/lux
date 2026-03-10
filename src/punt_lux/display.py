@@ -590,20 +590,21 @@ def _maybe_copy_id(
     copy_id: bool,
     selected_orig: int,
     prev_sel: int,
-    needs_auto_select: bool,
+    row_clicked: bool,
     rows: list[list[Any]],
     imgui: Any,
 ) -> None:
-    """Copy first column to clipboard on user-initiated row selection."""
+    """Copy first column to clipboard on user-initiated row selection.
+
+    Triggers on selection change (keyboard or click) OR explicit
+    same-row re-click.  Uses the ``row_clicked`` signal from
+    ``_render_table_rows`` to avoid false positives from clicks on
+    filter controls, scrollbars, or other non-row widgets.
+    """
     if not copy_id or not (0 <= selected_orig < len(rows)):
         return
     changed = selected_orig != prev_sel
-    reactivated = (
-        not needs_auto_select
-        and imgui.is_mouse_clicked(0)
-        and imgui.is_window_hovered()
-    )
-    if changed or reactivated:
+    if changed or row_clicked:
         imgui.set_clipboard_text(str(rows[selected_orig][0]))
 
 
@@ -640,12 +641,15 @@ def _render_table_rows(
     widget_state: WidgetState,
     sel_key: str,
     imgui: Any,
-) -> int:
+) -> tuple[int, bool]:
     """Render table body rows, with optional row selection for detail views.
 
-    Returns the currently selected original row index (-1 if none).
+    Returns ``(selected_orig, row_clicked)`` — the currently selected
+    original row index (-1 if none) and whether a row was clicked this
+    frame (used by ``_maybe_copy_id`` for re-click detection).
     """
     selected_orig: int = widget_state.ensure(sel_key, -1)
+    row_clicked = False
     for orig_idx, row in indexed_rows:
         imgui.table_next_row()
         for col_idx, cell in enumerate(row):
@@ -663,9 +667,10 @@ def _render_table_rows(
                 if clicked:
                     widget_state.set(sel_key, orig_idx)
                     selected_orig = orig_idx
+                    row_clicked = True
             else:
                 imgui.text_wrapped(str(cell))
-    return selected_orig
+    return selected_orig, row_clicked
 
 
 def _handle_table_keyboard_nav(
@@ -2190,7 +2195,7 @@ class DisplayServer:
                 imgui.table_setup_column(col_name, stretch, weights[col_idx])
             imgui.table_headers_row()
 
-            selected_orig = _render_table_rows(
+            selected_orig, row_clicked = _render_table_rows(
                 page_rows,
                 num_cols,
                 selectable=has_detail,
@@ -2203,6 +2208,7 @@ class DisplayServer:
 
         else:
             selected_orig = self._widget_state.ensure(sel_key, -1)
+            row_clicked = False
 
         # Keyboard navigation — up/down arrows move selection
         if has_detail:
@@ -2219,7 +2225,7 @@ class DisplayServer:
             copy_id=copy_id,
             selected_orig=selected_orig,
             prev_sel=prev_sel,
-            needs_auto_select=needs_auto_select,
+            row_clicked=row_clicked,
             rows=rows,
             imgui=imgui,
         )

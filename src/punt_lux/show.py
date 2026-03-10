@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import typer
 
@@ -48,14 +48,25 @@ def load_beads(beads_dir: Path, *, all_issues: bool = False) -> list[dict[str, A
         return []
 
     issues: list[dict[str, Any]] = []
-    for line in path.read_text().splitlines():
+    for lineno, line in enumerate(path.read_text().splitlines(), start=1):
         line = line.strip()
         if not line:
             continue
-        issue = json.loads(line)
+        try:
+            issue = json.loads(line)
+        except json.JSONDecodeError as exc:
+            msg = f"Malformed JSON in {path} at line {lineno}: {exc.msg}"
+            raise ValueError(msg) from exc
+        if not isinstance(issue, dict):
+            msg = (
+                f"Expected JSON object in {path} at line {lineno}, "
+                f"got {type(issue).__name__}"
+            )
+            raise ValueError(msg)
+        row = cast("dict[str, Any]", issue)
         for key, default in _FIELD_DEFAULTS.items():
-            issue.setdefault(key, default)
-        issues.append(issue)
+            row.setdefault(key, default)
+        issues.append(row)
 
     if not all_issues:
         issues = [i for i in issues if i["status"] in _ACTIVE_STATUSES]

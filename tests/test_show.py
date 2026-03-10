@@ -111,6 +111,22 @@ class TestLoadBeads:
         result = load_beads(beads_dir)
         assert len(result) == 2
 
+    def test_malformed_json_raises(self, tmp_path: Path) -> None:
+        beads_dir = tmp_path / ".beads"
+        beads_dir.mkdir()
+        path = beads_dir / "issues.jsonl"
+        path.write_text('{"id": "ok"}\nnot-json\n')
+        with __import__("pytest").raises(ValueError, match="Malformed JSON"):
+            load_beads(beads_dir)
+
+    def test_non_dict_json_raises(self, tmp_path: Path) -> None:
+        beads_dir = tmp_path / ".beads"
+        beads_dir.mkdir()
+        path = beads_dir / "issues.jsonl"
+        path.write_text("[1, 2, 3]\n")
+        with __import__("pytest").raises(ValueError, match="Expected JSON"):
+            load_beads(beads_dir)
+
 
 # ---------------------------------------------------------------------------
 # build_beads_payload
