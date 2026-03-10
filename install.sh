@@ -19,7 +19,7 @@ MARKETPLACE_REPO="punt-labs/claude-plugins"
 MARKETPLACE_NAME="punt-labs"
 PLUGIN_NAME="lux"
 PACKAGE="punt-lux"
-VERSION="0.7.0"
+VERSION="0.7.1"
 BINARY="lux"
 
 # --- Step 1: Prerequisites ---

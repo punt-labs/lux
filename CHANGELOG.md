@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-03-10
+
 ### Fixed
 
 - **Session start hook hang** — removed unnecessary stdin parsing from
