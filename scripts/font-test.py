@@ -6,33 +6,39 @@ so font changes can be tested via normal MCP tools. Run via: make font-test
 
 from __future__ import annotations
 
+import os
 import signal
 import subprocess
 import sys
 import time
 
-from punt_lux.paths import default_socket_path, pid_file_path
+from punt_lux.paths import (
+    cleanup_stale_socket,
+    default_socket_path,
+    is_display_running,
+    pid_file_path,
+)
 
 SOCK_PATH = default_socket_path()
 PID_PATH = pid_file_path(SOCK_PATH)
 
 
 def main() -> None:
-    # Kill existing display server
-    if PID_PATH.exists():
-        try:
-            pid = int(PID_PATH.read_text().strip())
-            print(f"Killing existing display server (PID {pid})...")
-            import os
+    # Kill existing display server if running
+    if is_display_running(SOCK_PATH):
+        pid = int(PID_PATH.read_text().strip())
+        print(f"Killing existing display server (PID {pid})...")
+        os.kill(pid, signal.SIGTERM)
+        for _ in range(20):
+            if not is_display_running(SOCK_PATH):
+                break
+            time.sleep(0.25)
+        else:
+            os.kill(pid, signal.SIGKILL)
+            time.sleep(0.1)
 
-            os.kill(pid, signal.SIGTERM)
-            time.sleep(0.5)
-        except (ValueError, ProcessLookupError, OSError):
-            pass
-
-    # Clean stale files
-    SOCK_PATH.unlink(missing_ok=True)
-    PID_PATH.unlink(missing_ok=True)
+    # Clean stale socket and PID file
+    cleanup_stale_socket(SOCK_PATH)
     SOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     # Start display server from local dev source
@@ -56,6 +62,7 @@ def main() -> None:
     else:
         print("ERROR: display server did not start")
         proc.kill()
+        proc.wait()
         sys.exit(1)
 
     print(f"Dev display server running (PID {proc.pid})")
