@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import json
-import os
-import select
 import shutil
 import subprocess
 import sys
-from typing import Protocol, cast
+from typing import Protocol
 
 import typer
 
@@ -93,32 +90,8 @@ def cc_session_start() -> None:
     """SessionStart — internal hook dispatcher."""
     from punt_lux.hooks import emit, handle_session_start
 
-    # Non-blocking stdin read (biff DES-027): avoid hanging when
-    # Claude Code does not close the stdin pipe.
-    raw = "{}"
-    if not sys.stdin.isatty():
-        try:
-            fd = sys.stdin.fileno()
-            if select.select([fd], [], [], 0.1)[0]:
-                chunks: list[bytes] = []
-                while True:
-                    chunk = os.read(fd, 65536)
-                    if not chunk:
-                        break
-                    chunks.append(chunk)
-                    if not select.select([fd], [], [], 0.05)[0]:
-                        break
-                raw = b"".join(chunks).decode() or "{}"
-        except (OSError, ValueError):
-            pass
-    data: dict[str, object] = {}
-    try:
-        parsed = json.loads(raw)
-        if isinstance(parsed, dict):
-            data = cast("dict[str, object]", parsed)
-    except json.JSONDecodeError:
-        pass
-    result = handle_session_start(data)
+    # Handler doesn't use stdin data — skip reading entirely (DES-027).
+    result = handle_session_start()
     emit(result)
 
 

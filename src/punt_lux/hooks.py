@@ -6,14 +6,10 @@ Each handler takes structured input and returns structured output.
 
 from __future__ import annotations
 
-import json
-import sys
-from typing import Any
-
 from punt_lux.config import read_config, resolve_config_path
 
 
-def handle_session_start(_data: dict[str, Any]) -> dict[str, Any]:
+def handle_session_start() -> dict[str, object]:
     """SessionStart — read display mode and return context."""
     cfg = read_config(resolve_config_path())
 
@@ -30,6 +26,9 @@ def handle_session_start(_data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def emit(output: dict[str, Any]) -> None:
+def emit(output: dict[str, object]) -> None:
     """Write JSON response to stdout."""
+    import json  # noqa: PLC0415
+    import sys  # noqa: PLC0415
+
     sys.stdout.write(json.dumps(output) + "\n")
