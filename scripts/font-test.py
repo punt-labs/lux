@@ -10,10 +10,11 @@ import signal
 import subprocess
 import sys
 import time
-from pathlib import Path
 
-SOCK_DIR = Path("/tmp/lux-jfreeman")
-SOCK_PATH = SOCK_DIR / "display.sock"
+from punt_lux.paths import default_socket_path
+
+SOCK_PATH = default_socket_path()
+SOCK_DIR = SOCK_PATH.parent
 PID_PATH = SOCK_DIR / "display.pid"
 
 
