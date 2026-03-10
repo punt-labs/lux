@@ -22,7 +22,9 @@ Concrete state (from code):
     _server_sock   : socket | None
     _clients       : list[socket]
     _readers       : dict[int, FrameReader]
-    _current_scene : SceneMessage | None
+    _scenes        : dict[str, SceneMessage]    (multi-scene, keyed by scene id)
+    _scene_order   : list[str]                  (tab ordering)
+    _active_tab    : str | None                 (currently selected tab)
     _event_queue   : list[InteractionMessage]
     _textures      : TextureCache          (no abstract counterpart)
     _socket_path   : Path                  (no abstract counterpart)
@@ -105,9 +107,10 @@ def abstract(server: DisplayServer) -> AbstractState:
     # readers -> keys of the readers dict (should equal client_fds)
     reader_fds = frozenset(server._readers.keys())
 
-    # Scene decomposition
-    scene = server._current_scene
-    has_scene = scene is not None
+    # Scene decomposition — abstraction maps multi-scene to "active tab" view
+    has_scene = len(server._scenes) > 0
+    active_id = server._active_tab
+    scene = server._scenes.get(active_id) if active_id else None
     scene_id = scene.id if scene is not None else ""
     elem_ids = (
         frozenset(e.id for e in scene.elements if e.id is not None)

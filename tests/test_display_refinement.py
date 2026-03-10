@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from punt_lux.display import DisplayServer
+from punt_lux.display import DisplayServer, WidgetState
 from punt_lux.protocol import (
     ButtonElement,
     ClearMessage,
@@ -67,9 +67,19 @@ def _register_client(server: DisplayServer, sock: MagicMock) -> None:
     server._readers[sock.fileno()] = FrameReader()
 
 
+def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
+    """Inject a scene into the multi-scene state."""
+    server._scenes[scene.id] = scene
+    if scene.id not in server._scene_order:
+        server._scene_order.append(scene.id)
+    server._scene_widget_state[scene.id] = WidgetState()
+    server._scene_render_fn_state[scene.id] = {}
+    server._active_tab = scene.id
+
+
 def _set_scene(server: DisplayServer, scene_id: str = "s1") -> None:
     """Set a scene with text + button + separator elements."""
-    server._current_scene = SceneMessage(
+    scene = SceneMessage(
         id=scene_id,
         elements=[
             TextElement(id="t1", content="Hello", style="heading"),
@@ -77,6 +87,7 @@ def _set_scene(server: DisplayServer, scene_id: str = "s1") -> None:
             SeparatorElement(id="sep1"),
         ],
     )
+    _inject_scene(server, scene)
 
 
 # ---------------------------------------------------------------------------
@@ -127,6 +138,7 @@ class TestRefinementReceiveScene:
         assert abstract(server) == abs_after
 
     def test_receive_scene_replaces_existing(self):
+        """Same-ID replacement drains stale events and updates active scene."""
         server = _make_server()
         sock = _mock_sock()
         _set_scene(server, "s1")
@@ -136,15 +148,16 @@ class TestRefinementReceiveScene:
 
         abs_before = abstract(server)
 
+        # Same scene ID — replaces in-place, drains stale events
         new_scene = SceneMessage(
-            id="s2",
+            id="s1",
             elements=[TextElement(id="t2", content="New")],
         )
         server._handle_message(sock, new_scene)
 
         abs_after = abstract_receive_scene(
             abs_before,
-            new_scene_id="s2",
+            new_scene_id="s1",
             new_elem_ids=frozenset({"t2"}),
             new_elem_kinds={"t2": "text"},
         )
@@ -256,9 +269,12 @@ class TestRefinementRemoveElement:
 
     def test_remove_last_element_commutes(self):
         server = _make_server()
-        server._current_scene = SceneMessage(
-            id="s1",
-            elements=[TextElement(id="t1", content="Only")],
+        _inject_scene(
+            server,
+            SceneMessage(
+                id="s1",
+                elements=[TextElement(id="t1", content="Only")],
+            ),
         )
         abs_before = abstract(server)
 
@@ -395,7 +411,11 @@ class TestRefinementShutdown:
             client.close()
         server._clients.clear()
         server._readers.clear()
-        server._current_scene = None
+        server._scenes.clear()
+        server._scene_order.clear()
+        server._active_tab = None
+        server._scene_widget_state.clear()
+        server._scene_render_fn_state.clear()
         server._event_queue.clear()
         server._server_sock = None
 
@@ -408,7 +428,11 @@ class TestRefinementShutdown:
 
         server._clients.clear()
         server._readers.clear()
-        server._current_scene = None
+        server._scenes.clear()
+        server._scene_order.clear()
+        server._active_tab = None
+        server._scene_widget_state.clear()
+        server._scene_render_fn_state.clear()
         server._event_queue.clear()
         server._server_sock = None
 

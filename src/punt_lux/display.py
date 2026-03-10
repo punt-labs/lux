@@ -236,6 +236,76 @@ def _get_children(elem: Element) -> list[list[Any]]:
     return []
 
 
+def _draw_flame_shape(
+    draw: Any,
+    imgui: Any,
+    base_x: float,
+    base_y: float,
+    tip_x: float,
+    tip_y: float,
+    width: float,
+    height: float,
+    *,
+    r: float,
+    g: float,
+    b: float,
+    alpha: float,
+) -> None:
+    """Draw a flame shape: rounded bulb at base tapering to a pointed tip.
+
+    The shape is built from three bezier segments:
+    1. Bottom arc: rounded base (semicircular)
+    2. Left side: base-left up to tip (convex bulge then taper)
+    3. Right side: tip back down to base-right (mirror)
+    """
+    from imgui_bundle import ImVec2
+
+    color = imgui.get_color_u32((r, g, b, alpha))
+    half_w = width
+
+    bl = ImVec2(base_x - half_w, base_y)  # base left
+    br = ImVec2(base_x + half_w, base_y)  # base right
+    tip = ImVec2(tip_x, tip_y)
+
+    # Kappa for circular arc approximation with cubic bezier
+    kappa = 0.5522847498
+    arc_cp = half_w * kappa  # horizontal control offset for bottom arc
+
+    draw.path_clear()
+
+    # Start at base-right, go clockwise
+    draw.path_line_to(br)
+
+    # Bottom arc: base-right → base-bottom → base-left (rounded base)
+    base_bottom = ImVec2(base_x, base_y + half_w * 0.5)
+    draw.path_bezier_cubic_curve_to(
+        ImVec2(br.x, base_y + arc_cp * 0.5),  # cp1
+        ImVec2(base_x + arc_cp, base_bottom.y),  # cp2
+        base_bottom,
+    )
+    draw.path_bezier_cubic_curve_to(
+        ImVec2(base_x - arc_cp, base_bottom.y),  # cp1
+        ImVec2(bl.x, base_y + arc_cp * 0.5),  # cp2
+        bl,
+    )
+
+    # Left side: base-left → tip (wide bulge then narrow taper)
+    draw.path_bezier_cubic_curve_to(
+        ImVec2(base_x - half_w * 1.3, base_y - height * 0.35),  # cp1: bulge out
+        ImVec2(tip_x - width * 0.08, tip_y + height * 0.25),  # cp2: taper to tip
+        tip,
+    )
+
+    # Right side: tip → base-right (mirror of left)
+    draw.path_bezier_cubic_curve_to(
+        ImVec2(tip_x + width * 0.08, tip_y + height * 0.25),  # cp1: taper from tip
+        ImVec2(base_x + half_w * 1.3, base_y - height * 0.35),  # cp2: bulge out
+        br,
+    )
+
+    draw.path_fill_convex(color)
+
+
 def _collect_ids(elem: Element) -> list[str]:
     """Collect all element IDs in a subtree (including the root)."""
     ids: list[str] = []
@@ -707,17 +777,21 @@ class DisplayServer:
         self._server_sock: socket.socket | None = None
         self._clients: list[socket.socket] = []
         self._readers: dict[int, FrameReader] = {}  # fd -> reader
-        self._current_scene: SceneMessage | None = None
+        self._scenes: dict[str, SceneMessage] = {}  # ordered by insertion
+        self._scene_order: list[str] = []  # explicit tab order
+        self._active_tab: str | None = None  # currently selected tab
+        self._scene_widget_state: dict[str, WidgetState] = {}  # per-scene
+        self._scene_render_fn_state: dict[str, dict[str, _RenderFnState]] = {}
         self._event_queue: list[InteractionMessage] = []
         self._textures = TextureCache()
-        self._widget_state = WidgetState()
+        self._widget_state = WidgetState()  # active scene's state (swapped)
         self._dirty_windows: set[str] = set()
         self._agent_menus: list[dict[str, Any]] = []
-        self._render_fn_state: dict[str, _RenderFnState] = {}
+        self._render_fn_state: dict[str, _RenderFnState] = {}  # active (swapped)
         self._themes: list[Any] = []
         self._decorated: bool = True
         self._opacity: float = 1.0
-        self._font_scale: float = 1.0
+        self._font_scale: float = 1.1
         self._test_auto_click = test_auto_click
 
     @property
@@ -805,10 +879,18 @@ class DisplayServer:
 
     def run(self) -> None:
         """Start the display server (blocking — ImGui owns the main loop)."""
+        # Set process name (visible in ps, top, Activity Monitor)
+        try:
+            import setproctitle  # pyright: ignore[reportMissingImports]
+
+            setproctitle.setproctitle("Lux")
+        except ImportError:
+            pass
+
         from imgui_bundle import hello_imgui, immapp
 
         runner_params = hello_imgui.RunnerParams()
-        runner_params.app_window_params.window_title = "Lux Display"
+        runner_params.app_window_params.window_title = "Lux"
         runner_params.app_window_params.window_geometry.size = (800, 600)
         runner_params.imgui_window_params.show_menu_bar = True
         runner_params.imgui_window_params.show_menu_app = False
@@ -838,6 +920,19 @@ class DisplayServer:
         imgui_md.initialize_markdown()
         self._setup_socket()
         write_pid_file(self._socket_path)
+
+        # macOS: hide from Dock after GLFW init (which overrides earlier calls)
+        if platform.system() == "Darwin":
+            try:
+                import AppKit as _AppKit  # pyright: ignore[reportMissingImports,reportAttributeAccessIssue]
+
+                _ak: Any = _AppKit
+                _ak.NSApplication.sharedApplication().setActivationPolicy_(
+                    _ak.NSApplicationActivationPolicyAccessory
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("Could not hide Dock icon", exc_info=True)
+
         logger.info("Display server listening on %s", self._socket_path)
 
     def _on_frame(self) -> None:
@@ -904,6 +999,17 @@ class DisplayServer:
             try:
                 params = hello_imgui.get_runner_params()
                 wp = params.app_window_params
+
+                if imgui.menu_item("Clear All", "", False)[0]:  # noqa: FBT003
+                    self._scenes.clear()
+                    self._scene_order.clear()
+                    self._active_tab = None
+                    self._scene_widget_state.clear()
+                    self._scene_render_fn_state.clear()
+                    self._event_queue.clear()
+                    self._dirty_windows.clear()
+                    self._widget_state = WidgetState()
+                    self._render_fn_state = {}
 
                 if imgui.menu_item("Reset Size", "", False)[0]:  # noqa: FBT003
                     hello_imgui.change_window_size((800, 600))
@@ -1122,9 +1228,15 @@ class DisplayServer:
                 AckMessage(scene_id=msg.scene_id, ts=time.time()),
             )
         elif isinstance(msg, ClearMessage):
-            self._current_scene = None
+            self._scenes.clear()
+            self._scene_order.clear()
+            self._active_tab = None
+            self._scene_widget_state.clear()
+            self._scene_render_fn_state.clear()
             self._event_queue.clear()
-            self._render_fn_state.clear()
+            self._dirty_windows.clear()
+            self._widget_state = WidgetState()
+            self._render_fn_state = {}
         elif isinstance(msg, MenuMessage):
             self._agent_menus = msg.menus
         elif isinstance(msg, ThemeMessage):
@@ -1133,23 +1245,41 @@ class DisplayServer:
             self._send_to_client(sock, PongMessage(ts=msg.ts, display_ts=time.time()))
 
     def _handle_scene(self, sock: socket.socket, msg: SceneMessage) -> None:
-        prev_id = self._current_scene.id if self._current_scene else None
-        self._current_scene = msg
-        self._event_queue.clear()
-        self._widget_state.clear()
-        self._render_fn_state.clear()
-        if msg.id != prev_id:
+        old_scene = self._scenes.get(msg.id)
+        is_new = old_scene is None
+        self._scenes[msg.id] = msg
+        if is_new:
+            self._scene_order.append(msg.id)
+            self._scene_widget_state[msg.id] = WidgetState()
+            self._scene_render_fn_state[msg.id] = {}
+            self._active_tab = msg.id
             for elem in msg.elements:
                 if isinstance(elem, WindowElement):
                     self._dirty_windows.add(elem.id)
+        else:
+            # Replace-in-place: drain events for elements removed from this scene
+            old_ids: set[str] = set()
+            for elem in old_scene.elements:  # type: ignore[union-attr]
+                old_ids.update(_collect_ids(elem))
+            new_ids: set[str] = set()
+            for elem in msg.elements:
+                new_ids.update(_collect_ids(elem))
+            stale_ids = old_ids - new_ids
+            self._event_queue = [
+                ev for ev in self._event_queue if ev.element_id not in stale_ids
+            ]
+            self._scene_widget_state[msg.id].clear()
+            self._scene_render_fn_state[msg.id].clear()
         self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
         if self._test_auto_click:
             self._auto_click_buttons(msg)
 
     def _apply_update(self, msg: UpdateMessage) -> None:
-        scene = self._current_scene
-        if scene is None or scene.id != msg.scene_id:
+        scene = self._scenes.get(msg.scene_id)
+        if scene is None:
             return
+        ws = self._scene_widget_state.get(msg.scene_id)
+        rfs = self._scene_render_fn_state.get(msg.scene_id)
         for patch in msg.patches:
             result = _find_element(scene.elements, patch.id)
             if result is None:
@@ -1158,14 +1288,20 @@ class DisplayServer:
             if patch.remove:
                 removed = parent_list.pop(idx)
                 for eid in _collect_ids(removed):
-                    self._widget_state.set(eid, None)
-                    self._render_fn_state.pop(eid, None)
-                    # Clean up internal table filter/selection/page keys
-                    self._widget_state.clear_suffix(f"_{eid}")
+                    if ws is not None:
+                        ws.set(eid, None)
+                        ws.clear_suffix(f"_{eid}")
+                    if rfs is not None:
+                        rfs.pop(eid, None)
             elif patch.set:
-                self._apply_patch_set(parent_list[idx], patch.set)
+                self._apply_patch_set(parent_list[idx], patch.set, ws)
 
-    def _apply_patch_set(self, elem: Element, fields: dict[str, Any]) -> None:
+    def _apply_patch_set(
+        self,
+        elem: Element,
+        fields: dict[str, Any],
+        ws: WidgetState | None = None,
+    ) -> None:
         """Apply a set-patch to an element and sync widget/window state."""
         for k, v in fields.items():
             if k in ("id", "kind"):
@@ -1173,8 +1309,9 @@ class DisplayServer:
             if hasattr(elem, k):
                 setattr(elem, k, v)
         eid = getattr(elem, "id", None)
+        target_ws = ws if ws is not None else self._widget_state
         if eid is not None and fields.keys() & {"value", "selected", "items"}:
-            self._widget_state.set(eid, _widget_value(elem))
+            target_ws.set(eid, _widget_value(elem))
         if (
             eid is not None
             and isinstance(elem, WindowElement)
@@ -1278,15 +1415,203 @@ class DisplayServer:
 
         imgui.get_style().font_scale_main = self._font_scale
 
-        if self._current_scene is None:
-            imgui.text("Lux Display — waiting for scene...")
+        if not self._scenes:
+            self._render_idle(imgui)
             return
 
-        if self._current_scene.title:
-            imgui.separator_text(self._current_scene.title)
+        if len(self._scenes) == 1:
+            # Single scene: render directly without tab bar chrome
+            scene_id = self._scene_order[0]
+            self._render_scene_tab(scene_id)
+            return
 
-        for elem in self._current_scene.elements:
+        # Multiple scenes: render closable tab bar
+        if imgui.begin_tab_bar("##lux_scenes"):
+            closed_tabs: list[str] = []
+            for scene_id in list(self._scene_order):
+                scene = self._scenes[scene_id]
+                label = scene.title or scene_id
+                closable = True
+                selected, still_open = imgui.begin_tab_item(
+                    f"{label}##{scene_id}", closable
+                )
+                if selected:
+                    self._active_tab = scene_id
+                    self._render_scene_tab(scene_id)
+                    imgui.end_tab_item()
+                if still_open is not None and not still_open:
+                    closed_tabs.append(scene_id)
+            imgui.end_tab_bar()
+            for sid in closed_tabs:
+                self._dismiss_scene(sid)
+
+    def _render_scene_tab(self, scene_id: str) -> None:
+        """Render a single scene's elements with its own widget state."""
+        self._widget_state = self._scene_widget_state[scene_id]
+        self._render_fn_state = self._scene_render_fn_state[scene_id]
+        scene = self._scenes[scene_id]
+        if scene.title and len(self._scenes) == 1:
+            from imgui_bundle import imgui
+
+            imgui.separator_text(scene.title)
+        for elem in scene.elements:
             self._render_element(elem)
+
+    @staticmethod
+    def _render_idle(imgui: Any) -> None:
+        """Render an ambient idle screen with radial light rays and flame."""
+        import math
+
+        from imgui_bundle import ImVec2, ImVec4
+
+        t = time.time()
+        region = imgui.get_content_region_avail()
+        origin = imgui.get_cursor_screen_pos()
+        draw = imgui.get_window_draw_list()
+
+        # Detect light vs dark theme from window background luminance
+        bg = imgui.get_style_color_vec4(imgui.Col_.window_bg)
+        bg_lum = bg.x * 0.299 + bg.y * 0.587 + bg.z * 0.114
+        is_light = bg_lum > 0.5
+
+        # -- radial light rays from center --
+        cx = origin.x + region.x * 0.5
+        cy = origin.y + region.y * 0.5
+        max_radius = math.sqrt(region.x**2 + region.y**2) * 0.5
+        num_rays = 48
+        # Rays rotate very slowly with pauses
+        rot_phase = math.sin(t * 0.15)
+        rotation = rot_phase * rot_phase * rot_phase * 0.3  # radians, ±0.3
+        # Breathing modulates ray alpha
+        breath_raw = math.sin(t * 0.8)
+        ray_breath = max(breath_raw, 0.0) ** 0.6
+        for i in range(num_rays):
+            angle = (i / num_rays) * math.tau + rotation
+            # Vary ray length and alpha for organic feel
+            length_var = 0.6 + 0.4 * math.sin(angle * 3.0 + t * 0.2)
+            ray_len = max_radius * length_var
+            # Inner point (near flame, start offset to not overdraw flame)
+            inner_r = 25.0
+            ix = cx + math.cos(angle) * inner_r
+            iy = cy + math.sin(angle) * inner_r
+            # Outer point
+            ox = cx + math.cos(angle) * ray_len
+            oy = cy + math.sin(angle) * ray_len
+            ray_alpha = (0.015 + 0.01 * ray_breath) * length_var
+            # Dark theme: warm white rays; light theme: darker, more opaque rays
+            if is_light:
+                ray_col = imgui.get_color_u32(ImVec4(0.7, 0.4, 0.1, ray_alpha * 8.0))
+            else:
+                ray_col = imgui.get_color_u32(ImVec4(1.0, 0.7, 0.3, ray_alpha))
+            draw.add_line(ImVec2(ix, iy), ImVec2(ox, oy), ray_col, 1.0)
+
+        # -- centered flame (cx, cy already set above) --
+        breath = ray_breath  # reuse breathing from rays
+
+        # Flame sway: gentle tip movement with pauses
+        sway_phase = math.sin(t * 0.6)
+        sway = sway_phase * sway_phase * sway_phase * 3.0  # ±3px, pauses at center
+        # Secondary faster flicker for organic feel
+        flicker = math.sin(t * 2.3) * 0.8 + math.sin(t * 3.7) * 0.4
+
+        flame_h = 26.0 + 4.0 * breath  # flame height breathes
+        flame_w = 10.0 + 1.5 * breath  # flame width breathes
+
+        # Flame base center (bottom of flame)
+        base_y = cy + 8.0
+        tip_y = base_y - flame_h
+        tip_x = cx + sway
+
+        # -- outer glow (warm orange, very transparent) --
+        glow_r = flame_w + 6.0
+        glow_alpha = 0.06 + 0.03 * breath
+        for i in range(3):
+            r = glow_r + i * 4.0
+            a = glow_alpha * (1.0 - i * 0.3)
+            glow_col = imgui.get_color_u32(ImVec4(1.0, 0.6, 0.2, a))
+            draw.add_circle_filled(ImVec2(cx, base_y - flame_h * 0.4), r, glow_col)
+
+        # -- outer flame (deep orange) --
+        _draw_flame_shape(
+            draw,
+            imgui,
+            cx,
+            base_y,
+            tip_x,
+            tip_y,
+            flame_w,
+            flame_h,
+            r=1.0,
+            g=0.45,
+            b=0.1,
+            alpha=0.35 + 0.1 * breath,
+        )
+
+        # -- middle flame (bright orange-yellow) --
+        mid_w = flame_w * 0.65
+        mid_h = flame_h * 0.75
+        mid_tip_y = base_y - mid_h
+        _draw_flame_shape(
+            draw,
+            imgui,
+            cx,
+            base_y,
+            tip_x + flicker * 0.5,
+            mid_tip_y,
+            mid_w,
+            mid_h,
+            r=1.0,
+            g=0.7,
+            b=0.15,
+            alpha=0.45 + 0.1 * breath,
+        )
+
+        # -- inner core (bright yellow-white) --
+        core_w = flame_w * 0.3
+        core_h = flame_h * 0.45
+        core_tip_y = base_y - core_h
+        _draw_flame_shape(
+            draw,
+            imgui,
+            cx,
+            base_y + 2,
+            tip_x + flicker * 0.3,
+            core_tip_y + 2,
+            core_w,
+            core_h,
+            r=1.0,
+            g=0.95,
+            b=0.7,
+            alpha=0.55 + 0.15 * breath,
+        )
+
+        # "Ready" label below the flame — uses theme text color at low alpha
+        label_y = base_y + 10.0
+        text = "Ready"
+        text_size = imgui.calc_text_size(text)
+        tc = imgui.get_style_color_vec4(imgui.Col_.text)
+        text_color = imgui.get_color_u32(ImVec4(tc.x, tc.y, tc.z, 0.35))
+        draw.add_text(ImVec2(cx - text_size.x * 0.5, label_y), text_color, text)
+
+    def _dismiss_scene(self, scene_id: str) -> None:
+        """Remove a scene and all its associated state."""
+        old_order = self._scene_order
+        old_idx = old_order.index(scene_id) if scene_id in old_order else -1
+        dismissed = self._scenes.pop(scene_id, None)
+        if dismissed is not None:
+            for elem in dismissed.elements:
+                if isinstance(elem, WindowElement):
+                    self._dirty_windows.discard(elem.id)
+        self._scene_order = [s for s in old_order if s != scene_id]
+        self._scene_widget_state.pop(scene_id, None)
+        self._scene_render_fn_state.pop(scene_id, None)
+        if self._active_tab == scene_id:
+            if self._scene_order:
+                # Select neighbor: next tab, or last if dismissed was rightmost
+                new_idx = min(old_idx, len(self._scene_order) - 1)
+                self._active_tab = self._scene_order[new_idx]
+            else:
+                self._active_tab = None
 
     _RENDERERS: ClassVar[dict[str, str]] = {
         "text": "_render_text",
@@ -1739,7 +2064,7 @@ class DisplayServer:
             weights = _table_column_weights(columns, rows, tbl.column_widths)
             self._widget_state.set(weight_cache_key, (rows_id, cw_sig, weights))
 
-        scene_id = self._current_scene.id if self._current_scene else ""
+        scene_id = self._active_tab or ""
         imgui_id = f"##{scene_id}/{eid}"
         sel_key = f"__tbl_sel_{eid}"
         page_key = f"__tbl_page_{eid}"

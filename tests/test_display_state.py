@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from punt_lux.display import DisplayServer
+from punt_lux.display import DisplayServer, WidgetState
 from punt_lux.protocol import (
     ButtonElement,
     ClearMessage,
@@ -50,37 +50,74 @@ def _mock_sock() -> MagicMock:
     return sock
 
 
+def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
+    """Directly inject a scene into multi-scene state (bypasses message handling)."""
+    server._scenes[scene.id] = scene
+    if scene.id not in server._scene_order:
+        server._scene_order.append(scene.id)
+    server._scene_widget_state[scene.id] = WidgetState()
+    server._scene_render_fn_state[scene.id] = {}
+    server._active_tab = scene.id
+
+
 # -----------------------------------------------------------------------
 # Fix 1: Scene replacement and clear must drain the event queue
 # -----------------------------------------------------------------------
 
 
-class TestEventQueueClearedOnSceneReplace:
-    def test_new_scene_clears_stale_events(self) -> None:
+class TestEventQueueOnSceneChange:
+    def test_new_scene_preserves_existing_events(self) -> None:
         server = _make_server()
         sock = _mock_sock()
 
-        # Set up a scene and queue an event
-        server._current_scene = _make_scene()
+        # Set up a scene via handle_message
+        server._handle_message(sock, _make_scene())
         server._event_queue.append(
             InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
         )
         assert len(server._event_queue) == 1
 
-        # Receive a new scene
+        # Receive a new scene (different ID) — events from s1 persist
         new_scene = _make_scene(scene_id="s2")
         server._handle_message(sock, new_scene)
 
-        # Event queue must be empty — old events are stale
-        assert len(server._event_queue) == 0
-        assert server._current_scene is not None
-        assert server._current_scene.id == "s2"
+        assert len(server._event_queue) == 1
+        assert "s2" in server._scenes
+
+    def test_same_scene_id_drains_stale_events(self) -> None:
+        server = _make_server()
+        sock = _mock_sock()
+
+        # First scene has t1, b1, separator, and an extra button b2
+        first = _make_scene(
+            elements=[
+                TextElement(id="t1", content="Hello", style="heading"),
+                ButtonElement(id="b1", label="Keep"),
+                ButtonElement(id="b2", label="Remove"),
+            ]
+        )
+        server._handle_message(sock, first)
+        # Event for b2 (will be removed in replacement)
+        server._event_queue.append(
+            InteractionMessage(element_id="b2", action="b2", ts=1.0, value=True)
+        )
+        # Event for b1 (will survive in replacement)
+        server._event_queue.append(
+            InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
+        )
+        assert len(server._event_queue) == 2
+
+        # Replace with scene that keeps t1, b1 but drops b2
+        server._handle_message(sock, _make_scene())
+
+        assert len(server._event_queue) == 1
+        assert server._event_queue[0].element_id == "b1"
 
     def test_clear_message_clears_event_queue(self) -> None:
         server = _make_server()
         sock = _mock_sock()
 
-        server._current_scene = _make_scene()
+        server._handle_message(sock, _make_scene())
         server._event_queue.append(
             InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
         )
@@ -88,13 +125,13 @@ class TestEventQueueClearedOnSceneReplace:
         server._handle_message(sock, ClearMessage())
 
         assert len(server._event_queue) == 0
-        assert server._current_scene is None
+        assert len(server._scenes) == 0
 
     def test_ping_does_not_clear_events(self) -> None:
         server = _make_server()
         sock = _mock_sock()
 
-        server._current_scene = _make_scene()
+        server._handle_message(sock, _make_scene())
         server._event_queue.append(
             InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
         )
@@ -122,35 +159,6 @@ class TestEventQueueClearedOnSceneReplace:
         server._handle_message(sock, MenuMessage(menus=new_menus))
 
         assert server._agent_menus == new_menus
-
-    def test_same_scene_id_does_not_dirty_windows(self) -> None:
-        """Re-sending a scene with the same ID should not force window positions."""
-        server = _make_server()
-        sock = _mock_sock()
-        win = WindowElement(id="w1", title="Panel", x=10, y=10)
-        scene = SceneMessage(id="s1", elements=[win])
-
-        server._handle_message(sock, scene)
-        assert "w1" in server._dirty_windows
-
-        # Consume the dirty flag (simulates first render)
-        server._dirty_windows.clear()
-
-        # Same scene ID again — windows should NOT be re-dirtied
-        server._handle_message(sock, scene)
-        assert "w1" not in server._dirty_windows
-
-    def test_new_scene_id_dirties_windows(self) -> None:
-        """A new scene ID should mark windows dirty for initial positioning."""
-        server = _make_server()
-        sock = _mock_sock()
-        win = WindowElement(id="w1", title="Panel", x=10, y=10)
-
-        server._handle_message(sock, SceneMessage(id="s1", elements=[win]))
-        server._dirty_windows.clear()
-
-        server._handle_message(sock, SceneMessage(id="s2", elements=[win]))
-        assert "w1" in server._dirty_windows
 
 
 # -----------------------------------------------------------------------
@@ -212,7 +220,7 @@ class TestApplyUpdateProtectsIdentity:
                 TextElement(id="t2", content="World"),
             ]
         )
-        server._current_scene = scene
+        _inject_scene(server, scene)
 
         # Try to change t1's id to t2 (would break unique-ID invariant)
         msg = UpdateMessage(
@@ -222,7 +230,7 @@ class TestApplyUpdateProtectsIdentity:
         server._apply_update(msg)
 
         # ID must not have changed
-        ids = [e.id for e in server._current_scene.elements]
+        ids = [e.id for e in server._scenes["s1"].elements]
         assert ids == ["t1", "t2"]
 
     def test_patch_cannot_change_element_kind(self) -> None:
@@ -232,7 +240,7 @@ class TestApplyUpdateProtectsIdentity:
                 TextElement(id="t1", content="Hello"),
             ]
         )
-        server._current_scene = scene
+        _inject_scene(server, scene)
 
         msg = UpdateMessage(
             scene_id="s1",
@@ -240,7 +248,7 @@ class TestApplyUpdateProtectsIdentity:
         )
         server._apply_update(msg)
 
-        assert server._current_scene.elements[0].kind == "text"
+        assert server._scenes["s1"].elements[0].kind == "text"
 
     def test_patch_can_change_content(self) -> None:
         server = _make_server()
@@ -249,7 +257,7 @@ class TestApplyUpdateProtectsIdentity:
                 TextElement(id="t1", content="Hello"),
             ]
         )
-        server._current_scene = scene
+        _inject_scene(server, scene)
 
         msg = UpdateMessage(
             scene_id="s1",
@@ -257,7 +265,7 @@ class TestApplyUpdateProtectsIdentity:
         )
         server._apply_update(msg)
 
-        elem = server._current_scene.elements[0]
+        elem = server._scenes["s1"].elements[0]
         assert isinstance(elem, TextElement)
         assert elem.content == "Updated"
 
@@ -269,7 +277,7 @@ class TestApplyUpdateProtectsIdentity:
                 TextElement(id="t2", content="World"),
             ]
         )
-        server._current_scene = scene
+        _inject_scene(server, scene)
 
         msg = UpdateMessage(
             scene_id="s1",
@@ -277,8 +285,8 @@ class TestApplyUpdateProtectsIdentity:
         )
         server._apply_update(msg)
 
-        assert len(server._current_scene.elements) == 1
-        assert server._current_scene.elements[0].id == "t2"
+        assert len(server._scenes["s1"].elements) == 1
+        assert server._scenes["s1"].elements[0].id == "t2"
 
     def test_update_wrong_scene_id_is_noop(self) -> None:
         server = _make_server()
@@ -287,7 +295,7 @@ class TestApplyUpdateProtectsIdentity:
                 TextElement(id="t1", content="Hello"),
             ]
         )
-        server._current_scene = scene
+        _inject_scene(server, scene)
 
         msg = UpdateMessage(
             scene_id="wrong-id",
@@ -295,7 +303,7 @@ class TestApplyUpdateProtectsIdentity:
         )
         server._apply_update(msg)
 
-        elem = server._current_scene.elements[0]
+        elem = server._scenes["s1"].elements[0]
         assert isinstance(elem, TextElement)
         assert elem.content == "Hello"
 
@@ -387,3 +395,248 @@ class TestFlushEvents:
         server._flush_events()
 
         sock.sendall.assert_not_called()
+
+
+# -----------------------------------------------------------------------
+# Multi-scene (persistent dismissable tabs)
+# -----------------------------------------------------------------------
+
+
+class TestMultiScene:
+    def test_second_scene_creates_tab(self) -> None:
+        """Sending two scenes with different IDs keeps both in _scenes."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        server._handle_message(sock, _make_scene(scene_id="s1"))
+        server._handle_message(sock, _make_scene(scene_id="s2"))
+
+        assert "s1" in server._scenes
+        assert "s2" in server._scenes
+        assert server._scene_order == ["s1", "s2"]
+
+    def test_same_scene_id_replaces_content(self) -> None:
+        """Re-sending the same scene_id replaces content, no new tab."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        server._handle_message(
+            sock,
+            _make_scene(
+                scene_id="s1",
+                elements=[TextElement(id="t1", content="Old")],
+            ),
+        )
+        server._handle_message(
+            sock,
+            _make_scene(
+                scene_id="s1",
+                elements=[TextElement(id="t1", content="New")],
+            ),
+        )
+
+        assert len(server._scenes) == 1
+        assert server._scene_order == ["s1"]
+        elem = server._scenes["s1"].elements[0]
+        assert isinstance(elem, TextElement)
+        assert elem.content == "New"
+
+    def test_update_routes_to_correct_scene(self) -> None:
+        """Update targets a specific scene by scene_id."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        server._handle_message(
+            sock,
+            _make_scene(
+                scene_id="s1",
+                elements=[TextElement(id="t1", content="S1")],
+            ),
+        )
+        server._handle_message(
+            sock,
+            _make_scene(
+                scene_id="s2",
+                elements=[TextElement(id="t2", content="S2")],
+            ),
+        )
+
+        # Update s2 only
+        server._apply_update(
+            UpdateMessage(
+                scene_id="s2",
+                patches=[Patch(id="t2", set={"content": "Updated"})],
+            )
+        )
+
+        # s1 untouched
+        s1_elem = server._scenes["s1"].elements[0]
+        assert isinstance(s1_elem, TextElement)
+        assert s1_elem.content == "S1"
+        # s2 updated
+        s2_elem = server._scenes["s2"].elements[0]
+        assert isinstance(s2_elem, TextElement)
+        assert s2_elem.content == "Updated"
+
+    def test_update_to_unknown_scene_is_dropped(self) -> None:
+        """Update for a dismissed/unknown scene_id is silently dropped."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        server._handle_message(
+            sock,
+            _make_scene(
+                scene_id="s1",
+                elements=[TextElement(id="t1", content="Hello")],
+            ),
+        )
+
+        # Update for non-existent scene — no error
+        server._apply_update(
+            UpdateMessage(
+                scene_id="gone",
+                patches=[Patch(id="t1", set={"content": "Nope"})],
+            )
+        )
+
+        elem = server._scenes["s1"].elements[0]
+        assert isinstance(elem, TextElement)
+        assert elem.content == "Hello"
+
+    def test_clear_removes_all_scenes(self) -> None:
+        """ClearMessage removes all scenes and resets tab state."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        server._handle_message(sock, _make_scene(scene_id="s1"))
+        server._handle_message(sock, _make_scene(scene_id="s2"))
+        server._handle_message(sock, ClearMessage())
+
+        assert len(server._scenes) == 0
+        assert server._scene_order == []
+        assert server._active_tab is None
+        assert len(server._scene_widget_state) == 0
+        assert len(server._scene_render_fn_state) == 0
+
+    def test_scene_order_preserved(self) -> None:
+        """Scenes appear in insertion order."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        for sid in ["s1", "s2", "s3"]:
+            server._handle_message(sock, _make_scene(scene_id=sid))
+
+        assert server._scene_order == ["s1", "s2", "s3"]
+
+    def test_widget_state_isolated_per_scene(self) -> None:
+        """Each scene gets its own WidgetState instance."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        server._handle_message(sock, _make_scene(scene_id="s1"))
+        server._handle_message(sock, _make_scene(scene_id="s2"))
+
+        ws1 = server._scene_widget_state["s1"]
+        ws2 = server._scene_widget_state["s2"]
+
+        ws1.set("slider1", 42)
+        assert ws2.get("slider1") is None
+
+    def test_dismiss_scene_removes_state(self) -> None:
+        """Dismissing a scene cleans up all associated state."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        server._handle_message(sock, _make_scene(scene_id="s1"))
+        server._handle_message(sock, _make_scene(scene_id="s2"))
+
+        server._dismiss_scene("s1")
+
+        assert "s1" not in server._scenes
+        assert server._scene_order == ["s2"]
+        assert "s1" not in server._scene_widget_state
+        assert "s1" not in server._scene_render_fn_state
+        assert server._active_tab == "s2"
+
+    def test_dismiss_middle_tab_selects_next_neighbor(self) -> None:
+        """Dismissing the middle tab selects the next tab (browser behavior)."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        for sid in ["s1", "s2", "s3"]:
+            server._handle_message(sock, _make_scene(scene_id=sid))
+
+        # Active is s3 (latest). Switch to s2 to test middle dismiss.
+        server._active_tab = "s2"
+        server._dismiss_scene("s2")
+
+        assert server._scene_order == ["s1", "s3"]
+        assert server._active_tab == "s3"  # next neighbor, not first
+
+    def test_dismiss_last_tab_selects_previous(self) -> None:
+        """Dismissing the rightmost tab selects the one before it."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        for sid in ["s1", "s2", "s3"]:
+            server._handle_message(sock, _make_scene(scene_id=sid))
+
+        server._active_tab = "s3"
+        server._dismiss_scene("s3")
+
+        assert server._scene_order == ["s1", "s2"]
+        assert server._active_tab == "s2"  # previous, not first
+
+    def test_dismiss_first_tab_selects_next(self) -> None:
+        """Dismissing the first tab selects the second tab."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        for sid in ["s1", "s2", "s3"]:
+            server._handle_message(sock, _make_scene(scene_id=sid))
+
+        server._active_tab = "s1"
+        server._dismiss_scene("s1")
+
+        assert server._scene_order == ["s2", "s3"]
+        assert server._active_tab == "s2"
+
+    def test_active_tab_set_to_newest_scene(self) -> None:
+        """Each new scene becomes the active tab."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        server._handle_message(sock, _make_scene(scene_id="s1"))
+        assert server._active_tab == "s1"
+
+        server._handle_message(sock, _make_scene(scene_id="s2"))
+        assert server._active_tab == "s2"
+
+    def test_same_scene_id_does_not_dirty_windows(self) -> None:
+        """Re-sending a scene with the same ID should not force window positions."""
+        server = _make_server()
+        sock = _mock_sock()
+        win = WindowElement(id="w1", title="Panel", x=10, y=10)
+        scene = SceneMessage(id="s1", elements=[win])
+
+        server._handle_message(sock, scene)
+        assert "w1" in server._dirty_windows
+
+        # Consume the dirty flag (simulates first render)
+        server._dirty_windows.clear()
+
+        # Same scene ID again — windows should NOT be re-dirtied
+        server._handle_message(sock, scene)
+        assert "w1" not in server._dirty_windows
+
+    def test_new_scene_id_dirties_windows(self) -> None:
+        """A new scene ID should mark windows dirty for initial positioning."""
+        server = _make_server()
+        sock = _mock_sock()
+        win = WindowElement(id="w1", title="Panel", x=10, y=10)
+
+        server._handle_message(sock, SceneMessage(id="s1", elements=[win]))
+        server._dirty_windows.clear()
+
+        server._handle_message(sock, SceneMessage(id="s2", elements=[win]))
+        assert "w1" in server._dirty_windows
