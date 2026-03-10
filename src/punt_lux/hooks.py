@@ -20,7 +20,7 @@ from punt_lux.config import read_config, resolve_config_path
 # Any bd subcommand should trigger a beads board refresh — the board
 # should be visible whenever you're interacting with beads.
 _BD_CMD_RE = re.compile(
-    r"(?:^|[;&|\s])bd\s+\w",
+    r"(?:^|[;&|\s])bd\s+\S",
 )
 
 

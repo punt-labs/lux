@@ -209,7 +209,7 @@ def beads(
         "detail": payload["detail"],
     }
 
-    project = Path.cwd().name
+    project = Path.cwd().name or "unknown"
     sock_path = Path(socket) if socket else default_socket_path()
     elements = [element_from_dict(table)]
 
