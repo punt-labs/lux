@@ -881,7 +881,7 @@ class DisplayServer:
         """Start the display server (blocking — ImGui owns the main loop)."""
         # Set process name (visible in ps, top, Activity Monitor)
         try:
-            import setproctitle
+            import setproctitle  # pyright: ignore[reportMissingImports]
 
             setproctitle.setproctitle("Lux")
         except ImportError:
@@ -924,7 +924,7 @@ class DisplayServer:
         # macOS: hide from Dock after GLFW init (which overrides earlier calls)
         if platform.system() == "Darwin":
             try:
-                import AppKit as _AppKit  # pyright: ignore[reportAttributeAccessIssue]
+                import AppKit as _AppKit  # pyright: ignore[reportMissingImports,reportAttributeAccessIssue]
 
                 _ak: Any = _AppKit
                 _ak.NSApplication.sharedApplication().setActivationPolicy_(
