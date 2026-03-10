@@ -640,3 +640,59 @@ class TestMultiScene:
 
         server._handle_message(sock, SceneMessage(id="s2", elements=[win]))
         assert "w1" in server._dirty_windows
+
+    def test_dismiss_drains_events_for_dismissed_scene(self) -> None:
+        """Dismissing a scene removes its events from the global queue."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        server._handle_message(sock, _make_scene(scene_id="s1"))
+        server._handle_message(sock, _make_scene(scene_id="s2"))
+
+        # Queue events from both scenes
+        server._event_queue.append(
+            InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
+        )
+        server._event_queue.append(
+            InteractionMessage(element_id="t1", action="t1", ts=1.0, value=True)
+        )
+        assert len(server._event_queue) == 2
+
+        # Dismiss s1 — events for s1's elements (b1, t1) should be drained
+        server._dismiss_scene("s1")
+
+        assert len(server._event_queue) == 0
+
+    def test_dismiss_preserves_events_from_other_scenes(self) -> None:
+        """Dismissing one scene does not drain events from other scenes."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        server._handle_message(
+            sock,
+            _make_scene(
+                scene_id="s1",
+                elements=[ButtonElement(id="btn_s1", label="S1")],
+            ),
+        )
+        server._handle_message(
+            sock,
+            _make_scene(
+                scene_id="s2",
+                elements=[ButtonElement(id="btn_s2", label="S2")],
+            ),
+        )
+
+        # Events from both scenes
+        server._event_queue.append(
+            InteractionMessage(element_id="btn_s1", action="btn_s1", ts=1.0, value=True)
+        )
+        server._event_queue.append(
+            InteractionMessage(element_id="btn_s2", action="btn_s2", ts=1.0, value=True)
+        )
+
+        # Dismiss s1 — only s1's events drained
+        server._dismiss_scene("s1")
+
+        assert len(server._event_queue) == 1
+        assert server._event_queue[0].element_id == "btn_s2"
