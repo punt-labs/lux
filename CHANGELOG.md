@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Draw element crash on RGBA list colors** — `_parse_hex_color` called
+  `.lstrip()` on list inputs, raising `AttributeError` which escaped the
+  draw command exception handler and killed the display server. Now accepts
+  both hex strings and RGBA lists/tuples as documented in the MCP tool schema.
+
 ## [0.7.1] - 2026-03-10
 
 ### Fixed
