@@ -33,19 +33,13 @@ From the parsed issues, filter and sort:
 Build three parallel arrays (same length, same order):
 
 **`rows`** — main table rows, one per issue:
-```
-[id, title, status, "P{priority}", issue_type]
-```
+`[id, title, status, "P{priority}", issue_type]`
 
 **`detail.rows`** — detail panel fields for each issue:
-```
-[id, status, "P{priority}", issue_type, assignee_or_empty, owner_or_empty, created_at_date, updated_at_date]
-```
+`[id, status, "P{priority}", issue_type, assignee_or_empty, owner_or_empty, created_at_date, updated_at_date]`
 
 **`detail.body`** — description text for each issue:
-```
-description or "No description."
-```
+`description or "No description."`
 
 Collect unique `status` and `issue_type` values for combo filter items.
 
@@ -58,6 +52,7 @@ Call the `show_table` MCP tool with:
 - **`columns`**: `["ID", "Title", "Status", "P", "Type"]`
 - **`rows`**: the main table rows from Step 2
 - **`filters`**:
+
   ```json
   [
     {"type": "search", "column": [0, 1], "hint": "Filter by ID or title..."},
@@ -65,7 +60,9 @@ Call the `show_table` MCP tool with:
     {"type": "combo", "column": 4, "items": ["All", ...sorted_types], "label": "Type"}
   ]
   ```
+
 - **`detail`**:
+
   ```json
   {
     "fields": ["ID", "Status", "Priority", "Type", "Claimed By", "Owner", "Created", "Updated"],
