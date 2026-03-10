@@ -17,9 +17,10 @@ from typing import Any, cast
 
 from punt_lux.config import read_config, resolve_config_path
 
-# bd mutation commands that should trigger a beads board refresh
-_BD_MUTATION_RE = re.compile(
-    r"(?:^|[;&|\s])bd\s+(create|close|update|dep|sync)(?:\s|$)",
+# Any bd subcommand should trigger a beads board refresh — the board
+# should be visible whenever you're interacting with beads.
+_BD_CMD_RE = re.compile(
+    r"(?:^|[;&|\s])bd\s+\w",
 )
 
 
@@ -70,7 +71,7 @@ def read_hook_input() -> dict[str, object]:
 
 
 def handle_post_bash(data: dict[str, object]) -> None:
-    """PostToolUse Bash — refresh beads board after bd mutations.
+    """PostToolUse Bash — refresh beads board after any bd command.
 
     Side-effect only handler — fires ``lux show beads`` in a subprocess
     and returns immediately.  No context injection.
@@ -83,7 +84,7 @@ def handle_post_bash(data: dict[str, object]) -> None:
         if isinstance(cmd_val, str):
             command = cmd_val
 
-    if not _BD_MUTATION_RE.search(command):
+    if not _BD_CMD_RE.search(command):
         return
 
     # Gate: .beads/ must exist in the repo

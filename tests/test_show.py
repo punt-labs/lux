@@ -199,7 +199,7 @@ class TestShowBeadsCLI:
         mock_client = MagicMock()
         mock_client.__enter__ = MagicMock(return_value=mock_client)
         mock_client.__exit__ = MagicMock(return_value=False)
-        mock_client.show = MagicMock(return_value=MagicMock(scene_id="beads-board"))
+        mock_client.show = MagicMock(return_value=MagicMock(scene_id="beads-test"))
 
         sock = str(tmp_path / "test.sock")
         with patch("punt_lux.client.LuxClient", return_value=mock_client):
@@ -212,7 +212,8 @@ class TestShowBeadsCLI:
         assert "2 issues" in result.output
         mock_client.show.assert_called_once()
         call_args = mock_client.show.call_args
-        assert call_args[0][0] == "beads-board"  # scene_id
+        scene_id = call_args[0][0]
+        assert scene_id.startswith("beads-")  # project-scoped tab
 
     def test_show_beads_timeout(
         self,

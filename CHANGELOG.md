@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Per-project beads tabs** — each project's beads board opens in its
+  own tab (`Beads: lux`, `Beads: quarry`, etc.) so multiple projects
+  can coexist in the display window.
+- **PostToolUse beads hook** — fires on any `bd` subcommand, not just
+  mutations. `bd ready`, `bd list`, `bd show`, etc. now refresh the board.
+- **Resizable table columns** — beads board tables now have `resizable`
+  flag enabled; users can drag column borders to resize.
+
+### Fixed
+
+- **Narrow table columns collapsing** — short-content columns like "P"
+  (priority) collapsed to near-zero width when stretched beside long
+  columns. Column weight floor raised from 1.0 to 4.0.
+
 ## [0.8.0] - 2026-03-10
 
 ### Added
