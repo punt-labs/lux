@@ -9,7 +9,7 @@
   Fixes diamond replacement glyphs for Z notation double-struck letters
   like 𝔽 (U+1D53D). See DES-020.
 - **`make font-test`** — visual font coverage test that starts a dev display
-  server and renders SMP/BMP double-struck characters for verification.
+  server for manual verification of SMP/BMP double-struck characters.
 
 ## [0.7.2] - 2026-03-10
 
