@@ -585,6 +585,28 @@ def _render_table_pagination(
     return start, end, page_changed
 
 
+def _maybe_copy_id(
+    *,
+    copy_id: bool,
+    selected_orig: int,
+    prev_sel: int,
+    needs_auto_select: bool,
+    rows: list[list[Any]],
+    imgui: Any,
+) -> None:
+    """Copy first column to clipboard on user-initiated row selection."""
+    if not copy_id or not (0 <= selected_orig < len(rows)):
+        return
+    changed = selected_orig != prev_sel
+    reactivated = (
+        not needs_auto_select
+        and imgui.is_mouse_clicked(0)
+        and imgui.is_window_hovered()
+    )
+    if changed or reactivated:
+        imgui.set_clipboard_text(str(rows[selected_orig][0]))
+
+
 def _parse_table_flags(
     flags_list: list[str],
     imgui: Any,
@@ -2192,9 +2214,15 @@ class DisplayServer:
                 imgui,
             )
 
-        # Copy first column to clipboard on selection change
-        if copy_id and selected_orig != prev_sel and 0 <= selected_orig < len(rows):
-            imgui.set_clipboard_text(str(rows[selected_orig][0]))
+        # Copy first column to clipboard on user-initiated selection
+        _maybe_copy_id(
+            copy_id=copy_id,
+            selected_orig=selected_orig,
+            prev_sel=prev_sel,
+            needs_auto_select=needs_auto_select,
+            rows=rows,
+            imgui=imgui,
+        )
 
         if has_detail and selected_orig >= 0:
             tbl_row = rows[selected_orig] if selected_orig < len(rows) else None

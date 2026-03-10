@@ -5,7 +5,11 @@
 # Detects bd create/close/update/dep/sync and refreshes the Lux display.
 
 INPUT=$(cat)
-CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""')
+
+# If jq is unavailable, fail open with no side effects.
+command -v jq >/dev/null 2>&1 || exit 0
+
+CMD=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
 
 # Only trigger on bd mutation commands
 [[ "$CMD" =~ (^|[;&|[:space:]])bd[[:space:]]+(create|close|update|dep|sync)([[:space:]]|$) ]] || exit 0
