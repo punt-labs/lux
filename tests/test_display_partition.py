@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from punt_lux.display import DisplayServer
+from punt_lux.display import DisplayServer, WidgetState
 from punt_lux.protocol import (
     ButtonElement,
     ClearMessage,
@@ -57,6 +57,23 @@ def _scene_with(
     scene_id: str, *elems: TextElement | ButtonElement | SeparatorElement
 ) -> SceneMessage:
     return SceneMessage(id=scene_id, elements=list(elems))
+
+
+def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
+    server._scenes[scene.id] = scene
+    if scene.id not in server._scene_order:
+        server._scene_order.append(scene.id)
+    server._scene_widget_state[scene.id] = WidgetState()
+    server._scene_render_fn_state[scene.id] = {}
+    server._active_tab = scene.id
+
+
+def _clear_all_scenes(server: DisplayServer) -> None:
+    server._scenes.clear()
+    server._scene_order.clear()
+    server._active_tab = None
+    server._scene_widget_state.clear()
+    server._scene_render_fn_state.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -163,12 +180,12 @@ class TestDisconnectClientPartitions:
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
-        server._current_scene = _scene_with("s1", TextElement(id="t1", content="A"))
+        _inject_scene(server, _scene_with("s1", TextElement(id="t1", content="A")))
         server._event_queue.append(
             InteractionMessage(element_id="t1", action="click", ts=1.0)
         )
         server._remove_client(sock)
-        assert server._current_scene is not None
+        assert len(server._scenes) > 0
         assert len(server._event_queue) == 1
 
     def test_disconnect_4_rejected_not_connected(self):
@@ -198,9 +215,9 @@ class TestReceiveScenePartitions:
         sock = _sock()
         scene = _scene_with("s1", TextElement(id="t1", content="Hi"))
         server._handle_message(sock, scene)
-        assert server._current_scene is not None
-        assert server._current_scene.id == "s1"
-        assert len(server._current_scene.elements) == 1
+        assert len(server._scenes) > 0
+        assert server._active_tab == "s1"
+        assert len(server._scenes["s1"].elements) == 1
 
     def test_scene_2_boundary_max_elements(self):
         """P2: Receive scene with maxElements(3) elements."""
@@ -213,11 +230,11 @@ class TestReceiveScenePartitions:
             SeparatorElement(id="sep1"),
         )
         server._handle_message(sock, scene)
-        assert server._current_scene is not None
-        assert len(server._current_scene.elements) == 3
+        assert len(server._scenes) > 0
+        assert len(server._scenes["s1"].elements) == 3
 
-    def test_scene_3_replaces_existing_clears_events(self):
-        """P3: New scene replaces old scene and clears event queue."""
+    def test_scene_3_new_id_preserves_events(self):
+        """P3: New scene (different ID) preserves existing events."""
         server = _server()
         sock = _sock()
         old_scene = _scene_with("s1", ButtonElement(id="b1", label="Old"))
@@ -229,9 +246,9 @@ class TestReceiveScenePartitions:
 
         new_scene = _scene_with("s2", TextElement(id="t2", content="New"))
         server._handle_message(sock, new_scene)
-        assert server._current_scene is not None
-        assert server._current_scene.id == "s2"
-        assert len(server._event_queue) == 0  # stale events cleared
+        assert len(server._scenes) > 0
+        assert server._active_tab == "s2"
+        assert len(server._event_queue) == 1  # events from s1 persist
 
     def test_scene_4_empty_scene(self):
         """P4: Receive scene with 0 elements (valid edge case)."""
@@ -239,8 +256,8 @@ class TestReceiveScenePartitions:
         sock = _sock()
         scene = SceneMessage(id="s1", elements=[])
         server._handle_message(sock, scene)
-        assert server._current_scene is not None
-        assert len(server._current_scene.elements) == 0
+        assert len(server._scenes) > 0
+        assert len(server._scenes["s1"].elements) == 0
 
     def test_scene_5_all_element_kinds(self):
         """P5: Scene with all 4 element kinds (text, button, separator, image).
@@ -256,8 +273,8 @@ class TestReceiveScenePartitions:
             SeparatorElement(id="sep1"),
         )
         server._handle_message(sock, scene)
-        assert server._current_scene is not None
-        kinds = {e.kind for e in server._current_scene.elements}
+        assert len(server._scenes) > 0
+        kinds = {e.kind for e in server._scenes["s1"].elements}
         assert kinds == {"text", "button", "separator"}
 
     def test_scene_6_idempotent_same_scene_id(self):
@@ -268,8 +285,8 @@ class TestReceiveScenePartitions:
         server._handle_message(sock, scene1)
         scene2 = _scene_with("s1", TextElement(id="t1", content="V2"))
         server._handle_message(sock, scene2)
-        assert server._current_scene is not None
-        elem = server._current_scene.elements[0]
+        assert len(server._scenes) > 0
+        elem = server._scenes["s1"].elements[0]
         assert isinstance(elem, TextElement)
         assert elem.content == "V2"
 
@@ -290,14 +307,14 @@ class TestClearScenePartitions:
             sock, _scene_with("s1", TextElement(id="t1", content="A"))
         )
         server._handle_message(sock, ClearMessage())
-        assert server._current_scene is None
+        assert len(server._scenes) == 0
 
     def test_clear_2_idempotent_no_scene(self):
         """P2: Clear when no scene exists (idempotent)."""
         server = _server()
         sock = _sock()
         server._handle_message(sock, ClearMessage())
-        assert server._current_scene is None
+        assert len(server._scenes) == 0
 
     def test_clear_3_clears_event_queue(self):
         """P3: Clear also drains the event queue (I7 preservation)."""
@@ -327,35 +344,41 @@ class TestRemoveElementPartitions:
     def test_remove_1_happy_path(self):
         """P1: Remove one of several elements."""
         server = _server()
-        server._current_scene = _scene_with(
-            "s1",
-            TextElement(id="t1", content="A"),
-            TextElement(id="t2", content="B"),
+        _inject_scene(
+            server,
+            _scene_with(
+                "s1",
+                TextElement(id="t1", content="A"),
+                TextElement(id="t2", content="B"),
+            ),
         )
         server._apply_update(
             UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
         )
-        ids = [e.id for e in server._current_scene.elements]
+        ids = [e.id for e in server._scenes["s1"].elements]
         assert ids == ["t2"]
 
     def test_remove_2_boundary_last_element(self):
         """P2: Remove last element -> empty element list."""
         server = _server()
-        server._current_scene = _scene_with("s1", TextElement(id="t1", content="Only"))
+        _inject_scene(server, _scene_with("s1", TextElement(id="t1", content="Only")))
         server._apply_update(
             UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
         )
-        assert len(server._current_scene.elements) == 0
+        assert len(server._scenes["s1"].elements) == 0
 
     def test_remove_3_rejected_element_in_event_queue(self):
         """REJECTED ¬P3: targetId in eventQueue.
         The Z spec requires targetId? ∉ eventQueue to preserve I7.
         Concrete code doesn't enforce this — documents the gap."""
         server = _server()
-        server._current_scene = _scene_with(
-            "s1",
-            ButtonElement(id="b1", label="X"),
-            TextElement(id="t1", content="A"),
+        _inject_scene(
+            server,
+            _scene_with(
+                "s1",
+                ButtonElement(id="b1", label="X"),
+                TextElement(id="t1", content="A"),
+            ),
         )
         server._event_queue.append(
             InteractionMessage(element_id="b1", action="click", ts=1.0)
@@ -364,7 +387,7 @@ class TestRemoveElementPartitions:
             UpdateMessage(scene_id="s1", patches=[Patch(id="b1", remove=True)])
         )
         # Element removed but event still in queue — spec boundary
-        ids = [e.id for e in server._current_scene.elements]
+        ids = [e.id for e in server._scenes["s1"].elements]
         assert "b1" not in ids
         assert len(server._event_queue) == 1  # event orphaned
 
@@ -374,25 +397,25 @@ class TestRemoveElementPartitions:
         server._apply_update(
             UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
         )
-        assert server._current_scene is None
+        assert len(server._scenes) == 0
 
     def test_remove_5_rejected_element_not_found(self):
         """REJECTED ¬P2: targetId not in elemIds -> patch skipped."""
         server = _server()
-        server._current_scene = _scene_with("s1", TextElement(id="t1", content="A"))
+        _inject_scene(server, _scene_with("s1", TextElement(id="t1", content="A")))
         server._apply_update(
             UpdateMessage(scene_id="s1", patches=[Patch(id="nonexistent", remove=True)])
         )
-        assert len(server._current_scene.elements) == 1
+        assert len(server._scenes["s1"].elements) == 1
 
     def test_remove_6_rejected_wrong_scene_id(self):
         """REJECTED: Update targets wrong scene_id -> no-op."""
         server = _server()
-        server._current_scene = _scene_with("s1", TextElement(id="t1", content="A"))
+        _inject_scene(server, _scene_with("s1", TextElement(id="t1", content="A")))
         server._apply_update(
             UpdateMessage(scene_id="wrong", patches=[Patch(id="t1", remove=True)])
         )
-        assert len(server._current_scene.elements) == 1
+        assert len(server._scenes["s1"].elements) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -411,7 +434,7 @@ class TestButtonClickPartitions:
     def test_click_1_happy_path_empty_queue(self):
         """P1: Click button with empty event queue."""
         server = _server()
-        server._current_scene = _scene_with("s1", ButtonElement(id="b1", label="Go"))
+        _inject_scene(server, _scene_with("s1", ButtonElement(id="b1", label="Go")))
         server._event_queue.append(
             InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
         )
@@ -421,10 +444,13 @@ class TestButtonClickPartitions:
     def test_click_2_queue_has_existing_events(self):
         """P2: Click button when queue already has events."""
         server = _server()
-        server._current_scene = _scene_with(
-            "s1",
-            ButtonElement(id="b1", label="A"),
-            ButtonElement(id="b2", label="B"),
+        _inject_scene(
+            server,
+            _scene_with(
+                "s1",
+                ButtonElement(id="b1", label="A"),
+                ButtonElement(id="b2", label="B"),
+            ),
         )
         server._event_queue.append(
             InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
@@ -439,11 +465,14 @@ class TestButtonClickPartitions:
     def test_click_3_boundary_fills_queue(self):
         """P3 BOUNDARY: Queue at maxEvents-1, click fills to max."""
         server = _server()
-        server._current_scene = _scene_with(
-            "s1",
-            ButtonElement(id="b1", label="A"),
-            ButtonElement(id="b2", label="B"),
-            ButtonElement(id="b3", label="C"),
+        _inject_scene(
+            server,
+            _scene_with(
+                "s1",
+                ButtonElement(id="b1", label="A"),
+                ButtonElement(id="b2", label="B"),
+                ButtonElement(id="b3", label="C"),
+            ),
         )
         # Pre-fill to maxEvents-1 = 2
         server._event_queue.append(
@@ -462,7 +491,7 @@ class TestButtonClickPartitions:
         """REJECTED ¬P1: No scene -> no button to click.
         Concrete code: _render_scene shows "waiting" text, no buttons."""
         server = _server()
-        assert server._current_scene is None
+        assert len(server._scenes) == 0
         # No buttons rendered, so no events can be queued
         assert len(server._event_queue) == 0
 
@@ -470,8 +499,8 @@ class TestButtonClickPartitions:
         """REJECTED ¬P2: buttonId not in elemIds.
         Concrete code: button doesn't exist in scene, never rendered."""
         server = _server()
-        server._current_scene = _scene_with(
-            "s1", TextElement(id="t1", content="No buttons")
+        _inject_scene(
+            server, _scene_with("s1", TextElement(id="t1", content="No buttons"))
         )
         # No buttons in scene, so no button click events possible
         assert len(server._event_queue) == 0
@@ -480,8 +509,8 @@ class TestButtonClickPartitions:
         """REJECTED ¬P3: Element exists but is not a button.
         Text elements don't generate click events."""
         server = _server()
-        server._current_scene = _scene_with(
-            "s1", TextElement(id="t1", content="Not clickable")
+        _inject_scene(
+            server, _scene_with("s1", TextElement(id="t1", content="Not clickable"))
         )
         # Text elements don't produce interaction events
         # (only buttons have click handling in _render_button)
@@ -492,7 +521,7 @@ class TestButtonClickPartitions:
         The Z spec uses sets (eventQueue : P ELEMID), so duplicates
         collapse. Concrete code uses a list, so both are kept."""
         server = _server()
-        server._current_scene = _scene_with("s1", ButtonElement(id="b1", label="X"))
+        _inject_scene(server, _scene_with("s1", ButtonElement(id="b1", label="X")))
         server._event_queue.append(
             InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
         )
@@ -517,7 +546,7 @@ class TestFlushEventsPartitions:
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
-        server._current_scene = _scene_with("s1", ButtonElement(id="b1", label="X"))
+        _inject_scene(server, _scene_with("s1", ButtonElement(id="b1", label="X")))
         server._event_queue.append(
             InteractionMessage(element_id="b1", action="click", ts=1.0)
         )
@@ -663,7 +692,7 @@ class TestShutdownPartitions:
         server = _server()
         _register(server, _sock(fd=10))
         _register(server, _sock(fd=20))
-        server._current_scene = _scene_with("s1", TextElement(id="t1", content="A"))
+        _inject_scene(server, _scene_with("s1", TextElement(id="t1", content="A")))
         server._event_queue.append(
             InteractionMessage(element_id="t1", action="click", ts=1.0)
         )
@@ -672,13 +701,13 @@ class TestShutdownPartitions:
             client.close()
         server._clients.clear()
         server._readers.clear()
-        server._current_scene = None
+        _clear_all_scenes(server)
         server._event_queue.clear()
         server._server_sock = None
 
         assert len(server._clients) == 0
         assert len(server._readers) == 0
-        assert server._current_scene is None
+        assert len(server._scenes) == 0
         assert len(server._event_queue) == 0
         assert server._server_sock is None
 
@@ -687,12 +716,12 @@ class TestShutdownPartitions:
         server = _server()
         server._clients.clear()
         server._readers.clear()
-        server._current_scene = None
+        _clear_all_scenes(server)
         server._event_queue.clear()
         server._server_sock = None
 
         assert len(server._clients) == 0
-        assert server._current_scene is None
+        assert len(server._scenes) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -725,10 +754,10 @@ class TestInvariantPartitions:
             SeparatorElement(id="sep1"),
         )
         server._handle_message(sock, scene)
-        assert server._current_scene is not None
-        elem_ids = {e.id for e in server._current_scene.elements if e.id}
+        assert len(server._scenes) > 0
+        elem_ids = {e.id for e in server._scenes["s1"].elements if e.id}
         elem_with_kind = {
-            e.id for e in server._current_scene.elements if e.id and hasattr(e, "kind")
+            e.id for e in server._scenes["s1"].elements if e.id and hasattr(e, "kind")
         }
         assert elem_ids <= elem_with_kind
 
@@ -740,16 +769,16 @@ class TestInvariantPartitions:
         sock = _sock()
         scene = _scene_with("s1", ButtonElement(id="b1", label="X"))
         server._handle_message(sock, scene)
-        assert server._current_scene is not None
+        assert len(server._scenes) > 0
         server._event_queue.append(
             InteractionMessage(element_id="b1", action="b1", ts=1.0)
         )
-        scene_elem_ids = {e.id for e in server._current_scene.elements if e.id}
+        scene_elem_ids = {e.id for e in server._scenes["s1"].elements if e.id}
         event_elem_ids = {e.element_id for e in server._event_queue}
         assert event_elem_ids <= scene_elem_ids
 
-    def test_inv_i7_scene_replace_clears_stale_events(self):
-        """I7: New scene clears events that reference old elements."""
+    def test_inv_i7_same_id_replace_drains_stale_events(self):
+        """I7: Same-ID scene replace drains events for removed elements."""
         server = _server()
         sock = _sock()
         server._handle_message(
@@ -758,8 +787,9 @@ class TestInvariantPartitions:
         server._event_queue.append(
             InteractionMessage(element_id="b1", action="b1", ts=1.0)
         )
+        # Replace s1 with new content that lacks b1
         server._handle_message(
-            sock, _scene_with("s2", TextElement(id="t1", content="New"))
+            sock, _scene_with("s1", TextElement(id="t1", content="New"))
         )
-        # Old events cleared — new scene has no b1
+        # b1 event drained — new scene has no b1
         assert len(server._event_queue) == 0

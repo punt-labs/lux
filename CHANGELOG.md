@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Persistent dismissable tabs** — each `show()` call opens a new tab; multiple scenes coexist and users can dismiss them individually via close button. Same `scene_id` replaces content in-place (no new tab). Single-scene usage renders without tab bar chrome.
+- **Flame idle screen** — animated candle flame with radial light rays replaces "waiting for scene..." text; theme-aware (adapts to light and dark backgrounds)
+- **Clear All** menu item under Window — clears all tabs and resets to idle screen
+- **Dock hiding** (macOS) — display server hides from Dock via `NSApplicationActivationPolicyAccessory`; process name shows as "Lux" in `ps` via `setproctitle`
+- Optional `display` extras: `setproctitle`, `pyobjc-framework-Cocoa` (macOS only)
+
+### Changed
+
+- Default font scale increased from 1.0× to 1.1×
+- Window title simplified from "Lux Display" to "Lux"
+
 ### Fixed
 
 - **`/lux:beads` skill** — use `show_table` MCP tool instead of bypassing protocol with raw Python script via Bash
