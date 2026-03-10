@@ -168,7 +168,7 @@ class WidgetState:
 
 
 def _parse_color(
-    color: str | list[int] | tuple[int, ...],
+    color: str | list[int] | tuple[int, ...] | Any,
 ) -> tuple[int, int, int, int]:
     """Parse a color value to (r, g, b, a) ints 0-255.
 
@@ -185,6 +185,9 @@ def _parse_color(
         except (TypeError, ValueError):
             pass
         logger.warning("Invalid RGBA color %r; using fallback white", color)
+        return (255, 255, 255, 255)
+    if not isinstance(color, str):
+        logger.warning("Invalid color type %r; using fallback white", type(color))
         return (255, 255, 255, 255)
     h = color.lstrip("#")
     try:
@@ -213,7 +216,7 @@ def _color_to_hex(r: float, g: float, b: float) -> str:
 
 
 def _to_imgui_color(
-    color: str | list[int] | tuple[int, ...],
+    color: str | list[int] | tuple[int, ...] | Any,
 ) -> int:
     """Convert a color value to ImGui packed color (ImU32).
 

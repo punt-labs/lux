@@ -788,13 +788,19 @@ class TestParseColor:
         assert _parse_color([]) == (255, 255, 255, 255)
 
     def test_list_non_numeric_fallback(self) -> None:
-        assert _parse_color(["x", "y", "z"]) == (255, 255, 255, 255)  # type: ignore[list-item]
+        assert _parse_color(["x", "y", "z"]) == (255, 255, 255, 255)
 
     def test_list_none_elements_fallback(self) -> None:
-        assert _parse_color([None, None, None]) == (255, 255, 255, 255)  # type: ignore[list-item]
+        assert _parse_color([None, None, None]) == (255, 255, 255, 255)
 
     def test_invalid_hex_fallback(self) -> None:
         assert _parse_color("#ZZZZZZ") == (255, 255, 255, 255)
 
     def test_float_list_truncated_to_int(self) -> None:
-        assert _parse_color([70.9, 130.1, 230.5]) == (70, 130, 230, 255)  # type: ignore[list-item]
+        assert _parse_color([70.9, 130.1, 230.5]) == (70, 130, 230, 255)
+
+    def test_none_fallback(self) -> None:
+        assert _parse_color(None) == (255, 255, 255, 255)
+
+    def test_int_fallback(self) -> None:
+        assert _parse_color(42) == (255, 255, 255, 255)
