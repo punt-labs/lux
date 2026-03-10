@@ -65,7 +65,7 @@ def load_beads(beads_dir: Path, *, all_issues: bool = False) -> list[dict[str, A
             raise ValueError(msg)
         row = cast("dict[str, Any]", issue)
         for key, default in _FIELD_DEFAULTS.items():
-            if not row.get(key):
+            if row.get(key) is None:
                 row[key] = default
         issues.append(row)
 
