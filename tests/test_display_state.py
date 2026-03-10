@@ -642,23 +642,39 @@ class TestMultiScene:
         assert "w1" in server._dirty_windows
 
     def test_dismiss_drains_events_for_dismissed_scene(self) -> None:
-        """Dismissing a scene removes its events from the global queue."""
+        """Dismissing a scene removes its unique events from the queue."""
         server = _make_server()
         sock = _mock_sock()
 
-        server._handle_message(sock, _make_scene(scene_id="s1"))
-        server._handle_message(sock, _make_scene(scene_id="s2"))
+        # s1 has unique elements not shared with s2
+        server._handle_message(
+            sock,
+            _make_scene(
+                scene_id="s1",
+                elements=[
+                    ButtonElement(id="s1_btn", label="S1"),
+                    TextElement(id="s1_txt", content="S1"),
+                ],
+            ),
+        )
+        server._handle_message(
+            sock,
+            _make_scene(
+                scene_id="s2",
+                elements=[ButtonElement(id="s2_btn", label="S2")],
+            ),
+        )
 
-        # Queue events from both scenes
+        # Queue events for s1's elements
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
+            InteractionMessage(element_id="s1_btn", action="s1_btn", ts=1.0, value=True)
         )
         server._event_queue.append(
-            InteractionMessage(element_id="t1", action="t1", ts=1.0, value=True)
+            InteractionMessage(element_id="s1_txt", action="s1_txt", ts=1.0, value=True)
         )
         assert len(server._event_queue) == 2
 
-        # Dismiss s1 — events for s1's elements (b1, t1) should be drained
+        # Dismiss s1 — its events should be drained
         server._dismiss_scene("s1")
 
         assert len(server._event_queue) == 0
@@ -696,3 +712,43 @@ class TestMultiScene:
 
         assert len(server._event_queue) == 1
         assert server._event_queue[0].element_id == "btn_s2"
+
+    def test_dismiss_preserves_events_for_shared_element_ids(self) -> None:
+        """Dismissing a scene with shared IDs keeps events alive for survivors."""
+        server = _make_server()
+        sock = _mock_sock()
+
+        # Both scenes share element ID "shared_btn"
+        server._handle_message(
+            sock,
+            _make_scene(
+                scene_id="s1",
+                elements=[
+                    ButtonElement(id="shared_btn", label="S1"),
+                    ButtonElement(id="s1_only", label="S1 Only"),
+                ],
+            ),
+        )
+        server._handle_message(
+            sock,
+            _make_scene(
+                scene_id="s2",
+                elements=[ButtonElement(id="shared_btn", label="S2")],
+            ),
+        )
+
+        # Events for shared and unique IDs
+        server._event_queue.append(
+            InteractionMessage(
+                element_id="shared_btn", action="click", ts=1.0, value=True
+            )
+        )
+        server._event_queue.append(
+            InteractionMessage(element_id="s1_only", action="click", ts=1.0, value=True)
+        )
+
+        # Dismiss s1 — shared_btn survives in s2, s1_only does not
+        server._dismiss_scene("s1")
+
+        assert len(server._event_queue) == 1
+        assert server._event_queue[0].element_id == "shared_btn"
