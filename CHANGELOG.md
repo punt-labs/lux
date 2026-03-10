@@ -6,7 +6,7 @@
 
 - **Session start hook hang** — removed unnecessary stdin parsing from
   `cc_session_start`. The handler never used the data, so all 17 lines
-  of non-blocking stdin reading were wasted work. See biff DES-027.
+  of non-blocking stdin reading were wasted work. See DES-027.
 
 ## [0.7.0] - 2026-03-09
 
