@@ -851,6 +851,14 @@ class DisplayServer:
             sym = _first_existing("/System/Library/Fonts/Apple Symbols.ttf")
             if sym:
                 merge.append(sym)
+            # STIX Two Math covers Mathematical Alphanumeric Symbols
+            # (U+1D400-1D7FF) -- needed for Z notation double-struck letters
+            math = _first_existing(
+                "/System/Library/Fonts/Supplemental/STIXTwoMath.otf",
+                "/Library/Fonts/STIXTwoMath.otf",
+            )
+            if math:
+                merge.append(math)
         else:
             # Linux — DejaVu has good symbol coverage; Noto as fallback
             primary = _first_existing(
@@ -867,6 +875,14 @@ class DisplayServer:
             )
             if sym:
                 merge.append(sym)
+            # Noto Sans Math covers Mathematical Alphanumeric Symbols
+            # (U+1D400-1D7FF) -- needed for Z notation double-struck letters
+            math = _first_existing(
+                "/usr/share/fonts/truetype/noto/NotoSansMath-Regular.ttf",
+                "/usr/share/fonts/noto/NotoSansMath-Regular.ttf",
+            )
+            if math:
+                merge.append(math)
 
         return primary, merge
 

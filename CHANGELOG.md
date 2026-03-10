@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **SMP font coverage** — merge STIX Two Math (macOS) and Noto Sans Math
+  (Linux) for Mathematical Alphanumeric Symbols block (U+1D400–1D7FF).
+  Fixes diamond replacement glyphs for Z notation double-struck letters
+  like 𝔽 (U+1D53D). See DES-020.
+- **`make font-test`** — visual font coverage test that starts a dev display
+  server and renders SMP/BMP double-struck characters for verification.
+
 ## [0.7.2] - 2026-03-10
 
 ### Fixed

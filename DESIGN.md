@@ -1165,3 +1165,40 @@ An alternative would be a standalone `detail_panel` element type linked to a tab
 ### Rejected: Key-Based Row Matching
 
 Instead of parallel arrays, detail rows could use a key field to match table rows. This adds complexity (key extraction, lookup maps) for no practical benefit — the LLM constructs both arrays at the same time and can trivially keep them aligned.
+
+---
+
+## DES-020: SMP Font Coverage — Math Font Merge for Double-Struck Letters
+
+**Date:** 2026-03-10
+**Status:** ACCEPTED
+**Topic:** How the display server renders Supplementary Multilingual Plane (SMP) characters
+
+### Context
+
+Characters above U+FFFF (the Basic Multilingual Plane) rendered as diamond replacement glyphs. Specifically, U+1D53D (Mathematical Double-Struck Capital F) used for Z notation's `\finset` was missing. The existing font stack (Arial Unicode + Apple Symbols on macOS, DejaVu Sans + Noto Sans Symbols2 on Linux) lacks coverage for the Mathematical Alphanumeric Symbols block (U+1D400-1D7FF).
+
+### Design
+
+Add a math font as a third merge font on each platform:
+
+| Platform | Math font | Provides |
+|----------|-----------|----------|
+| macOS | `STIXTwoMath.otf` (ships with macOS) | U+1D400-1D7FF and other mathematical symbols |
+| Linux | `NotoSansMath-Regular.ttf` | Same block via Noto family |
+
+The font is merged via `hello_imgui.load_font()` with `merge_to_last_font = True`, same as the existing symbol fonts.
+
+### Why No Glyph Range Specification
+
+imgui 1.92+ (Lux uses 1.92.7) introduced dynamic font loading: glyphs are rasterized on demand with no need to pre-specify codepoint ranges. Adding a font that contains the target glyphs is sufficient. Earlier imgui versions required explicit `ImFontGlyphRangesBuilder` configuration for non-Latin codepoints.
+
+### Font Size and Rasterization
+
+Double-struck characters have thin parallel strokes (two contours per letter). At the default 15px font size, the 1px gap between strokes can be anti-aliased into a single solid stroke, making them resemble regular letters. This is a bitmap rasterization limitation, not a glyph loading issue. Users can zoom via Lux > Increase Font (Cmd++) to see the detail.
+
+BMP double-struck characters (U+2124 etc.) render from Arial Unicode (primary font) since merge fonts only fill gaps for codepoints not already present. SMP characters render from STIX/Noto Math (only source). The visual styles differ slightly between the two fonts.
+
+### Rejected: Bundling a Font
+
+Bundling a font file in the package would add weight and licensing complexity. Both STIX Two Math and Noto Sans Math ship with their respective OS distributions. If neither is present, the display degrades gracefully (replacement glyphs for those specific characters only).
