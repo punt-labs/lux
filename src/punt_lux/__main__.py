@@ -98,6 +98,15 @@ def cc_session_start() -> None:
     emit(result)
 
 
+@hook_app.command("post-bash")
+def cc_post_bash() -> None:
+    """PostToolUse Bash — internal hook dispatcher."""
+    from punt_lux.hooks import handle_post_bash, read_hook_input
+
+    data = read_hook_input()
+    handle_post_bash(data)
+
+
 # ---------------------------------------------------------------------------
 # Admin commands
 # ---------------------------------------------------------------------------
