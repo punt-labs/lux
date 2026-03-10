@@ -585,6 +585,30 @@ def _render_table_pagination(
     return start, end, page_changed
 
 
+def _parse_table_flags(
+    flags_list: list[str],
+    imgui: Any,
+) -> tuple[int, bool]:
+    """Parse Lux table flags into imgui flags and Lux-level booleans.
+
+    Returns ``(imgui_flags, copy_id)``.
+    """
+    flag_map = {
+        "borders": imgui.TableFlags_.borders.value,
+        "row_bg": imgui.TableFlags_.row_bg.value,
+        "resizable": imgui.TableFlags_.resizable.value,
+        "sortable": imgui.TableFlags_.sortable.value,
+    }
+    imgui_flags = 0
+    copy_id = False
+    for f in flags_list:
+        if f == "copy_id":
+            copy_id = True
+        else:
+            imgui_flags |= flag_map.get(f, 0)
+    return imgui_flags, copy_id
+
+
 def _render_table_rows(
     indexed_rows: list[IndexedRow],
     num_cols: int,
@@ -2096,15 +2120,7 @@ class DisplayServer:
             imgui,
         )
 
-        flag_map = {
-            "borders": imgui.TableFlags_.borders.value,
-            "row_bg": imgui.TableFlags_.row_bg.value,
-            "resizable": imgui.TableFlags_.resizable.value,
-            "sortable": imgui.TableFlags_.sortable.value,
-        }
-        table_flags = 0
-        for f in flags_list:
-            table_flags |= flag_map.get(f, 0)
+        table_flags, copy_id = _parse_table_flags(flags_list, imgui)
 
         # Cache column weights — recompute when rows object or widths change.
         # id(rows) changes on update() since _apply_patch_set creates a new list.
@@ -2143,6 +2159,8 @@ class DisplayServer:
         if has_detail and needs_auto_select and page_rows:
             first_orig = page_rows[0][0]
             self._widget_state.set(sel_key, first_orig)
+        # Track prev_sel AFTER auto-select so auto-select doesn't trigger copy
+        prev_sel: int = self._widget_state.ensure(sel_key, -1)
 
         if imgui.begin_table(imgui_id, num_cols, table_flags):
             stretch = imgui.TableColumnFlags_.width_stretch.value
@@ -2173,6 +2191,10 @@ class DisplayServer:
                 self._widget_state,
                 imgui,
             )
+
+        # Copy first column to clipboard on selection change
+        if copy_id and selected_orig != prev_sel and 0 <= selected_orig < len(rows):
+            imgui.set_clipboard_text(str(rows[selected_orig][0]))
 
         if has_detail and selected_orig >= 0:
             tbl_row = rows[selected_orig] if selected_orig < len(rows) else None

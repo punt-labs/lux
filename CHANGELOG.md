@@ -10,6 +10,14 @@
   like 𝔽 (U+1D53D). See DES-020.
 - **`make font-test`** — visual font coverage test that starts a dev display
   server for manual verification of SMP/BMP double-struck characters.
+- **`lux show beads`** — CLI command that displays the beads issue board in
+  the Lux window without requiring an LLM to generate the table mapping.
+  Reads `.beads/issues.jsonl`, filters to active issues, and sends directly
+  to the display server. Supports `--all` to include closed issues.
+- **`copy_id` table flag** — when set, selecting a table row copies the first
+  column value to the system clipboard. Enabled by default in `lux show beads`.
+- **PostToolUse beads hook** — automatically refreshes the Lux beads board
+  after `bd create`, `close`, `update`, `dep`, or `sync` commands.
 
 ## [0.7.2] - 2026-03-10
 

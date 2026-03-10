@@ -107,6 +107,7 @@ ignore = [
 "src/punt_lux/config.py" = ["S607"]
 "src/punt_lux/display.py" = ["PLC0415"]
 "src/punt_lux/cli.py" = ["T20", "FBT", "PLC0415"]
+"src/punt_lux/show.py" = ["T20", "FBT", "PLC0415"]
 
 [tool.ruff.format]
 quote-style = "double"

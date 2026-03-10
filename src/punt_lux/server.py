@@ -212,6 +212,8 @@ def show_table(
             entry in ``detail.body`` is the expanded text for the
             corresponding row.
         flags: Table flags (default: ["borders", "row_bg"]).
+            Available: "borders", "row_bg", "resizable", "sortable",
+            "copy_id" (copy first column to clipboard on row select).
         title: Window title.
 
     Example — issue explorer with search, status filter, and detail::
