@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.7.2] - 2026-03-10
+
 ### Fixed
 
 - **Draw element crash on RGBA list colors** — `_parse_hex_color` called
