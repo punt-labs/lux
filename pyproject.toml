@@ -100,6 +100,7 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "S105", "S106", "S108", "S603", "T20", "SLF001", "ARG", "FBT", "PLC0415", "A002"]
 "demos/*" = ["T20", "S311", "C901"]
+"scripts/*" = ["T20", "S108", "S603", "PLC0415"]
 "src/punt_lux/__main__.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/consent.py" = ["PLC0415"]
 "src/punt_lux/runtime.py" = ["S102", "BLE001"]

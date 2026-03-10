@@ -149,7 +149,12 @@ def _check_fonts(_check: _CheckFn) -> None:
             "/System/Library/Fonts/Helvetica.ttc",
         )
         sym = _first_existing("/System/Library/Fonts/Apple Symbols.ttf")
+        math = _first_existing(
+            "/System/Library/Fonts/Supplemental/STIXTwoMath.otf",
+            "/Library/Fonts/STIXTwoMath.otf",
+        )
         hint = ""  # macOS always has these
+        math_hint = ""  # ships with macOS
     else:
         primary = _first_existing(
             "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
@@ -162,7 +167,12 @@ def _check_fonts(_check: _CheckFn) -> None:
             "/usr/share/fonts/truetype/noto/NotoSansSymbols2-Regular.ttf",
             "/usr/share/fonts/noto/NotoSansSymbols2-Regular.ttf",
         )
+        math = _first_existing(
+            "/usr/share/fonts/truetype/noto/NotoSansMath-Regular.ttf",
+            "/usr/share/fonts/noto/NotoSansMath-Regular.ttf",
+        )
         hint = " \u2014 apt install fonts-dejavu-core or fonts-noto"
+        math_hint = " \u2014 apt install fonts-noto"
 
     if primary:
         _check(_OK, f"Font: {primary}", required=False)
@@ -176,6 +186,16 @@ def _check_fonts(_check: _CheckFn) -> None:
         _check(
             _OPTIONAL,
             "No symbol font found (math symbols may not render)",
+            required=False,
+        )
+
+    if math:
+        _check(_OK, f"Math font: {math}", required=False)
+    else:
+        _check(
+            _OPTIONAL,
+            f"No math font found{math_hint}"
+            " (Z notation double-struck letters may not render)",
             required=False,
         )
 
