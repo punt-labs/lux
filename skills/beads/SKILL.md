@@ -23,7 +23,7 @@ Read `.beads/issues.jsonl` using the Read tool. If the file does not exist, tell
 
 Each line is a JSON object that may include: `id`, `title`, `status`, `priority`, `issue_type`, `description`, `assignee`, `owner`, `created_at`, `updated_at`. Use these defaults for missing fields:
 
-- `title`: `""`, `status`: `"open"`, `priority`: `3`, `issue_type`: `"task"`
+- `title`: `""`, `status`: `"open"`, `priority`: `4`, `issue_type`: `"task"`
 - `description`, `assignee`, `owner`, `created_at`, `updated_at`: `""`
 
 ## Step 2: Build the table data
@@ -79,7 +79,7 @@ Call the `show_table` MCP tool with:
 
 ## Step 4: Tell the user
 
-After the tool returns success, tell the user the board is live:
+After `show_table` returns a value starting with `ack:`, the board is live. If it returns `timeout`, tell the user the display server did not respond. Otherwise, tell the user:
 
 - Search and filter dropdowns work instantly (no round trips)
 - Click any row to see its full details in the side panel
