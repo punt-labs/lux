@@ -65,7 +65,8 @@ def load_beads(beads_dir: Path, *, all_issues: bool = False) -> list[dict[str, A
             raise ValueError(msg)
         row = cast("dict[str, Any]", issue)
         for key, default in _FIELD_DEFAULTS.items():
-            row.setdefault(key, default)
+            if not row.get(key):
+                row[key] = default
         issues.append(row)
 
     if not all_issues:
@@ -187,7 +188,11 @@ def beads(
         )
         raise typer.Exit(code=1)
 
-    issues = load_beads(beads_dir, all_issues=all_issues)
+    try:
+        issues = load_beads(beads_dir, all_issues=all_issues)
+    except ValueError as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=1) from None
     if not issues:
         typer.echo("No issues to display.")
         raise typer.Exit(code=0)

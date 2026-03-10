@@ -65,7 +65,7 @@ def read_hook_input() -> dict[str, object]:
         if isinstance(parsed, dict):
             return cast("dict[str, object]", parsed)
         return {}
-    except (json.JSONDecodeError, OSError, ValueError):
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError, ValueError):
         return {}
 
 
