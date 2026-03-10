@@ -817,7 +817,9 @@ def _table_column_weights(
         for col_idx, cell in enumerate(row):
             if col_idx < num_cols:
                 weights[col_idx] = max(weights[col_idx], float(len(str(cell))))
-    return [max(w, 1.0) for w in weights]
+    # Floor at 4.0 so short columns (e.g. "P2") don't collapse to
+    # near-zero when stretched beside long-content columns.
+    return [max(w, 4.0) for w in weights]
 
 
 # ---------------------------------------------------------------------------

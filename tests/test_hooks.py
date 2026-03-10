@@ -65,12 +65,32 @@ class TestHandlePostBash:
             handle_post_bash({})
         mock_sub.Popen.assert_not_called()
 
-    def test_ignores_bd_without_mutation_verb(self) -> None:
+    def test_ignores_bare_bd(self) -> None:
         with patch("punt_lux.hooks.subprocess") as mock_sub:
-            handle_post_bash(_bash_data("bd list --status=open"))
+            handle_post_bash(_bash_data("bd"))
         mock_sub.Popen.assert_not_called()
 
-    def test_ignores_bd_mutation_without_beads_dir(
+    def test_fires_on_bd_ready(self, tmp_path: Path) -> None:
+        (tmp_path / ".beads").mkdir()
+        mock_run = patch("punt_lux.hooks.subprocess.run")
+        mock_popen = patch("punt_lux.hooks.subprocess.Popen")
+        with mock_run as m_run, mock_popen as m_popen:
+            m_run.return_value.returncode = 0
+            m_run.return_value.stdout = str(tmp_path) + "\n"
+            handle_post_bash(_bash_data("bd ready"))
+        m_popen.assert_called_once()
+
+    def test_fires_on_bd_list(self, tmp_path: Path) -> None:
+        (tmp_path / ".beads").mkdir()
+        mock_run = patch("punt_lux.hooks.subprocess.run")
+        mock_popen = patch("punt_lux.hooks.subprocess.Popen")
+        with mock_run as m_run, mock_popen as m_popen:
+            m_run.return_value.returncode = 0
+            m_run.return_value.stdout = str(tmp_path) + "\n"
+            handle_post_bash(_bash_data("bd list --status=open"))
+        m_popen.assert_called_once()
+
+    def test_bd_without_beads_dir_skips(
         self,
         tmp_path: Path,
     ) -> None:

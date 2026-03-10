@@ -204,16 +204,17 @@ def beads(
         "id": "table",
         "columns": payload["columns"],
         "rows": payload["rows"],
-        "flags": ["borders", "row_bg", "copy_id"],
+        "flags": ["borders", "row_bg", "resizable", "copy_id"],
         "filters": payload["filters"],
         "detail": payload["detail"],
     }
 
+    project = Path.cwd().name or "unknown"
     sock_path = Path(socket) if socket else default_socket_path()
     elements = [element_from_dict(table)]
 
     with LuxClient(sock_path) as client:
-        ack = client.show("beads-board", elements, title="Beads")
+        ack = client.show(f"beads-{project}", elements, title=f"Beads: {project}")
 
     if ack is None:
         typer.echo("Timeout: display server did not respond.", err=True)

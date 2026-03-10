@@ -51,8 +51,8 @@ Collect unique `status` and `issue_type` values for combo filter items.
 
 Call the `show_table` MCP tool with:
 
-- **`scene_id`**: `"beads-board"`
-- **`title`**: `"Beads"`
+- **`scene_id`**: `"beads-<project>"` where `<project>` is the current directory name (e.g. `"beads-lux"`, `"beads-quarry"`). This gives each project its own tab.
+- **`title`**: `"Beads: <project>"` (e.g. `"Beads: lux"`)
 - **`columns`**: `["ID", "Title", "Status", "P", "Type"]`
 - **`rows`**: the main table rows from Step 2
 - **`filters`**:
