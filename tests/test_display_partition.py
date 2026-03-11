@@ -920,9 +920,9 @@ class TestFrameCascadePartitions:
         server._handle_framed_scene(sock, _framed_scene("s2", "f2"))
         server._close_frame("f1")
 
-        # After closing f1, only f2 remains (count=1), so f3 gets index 1
+        # After closing f1 (index 0), f2 keeps index 1, so f3 gets index 0
         server._handle_framed_scene(sock, _framed_scene("s3", "f3"))
-        assert server._frames["f3"].cascade_index == 1
+        assert server._frames["f3"].cascade_index == 0
 
 
 class TestCloseFramePartitions:

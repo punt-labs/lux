@@ -1529,6 +1529,14 @@ class DisplayServer:
         self._scene_widget_state[msg.id].clear()
         self._scene_render_fn_state[msg.id].clear()
 
+    def _next_cascade_index(self) -> int:
+        """Return the smallest non-negative index not used by any open frame."""
+        used = {f.cascade_index for f in self._frames.values()}
+        idx = 0
+        while idx in used:
+            idx += 1
+        return idx
+
     def _handle_framed_scene(self, sock: socket.socket, msg: SceneMessage) -> None:
         """Route a scene into a frame, creating the frame if needed."""
         frame_id = msg.frame_id
@@ -1547,7 +1555,7 @@ class DisplayServer:
                 owner_fd=fd,
                 scenes={},
                 scene_order=[],
-                cascade_index=len(self._frames),
+                cascade_index=self._next_cascade_index(),
             )
             self._frames[frame_id] = frame
         elif frame.owner_fd != fd:
