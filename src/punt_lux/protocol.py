@@ -554,7 +554,7 @@ class UnknownMessage:
     """
 
     raw_type: str
-    data: dict[str, Any] = field(default_factory=lambda: cast("dict[str, Any]", {}))
+    data: dict[str, Any] = field(default_factory=dict)  # type: ignore[assignment]
     type: Literal["unknown"] = "unknown"
 
 
@@ -1335,7 +1335,9 @@ def _register_serializers() -> None:  # noqa: C901
     _MESSAGE_SERIALIZERS[PongMessage] = _pong
 
     def _unknown(m: UnknownMessage) -> dict[str, Any]:
-        return m.data
+        d = dict(m.data)
+        d["type"] = m.raw_type
+        return d
 
     _MESSAGE_SERIALIZERS[UnknownMessage] = _unknown
 
@@ -1388,8 +1390,8 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
     if msg_type == "pong":
         return PongMessage(ts=d.get("ts"), display_ts=d.get("display_ts"))
 
-    if not msg_type:
-        err = "Message missing 'type' field"
+    if not isinstance(msg_type, str) or not msg_type:
+        err = "Message missing or invalid 'type' field"
         raise ValueError(err)
 
     return UnknownMessage(raw_type=msg_type, data=d)

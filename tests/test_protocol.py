@@ -487,18 +487,27 @@ class TestSerialization:
         assert msg.data == {"type": "bogus", "data": 42}
 
     def test_missing_message_type_raises(self):
-        with pytest.raises(ValueError, match="missing 'type'"):
+        with pytest.raises(ValueError, match="missing or invalid"):
             message_from_dict({"data": 42})
 
     def test_empty_message_type_raises(self):
-        with pytest.raises(ValueError, match="missing 'type'"):
+        with pytest.raises(ValueError, match="missing or invalid"):
             message_from_dict({"type": "", "data": 42})
+
+    def test_non_string_message_type_raises(self):
+        with pytest.raises(ValueError, match="missing or invalid"):
+            message_from_dict({"type": 123})
 
     def test_unknown_message_roundtrip(self):
         data = {"type": "future_type", "x": 1}
         msg = UnknownMessage(raw_type="future_type", data=data)
         d = message_to_dict(msg)
         assert d == {"type": "future_type", "x": 1}
+
+    def test_unknown_message_serializer_forces_type(self):
+        msg = UnknownMessage(raw_type="my_type", data={})
+        d = message_to_dict(msg)
+        assert d == {"type": "my_type"}
 
     def test_unknown_element_kind_raises(self):
         with pytest.raises(ValueError, match="Unknown element kind"):
