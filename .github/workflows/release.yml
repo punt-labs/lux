@@ -81,7 +81,7 @@ jobs:
         run: lux --help
 
   pypi:
-    needs: test-install
+    needs: testpypi
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment: release
