@@ -1289,7 +1289,7 @@ class DisplayServer:
             # Deserialize all complete frames — KeyError/TypeError/ValueError
             # here means malformed wire data, not a handler bug.
             try:
-                messages = list(reader.drain_typed())
+                messages = reader.drain_typed()
             except (ValueError, KeyError, TypeError):
                 fd = sock.fileno()
                 logger.warning("Malformed message from fd %d", fd)
