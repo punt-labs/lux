@@ -899,6 +899,7 @@ class TestCloseFramePartitions:
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
+        server._fd_to_client[10] = sock
         server._handle_message(
             sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
@@ -913,10 +914,11 @@ class TestCloseFramePartitions:
         assert "s2" not in server._scene_to_frame
         assert "s1" not in server._scene_widget_state
         assert "s2" not in server._scene_widget_state
-        # Close event emitted
-        close_events = [e for e in server._event_queue if e.action == "frame_close"]
-        assert len(close_events) == 1
-        assert close_events[0].element_id == "f1"
+        # Close event sent directly to owner socket
+        calls = sock.sendall.call_args_list
+        # Last sendall should contain frame_close interaction
+        last_payload = calls[-1][0][0]
+        assert b"frame_close" in last_payload
 
     def test_close_nonexistent_frame_is_noop(self):
         """Closing a frame that doesn't exist is idempotent."""
@@ -960,3 +962,78 @@ class TestDisconnectFrameCleanupPartitions:
         server._remove_client(sock)
 
         assert len(server._frames) == 0
+
+
+class TestFrameOwnershipPartitions:
+    """Frame ownership enforcement (DES-022 invariant)."""
+
+    def test_non_owner_rejected(self):
+        """A different client cannot add scenes to another's frame."""
+        server = _server()
+        s1 = _sock(fd=10)
+        s2 = _sock(fd=20)
+        _register(server, s1)
+        _register(server, s2)
+        server._handle_message(
+            s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
+        )
+
+        # Client 2 tries to add to client 1's frame
+        server._handle_message(
+            s2, _framed_scene("s2", "f1", TextElement(id="t2", content="B"))
+        )
+
+        frame = server._frames["f1"]
+        assert len(frame.scenes) == 1
+        assert "s1" in frame.scenes
+        assert "s2" not in frame.scenes
+
+
+class TestFrameUpdatePartitions:
+    """UpdateMessage works for framed scenes."""
+
+    def test_update_framed_scene(self):
+        """Patches apply to scenes stored in frames."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(
+            sock,
+            _framed_scene("s1", "f1", TextElement(id="t1", content="Old")),
+        )
+
+        server._apply_update(
+            UpdateMessage(
+                scene_id="s1",
+                patches=[Patch(id="t1", set={"content": "New"})],
+            )
+        )
+
+        scene = server._frames["f1"].scenes["s1"]
+        el = scene.elements[0]
+        assert isinstance(el, TextElement)
+        assert el.content == "New"
+
+
+class TestFrameStaleEventDrainPartitions:
+    """Closing frames drains stale interaction events."""
+
+    def test_close_frame_drains_events(self):
+        """Events for elements in closed frame are removed from queue."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._fd_to_client[10] = sock
+        server._handle_message(
+            sock,
+            _framed_scene("s1", "f1", ButtonElement(id="b1", label="X")),
+        )
+        server._event_queue.append(
+            InteractionMessage(element_id="b1", action="clicked", ts=1.0)
+        )
+
+        server._close_frame("f1")
+
+        # b1 event drained
+        remaining = [e for e in server._event_queue if e.element_id == "b1"]
+        assert len(remaining) == 0

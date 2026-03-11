@@ -1385,7 +1385,7 @@ class DisplayServer:
             # frame owners must be connected clients)
             dead_frames = [fid for fid, f in self._frames.items() if f.owner_fd == fd]
             for fid in dead_frames:
-                self._close_frame(fid)
+                self._close_frame(fid, notify=False)
         with contextlib.suppress(OSError):
             sock.close()
         logger.debug("Client disconnected (remaining: %d)", len(self._clients))
@@ -1411,6 +1411,8 @@ class DisplayServer:
             self._scenes.clear()
             self._scene_order.clear()
             self._active_tab = None
+            self._frames.clear()
+            self._scene_to_frame.clear()
             self._scene_widget_state.clear()
             self._scene_render_fn_state.clear()
             self._event_queue.clear()
@@ -1546,6 +1548,14 @@ class DisplayServer:
                 scene_order=[],
             )
             self._frames[frame_id] = frame
+        elif frame.owner_fd != fd:
+            logger.warning(
+                "Rejecting scene for frame %s from non-owner fd %d (owner=%d)",
+                frame_id,
+                fd,
+                frame.owner_fd,
+            )
+            return
         self._upsert_scene_in_frame(frame, msg)
         if msg.frame_title:
             frame.title = msg.frame_title
@@ -1555,6 +1565,15 @@ class DisplayServer:
 
     def _upsert_scene_in_frame(self, frame: _Frame, msg: SceneMessage) -> None:
         """Add or replace a scene within a frame."""
+        # If this scene_id exists elsewhere, remove it from the old location
+        # to prevent the same scene rendering in multiple places.
+        old_frame_id = self._scene_to_frame.get(msg.id)
+        if old_frame_id is not None and old_frame_id != frame.frame_id:
+            old_frame = self._frames.get(old_frame_id)
+            if old_frame is not None:
+                self._dismiss_framed_scene(old_frame, msg.id)
+        elif msg.id in self._scenes:
+            self._dismiss_scene(msg.id)
         is_new = msg.id not in frame.scenes
         old_scene = frame.scenes.get(msg.id)
         frame.scenes[msg.id] = msg
@@ -1570,8 +1589,20 @@ class DisplayServer:
         else:
             self._replace_scene_state(msg, old_scene)
 
+    def _resolve_scene(self, scene_id: str) -> SceneMessage | None:
+        """Find a scene in either unframed or framed storage."""
+        scene = self._scenes.get(scene_id)
+        if scene is not None:
+            return scene
+        frame_id = self._scene_to_frame.get(scene_id)
+        if frame_id is not None:
+            frame = self._frames.get(frame_id)
+            if frame is not None:
+                return frame.scenes.get(scene_id)
+        return None
+
     def _apply_update(self, msg: UpdateMessage) -> None:
-        scene = self._scenes.get(msg.scene_id)
+        scene = self._resolve_scene(msg.scene_id)
         if scene is None:
             return
         ws = self._scene_widget_state.get(msg.scene_id)
@@ -1800,26 +1831,54 @@ class DisplayServer:
         for elem in scene.elements:
             self._render_element(elem)
 
-    def _close_frame(self, frame_id: str) -> None:
-        """Remove a frame and all its scenes, emitting a close event."""
+    def _close_frame(self, frame_id: str, *, notify: bool = True) -> None:
+        """Remove a frame and all its scenes.
+
+        When *notify* is True (user-initiated close), a ``frame_close``
+        event is sent to the owning client.  When False (disconnect
+        cleanup), the owner is already gone — no event is emitted.
+        """
         frame = self._frames.pop(frame_id, None)
         if frame is None:
             return
+        # Drain stale events for elements in the removed scenes
+        removed_ids: set[str] = set()
         for scene_id in frame.scene_order:
+            scene = frame.scenes.get(scene_id)
+            if scene is not None:
+                for elem in scene.elements:
+                    removed_ids.update(_collect_ids(elem))
             self._scene_widget_state.pop(scene_id, None)
             self._scene_render_fn_state.pop(scene_id, None)
             self._scene_to_frame.pop(scene_id, None)
-        self._event_queue.append(
-            InteractionMessage(
-                element_id=frame_id,
-                action="frame_close",
-                ts=time.time(),
-            )
-        )
+        if removed_ids:
+            self._event_queue = [
+                ev for ev in self._event_queue if ev.element_id not in removed_ids
+            ]
+        if notify:
+            # Route frame_close only to the owning client
+            owner_sock = self._fd_to_client.get(frame.owner_fd)
+            if owner_sock is not None:
+                self._send_to_client(
+                    owner_sock,
+                    InteractionMessage(
+                        element_id=frame_id,
+                        action="frame_close",
+                        ts=time.time(),
+                    ),
+                )
 
     def _dismiss_framed_scene(self, frame: _Frame, scene_id: str) -> None:
         """Remove a single scene from a frame."""
-        frame.scenes.pop(scene_id, None)
+        dismissed = frame.scenes.pop(scene_id, None)
+        if dismissed is not None:
+            dismissed_ids: set[str] = set()
+            for elem in dismissed.elements:
+                dismissed_ids.update(_collect_ids(elem))
+            if dismissed_ids:
+                self._event_queue = [
+                    ev for ev in self._event_queue if ev.element_id not in dismissed_ids
+                ]
         frame.scene_order = [s for s in frame.scene_order if s != scene_id]
         self._scene_widget_state.pop(scene_id, None)
         self._scene_render_fn_state.pop(scene_id, None)
