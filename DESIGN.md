@@ -1222,6 +1222,7 @@ Three architectural gaps block this:
 **Decision:** Use the socket file descriptor as the client identity key. No new handshake message.
 
 **Rationale:** The display already tracks `_clients: list[socket.socket]` and `_readers: dict[int, FrameReader]` keyed by FD. Adding an explicit `IdentifyMessage` with a client name (e.g. "vox") would require:
+
 - A new protocol message type
 - Handling the "client hasn't identified yet" state
 - Deciding what happens if two clients claim the same name
@@ -1248,6 +1249,7 @@ class RegisterMenuMessage:
 ```
 
 **Rationale:**
+
 - `MenuMessage` replaces the entire menu list — this is correct behavior for a single client setting its own menus. Changing its semantics would break existing callers.
 - `RegisterMenuMessage` is explicitly additive: each call replaces only *that client's* items, not the global list.
 - The display merges all clients' registered items into a single "Tools" menu, sorted alphabetically by label.
@@ -1259,6 +1261,7 @@ class RegisterMenuMessage:
 **Decision:** The display maintains a `_menu_owners: dict[str, int]` mapping (item ID → socket FD). When a menu item is clicked, the `InteractionMessage` is sent only to the owning socket. All other events (button clicks, slider changes, etc.) continue to broadcast.
 
 **Rationale:**
+
 - Client-side filtering would require every client to receive every event and discard irrelevant ones. This leaks information (Vox sees Biff's menu click IDs) and wastes bandwidth.
 - Display-side routing is simple: look up the item ID in `_menu_owners`, send to that socket only. O(1) per click.
 - Only menu items need routing. Scene elements (buttons, sliders) are always within a scene owned by the client that sent the `SceneMessage`. If we later need scene-element routing, we can extend the same pattern by tracking scene ownership.
