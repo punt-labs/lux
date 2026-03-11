@@ -851,7 +851,7 @@ class _Frame:
 
     frame_id: str
     title: str
-    owner_fd: int
+    owner_fd: int | None
     scenes: dict[str, SceneMessage]
     scene_order: list[str]
     active_tab: str | None = None
@@ -1013,7 +1013,7 @@ class DisplayServer:
 
         runner_params = hello_imgui.RunnerParams()
         runner_params.app_window_params.window_title = "Lux"
-        runner_params.app_window_params.window_geometry.size = (800, 600)
+        runner_params.app_window_params.window_geometry.size = (1200, 800)
         runner_params.imgui_window_params.show_menu_bar = True
         runner_params.imgui_window_params.show_menu_app = False
         runner_params.imgui_window_params.show_menu_view = False
@@ -1138,7 +1138,7 @@ class DisplayServer:
                     self._render_fn_state = {}
 
                 if imgui.menu_item("Reset Size", "", False)[0]:  # noqa: FBT003
-                    hello_imgui.change_window_size((800, 600))
+                    hello_imgui.change_window_size((1200, 800))
 
                 imgui.separator()
 
@@ -1385,11 +1385,12 @@ class DisplayServer:
             self._client_names.pop(fd, None)
             self._menu_registrations.pop(fd, None)
             self._menu_owners = {k: v for k, v in self._menu_owners.items() if v != fd}
-            # Remove frames owned by this client (DES-022 invariant:
-            # frame owners must be connected clients)
-            dead_frames = [fid for fid, f in self._frames.items() if f.owner_fd == fd]
-            for fid in dead_frames:
-                self._close_frame(fid, notify=False)
+            # Orphan frames owned by this client — they persist with
+            # content intact and can be adopted by the next client that
+            # sends a scene to the same frame_id.
+            for f in self._frames.values():
+                if f.owner_fd == fd:
+                    f.owner_fd = None
         with contextlib.suppress(OSError):
             sock.close()
         logger.debug("Client disconnected (remaining: %d)", len(self._clients))
@@ -1580,6 +1581,9 @@ class DisplayServer:
                 cascade_index=self._next_cascade_index(),
             )
             self._frames[frame_id] = frame
+        elif frame.owner_fd is None:
+            frame.owner_fd = fd
+            logger.info("Frame %s adopted by fd %d", frame_id, fd)
         elif frame.owner_fd != fd:
             logger.warning(
                 "Rejecting scene for frame %s from non-owner fd %d (owner=%d)",
@@ -1809,16 +1813,19 @@ class DisplayServer:
                 self._dismiss_scene(sid)
 
     # Cascade layout: each new frame offsets from the previous one.
-    _CASCADE_BASE_X = 60.0
-    _CASCADE_BASE_Y = 60.0
+    _CASCADE_BASE_X = 30.0
+    _CASCADE_BASE_Y = 40.0
     _CASCADE_DX = 30.0
     _CASCADE_DY = 30.0
-    _FRAME_DEFAULT_W = 400.0
-    _FRAME_DEFAULT_H = 300.0
+    _FRAME_FILL = 0.75
 
     def _render_frames(self, imgui: Any) -> None:
         """Render each frame as an ImGui inner window."""
         closed_frames: list[str] = []
+        # Default frame size: 75% of content region (first use only).
+        region = imgui.get_content_region_avail()
+        frame_w = max(400.0, region.x * self._FRAME_FILL)
+        frame_h = max(300.0, region.y * self._FRAME_FILL)
         for frame in list(self._frames.values()):
             if frame.minimized:
                 continue
@@ -1826,9 +1833,7 @@ class DisplayServer:
             x = self._CASCADE_BASE_X + frame.cascade_index * self._CASCADE_DX
             y = self._CASCADE_BASE_Y + frame.cascade_index * self._CASCADE_DY
             imgui.set_next_window_pos((x, y), cond)
-            imgui.set_next_window_size(
-                (self._FRAME_DEFAULT_W, self._FRAME_DEFAULT_H), cond
-            )
+            imgui.set_next_window_size((frame_w, frame_h), cond)
             still_open = True
             expanded, still_open = imgui.begin(
                 f"{frame.title}##{frame.frame_id}", still_open
@@ -1902,7 +1907,7 @@ class DisplayServer:
             self._event_queue = [
                 ev for ev in self._event_queue if ev.element_id not in removed_ids
             ]
-        if notify:
+        if notify and frame.owner_fd is not None:
             # Route frame_close only to the owning client
             owner_sock = self._fd_to_client.get(frame.owner_fd)
             if owner_sock is not None:
