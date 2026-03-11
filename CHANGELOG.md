@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-03-11
+
 ### Added
 
 - **ConnectMessage client identity** — clients identify themselves by name
