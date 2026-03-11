@@ -17,6 +17,7 @@ from punt_lux.protocol import (
     MenuMessage,
     Patch,
     PingMessage,
+    RegisterMenuMessage,
     SceneMessage,
     SeparatorElement,
     TextElement,
@@ -835,3 +836,99 @@ class TestParseColor:
 
     def test_int_fallback(self) -> None:
         assert _parse_color(42) == (255, 255, 255, 255)
+
+
+# -----------------------------------------------------------------------
+# RegisterMenuMessage: additive menu registration per client
+# -----------------------------------------------------------------------
+
+
+def _mock_sock_fd(fd: int) -> MagicMock:
+    """Create a mock socket with a specific fileno()."""
+    sock = MagicMock()
+    sock.sendall = MagicMock()
+    sock.fileno.return_value = fd
+    return sock
+
+
+class TestRegisterMenu:
+    def test_register_stores_items(self) -> None:
+        """RegisterMenuMessage stores items in _menu_registrations and _menu_owners."""
+        server = _make_server()
+        sock = _mock_sock_fd(10)
+        items = [
+            {"label": "Run", "id": "run"},
+            {"label": "Test", "id": "test"},
+        ]
+
+        server._handle_message(sock, RegisterMenuMessage(items=items))
+
+        assert server._menu_registrations[10] == items
+        assert server._menu_owners["run"] == 10
+        assert server._menu_owners["test"] == 10
+
+    def test_disconnect_cleans_up(self) -> None:
+        """Disconnecting a client removes its menu registrations and ownership."""
+        server = _make_server()
+        sock = _mock_sock_fd(10)
+        server._clients.append(sock)
+        from punt_lux.protocol import FrameReader
+
+        server._readers[10] = FrameReader()
+        server._fd_to_client[10] = sock
+
+        items = [{"label": "Run", "id": "run"}]
+        server._handle_message(sock, RegisterMenuMessage(items=items))
+
+        assert 10 in server._menu_registrations
+        assert "run" in server._menu_owners
+
+        server._remove_client(sock)
+
+        assert 10 not in server._menu_registrations
+        assert "run" not in server._menu_owners
+
+    def test_re_register_replaces_old_items(self) -> None:
+        """Same client re-registering replaces old items."""
+        server = _make_server()
+        sock = _mock_sock_fd(10)
+        old_items = [{"label": "Old", "id": "old_item"}]
+        new_items = [{"label": "New", "id": "new_item"}]
+
+        server._handle_message(sock, RegisterMenuMessage(items=old_items))
+        assert server._menu_owners.get("old_item") == 10
+
+        server._handle_message(sock, RegisterMenuMessage(items=new_items))
+        assert server._menu_registrations[10] == new_items
+        assert "old_item" not in server._menu_owners
+        assert server._menu_owners["new_item"] == 10
+
+    def test_id_uniqueness_rejects_second_client(self) -> None:
+        """Two different clients registering the same item ID: second is rejected."""
+        server = _make_server()
+        sock_a = _mock_sock_fd(10)
+        sock_b = _mock_sock_fd(20)
+
+        items_a = [{"label": "Run", "id": "run"}]
+        items_b = [{"label": "Also Run", "id": "run"}]
+
+        server._handle_message(sock_a, RegisterMenuMessage(items=items_a))
+        server._handle_message(sock_b, RegisterMenuMessage(items=items_b))
+
+        # Client A's registration stands
+        assert server._menu_registrations[10] == items_a
+        assert server._menu_owners["run"] == 10
+        # Client B's registration was rejected
+        assert 20 not in server._menu_registrations
+
+    def test_clear_does_not_clear_menu_registrations(self) -> None:
+        """ClearMessage clears scenes but not menu registrations."""
+        server = _make_server()
+        sock = _mock_sock_fd(10)
+
+        items = [{"label": "Run", "id": "run"}]
+        server._handle_message(sock, RegisterMenuMessage(items=items))
+        server._handle_message(sock, ClearMessage())
+
+        assert server._menu_registrations[10] == items
+        assert server._menu_owners["run"] == 10

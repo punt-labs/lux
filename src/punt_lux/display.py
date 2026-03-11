@@ -51,6 +51,7 @@ from punt_lux.protocol import (
     PongMessage,
     RadioElement,
     ReadyMessage,
+    RegisterMenuMessage,
     SceneMessage,
     SelectableElement,
     SliderElement,
@@ -867,6 +868,8 @@ class DisplayServer:
         self._widget_state = WidgetState()  # active scene's state (swapped)
         self._dirty_windows: set[str] = set()
         self._agent_menus: list[dict[str, Any]] = []
+        self._menu_registrations: dict[int, list[dict[str, Any]]] = {}  # fd → items
+        self._menu_owners: dict[str, int] = {}  # item_id → fd
         self._render_fn_state: dict[str, _RenderFnState] = {}  # active (swapped)
         self._themes: list[Any] = []
         self._decorated: bool = True
@@ -1046,6 +1049,8 @@ class DisplayServer:
         self._clients.clear()
         self._readers.clear()
         self._fd_to_client.clear()
+        self._menu_registrations.clear()
+        self._menu_owners.clear()
         if self._server_sock is not None:
             self._server_sock.close()
             self._server_sock = None
@@ -1062,6 +1067,7 @@ class DisplayServer:
             self._show_lux_menu(imgui)
             self._show_theme_menu(imgui)
             self._show_window_menu(imgui)
+            self._show_tools_menu(imgui)
             for menu in self._agent_menus:
                 self._show_agent_menu(imgui, menu)
         except Exception:
@@ -1126,6 +1132,44 @@ class DisplayServer:
                 if changed:
                     self._opacity = value
                     self._set_glfw_opacity(opacity=value)
+            finally:
+                imgui.end_menu()
+
+    def _show_tools_menu(self, imgui: Any) -> None:
+        if not self._menu_registrations:
+            return
+        all_items: list[dict[str, Any]] = []
+        for items in self._menu_registrations.values():
+            all_items.extend(items)
+        all_items.sort(key=lambda i: i.get("label", ""))
+        if imgui.begin_menu("Tools"):
+            try:
+                for item in all_items:
+                    label = item.get("label")
+                    if label is None:
+                        continue
+                    if label == "---":
+                        imgui.separator()
+                        continue
+                    enabled = item.get("enabled", True)
+                    clicked, _ = imgui.menu_item(
+                        label,
+                        item.get("shortcut", ""),
+                        False,  # noqa: FBT003
+                        enabled,
+                    )
+                    if clicked and "id" in item:
+                        self._event_queue.append(
+                            InteractionMessage(
+                                element_id=item["id"],
+                                action="menu",
+                                ts=time.time(),
+                                value={
+                                    "menu": "Tools",
+                                    "item": label,
+                                },
+                            )
+                        )
             finally:
                 imgui.end_menu()
 
@@ -1313,6 +1357,8 @@ class DisplayServer:
         if fd is not None:
             self._readers.pop(fd, None)
             self._fd_to_client.pop(fd, None)
+            self._menu_registrations.pop(fd, None)
+            self._menu_owners = {k: v for k, v in self._menu_owners.items() if v != fd}
         with contextlib.suppress(OSError):
             sock.close()
         logger.debug("Client disconnected (remaining: %d)", len(self._clients))
@@ -1344,6 +1390,8 @@ class DisplayServer:
             self._dirty_windows.clear()
             self._widget_state = WidgetState()
             self._render_fn_state = {}
+        elif isinstance(msg, RegisterMenuMessage):
+            self._handle_register_menu(sock, msg)
         elif isinstance(msg, MenuMessage):
             self._agent_menus = msg.menus
         elif isinstance(msg, ThemeMessage):
@@ -1352,6 +1400,39 @@ class DisplayServer:
             self._send_to_client(sock, PongMessage(ts=msg.ts, display_ts=time.time()))
         elif isinstance(msg, UnknownMessage):
             logger.debug("Ignoring unknown message type %r", msg.raw_type)
+
+    def _handle_register_menu(
+        self, sock: socket.socket, msg: RegisterMenuMessage
+    ) -> None:
+        """Register menu items owned by this client into the Tools menu."""
+        try:
+            fd = sock.fileno()
+        except OSError:
+            return
+        # Validate item ID uniqueness across clients
+        for item in msg.items:
+            item_id = item.get("id")
+            if item_id is None:
+                continue
+            owner_fd = self._menu_owners.get(item_id)
+            if owner_fd is not None and owner_fd != fd:
+                logger.warning(
+                    "Menu item %r already owned by fd %d, "
+                    "rejecting registration from fd %d",
+                    item_id,
+                    owner_fd,
+                    fd,
+                )
+                return
+        # Remove old ownership entries for this fd
+        self._menu_owners = {k: v for k, v in self._menu_owners.items() if v != fd}
+        # Store new items
+        self._menu_registrations[fd] = msg.items
+        # Update ownership
+        for item in msg.items:
+            item_id = item.get("id")
+            if item_id is not None:
+                self._menu_owners[item_id] = fd
 
     def _handle_scene(self, sock: socket.socket, msg: SceneMessage) -> None:
         old_scene = self._scenes.get(msg.id)

@@ -30,6 +30,7 @@ from punt_lux.protocol import (
     ProgressElement,
     RadioElement,
     ReadyMessage,
+    RegisterMenuMessage,
     RenderFunctionElement,
     SceneMessage,
     SelectableElement,
@@ -421,6 +422,44 @@ class TestMessages:
         restored = message_from_dict(d)
         assert isinstance(restored, ThemeMessage)
         assert restored.theme == "imgui_colors_light"
+
+    def test_register_menu_message(self):
+        items = [
+            {"label": "Run Script", "id": "run_script"},
+            {"label": "Settings", "id": "settings", "shortcut": "Ctrl+,"},
+        ]
+        msg = RegisterMenuMessage(items=items)
+        assert msg.type == "register_menu"
+        assert len(msg.items) == 2
+        assert msg.items[0]["label"] == "Run Script"
+
+    def test_register_menu_roundtrip(self):
+        items: list[dict[str, Any]] = [
+            {"label": "Deploy", "id": "deploy", "enabled": False},
+            {"label": "Test", "id": "test", "shortcut": "Ctrl+T", "icon": "play"},
+        ]
+        original = RegisterMenuMessage(items=items)
+        d = message_to_dict(original)
+        assert d["type"] == "register_menu"
+        assert d["items"] == items
+        restored = message_from_dict(d)
+        assert isinstance(restored, RegisterMenuMessage)
+        assert restored.items == items
+
+    def test_register_menu_from_dict(self):
+        d = {
+            "type": "register_menu",
+            "items": [{"label": "Foo", "id": "foo"}],
+        }
+        msg = message_from_dict(d)
+        assert isinstance(msg, RegisterMenuMessage)
+        assert msg.items == [{"label": "Foo", "id": "foo"}]
+
+    def test_register_menu_from_dict_empty_items(self):
+        d = {"type": "register_menu"}
+        msg = message_from_dict(d)
+        assert isinstance(msg, RegisterMenuMessage)
+        assert msg.items == []
 
 
 # ---------------------------------------------------------------------------

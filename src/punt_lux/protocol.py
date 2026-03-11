@@ -481,6 +481,19 @@ class ThemeMessage:
     type: Literal["theme"] = "theme"
 
 
+@dataclass
+class RegisterMenuMessage:
+    """Register menu items owned by this client.
+
+    Additive: each client's items are merged into the Tools menu.
+    Replaces any previous registration from the same client (socket).
+    Automatically cleaned up on disconnect.
+    """
+
+    items: list[dict[str, Any]]  # [{label, id, shortcut?, enabled?, icon?}]
+    type: Literal["register_menu"] = "register_menu"
+
+
 ClientMessage = (
     SceneMessage
     | UpdateMessage
@@ -488,6 +501,7 @@ ClientMessage = (
     | PingMessage
     | MenuMessage
     | ThemeMessage
+    | RegisterMenuMessage
 )
 
 # ---------------------------------------------------------------------------
@@ -1308,6 +1322,11 @@ def _register_serializers() -> None:  # noqa: C901
 
     _MESSAGE_SERIALIZERS[ThemeMessage] = _theme
 
+    def _register_menu(m: RegisterMenuMessage) -> dict[str, Any]:
+        return {"type": m.type, "items": m.items}
+
+    _MESSAGE_SERIALIZERS[RegisterMenuMessage] = _register_menu
+
     def _ready(m: ReadyMessage) -> dict[str, Any]:
         d: dict[str, Any] = {"type": m.type, "version": m.version}
         if m.capabilities:
@@ -1367,6 +1386,8 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
         return MenuMessage(menus=d.get("menus", []))
     if msg_type == "theme":
         return ThemeMessage(theme=d["theme"])
+    if msg_type == "register_menu":
+        return RegisterMenuMessage(items=d.get("items", []))
     if msg_type == "ping":
         return PingMessage(ts=d.get("ts"))
     if msg_type == "ready":
