@@ -73,8 +73,9 @@ def _with_reconnect[T](fn: Callable[[], T]) -> T:
     If the display server restarts, the cached socket dies silently —
     ``is_connected`` still returns True because the socket object exists.
     This wrapper catches the resulting ``OSError`` (including
-    ``BrokenPipeError``), tears down the stale client, connects a fresh
-    one, and retries *fn* exactly once.
+    ``BrokenPipeError``), closes the stale socket, reconnects the same
+    client instance (preserving accumulated state like registered menu
+    items), and retries *fn* exactly once.
     """
     global _client
     try:

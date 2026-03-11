@@ -551,21 +551,45 @@ class TestRegisterMenuItem:
 
             shutil.rmtree(short_dir, ignore_errors=True)
 
-    def test_register_deduplicates_by_id(self) -> None:
+    def test_register_deduplicates_by_id(self, tmp_path: Path) -> None:
         """Registering an item with the same ID replaces the existing one."""
-        client = LuxClient(auto_spawn=False)
-        # Bypass connection — just test accumulation logic
-        client._registered_menu_items.append({"id": "x", "label": "Old"})
-        # Simulate register_menu_item dedup without needing a socket
-        item = {"id": "x", "label": "New"}
-        item_id = item.get("id")
-        assert item_id is not None
-        for idx, existing in enumerate(client._registered_menu_items):
-            if existing.get("id") == item_id:
-                client._registered_menu_items[idx] = item
-                break
-        assert len(client._registered_menu_items) == 1
-        assert client._registered_menu_items[0]["label"] == "New"
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        received: list[RegisterMenuMessage] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            for _ in range(2):
+                msg = recv_message(server_conn, timeout=5)
+                assert isinstance(msg, RegisterMenuMessage)
+                received.append(msg)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+                client.register_menu_item({"id": "x", "label": "Old"})
+                client.register_menu_item({"id": "x", "label": "New"})
+            t.join(timeout=5)
+            # Second message should have 1 item (deduped), with updated label
+            assert len(received) == 2
+            assert len(received[1].items) == 1
+            assert received[1].items[0]["label"] == "New"
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
 
     def test_reconnect_replays_registered_items(self, tmp_path: Path) -> None:
         """connect() replays accumulated items after ReadyMessage handshake."""
@@ -588,9 +612,7 @@ class TestRegisterMenuItem:
         server.bind(str(sock_path))
         server.listen(2)
         ready_event = threading.Event()
-        t = threading.Thread(
-            target=serve_two, args=(server, ready_event), daemon=True
-        )
+        t = threading.Thread(target=serve_two, args=(server, ready_event), daemon=True)
         t.start()
         ready_event.wait(timeout=5)
 
@@ -599,17 +621,12 @@ class TestRegisterMenuItem:
             client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.connect()
             client.register_menu_item({"id": "t1", "label": "Tool 1"})
-            time.sleep(0.1)  # let server accept + receive
             msg = recv_message(conns[0], timeout=5)
             assert isinstance(msg, RegisterMenuMessage)
 
             # Simulate disconnect + reconnect
             client.close()
             client.connect()
-            time.sleep(0.1)
-
-            # The replay message should arrive automatically
-            assert len(conns) == 2
             replay = recv_message(conns[1], timeout=5)
             assert isinstance(replay, RegisterMenuMessage)
             replay_msg.append(replay)

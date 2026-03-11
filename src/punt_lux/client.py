@@ -148,9 +148,10 @@ class LuxClient:
             try:
                 replay = RegisterMenuMessage(items=self._registered_menu_items)
                 send_message(sock, replay)
-            except OSError:
+            except OSError as exc:
                 self.close()
-                raise
+                err = f"Menu replay failed after handshake: {exc}"
+                raise RuntimeError(err) from exc
 
     def close(self) -> None:
         """Close the connection to the display server."""
@@ -220,16 +221,17 @@ class LuxClient:
         Items accumulate and are sent as a single ``RegisterMenuMessage``.
         On reconnect, all registered items are automatically replayed.
         """
+        stored = dict(item)
         item_id = item.get("id")
         if item_id is not None:
             for idx, existing in enumerate(self._registered_menu_items):
                 if existing.get("id") == item_id:
-                    self._registered_menu_items[idx] = item
+                    self._registered_menu_items[idx] = stored
                     break
             else:
-                self._registered_menu_items.append(item)
+                self._registered_menu_items.append(stored)
         else:
-            self._registered_menu_items.append(item)
+            self._registered_menu_items.append(stored)
         sock = self._require_connected()
         send_message(sock, RegisterMenuMessage(items=self._registered_menu_items))
 
