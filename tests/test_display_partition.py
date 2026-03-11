@@ -891,6 +891,40 @@ class TestCreateFramePartitions:
         assert server._frames["f1"].scenes["s1"].elements[0].id == "t1"
 
 
+class TestFrameCascadePartitions:
+    """Frame cascade: new frames get incrementing cascade indices."""
+
+    def test_cascade_index_increments(self):
+        """Each new frame gets a higher cascade index."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._fd_to_client[10] = sock
+
+        server._handle_framed_scene(sock, _framed_scene("s1", "f1"))
+        server._handle_framed_scene(sock, _framed_scene("s2", "f2"))
+        server._handle_framed_scene(sock, _framed_scene("s3", "f3"))
+
+        assert server._frames["f1"].cascade_index == 0
+        assert server._frames["f2"].cascade_index == 1
+        assert server._frames["f3"].cascade_index == 2
+
+    def test_cascade_index_reuses_after_close(self):
+        """Closing a frame frees its index for reuse by the next frame."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._fd_to_client[10] = sock
+
+        server._handle_framed_scene(sock, _framed_scene("s1", "f1"))
+        server._handle_framed_scene(sock, _framed_scene("s2", "f2"))
+        server._close_frame("f1")
+
+        # After closing f1, only f2 remains (count=1), so f3 gets index 1
+        server._handle_framed_scene(sock, _framed_scene("s3", "f3"))
+        assert server._frames["f3"].cascade_index == 1
+
+
 class TestCloseFramePartitions:
     """CloseFrame: removes frame and all its scenes."""
 

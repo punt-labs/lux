@@ -882,7 +882,6 @@ class DisplayServer:
         self._active_tab: str | None = None  # currently selected tab
         self._frames: dict[str, _Frame] = {}  # frame_id → frame
         self._scene_to_frame: dict[str, str] = {}  # scene_id → frame_id
-        self._next_cascade_index: int = 0
         self._scene_widget_state: dict[str, WidgetState] = {}  # per-scene
         self._scene_render_fn_state: dict[str, dict[str, _RenderFnState]] = {}
         self._event_queue: list[InteractionMessage] = []
@@ -1548,9 +1547,8 @@ class DisplayServer:
                 owner_fd=fd,
                 scenes={},
                 scene_order=[],
-                cascade_index=self._next_cascade_index,
+                cascade_index=len(self._frames),
             )
-            self._next_cascade_index += 1
             self._frames[frame_id] = frame
         elif frame.owner_fd != fd:
             logger.warning(
