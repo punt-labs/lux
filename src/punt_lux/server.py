@@ -59,10 +59,16 @@ _client: LuxClient | None = None
 
 
 def _get_client() -> LuxClient:
-    """Return a connected LuxClient, creating one if needed."""
+    """Return a connected LuxClient, creating or reconnecting as needed.
+
+    Reuses the existing instance when possible so that accumulated state
+    (e.g. registered menu items) survives across reconnects.
+    """
     global _client
-    if _client is None or not _client.is_connected:
+    if _client is None:
         _client = LuxClient()
+        _client.connect()
+    elif not _client.is_connected:
         _client.connect()
     return _client
 
