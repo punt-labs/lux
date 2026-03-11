@@ -855,6 +855,7 @@ class _Frame:
     scene_order: list[str]
     active_tab: str | None = None
     minimized: bool = False
+    cascade_index: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -881,6 +882,7 @@ class DisplayServer:
         self._active_tab: str | None = None  # currently selected tab
         self._frames: dict[str, _Frame] = {}  # frame_id → frame
         self._scene_to_frame: dict[str, str] = {}  # scene_id → frame_id
+        self._next_cascade_index: int = 0
         self._scene_widget_state: dict[str, WidgetState] = {}  # per-scene
         self._scene_render_fn_state: dict[str, dict[str, _RenderFnState]] = {}
         self._event_queue: list[InteractionMessage] = []
@@ -1546,7 +1548,9 @@ class DisplayServer:
                 owner_fd=fd,
                 scenes={},
                 scene_order=[],
+                cascade_index=self._next_cascade_index,
             )
+            self._next_cascade_index += 1
             self._frames[frame_id] = frame
         elif frame.owner_fd != fd:
             logger.warning(
@@ -1776,12 +1780,27 @@ class DisplayServer:
             for sid in closed_tabs:
                 self._dismiss_scene(sid)
 
+    # Cascade layout: each new frame offsets from the previous one.
+    _CASCADE_BASE_X = 60.0
+    _CASCADE_BASE_Y = 60.0
+    _CASCADE_DX = 30.0
+    _CASCADE_DY = 30.0
+    _FRAME_DEFAULT_W = 400.0
+    _FRAME_DEFAULT_H = 300.0
+
     def _render_frames(self, imgui: Any) -> None:
         """Render each frame as an ImGui inner window."""
         closed_frames: list[str] = []
         for frame in list(self._frames.values()):
             if frame.minimized:
                 continue
+            cond = imgui.Cond_.first_use_ever.value
+            x = self._CASCADE_BASE_X + frame.cascade_index * self._CASCADE_DX
+            y = self._CASCADE_BASE_Y + frame.cascade_index * self._CASCADE_DY
+            imgui.set_next_window_pos((x, y), cond)
+            imgui.set_next_window_size(
+                (self._FRAME_DEFAULT_W, self._FRAME_DEFAULT_H), cond
+            )
             still_open = True
             expanded, still_open = imgui.begin(
                 f"{frame.title}##{frame.frame_id}", still_open
