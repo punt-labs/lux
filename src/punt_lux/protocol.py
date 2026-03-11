@@ -1439,7 +1439,11 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
         return PongMessage(ts=d.get("ts"), display_ts=d.get("display_ts"))
 
     if msg_type == "connect":
-        return ConnectMessage(name=d.get("name", ""))
+        name = d.get("name")
+        if not isinstance(name, str) or not name.strip():
+            err = "ConnectMessage missing or invalid 'name' field"
+            raise ValueError(err)
+        return ConnectMessage(name=name)
 
     if not isinstance(msg_type, str) or not msg_type:
         err = "Message missing or invalid 'type' field"

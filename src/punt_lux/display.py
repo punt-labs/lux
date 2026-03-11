@@ -1471,12 +1471,16 @@ class DisplayServer:
 
     def _handle_connect(self, sock: socket.socket, msg: ConnectMessage) -> None:
         """Record a client's display name (idempotent)."""
+        name = msg.name.strip()
+        if not name:
+            logger.warning("ConnectMessage with empty name — ignored")
+            return
         try:
             fd = sock.fileno()
         except OSError:
             return
-        self._client_names[fd] = msg.name
-        logger.info("Client fd=%d identified as %r", fd, msg.name)
+        self._client_names[fd] = name
+        logger.info("Client fd=%d identified as %r", fd, name)
 
     def client_name(self, fd: int) -> str | None:
         """Return the display name for a connected client, or ``None``."""
