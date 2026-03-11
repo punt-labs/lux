@@ -4,26 +4,38 @@
 
 ### Added
 
+- **ConnectMessage client identity** — clients identify themselves by name
+  during handshake. Protocol validates non-empty names. Display server
+  tracks client names for menu namespacing and logging.
+- **Frames with orphan model** — scenes can target named frames (ImGui
+  child windows). Frames persist after their owner disconnects and can be
+  adopted by new clients sending to the same `frame_id`. Per-project beads
+  boards each get their own frame (`beads-lux`, `beads-vox`, etc.).
+- **World menu with per-client namespaces** — hierarchical menu replaces
+  the flat Tools menu. Each connected client gets its own submenu
+  (named from ConnectMessage). Menu items are sorted alphabetically
+  within each client submenu. Environment items (Minimize All, Close All)
+  appear below client submenus.
 - **RegisterMenuMessage protocol type** — MCP servers can register menu
-  items in a shared Tools menu via the new `register_menu` wire message.
-  Items are per-client, merged alphabetically, and auto-cleaned on
-  disconnect. Item ID uniqueness is enforced across clients.
-- **Tools menu in display** — new "Tools" menu in the menu bar (after
-  Window, before custom agent menus) renders all registered items.
-- **Routed menu event delivery** — Tools menu item clicks are sent only to
-  the MCP server that registered the item, not broadcast to all clients.
-  Non-menu events and agent/custom menu events continue to broadcast.
-- **`register_tool` MCP tool** — register a menu item in the Tools menu.
+  items via the `register_menu` wire message. Items are per-client,
+  merged alphabetically, and auto-cleaned on disconnect. Item ID
+  uniqueness is enforced across clients.
+- **Routed menu event delivery** — World menu item clicks are sent only to
+  the owning client, not broadcast. Non-menu and environment events
+  continue to broadcast.
+- **`register_tool` MCP tool** — register a menu item in the World menu.
   Clicks are routed only to the registering server via `recv()`. Items
   auto-replay on reconnect.
-- **`LuxClient.register_menu_item()`** — client library method for Tools
+- **`LuxClient.register_menu_item()`** — client library method for World
   menu registration. Accumulates items and replays on reconnect.
 
 ### Changed
 
-- **Per-project beads tabs** — each project's beads board opens in its
-  own tab (`Beads: lux`, `Beads: quarry`, etc.) so multiple projects
-  can coexist in the display window.
+- **Per-project beads frames** — each project's beads board opens in its
+  own frame (`Beads: lux`, `Beads: vox`, etc.) so multiple projects
+  can coexist without overwriting each other.
+- **Window size** — default window increased from 800x600 to 1200x800.
+  Frames fill 75% of the content region on first use.
 - **PostToolUse beads hook** — fires on any `bd` subcommand, not just
   mutations. `bd ready`, `bd list`, `bd show`, etc. now refresh the board.
 - **Resizable table columns** — beads board tables now have `resizable`
