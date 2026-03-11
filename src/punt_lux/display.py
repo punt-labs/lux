@@ -1143,12 +1143,12 @@ class DisplayServer:
             all_items.extend(items)
         if not all_items:
             return
-        all_items.sort(key=lambda i: i.get("label", ""))
+        all_items.sort(key=lambda i: i.get("label") or "")
         if imgui.begin_menu("Tools"):
             try:
                 for item in all_items:
                     label = item.get("label")
-                    if label is None:
+                    if not isinstance(label, str):
                         continue
                     if label == "---":
                         imgui.separator()
@@ -1160,7 +1160,7 @@ class DisplayServer:
                         False,  # noqa: FBT003
                         enabled,
                     )
-                    if clicked and "id" in item:
+                    if clicked and isinstance(item.get("id"), str):
                         self._event_queue.append(
                             InteractionMessage(
                                 element_id=item["id"],
@@ -1247,7 +1247,7 @@ class DisplayServer:
             try:
                 for item in menu.get("items", []):
                     label = item.get("label")
-                    if label is None:
+                    if not isinstance(label, str):
                         continue
                     if label == "---":
                         imgui.separator()
@@ -1259,7 +1259,7 @@ class DisplayServer:
                         False,  # noqa: FBT003
                         enabled,
                     )
-                    if clicked and "id" in item:
+                    if clicked and isinstance(item.get("id"), str):
                         self._event_queue.append(
                             InteractionMessage(
                                 element_id=item["id"],

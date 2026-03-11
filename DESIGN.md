@@ -1369,7 +1369,7 @@ The client library gets a corresponding `register_menu_item` method that accumul
 
 Menu item IDs must be globally unique across all connected clients. If two servers both register `tool_id="refresh"`, the routing index (`_menu_owners`) silently maps that ID to whichever client registered last, while both items appear in the menu.
 
-**Enforcement:** The display validates uniqueness at registration time. If an item ID is already claimed by a *different* client, the display sends an error response and rejects the registration. Same-client re-registration (replacing your own items) is allowed.
+**Enforcement:** The display validates uniqueness at registration time. If an item ID is already claimed by a *different* client, the display logs a warning and rejects the registration. Same-client re-registration (replacing your own items) is allowed.
 
 **Convention:** Namespace item IDs by project name: `lux_refresh_beads`, `vox_mute`, `biff_check_messages`. This avoids collisions without the display needing to auto-prefix.
 
