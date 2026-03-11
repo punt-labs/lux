@@ -1334,6 +1334,11 @@ def _register_serializers() -> None:  # noqa: C901
 
     _MESSAGE_SERIALIZERS[PongMessage] = _pong
 
+    def _unknown(m: UnknownMessage) -> dict[str, Any]:
+        return m.data
+
+    _MESSAGE_SERIALIZERS[UnknownMessage] = _unknown
+
 
 _register_serializers()
 
@@ -1382,6 +1387,10 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
         )
     if msg_type == "pong":
         return PongMessage(ts=d.get("ts"), display_ts=d.get("display_ts"))
+
+    if not msg_type:
+        err = "Message missing 'type' field"
+        raise ValueError(err)
 
     return UnknownMessage(raw_type=msg_type, data=d)
 
