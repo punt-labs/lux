@@ -41,7 +41,8 @@ _FIELD_DEFAULTS: dict[str, Any] = {
 def load_beads(beads_dir: Path, *, all_issues: bool = False) -> list[dict[str, Any]]:
     """Read, default-fill, filter, and sort beads issues.
 
-    Returns issues sorted by priority ascending, then updated_at descending.
+    Returns issues sorted with in_progress first, then by priority
+    ascending, then by updated_at descending within equal groups.
     """
     path = beads_dir / "issues.jsonl"
     if not path.is_file():

@@ -20,13 +20,10 @@ else
   TOOL_GLOB="mcp__plugin_lux_lux__*"
 fi
 
-ACTIONS=()
-
 # ── Deploy top-level commands (prod mode only) ───────────────────────
 # In dev mode, skip — prod plugin handles top-level commands.
 # Skip *-dev.md files — dev commands use plugin namespace (lux-dev:foo-dev)
 if [[ "$DEV_MODE" == "false" ]]; then
-  DEPLOYED=()
   for cmd_file in "$PLUGIN_ROOT/commands/"*.md; do
     [[ -f "$cmd_file" ]] || continue
     name="$(basename "$cmd_file")"
@@ -35,12 +32,8 @@ if [[ "$DEV_MODE" == "false" ]]; then
     mkdir -p "$COMMANDS_DIR"
     if [[ ! -f "$dest" ]] || ! diff -q "$cmd_file" "$dest" >/dev/null 2>&1; then
       cp "$cmd_file" "$dest"
-      DEPLOYED+=("/${name%.md}")
     fi
   done
-  if [[ ${#DEPLOYED[@]} -gt 0 ]]; then
-    ACTIONS+=("Deployed commands: ${DEPLOYED[*]}")
-  fi
 fi
 
 # ── Allow MCP tools in user settings if not already allowed ──────────
@@ -49,7 +42,6 @@ if command -v jq &>/dev/null && [[ -f "$SETTINGS" ]]; then
     TMPFILE="$(mktemp)"
     jq --arg glob "$TOOL_GLOB" '.permissions.allow = (.permissions.allow // []) + [$glob]' "$SETTINGS" > "$TMPFILE"
     mv "$TMPFILE" "$SETTINGS"
-    ACTIONS+=("Auto-allowed lux MCP tools in permissions")
   fi
 fi
 
