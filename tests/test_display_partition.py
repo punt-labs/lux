@@ -1038,8 +1038,8 @@ class TestDisconnectFrameCleanupPartitions:
         assert "f2" in server._frames
         assert server._frames["f2"].owner_fd == 20
 
-    def test_orphaned_frame_adopted_by_new_client(self):
-        """A new client can adopt an orphaned frame."""
+    def test_orphaned_frame_adopted_by_another_client(self):
+        """Another connected client can adopt an orphaned frame."""
         server = _server()
         s1 = _sock(fd=10)
         s2 = _sock(fd=20)

@@ -1822,7 +1822,7 @@ class DisplayServer:
     def _render_frames(self, imgui: Any) -> None:
         """Render each frame as an ImGui inner window."""
         closed_frames: list[str] = []
-        # Size frames to 75% of the available content region.
+        # Default frame size: 75% of content region (first use only).
         region = imgui.get_content_region_avail()
         frame_w = max(400.0, region.x * self._FRAME_FILL)
         frame_h = max(300.0, region.y * self._FRAME_FILL)
