@@ -213,8 +213,14 @@ def beads(
     sock_path = Path(socket) if socket else default_socket_path()
     elements = [element_from_dict(table)]
 
-    with LuxClient(sock_path) as client:
-        ack = client.show(f"beads-{project}", elements, title=f"Beads: {project}")
+    with LuxClient(sock_path, name="lux-beads") as client:
+        ack = client.show(
+            f"beads-{project}",
+            elements,
+            title=f"Beads: {project}",
+            frame_id=f"beads-{project}",
+            frame_title=f"Beads: {project}",
+        )
 
     if ack is None:
         typer.echo("Timeout: display server did not respond.", err=True)
