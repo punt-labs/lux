@@ -2737,7 +2737,11 @@ class DisplayServer:
             return
         if self._clients:
             for event in self._event_queue:
-                owner_fd = self._menu_owners.get(event.element_id)
+                owner_fd = (
+                    self._menu_owners.get(event.element_id)
+                    if event.action == "menu"
+                    else None
+                )
                 if owner_fd is not None:
                     target = self._fd_to_client.get(owner_fd)
                     if target is not None:
