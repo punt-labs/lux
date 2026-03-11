@@ -2737,9 +2737,14 @@ class DisplayServer:
             return
         if self._clients:
             for event in self._event_queue:
+                is_tools_menu = (
+                    event.action == "menu"
+                    and isinstance(event.value, dict)
+                    and event.value.get("menu") == "Tools"
+                )
                 owner_fd = (
                     self._menu_owners.get(event.element_id)
-                    if event.action == "menu"
+                    if is_tools_menu
                     else None
                 )
                 if owner_fd is not None:
