@@ -2743,9 +2743,7 @@ class DisplayServer:
                     and event.value.get("menu") == "Tools"
                 )
                 owner_fd = (
-                    self._menu_owners.get(event.element_id)
-                    if is_tools_menu
-                    else None
+                    self._menu_owners.get(event.element_id) if is_tools_menu else None
                 )
                 if owner_fd is not None:
                     target = self._fd_to_client.get(owner_fd)
