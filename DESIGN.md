@@ -1202,3 +1202,237 @@ BMP double-struck characters (U+2124 etc.) render from Arial Unicode (primary fo
 ### Rejected: Bundling a Font
 
 Bundling a font file in the package would add weight and licensing complexity. Both STIX Two Math and Noto Sans Math ship with their respective OS distributions. If neither is present, the display degrades gracefully (replacement glyphs for those specific characters only).
+
+## DES-021: Tools Menu — Multi-Client Registration and Routed Callbacks
+
+### Problem
+
+Multiple MCP servers (Lux, Vox, Biff, etc.) connect to the same Lux display server. Each wants to register menu items in a shared "Tools" menu. When the user clicks one, the display must route the callback only to the server that registered it.
+
+Three architectural gaps block this:
+
+1. **Last-writer-wins menus.** `MenuMessage` replaces `_agent_menus` wholesale (`display.py:1336`). A second caller's `set_menu` erases the first.
+2. **Broadcast events.** `_flush_events()` sends every `InteractionMessage` to every connected client (`display.py:2614-2621`). No routing.
+3. **No client identity.** `_accept_connections()` adds sockets to `_clients` with no identity handshake. The display cannot distinguish who sent what.
+
+### Design Decisions
+
+#### D1: Socket-FD-based identity (implicit), not explicit handshake
+
+**Decision:** Use the socket file descriptor as the client identity key. No new handshake message.
+
+**Rationale:** The display already tracks `_clients: list[socket.socket]` and `_readers: dict[int, FrameReader]` keyed by FD. Adding an explicit `IdentifyMessage` with a client name (e.g. "vox") would require:
+
+- A new protocol message type
+- Handling the "client hasn't identified yet" state
+- Deciding what happens if two clients claim the same name
+
+Socket FDs are unique, free, and require zero protocol changes. For the display's purposes — "who registered this menu item?" and "who should receive this click?" — the FD is sufficient. Client names are cosmetic and can be added later if menu items need human-readable "registered by" labels.
+
+**Trade-off:** No human-readable client names in the Tools menu. Items are identified by their `id` field, not by which server registered them. This is acceptable because menu items already have `label` fields that describe what they do ("Refresh Beads", "Mute/Unmute"), and the registering server's identity is an implementation detail the user doesn't need.
+
+#### D2: Additive menu registration via new `RegisterMenuMessage`, not extending `MenuMessage`
+
+**Decision:** Introduce a new `RegisterMenuMessage` type. Keep `MenuMessage` unchanged for backward compatibility.
+
+```python
+@dataclass
+class RegisterMenuMessage:
+    """Register menu items owned by this client.
+
+    Additive: each client's items are merged into the Tools menu.
+    Replaces any previous registration from the same client (socket).
+    Automatically cleaned up on disconnect.
+    """
+    items: list[dict[str, Any]]  # [{label, id, shortcut?, enabled?, icon?}]
+    type: Literal["register_menu"] = "register_menu"
+```
+
+**Rationale:**
+
+- `MenuMessage` replaces the entire menu list — this is correct behavior for a single client setting its own menus. Changing its semantics would break existing callers.
+- `RegisterMenuMessage` is explicitly additive: each call replaces only *that client's* items, not the global list.
+- The display merges all clients' registered items into a single "Tools" menu, sorted alphabetically by label.
+
+**Wire format:** Same length-prefixed JSON as all other messages. `{"type": "register_menu", "items": [...]}`.
+
+#### D3: Display-side routing for menu clicks, not client-side filtering
+
+**Decision:** The display maintains a `_menu_owners: dict[str, int]` mapping (item ID → socket FD). When a menu item is clicked, the `InteractionMessage` is sent only to the owning socket. All other events (button clicks, slider changes, etc.) continue to broadcast.
+
+**Rationale:**
+
+- Client-side filtering would require every client to receive every event and discard irrelevant ones. This leaks information (Vox sees Biff's menu click IDs) and wastes bandwidth.
+- Display-side routing is simple: look up the item ID in `_menu_owners`, send to that socket only. O(1) per click.
+- Only menu items need routing. Scene elements (buttons, sliders) are always within a scene owned by the client that sent the `SceneMessage`. If we later need scene-element routing, we can extend the same pattern by tracking scene ownership.
+
+**Trade-off:** Non-menu `InteractionMessage`s still broadcast. This is fine for now — scenes are typically owned by one client, and if multiple clients listen for the same button click, broadcasting is correct behavior (any interested party should hear it).
+
+#### D4: Cleanup on disconnect
+
+**Decision:** When `_remove_client(sock)` is called, remove all items in `_menu_owners` whose value matches `sock.fileno()`. The Tools menu updates automatically on the next frame.
+
+This is the key invariant: **a client's menu items exist if and only if the client is connected.** No stale items, no manual unregister needed.
+
+#### D5: `recv()` returns only routed events for menu items
+
+**Decision:** `recv()` on the MCP side is unchanged — it reads the next message from the socket. Since the display only sends routed menu events to the owning client, `recv()` naturally returns only events the client cares about.
+
+No client-side filtering needed. The routing is invisible to the `recv()` caller.
+
+### Data Structures
+
+```python
+# DisplayServer additions:
+_menu_registrations: dict[int, list[dict[str, Any]]]  # fd → items
+_menu_owners: dict[str, int]                           # item_id → fd
+_fd_to_client: dict[int, socket.socket]                # fd → socket (O(1) routing)
+```
+
+`_menu_registrations` stores each client's raw item list (for re-rendering the menu). `_menu_owners` is the reverse index (for routing clicks). `_fd_to_client` is a reverse index for O(1) socket lookup by FD, matching the existing `_readers: dict[int, FrameReader]` pattern. All three are maintained in `_accept_connections` and `_remove_client`.
+
+### Menu Rendering
+
+The existing `_show_agent_menu` renders per-menu dicts with `{label, items}`. The Tools menu replaces this with a single merged menu:
+
+```python
+def _show_tools_menu(self, imgui: Any) -> None:
+    if not self._menu_registrations:
+        return
+    all_items = []
+    for items in self._menu_registrations.values():
+        all_items.extend(items)
+    all_items.sort(key=lambda i: i.get("label", ""))
+    if imgui.begin_menu("Tools"):
+        try:
+            for item in all_items:
+                # ... same rendering as _show_agent_menu item loop
+        finally:
+            imgui.end_menu()
+```
+
+Existing `_agent_menus` and `set_menu`/`MenuMessage` continue to work for non-Tools menus (backward compatible).
+
+### Event Routing Change
+
+```python
+def _flush_events(self) -> None:
+    if not self._event_queue:
+        return
+    for event in self._event_queue:
+        owner_fd = self._menu_owners.get(event.element_id)
+        if owner_fd is not None:
+            # Routed: send only to registering client (O(1) lookup)
+            target = self._fd_to_client.get(owner_fd)
+            if target is not None:
+                self._send_to_client(target, event)
+        else:
+            # Broadcast: send to all (existing behavior)
+            for client in list(self._clients):
+                self._send_to_client(client, event)
+    self._event_queue.clear()
+```
+
+### MCP Tool: `register_tool`
+
+New MCP tool in `server.py`:
+
+```python
+@mcp.tool()
+def register_tool(
+    label: str,
+    tool_id: str,
+    shortcut: str | None = None,
+    icon: str | None = None,
+) -> str:
+    """Register a menu item in the Lux Tools menu.
+
+    The item appears in the shared Tools menu alongside items from other
+    MCP servers. When the user clicks it, only this server receives the
+    callback via recv().
+
+    Items are automatically removed when the server disconnects.
+    """
+    client = _get_client()
+    client.register_menu_item({
+        "label": label,
+        "id": tool_id,
+        "shortcut": shortcut,
+        "icon": icon,
+    })
+    return f"registered:{tool_id}"
+```
+
+The client library gets a corresponding `register_menu_item` method that accumulates items and sends a `RegisterMenuMessage`. `LuxClient` stores registered items in `self._registered_menu_items: list[dict[str, Any]]` and replays them during `connect()` if non-empty — making re-registration after display restart automatic regardless of which code path triggers reconnect.
+
+### Item ID Uniqueness
+
+Menu item IDs must be globally unique across all connected clients. If two servers both register `tool_id="refresh"`, the routing index (`_menu_owners`) silently maps that ID to whichever client registered last, while both items appear in the menu.
+
+**Enforcement:** The display validates uniqueness at registration time. If an item ID is already claimed by a *different* client, the display logs a warning and rejects the registration. Same-client re-registration (replacing your own items) is allowed.
+
+**Convention:** Namespace item IDs by project name: `lux_refresh_beads`, `vox_mute`, `biff_check_messages`. This avoids collisions without the display needing to auto-prefix.
+
+### `scene_id` Policy for Menu Events
+
+Menu click events are not associated with any scene. When lux-308 adds `scene_id` to `InteractionMessage`, menu events will have `scene_id=None`. Clients that consume both scene element events and menu events should check `scene_id` to distinguish them. This policy is defined now to prevent ambiguity after lux-308 ships.
+
+### `ClearMessage` and Menu Registrations
+
+`ClearMessage` clears scenes, events, and widget state. It does NOT clear `_menu_registrations` or `_menu_owners`. Menus are connection-scoped, not scene-scoped — they persist until the client disconnects or re-registers. This must be explicitly preserved in the `ClearMessage` handler implementation.
+
+### Client Lookup: O(1) Reverse Index
+
+The display maintains `_fd_to_client: dict[int, socket.socket]` alongside the existing `_readers: dict[int, FrameReader]`. Updated in `_accept_connections` and `_remove_client`. The routing lookup in `_flush_events` uses this index instead of scanning `_clients`:
+
+```python
+target = self._fd_to_client.get(owner_fd)
+```
+
+### Menu Position in Menu Bar
+
+`_show_tools_menu` is called in `_show_menus` after `_show_window_menu` and before the `_agent_menus` loop. The Tools menu appears as the fourth menu: Lux | Theme | Window | Tools | (custom agent menus).
+
+### Protocol Backward Compatibility
+
+- Old clients that only use `MenuMessage` continue to work unchanged — `_agent_menus` is separate from `_menu_registrations`.
+- **Old display servers do NOT gracefully handle unknown message types.** `message_from_dict` raises `ValueError` for unknown types (`protocol.py:1372`), and `_read_from_client` catches this and disconnects the client (`display.py:1290-1292`). Slice 1 must fix this: `message_from_dict` should return a passthrough sentinel for unknown types instead of raising, and `_handle_message` should silently skip unknown messages. This also partially addresses lux-rq4 (protocol debt).
+- The `register_menu` type string doesn't collide with any existing type.
+
+### Rejected Alternatives
+
+**Extending MenuMessage with an `owner` field.** This would change the semantics of an existing message. Callers that don't set `owner` would break. A new message type is cleaner.
+
+**Client-side event filtering.** Every client receives every event, checks if the element_id matches its registrations, discards the rest. This works but leaks inter-client information and makes `recv()` return irrelevant events that confuse the LLM caller.
+
+**Explicit client identity handshake.** A new `IdentifyMessage` sent after connect. Adds protocol complexity with no concrete benefit — the socket FD already provides unique identity for routing purposes.
+
+### Known Limitations
+
+**Broadcast for non-menu events.** Scene element interactions (button clicks, slider changes) still broadcast to all clients. If Vox is connected while a kanban board is active, Vox receives card-click events it has no context for. The natural extension is scene-ownership routing (a `_scene_owners: dict[str, int]` mirror of `_menu_owners`), but this is deferred — it requires resolving scene ownership semantics (what happens when a scene is updated by a different client than the one that created it?).
+
+**No human-readable client names.** Menu items don't show which server registered them. Items are identified by their `label` field ("Refresh Beads", "Mute/Unmute"), which describes the action. The registering server's identity is an implementation detail. If needed later, `RegisterMenuMessage` can be extended with an optional `source` field.
+
+### Concrete Use Cases
+
+| Server | Menu Item | On Click |
+|--------|-----------|----------|
+| Lux | Refresh Beads | Runs `lux show beads` via subprocess |
+| Vox | Mute / Unmute | Toggles speech output |
+| Biff | Check Messages | Runs `biff read` |
+
+Each server calls `register_tool(label="Refresh Beads", tool_id="lux_refresh_beads")` on startup. The display merges all items into a single Tools menu. User clicks route to the registering server.
+
+### Build Plan
+
+Five iterative slices, each a working end-to-end increment:
+
+| Slice | What | Demo |
+|-------|------|------|
+| 1 | **Additive menu registration** — `RegisterMenuMessage` type, display stores per-client items, merges into Tools menu, cleanup on disconnect. Also: fix `message_from_dict` to return passthrough for unknown types instead of raising (partial lux-rq4). | Two test clients register items → both appear in Tools menu → disconnect one → its items vanish |
+| 2 | **Routed event delivery** — `_flush_events` routes menu clicks to owning client only | Click "Refresh Beads" → only Lux client receives the event, Vox client receives nothing |
+| 3 | **Client library + MCP tool** — `LuxClient.register_menu_item()`, `register_tool` MCP tool, `recv()` gets routed events | MCP server calls `register_tool` → item appears → click → `recv()` returns the event |
+| 4 | **First consumer: beads refresh** — Lux MCP server registers "Refresh Beads" on startup, handles the callback | Start Lux plugin → Tools > Refresh Beads → beads board refreshes |
+| 5 | **Cross-server demo** — Vox registers "Mute/Unmute", both coexist | Lux + Vox connected → Tools shows both items → clicks route correctly |
+
+Each slice is one PR. Slice N depends on slice N-1.

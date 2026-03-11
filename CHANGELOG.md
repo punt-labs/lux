@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- **RegisterMenuMessage protocol type** — MCP servers can register menu
+  items in a shared Tools menu via the new `register_menu` wire message.
+  Items are per-client, merged alphabetically, and auto-cleaned on
+  disconnect. Item ID uniqueness is enforced across clients.
+- **Tools menu in display** — new "Tools" menu in the menu bar (after
+  Window, before custom agent menus) renders all registered items.
+
 ### Changed
 
 - **Per-project beads tabs** — each project's beads board opens in its
