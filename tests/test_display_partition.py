@@ -1144,6 +1144,107 @@ class TestFrameStaleEventDrainPartitions:
         assert len(remaining) == 0
 
 
+class TestFrameAutoFocusPartitions:
+    """Frames auto-focus and restore on scene/update receipt."""
+
+    def test_scene_sets_focus_frame_id(self):
+        """Receiving a framed scene sets _focus_frame_id."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(sock, _framed_scene("s1", "f1"))
+        assert server._focus_frame_id == "f1"
+
+    def test_scene_restores_minimized_frame(self):
+        """Receiving a framed scene un-minimizes the frame."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(sock, _framed_scene("s1", "f1"))
+        server._frames["f1"].minimized = True
+        server._handle_message(sock, _framed_scene("s1", "f1"))
+        assert not server._frames["f1"].minimized
+
+    def test_update_sets_focus_for_framed_scene(self):
+        """UpdateMessage on a framed scene sets _focus_frame_id."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(
+            sock,
+            _framed_scene("s1", "f1", TextElement(id="t1", content="Old")),
+        )
+        server._focus_frame_id = None  # reset after initial scene
+        server._apply_update(
+            UpdateMessage(
+                scene_id="s1",
+                patches=[Patch(id="t1", set={"content": "New"})],
+            )
+        )
+        assert server._focus_frame_id == "f1"
+
+    def test_update_restores_minimized_framed_scene(self):
+        """UpdateMessage on a framed scene un-minimizes the frame."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(
+            sock,
+            _framed_scene("s1", "f1", TextElement(id="t1", content="Old")),
+        )
+        server._frames["f1"].minimized = True
+        server._apply_update(
+            UpdateMessage(
+                scene_id="s1",
+                patches=[Patch(id="t1", set={"content": "New"})],
+            )
+        )
+        assert not server._frames["f1"].minimized
+
+    def test_close_frame_clears_focus(self):
+        """Closing a frame clears _focus_frame_id if it matches."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(sock, _framed_scene("s1", "f1"))
+        assert server._focus_frame_id == "f1"
+        server._close_frame("f1")
+        assert server._focus_frame_id is None
+
+    def test_close_other_frame_preserves_focus(self):
+        """Closing a different frame does not clear _focus_frame_id."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(sock, _framed_scene("s1", "f1"))
+        server._handle_message(sock, _framed_scene("s2", "f2"))
+        assert server._focus_frame_id == "f2"
+        server._close_frame("f1")
+        assert server._focus_frame_id == "f2"
+
+    def test_update_non_framed_scene_no_focus(self):
+        """UpdateMessage on a non-framed scene does not set focus."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(
+            sock,
+            SceneMessage(
+                id="s1",
+                elements=[TextElement(id="t1", content="Old")],
+                title="Test",
+            ),
+        )
+        server._focus_frame_id = None
+        server._apply_update(
+            UpdateMessage(
+                scene_id="s1",
+                patches=[Patch(id="t1", set={"content": "New"})],
+            )
+        )
+        assert server._focus_frame_id is None
+
+
 class TestWorldMenuPartitions:
     """World menu: per-client namespaces from ConnectMessage identity."""
 

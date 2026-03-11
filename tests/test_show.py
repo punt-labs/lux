@@ -84,11 +84,11 @@ class TestLoadBeads:
         result = load_beads(tmp_path, all_issues=True)
         assert len(result) == 3
 
-    def test_sorted_by_priority_then_updated(self, tmp_path: Path) -> None:
+    def test_sorted_in_progress_first_then_priority(self, tmp_path: Path) -> None:
         _write_issues(tmp_path, _ISSUES)
         result = load_beads(tmp_path)
-        assert result[0]["id"] == "beads-001"  # P1
-        assert result[1]["id"] == "beads-002"  # P2
+        assert result[0]["id"] == "beads-002"  # in_progress floats to top
+        assert result[1]["id"] == "beads-001"  # P1, open
 
     def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
         assert load_beads(tmp_path) == []

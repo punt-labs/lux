@@ -41,7 +41,8 @@ _FIELD_DEFAULTS: dict[str, Any] = {
 def load_beads(beads_dir: Path, *, all_issues: bool = False) -> list[dict[str, Any]]:
     """Read, default-fill, filter, and sort beads issues.
 
-    Returns issues sorted by priority ascending, then updated_at descending.
+    Returns issues sorted with in_progress first, then by priority
+    ascending, then by updated_at descending within equal groups.
     """
     path = beads_dir / "issues.jsonl"
     if not path.is_file():
@@ -72,10 +73,12 @@ def load_beads(beads_dir: Path, *, all_issues: bool = False) -> list[dict[str, A
     if not all_issues:
         issues = [i for i in issues if i["status"] in _ACTIVE_STATUSES]
 
-    # Two-pass stable sort: updated_at desc first, then priority asc.
-    # Python's stable sort preserves updated_at order within equal priorities.
+    # Three-pass stable sort: updated_at desc, then priority asc, then
+    # in_progress floats to top.  Python's stable sort preserves earlier
+    # orderings within equal keys at each pass.
     issues.sort(key=lambda i: i.get("updated_at", ""), reverse=True)
     issues.sort(key=lambda i: i["priority"])
+    issues.sort(key=lambda i: i["status"] != "in_progress")
 
     return issues
 
@@ -193,8 +196,28 @@ def beads(
     except ValueError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None
+    project = Path.cwd().name or "unknown"
+    sock_path = Path(socket) if socket else default_socket_path()
+
     if not issues:
-        typer.echo("No issues to display.")
+        empty_text: dict[str, Any] = {
+            "kind": "text",
+            "id": "empty",
+            "content": "No active issues.",
+        }
+        elements = [element_from_dict(empty_text)]
+        with LuxClient(sock_path, name="lux-beads") as client:
+            ack = client.show(
+                f"beads-{project}",
+                elements,
+                title=f"Beads: {project}",
+                frame_id=f"beads-{project}",
+                frame_title=f"Beads: {project}",
+            )
+        if ack is None:
+            typer.echo("Timeout: display server did not respond.", err=True)
+            raise typer.Exit(code=1)
+        typer.echo("No active issues.")
         raise typer.Exit(code=0)
 
     payload = build_beads_payload(issues)
@@ -209,8 +232,6 @@ def beads(
         "detail": payload["detail"],
     }
 
-    project = Path.cwd().name or "unknown"
-    sock_path = Path(socket) if socket else default_socket_path()
     elements = [element_from_dict(table)]
 
     with LuxClient(sock_path, name="lux-beads") as client:
