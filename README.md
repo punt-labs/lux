@@ -30,7 +30,7 @@ The design follows Smalltalk's Morphic model: every visible element is a composa
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/ab155d9/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/d2eb78c/install.sh | sh
 ```
 
 Restart Claude Code twice. The Lux display window opens automatically when agents send visual output.
@@ -55,7 +55,7 @@ claude plugin install lux@punt-labs
 <summary>Verify before running</summary>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/ab155d9/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/d2eb78c/install.sh -o install.sh
 shasum -a 256 install.sh
 cat install.sh
 sh install.sh
