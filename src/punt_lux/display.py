@@ -883,6 +883,7 @@ class DisplayServer:
         self._scene_order: list[str] = []  # explicit tab order
         self._active_tab: str | None = None  # currently selected tab
         self._frames: dict[str, _Frame] = {}  # frame_id → frame
+        self._focus_frame_id: str | None = None  # auto-focus on next render
         self._scene_to_frame: dict[str, str] = {}  # scene_id → frame_id
         self._scene_widget_state: dict[str, WidgetState] = {}  # per-scene
         self._scene_render_fn_state: dict[str, dict[str, _RenderFnState]] = {}
@@ -1633,6 +1634,8 @@ class DisplayServer:
         self._upsert_scene_in_frame(frame, msg)
         if msg.frame_title:
             frame.title = msg.frame_title
+        frame.minimized = False
+        self._focus_frame_id = frame_id
         self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
         if self._test_auto_click:
             self._auto_click_buttons(msg)
@@ -1872,6 +1875,9 @@ class DisplayServer:
             y = self._CASCADE_BASE_Y + frame.cascade_index * self._CASCADE_DY
             imgui.set_next_window_pos((x, y), cond)
             imgui.set_next_window_size((frame_w, frame_h), cond)
+            if self._focus_frame_id == frame.frame_id:
+                imgui.set_next_window_focus()
+                self._focus_frame_id = None
             still_open = True
             expanded, still_open = imgui.begin(
                 f"{frame.title}##{frame.frame_id}", still_open

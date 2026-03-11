@@ -53,37 +53,9 @@ if command -v jq &>/dev/null && [[ -f "$SETTINGS" ]]; then
   fi
 fi
 
-# ── Build setup message from actions ─────────────────────────────────
-SETUP_MSG=""
-if [[ ${#ACTIONS[@]} -gt 0 ]]; then
-  SETUP_MSG="Lux plugin first-run setup complete."
-  for action in "${ACTIONS[@]}"; do
-    SETUP_MSG="$SETUP_MSG $action."
-  done
-fi
-
-# ── Delegate to CLI handler for display mode context ─────────────────
-HOOK_OUTPUT=$(echo '{}' | lux hook session-start 2>/dev/null) || true
-
-if [[ -n "$SETUP_MSG" && -n "$HOOK_OUTPUT" ]] && command -v jq &>/dev/null; then
-  # Merge setup message into the hook output's additionalContext
-  EXISTING=$(echo "$HOOK_OUTPUT" | jq -r '.hookSpecificOutput.additionalContext // ""')
-  MERGED="${SETUP_MSG} ${EXISTING}"
-  echo "$HOOK_OUTPUT" | jq --arg msg "$MERGED" '.hookSpecificOutput.additionalContext = $msg'
-elif [[ -n "$SETUP_MSG" && -n "$HOOK_OUTPUT" ]]; then
-  # No jq — emit hook output only (setup msg lost but hook still works)
-  echo "$HOOK_OUTPUT"
-elif [[ -n "$SETUP_MSG" ]]; then
-  cat <<ENDJSON
-{
-  "hookSpecificOutput": {
-    "hookEventName": "SessionStart",
-    "additionalContext": "$SETUP_MSG"
-  }
-}
-ENDJSON
-elif [[ -n "$HOOK_OUTPUT" ]]; then
-  echo "$HOOK_OUTPUT"
-fi
+# ── Hook is async — no additionalContext injection ───────────────────
+# Display mode is discovered via the MCP server on first tool call.
+# The Python handler (lux hook session-start) was removed because async
+# hooks cannot inject additionalContext — the window has already closed.
 
 exit 0

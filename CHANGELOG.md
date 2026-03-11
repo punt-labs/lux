@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Frame auto-focus** — frames automatically focus (brought to front)
+  when they receive a scene update. Minimized frames are restored.
+
+### Changed
+
+- **Beads sort order** — in-progress issues float to the top of the
+  beads board regardless of priority.
+- **SessionStart hook** — made async; display mode discovery deferred
+  to first MCP tool call.
+
+### Fixed
+
+- **Stale beads board on empty results** — when all issues are closed
+  or no active issues exist, the beads frame now shows "No active
+  issues." instead of leaving stale data from the previous refresh.
+
 ## [0.9.0] - 2026-03-11
 
 ### Added
