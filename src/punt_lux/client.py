@@ -32,6 +32,7 @@ from punt_lux.protocol import (
     PingMessage,
     PongMessage,
     ReadyMessage,
+    RegisterMenuMessage,
     SceneMessage,
     ThemeMessage,
     UpdateMessage,
@@ -75,6 +76,7 @@ class LuxClient:
         self._sock: socket.socket | None = None
         self._ready: ReadyMessage | None = None
         self._pending: deque[Message] = deque()
+        self._registered_menu_items: list[dict[str, Any]] = []
 
     # -- context manager ---------------------------------------------------
 
@@ -142,6 +144,8 @@ class LuxClient:
             raise RuntimeError(msg)
         self._ready = ready
         logger.info("Connected to display (protocol %s)", ready.version)
+        if self._registered_menu_items:
+            send_message(sock, RegisterMenuMessage(items=self._registered_menu_items))
 
     def close(self) -> None:
         """Close the connection to the display server."""
@@ -204,6 +208,16 @@ class LuxClient:
         """Set the display theme by name (e.g. 'imgui_colors_light')."""
         sock = self._require_connected()
         send_message(sock, ThemeMessage(theme=theme))
+
+    def register_menu_item(self, item: dict[str, Any]) -> None:
+        """Register a menu item in the display's Tools menu.
+
+        Items accumulate and are sent as a single ``RegisterMenuMessage``.
+        On reconnect, all registered items are automatically replayed.
+        """
+        self._registered_menu_items.append(item)
+        sock = self._require_connected()
+        send_message(sock, RegisterMenuMessage(items=self._registered_menu_items))
 
     def clear(self) -> None:
         """Clear all content from the display."""

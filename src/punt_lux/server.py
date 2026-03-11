@@ -877,6 +877,35 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
 
 
 @mcp.tool()
+def register_tool(
+    label: str,
+    tool_id: str,
+    shortcut: str | None = None,
+    icon: str | None = None,
+) -> str:
+    """Register a menu item in the Lux Tools menu.
+
+    The item appears in the shared Tools menu alongside items from other
+    MCP servers. When the user clicks it, only this server receives the
+    callback via recv().
+
+    Items are automatically removed when the server disconnects.
+    """
+    item: dict[str, Any] = {"label": label, "id": tool_id}
+    if shortcut is not None:
+        item["shortcut"] = shortcut
+    if icon is not None:
+        item["icon"] = icon
+
+    def _call() -> str:
+        client = _get_client()
+        client.register_menu_item(item)
+        return f"registered:{tool_id}"
+
+    return _with_reconnect(_call)
+
+
+@mcp.tool()
 def set_theme(theme: str) -> str:
     """Set the Lux display theme.
 
