@@ -605,8 +605,8 @@ class TestRegisterMenuItem:
             ready.set()
             for _ in range(2):
                 conn, _ = server.accept()
-                send_message(conn, ReadyMessage())
                 conns.append(conn)
+                send_message(conn, ReadyMessage())
 
         server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         server.bind(str(sock_path))
