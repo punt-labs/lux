@@ -1181,8 +1181,8 @@ class DisplayServer:
                 name = self._client_names.get(fd, f"Client {fd}")
                 clients.append((name, fd, items))
         clients.sort(key=lambda c: c[0].lower())
-        for name, _fd, items in clients:
-            if imgui.begin_menu(name):
+        for name, fd, items in clients:
+            if imgui.begin_menu(f"{name}##{fd}"):
                 try:
                     items_sorted = sorted(
                         items,
@@ -3054,13 +3054,13 @@ class DisplayServer:
             return
         if self._clients:
             for event in self._event_queue:
-                is_tools_menu = (
+                is_world_menu = (
                     event.action == "menu"
                     and isinstance(event.value, dict)
                     and event.value.get("menu") == "World"
                 )
                 owner_fd = (
-                    self._menu_owners.get(event.element_id) if is_tools_menu else None
+                    self._menu_owners.get(event.element_id) if is_world_menu else None
                 )
                 if owner_fd is not None:
                     target = self._fd_to_client.get(owner_fd)

@@ -1171,7 +1171,9 @@ class TestWorldMenuPartitions:
         server._handle_register_menu(sock, RegisterMenuMessage(items=items))
 
         assert 10 not in server._client_names
-        # Fallback name would be "Client 10" in rendering
+        # Name resolution falls back to "Client {fd}"
+        resolved = server._client_names.get(10, f"Client {10}")
+        assert resolved == "Client 10"
 
     def test_disconnect_clears_menu_items(self):
         """Disconnecting removes client's menu registrations."""
@@ -1187,8 +1189,8 @@ class TestWorldMenuPartitions:
         assert 10 not in server._menu_registrations
         assert "search" not in server._menu_owners
 
-    def test_menu_click_routes_to_owner(self):
-        """World menu click routes only to the owning client."""
+    def test_menu_owner_bookkeeping(self):
+        """Menu owner map tracks which client owns each menu item."""
         server = _server()
         s1 = _sock(fd=10)
         s2 = _sock(fd=20)
