@@ -554,7 +554,7 @@ class UnknownMessage:
     """
 
     raw_type: str
-    data: dict[str, Any] = field(default_factory=dict)  # type: ignore[assignment]
+    data: dict[str, Any] = field(default_factory=lambda: {})  # noqa: PIE807
     type: Literal["unknown"] = "unknown"
 
 
