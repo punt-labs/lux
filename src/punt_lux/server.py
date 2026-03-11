@@ -66,7 +66,7 @@ def _get_client() -> LuxClient:
     """
     global _client
     if _client is None:
-        _client = LuxClient()
+        _client = LuxClient(name="lux-mcp")
         _client.connect()
     elif not _client.is_connected:
         _client.connect()

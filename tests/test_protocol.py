@@ -14,6 +14,7 @@ from punt_lux.protocol import (
     CollapsingHeaderElement,
     ColorPickerElement,
     ComboElement,
+    ConnectMessage,
     DrawElement,
     FrameReader,
     GroupElement,
@@ -504,6 +505,15 @@ class TestSerialization:
         assert isinstance(restored, SceneMessage)
         assert restored.frame_id == "beads-explorer"
         assert restored.frame_title == "Beads Explorer"
+
+    def test_connect_message_roundtrip(self):
+        original = ConnectMessage(name="quarry")
+        d = message_to_dict(original)
+        assert d["type"] == "connect"
+        assert d["name"] == "quarry"
+        restored = message_from_dict(d)
+        assert isinstance(restored, ConnectMessage)
+        assert restored.name == "quarry"
 
     def test_update_roundtrip(self):
         original = UpdateMessage(

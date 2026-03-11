@@ -42,6 +42,7 @@ from punt_lux.protocol import (
     CollapsingHeaderElement,
     ColorPickerElement,
     ComboElement,
+    ConnectMessage,
     FrameReader,
     GroupElement,
     InputTextElement,
@@ -877,6 +878,7 @@ class DisplayServer:
         self._clients: list[socket.socket] = []
         self._readers: dict[int, FrameReader] = {}  # fd -> reader
         self._fd_to_client: dict[int, socket.socket] = {}  # fd -> socket (O(1) lookup)
+        self._client_names: dict[int, str] = {}  # fd -> display name
         self._scenes: dict[str, SceneMessage] = {}  # ordered by insertion
         self._scene_order: list[str] = []  # explicit tab order
         self._active_tab: str | None = None  # currently selected tab
@@ -1380,6 +1382,7 @@ class DisplayServer:
         if fd is not None:
             self._readers.pop(fd, None)
             self._fd_to_client.pop(fd, None)
+            self._client_names.pop(fd, None)
             self._menu_registrations.pop(fd, None)
             self._menu_owners = {k: v for k, v in self._menu_owners.items() if v != fd}
             # Remove frames owned by this client (DES-022 invariant:
@@ -1426,6 +1429,8 @@ class DisplayServer:
             self._agent_menus = msg.menus
         elif isinstance(msg, ThemeMessage):
             self._apply_theme(msg.theme)
+        elif isinstance(msg, ConnectMessage):
+            self._handle_connect(sock, msg)
         elif isinstance(msg, PingMessage):
             self._send_to_client(sock, PongMessage(ts=msg.ts, display_ts=time.time()))
         elif isinstance(msg, UnknownMessage):
@@ -1463,6 +1468,19 @@ class DisplayServer:
                 seen_ids.add(item_id)
             sanitized.append(item)
         return sanitized
+
+    def _handle_connect(self, sock: socket.socket, msg: ConnectMessage) -> None:
+        """Record a client's display name (idempotent)."""
+        try:
+            fd = sock.fileno()
+        except OSError:
+            return
+        self._client_names[fd] = msg.name
+        logger.info("Client fd=%d identified as %r", fd, msg.name)
+
+    def client_name(self, fd: int) -> str | None:
+        """Return the display name for a connected client, or ``None``."""
+        return self._client_names.get(fd)
 
     def _handle_register_menu(
         self, sock: socket.socket, msg: RegisterMenuMessage

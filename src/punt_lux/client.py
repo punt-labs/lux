@@ -28,6 +28,7 @@ from punt_lux.paths import default_socket_path, ensure_display
 from punt_lux.protocol import (
     AckMessage,
     ClearMessage,
+    ConnectMessage,
     MenuMessage,
     PingMessage,
     PongMessage,
@@ -65,11 +66,13 @@ class LuxClient:
         self,
         socket_path: str | Path | None = None,
         *,
+        name: str | None = None,
         auto_spawn: bool = True,
         connect_timeout: float = 5.0,
         recv_timeout: float = 5.0,
     ) -> None:
         self._socket_path = Path(socket_path) if socket_path else None
+        self._name = name
         self._auto_spawn = auto_spawn
         self._connect_timeout = connect_timeout
         self._recv_timeout = recv_timeout
@@ -144,6 +147,17 @@ class LuxClient:
             raise RuntimeError(msg)
         self._ready = ready
         logger.info("Connected to display (protocol %s)", ready.version)
+        self._post_handshake(sock)
+
+    def _post_handshake(self, sock: socket.socket) -> None:
+        """Send identity and replay registrations after handshake."""
+        if self._name:
+            try:
+                send_message(sock, ConnectMessage(name=self._name))
+            except OSError as exc:
+                self.close()
+                err = f"ConnectMessage failed after handshake: {exc}"
+                raise RuntimeError(err) from exc
         if self._registered_menu_items:
             try:
                 replay = RegisterMenuMessage(items=self._registered_menu_items)

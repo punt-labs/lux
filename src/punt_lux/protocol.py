@@ -496,6 +496,19 @@ class RegisterMenuMessage:
     type: Literal["register_menu"] = "register_menu"
 
 
+@dataclass
+class ConnectMessage:
+    """Client identifies itself to the display server.
+
+    Sent after receiving ``ReadyMessage``.  The *name* field is used for
+    display attribution (e.g. frame titles, menu namespaces).  Sending
+    again updates the name (idempotent).
+    """
+
+    name: str
+    type: Literal["connect"] = "connect"
+
+
 ClientMessage = (
     SceneMessage
     | UpdateMessage
@@ -504,6 +517,7 @@ ClientMessage = (
     | MenuMessage
     | ThemeMessage
     | RegisterMenuMessage
+    | ConnectMessage
 )
 
 # ---------------------------------------------------------------------------
@@ -1357,6 +1371,11 @@ def _register_serializers() -> None:  # noqa: C901
 
     _MESSAGE_SERIALIZERS[PongMessage] = _pong
 
+    def _connect(m: ConnectMessage) -> dict[str, Any]:
+        return {"type": m.type, "name": m.name}
+
+    _MESSAGE_SERIALIZERS[ConnectMessage] = _connect
+
     def _unknown(m: UnknownMessage) -> dict[str, Any]:
         d = dict(m.data)
         d["type"] = m.raw_type
@@ -1418,6 +1437,9 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
         )
     if msg_type == "pong":
         return PongMessage(ts=d.get("ts"), display_ts=d.get("display_ts"))
+
+    if msg_type == "connect":
+        return ConnectMessage(name=d.get("name", ""))
 
     if not isinstance(msg_type, str) or not msg_type:
         err = "Message missing or invalid 'type' field"
