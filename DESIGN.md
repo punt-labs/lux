@@ -1436,3 +1436,185 @@ Five iterative slices, each a working end-to-end increment:
 | 5 | **Cross-server demo** — Vox registers "Mute/Unmute", both coexist | Lux + Vox connected → Tools shows both items → clicks route correctly |
 
 Each slice is one PR. Slice N depends on slice N-1.
+
+---
+
+## DES-022: Workspace Model — Frames, World Menu, and Client Namespaces
+
+### Problem
+
+Lux currently renders all content in a single canvas area. Multiple connected clients (Lux plugin, Vox, Quarry, etc.) write scenes into a shared space. Collisions are managed via tabs — a pragmatic solution, but one that solves an *isolation* problem at the wrong layer. The tab mechanism conflates collision avoidance with content organization.
+
+The Smalltalk/Pharo vision from CLAUDE.md calls for "a Pharo-like live environment where the MCP server is the message bus, Lux is the Morphic layer, and the agent can introspect and reshape the UI while it's running." This requires a proper windowing model: independent frames that clients can create, populate, and manage, within a shared workspace.
+
+Three capabilities are missing:
+
+1. **No frame isolation.** All scenes share one canvas. A beads board and an architecture diagram can't coexist as independent, movable views.
+2. **No world menu.** There is no discovery surface for launching frames. The Tools menu (DES-021) routes callbacks, but doesn't provide a hierarchical, per-client namespace for "what can I do?"
+3. **No client identity.** DES-021 established socket-FD-based identity for routing, but the display doesn't know a client's *name*. The World menu needs human-readable namespaces ("Lux", "Vox", "Quarry") — FDs aren't sufficient.
+
+### Inspiration
+
+Pharo/Squeak's environment provides the reference model:
+
+- **Menubar** — persistent top-level menus (Pharo, Browse, Debug, Sources, System, Library, Windows, Help)
+- **World menu** — a floating, nested, pinnable context menu opened anywhere in the workspace
+- **Frames** — independent, movable, resizable windows with title bars (close/minimize/maximize). Some use internal tabs. Each is a standalone view.
+- **Taskbar** — bottom bar showing minimized frames for quick switching
+
+Lux adapts this model for an LLM-driven context: agents create frames via protocol, users interact via the World menu and frame chrome, and the display manages layout.
+
+### Design Decisions
+
+#### D1: Four-layer hierarchy — Workspace → Frames → Scenes → Elements
+
+**Decision:** The display is a *workspace* containing *frames*. Each frame is an inner window with chrome (title bar, minimize, close, resize). Each frame contains one or more *scenes*, tabbed if multiple. Each scene contains *elements* (the existing element tree).
+
+```text
+Workspace (the Lux native window)
+├── Menubar (environment chrome)
+├── Frame: "Beads Explorer"          ← owned by lux plugin client
+│   ├── Scene: "punt-labs/lux"       ← tab
+│   ├── Scene: "punt-labs/vox"       ← tab
+│   └── Scene: "punt-labs/quarry"    ← tab
+├── Frame: "Architecture: Lux"       ← owned by lux plugin client
+│   └── Scene: "lux-arch"           ← single scene, no tabs
+├── Frame: "Quarry Search Results"   ← owned by quarry MCP client
+│   └── Scene: "search-42"
+└── Taskbar (minimized frames)
+```
+
+**Rationale:** This mirrors ImGui's native windowing model (`imgui.begin("title")` creates a window with chrome). Frames are the *isolation boundary* — each client's content lives in its own frame(s). Two clients cannot collide because they're in separate frames. Tabs within a frame become a content organization choice, not a collision avoidance mechanism.
+
+**Trade-off:** More complex state management. The display must track frame lifecycle, z-order, positions, and which client owns which frame. This is a significant increase in display-side complexity.
+
+#### D2: Frames are intrinsic to object types, always created by clients via protocol
+
+**Decision:** Every `show()` targets a frame. The client specifies a `frame_id` in the `SceneMessage`. If the frame doesn't exist, the display creates it. If it does exist, the scene is added/updated within it. Frames are never created by the display autonomously.
+
+**Rationale:** Frames are part of the object type's identity. A "Beads Explorer" is not just data — it's a frame with chrome, sizing behavior, and content layout. Whether the trigger is the client calling `show()` or the user clicking a World menu item, the *client* always provides the data and protocol. The menu click sends an event to the client, the client responds with a `SceneMessage` targeting a frame.
+
+**Trade-off:** The display cannot pre-populate frames. Every frame requires a client to provide content. This is intentional — it keeps the display as a pure renderer with no business logic.
+
+#### D3: Aggregation is content-driven, not automatic
+
+**Decision:** Whether a frame uses tabs for multiple scenes is determined by the content type, not by collision avoidance. The client decides.
+
+| View type | Aggregation | Rationale |
+|-----------|-------------|-----------|
+| Beads board | Tabbed (per project) | Cross-project comparison is valuable |
+| Architecture diagram | Separate frames | Each diagram is its own context |
+| Dashboard | Client's choice | Same system → tabs; different systems → separate frames |
+| Data explorer | Separate frames | Each table is its own drill-down context |
+
+**Rationale:** The previous tab-based collision avoidance was solving the wrong problem. With frame isolation, tabs become a deliberate UX choice. Beads aggregates because comparing backlogs across projects adds value. Architecture diagrams don't aggregate because each is a distinct visual context.
+
+#### D4: World menu — per-client namespaces, automatic from handshake
+
+**Decision:** The World menu is a hierarchical menu where each connected client gets its own submenu, named automatically from the client's identity declared during the connection handshake. Clients register items within their namespace. Lux adds a few environment-owned items.
+
+```text
+World
+├── Lux                    ← lux plugin's namespace (from handshake)
+│   ├── Beads Explorer
+│   └── Architecture Diagram
+├── Vox                    ← vox plugin's namespace
+│   └── Audio Monitor
+├── Quarry                 ← quarry's namespace
+│   └── Search...
+└── ─────────────
+    ├── Minimize All       ← Lux-owned environment items
+    └── Close All
+```
+
+**Rationale:** Automatic namespacing from the handshake eliminates a registration step. Each client declares its display name once on connect, and all its World menu items appear under that name. This is consistent with how Pharo organizes its menus by package/tool. The handshake already exists (ReadyMessage response) — extending it with a client name is minimal protocol cost.
+
+**Implication for DES-021 D1:** The socket-FD-based identity decision remains valid for *routing*. But the World menu needs human-readable names for *display*. This means the client must declare a display name during connect. This is a protocol extension: an optional `name` field in the connect handshake (or a new `IdentifyMessage` sent after ReadyMessage). The FD remains the routing key; the name is cosmetic.
+
+#### D5: Handshake-based client identity replaces FD-only identity
+
+**Decision:** Extend the connection protocol so clients declare a display name. The recommended approach: add a `ConnectMessage` sent by the client after receiving `ReadyMessage`, containing `name: str` (e.g. "Lux", "Vox", "Quarry"). The FD remains the internal routing key. The name is used for World menu namespacing and future UI labeling (e.g. "Frame owned by Vox").
+
+**Rationale:** FD-based identity (DES-021 D1) was correct for its scope — routing menu clicks doesn't need human-readable names. But the World menu and frame ownership display require names. Adding a `ConnectMessage` is a single protocol addition that solves both. Clients that don't send a `ConnectMessage` get a fallback name like "Client 3" (from their FD).
+
+**Trade-off:** Adds one new message type to the protocol. The display must handle the "client hasn't identified yet" state — but this is simple: use the fallback name until `ConnectMessage` arrives. No blocking; the handshake is optimistic.
+
+### Frame Lifecycle
+
+| Event | Protocol Message | Direction |
+|-------|-----------------|-----------|
+| Create/update frame | `SceneMessage` with `frame_id` | Client → Display |
+| Close frame (user) | `InteractionMessage` with `action: "frame_close"` | Display → Client |
+| Minimize frame (user) | `InteractionMessage` with `action: "frame_minimize"` | Display → Client |
+| Client disconnect | (implicit) | Display removes client's frames |
+
+The display sends frame lifecycle events (close, minimize) to the owning client. The client can react — e.g., a Beads Explorer might save state before closing, or ignore the close and keep the frame open (like a dirty-document dialog).
+
+### World Menu Lifecycle
+
+| Event | Protocol Message | Direction |
+|-------|-----------------|-----------|
+| Register items | `RegisterMenuMessage` with `menu: "World"` and `path` | Client → Display |
+| User clicks item | `InteractionMessage` with `action: "menu"`, `value: {menu: "World", ...}` | Display → Client |
+| Client disconnect | (implicit) | Display removes client's World menu items |
+
+The existing `RegisterMenuMessage` (DES-021) is extended with optional fields: `menu` (defaults to `"Tools"` for backward compatibility) and `path` (list of strings for nesting, e.g. `["Beads Explorer"]`). Items registered with `menu: "World"` appear under the client's automatic namespace.
+
+### SceneMessage Extension
+
+The `SceneMessage` gains an optional `frame_id: str` field:
+
+- **Present:** Scene targets the named frame. Frame is created if it doesn't exist.
+- **Absent (backward compat):** Scene renders in a default frame (preserving current behavior for clients that don't know about frames).
+
+Additional optional frame metadata on `SceneMessage`:
+
+- `frame_title: str` — title bar text (defaults to `scene_id`)
+- `frame_size: tuple[int, int]` — initial size hint (width, height)
+- `frame_flags: dict` — ImGui window flags (no_resize, no_collapse, etc.)
+
+### Spike Recommendation
+
+This is a fundamental architectural change to the display server. Before committing to the full build plan, a **spike** should prove out the core mechanism:
+
+**Spike scope:** Modify the display server to render scenes inside `imgui.begin()`/`imgui.end()` windows (frames) instead of the current single-canvas approach. Demonstrate:
+
+1. Two frames coexisting, independently movable and resizable
+2. Frame chrome (title bar, close button) functioning
+3. Scenes rendering correctly inside frames (existing element dispatch)
+4. Frame close generating an interaction event back to the client
+
+**Spike non-goals:** World menu, taskbar, handshake identity, RegisterMenuMessage extensions. These build on top of frames and can be added incrementally once the core frame mechanism works.
+
+**Risk the spike validates:** ImGui's `begin()/end()` windowing works with the existing scene renderer dispatch table. The display's render loop can manage multiple concurrent frames without state leakage between them. Performance remains acceptable at 60fps with multiple open frames.
+
+### Build Plan (Post-Spike)
+
+| Slice | What |
+|-------|------|
+| 1 | **Spike: frame rendering** — SceneMessage `frame_id`, display creates inner windows, scene renders inside frame, close button sends event |
+| 2 | **ConnectMessage + client identity** — clients declare name on connect, display tracks names, fallback for unnamed clients |
+| 3 | **World menu registration** — extend RegisterMenuMessage with `menu`/`path` fields, display renders nested World menu with per-client namespaces |
+| 4 | **Taskbar** — bottom bar showing minimized frames, click to restore |
+| 5 | **Frame aggregation** — multiple scenes in one frame as tabs, client-controlled |
+| 6 | **First consumer migration** — migrate beads board from current canvas to framed model |
+
+Each slice is one PR. Slice 1 is the spike — if it reveals blocking issues, the plan adapts before investing in slices 2-6.
+
+### Rejected Alternatives
+
+**Tabs as the isolation model (current approach).** Works for collision avoidance but conflates two concerns: isolation and content organization. Tabs should be a content choice, not a safety mechanism.
+
+**OS-level windows for each frame.** ImGui supports native OS windows, but this breaks the "single Lux window" model and makes the workspace feel like separate applications rather than an integrated environment.
+
+**Server-side frame creation.** The display could create frames when clients connect. But this introduces business logic into the renderer — the display shouldn't know what a "Beads Explorer" is. Frames are the client's domain.
+
+**Flat World menu (command palette style).** A searchable flat list would be simpler but loses the per-client namespace organization that makes the menu navigable when many servers are connected. The nested model mirrors Pharo's organization and scales better.
+
+### Known Limitations
+
+**No drag-and-drop between frames.** Pharo's Morphic supports dragging objects between windows. Lux frames are isolated — content can't move between them without client coordination.
+
+**No persistent layout.** Frame positions and sizes reset on display restart. Layout persistence (save/restore frame arrangement) is deferred — it requires a layout state file and is orthogonal to the core frame mechanism.
+
+**No frame-to-frame communication.** Frames owned by different clients can't directly interact. The agents (LLM callers) can coordinate via MCP tools, but there's no display-level inter-frame messaging.
