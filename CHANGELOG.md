@@ -13,6 +13,11 @@
 - **Routed menu event delivery** — Tools menu item clicks are sent only to
   the MCP server that registered the item, not broadcast to all clients.
   Non-menu events and agent/custom menu events continue to broadcast.
+- **`register_tool` MCP tool** — register a menu item in the Tools menu.
+  Clicks are routed only to the registering server via `recv()`. Items
+  auto-replay on reconnect.
+- **`LuxClient.register_menu_item()`** — client library method for Tools
+  menu registration. Accumulates items and replays on reconnect.
 
 ### Changed
 

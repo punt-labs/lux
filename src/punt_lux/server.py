@@ -59,10 +59,16 @@ _client: LuxClient | None = None
 
 
 def _get_client() -> LuxClient:
-    """Return a connected LuxClient, creating one if needed."""
+    """Return a connected LuxClient, creating or reconnecting as needed.
+
+    Reuses the existing instance when possible so that accumulated state
+    (e.g. registered menu items) survives across reconnects.
+    """
     global _client
-    if _client is None or not _client.is_connected:
+    if _client is None:
         _client = LuxClient()
+        _client.connect()
+    elif not _client.is_connected:
         _client.connect()
     return _client
 
@@ -73,8 +79,9 @@ def _with_reconnect[T](fn: Callable[[], T]) -> T:
     If the display server restarts, the cached socket dies silently —
     ``is_connected`` still returns True because the socket object exists.
     This wrapper catches the resulting ``OSError`` (including
-    ``BrokenPipeError``), tears down the stale client, connects a fresh
-    one, and retries *fn* exactly once.
+    ``BrokenPipeError``), closes the stale socket, reconnects the same
+    client instance (preserving accumulated state like registered menu
+    items), and retries *fn* exactly once.
     """
     global _client
     try:
@@ -83,7 +90,7 @@ def _with_reconnect[T](fn: Callable[[], T]) -> T:
         logger.info("Connection lost, reconnecting to display")
         if _client is not None:
             _client.close()
-            _client = None
+            _client.connect()
         return fn()
 
 
@@ -872,6 +879,35 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
         client = _get_client()
         client.set_menu(menus)
         return "ok"
+
+    return _with_reconnect(_call)
+
+
+@mcp.tool()
+def register_tool(
+    label: str,
+    tool_id: str,
+    shortcut: str | None = None,
+    icon: str | None = None,
+) -> str:
+    """Register a menu item in the Lux Tools menu.
+
+    The item appears in the shared Tools menu alongside items from other
+    MCP servers. When the user clicks it, only this server receives the
+    callback via recv().
+
+    Items are automatically removed when the server disconnects.
+    """
+    item: dict[str, Any] = {"label": label, "id": tool_id}
+    if shortcut is not None:
+        item["shortcut"] = shortcut
+    if icon is not None:
+        item["icon"] = icon
+
+    def _call() -> str:
+        client = _get_client()
+        client.register_menu_item(item)
+        return f"registered:{tool_id}"
 
     return _with_reconnect(_call)
 

@@ -19,6 +19,7 @@ from punt_lux.protocol import (
     PingMessage,
     PongMessage,
     ReadyMessage,
+    RegisterMenuMessage,
     SceneMessage,
     TextElement,
     UpdateMessage,
@@ -494,6 +495,149 @@ class TestAutoSpawn:
         finally:
             if server_conn:
                 server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Menu registration
+# ---------------------------------------------------------------------------
+
+
+class TestRegisterMenuItem:
+    def test_register_sends_accumulated_items(self, tmp_path: Path) -> None:
+        """register_menu_item() sends a RegisterMenuMessage with all items."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        received: list[RegisterMenuMessage] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            # Read two RegisterMenuMessages (one per register_menu_item call)
+            for _ in range(2):
+                msg = recv_message(server_conn, timeout=5)
+                assert isinstance(msg, RegisterMenuMessage)
+                received.append(msg)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+                client.register_menu_item({"id": "a", "label": "A"})
+                client.register_menu_item({"id": "b", "label": "B"})
+            t.join(timeout=5)
+            assert len(received) == 2
+            # First call: just item A
+            assert len(received[0].items) == 1
+            assert received[0].items[0]["id"] == "a"
+            # Second call: items A and B accumulated
+            assert len(received[1].items) == 2
+            assert received[1].items[1]["id"] == "b"
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_register_deduplicates_by_id(self, tmp_path: Path) -> None:
+        """Registering an item with the same ID replaces the existing one."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        received: list[RegisterMenuMessage] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            for _ in range(2):
+                msg = recv_message(server_conn, timeout=5)
+                assert isinstance(msg, RegisterMenuMessage)
+                received.append(msg)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+                client.register_menu_item({"id": "x", "label": "Old"})
+                client.register_menu_item({"id": "x", "label": "New"})
+            t.join(timeout=5)
+            # Second message should have 1 item (deduped), with updated label
+            assert len(received) == 2
+            assert len(received[1].items) == 1
+            assert received[1].items[0]["label"] == "New"
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_reconnect_replays_registered_items(self, tmp_path: Path) -> None:
+        """connect() replays accumulated items after ReadyMessage handshake."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        replay_msg: list[RegisterMenuMessage] = []
+        conns: list[socket.socket] = []
+
+        def serve_two(server: socket.socket, ready: threading.Event) -> None:
+            """Accept two connections, send ReadyMessage on each."""
+            ready.set()
+            for _ in range(2):
+                conn, _ = server.accept()
+                conns.append(conn)
+                send_message(conn, ReadyMessage())
+
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(sock_path))
+        server.listen(2)
+        ready_event = threading.Event()
+        t = threading.Thread(target=serve_two, args=(server, ready_event), daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            # First connection: register an item
+            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client.connect()
+            client.register_menu_item({"id": "t1", "label": "Tool 1"})
+            msg = recv_message(conns[0], timeout=5)
+            assert isinstance(msg, RegisterMenuMessage)
+
+            # Simulate disconnect + reconnect
+            client.close()
+            client.connect()
+            replay = recv_message(conns[1], timeout=5)
+            assert isinstance(replay, RegisterMenuMessage)
+            replay_msg.append(replay)
+            assert len(replay.items) == 1
+            assert replay.items[0]["id"] == "t1"
+
+            client.close()
+        finally:
+            for c in conns:
+                c.close()
+            server.close()
             t.join(timeout=2)
             import shutil
 
