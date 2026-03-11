@@ -544,10 +544,24 @@ class PongMessage:
     display_ts: float | None = None
 
 
+@dataclass
+class UnknownMessage:
+    """Passthrough for unrecognized message types.
+
+    Allows forward compatibility: a client sending a message type that
+    this version of the display doesn't understand won't be disconnected.
+    The display can log and skip unknown messages instead of raising.
+    """
+
+    raw_type: str
+    data: dict[str, Any] = field(default_factory=lambda: cast("dict[str, Any]", {}))
+    type: Literal["unknown"] = "unknown"
+
+
 DisplayMessage = (
     ReadyMessage | AckMessage | InteractionMessage | WindowMessage | PongMessage
 )
-Message = ClientMessage | DisplayMessage
+Message = ClientMessage | DisplayMessage | UnknownMessage
 
 # ---------------------------------------------------------------------------
 # Serialization
@@ -1369,8 +1383,7 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
     if msg_type == "pong":
         return PongMessage(ts=d.get("ts"), display_ts=d.get("display_ts"))
 
-    err = f"Unknown message type: {msg_type!r}"
-    raise ValueError(err)
+    return UnknownMessage(raw_type=msg_type, data=d)
 
 
 # ---------------------------------------------------------------------------

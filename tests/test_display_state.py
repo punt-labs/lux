@@ -341,8 +341,13 @@ class TestMalformedMessageDisconnects:
         # Client should be disconnected, not crash
         assert sock not in server._clients
 
-    def test_unknown_message_type_disconnects_client(self) -> None:
-        """A client sending an unknown message type should be disconnected."""
+    def test_unknown_message_type_keeps_client_connected(self) -> None:
+        """A client sending an unknown message type should NOT be disconnected.
+
+        Unknown types return UnknownMessage passthrough, which _handle_message
+        logs and skips. This enables forward compatibility — old displays
+        gracefully ignore new message types from newer clients.
+        """
         import json
         import struct
 
@@ -360,7 +365,7 @@ class TestMalformedMessageDisconnects:
 
         server._read_from_client(sock)
 
-        assert sock not in server._clients
+        assert sock in server._clients
 
 
 class TestFlushEvents:

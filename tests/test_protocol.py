@@ -43,6 +43,7 @@ from punt_lux.protocol import (
     TextElement,
     ThemeMessage,
     TreeElement,
+    UnknownMessage,
     UpdateMessage,
     WindowElement,
     WindowMessage,
@@ -479,9 +480,11 @@ class TestSerialization:
             restored = message_from_dict(d)
             assert type(restored) is type(msg)
 
-    def test_unknown_message_type_raises(self):
-        with pytest.raises(ValueError, match="Unknown message type"):
-            message_from_dict({"type": "bogus"})
+    def test_unknown_message_type_returns_passthrough(self):
+        msg = message_from_dict({"type": "bogus", "data": 42})
+        assert isinstance(msg, UnknownMessage)
+        assert msg.raw_type == "bogus"
+        assert msg.data == {"type": "bogus", "data": 42}
 
     def test_unknown_element_kind_raises(self):
         with pytest.raises(ValueError, match="Unknown element kind"):
