@@ -10,6 +10,9 @@
   disconnect. Item ID uniqueness is enforced across clients.
 - **Tools menu in display** — new "Tools" menu in the menu bar (after
   Window, before custom agent menus) renders all registered items.
+- **Routed menu event delivery** — menu item clicks are sent only to the
+  MCP server that registered the item, not broadcast to all clients.
+  Non-menu events continue to broadcast.
 
 ### Changed
 
