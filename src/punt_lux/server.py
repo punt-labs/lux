@@ -83,7 +83,7 @@ def _with_reconnect[T](fn: Callable[[], T]) -> T:
         logger.info("Connection lost, reconnecting to display")
         if _client is not None:
             _client.close()
-            _client = None
+            _client.connect()
         return fn()
 
 

@@ -145,7 +145,12 @@ class LuxClient:
         self._ready = ready
         logger.info("Connected to display (protocol %s)", ready.version)
         if self._registered_menu_items:
-            send_message(sock, RegisterMenuMessage(items=self._registered_menu_items))
+            try:
+                replay = RegisterMenuMessage(items=self._registered_menu_items)
+                send_message(sock, replay)
+            except OSError:
+                self.close()
+                raise
 
     def close(self) -> None:
         """Close the connection to the display server."""
@@ -215,7 +220,16 @@ class LuxClient:
         Items accumulate and are sent as a single ``RegisterMenuMessage``.
         On reconnect, all registered items are automatically replayed.
         """
-        self._registered_menu_items.append(item)
+        item_id = item.get("id")
+        if item_id is not None:
+            for idx, existing in enumerate(self._registered_menu_items):
+                if existing.get("id") == item_id:
+                    self._registered_menu_items[idx] = item
+                    break
+            else:
+                self._registered_menu_items.append(item)
+        else:
+            self._registered_menu_items.append(item)
         sock = self._require_connected()
         send_message(sock, RegisterMenuMessage(items=self._registered_menu_items))
 
