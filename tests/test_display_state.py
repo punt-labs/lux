@@ -429,6 +429,108 @@ class TestFlushEvents:
 
         sock.sendall.assert_not_called()
 
+    def test_flush_routes_menu_event_to_owner(self) -> None:
+        """Tools menu events are sent only to the owning client, not broadcast."""
+        server = _make_server()
+        owner = _mock_sock_fd(10)
+        other = _mock_sock_fd(20)
+        server._clients.extend([owner, other])
+        server._fd_to_client[10] = owner
+        server._fd_to_client[20] = other
+        server._menu_owners["tool_a"] = 10
+        server._event_queue.append(
+            InteractionMessage(
+                element_id="tool_a",
+                action="menu",
+                ts=1.0,
+                value={"menu": "Tools", "item": "Tool A"},
+            )
+        )
+
+        server._flush_events()
+
+        owner.sendall.assert_called_once()
+        other.sendall.assert_not_called()
+
+    def test_flush_broadcasts_non_menu_event(self) -> None:
+        """Events for element IDs not in _menu_owners broadcast to all."""
+        server = _make_server()
+        sock1 = _mock_sock_fd(10)
+        sock2 = _mock_sock_fd(20)
+        server._clients.extend([sock1, sock2])
+        server._fd_to_client[10] = sock1
+        server._fd_to_client[20] = sock2
+        server._event_queue.append(
+            InteractionMessage(element_id="button_x", action="click", ts=1.0)
+        )
+
+        server._flush_events()
+
+        sock1.sendall.assert_called_once()
+        sock2.sendall.assert_called_once()
+
+    def test_flush_broadcasts_non_menu_action_even_if_in_menu_owners(self) -> None:
+        """Non-menu actions broadcast even when element_id is in _menu_owners."""
+        server = _make_server()
+        sock1 = _mock_sock_fd(10)
+        sock2 = _mock_sock_fd(20)
+        server._clients.extend([sock1, sock2])
+        server._fd_to_client[10] = sock1
+        server._fd_to_client[20] = sock2
+        server._menu_owners["button_x"] = 10
+        server._event_queue.append(
+            InteractionMessage(element_id="button_x", action="click", ts=1.0)
+        )
+
+        server._flush_events()
+
+        sock1.sendall.assert_called_once()
+        sock2.sendall.assert_called_once()
+
+    def test_flush_broadcasts_agent_menu_even_if_id_in_menu_owners(self) -> None:
+        """Agent menu clicks broadcast even when ID collides with _menu_owners."""
+        server = _make_server()
+        sock1 = _mock_sock_fd(10)
+        sock2 = _mock_sock_fd(20)
+        server._clients.extend([sock1, sock2])
+        server._fd_to_client[10] = sock1
+        server._fd_to_client[20] = sock2
+        server._menu_owners["tool_a"] = 10
+        server._event_queue.append(
+            InteractionMessage(
+                element_id="tool_a",
+                action="menu",
+                ts=1.0,
+                value={"menu": "Custom", "item": "Tool A"},
+            )
+        )
+
+        server._flush_events()
+
+        sock1.sendall.assert_called_once()
+        sock2.sendall.assert_called_once()
+
+    def test_flush_routes_menu_drops_if_owner_disconnected(self) -> None:
+        """If owner fd is in _menu_owners but not in _fd_to_client, event is dropped."""
+        server = _make_server()
+        other = _mock_sock_fd(20)
+        server._clients.append(other)
+        server._fd_to_client[20] = other
+        server._menu_owners["tool_a"] = 10  # fd 10 not in _fd_to_client
+        server._event_queue.append(
+            InteractionMessage(
+                element_id="tool_a",
+                action="menu",
+                ts=1.0,
+                value={"menu": "Tools", "item": "Tool A"},
+            )
+        )
+
+        server._flush_events()
+
+        other.sendall.assert_not_called()
+        assert len(server._event_queue) == 0
+
 
 # -----------------------------------------------------------------------
 # Multi-scene (persistent dismissable tabs)
