@@ -1292,7 +1292,7 @@ class DisplayServer:
                     return  # removed during handle (e.g. send failed)
         except (ConnectionError, OSError):
             self._remove_client(sock)
-        except ValueError:
+        except (ValueError, KeyError, TypeError):
             logger.warning("Malformed message from fd %d, disconnecting", sock.fileno())
             self._remove_client(sock)
 

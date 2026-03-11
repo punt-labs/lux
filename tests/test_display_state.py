@@ -367,6 +367,32 @@ class TestMalformedMessageDisconnects:
 
         assert sock in server._clients
 
+    def test_known_type_missing_fields_disconnects_client(self) -> None:
+        """A known message type missing required fields raises KeyError.
+
+        _read_from_client catches KeyError and disconnects — prevents
+        malformed but type-valid messages from crashing the display.
+        """
+        import json
+        import struct
+
+        server = _make_server()
+        sock = _mock_sock()
+        server._clients.append(sock)
+        from punt_lux.protocol import FrameReader
+
+        reader = FrameReader()
+        server._readers[sock.fileno()] = reader
+
+        # "scene" is a known type, but missing required "id" and "elements"
+        payload = json.dumps({"type": "scene"}).encode("utf-8")
+        frame = struct.pack("!I", len(payload)) + payload
+        sock.recv.return_value = frame
+
+        server._read_from_client(sock)
+
+        assert sock not in server._clients
+
 
 class TestFlushEvents:
     def test_flush_clears_queue(self) -> None:
