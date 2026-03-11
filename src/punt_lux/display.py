@@ -1141,6 +1141,8 @@ class DisplayServer:
         all_items: list[dict[str, Any]] = []
         for items in self._menu_registrations.values():
             all_items.extend(items)
+        if not all_items:
+            return
         all_items.sort(key=lambda i: i.get("label", ""))
         if imgui.begin_menu("Tools"):
             try:
@@ -1401,6 +1403,39 @@ class DisplayServer:
         elif isinstance(msg, UnknownMessage):
             logger.debug("Ignoring unknown message type %r", msg.raw_type)
 
+    def _sanitize_menu_items(
+        self, fd: int, items: list[Any]
+    ) -> list[dict[str, Any]] | None:
+        """Validate and deduplicate menu items for registration.
+
+        Returns sanitized items, or None if registration should be rejected
+        (item ID owned by a different client).
+        """
+        seen_ids: set[str] = set()
+        sanitized: list[dict[str, Any]] = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_id = item.get("id")
+            if item_id is not None and not isinstance(item_id, str):
+                continue
+            if item_id is not None:
+                if item_id in seen_ids:
+                    continue
+                owner_fd = self._menu_owners.get(item_id)
+                if owner_fd is not None and owner_fd != fd:
+                    logger.warning(
+                        "Menu item %r already owned by fd %d, "
+                        "rejecting registration from fd %d",
+                        item_id,
+                        owner_fd,
+                        fd,
+                    )
+                    return None
+                seen_ids.add(item_id)
+            sanitized.append(item)
+        return sanitized
+
     def _handle_register_menu(
         self, sock: socket.socket, msg: RegisterMenuMessage
     ) -> None:
@@ -1409,27 +1444,18 @@ class DisplayServer:
             fd = sock.fileno()
         except OSError:
             return
-        # Validate item ID uniqueness across clients
-        for item in msg.items:
-            item_id = item.get("id")
-            if item_id is None:
-                continue
-            owner_fd = self._menu_owners.get(item_id)
-            if owner_fd is not None and owner_fd != fd:
-                logger.warning(
-                    "Menu item %r already owned by fd %d, "
-                    "rejecting registration from fd %d",
-                    item_id,
-                    owner_fd,
-                    fd,
-                )
-                return
+        sanitized = self._sanitize_menu_items(fd, msg.items)
+        if sanitized is None:
+            return  # rejected — ID collision
         # Remove old ownership entries for this fd
         self._menu_owners = {k: v for k, v in self._menu_owners.items() if v != fd}
-        # Store new items
-        self._menu_registrations[fd] = msg.items
+        # Store new items (empty list clears this client's items)
+        if sanitized:
+            self._menu_registrations[fd] = sanitized
+        else:
+            self._menu_registrations.pop(fd, None)
         # Update ownership
-        for item in msg.items:
+        for item in sanitized:
             item_id = item.get("id")
             if item_id is not None:
                 self._menu_owners[item_id] = fd

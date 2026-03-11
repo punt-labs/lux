@@ -1387,7 +1387,11 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
     if msg_type == "theme":
         return ThemeMessage(theme=d["theme"])
     if msg_type == "register_menu":
-        return RegisterMenuMessage(items=d.get("items", []))
+        raw = d.get("items")
+        raw_items = cast("list[Any]", raw) if isinstance(raw, list) else []  # type: ignore[redundant-cast]
+        return RegisterMenuMessage(
+            items=[e for e in raw_items if isinstance(e, dict)]
+        )
     if msg_type == "ping":
         return PingMessage(ts=d.get("ts"))
     if msg_type == "ready":

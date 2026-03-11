@@ -6,6 +6,7 @@ patching — all pure logic that doesn't touch ImGui or OpenGL.
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock
 
 from punt_lux.display import DisplayServer, WidgetState, _parse_color
@@ -932,3 +933,55 @@ class TestRegisterMenu:
 
         assert server._menu_registrations[10] == items
         assert server._menu_owners["run"] == 10
+
+    def test_non_dict_items_filtered(self) -> None:
+        """Non-dict entries in items list are silently filtered."""
+        server = _make_server()
+        sock = _mock_sock_fd(10)
+        items: list[Any] = [
+            {"label": "Good", "id": "good"},
+            "not a dict",
+            42,
+            {"label": "Also Good", "id": "also_good"},
+        ]
+        server._handle_message(sock, RegisterMenuMessage(items=items))
+        assert len(server._menu_registrations[10]) == 2
+        assert server._menu_owners["good"] == 10
+        assert server._menu_owners["also_good"] == 10
+
+    def test_non_string_id_filtered(self) -> None:
+        """Items with non-string IDs are silently filtered."""
+        server = _make_server()
+        sock = _mock_sock_fd(10)
+        items: list[dict[str, Any]] = [
+            {"label": "Good", "id": "good"},
+            {"label": "Bad ID", "id": 123},
+            {"label": "List ID", "id": ["a"]},
+        ]
+        server._handle_message(sock, RegisterMenuMessage(items=items))
+        assert len(server._menu_registrations[10]) == 1
+        assert server._menu_owners["good"] == 10
+
+    def test_duplicate_ids_within_registration_deduped(self) -> None:
+        """Duplicate IDs within a single registration keep first."""
+        server = _make_server()
+        sock = _mock_sock_fd(10)
+        items = [
+            {"label": "First", "id": "dup"},
+            {"label": "Second", "id": "dup"},
+        ]
+        server._handle_message(sock, RegisterMenuMessage(items=items))
+        assert len(server._menu_registrations[10]) == 1
+        assert server._menu_registrations[10][0]["label"] == "First"
+
+    def test_empty_items_clears_registration(self) -> None:
+        """Registering empty items removes client from _menu_registrations."""
+        server = _make_server()
+        sock = _mock_sock_fd(10)
+        items = [{"label": "Run", "id": "run"}]
+        server._handle_message(sock, RegisterMenuMessage(items=items))
+        assert 10 in server._menu_registrations
+
+        server._handle_message(sock, RegisterMenuMessage(items=[]))
+        assert 10 not in server._menu_registrations
+        assert "run" not in server._menu_owners
