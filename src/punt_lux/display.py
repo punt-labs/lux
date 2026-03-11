@@ -56,6 +56,7 @@ from punt_lux.protocol import (
     SliderElement,
     TabBarElement,
     ThemeMessage,
+    UnknownMessage,
     UpdateMessage,
     WindowElement,
     encode_message,
@@ -855,6 +856,7 @@ class DisplayServer:
         self._server_sock: socket.socket | None = None
         self._clients: list[socket.socket] = []
         self._readers: dict[int, FrameReader] = {}  # fd -> reader
+        self._fd_to_client: dict[int, socket.socket] = {}  # fd -> socket (O(1) lookup)
         self._scenes: dict[str, SceneMessage] = {}  # ordered by insertion
         self._scene_order: list[str] = []  # explicit tab order
         self._active_tab: str | None = None  # currently selected tab
@@ -1043,6 +1045,7 @@ class DisplayServer:
             client.close()
         self._clients.clear()
         self._readers.clear()
+        self._fd_to_client.clear()
         if self._server_sock is not None:
             self._server_sock.close()
             self._server_sock = None
@@ -1252,8 +1255,10 @@ class DisplayServer:
             except (BlockingIOError, OSError):
                 return
             conn.setblocking(False)  # noqa: FBT003
+            fd = conn.fileno()
             self._clients.append(conn)
-            self._readers[conn.fileno()] = FrameReader()
+            self._readers[fd] = FrameReader()
+            self._fd_to_client[fd] = conn
             logger.debug("Client connected (total: %d)", len(self._clients))
             self._send_to_client(conn, ReadyMessage())
 
@@ -1281,14 +1286,20 @@ class DisplayServer:
                 logger.warning("Buffer overflow from fd %d", sock.fileno())
                 self._remove_client(sock)
                 return
-            for msg in reader.drain_typed():
+            # Deserialize all complete frames — KeyError/TypeError/ValueError
+            # here means malformed wire data, not a handler bug.
+            try:
+                messages = reader.drain_typed()
+            except (ValueError, KeyError, TypeError):
+                fd = sock.fileno()
+                logger.warning("Malformed message from fd %d", fd)
+                self._remove_client(sock)
+                return
+            for msg in messages:
                 self._handle_message(sock, msg)
                 if sock not in self._clients:
                     return  # removed during handle (e.g. send failed)
         except (ConnectionError, OSError):
-            self._remove_client(sock)
-        except ValueError:
-            logger.warning("Malformed message from fd %d, disconnecting", sock.fileno())
             self._remove_client(sock)
 
     def _remove_client(self, sock: socket.socket) -> None:
@@ -1301,6 +1312,7 @@ class DisplayServer:
             fd = None
         if fd is not None:
             self._readers.pop(fd, None)
+            self._fd_to_client.pop(fd, None)
         with contextlib.suppress(OSError):
             sock.close()
         logger.debug("Client disconnected (remaining: %d)", len(self._clients))
@@ -1338,6 +1350,8 @@ class DisplayServer:
             self._apply_theme(msg.theme)
         elif isinstance(msg, PingMessage):
             self._send_to_client(sock, PongMessage(ts=msg.ts, display_ts=time.time()))
+        elif isinstance(msg, UnknownMessage):
+            logger.debug("Ignoring unknown message type %r", msg.raw_type)
 
     def _handle_scene(self, sock: socket.socket, msg: SceneMessage) -> None:
         old_scene = self._scenes.get(msg.id)

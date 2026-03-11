@@ -341,8 +341,13 @@ class TestMalformedMessageDisconnects:
         # Client should be disconnected, not crash
         assert sock not in server._clients
 
-    def test_unknown_message_type_disconnects_client(self) -> None:
-        """A client sending an unknown message type should be disconnected."""
+    def test_unknown_message_type_keeps_client_connected(self) -> None:
+        """A client sending an unknown message type should NOT be disconnected.
+
+        Unknown types return UnknownMessage passthrough, which _handle_message
+        logs and skips. This enables forward compatibility — old displays
+        gracefully ignore new message types from newer clients.
+        """
         import json
         import struct
 
@@ -355,6 +360,32 @@ class TestMalformedMessageDisconnects:
         server._readers[sock.fileno()] = reader
 
         payload = json.dumps({"type": "bogus"}).encode("utf-8")
+        frame = struct.pack("!I", len(payload)) + payload
+        sock.recv.return_value = frame
+
+        server._read_from_client(sock)
+
+        assert sock in server._clients
+
+    def test_known_type_missing_fields_disconnects_client(self) -> None:
+        """A known message type missing required fields raises KeyError.
+
+        _read_from_client catches KeyError and disconnects — prevents
+        malformed but type-valid messages from crashing the display.
+        """
+        import json
+        import struct
+
+        server = _make_server()
+        sock = _mock_sock()
+        server._clients.append(sock)
+        from punt_lux.protocol import FrameReader
+
+        reader = FrameReader()
+        server._readers[sock.fileno()] = reader
+
+        # "scene" is a known type, but missing required "id" and "elements"
+        payload = json.dumps({"type": "scene"}).encode("utf-8")
         frame = struct.pack("!I", len(payload)) + payload
         sock.recv.return_value = frame
 

@@ -544,10 +544,24 @@ class PongMessage:
     display_ts: float | None = None
 
 
+@dataclass
+class UnknownMessage:
+    """Passthrough for unrecognized message types.
+
+    Allows forward compatibility: a client sending a message type that
+    this version of the display doesn't understand won't be disconnected.
+    The display can log and skip unknown messages instead of raising.
+    """
+
+    raw_type: str
+    data: dict[str, Any] = field(default_factory=lambda: {})  # noqa: PIE807
+    type: Literal["unknown"] = "unknown"
+
+
 DisplayMessage = (
     ReadyMessage | AckMessage | InteractionMessage | WindowMessage | PongMessage
 )
-Message = ClientMessage | DisplayMessage
+Message = ClientMessage | DisplayMessage | UnknownMessage
 
 # ---------------------------------------------------------------------------
 # Serialization
@@ -1320,6 +1334,13 @@ def _register_serializers() -> None:  # noqa: C901
 
     _MESSAGE_SERIALIZERS[PongMessage] = _pong
 
+    def _unknown(m: UnknownMessage) -> dict[str, Any]:
+        d = dict(m.data)
+        d["type"] = m.raw_type
+        return d
+
+    _MESSAGE_SERIALIZERS[UnknownMessage] = _unknown
+
 
 _register_serializers()
 
@@ -1369,8 +1390,11 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
     if msg_type == "pong":
         return PongMessage(ts=d.get("ts"), display_ts=d.get("display_ts"))
 
-    err = f"Unknown message type: {msg_type!r}"
-    raise ValueError(err)
+    if not isinstance(msg_type, str) or not msg_type:
+        err = "Message missing or invalid 'type' field"
+        raise ValueError(err)
+
+    return UnknownMessage(raw_type=msg_type, data=d)
 
 
 # ---------------------------------------------------------------------------
