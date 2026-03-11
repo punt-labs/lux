@@ -20,6 +20,7 @@ from punt_lux.display import DisplayServer, WidgetState
 from punt_lux.protocol import (
     ButtonElement,
     ClearMessage,
+    ConnectMessage,
     FrameReader,
     InteractionMessage,
     Patch,
@@ -923,6 +924,54 @@ class TestFrameCascadePartitions:
         # After closing f1 (index 0), f2 keeps index 1, so f3 gets index 0
         server._handle_framed_scene(sock, _framed_scene("s3", "f3"))
         assert server._frames["f3"].cascade_index == 0
+
+
+class TestConnectMessagePartitions:
+    """ConnectMessage: client identifies itself with a display name."""
+
+    def test_identify_sets_name(self):
+        """ConnectMessage stores the client's display name."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._fd_to_client[10] = sock
+
+        server._handle_connect(sock, ConnectMessage(name="quarry"))
+
+        assert server.client_name(10) == "quarry"
+
+    def test_identify_updates_name(self):
+        """Sending ConnectMessage again updates the name (idempotent)."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._fd_to_client[10] = sock
+
+        server._handle_connect(sock, ConnectMessage(name="quarry"))
+        server._handle_connect(sock, ConnectMessage(name="biff"))
+
+        assert server.client_name(10) == "biff"
+
+    def test_disconnect_clears_name(self):
+        """Disconnecting a client removes its name."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._fd_to_client[10] = sock
+
+        server._handle_connect(sock, ConnectMessage(name="quarry"))
+        server._remove_client(sock)
+
+        assert server.client_name(10) is None
+
+    def test_unnamed_client_returns_none(self):
+        """A client that never sent ConnectMessage has no name."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._fd_to_client[10] = sock
+
+        assert server.client_name(10) is None
 
 
 class TestCloseFramePartitions:
