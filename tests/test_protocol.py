@@ -490,6 +490,21 @@ class TestSerialization:
         assert isinstance(restored.elements[2], SeparatorElement)
         assert isinstance(restored.elements[3], ImageElement)
 
+    def test_framed_scene_roundtrip(self):
+        original = SceneMessage(
+            id="s1",
+            elements=[TextElement(id="t1", content="hello")],
+            frame_id="beads-explorer",
+            frame_title="Beads Explorer",
+        )
+        d = message_to_dict(original)
+        assert d["frame_id"] == "beads-explorer"
+        assert d["frame_title"] == "Beads Explorer"
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert restored.frame_id == "beads-explorer"
+        assert restored.frame_title == "Beads Explorer"
+
     def test_update_roundtrip(self):
         original = UpdateMessage(
             scene_id="s1",

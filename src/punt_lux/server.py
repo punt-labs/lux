@@ -100,6 +100,8 @@ def show(
     elements: list[dict[str, Any]],
     title: str | None = None,
     layout: str = "single",
+    frame_id: str | None = None,
+    frame_title: str | None = None,
 ) -> str:
     """Display a scene in the Lux window.
 
@@ -173,7 +175,14 @@ def show(
 
     def _call() -> str:
         client = _get_client()
-        ack = client.show(scene_id, typed_elements, title=title, layout=layout)
+        ack = client.show(
+            scene_id,
+            typed_elements,
+            title=title,
+            layout=layout,
+            frame_id=frame_id,
+            frame_title=frame_title,
+        )
         if ack is None:
             return "timeout"
         return f"ack:{ack.scene_id}"

@@ -1,0 +1,521 @@
+%
+% workspace-model.tex
+%
+% Z Specification for the Lux Workspace Model (DES-022)
+% Formal model of frames, client identity, world menu, and frame aggregation
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{Lux Workspace Model: A Z Specification}
+\author{Formal Model of Frames, Client Identity, and World Menu}
+\date{March 2026}
+\hypersetup{
+  pdftitle={Lux Workspace Model: A Z Specification},
+  pdfauthor={Punt Labs},
+  pdfsubject={Z Specification},
+  pdfcreator={fuzz/probcli}
+}
+\maketitle
+
+\tableofcontents
+\newpage
+
+% ===================================================================
+\section{Introduction}
+% ===================================================================
+
+DES-022 introduces a workspace model for the Lux display server,
+inspired by Pharo/Squeak's live environment.  The display becomes a
+\emph{workspace} containing independent, movable \emph{frames} (ImGui
+inner windows).  Each frame is owned by a connected client and
+contains one or more \emph{scenes}.
+
+This specification models the workspace layer that sits above the
+existing scene renderer (specified in \texttt{display-server.tex}).
+It covers:
+\begin{itemize}
+  \item Client identity from the connection handshake
+  \item Frame lifecycle: creation, minimization, restoration, closure
+  \item Frame ownership and cleanup on client disconnect
+  \item World menu: per-client namespaced menu registration
+  \item Scene-to-frame targeting
+\end{itemize}
+
+We abstract away the element tree inside scenes (already modeled) and
+focus on the new state that DES-022 introduces.
+
+% ===================================================================
+\section{Basic Types}
+% ===================================================================
+
+\begin{zed}
+  [FD, FRAMEID, SCENEID, CLIENTNAME, MENUID, MENUPATH]
+\end{zed}
+
+$FD$ models socket file descriptors (shared with the display-server
+spec).  $FRAMEID$ is the identifier a client assigns to a frame.
+$SCENEID$ identifies a scene within a frame.  $CLIENTNAME$ is the
+human-readable display name declared during the connection handshake
+(e.g.\ ``Lux'', ``Vox'', ``Quarry'').  $MENUID$ and $MENUPATH$
+identify menu items and their nesting path in the World menu.
+
+% ===================================================================
+\section{Free Types}
+% ===================================================================
+
+\begin{zed}
+  ZBOOL ::= ztrue | zfalse
+\end{zed}
+
+Frame visibility state:
+\begin{zed}
+  FrameVis ::= fvNormal | fvMinimized
+\end{zed}
+
+Menu target --- which menu surface an item belongs to:
+\begin{zed}
+  MenuTarget ::= mtTools | mtWorld
+\end{zed}
+
+% ===================================================================
+\section{Global Constants}
+% ===================================================================
+
+Animation-friendly bounds.  Production values would be larger;
+these are sized for ProB's finite state space.
+
+\begin{axdef}
+  maxClients : \nat \\
+  maxFrames : \nat \\
+  maxScenes : \nat \\
+  maxMenuItems : \nat
+  \where
+  maxClients = 3 \\
+  maxFrames = 4 \\
+  maxScenes = 6 \\
+  maxMenuItems = 6
+\end{axdef}
+
+% ===================================================================
+\section{Workspace State}
+% ===================================================================
+
+The workspace tracks connected clients with their identities,
+frames with their ownership and visibility, scene-to-frame
+mappings, and per-client menu registrations.  All fields are
+flattened for ProB animatability.
+
+\begin{schema}{Workspace}
+  clients : \power FD \\
+  clientNames : FD \pfun CLIENTNAME \\
+  frames : \power FRAMEID \\
+  frameOwner : FRAMEID \pfun FD \\
+  frameVis : FRAMEID \pfun FrameVis \\
+  frameScenes : FRAMEID \pfun \power SCENEID \\
+  sceneFrame : SCENEID \pfun FRAMEID \\
+  menuItems : \power MENUID \\
+  menuOwner : MENUID \pfun FD \\
+  menuTarget : MENUID \pfun MenuTarget \\
+  menuPath : MENUID \pfun MENUPATH
+  \where
+  % --- Client identity ---
+  \dom clientNames \subseteq clients \\
+  \# clients \leq maxClients \\
+  % --- Frame ownership ---
+  \dom frameOwner = frames \\
+  \dom frameVis = frames \\
+  \dom frameScenes = frames \\
+  \ran frameOwner \subseteq clients \\
+  \# frames \leq maxFrames \\
+  % --- Scene-frame bijection ---
+  \dom sceneFrame = \bigcup (\ran frameScenes) \\
+  \forall f : frames @ \forall s : frameScenes~f @
+  \quad~ sceneFrame~s = f \\
+  \#(\dom sceneFrame) \leq maxScenes \\
+  % --- Menu ownership ---
+  \dom menuOwner = menuItems \\
+  \dom menuTarget = menuItems \\
+  \dom menuPath = menuItems \\
+  \ran menuOwner \subseteq clients \\
+  \# menuItems \leq maxMenuItems
+\end{schema}
+
+The key invariants are:
+\begin{enumerate}
+  \item \textbf{Named clients are connected}: Only connected
+    clients can have display names.
+  \item \textbf{Frame owners are connected}: Every frame is owned
+    by a connected client.  Disconnecting a client removes its frames.
+  \item \textbf{Frame metadata coverage}: Every frame has an owner,
+    visibility state, and scene set.
+  \item \textbf{Scene-frame consistency}: Every scene knows which
+    frame it belongs to, and that mapping is consistent with the
+    frame's scene set.
+  \item \textbf{Menu owners are connected}: Every menu item is
+    owned by a connected client.
+\end{enumerate}
+
+% ===================================================================
+\section{Initialization}
+% ===================================================================
+
+\begin{schema}{Init}
+  Workspace'
+  \where
+  clients' = \emptyset \\
+  clientNames' = \emptyset \\
+  frames' = \emptyset \\
+  frameOwner' = \emptyset \\
+  frameVis' = \emptyset \\
+  frameScenes' = \emptyset \\
+  sceneFrame' = \emptyset \\
+  menuItems' = \emptyset \\
+  menuOwner' = \emptyset \\
+  menuTarget' = \emptyset \\
+  menuPath' = \emptyset
+\end{schema}
+
+% ===================================================================
+\section{Operations}
+% ===================================================================
+
+% -------------------------------------------------------------------
+\subsection{Accept Connection}
+% -------------------------------------------------------------------
+
+A new client connects.  It has no display name yet (the
+\texttt{ConnectMessage} arrives later).
+
+\begin{schema}{AcceptConnection}
+  \Delta Workspace \\
+  newClient? : FD
+  \where
+  newClient? \notin clients \\
+  \# clients < maxClients \\
+  clients' = clients \cup \{ newClient? \} \\
+  clientNames' = clientNames \\
+  frames' = frames \\
+  frameOwner' = frameOwner \\
+  frameVis' = frameVis \\
+  frameScenes' = frameScenes \\
+  sceneFrame' = sceneFrame \\
+  menuItems' = menuItems \\
+  menuOwner' = menuOwner \\
+  menuTarget' = menuTarget \\
+  menuPath' = menuPath
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Identify Client}
+% -------------------------------------------------------------------
+
+A connected client declares its display name via
+\texttt{ConnectMessage}.  Subsequent calls update the name (idempotent).
+
+\begin{schema}{IdentifyClient}
+  \Delta Workspace \\
+  fd? : FD \\
+  name? : CLIENTNAME
+  \where
+  fd? \in clients \\
+  clientNames' = clientNames \oplus \{ fd? \mapsto name? \} \\
+  clients' = clients \\
+  frames' = frames \\
+  frameOwner' = frameOwner \\
+  frameVis' = frameVis \\
+  frameScenes' = frameScenes \\
+  sceneFrame' = sceneFrame \\
+  menuItems' = menuItems \\
+  menuOwner' = menuOwner \\
+  menuTarget' = menuTarget \\
+  menuPath' = menuPath
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Create Frame}
+% -------------------------------------------------------------------
+
+A client sends a \texttt{SceneMessage} with a \texttt{frame\_id} that
+does not yet exist.  The display creates a new frame containing the
+specified scene.
+
+\begin{schema}{CreateFrame}
+  \Delta Workspace \\
+  fd? : FD \\
+  frameId? : FRAMEID \\
+  sceneId? : SCENEID
+  \where
+  fd? \in clients \\
+  frameId? \notin frames \\
+  sceneId? \notin \dom sceneFrame \\
+  \# frames < maxFrames \\
+  \#(\dom sceneFrame) < maxScenes \\
+  frames' = frames \cup \{ frameId? \} \\
+  frameOwner' = frameOwner \cup \{ frameId? \mapsto fd? \} \\
+  frameVis' = frameVis \cup \{ frameId? \mapsto fvNormal \} \\
+  frameScenes' = frameScenes \cup
+  \quad~ \{ frameId? \mapsto \{ sceneId? \} \} \\
+  sceneFrame' = sceneFrame \cup \{ sceneId? \mapsto frameId? \} \\
+  clients' = clients \\
+  clientNames' = clientNames \\
+  menuItems' = menuItems \\
+  menuOwner' = menuOwner \\
+  menuTarget' = menuTarget \\
+  menuPath' = menuPath
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Add Scene to Frame}
+% -------------------------------------------------------------------
+
+A client sends a \texttt{SceneMessage} targeting an existing frame
+with a new scene.  The scene is added (creating a tab if this is
+the second scene in the frame).
+
+\begin{schema}{AddSceneToFrame}
+  \Delta Workspace \\
+  fd? : FD \\
+  frameId? : FRAMEID \\
+  sceneId? : SCENEID
+  \where
+  fd? \in clients \\
+  frameId? \in frames \\
+  frameOwner~frameId? = fd? \\
+  sceneId? \notin \dom sceneFrame \\
+  \#(\dom sceneFrame) < maxScenes \\
+  frameScenes' = frameScenes \oplus
+  \quad~ \{ frameId? \mapsto (frameScenes~frameId? \cup \{ sceneId? \}) \} \\
+  sceneFrame' = sceneFrame \cup \{ sceneId? \mapsto frameId? \} \\
+  frames' = frames \\
+  frameOwner' = frameOwner \\
+  frameVis' = frameVis \\
+  clients' = clients \\
+  clientNames' = clientNames \\
+  menuItems' = menuItems \\
+  menuOwner' = menuOwner \\
+  menuTarget' = menuTarget \\
+  menuPath' = menuPath
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Update Scene in Frame}
+% -------------------------------------------------------------------
+
+A client sends a \texttt{SceneMessage} targeting an existing frame
+with an existing scene ID.  The scene content is replaced (modeled
+  here as a no-op on workspace state since scene \emph{content}
+is in the display-server spec).
+
+\begin{schema}{UpdateScene}
+  \Xi Workspace \\
+  fd? : FD \\
+  frameId? : FRAMEID \\
+  sceneId? : SCENEID
+  \where
+  fd? \in clients \\
+  frameId? \in frames \\
+  frameOwner~frameId? = fd? \\
+  sceneId? \in frameScenes~frameId?
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Close Frame (User)}
+% -------------------------------------------------------------------
+
+The user clicks the close button on a frame.  The frame and all
+its scenes are removed.  An interaction event is sent to the
+owning client (modeled at the display-server level).
+
+\begin{schema}{CloseFrame}
+  \Delta Workspace \\
+  frameId? : FRAMEID
+  \where
+  frameId? \in frames \\
+  frames' = frames \setminus \{ frameId? \} \\
+  frameOwner' = \{ frameId? \} \ndres frameOwner \\
+  frameVis' = \{ frameId? \} \ndres frameVis \\
+  frameScenes' = \{ frameId? \} \ndres frameScenes \\
+  sceneFrame' = (frameScenes~frameId?) \ndres sceneFrame \\
+  clients' = clients \\
+  clientNames' = clientNames \\
+  menuItems' = menuItems \\
+  menuOwner' = menuOwner \\
+  menuTarget' = menuTarget \\
+  menuPath' = menuPath
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Minimize Frame}
+% -------------------------------------------------------------------
+
+\begin{schema}{MinimizeFrame}
+  \Delta Workspace \\
+  frameId? : FRAMEID
+  \where
+  frameId? \in frames \\
+  frameVis~frameId? = fvNormal \\
+  frameVis' = frameVis \oplus \{ frameId? \mapsto fvMinimized \} \\
+  frames' = frames \\
+  frameOwner' = frameOwner \\
+  frameScenes' = frameScenes \\
+  sceneFrame' = sceneFrame \\
+  clients' = clients \\
+  clientNames' = clientNames \\
+  menuItems' = menuItems \\
+  menuOwner' = menuOwner \\
+  menuTarget' = menuTarget \\
+  menuPath' = menuPath
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Restore Frame}
+% -------------------------------------------------------------------
+
+\begin{schema}{RestoreFrame}
+  \Delta Workspace \\
+  frameId? : FRAMEID
+  \where
+  frameId? \in frames \\
+  frameVis~frameId? = fvMinimized \\
+  frameVis' = frameVis \oplus \{ frameId? \mapsto fvNormal \} \\
+  frames' = frames \\
+  frameOwner' = frameOwner \\
+  frameScenes' = frameScenes \\
+  sceneFrame' = sceneFrame \\
+  clients' = clients \\
+  clientNames' = clientNames \\
+  menuItems' = menuItems \\
+  menuOwner' = menuOwner \\
+  menuTarget' = menuTarget \\
+  menuPath' = menuPath
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Register Menu Item}
+% -------------------------------------------------------------------
+
+A client registers a menu item.  The \texttt{menuTarget} determines
+whether it appears in the Tools menu or the World menu
+(per-client namespace from handshake identity).
+
+\begin{schema}{RegisterMenuItem}
+  \Delta Workspace \\
+  fd? : FD \\
+  itemId? : MENUID \\
+  target? : MenuTarget \\
+  path? : MENUPATH
+  \where
+  fd? \in clients \\
+  itemId? \notin menuItems \\
+  \# menuItems < maxMenuItems \\
+  menuItems' = menuItems \cup \{ itemId? \} \\
+  menuOwner' = menuOwner \cup \{ itemId? \mapsto fd? \} \\
+  menuTarget' = menuTarget \cup \{ itemId? \mapsto target? \} \\
+  menuPath' = menuPath \cup \{ itemId? \mapsto path? \} \\
+  clients' = clients \\
+  clientNames' = clientNames \\
+  frames' = frames \\
+  frameOwner' = frameOwner \\
+  frameVis' = frameVis \\
+  frameScenes' = frameScenes \\
+  sceneFrame' = sceneFrame
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Deregister Menu Item}
+% -------------------------------------------------------------------
+
+A client removes a menu item it owns.
+
+\begin{schema}{DeregisterMenuItem}
+  \Delta Workspace \\
+  fd? : FD \\
+  itemId? : MENUID
+  \where
+  fd? \in clients \\
+  itemId? \in menuItems \\
+  menuOwner~itemId? = fd? \\
+  menuItems' = menuItems \setminus \{ itemId? \} \\
+  menuOwner' = \{ itemId? \} \ndres menuOwner \\
+  menuTarget' = \{ itemId? \} \ndres menuTarget \\
+  menuPath' = \{ itemId? \} \ndres menuPath \\
+  clients' = clients \\
+  clientNames' = clientNames \\
+  frames' = frames \\
+  frameOwner' = frameOwner \\
+  frameVis' = frameVis \\
+  frameScenes' = frameScenes \\
+  sceneFrame' = sceneFrame
+\end{schema}
+
+% -------------------------------------------------------------------
+\subsection{Disconnect Client}
+% -------------------------------------------------------------------
+
+A client disconnects.  All its frames, scenes, and menu items
+are removed.  This is the critical cleanup operation that
+maintains the ownership invariants.
+
+Let $deadFrames$ be the set of frames owned by the departing client,
+and $deadScenes$ be all scenes in those frames, and $deadMenus$
+be all menu items owned by the client.
+
+\begin{schema}{DisconnectClient}
+  \Delta Workspace \\
+  deadClient? : FD
+  \where
+  deadClient? \in clients \\
+  clients' = clients \setminus \{ deadClient? \} \\
+  clientNames' = \{ deadClient? \} \ndres clientNames \\
+  frames' = frames \setminus
+  \quad~ \{ f : frames | frameOwner~f = deadClient? \} \\
+  frameOwner' = frames' \dres frameOwner \\
+  frameVis' = frames' \dres frameVis \\
+  frameScenes' = frames' \dres frameScenes \\
+  sceneFrame' = sceneFrame \rres frames' \\
+  menuItems' = menuItems \setminus
+  \quad~ \{ m : menuItems | menuOwner~m = deadClient? \} \\
+  menuOwner' = menuItems' \dres menuOwner \\
+  menuTarget' = menuItems' \dres menuTarget \\
+  menuPath' = menuItems' \dres menuPath
+\end{schema}
+
+% ===================================================================
+\section{System Invariants Summary}
+% ===================================================================
+
+The key properties maintained across all operations:
+
+\begin{enumerate}
+  \item \textbf{Frame owners are connected}: $\ran frameOwner
+    \subseteq clients$.  No orphaned frames.
+
+  \item \textbf{Scene-frame consistency}: Every scene maps to
+    exactly one frame, and that frame lists the scene in its
+    scene set.  No orphaned scenes.
+
+  \item \textbf{Menu owners are connected}: $\ran menuOwner
+    \subseteq clients$.  No orphaned menu items.
+
+  \item \textbf{Disconnect atomicity}: When a client disconnects,
+    all its frames, scenes, and menu items are removed in
+    one atomic operation.
+
+  \item \textbf{Bounded resources}: Client count, frame count,
+    scene count, and menu item count are all bounded.
+
+  \item \textbf{Named clients are connected}: $\dom clientNames
+    \subseteq clients$.  Names cannot outlive connections.
+
+  \item \textbf{Ownership exclusivity}: Each frame has exactly one
+    owner ($frameOwner$ is a total function on $frames$).
+    Only the owning client can add scenes to a frame.
+\end{enumerate}
+
+\end{document}
