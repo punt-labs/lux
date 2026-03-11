@@ -1090,7 +1090,7 @@ class DisplayServer:
             self._show_lux_menu(imgui)
             self._show_theme_menu(imgui)
             self._show_window_menu(imgui)
-            self._show_tools_menu(imgui)
+            self._show_world_menu(imgui)
             for menu in self._agent_menus:
                 self._show_agent_menu(imgui, menu)
         except Exception:
@@ -1158,45 +1158,83 @@ class DisplayServer:
             finally:
                 imgui.end_menu()
 
-    def _show_tools_menu(self, imgui: Any) -> None:
-        if not self._menu_registrations:
+    def _show_world_menu(self, imgui: Any) -> None:
+        has_items = bool(self._menu_registrations)
+        has_frames = bool(self._frames)
+        if not has_items and not has_frames:
             return
-        all_items: list[dict[str, Any]] = []
-        for items in self._menu_registrations.values():
-            all_items.extend(items)
-        if not all_items:
+        if not imgui.begin_menu("World"):
             return
-        all_items.sort(key=lambda i: i.get("label") or "")
-        if imgui.begin_menu("Tools"):
-            try:
-                for item in all_items:
-                    label = item.get("label")
-                    if not isinstance(label, str):
-                        continue
-                    if label == "---":
-                        imgui.separator()
-                        continue
-                    enabled = item.get("enabled", True)
-                    clicked, _ = imgui.menu_item(
-                        label,
-                        item.get("shortcut", ""),
-                        False,  # noqa: FBT003
-                        enabled,
+        try:
+            shown = self._show_world_client_submenus(imgui)
+            if shown and has_frames:
+                imgui.separator()
+            self._show_world_environment_items(imgui)
+        finally:
+            imgui.end_menu()
+
+    def _show_world_client_submenus(self, imgui: Any) -> bool:
+        """Render per-client submenus. Returns True if any were shown."""
+        clients: list[tuple[str, int, list[dict[str, Any]]]] = []
+        for fd, items in self._menu_registrations.items():
+            if items:
+                name = self._client_names.get(fd, f"Client {fd}")
+                clients.append((name, fd, items))
+        clients.sort(key=lambda c: c[0].lower())
+        for name, fd, items in clients:
+            if imgui.begin_menu(f"{name}##{fd}"):
+                try:
+                    items_sorted = sorted(
+                        items,
+                        key=lambda i: i.get("label") or "",
                     )
-                    if clicked and isinstance(item.get("id"), str):
-                        self._event_queue.append(
-                            InteractionMessage(
-                                element_id=item["id"],
-                                action="menu",
-                                ts=time.time(),
-                                value={
-                                    "menu": "Tools",
-                                    "item": label,
-                                },
-                            )
-                        )
-            finally:
-                imgui.end_menu()
+                    for item in items_sorted:
+                        self._render_world_menu_item(imgui, item)
+                finally:
+                    imgui.end_menu()
+        return bool(clients)
+
+    def _show_world_environment_items(self, imgui: Any) -> None:
+        """Render environment-owned items (Minimize All, Close All)."""
+        if not self._frames:
+            return
+        if imgui.menu_item("Minimize All", "", False)[0]:  # noqa: FBT003
+            for f in self._frames.values():
+                f.minimized = True
+        if imgui.menu_item("Close All", "", False)[0]:  # noqa: FBT003
+            for fid in list(self._frames):
+                self._close_frame(fid)
+
+    def _render_world_menu_item(
+        self,
+        imgui: Any,
+        item: dict[str, Any],
+    ) -> None:
+        label = item.get("label")
+        if not isinstance(label, str):
+            return
+        if label == "---":
+            imgui.separator()
+            return
+        enabled = item.get("enabled", True)
+        clicked, _ = imgui.menu_item(
+            label,
+            item.get("shortcut", ""),
+            False,  # noqa: FBT003
+            enabled,
+        )
+        if clicked and isinstance(item.get("id"), str):
+            self._event_queue.append(
+                InteractionMessage(
+                    element_id=item["id"],
+                    action="menu",
+                    ts=time.time(),
+                    value={
+                        "menu": "World",
+                        "item": label,
+                    },
+                )
+            )
 
     @staticmethod
     def _set_glfw_decorated(*, decorated: bool) -> None:
@@ -1490,7 +1528,7 @@ class DisplayServer:
     def _handle_register_menu(
         self, sock: socket.socket, msg: RegisterMenuMessage
     ) -> None:
-        """Register menu items owned by this client into the Tools menu."""
+        """Register menu items owned by this client into the World menu."""
         try:
             fd = sock.fileno()
         except OSError:
@@ -3016,13 +3054,13 @@ class DisplayServer:
             return
         if self._clients:
             for event in self._event_queue:
-                is_tools_menu = (
+                is_world_menu = (
                     event.action == "menu"
                     and isinstance(event.value, dict)
-                    and event.value.get("menu") == "Tools"
+                    and event.value.get("menu") == "World"
                 )
                 owner_fd = (
-                    self._menu_owners.get(event.element_id) if is_tools_menu else None
+                    self._menu_owners.get(event.element_id) if is_world_menu else None
                 )
                 if owner_fd is not None:
                     target = self._fd_to_client.get(owner_fd)

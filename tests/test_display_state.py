@@ -443,7 +443,7 @@ class TestFlushEvents:
                 element_id="tool_a",
                 action="menu",
                 ts=1.0,
-                value={"menu": "Tools", "item": "Tool A"},
+                value={"menu": "World", "item": "Tool A"},
             )
         )
 
@@ -522,7 +522,7 @@ class TestFlushEvents:
                 element_id="tool_a",
                 action="menu",
                 ts=1.0,
-                value={"menu": "Tools", "item": "Tool A"},
+                value={"menu": "World", "item": "Tool A"},
             )
         )
 
