@@ -793,3 +793,247 @@ class TestInvariantPartitions:
         )
         # b1 event drained — new scene has no b1
         assert len(server._event_queue) == 0
+
+
+# ---------------------------------------------------------------------------
+# Frame operations (DES-022 workspace model)
+# ---------------------------------------------------------------------------
+
+
+def _framed_scene(
+    scene_id: str,
+    frame_id: str,
+    *elems: TextElement | ButtonElement | SeparatorElement,
+    frame_title: str | None = None,
+) -> SceneMessage:
+    return SceneMessage(
+        id=scene_id,
+        elements=list(elems),
+        frame_id=frame_id,
+        frame_title=frame_title,
+    )
+
+
+class TestCreateFramePartitions:
+    """CreateFrame: scene with frame_id creates a new frame."""
+
+    def test_create_frame_happy_path(self):
+        """New frame created with one scene."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        msg = _framed_scene("s1", "frame-beads", TextElement(id="t1", content="A"))
+        server._handle_message(sock, msg)
+
+        assert "frame-beads" in server._frames
+        frame = server._frames["frame-beads"]
+        assert frame.owner_fd == 10
+        assert frame.title == "frame-beads"
+        assert "s1" in frame.scenes
+        assert frame.scene_order == ["s1"]
+        assert frame.active_tab == "s1"
+        assert server._scene_to_frame["s1"] == "frame-beads"
+        # Scene should NOT be in the unframed scene list
+        assert "s1" not in server._scenes
+
+    def test_create_frame_with_title(self):
+        """Frame title comes from frame_title field."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        msg = _framed_scene(
+            "s1",
+            "frame-beads",
+            TextElement(id="t1", content="A"),
+            frame_title="Beads Explorer",
+        )
+        server._handle_message(sock, msg)
+
+        assert server._frames["frame-beads"].title == "Beads Explorer"
+
+    def test_add_scene_to_existing_frame(self):
+        """Second scene added to same frame creates a tab."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(
+            sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
+        )
+        server._handle_message(
+            sock, _framed_scene("s2", "f1", TextElement(id="t2", content="B"))
+        )
+
+        frame = server._frames["f1"]
+        assert len(frame.scenes) == 2
+        assert frame.scene_order == ["s1", "s2"]
+        assert frame.active_tab == "s2"
+        assert server._scene_to_frame["s1"] == "f1"
+        assert server._scene_to_frame["s2"] == "f1"
+
+    def test_replace_scene_in_frame(self):
+        """Replacing a scene in a frame drains stale events."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(
+            sock,
+            _framed_scene("s1", "f1", ButtonElement(id="b1", label="Old")),
+        )
+        server._event_queue.append(
+            InteractionMessage(element_id="b1", action="clicked", ts=1.0)
+        )
+        server._handle_message(
+            sock,
+            _framed_scene("s1", "f1", TextElement(id="t1", content="New")),
+        )
+
+        assert len(server._event_queue) == 0
+        assert server._frames["f1"].scenes["s1"].elements[0].id == "t1"
+
+
+class TestCloseFramePartitions:
+    """CloseFrame: removes frame and all its scenes."""
+
+    def test_close_frame_removes_scenes(self):
+        """Closing a frame removes all its scenes and widget state."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._fd_to_client[10] = sock
+        server._handle_message(
+            sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
+        )
+        server._handle_message(
+            sock, _framed_scene("s2", "f1", TextElement(id="t2", content="B"))
+        )
+
+        server._close_frame("f1")
+
+        assert "f1" not in server._frames
+        assert "s1" not in server._scene_to_frame
+        assert "s2" not in server._scene_to_frame
+        assert "s1" not in server._scene_widget_state
+        assert "s2" not in server._scene_widget_state
+        # Close event sent directly to owner socket
+        calls = sock.sendall.call_args_list
+        # Last sendall should contain frame_close interaction
+        last_payload = calls[-1][0][0]
+        assert b"frame_close" in last_payload
+
+    def test_close_nonexistent_frame_is_noop(self):
+        """Closing a frame that doesn't exist is idempotent."""
+        server = _server()
+        server._close_frame("nonexistent")
+        assert len(server._event_queue) == 0
+
+
+class TestDisconnectFrameCleanupPartitions:
+    """DisconnectClient: removes all frames owned by the departing client."""
+
+    def test_disconnect_removes_owned_frames(self):
+        """Disconnecting a client removes all its frames."""
+        server = _server()
+        s1 = _sock(fd=10)
+        s2 = _sock(fd=20)
+        _register(server, s1)
+        _register(server, s2)
+        # Client 1 owns frame f1, client 2 owns frame f2
+        server._handle_message(
+            s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
+        )
+        server._handle_message(
+            s2, _framed_scene("s2", "f2", TextElement(id="t2", content="B"))
+        )
+
+        server._remove_client(s1)
+
+        assert "f1" not in server._frames
+        assert "s1" not in server._scene_to_frame
+        # Client 2's frame survives
+        assert "f2" in server._frames
+        assert server._frames["f2"].owner_fd == 20
+
+    def test_disconnect_with_no_frames_is_clean(self):
+        """Disconnecting a client with no frames is clean."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+
+        server._remove_client(sock)
+
+        assert len(server._frames) == 0
+
+
+class TestFrameOwnershipPartitions:
+    """Frame ownership enforcement (DES-022 invariant)."""
+
+    def test_non_owner_rejected(self):
+        """A different client cannot add scenes to another's frame."""
+        server = _server()
+        s1 = _sock(fd=10)
+        s2 = _sock(fd=20)
+        _register(server, s1)
+        _register(server, s2)
+        server._handle_message(
+            s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
+        )
+
+        # Client 2 tries to add to client 1's frame
+        server._handle_message(
+            s2, _framed_scene("s2", "f1", TextElement(id="t2", content="B"))
+        )
+
+        frame = server._frames["f1"]
+        assert len(frame.scenes) == 1
+        assert "s1" in frame.scenes
+        assert "s2" not in frame.scenes
+
+
+class TestFrameUpdatePartitions:
+    """UpdateMessage works for framed scenes."""
+
+    def test_update_framed_scene(self):
+        """Patches apply to scenes stored in frames."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(
+            sock,
+            _framed_scene("s1", "f1", TextElement(id="t1", content="Old")),
+        )
+
+        server._apply_update(
+            UpdateMessage(
+                scene_id="s1",
+                patches=[Patch(id="t1", set={"content": "New"})],
+            )
+        )
+
+        scene = server._frames["f1"].scenes["s1"]
+        el = scene.elements[0]
+        assert isinstance(el, TextElement)
+        assert el.content == "New"
+
+
+class TestFrameStaleEventDrainPartitions:
+    """Closing frames drains stale interaction events."""
+
+    def test_close_frame_drains_events(self):
+        """Events for elements in closed frame are removed from queue."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._fd_to_client[10] = sock
+        server._handle_message(
+            sock,
+            _framed_scene("s1", "f1", ButtonElement(id="b1", label="X")),
+        )
+        server._event_queue.append(
+            InteractionMessage(element_id="b1", action="clicked", ts=1.0)
+        )
+
+        server._close_frame("f1")
+
+        # b1 event drained
+        remaining = [e for e in server._event_queue if e.element_id == "b1"]
+        assert len(remaining) == 0

@@ -839,6 +839,24 @@ class _RenderFnState:
     denied: bool = False
 
 
+@dataclass
+class _Frame:
+    """A named inner window in the workspace.
+
+    Each frame is rendered as an ``imgui.begin()/end()`` window.  It owns
+    one or more scenes and tracks its own tab state when multiple scenes
+    are present.
+    """
+
+    frame_id: str
+    title: str
+    owner_fd: int
+    scenes: dict[str, SceneMessage]
+    scene_order: list[str]
+    active_tab: str | None = None
+    minimized: bool = False
+
+
 # ---------------------------------------------------------------------------
 # Display server
 # ---------------------------------------------------------------------------
@@ -861,6 +879,8 @@ class DisplayServer:
         self._scenes: dict[str, SceneMessage] = {}  # ordered by insertion
         self._scene_order: list[str] = []  # explicit tab order
         self._active_tab: str | None = None  # currently selected tab
+        self._frames: dict[str, _Frame] = {}  # frame_id → frame
+        self._scene_to_frame: dict[str, str] = {}  # scene_id → frame_id
         self._scene_widget_state: dict[str, WidgetState] = {}  # per-scene
         self._scene_render_fn_state: dict[str, dict[str, _RenderFnState]] = {}
         self._event_queue: list[InteractionMessage] = []
@@ -1361,6 +1381,11 @@ class DisplayServer:
             self._fd_to_client.pop(fd, None)
             self._menu_registrations.pop(fd, None)
             self._menu_owners = {k: v for k, v in self._menu_owners.items() if v != fd}
+            # Remove frames owned by this client (DES-022 invariant:
+            # frame owners must be connected clients)
+            dead_frames = [fid for fid, f in self._frames.items() if f.owner_fd == fd]
+            for fid in dead_frames:
+                self._close_frame(fid, notify=False)
         with contextlib.suppress(OSError):
             sock.close()
         logger.debug("Client disconnected (remaining: %d)", len(self._clients))
@@ -1386,6 +1411,8 @@ class DisplayServer:
             self._scenes.clear()
             self._scene_order.clear()
             self._active_tab = None
+            self._frames.clear()
+            self._scene_to_frame.clear()
             self._scene_widget_state.clear()
             self._scene_render_fn_state.clear()
             self._event_queue.clear()
@@ -1461,8 +1488,11 @@ class DisplayServer:
                 self._menu_owners[item_id] = fd
 
     def _handle_scene(self, sock: socket.socket, msg: SceneMessage) -> None:
+        if msg.frame_id is not None:
+            self._handle_framed_scene(sock, msg)
+            return
+        is_new = msg.id not in self._scenes
         old_scene = self._scenes.get(msg.id)
-        is_new = old_scene is None
         self._scenes[msg.id] = msg
         if is_new:
             self._scene_order.append(msg.id)
@@ -1473,9 +1503,20 @@ class DisplayServer:
                 if isinstance(elem, WindowElement):
                     self._dirty_windows.add(elem.id)
         else:
-            # Replace-in-place: drain events for elements removed from this scene
+            self._replace_scene_state(msg, old_scene)
+        self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
+        if self._test_auto_click:
+            self._auto_click_buttons(msg)
+
+    def _replace_scene_state(
+        self,
+        msg: SceneMessage,
+        old_scene: SceneMessage | None = None,
+    ) -> None:
+        """Drain stale events and reset widget state for a replaced scene."""
+        if old_scene is not None:
             old_ids: set[str] = set()
-            for elem in old_scene.elements:  # type: ignore[union-attr]
+            for elem in old_scene.elements:
                 old_ids.update(_collect_ids(elem))
             new_ids: set[str] = set()
             for elem in msg.elements:
@@ -1484,14 +1525,84 @@ class DisplayServer:
             self._event_queue = [
                 ev for ev in self._event_queue if ev.element_id not in stale_ids
             ]
-            self._scene_widget_state[msg.id].clear()
-            self._scene_render_fn_state[msg.id].clear()
+        self._scene_widget_state[msg.id].clear()
+        self._scene_render_fn_state[msg.id].clear()
+
+    def _handle_framed_scene(self, sock: socket.socket, msg: SceneMessage) -> None:
+        """Route a scene into a frame, creating the frame if needed."""
+        frame_id = msg.frame_id
+        if frame_id is None:
+            return
+        try:
+            fd = sock.fileno()
+        except OSError:
+            return
+        frame = self._frames.get(frame_id)
+        if frame is None:
+            title = msg.frame_title or msg.title or frame_id
+            frame = _Frame(
+                frame_id=frame_id,
+                title=title,
+                owner_fd=fd,
+                scenes={},
+                scene_order=[],
+            )
+            self._frames[frame_id] = frame
+        elif frame.owner_fd != fd:
+            logger.warning(
+                "Rejecting scene for frame %s from non-owner fd %d (owner=%d)",
+                frame_id,
+                fd,
+                frame.owner_fd,
+            )
+            return
+        self._upsert_scene_in_frame(frame, msg)
+        if msg.frame_title:
+            frame.title = msg.frame_title
         self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
         if self._test_auto_click:
             self._auto_click_buttons(msg)
 
+    def _upsert_scene_in_frame(self, frame: _Frame, msg: SceneMessage) -> None:
+        """Add or replace a scene within a frame."""
+        # If this scene_id exists elsewhere, remove it from the old location
+        # to prevent the same scene rendering in multiple places.
+        old_frame_id = self._scene_to_frame.get(msg.id)
+        if old_frame_id is not None and old_frame_id != frame.frame_id:
+            old_frame = self._frames.get(old_frame_id)
+            if old_frame is not None:
+                self._dismiss_framed_scene(old_frame, msg.id)
+        elif msg.id in self._scenes:
+            self._dismiss_scene(msg.id)
+        is_new = msg.id not in frame.scenes
+        old_scene = frame.scenes.get(msg.id)
+        frame.scenes[msg.id] = msg
+        if is_new:
+            frame.scene_order.append(msg.id)
+            self._scene_widget_state[msg.id] = WidgetState()
+            self._scene_render_fn_state[msg.id] = {}
+            frame.active_tab = msg.id
+            self._scene_to_frame[msg.id] = frame.frame_id
+            for elem in msg.elements:
+                if isinstance(elem, WindowElement):
+                    self._dirty_windows.add(elem.id)
+        else:
+            self._replace_scene_state(msg, old_scene)
+
+    def _resolve_scene(self, scene_id: str) -> SceneMessage | None:
+        """Find a scene in either unframed or framed storage."""
+        scene = self._scenes.get(scene_id)
+        if scene is not None:
+            return scene
+        frame_id = self._scene_to_frame.get(scene_id)
+        if frame_id is not None:
+            frame = self._frames.get(frame_id)
+            if frame is not None:
+                return frame.scenes.get(scene_id)
+        return None
+
     def _apply_update(self, msg: UpdateMessage) -> None:
-        scene = self._scenes.get(msg.scene_id)
+        scene = self._resolve_scene(msg.scene_id)
         if scene is None:
             return
         ws = self._scene_widget_state.get(msg.scene_id)
@@ -1631,8 +1742,12 @@ class DisplayServer:
 
         imgui.get_style().font_scale_main = self._font_scale
 
+        # Render framed scenes (DES-022 workspace model)
+        self._render_frames(imgui)
+
         if not self._scenes:
-            self._render_idle(imgui)
+            if not self._frames:
+                self._render_idle(imgui)
             return
 
         if len(self._scenes) == 1:
@@ -1660,6 +1775,118 @@ class DisplayServer:
             imgui.end_tab_bar()
             for sid in closed_tabs:
                 self._dismiss_scene(sid)
+
+    def _render_frames(self, imgui: Any) -> None:
+        """Render each frame as an ImGui inner window."""
+        closed_frames: list[str] = []
+        for frame in list(self._frames.values()):
+            if frame.minimized:
+                continue
+            still_open = True
+            expanded, still_open = imgui.begin(
+                f"{frame.title}##{frame.frame_id}", still_open
+            )
+            if not still_open:
+                closed_frames.append(frame.frame_id)
+                imgui.end()
+                continue
+            if expanded:
+                self._render_frame_contents(frame, imgui)
+            imgui.end()
+        for fid in closed_frames:
+            self._close_frame(fid)
+
+    def _render_frame_contents(self, frame: _Frame, imgui: Any) -> None:
+        """Render scenes inside a frame, tabbed if multiple."""
+        if not frame.scenes:
+            return
+        if len(frame.scenes) == 1:
+            scene_id = frame.scene_order[0]
+            self._render_framed_scene(frame, scene_id)
+            return
+        if imgui.begin_tab_bar(f"##frame_tabs_{frame.frame_id}"):
+            closed_tabs: list[str] = []
+            for scene_id in list(frame.scene_order):
+                scene = frame.scenes[scene_id]
+                label = scene.title or scene_id
+                closable = True
+                selected, tab_open = imgui.begin_tab_item(
+                    f"{label}##{scene_id}", closable
+                )
+                if selected:
+                    frame.active_tab = scene_id
+                    self._render_framed_scene(frame, scene_id)
+                    imgui.end_tab_item()
+                if tab_open is not None and not tab_open:
+                    closed_tabs.append(scene_id)
+            imgui.end_tab_bar()
+            for sid in closed_tabs:
+                self._dismiss_framed_scene(frame, sid)
+
+    def _render_framed_scene(self, frame: _Frame, scene_id: str) -> None:
+        """Render a scene's elements inside a frame."""
+        self._widget_state = self._scene_widget_state[scene_id]
+        self._render_fn_state = self._scene_render_fn_state[scene_id]
+        scene = frame.scenes[scene_id]
+        for elem in scene.elements:
+            self._render_element(elem)
+
+    def _close_frame(self, frame_id: str, *, notify: bool = True) -> None:
+        """Remove a frame and all its scenes.
+
+        When *notify* is True (user-initiated close), a ``frame_close``
+        event is sent to the owning client.  When False (disconnect
+        cleanup), the owner is already gone — no event is emitted.
+        """
+        frame = self._frames.pop(frame_id, None)
+        if frame is None:
+            return
+        # Drain stale events for elements in the removed scenes
+        removed_ids: set[str] = set()
+        for scene_id in frame.scene_order:
+            scene = frame.scenes.get(scene_id)
+            if scene is not None:
+                for elem in scene.elements:
+                    removed_ids.update(_collect_ids(elem))
+            self._scene_widget_state.pop(scene_id, None)
+            self._scene_render_fn_state.pop(scene_id, None)
+            self._scene_to_frame.pop(scene_id, None)
+        if removed_ids:
+            self._event_queue = [
+                ev for ev in self._event_queue if ev.element_id not in removed_ids
+            ]
+        if notify:
+            # Route frame_close only to the owning client
+            owner_sock = self._fd_to_client.get(frame.owner_fd)
+            if owner_sock is not None:
+                self._send_to_client(
+                    owner_sock,
+                    InteractionMessage(
+                        element_id=frame_id,
+                        action="frame_close",
+                        ts=time.time(),
+                    ),
+                )
+
+    def _dismiss_framed_scene(self, frame: _Frame, scene_id: str) -> None:
+        """Remove a single scene from a frame."""
+        dismissed = frame.scenes.pop(scene_id, None)
+        if dismissed is not None:
+            dismissed_ids: set[str] = set()
+            for elem in dismissed.elements:
+                dismissed_ids.update(_collect_ids(elem))
+            if dismissed_ids:
+                self._event_queue = [
+                    ev for ev in self._event_queue if ev.element_id not in dismissed_ids
+                ]
+        frame.scene_order = [s for s in frame.scene_order if s != scene_id]
+        self._scene_widget_state.pop(scene_id, None)
+        self._scene_render_fn_state.pop(scene_id, None)
+        self._scene_to_frame.pop(scene_id, None)
+        if frame.active_tab == scene_id:
+            frame.active_tab = frame.scene_order[0] if frame.scene_order else None
+        if not frame.scenes:
+            self._close_frame(frame.frame_id)
 
     def _render_scene_tab(self, scene_id: str) -> None:
         """Render a single scene's elements with its own widget state."""

@@ -178,8 +178,13 @@ class LuxClient:
         title: str | None = None,
         layout: str = "single",
         grid_columns: int | None = None,
+        frame_id: str | None = None,
+        frame_title: str | None = None,
     ) -> AckMessage | None:
         """Send a scene to the display and wait for acknowledgement.
+
+        When *frame_id* is provided, the scene is rendered inside a named
+        frame (an ImGui inner window).  The frame is created on first use.
 
         Returns the :class:`AckMessage` or ``None`` on timeout.
         """
@@ -190,6 +195,8 @@ class LuxClient:
             title=title,
             layout=layout,
             grid_columns=grid_columns,
+            frame_id=frame_id,
+            frame_title=frame_title,
         )
         send_message(sock, msg)
         return self._recv_ack()

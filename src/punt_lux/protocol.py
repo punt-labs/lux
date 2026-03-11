@@ -439,6 +439,8 @@ class SceneMessage:
     layout: str = "single"  # "single", "rows", "columns", "grid"
     title: str | None = None
     grid_columns: int | None = None
+    frame_id: str | None = None
+    frame_title: str | None = None
 
 
 @dataclass
@@ -1242,6 +1244,8 @@ def _scene_to_dict(msg: SceneMessage) -> dict[str, Any]:
         "title": msg.title,
         "grid_columns": msg.grid_columns,
         "elements": [_element_to_dict(e) for e in msg.elements],
+        "frame_id": msg.frame_id,
+        "frame_title": msg.frame_title,
     }
     return _strip_none(d)
 
@@ -1376,6 +1380,8 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
             layout=d.get("layout", "single"),
             title=d.get("title"),
             grid_columns=d.get("grid_columns"),
+            frame_id=d.get("frame_id"),
+            frame_title=d.get("frame_title"),
         )
     if msg_type == "update":
         patches = [_patch_from_dict(p) for p in d.get("patches", [])]
