@@ -1286,14 +1286,20 @@ class DisplayServer:
                 logger.warning("Buffer overflow from fd %d", sock.fileno())
                 self._remove_client(sock)
                 return
-            for msg in reader.drain_typed():
+            # Deserialize all complete frames — KeyError/TypeError/ValueError
+            # here means malformed wire data, not a handler bug.
+            try:
+                messages = list(reader.drain_typed())
+            except (ValueError, KeyError, TypeError):
+                fd = sock.fileno()
+                logger.warning("Malformed message from fd %d", fd)
+                self._remove_client(sock)
+                return
+            for msg in messages:
                 self._handle_message(sock, msg)
                 if sock not in self._clients:
                     return  # removed during handle (e.g. send failed)
         except (ConnectionError, OSError):
-            self._remove_client(sock)
-        except (ValueError, KeyError, TypeError):
-            logger.warning("Malformed message from fd %d, disconnecting", sock.fileno())
             self._remove_client(sock)
 
     def _remove_client(self, sock: socket.socket) -> None:
