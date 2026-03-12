@@ -1528,7 +1528,9 @@ class DisplayServer:
         # Window chrome toggles.
         params = hello_imgui.get_runner_params()
         wp = params.app_window_params
-        _, wp.top_most = imgui.menu_item("Always on Top", "", wp.top_most)
+        top_toggled, wp.top_most = imgui.menu_item("Always on Top", "", wp.top_most)
+        if top_toggled:
+            clicked = True
 
         toggled, _ = imgui.menu_item("Borderless", "", not self._decorated)
         if toggled:

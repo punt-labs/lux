@@ -140,9 +140,10 @@ class LuxClient:
     def connect(self) -> None:
         """Connect to the display server.
 
-        If *auto_spawn* is enabled and no display is running, spawns one
-        first.  Blocks until the ``ReadyMessage`` handshake completes.
-        If callbacks are registered, restarts the background listener.
+        No-op if already connected.  If *auto_spawn* is enabled and no
+        display is running, spawns one first.  Blocks until the
+        ``ReadyMessage`` handshake completes.  If callbacks are
+        registered, starts the background listener after handshake.
 
         Raises
         ------
@@ -272,11 +273,15 @@ class LuxClient:
 
     def stop_listener(self) -> None:
         """Stop the background listener thread, if running."""
-        if self._listener_thread is None:
+        t = self._listener_thread
+        if t is None:
             return
         self._listener_stop.set()
-        self._listener_thread.join(timeout=2.0)
-        self._listener_thread = None
+        t.join(timeout=2.0)
+        if t.is_alive():
+            logger.warning("Listener thread did not exit within timeout")
+        else:
+            self._listener_thread = None
 
     def _listener_loop(self) -> None:
         """Background loop: read messages from socket, dispatch or buffer."""
@@ -528,7 +533,17 @@ class LuxClient:
 
         Thread-safe.  When the listener is active, blocks on
         ``_ack_queue``.  When inactive, reads directly from the socket.
+
+        Raises RuntimeError if called from the listener thread (would
+        deadlock because the listener is the only ack producer).
         """
+        t = self._listener_thread
+        if t is not None and t is threading.current_thread():
+            err = (
+                "Cannot call blocking recv from the listener thread — "
+                "use show_async() / update_async() instead"
+            )
+            raise RuntimeError(err)
         if self.listener_active:
             try:
                 return self._ack_queue.get(timeout=self._recv_timeout)
