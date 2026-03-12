@@ -85,29 +85,36 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 
 ## Features
 
-- **22 element kinds** --- text, buttons, images, sliders, checkboxes, combos, inputs, radios, color pickers, selectables, trees, tables, plots, progress bars, spinners, markdown, draw canvases, groups, tab bars, collapsing headers, windows, separators
+- **23 element kinds** --- text, buttons, images, sliders, checkboxes, combos, inputs, radios, color pickers, selectables, trees, tables, plots, progress bars, spinners, markdown, draw canvases, render functions, groups, tab bars, collapsing headers, windows, separators
+- **Frames** --- scenes target named frames (inner windows) via `frame_id`. Frames persist after disconnect, can be adopted by new clients, and support initial sizing (`frame_size`) and ImGui window flags (`frame_flags`)
 - **Layout nesting** --- windows contain tab bars contain groups contain any element, arbitrarily deep
 - **Incremental updates** --- `update` patches individual elements by ID without replacing the scene
-- **Menu bar** --- built-in Lux/Theme/Window menus, plus agent-extensible custom menus via `set_menu`
-- **Interaction events** --- button clicks, slider changes, menu selections queue as events the agent reads via `recv`
+- **World menu** --- per-client namespaced menus. Each connected MCP server gets its own submenu. Items registered via `register_tool` are routed only to the owning client
+- **Interaction events** --- button clicks, slider changes, table row selections, menu clicks queue as events the agent reads via `recv`
+- **Frame auto-focus** --- frames automatically focus (brought to front) when they receive a scene update
+- **Persistent tabs** --- each `show()` call opens a dismissable tab; same `scene_id` replaces content in-place. Users can close individual tabs
+- **Themes** --- dark, light, classic, cherry via `set_theme`
 - **Auto-spawn** --- `LuxClient` starts the display server on first connection if it isn't running
 - **Unix socket IPC** --- length-prefixed JSON frames, no HTTP overhead, no threads
 
 ## MCP Tools
 
-Agents interact with Lux through eight MCP tools exposed by `lux serve`:
+Agents interact with Lux through 12 MCP tools exposed by `lux serve`:
 
 | Tool | What it does |
 |------|-------------|
 | `show(scene_id, elements)` | Replace the display with a new element tree. Supports `frame_id`, `frame_size`, `frame_flags` for windowed frames |
 | `show_table(scene_id, columns, rows)` | Display a filterable data table with optional detail panel |
 | `show_dashboard(scene_id, ...)` | Display a dashboard with metric cards, charts, and a table |
+| `show_diagram(scene_id, ...)` | Display an auto-laid-out architecture diagram with layers, nodes, and edges |
 | `update(scene_id, patches)` | Patch elements by ID (set fields or remove) |
 | `set_menu(menus)` | Add custom menus to the menu bar |
+| `register_tool(id, label)` | Register a World menu item routed only to the calling server via `recv()` |
 | `set_theme(theme)` | Switch display theme (dark, light, classic, cherry) |
+| `display_mode(mode)` | Get or set display mode (`y`/`n`) --- advisory signal for consumer plugins |
 | `clear()` | Remove all content from the display |
 | `ping()` | Round-trip latency check |
-| `recv(timeout)` | Read the next interaction event (clicks, changes) |
+| `recv(timeout)` | Read the next interaction event (clicks, row selections, menu clicks) |
 
 ## What It Looks Like
 
@@ -171,6 +178,7 @@ Returns `"interaction:element=b1,action=click,value=True"`.
 | Lists | `selectable`, `tree` |
 | Data | `table`, `plot`, `progress`, `spinner`, `markdown` |
 | Canvas | `draw` (line, rect, circle, triangle, polyline, text, bezier) |
+| Code | `render_function` (agent-submitted Python with AST safety scan) |
 | Layout | `group`, `tab_bar`, `collapsing_header`, `window` |
 
 All elements with an `id` support an optional `tooltip` field (string shown on hover).
@@ -181,7 +189,13 @@ All elements with an `id` support an optional `tooltip` field (string shown on h
 |---------|-------------|
 | `lux display` | Start the display server (ImGui window) |
 | `lux serve` | Start the MCP server (stdio transport) |
+| `lux enable` | Enable visual output for this project |
+| `lux disable` | Disable visual output for this project |
 | `lux status` | Check if the display server is running |
+| `lux doctor` | Check installation health (Python, fonts, plugin) |
+| `lux install` | Install the Claude Code plugin via the marketplace |
+| `lux uninstall` | Uninstall the Claude Code plugin |
+| `lux show beads` | Display the beads issue board (no LLM needed) |
 | `lux version` | Print version |
 
 ## Architecture
