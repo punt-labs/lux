@@ -1296,6 +1296,12 @@ class DisplayServer:
         if imgui.begin_menu("Lux##world"):
             self._show_lux_items(imgui)
             imgui.end_menu()
+
+        # Applications submenu: agent-registered menu items grouped by client.
+        clicked_any = False
+        if self._menu_registrations:
+            clicked_any = self._render_world_panel_apps(imgui)
+
         if imgui.begin_menu("Debug##world"):
             self._show_debug_items(imgui)
             imgui.end_menu()
@@ -1307,12 +1313,6 @@ class DisplayServer:
         if imgui.begin_menu("Help##world"):
             self._show_help_items(imgui)
             imgui.end_menu()
-
-        # Applications submenu: agent-registered menu items grouped by client.
-        clicked_any = False
-        if self._menu_registrations:
-            imgui.separator()
-            clicked_any = self._render_world_panel_apps(imgui)
         return clicked_any
 
     @staticmethod
