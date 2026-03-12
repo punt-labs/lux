@@ -901,6 +901,9 @@ class DisplayServer:
         self._decorated: bool = True
         self._opacity: float = 1.0
         self._font_scale: float = 1.1
+        self._world_menu_open: bool = False
+        self._world_menu_pinned: bool = False
+        self._world_menu_spawn_pos: tuple[float, float] | None = None
         self._test_auto_click = test_auto_click
 
     @property
@@ -1093,7 +1096,6 @@ class DisplayServer:
             self._show_lux_menu(imgui)
             self._show_theme_menu(imgui)
             self._show_window_menu(imgui)
-            self._show_world_menu(imgui)
             for menu in self._agent_menus:
                 self._show_agent_menu(imgui, menu)
         except Exception:
@@ -1164,23 +1166,81 @@ class DisplayServer:
             finally:
                 imgui.end_menu()
 
-    def _show_world_menu(self, imgui: Any) -> None:
+    def _check_world_menu_background_click(self, imgui: Any) -> None:
+        """Toggle World panel on left-click on the main window background.
+
+        Uses ``is_window_hovered()`` (no flags) which checks whether the
+        *current* window (the main/root window at this point in the render
+        loop) is hovered.  When a frame or the World panel is on top,
+        the main window is not considered hovered, so clicks on frames
+        are ignored.
+        """
+        if not imgui.is_mouse_clicked(imgui.MouseButton_.left):
+            return
+        if imgui.is_any_item_hovered():
+            return
+        # Current window = main window.  False when a frame covers the spot.
+        if not imgui.is_window_hovered():
+            return
+        self._world_menu_open = not self._world_menu_open
+        if self._world_menu_open:
+            pos = imgui.get_mouse_pos()
+            self._world_menu_spawn_pos = (pos.x, pos.y)
+
+    def _render_world_panel(self, imgui: Any) -> None:
+        """Render the detached World menu as a floating window."""
+        if not self._world_menu_open:
+            return
+
+        flags = (
+            imgui.WindowFlags_.no_collapse.value
+            | imgui.WindowFlags_.always_auto_resize.value
+        )
+        imgui.set_next_window_size((220, 0), imgui.Cond_.first_use_ever.value)
+        if self._world_menu_spawn_pos is not None:
+            imgui.set_next_window_pos(
+                self._world_menu_spawn_pos, imgui.Cond_.always.value
+            )
+            self._world_menu_spawn_pos = None
+
+        # Build title with pin indicator.
+        pin_icon = "World (pinned)" if self._world_menu_pinned else "World"
+        still_open = True
+        _, still_open = imgui.begin(f"{pin_icon}###world_panel", still_open, flags)
+        if not still_open:
+            self._world_menu_open = False
+            self._world_menu_pinned = False
+            imgui.end()
+            return
+
+        # Pin/unpin button at top.
+        pin_label = "Unpin" if self._world_menu_pinned else "Pin"
+        if imgui.small_button(pin_label):
+            self._world_menu_pinned = not self._world_menu_pinned
+        imgui.separator()
+
+        # Client items.
         has_items = bool(self._menu_registrations)
         has_frames = bool(self._frames)
-        if not has_items and not has_frames:
-            return
-        if not imgui.begin_menu("World"):
-            return
-        try:
-            shown = self._show_world_client_submenus(imgui)
-            if shown and has_frames:
-                imgui.separator()
-            self._show_world_environment_items(imgui)
-        finally:
-            imgui.end_menu()
+        clicked_any = self._render_world_panel_clients(imgui)
 
-    def _show_world_client_submenus(self, imgui: Any) -> bool:
-        """Render per-client submenus. Returns True if any were shown."""
+        # Environment items.
+        if has_items and has_frames:
+            imgui.separator()
+        clicked_env = self._render_world_panel_environment(imgui)
+
+        if not has_items and not has_frames:
+            imgui.text_disabled("No clients connected.")
+
+        imgui.end()
+
+        # Auto-close on click when unpinned.
+        if (clicked_any or clicked_env) and not self._world_menu_pinned:
+            self._world_menu_open = False
+
+    def _render_world_panel_clients(self, imgui: Any) -> bool:
+        """Render client items inside the World panel. Returns True if any clicked."""
+        clicked = False
         clients: list[tuple[str, int, list[dict[str, Any]]]] = []
         for fd, items in self._menu_registrations.items():
             if items:
@@ -1188,45 +1248,47 @@ class DisplayServer:
                 clients.append((name, fd, items))
         clients.sort(key=lambda c: c[0].lower())
         for name, fd, items in clients:
-            if imgui.begin_menu(f"{name}##{fd}"):
-                try:
-                    items_sorted = sorted(
-                        items,
-                        key=lambda i: i.get("label") or "",
-                    )
-                    for item in items_sorted:
-                        self._render_world_menu_item(imgui, item)
-                finally:
-                    imgui.end_menu()
-        return bool(clients)
+            open_flags = imgui.TreeNodeFlags_.default_open.value
+            if imgui.collapsing_header(f"{name}##{fd}", open_flags):
+                items_sorted = sorted(items, key=lambda i: i.get("label") or "")
+                for item in items_sorted:
+                    if self._render_world_panel_item(imgui, item):
+                        clicked = True
+        return clicked
 
-    def _show_world_environment_items(self, imgui: Any) -> None:
-        """Render environment-owned items (Minimize/Restore/Close All)."""
+    def _render_world_panel_environment(self, imgui: Any) -> bool:
+        """Render environment items in the World panel. Returns True if any clicked."""
         if not self._frames:
-            return
+            return False
+        clicked = False
         has_minimized = any(f.minimized for f in self._frames.values())
         has_visible = any(not f.minimized for f in self._frames.values())
         if has_visible and imgui.menu_item("Minimize All", "", False)[0]:  # noqa: FBT003
             for f in self._frames.values():
                 f.minimized = True
+            clicked = True
         if has_minimized and imgui.menu_item("Restore All", "", False)[0]:  # noqa: FBT003
             for f in self._frames.values():
                 f.minimized = False
+            clicked = True
         if imgui.menu_item("Close All", "", False)[0]:  # noqa: FBT003
             for fid in list(self._frames):
                 self._close_frame(fid)
+            clicked = True
+        return clicked
 
-    def _render_world_menu_item(
+    def _render_world_panel_item(
         self,
         imgui: Any,
         item: dict[str, Any],
-    ) -> None:
+    ) -> bool:
+        """Render a single item in the World panel. Returns True if clicked."""
         label = item.get("label")
         if not isinstance(label, str):
-            return
+            return False
         if label == "---":
             imgui.separator()
-            return
+            return False
         enabled = item.get("enabled", True)
         clicked, _ = imgui.menu_item(
             label,
@@ -1246,6 +1308,7 @@ class DisplayServer:
                     },
                 )
             )
+        return bool(clicked)
 
     @staticmethod
     def _set_glfw_decorated(*, decorated: bool) -> None:
@@ -1846,6 +1909,10 @@ class DisplayServer:
         # Always render the ambient flame as a background element.
         # Content renders on top of it.
         self._render_idle(imgui)
+
+        # World menu: background click to toggle, floating panel.
+        self._check_world_menu_background_click(imgui)
+        self._render_world_panel(imgui)
 
         # Render framed scenes (DES-022 workspace model)
         self._render_frames(imgui)
