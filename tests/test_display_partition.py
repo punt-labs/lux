@@ -1301,6 +1301,32 @@ class TestFrameSizeAndFlagsPartitions:
         # initial_size is set at frame creation time, not updated
         assert server._frames["f1"].initial_size == (400, 200)
 
+    def test_frame_flags_update_on_subsequent_scene(self):
+        """Subsequent scenes to the same frame update flags."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_framed_scene(
+            sock, _framed_scene("s1", "f1", frame_flags={"no_resize": True})
+        )
+        assert server._frames["f1"].flags == {"no_resize": True}
+        server._handle_framed_scene(
+            sock,
+            _framed_scene("s2", "f1", frame_flags={"auto_resize": True}),
+        )
+        assert server._frames["f1"].flags == {"auto_resize": True}
+
+    def test_frame_flags_unchanged_when_not_provided(self):
+        """Subsequent scenes without frame_flags preserve existing flags."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_framed_scene(
+            sock, _framed_scene("s1", "f1", frame_flags={"no_resize": True})
+        )
+        server._handle_framed_scene(sock, _framed_scene("s2", "f1"))
+        assert server._frames["f1"].flags == {"no_resize": True}
+
 
 class TestWorldMenuPartitions:
     """World menu: per-client namespaces from ConnectMessage identity."""

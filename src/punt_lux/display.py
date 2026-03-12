@@ -1638,6 +1638,8 @@ class DisplayServer:
         self._upsert_scene_in_frame(frame, msg)
         if msg.frame_title:
             frame.title = msg.frame_title
+        if msg.frame_flags is not None:
+            frame.flags = msg.frame_flags
         frame.minimized = False
         self._focus_frame_id = frame_id
         self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
