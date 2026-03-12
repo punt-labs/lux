@@ -1098,6 +1098,7 @@ class DisplayServer:
 
         try:
             self._show_lux_menu(imgui)
+            self._show_apps_menu(imgui)
             self._show_debug_menu(imgui)
             self._show_window_menu(imgui)
             self._show_help_menu(imgui)
@@ -1307,29 +1308,44 @@ class DisplayServer:
             self._show_help_items(imgui)
             imgui.end_menu()
 
-        # Client items (agent-registered menu items).
+        # Applications submenu: agent-registered menu items grouped by client.
         clicked_any = False
         if self._menu_registrations:
             imgui.separator()
-            clicked_any = self._render_world_panel_clients(imgui)
+            clicked_any = self._render_world_panel_apps(imgui)
         return clicked_any
 
-    def _render_world_panel_clients(self, imgui: Any) -> bool:
-        """Render client items inside the World panel. Returns True if any clicked."""
+    @staticmethod
+    def _display_name(raw: str) -> str:
+        """Derive a display name from a client name.
+
+        Strips common suffixes like "-mcp" and title-cases the result.
+        ``"lux-mcp"`` → ``"Lux"``, ``"vox-mcp"`` → ``"Vox"``.
+        """
+        name = raw.removesuffix("-mcp")
+        return name.replace("-", " ").title()
+
+    def _render_world_panel_apps(self, imgui: Any) -> bool:
+        """Render Applications submenu in the World panel."""
+        if not imgui.begin_menu("Applications##world"):
+            return False
         clicked = False
-        clients: list[tuple[str, int, list[dict[str, Any]]]] = []
-        for fd, items in self._menu_registrations.items():
-            if items:
-                name = self._client_names.get(fd, f"Client {fd}")
-                clients.append((name, fd, items))
-        clients.sort(key=lambda c: c[0].lower())
-        for name, fd, items in clients:
-            open_flags = imgui.TreeNodeFlags_.default_open.value
-            if imgui.collapsing_header(f"{name}##{fd}", open_flags):
-                items_sorted = sorted(items, key=lambda i: i.get("label") or "")
-                for item in items_sorted:
-                    if self._render_world_panel_item(imgui, item):
-                        clicked = True
+        try:
+            clients: list[tuple[str, int, list[dict[str, Any]]]] = []
+            for fd, items in self._menu_registrations.items():
+                if items:
+                    raw = self._client_names.get(fd, f"Client {fd}")
+                    clients.append((self._display_name(raw), fd, items))
+            clients.sort(key=lambda c: c[0].lower())
+            for name, fd, items in clients:
+                if imgui.begin_menu(f"{name}##{fd}"):
+                    items_sorted = sorted(items, key=lambda i: i.get("label") or "")
+                    for item in items_sorted:
+                        if self._render_world_panel_item(imgui, item):
+                            clicked = True
+                    imgui.end_menu()
+        finally:
+            imgui.end_menu()
         return clicked
 
     def _render_world_panel_item(
@@ -1415,6 +1431,56 @@ class DisplayServer:
             self._show_lux_items(imgui)
         finally:
             imgui.end_menu()
+
+    def _show_apps_menu(self, imgui: Any) -> None:
+        """Render the Applications menu in the menu bar."""
+        if not self._menu_registrations:
+            return
+        if not imgui.begin_menu("Applications"):
+            return
+        try:
+            clients: list[tuple[str, int, list[dict[str, Any]]]] = []
+            for fd, items in self._menu_registrations.items():
+                if items:
+                    raw = self._client_names.get(fd, f"Client {fd}")
+                    clients.append((self._display_name(raw), fd, items))
+            clients.sort(key=lambda c: c[0].lower())
+            for name, fd, items in clients:
+                if imgui.begin_menu(f"{name}##{fd}"):
+                    items_sorted = sorted(items, key=lambda i: i.get("label") or "")
+                    for item in items_sorted:
+                        self._render_menu_bar_item(imgui, item)
+                    imgui.end_menu()
+        finally:
+            imgui.end_menu()
+
+    def _render_menu_bar_item(self, imgui: Any, item: dict[str, Any]) -> None:
+        """Render a single registered item in the menu bar."""
+        label = item.get("label")
+        if not isinstance(label, str):
+            return
+        if label == "---":
+            imgui.separator()
+            return
+        enabled = item.get("enabled", True)
+        clicked, _ = imgui.menu_item(
+            label,
+            item.get("shortcut", ""),
+            False,  # noqa: FBT003
+            enabled,
+        )
+        if clicked and isinstance(item.get("id"), str):
+            self._event_queue.append(
+                InteractionMessage(
+                    element_id=item["id"],
+                    action="menu",
+                    ts=time.time(),
+                    value={
+                        "menu": "Applications",
+                        "item": label,
+                    },
+                )
+            )
 
     def _show_lux_items(self, imgui: Any) -> None:
         """Render Lux menu items (shared by menu bar and World panel)."""
@@ -1579,6 +1645,7 @@ class DisplayServer:
                 self._remove_client(sock)
                 return
             for msg in messages:
+                logger.info("Received %s from fd=%s", type(msg).__name__, sock.fileno())
                 self._handle_message(sock, msg)
                 if sock not in self._clients:
                     return  # removed during handle (e.g. send failed)
@@ -1705,6 +1772,11 @@ class DisplayServer:
         self, sock: socket.socket, msg: RegisterMenuMessage
     ) -> None:
         """Register menu items owned by this client into the World menu."""
+        logger.info(
+            "RegisterMenuMessage from fd=%s: %d items",
+            sock.fileno(),
+            len(msg.items),
+        )
         try:
             fd = sock.fileno()
         except OSError:

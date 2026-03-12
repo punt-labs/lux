@@ -24,6 +24,7 @@ from punt_lux.config import read_config, resolve_config_path, write_field
 from punt_lux.protocol import (
     InteractionMessage,
     Patch,
+    TextElement,
     element_from_dict,
 )
 
@@ -58,18 +59,64 @@ mcp = FastMCP(
 _client: LuxClient | None = None
 
 
+def _on_hello_world(_msg: InteractionMessage) -> None:
+    """Callback: render Hello World in a frame."""
+    if _client is None:
+        return
+    _client.show_async(
+        "hello-world-scene",
+        elements=[
+            TextElement(
+                id="hw-greeting",
+                content="Hello World!",
+                style="heading",
+            ),
+            TextElement(
+                id="hw-hint",
+                content="This frame was opened by a menu callback.",
+            ),
+        ],
+        frame_id="hello-world-frame",
+        frame_title="Hello World",
+        frame_size=(350, 100),
+    )
+
+
+_apps_registered = False
+
+
+def _setup_apps(client: LuxClient) -> None:
+    """Declare built-in application menu items and callbacks.
+
+    Idempotent — safe to call on every ``_get_client()`` invocation.
+    Items are stored locally and sent to the display during
+    ``_post_handshake``, so they survive reconnects without needing
+    a live socket at setup time.
+    """
+    global _apps_registered
+    if _apps_registered:
+        return
+    client.declare_menu_item({"id": "app-hello-world", "label": "Hello World"})
+    client.on_event("app-hello-world", "menu", _on_hello_world)
+    _apps_registered = True
+
+
 def _get_client() -> LuxClient:
     """Return a connected LuxClient, creating or reconnecting as needed.
 
     Reuses the existing instance when possible so that accumulated state
-    (e.g. registered menu items) survives across reconnects.
+    (e.g. registered menu items, callbacks) survives across reconnects.
+    Starts the background listener after connecting so that registered
+    callbacks dispatch autonomously.
     """
     global _client
     if _client is None:
         _client = LuxClient(name="lux-mcp")
+    _setup_apps(_client)
+    if not _client.is_connected:
         _client.connect()
-    elif not _client.is_connected:
-        _client.connect()
+    if not _client.listener_active:
+        _client.start_listener()
     return _client
 
 

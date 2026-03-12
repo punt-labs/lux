@@ -4,6 +4,15 @@
 
 ### Added
 
+- **Push-based event handling** — `LuxClient` gains a background listener
+  thread with callback registry for autonomous UI event dispatch.
+  `on_event(element_id, action, callback)` registers handlers keyed by
+  `(element_id, action)` tuples (following standard UI framework
+  conventions). Fire-and-forget methods (`show_async`, `update_async`,
+  `clear_async`) are safe to call from callbacks. The listener
+  auto-restarts on reconnect when callbacks are registered. Existing
+  pull-based `recv()` continues to work — unmatched events and acks
+  route to their respective queues.
 - **Frame minimize/restore** — the collapse triangle (▼) in frame title
   bars now minimizes to a bottom dock bar instead of collapsing in-place.
   Clickable pills in the dock bar restore frames, matching Pharo

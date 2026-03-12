@@ -23,6 +23,7 @@ from punt_lux.protocol import (
     SceneMessage,
     TextElement,
     UpdateMessage,
+    WindowMessage,
     recv_message,
     send_message,
 )
@@ -320,10 +321,13 @@ class TestSendMessages:
         try:
             with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
                 client.clear()
+            # Join BEFORE closing server_conn — the server thread may
+            # still be inside recv_message's finally block restoring
+            # sock.settimeout() when the main thread closes the fd.
+            t.join(timeout=5)
         finally:
             if server_conn:
                 server_conn.close()
-            t.join(timeout=2)
             import shutil
 
             shutil.rmtree(short_dir, ignore_errors=True)
@@ -638,6 +642,454 @@ class TestRegisterMenuItem:
             for c in conns:
                 c.close()
             server.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+
+# ---------------------------------------------------------------------------
+# Background listener
+# ---------------------------------------------------------------------------
+
+
+class TestBackgroundListener:
+    """Tests for push-based event handling via background listener."""
+
+    def test_callback_dispatch(self) -> None:
+        """Listener dispatches InteractionMessage to registered callback."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        received: list[InteractionMessage] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            time.sleep(0.1)
+            send_message(
+                server_conn,
+                InteractionMessage(
+                    element_id="btn1", action="click", ts=time.time(), value=True
+                ),
+            )
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client.on_event("btn1", "click", lambda msg: received.append(msg))
+            client.connect()
+            client.start_listener()
+            # Wait for callback to fire
+            deadline = time.monotonic() + 2.0
+            while not received and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert len(received) == 1
+            assert received[0].element_id == "btn1"
+            assert received[0].action == "click"
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_unmatched_events_go_to_pending(self) -> None:
+        """Events without a callback are available via recv()."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            time.sleep(0.1)
+            # Send an interaction with no callback registered
+            send_message(
+                server_conn,
+                InteractionMessage(
+                    element_id="other", action="click", ts=time.time(), value=True
+                ),
+            )
+            # Send a non-interaction message
+            send_message(
+                server_conn,
+                WindowMessage(event="resized", width=800, height=600),
+            )
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client.connect()
+            client.start_listener()
+            # Both should arrive in _pending via recv()
+            msg1 = client.recv(timeout=2.0)
+            assert isinstance(msg1, InteractionMessage)
+            assert msg1.element_id == "other"
+            msg2 = client.recv(timeout=2.0)
+            assert isinstance(msg2, WindowMessage)
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_ack_routing_through_queue(self) -> None:
+        """Acks route to _ack_queue so show() works with listener active."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            msg = recv_message(server_conn, timeout=5)
+            assert isinstance(msg, SceneMessage)
+            send_message(server_conn, AckMessage(scene_id="s1", ts=time.time()))
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client.connect()
+            client.start_listener()
+            ack = client.show("s1", elements=[TextElement(id="t1", content="Hello")])
+            assert ack is not None
+            assert ack.scene_id == "s1"
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_show_async_from_callback(self) -> None:
+        """show_async() works from inside a callback without deadlock."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        callback_done = threading.Event()
+        server_received: list[SceneMessage] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            time.sleep(0.1)
+            send_message(
+                server_conn,
+                InteractionMessage(
+                    element_id="trigger", action="click", ts=time.time(), value=True
+                ),
+            )
+            # Read the scene sent by the callback
+            msg = recv_message(server_conn, timeout=5)
+            if isinstance(msg, SceneMessage):
+                server_received.append(msg)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+
+            def on_trigger(msg: InteractionMessage) -> None:
+                client.show_async(
+                    "response",
+                    elements=[TextElement(id="t1", content="Callback fired")],
+                )
+                callback_done.set()
+
+            client.on_event("trigger", "click", on_trigger)
+            client.connect()
+            client.start_listener()
+            assert callback_done.wait(timeout=2.0)
+            # Give the server thread time to receive the scene
+            t.join(timeout=2)
+            assert len(server_received) == 1
+            assert server_received[0].id == "response"
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_listener_survives_reconnect(self) -> None:
+        """Listener restarts automatically after disconnect + reconnect."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        received: list[InteractionMessage] = []
+        conns: list[socket.socket] = []
+
+        def serve_two(server: socket.socket, ready: threading.Event) -> None:
+            ready.set()
+            for i in range(2):
+                conn, _ = server.accept()
+                conns.append(conn)
+                send_message(conn, ReadyMessage())
+                if i == 1:
+                    # Second connection: send an interaction
+                    time.sleep(0.1)
+                    send_message(
+                        conn,
+                        InteractionMessage(
+                            element_id="btn2",
+                            action="click",
+                            ts=time.time(),
+                            value=True,
+                        ),
+                    )
+
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(sock_path))
+        server.listen(2)
+        ready_event = threading.Event()
+        t = threading.Thread(target=serve_two, args=(server, ready_event), daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client.on_event("btn2", "click", lambda msg: received.append(msg))
+            client.connect()
+            client.start_listener()
+            assert client.listener_active
+
+            # Disconnect
+            client.close()
+            stopped = not client.listener_active
+            assert stopped
+
+            # Reconnect — listener should auto-restart because callbacks exist
+            client.connect()
+            restarted = client.listener_active
+            assert restarted
+
+            # Wait for callback to fire
+            deadline = time.monotonic() + 2.0
+            while not received and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert len(received) == 1
+            assert received[0].element_id == "btn2"
+            client.close()
+        finally:
+            for c in conns:
+                c.close()
+            server.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_action_mismatch_goes_to_pending(self) -> None:
+        """Callback keyed on (id, 'click') ignores (id, 'changed') events."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        click_received: list[InteractionMessage] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            time.sleep(0.1)
+            # Send a "changed" event — should NOT match the "click" callback
+            send_message(
+                server_conn,
+                InteractionMessage(
+                    element_id="slider1",
+                    action="changed",
+                    ts=time.time(),
+                    value=0.5,
+                ),
+            )
+            # Send a "click" event — SHOULD match
+            send_message(
+                server_conn,
+                InteractionMessage(
+                    element_id="slider1",
+                    action="click",
+                    ts=time.time(),
+                    value=True,
+                ),
+            )
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client.on_event("slider1", "click", lambda msg: click_received.append(msg))
+            client.connect()
+            client.start_listener()
+
+            # Wait for callback
+            deadline = time.monotonic() + 2.0
+            while not click_received and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert len(click_received) == 1
+            assert click_received[0].action == "click"
+
+            # The "changed" event should be in _pending
+            msg = client.recv(timeout=1.0)
+            assert isinstance(msg, InteractionMessage)
+            assert msg.action == "changed"
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_hello_world_menu_callback(self) -> None:
+        """E2E proof: menu click → callback → show_async opens a frame.
+
+        Simulates the full pipeline: a plugin registers a menu item,
+        a user clicks it, the callback fires show_async to display
+        "Hello World!" in a frame.
+        """
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        callback_fired = threading.Event()
+        server_received: list[SceneMessage] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            # Read the RegisterMenuMessage from the client
+            reg = recv_message(server_conn, timeout=5)
+            assert isinstance(reg, RegisterMenuMessage)
+            # Simulate user clicking the "Hello" menu item
+            send_message(
+                server_conn,
+                InteractionMessage(
+                    element_id="hello-world",
+                    action="click",
+                    ts=time.time(),
+                    value=True,
+                ),
+            )
+            # Read the SceneMessage sent by the callback
+            scene = recv_message(server_conn, timeout=5)
+            if isinstance(scene, SceneMessage):
+                server_received.append(scene)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+
+            def on_hello(msg: InteractionMessage) -> None:
+                client.show_async(
+                    "hello-scene",
+                    elements=[
+                        TextElement(id="greeting", content="Hello World!"),
+                    ],
+                    frame_id="hello-frame",
+                    frame_title="Greeting",
+                )
+                callback_fired.set()
+
+            client.on_event("hello-world", "click", on_hello)
+            client.connect()
+            client.start_listener()
+            # Register the menu item (triggers the flow)
+            client.register_menu_item({"id": "hello-world", "label": "Hello"})
+            # Wait for the full pipeline to complete
+            assert callback_fired.wait(timeout=3.0), "Callback never fired"
+            t.join(timeout=3)
+            assert len(server_received) == 1
+            scene = server_received[0]
+            assert scene.id == "hello-scene"
+            assert scene.frame_id == "hello-frame"
+            assert len(scene.elements) == 1
+            assert isinstance(scene.elements[0], TextElement)
+            assert scene.elements[0].content == "Hello World!"
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_recv_timeout_with_listener(self) -> None:
+        """recv() returns None on timeout when listener is active."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client.connect()
+            client.start_listener()
+            msg = client.recv(timeout=0.2)
+            assert msg is None
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
             t.join(timeout=2)
             import shutil
 
