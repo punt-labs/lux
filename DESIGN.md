@@ -1739,6 +1739,7 @@ The agent reads this via `recv()` and can respond however it wants — update an
 #### Relationship to DES-019
 
 DES-019's detail panel and DES-024's row_select are independent. A table can have:
+
 - Detail panel only (common case — show data, no agent involvement)
 - Row select only (agent-driven — click triggers agent action)
 - Both (detail panel shows data, agent also gets notified)
