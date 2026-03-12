@@ -32,9 +32,10 @@ d = json.loads(p.read_text())
 d['name'] = '${prod_name}'
 # Release uses installed CLI directly (not uv run)
 for srv in d.get('mcpServers', {}).values():
-    if srv.get('command') == 'uv' and srv.get('args', [])[:1] == ['run']:
-        srv['command'] = srv['args'][1]
-        srv['args'] = srv['args'][2:]
+    args = srv.get('args', [])
+    if srv.get('command') == 'uv' and len(args) >= 2 and args[0] == 'run':
+        srv['command'] = args[1]
+        srv['args'] = args[2:]
 p.write_text(json.dumps(d, indent=2) + '\n')
 "
 

@@ -1290,28 +1290,33 @@ class DisplayServer:
             self._world_menu_open = False
 
     def _render_world_panel_sections(self, imgui: Any) -> bool:
-        """Render all World panel sections. Returns True if a client item clicked."""
+        """Render all World panel sections. Returns True if any item clicked."""
         from imgui_bundle import hello_imgui
+
+        clicked_any = False
 
         if imgui.begin_menu("Lux##world"):
             self._show_lux_items(imgui)
+            clicked_any = clicked_any or imgui.is_item_clicked()
             imgui.end_menu()
 
         # Applications submenu: agent-registered menu items grouped by client.
-        clicked_any = False
         if self._menu_registrations:
-            clicked_any = self._render_world_panel_apps(imgui)
+            clicked_any = self._render_world_panel_apps(imgui) or clicked_any
 
         if imgui.begin_menu("Debug##world"):
             self._show_debug_items(imgui)
+            clicked_any = clicked_any or imgui.is_item_clicked()
             imgui.end_menu()
         if imgui.begin_menu("Windows##world"):
             self._show_window_frame_items(imgui)
             imgui.separator()
             self._show_window_chrome_items(imgui, hello_imgui)
+            clicked_any = clicked_any or imgui.is_item_clicked()
             imgui.end_menu()
         if imgui.begin_menu("Help##world"):
             self._show_help_items(imgui)
+            clicked_any = clicked_any or imgui.is_item_clicked()
             imgui.end_menu()
         return clicked_any
 
@@ -1618,7 +1623,9 @@ class DisplayServer:
                 self._remove_client(sock)
                 return
             for msg in messages:
-                logger.info("Received %s from fd=%s", type(msg).__name__, sock.fileno())
+                logger.debug(
+                    "Received %s from fd=%s", type(msg).__name__, sock.fileno()
+                )
                 self._handle_message(sock, msg)
                 if sock not in self._clients:
                     return  # removed during handle (e.g. send failed)
@@ -2128,8 +2135,7 @@ class DisplayServer:
         """If fit-all was requested, restore all frames and compute tile layout.
 
         Returns True when fitting is active (callers should use
-        ``Cond_.always`` for position/size).  Tile positions are stored
-        in ``_fit_positions`` / ``_fit_sizes`` keyed by frame_id.
+        ``Cond_.always`` for position/size).
         """
         if not self._fit_all_frames:
             return False
@@ -2137,8 +2143,6 @@ class DisplayServer:
         frames = list(self._frames.values())
         for f in frames:
             f.minimized = False
-        self._fit_positions: dict[str, tuple[float, float]] = {}
-        self._fit_sizes: dict[str, tuple[float, float]] = {}
         return True
 
     @staticmethod
@@ -2289,7 +2293,7 @@ class DisplayServer:
         )
         imgui.set_next_window_pos(ImVec2(bar_x, bar_y))
         imgui.set_next_window_size(ImVec2(bar_w, bar_h))
-        imgui.begin("##dock_bar", None, flags)
+        imgui.begin("##dock_bar", flags=flags)
 
         # Pill layout.
         pill_pad = 6.0

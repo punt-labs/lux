@@ -120,27 +120,20 @@ def _get_client() -> LuxClient:
     return _client
 
 
-_SOCKET_ERRORS = (
-    BrokenPipeError,
-    ConnectionResetError,
-    ConnectionAbortedError,
-    ConnectionRefusedError,
-)
-
-
 def _with_reconnect[T](fn: Callable[[], T]) -> T:
-    """Run *fn* with one automatic reconnect on broken pipe.
+    """Run *fn* with one automatic reconnect on socket failure.
 
     If the display server restarts, the cached socket dies silently —
     ``is_connected`` still returns True because the socket object exists.
-    This wrapper catches socket-specific errors, closes the stale
-    socket, reconnects the same client instance (preserving accumulated
-    state like registered menu items), and retries *fn* exactly once.
+    This wrapper catches ``OSError`` (covers broken pipe, connection
+    reset, bad file descriptor, etc.), closes the stale socket,
+    reconnects the same client instance (preserving accumulated state
+    like registered menu items), and retries *fn* exactly once.
     """
     global _client
     try:
         return fn()
-    except _SOCKET_ERRORS as exc:
+    except OSError as exc:
         logger.info("Connection lost (%s), reconnecting to display", type(exc).__name__)
         if _client is not None:
             _client.close()

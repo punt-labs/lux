@@ -1011,9 +1011,9 @@ class TestBackgroundListener:
                 server_conn,
                 InteractionMessage(
                     element_id="hello-world",
-                    action="click",
+                    action="menu",
                     ts=time.time(),
-                    value=True,
+                    value={"item": "Hello", "menu": "Applications"},
                 ),
             )
             # Read the SceneMessage sent by the callback
@@ -1039,7 +1039,7 @@ class TestBackgroundListener:
                 )
                 callback_fired.set()
 
-            client.on_event("hello-world", "click", on_hello)
+            client.on_event("hello-world", "menu", on_hello)
             client.connect()
             client.start_listener()
             # Register the menu item (triggers the flow)
