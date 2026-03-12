@@ -1094,24 +1094,13 @@ class DisplayServer:
 
         try:
             self._show_lux_menu(imgui)
-            self._show_theme_menu(imgui)
+            self._show_debug_menu(imgui)
             self._show_window_menu(imgui)
+            self._show_help_menu(imgui)
             for menu in self._agent_menus:
                 self._show_agent_menu(imgui, menu)
         except Exception:
             logger.exception("Error rendering menus")
-
-    def _show_theme_menu(self, imgui: Any) -> None:
-        from imgui_bundle import hello_imgui
-
-        if imgui.begin_menu("Theme"):
-            try:
-                for theme in self._themes:
-                    name = theme.name.replace("_", " ").title()
-                    if imgui.menu_item(name, "", False)[0]:  # noqa: FBT003
-                        hello_imgui.apply_theme(theme)
-            finally:
-                imgui.end_menu()
 
     def _apply_theme(self, theme_name: str) -> None:
         """Apply a theme by snake_case name (e.g. 'imgui_colors_light')."""
@@ -1126,45 +1115,78 @@ class DisplayServer:
     def _show_window_menu(self, imgui: Any) -> None:
         from imgui_bundle import hello_imgui
 
-        if imgui.begin_menu("Window"):
-            try:
-                params = hello_imgui.get_runner_params()
-                wp = params.app_window_params
+        if not imgui.begin_menu("Windows"):
+            return
+        try:
+            if imgui.menu_item("Clear All", "", False)[0]:  # noqa: FBT003
+                self._scenes.clear()
+                self._scene_order.clear()
+                self._active_tab = None
+                self._scene_widget_state.clear()
+                self._scene_render_fn_state.clear()
+                self._event_queue.clear()
+                self._dirty_windows.clear()
+                self._widget_state = WidgetState()
+                self._render_fn_state = {}
+                for fid in list(self._frames):
+                    self._close_frame(fid)
 
-                if imgui.menu_item("Clear All", "", False)[0]:  # noqa: FBT003
-                    self._scenes.clear()
-                    self._scene_order.clear()
-                    self._active_tab = None
-                    self._scene_widget_state.clear()
-                    self._scene_render_fn_state.clear()
-                    self._event_queue.clear()
-                    self._dirty_windows.clear()
-                    self._widget_state = WidgetState()
-                    self._render_fn_state = {}
-                    # Close all frames (including minimized / docked).
-                    for fid in list(self._frames):
-                        self._close_frame(fid)
+            if imgui.menu_item("Reset Size", "", False)[0]:  # noqa: FBT003
+                hello_imgui.change_window_size((1200, 800))
+        finally:
+            imgui.end_menu()
 
-                if imgui.menu_item("Reset Size", "", False)[0]:  # noqa: FBT003
-                    hello_imgui.change_window_size((1200, 800))
+    def _show_debug_menu(self, imgui: Any) -> None:
+        if not imgui.begin_menu("Debug"):
+            return
+        try:
+            if imgui.menu_item("Dump Scene JSON", "", False)[0]:  # noqa: FBT003
+                import json
 
-                imgui.separator()
+                state: dict[str, Any] = {
+                    "frames": {
+                        fid: {
+                            "title": f.title,
+                            "minimized": f.minimized,
+                            "scene_count": len(f.scenes),
+                            "scenes": list(f.scene_order),
+                        }
+                        for fid, f in self._frames.items()
+                    },
+                    "scenes": {
+                        sid: {
+                            "title": s.title,
+                            "element_count": len(s.elements),
+                        }
+                        for sid, s in self._scenes.items()
+                    },
+                    "clients": dict(self._client_names),
+                    "menu_registrations": {
+                        str(fd): len(items)
+                        for fd, items in self._menu_registrations.items()
+                    },
+                }
+                logger.info(
+                    "Scene dump:\n%s",
+                    json.dumps(state, indent=2),
+                )
+        finally:
+            imgui.end_menu()
 
-                _, wp.top_most = imgui.menu_item("Always on Top", "", wp.top_most)
+    def _show_help_menu(self, imgui: Any) -> None:
+        if not imgui.begin_menu("Help"):
+            return
+        try:
+            from punt_lux import __version__
 
-                clicked, _ = imgui.menu_item("Borderless", "", not self._decorated)
-                if clicked:
-                    self._decorated = not self._decorated
-                    self._set_glfw_decorated(decorated=self._decorated)
-
-                imgui.separator()
-
-                changed, value = imgui.slider_float("Opacity", self._opacity, 0.2, 1.0)
-                if changed:
-                    self._opacity = value
-                    self._set_glfw_opacity(opacity=value)
-            finally:
-                imgui.end_menu()
+            imgui.menu_item(
+                f"Lux v{__version__}",
+                "",
+                False,  # noqa: FBT003
+                False,  # noqa: FBT003
+            )
+        finally:
+            imgui.end_menu()
 
     def _check_world_menu_background_click(self, imgui: Any) -> None:
         """Toggle World panel on left-click on the main window background.
@@ -1356,24 +1378,67 @@ class DisplayServer:
     def _show_lux_menu(self, imgui: Any) -> None:
         from imgui_bundle import hello_imgui
 
-        if imgui.begin_menu("Lux"):
-            try:
-                from punt_lux import __version__
+        if not imgui.begin_menu("Lux"):
+            return
+        try:
+            # Settings submenu: theme, chrome, opacity.
+            if imgui.begin_menu("Settings"):
+                try:
+                    self._show_settings_items(imgui)
+                finally:
+                    imgui.end_menu()
 
-                imgui.menu_item(
-                    f"Lux v{__version__}",
-                    "",
-                    False,  # noqa: FBT003
-                    False,  # noqa: FBT003
-                )
-                imgui.separator()
-                if imgui.menu_item("Increase Font", "Cmd + +", False)[0]:  # noqa: FBT003
-                    self._font_scale = min(round(self._font_scale + 0.1, 1), 3.0)
-                if imgui.menu_item("Decrease Font", "Cmd + -", False)[0]:  # noqa: FBT003
-                    self._font_scale = max(round(self._font_scale - 0.1, 1), 0.5)
-                imgui.separator()
-                if imgui.menu_item("Quit", "Cmd + Q", False)[0]:  # noqa: FBT003
-                    hello_imgui.get_runner_params().app_shall_exit = True
+            imgui.separator()
+
+            if imgui.menu_item("Increase Font", "Cmd++", False)[0]:  # noqa: FBT003
+                self._font_scale = min(round(self._font_scale + 0.1, 1), 3.0)
+            if imgui.menu_item("Decrease Font", "Cmd+-", False)[0]:  # noqa: FBT003
+                self._font_scale = max(round(self._font_scale - 0.1, 1), 0.5)
+
+            imgui.separator()
+
+            if imgui.menu_item("Quit", "Cmd+Q", False)[0]:  # noqa: FBT003
+                hello_imgui.get_runner_params().app_shall_exit = True
+        finally:
+            imgui.end_menu()
+
+    def _show_settings_items(self, imgui: Any) -> None:
+        """Render Settings submenu contents: Theme, chrome, opacity."""
+        from imgui_bundle import hello_imgui
+
+        # Theme picker.
+        if imgui.begin_menu("Theme"):
+            try:
+                for theme in self._themes:
+                    name = theme.name.replace("_", " ").title()
+                    if imgui.menu_item(name, "", False)[0]:  # noqa: FBT003
+                        hello_imgui.apply_theme(theme)
+            finally:
+                imgui.end_menu()
+
+        imgui.separator()
+
+        # Window chrome toggles.
+        params = hello_imgui.get_runner_params()
+        wp = params.app_window_params
+        _, wp.top_most = imgui.menu_item("Always on Top", "", wp.top_most)
+
+        clicked, _ = imgui.menu_item("Borderless", "", not self._decorated)
+        if clicked:
+            self._decorated = not self._decorated
+            self._set_glfw_decorated(decorated=self._decorated)
+
+        imgui.separator()
+
+        # Opacity presets.
+        if imgui.begin_menu("Opacity"):
+            try:
+                for pct in (25, 50, 75, 100):
+                    val = pct / 100.0
+                    current = abs(self._opacity - val) < 0.05
+                    if imgui.menu_item(f"{pct}%", "", current)[0]:
+                        self._opacity = val
+                        self._set_glfw_opacity(opacity=val)
             finally:
                 imgui.end_menu()
 
