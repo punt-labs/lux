@@ -6,6 +6,14 @@
 
 - **Frame auto-focus** — frames automatically focus (brought to front)
   when they receive a scene update. Minimized frames are restored.
+- **Table `row_select` event** — clicking a table row emits a
+  `row_select` InteractionMessage with row index and data, routable
+  through `recv()`. Rows are selectable when `copy_id` flag is set,
+  even without a detail panel.
+- **`frame_size` and `frame_flags` on `show()`** — frames accept an
+  initial size hint `[width, height]` and ImGui window flags
+  (`no_resize`, `no_collapse`, `auto_resize`). Size applies on first
+  use only; users can still resize afterwards unless `no_resize` is set.
 
 ### Changed
 

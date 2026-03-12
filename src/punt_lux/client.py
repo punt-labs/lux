@@ -194,6 +194,8 @@ class LuxClient:
         grid_columns: int | None = None,
         frame_id: str | None = None,
         frame_title: str | None = None,
+        frame_size: tuple[int, int] | None = None,
+        frame_flags: dict[str, bool] | None = None,
     ) -> AckMessage | None:
         """Send a scene to the display and wait for acknowledgement.
 
@@ -211,6 +213,8 @@ class LuxClient:
             grid_columns=grid_columns,
             frame_id=frame_id,
             frame_title=frame_title,
+            frame_size=frame_size,
+            frame_flags=frame_flags,
         )
         send_message(sock, msg)
         return self._recv_ack()

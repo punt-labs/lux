@@ -506,6 +506,37 @@ class TestSerialization:
         assert restored.frame_id == "beads-explorer"
         assert restored.frame_title == "Beads Explorer"
 
+    def test_framed_scene_with_size_and_flags_roundtrip(self):
+        original = SceneMessage(
+            id="s1",
+            elements=[TextElement(id="t1", content="hello")],
+            frame_id="vox-booth",
+            frame_title="Vox Booth",
+            frame_size=(340, 120),
+            frame_flags={"no_resize": True, "auto_resize": True},
+        )
+        d = message_to_dict(original)
+        assert d["frame_size"] == [340, 120]
+        assert d["frame_flags"] == {"no_resize": True, "auto_resize": True}
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert restored.frame_size == (340, 120)
+        assert restored.frame_flags == {"no_resize": True, "auto_resize": True}
+
+    def test_framed_scene_without_size_omits_fields(self):
+        original = SceneMessage(
+            id="s1",
+            elements=[TextElement(id="t1", content="hello")],
+            frame_id="f1",
+        )
+        d = message_to_dict(original)
+        assert "frame_size" not in d
+        assert "frame_flags" not in d
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert restored.frame_size is None
+        assert restored.frame_flags is None
+
     def test_connect_message_roundtrip(self):
         original = ConnectMessage(name="quarry")
         d = message_to_dict(original)
