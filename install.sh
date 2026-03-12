@@ -89,7 +89,7 @@ fi
 info "Installing $PACKAGE..."
 
 # shellcheck disable=SC2086
-uv tool install --force $PYTHON_FLAG "$PACKAGE[$EXTRAS]==$VERSION" || fail "Failed to install $PACKAGE==$VERSION"
+uv tool install --force $PYTHON_FLAG "$PACKAGE[$EXTRAS]==$VERSION" || fail "Failed to install $PACKAGE[$EXTRAS]==$VERSION"
 ok "$PACKAGE installed"
 
 if ! command -v "$BINARY" >/dev/null 2>&1; then

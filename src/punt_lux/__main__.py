@@ -53,12 +53,15 @@ def display(
     """Start the Lux display server."""
     try:
         from punt_lux.display import DisplayServer
-    except ImportError:
-        typer.echo(
-            "Display extras not installed. Run: uv tool install 'punt-lux[display]'",
-            err=True,
-        )
-        raise typer.Exit(code=1) from None
+    except ModuleNotFoundError as exc:
+        _display_modules = {"imgui_bundle", "numpy", "PIL", "OpenGL"}
+        if exc.name and exc.name.split(".")[0] in _display_modules:
+            typer.echo(
+                "Display extras not installed. Run: pip install 'punt-lux[display]'",
+                err=True,
+            )
+            raise typer.Exit(code=1) from None
+        raise
 
     server = DisplayServer(socket, test_auto_click=test_auto_click)
     server.run()
@@ -288,8 +291,7 @@ def doctor(
     except ImportError:
         _check(
             _OPTIONAL,
-            "imgui-bundle not installed"
-            " (install with: pip install 'punt-lux[display]')",
+            "imgui-bundle not installed (run: pip install 'punt-lux[display]')",
             required=False,
         )
 

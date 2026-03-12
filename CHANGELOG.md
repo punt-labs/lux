@@ -22,6 +22,9 @@
 
 ### Changed
 
+- **Public API** — `CodeExecutor` and `RenderContext` removed from
+  `punt_lux` top-level exports. These are display-internal and remain
+  importable from `punt_lux.runtime` directly.
 - **Beads sort order** — in-progress issues float to the top of the
   beads board regardless of priority.
 - **SessionStart hook** — made async; display mode discovery deferred
