@@ -1289,7 +1289,7 @@ class DisplayServer:
 
         # Pin dot — filled ● when pinned, hollow ○ when unpinned.
         pin_dot = "\u25cf" if self._world_menu_pinned else "\u25cb"
-        if imgui.small_button(pin_dot):
+        if imgui.small_button(f"{pin_dot}##pin"):
             self._world_menu_pinned = not self._world_menu_pinned
         imgui.separator()
 
@@ -1788,7 +1788,7 @@ class DisplayServer:
     def _handle_register_menu(
         self, sock: socket.socket, msg: RegisterMenuMessage
     ) -> None:
-        """Register menu items owned by this client into the World menu."""
+        """Register menu items owned by this client into the Applications menu."""
         logger.info(
             "RegisterMenuMessage from fd=%s: %d items",
             sock.fileno(),
@@ -2204,6 +2204,8 @@ class DisplayServer:
         gap = 4.0
         cell_w = (region.x - gap * (cols + 1)) / cols
         cell_h = (region.y - gap * (rows + 1)) / rows
+        # Floor prevents zero/negative cells; frames may extend past the
+        # viewport when the window is very small, but ImGui scroll handles it.
         cell_w = max(cell_w, 200.0)
         cell_h = max(cell_h, 150.0)
         result: dict[str, tuple[float, float, float, float]] = {}

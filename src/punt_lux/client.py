@@ -7,8 +7,9 @@ and pings.  Receives ack, interaction, window, and pong events.
 
 Supports push-based event handling via :meth:`on_event` and
 :meth:`start_listener`.  When the background listener is active, incoming
-messages with registered callbacks are dispatched automatically; all other
-messages (including acks) are buffered for the main thread.
+messages with registered callbacks are dispatched automatically; unmatched
+interactions are buffered for :meth:`recv`, while acks and pongs route to
+dedicated queues consumed by :meth:`show` and :meth:`ping`.
 
 Usage::
 

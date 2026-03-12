@@ -42,8 +42,8 @@
 
 ### Changed
 
-- **Menu bar reorganization** — menu bar is now Lux | Debug | Windows |
-  Help. Theme, Always on Top, Borderless, and Opacity moved under
+- **Menu bar reorganization** — menu bar is now Lux | Applications | Debug |
+  Windows | Help. Theme, Always on Top, Borderless, and Opacity moved under
   Lux > Settings. Opacity changed from slider to preset submenu
   (25%, 50%, 75%, 100%). "Window" renamed to "Windows".
 
