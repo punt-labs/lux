@@ -20,6 +20,10 @@
 - **Debug menu** — new menu with "Dump Scene JSON" for inspecting
   current display state (frames, scenes, clients).
 - **Help menu** — displays current Lux version.
+- **Paged group layout** — `GroupElement` gains `layout="paged"` with
+  `pages` and `page_source` fields. A combo's selected index controls
+  which page of children is visible, all client-side with no MCP
+  round-trips.
 
 ### Changed
 
@@ -27,6 +31,12 @@
   Help. Theme, Always on Top, Borderless, and Opacity moved under
   Lux > Settings. Opacity changed from slider to preset submenu
   (25%, 50%, 75%, 100%). "Window" renamed to "Windows".
+
+### Fixed
+
+- **Markdown initialization** — use `addons.with_markdown=True` instead
+  of manual `initialize_markdown()` to prevent "Markdown was not
+  initialized" warning spam.
 
 ## [0.10.0] - 2026-03-12
 
