@@ -215,6 +215,8 @@ class LuxClient:
                 self._sock.close()
             self._sock = None
             self._ready = None
+            # Queues may still receive items from a dying listener;
+            # stragglers are harmless — the queue itself will be GC'd.
             _drain_queue(self._pending)
             _drain_queue(self._ack_queue)
             _drain_queue(self._pong_queue)

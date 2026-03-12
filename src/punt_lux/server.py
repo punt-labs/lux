@@ -120,7 +120,12 @@ def _get_client() -> LuxClient:
     return _client
 
 
-_SOCKET_ERRORS = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
+_SOCKET_ERRORS = (
+    BrokenPipeError,
+    ConnectionResetError,
+    ConnectionAbortedError,
+    ConnectionRefusedError,
+)
 
 
 def _with_reconnect[T](fn: Callable[[], T]) -> T:
