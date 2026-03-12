@@ -1294,18 +1294,20 @@ class DisplayServer:
         """Render all World panel sections. Returns True if a client item clicked."""
         from imgui_bundle import hello_imgui
 
-        open_flags = imgui.TreeNodeFlags_.default_open.value
-
-        if imgui.collapsing_header("Lux##world", open_flags):
+        if imgui.begin_menu("Lux##world"):
             self._show_lux_items(imgui)
-        if imgui.collapsing_header("Debug##world", open_flags):
+            imgui.end_menu()
+        if imgui.begin_menu("Debug##world"):
             self._show_debug_items(imgui)
-        if imgui.collapsing_header("Windows##world", open_flags):
+            imgui.end_menu()
+        if imgui.begin_menu("Windows##world"):
             self._show_window_frame_items(imgui)
             imgui.separator()
             self._show_window_chrome_items(imgui, hello_imgui)
-        if imgui.collapsing_header("Help##world", open_flags):
+            imgui.end_menu()
+        if imgui.begin_menu("Help##world"):
             self._show_help_items(imgui)
+            imgui.end_menu()
 
         # Client items (agent-registered menu items).
         clicked_any = False
