@@ -1036,16 +1036,16 @@ class DisplayServer:
 
         addons = immapp.AddOnsParams()
         addons.with_implot = True
+        addons.with_markdown = True
         immapp.run(runner_params, addons)
 
     # -- ImGui callbacks ---------------------------------------------------
 
     def _on_post_init(self) -> None:
         """Called once the OpenGL context is ready."""
-        from imgui_bundle import hello_imgui, imgui_md
+        from imgui_bundle import hello_imgui
 
         self._themes = list(hello_imgui.ImGuiTheme_)
-        imgui_md.initialize_markdown()
         self._setup_socket()
         write_pid_file(self._socket_path)
 
@@ -1204,6 +1204,15 @@ class DisplayServer:
         # Current window = main window.  False when a frame covers the spot.
         if not imgui.is_window_hovered():
             return
+        # Dock bar pills are drawn on the foreground draw list (not ImGui
+        # items/windows), so the checks above don't catch them.  Reject
+        # clicks in the dock bar region when any frames are minimized.
+        if any(f.minimized for f in self._frames.values()):
+            viewport = imgui.get_main_viewport()
+            mouse = imgui.get_mouse_pos()
+            bar_top = viewport.pos.y + viewport.size.y - self._DOCK_BAR_HEIGHT
+            if mouse.y >= bar_top:
+                return
         self._world_menu_open = not self._world_menu_open
         if self._world_menu_open:
             pos = imgui.get_mouse_pos()
