@@ -1618,3 +1618,152 @@ Each slice is one PR. Slice 1 is the spike — if it reveals blocking issues, th
 **No persistent layout.** Frame positions and sizes reset on display restart. Layout persistence (save/restore frame arrangement) is deferred — it requires a layout state file and is orthogonal to the core frame mechanism.
 
 **No frame-to-frame communication.** Frames owned by different clients can't directly interact. The agents (LLM callers) can coordinate via MCP tools, but there's no display-level inter-frame messaging.
+
+---
+
+## DES-023: Dependency Layering — Lightweight Install via Extras
+
+**Date:** 2026-03-12
+**Status:** ACCEPTED
+**PR:** #54
+
+### Problem
+
+`pip install punt-lux` pulls ~66 MB of transitive dependencies:
+
+| Package | Size |
+|---------|------|
+| imgui-bundle | 27 MB |
+| numpy | 18.7 MB |
+| Pillow | 12.5 MB |
+| PyOpenGL | 7.5 MB |
+
+Consumers like Vox and Z-Spec only need `LuxClient` + protocol types — ~15 KB of pure Python with zero heavy deps. Forcing them to pay 66 MB for a client socket library is unreasonable.
+
+### Design
+
+Split dependencies using Python optional extras. Heavy display deps move from base `dependencies` to `[project.optional-dependencies] display`. The base install includes only lightweight packages (typer, rich, fastmcp, pydantic — ~2 MB).
+
+```toml
+dependencies = [
+    "typer>=0.15.0,<1",
+    "rich>=13.0.0,<14",
+    "fastmcp>=3.0.0,<4",
+    "pydantic>=2.0.0,<3",
+]
+
+[project.optional-dependencies]
+display = [
+    "imgui-bundle>=1.6.0",
+    "Pillow>=11.0.0",
+    "numpy>=2.0.0",
+    "PyOpenGL>=3.1.0",
+    "setproctitle>=1.3.0",
+    "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
+]
+```
+
+#### Why this works without refactoring
+
+The split is surgical because the existing code already practiced lazy imports:
+
+1. **`protocol.py`** — pure stdlib (json, socket, struct, dataclasses)
+2. **`paths.py`** — pure stdlib (os, subprocess, pathlib)
+3. **`client.py`** — imports only from protocol.py and paths.py
+4. **`display.py`** — imports numpy and PIL at module level, imgui_bundle in method bodies
+5. **`__main__.py`** — imports display.py lazily inside CLI command functions
+
+The dependency arrow points one way: display → client → protocol. Client code never imports from display. This meant zero import restructuring — just move the deps and add guards.
+
+#### Guard pattern
+
+`lux display` catches `ModuleNotFoundError`, checks `exc.name` against known display modules, and prints a helpful install hint. Unrelated `ModuleNotFoundError` is re-raised to avoid masking real bugs:
+
+```python
+try:
+    from punt_lux.display import DisplayServer
+except ModuleNotFoundError as exc:
+    _display_modules = {"imgui_bundle", "numpy", "PIL", "OpenGL"}
+    if exc.name and exc.name.split(".")[0] in _display_modules:
+        typer.echo("Display extras not installed. Run: pip install 'punt-lux[display]'", err=True)
+        raise typer.Exit(code=1) from None
+    raise
+```
+
+#### Public API cleanup
+
+`CodeExecutor` and `RenderContext` were removed from `punt_lux.__init__` exports. They're display-internal (only used by `display.py`) and remain importable from `punt_lux.runtime` directly. No external consumers exist.
+
+#### CI impact
+
+CI workflows changed from `uv sync --frozen --extra dev` to `uv sync --frozen --extra dev --extra display`. The full test suite exercises display code, so CI must install all extras even though library consumers don't need them.
+
+### Alternatives Considered
+
+**Separate repo (`punt-lux-client`).** Cleanest package name signal, but requires cross-repo coordination for protocol changes. Every protocol addition would need a release of `lux-client` before `lux` could use it. Rejected for coordination overhead.
+
+**Namespace subpackage in same repo.** `punt-lux-client` as a separate build target from the same source tree. Would require a monorepo build tool (e.g., uv workspaces). Rejected as over-engineered for the current scope.
+
+**Extras split (chosen).** One repo, one release cycle. Consumers `uv add punt-lux` and get the lightweight client. End users `pip install 'punt-lux[display]'` for the full stack. The package name doesn't signal "lightweight" but the README and `lux doctor` do.
+
+### Outcome
+
+Base install dropped from ~66 MB to ~2 MB. Vox and Z-Spec benefit automatically — both already gate punt-lux behind an optional `lux` extra in their own pyproject.toml. Pattern codified in punt-kit standards: [python.md § Dependency layering](https://github.com/punt-labs/punt-kit/blob/main/standards/python.md) and [distribution.md § EXTRAS pin](https://github.com/punt-labs/punt-kit/blob/main/standards/distribution.md).
+
+---
+
+## DES-024: Table Row Select Event
+
+**Date:** 2026-03-12
+**Status:** ACCEPTED
+**PR:** #53
+
+### Problem
+
+DES-019 established that row selection with a detail panel runs entirely client-side — no events, no round trips. But some use cases need the agent to *know* when the user selects a row: opening a detail view in a different frame, navigating to a file, or triggering a follow-up action. The detail panel handles the common case (show pre-known data); row_select handles the agentic case (agent reacts to selection).
+
+### Design
+
+When a table has `copy_id` set (the flag that makes rows selectable for copy), clicking a row emits an `InteractionMessage` with `action="row_select"`. The message includes the row index and row data so the agent can act on it without re-querying.
+
+```python
+InteractionMessage(
+    element_id="issue-table",
+    action="row_select",
+    value={"index": 3, "data": ["ISS-004", "Refactor auth", "Open"]},
+)
+```
+
+The agent reads this via `recv()` and can respond however it wants — update another frame, open a file, call an API.
+
+#### Relationship to DES-019
+
+DES-019's detail panel and DES-024's row_select are independent. A table can have:
+- Detail panel only (common case — show data, no agent involvement)
+- Row select only (agent-driven — click triggers agent action)
+- Both (detail panel shows data, agent also gets notified)
+- Neither (static display table)
+
+The `copy_id` flag gates selectability. Tables without it remain non-interactive.
+
+---
+
+## DES-025: Frame Auto-Focus
+
+**Date:** 2026-03-12
+**Status:** ACCEPTED
+**PR:** #53
+
+### Problem
+
+When an agent sends a scene update to a frame that is behind other frames or minimized, the user doesn't notice the update. The frame silently updates in the background. This violates the principle of least surprise — if an agent is actively populating a frame, the user should see it.
+
+### Design
+
+When a frame receives a scene update via `_handle_framed_scene`, the display server sets `imgui.set_next_window_focus()` on that frame's next render pass. If the frame is minimized (collapsed), it is also restored. This brings the frame to the front of the z-order.
+
+The focus is set via ImGui's `set_next_window_focus()` which applies once on the next frame, then reverts to normal z-ordering. The user can immediately switch to another frame — auto-focus doesn't "trap" focus.
+
+### Trade-off
+
+This means a background agent continuously updating a frame will keep stealing focus. In practice this hasn't been a problem because agent updates are infrequent (one `show()` call per task, not a continuous stream). If continuous updates become common (e.g., live dashboards), a `no_auto_focus` frame flag could be added to DES-022's `frame_flags` vocabulary.
