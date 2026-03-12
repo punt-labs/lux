@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-03-12
+
 ### Added
 
 - **Frame auto-focus** — frames automatically focus (brought to front)
