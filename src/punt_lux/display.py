@@ -1266,19 +1266,17 @@ class DisplayServer:
             )
             self._world_menu_spawn_pos = None
 
-        # Build title with pin indicator.
-        pin_icon = "World (pinned)" if self._world_menu_pinned else "World"
         still_open = True
-        _, still_open = imgui.begin(f"{pin_icon}###world_panel", still_open, flags)
+        _, still_open = imgui.begin("World###world_panel", still_open, flags)
         if not still_open:
             self._world_menu_open = False
             self._world_menu_pinned = False
             imgui.end()
             return
 
-        # Pin/unpin button at top.
-        pin_label = "Unpin" if self._world_menu_pinned else "Pin"
-        if imgui.small_button(pin_label):
+        # Pin dot — filled ● when pinned, hollow ○ when unpinned.
+        pin_dot = "\u25cf" if self._world_menu_pinned else "\u25cb"
+        if imgui.small_button(pin_dot):
             self._world_menu_pinned = not self._world_menu_pinned
         imgui.separator()
 
