@@ -20,8 +20,9 @@
 - **Dock bar** — a persistent bar at the bottom of the display shows all
   minimized frames as pills. Click to restore and focus. The bar only
   appears when frames are minimized.
-- **Restore All** — World menu now shows "Restore All" when frames are
-  minimized, complementing the existing "Minimize All".
+- **Expand All / Collapse All** — Windows menu shows "Expand All" when
+  frames are minimized and "Collapse All" when visible, for bulk
+  minimize/restore.
 - **Detached World menu** — World menu is now a floating panel triggered
   by clicking the background, matching Pharo Smalltalk's World menu
   pattern. Mirrors the full menu bar (Lux, Debug, Windows, Help) plus

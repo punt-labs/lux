@@ -1129,8 +1129,9 @@ class DisplayServer:
         finally:
             imgui.end_menu()
 
-    def _show_window_frame_items(self, imgui: Any) -> None:
-        """Render frame management items in the Windows menu."""
+    def _show_window_frame_items(self, imgui: Any) -> bool:
+        """Render frame management items. Returns True if any item clicked."""
+        clicked = False
         has_frames = bool(self._frames)
         has_visible = has_frames and any(not f.minimized for f in self._frames.values())
         has_minimized = has_frames and any(f.minimized for f in self._frames.values())
@@ -1138,14 +1139,19 @@ class DisplayServer:
         if imgui.menu_item("Collapse All", "", False, has_visible)[0]:  # noqa: FBT003
             for f in self._frames.values():
                 f.minimized = True
+            clicked = True
         if imgui.menu_item("Expand All", "", False, has_minimized)[0]:  # noqa: FBT003
             for f in self._frames.values():
                 f.minimized = False
+            clicked = True
         if imgui.menu_item("Fit All", "", False, has_frames)[0]:  # noqa: FBT003
             self._fit_all_frames = True
+            clicked = True
+        return clicked
 
-    def _show_window_chrome_items(self, imgui: Any, hello_imgui: Any) -> None:
-        """Render window chrome items (Clear All, Reset Size)."""
+    def _show_window_chrome_items(self, imgui: Any, hello_imgui: Any) -> bool:
+        """Render window chrome items. Returns True if any item clicked."""
+        clicked = False
         if imgui.menu_item("Clear All", "", False)[0]:  # noqa: FBT003
             self._scenes.clear()
             self._scene_order.clear()
@@ -1158,8 +1164,11 @@ class DisplayServer:
             self._render_fn_state = {}
             for fid in list(self._frames):
                 self._close_frame(fid)
+            clicked = True
         if imgui.menu_item("Reset Size", "", False)[0]:  # noqa: FBT003
             hello_imgui.change_window_size((1200, 800))
+            clicked = True
+        return clicked
 
     def _show_debug_menu(self, imgui: Any) -> None:
         if not imgui.begin_menu("Debug"):
@@ -1169,9 +1178,10 @@ class DisplayServer:
         finally:
             imgui.end_menu()
 
-    def _show_debug_items(self, imgui: Any) -> None:
-        """Render debug items (shared by menu bar and World panel)."""
-        if imgui.menu_item("Dump Scene JSON", "", False)[0]:  # noqa: FBT003
+    def _show_debug_items(self, imgui: Any) -> bool:
+        """Render debug items. Returns True if any item clicked."""
+        clicked: bool = imgui.menu_item("Dump Scene JSON", "", False)[0]  # noqa: FBT003
+        if clicked:
             import json
 
             state: dict[str, Any] = {
@@ -1201,6 +1211,7 @@ class DisplayServer:
                 "Scene dump:\n%s",
                 json.dumps(state, indent=2),
             )
+        return clicked
 
     def _show_help_menu(self, imgui: Any) -> None:
         if not imgui.begin_menu("Help"):
@@ -1210,8 +1221,8 @@ class DisplayServer:
         finally:
             imgui.end_menu()
 
-    def _show_help_items(self, imgui: Any) -> None:
-        """Render help items (shared by menu bar and World panel)."""
+    def _show_help_items(self, imgui: Any) -> bool:
+        """Render help items. Returns True if any item clicked."""
         from punt_lux import __version__
 
         imgui.menu_item(
@@ -1220,6 +1231,7 @@ class DisplayServer:
             False,  # noqa: FBT003
             False,  # noqa: FBT003
         )
+        return False  # version label is not clickable
 
     def _check_world_menu_background_click(self, imgui: Any) -> None:
         """Toggle World panel on left-click on the main window background.
@@ -1296,28 +1308,33 @@ class DisplayServer:
         clicked_any = False
 
         if imgui.begin_menu("Lux##world"):
-            self._show_lux_items(imgui)
-            clicked_any = clicked_any or imgui.is_item_clicked()
-            imgui.end_menu()
+            try:
+                clicked_any = self._show_lux_items(imgui) or clicked_any
+            finally:
+                imgui.end_menu()
 
         # Applications submenu: agent-registered menu items grouped by client.
         if self._menu_registrations:
             clicked_any = self._render_world_panel_apps(imgui) or clicked_any
 
         if imgui.begin_menu("Debug##world"):
-            self._show_debug_items(imgui)
-            clicked_any = clicked_any or imgui.is_item_clicked()
-            imgui.end_menu()
+            try:
+                clicked_any = self._show_debug_items(imgui) or clicked_any
+            finally:
+                imgui.end_menu()
         if imgui.begin_menu("Windows##world"):
-            self._show_window_frame_items(imgui)
-            imgui.separator()
-            self._show_window_chrome_items(imgui, hello_imgui)
-            clicked_any = clicked_any or imgui.is_item_clicked()
-            imgui.end_menu()
+            try:
+                clicked_any = self._show_window_frame_items(imgui) or clicked_any
+                imgui.separator()
+                chrome_clicked = self._show_window_chrome_items(imgui, hello_imgui)
+                clicked_any = chrome_clicked or clicked_any
+            finally:
+                imgui.end_menu()
         if imgui.begin_menu("Help##world"):
-            self._show_help_items(imgui)
-            clicked_any = clicked_any or imgui.is_item_clicked()
-            imgui.end_menu()
+            try:
+                clicked_any = self._show_help_items(imgui) or clicked_any
+            finally:
+                imgui.end_menu()
         return clicked_any
 
     @staticmethod
@@ -1340,7 +1357,7 @@ class DisplayServer:
                 if imgui.begin_menu(f"{name}##{fd}"):
                     items_sorted = sorted(items, key=lambda i: i.get("label") or "")
                     for item in items_sorted:
-                        if self._render_registered_item(imgui, item, "World"):
+                        if self._render_registered_item(imgui, item, "Applications"):
                             clicked = True
                     imgui.end_menu()
         finally:
@@ -1460,14 +1477,16 @@ class DisplayServer:
             )
         return bool(clicked)
 
-    def _show_lux_items(self, imgui: Any) -> None:
-        """Render Lux menu items (shared by menu bar and World panel)."""
+    def _show_lux_items(self, imgui: Any) -> bool:
+        """Render Lux menu items. Returns True if any item clicked."""
         from imgui_bundle import hello_imgui
+
+        clicked = False
 
         # Settings submenu: theme, chrome, opacity.
         if imgui.begin_menu("Settings"):
             try:
-                self._show_settings_items(imgui)
+                clicked = self._show_settings_items(imgui) or clicked
             finally:
                 imgui.end_menu()
 
@@ -1475,17 +1494,23 @@ class DisplayServer:
 
         if imgui.menu_item("Increase Font", "", False)[0]:  # noqa: FBT003
             self._font_scale = min(round(self._font_scale + 0.1, 1), 3.0)
+            clicked = True
         if imgui.menu_item("Decrease Font", "", False)[0]:  # noqa: FBT003
             self._font_scale = max(round(self._font_scale - 0.1, 1), 0.5)
+            clicked = True
 
         imgui.separator()
 
         if imgui.menu_item("Quit", "Cmd+Q", False)[0]:  # noqa: FBT003
             hello_imgui.get_runner_params().app_shall_exit = True
+            clicked = True
+        return clicked
 
-    def _show_settings_items(self, imgui: Any) -> None:
-        """Render Settings submenu contents: Theme, chrome, opacity."""
+    def _show_settings_items(self, imgui: Any) -> bool:
+        """Render Settings submenu contents. Returns True if any item clicked."""
         from imgui_bundle import hello_imgui
+
+        clicked = False
 
         # Theme picker.
         if imgui.begin_menu("Theme"):
@@ -1494,6 +1519,7 @@ class DisplayServer:
                     name = theme.name.replace("_", " ").title()
                     if imgui.menu_item(name, "", False)[0]:  # noqa: FBT003
                         hello_imgui.apply_theme(theme)
+                        clicked = True
             finally:
                 imgui.end_menu()
 
@@ -1504,10 +1530,11 @@ class DisplayServer:
         wp = params.app_window_params
         _, wp.top_most = imgui.menu_item("Always on Top", "", wp.top_most)
 
-        clicked, _ = imgui.menu_item("Borderless", "", not self._decorated)
-        if clicked:
+        toggled, _ = imgui.menu_item("Borderless", "", not self._decorated)
+        if toggled:
             self._decorated = not self._decorated
             self._set_glfw_decorated(decorated=self._decorated)
+            clicked = True
 
         imgui.separator()
 
@@ -1520,8 +1547,10 @@ class DisplayServer:
                     if imgui.menu_item(f"{pct}%", "", current)[0]:
                         self._opacity = val
                         self._set_glfw_opacity(opacity=val)
+                        clicked = True
             finally:
                 imgui.end_menu()
+        return clicked
 
     def _show_agent_menu(self, imgui: Any, menu: dict[str, Any]) -> None:
         if imgui.begin_menu(menu.get("label", "Custom")):

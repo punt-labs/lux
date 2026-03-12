@@ -239,13 +239,15 @@ class LuxClient:
         the event is consumed (not re-queued to pending).  This keeps
         the listener thread alive at the cost of dropping the event.
 
-        Register callbacks before calling :meth:`start_listener`.
+        Thread-safe: may be called while the listener is running.
         """
-        self._callbacks[(element_id, action)] = callback
+        with self._lock:
+            self._callbacks[(element_id, action)] = callback
 
     def remove_callback(self, element_id: str, action: str) -> None:
         """Remove the callback for ``(element_id, action)``, if any."""
-        self._callbacks.pop((element_id, action), None)
+        with self._lock:
+            self._callbacks.pop((element_id, action), None)
 
     # -- background listener -----------------------------------------------
 
@@ -314,7 +316,8 @@ class LuxClient:
         """
         if isinstance(msg, InteractionMessage):
             key = (msg.element_id, msg.action)
-            cb = self._callbacks.get(key)
+            with self._lock:
+                cb = self._callbacks.get(key)
             if cb is not None:
                 try:
                     cb(msg)
