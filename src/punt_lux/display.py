@@ -1133,18 +1133,18 @@ class DisplayServer:
         has_visible = any(not f.minimized for f in self._frames.values())
         has_minimized = any(f.minimized for f in self._frames.values())
 
-        if has_visible and imgui.menu_item("Collapse All")[0]:
+        if has_visible and imgui.menu_item("Collapse All", "", False)[0]:  # noqa: FBT003
             for f in self._frames.values():
                 f.minimized = True
-        if has_minimized and imgui.menu_item("Expand All")[0]:
+        if has_minimized and imgui.menu_item("Expand All", "", False)[0]:  # noqa: FBT003
             for f in self._frames.values():
                 f.minimized = False
-        if self._frames and imgui.menu_item("Fit All")[0]:
+        if self._frames and imgui.menu_item("Fit All", "", False)[0]:  # noqa: FBT003
             self._fit_all_frames = True
 
     def _show_window_chrome_items(self, imgui: Any, hello_imgui: Any) -> None:
         """Render window chrome items (Clear All, Reset Size)."""
-        if imgui.menu_item("Clear All")[0]:
+        if imgui.menu_item("Clear All", "", False)[0]:  # noqa: FBT003
             self._scenes.clear()
             self._scene_order.clear()
             self._active_tab = None
@@ -1156,7 +1156,7 @@ class DisplayServer:
             self._render_fn_state = {}
             for fid in list(self._frames):
                 self._close_frame(fid)
-        if imgui.menu_item("Reset Size")[0]:
+        if imgui.menu_item("Reset Size", "", False)[0]:  # noqa: FBT003
             hello_imgui.change_window_size((1200, 800))
 
     def _show_debug_menu(self, imgui: Any) -> None:
