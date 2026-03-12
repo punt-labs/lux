@@ -904,6 +904,7 @@ class DisplayServer:
         self._decorated: bool = True
         self._opacity: float = 1.0
         self._font_scale: float = 1.1
+        self._fit_all_frames: bool = False
         self._world_menu_open: bool = False
         self._world_menu_pinned: bool = False
         self._world_menu_spawn_pos: tuple[float, float] | None = None
@@ -1121,23 +1122,42 @@ class DisplayServer:
         if not imgui.begin_menu("Windows"):
             return
         try:
-            if imgui.menu_item("Clear All", "", False)[0]:  # noqa: FBT003
-                self._scenes.clear()
-                self._scene_order.clear()
-                self._active_tab = None
-                self._scene_widget_state.clear()
-                self._scene_render_fn_state.clear()
-                self._event_queue.clear()
-                self._dirty_windows.clear()
-                self._widget_state = WidgetState()
-                self._render_fn_state = {}
-                for fid in list(self._frames):
-                    self._close_frame(fid)
-
-            if imgui.menu_item("Reset Size", "", False)[0]:  # noqa: FBT003
-                hello_imgui.change_window_size((1200, 800))
+            self._show_window_frame_items(imgui)
+            imgui.separator()
+            self._show_window_chrome_items(imgui, hello_imgui)
         finally:
             imgui.end_menu()
+
+    def _show_window_frame_items(self, imgui: Any) -> None:
+        """Render frame management items in the Windows menu."""
+        has_visible = any(not f.minimized for f in self._frames.values())
+        has_minimized = any(f.minimized for f in self._frames.values())
+
+        if has_visible and imgui.menu_item("Collapse All")[0]:
+            for f in self._frames.values():
+                f.minimized = True
+        if has_minimized and imgui.menu_item("Expand All")[0]:
+            for f in self._frames.values():
+                f.minimized = False
+        if self._frames and imgui.menu_item("Fit All")[0]:
+            self._fit_all_frames = True
+
+    def _show_window_chrome_items(self, imgui: Any, hello_imgui: Any) -> None:
+        """Render window chrome items (Clear All, Reset Size)."""
+        if imgui.menu_item("Clear All")[0]:
+            self._scenes.clear()
+            self._scene_order.clear()
+            self._active_tab = None
+            self._scene_widget_state.clear()
+            self._scene_render_fn_state.clear()
+            self._event_queue.clear()
+            self._dirty_windows.clear()
+            self._widget_state = WidgetState()
+            self._render_fn_state = {}
+            for fid in list(self._frames):
+                self._close_frame(fid)
+        if imgui.menu_item("Reset Size")[0]:
+            hello_imgui.change_window_size((1200, 800))
 
     def _show_debug_menu(self, imgui: Any) -> None:
         if not imgui.begin_menu("Debug"):
@@ -2054,6 +2074,20 @@ class DisplayServer:
 
     _DOCK_BAR_HEIGHT = 28.0
 
+    def _apply_fit_all(self) -> bool:
+        """If fit-all was requested, restore and re-cascade all frames.
+
+        Returns True when fitting is active (callers should use
+        ``Cond_.always`` for position/size).
+        """
+        if not self._fit_all_frames:
+            return False
+        self._fit_all_frames = False
+        for i, f in enumerate(self._frames.values()):
+            f.minimized = False
+            f.cascade_index = i
+        return True
+
     def _render_frames(self, imgui: Any) -> None:
         """Render each frame as an ImGui inner window."""
         closed_frames: list[str] = []
@@ -2062,10 +2096,16 @@ class DisplayServer:
         region = imgui.get_content_region_avail()
         frame_w = max(400.0, region.x * self._FRAME_FILL)
         frame_h = max(300.0, region.y * self._FRAME_FILL)
+
+        fitting = self._apply_fit_all()
+
         for frame in list(self._frames.values()):
             if frame.minimized:
                 continue
-            cond = imgui.Cond_.first_use_ever.value
+            if fitting:
+                cond = imgui.Cond_.always.value
+            else:
+                cond = imgui.Cond_.first_use_ever.value
             x = self._CASCADE_BASE_X + frame.cascade_index * self._CASCADE_DX
             y = self._CASCADE_BASE_Y + frame.cascade_index * self._CASCADE_DY
             imgui.set_next_window_pos((x, y), cond)
