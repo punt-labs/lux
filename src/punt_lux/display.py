@@ -1130,16 +1130,17 @@ class DisplayServer:
 
     def _show_window_frame_items(self, imgui: Any) -> None:
         """Render frame management items in the Windows menu."""
-        has_visible = any(not f.minimized for f in self._frames.values())
-        has_minimized = any(f.minimized for f in self._frames.values())
+        has_frames = bool(self._frames)
+        has_visible = has_frames and any(not f.minimized for f in self._frames.values())
+        has_minimized = has_frames and any(f.minimized for f in self._frames.values())
 
-        if has_visible and imgui.menu_item("Collapse All", "", False)[0]:  # noqa: FBT003
+        if imgui.menu_item("Collapse All", "", False, has_visible)[0]:  # noqa: FBT003
             for f in self._frames.values():
                 f.minimized = True
-        if has_minimized and imgui.menu_item("Expand All", "", False)[0]:  # noqa: FBT003
+        if imgui.menu_item("Expand All", "", False, has_minimized)[0]:  # noqa: FBT003
             for f in self._frames.values():
                 f.minimized = False
-        if self._frames and imgui.menu_item("Fit All", "", False)[0]:  # noqa: FBT003
+        if imgui.menu_item("Fit All", "", False, has_frames)[0]:  # noqa: FBT003
             self._fit_all_frames = True
 
     def _show_window_chrome_items(self, imgui: Any, hello_imgui: Any) -> None:
@@ -2075,18 +2076,54 @@ class DisplayServer:
     _DOCK_BAR_HEIGHT = 28.0
 
     def _apply_fit_all(self) -> bool:
-        """If fit-all was requested, restore and re-cascade all frames.
+        """If fit-all was requested, restore all frames and compute tile layout.
 
         Returns True when fitting is active (callers should use
-        ``Cond_.always`` for position/size).
+        ``Cond_.always`` for position/size).  Tile positions are stored
+        in ``_fit_positions`` / ``_fit_sizes`` keyed by frame_id.
         """
         if not self._fit_all_frames:
             return False
         self._fit_all_frames = False
-        for i, f in enumerate(self._frames.values()):
+        frames = list(self._frames.values())
+        for f in frames:
             f.minimized = False
-            f.cascade_index = i
+        self._fit_positions: dict[str, tuple[float, float]] = {}
+        self._fit_sizes: dict[str, tuple[float, float]] = {}
         return True
+
+    @staticmethod
+    def _compute_tile_layout(
+        imgui: Any,
+        region: Any,
+        frames: list[_Frame],
+    ) -> dict[str, tuple[float, float, float, float]]:
+        """Compute tiled positions for frames that fill the content region.
+
+        Returns a dict of frame_id → (x, y, w, h).  Frames are arranged
+        in a grid with roughly equal-sized cells.
+        """
+        import math
+
+        n = len(frames)
+        if n == 0:
+            return {}
+        origin = imgui.get_cursor_screen_pos()
+        cols = math.ceil(math.sqrt(n))
+        rows = math.ceil(n / cols)
+        gap = 4.0
+        cell_w = (region.x - gap * (cols + 1)) / cols
+        cell_h = (region.y - gap * (rows + 1)) / rows
+        cell_w = max(cell_w, 200.0)
+        cell_h = max(cell_h, 150.0)
+        result: dict[str, tuple[float, float, float, float]] = {}
+        for i, f in enumerate(frames):
+            col = i % cols
+            row = i // cols
+            x = origin.x + gap + col * (cell_w + gap)
+            y = origin.y + gap + row * (cell_h + gap)
+            result[f.frame_id] = (x, y, cell_w, cell_h)
+        return result
 
     def _render_frames(self, imgui: Any) -> None:
         """Render each frame as an ImGui inner window."""
@@ -2098,19 +2135,25 @@ class DisplayServer:
         frame_h = max(300.0, region.y * self._FRAME_FILL)
 
         fitting = self._apply_fit_all()
+        tile_layout: dict[str, tuple[float, float, float, float]] = {}
+        if fitting:
+            tile_layout = self._compute_tile_layout(
+                imgui, region, list(self._frames.values())
+            )
 
         for frame in list(self._frames.values()):
             if frame.minimized:
                 continue
-            if fitting:
+            if fitting and frame.frame_id in tile_layout:
                 cond = imgui.Cond_.always.value
+                x, y, fw, fh = tile_layout[frame.frame_id]
             else:
                 cond = imgui.Cond_.first_use_ever.value
-            x = self._CASCADE_BASE_X + frame.cascade_index * self._CASCADE_DX
-            y = self._CASCADE_BASE_Y + frame.cascade_index * self._CASCADE_DY
+                x = self._CASCADE_BASE_X + frame.cascade_index * self._CASCADE_DX
+                y = self._CASCADE_BASE_Y + frame.cascade_index * self._CASCADE_DY
+                fw = float(frame.initial_size[0]) if frame.initial_size else frame_w
+                fh = float(frame.initial_size[1]) if frame.initial_size else frame_h
             imgui.set_next_window_pos((x, y), cond)
-            fw = float(frame.initial_size[0]) if frame.initial_size else frame_w
-            fh = float(frame.initial_size[1]) if frame.initial_size else frame_h
             imgui.set_next_window_size((fw, fh), cond)
             if self._focus_frame_id == frame.frame_id:
                 imgui.set_next_window_focus()
