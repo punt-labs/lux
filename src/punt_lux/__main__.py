@@ -51,7 +51,17 @@ def display(
     ),
 ) -> None:
     """Start the Lux display server."""
-    from punt_lux.display import DisplayServer
+    try:
+        from punt_lux.display import DisplayServer
+    except ModuleNotFoundError as exc:
+        _display_modules = {"imgui_bundle", "numpy", "PIL", "OpenGL"}
+        if exc.name and exc.name.split(".")[0] in _display_modules:
+            typer.echo(
+                "Display extras not installed. Run: pip install 'punt-lux[display]'",
+                err=True,
+            )
+            raise typer.Exit(code=1) from None
+        raise
 
     server = DisplayServer(socket, test_auto_click=test_auto_click)
     server.run()
@@ -271,7 +281,7 @@ def doctor(
             f"Python {v.major}.{v.minor}.{v.micro} (requires 3.13+)",
         )
 
-    # imgui-bundle
+    # imgui-bundle (part of display extras)
     try:
         from imgui_bundle import (
             imgui,  # noqa: F401  # pyright: ignore[reportUnusedImport]
@@ -279,7 +289,11 @@ def doctor(
 
         _check(_OK, "imgui-bundle installed")
     except ImportError:
-        _check(_FAIL, "imgui-bundle not installed")
+        _check(
+            _OPTIONAL,
+            "imgui-bundle not installed (run: pip install 'punt-lux[display]')",
+            required=False,
+        )
 
     # Fonts (not required — falls back to ImGui default, but Unicode won't render)
     _check_fonts(_check)

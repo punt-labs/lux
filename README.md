@@ -39,7 +39,7 @@ Restart Claude Code twice. The Lux display window opens automatically when agent
 <summary>Manual install (if you already have uv)</summary>
 
 ```bash
-uv tool install punt-lux
+uv tool install 'punt-lux[display]'
 ```
 
 Then install the plugin via the marketplace:
@@ -48,6 +48,19 @@ Then install the plugin via the marketplace:
 claude plugin marketplace add punt-labs/claude-plugins
 claude plugin install lux@punt-labs
 ```
+
+</details>
+
+<details>
+<summary>Lightweight install (library use only)</summary>
+
+If you only need `LuxClient` to send scenes from Python (no display server):
+
+```bash
+uv add punt-lux
+```
+
+This pulls ~2 MB of lightweight deps. The 66 MB display stack (imgui-bundle, numpy, Pillow, PyOpenGL) is only needed for `lux display` and is available via `punt-lux[display]`.
 
 </details>
 

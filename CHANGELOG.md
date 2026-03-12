@@ -14,9 +14,17 @@
   initial size hint `[width, height]` and ImGui window flags
   (`no_resize`, `no_collapse`, `auto_resize`). Size applies on first
   use only; users can still resize afterwards unless `no_resize` is set.
+- **Lightweight install** — heavy display deps (imgui-bundle, numpy,
+  Pillow, PyOpenGL) moved to `[display]` extra. `pip install punt-lux`
+  now pulls only lightweight deps (~2 MB); consumers that only need
+  `LuxClient` no longer pay for the 66 MB display stack. End users
+  install with `pip install 'punt-lux[display]'`.
 
 ### Changed
 
+- **Public API** — `CodeExecutor` and `RenderContext` removed from
+  `punt_lux` top-level exports. These are display-internal and remain
+  importable from `punt_lux.runtime` directly.
 - **Beads sort order** — in-progress issues float to the top of the
   beads board regardless of priority.
 - **SessionStart hook** — made async; display mode discovery deferred

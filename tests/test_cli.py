@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 from typer.testing import CliRunner
@@ -75,6 +76,43 @@ class TestDisplay:
             result = runner.invoke(app, ["display", "--test-auto-click"])
             assert result.exit_code == 0
             mock_cls.assert_called_once_with(None, test_auto_click=True)
+
+
+class TestDisplayMissingExtras:
+    def test_display_missing_display_extra(self) -> None:
+        """lux display exits 1 with helpful message when display deps missing."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "punt_lux.display":
+                raise ModuleNotFoundError(name="imgui_bundle")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=fake_import):
+            result = runner.invoke(app, ["display"])
+
+        assert result.exit_code == 1
+        assert "Display extras not installed" in result.output
+
+    def test_display_reraises_unrelated_import_error(self) -> None:
+        """lux display re-raises ModuleNotFoundError for non-display modules."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def fake_import(name: str, *args: Any, **kwargs: Any) -> Any:
+            if name == "punt_lux.display":
+                raise ModuleNotFoundError(name="some_unrelated_package")
+            return real_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=fake_import):
+            result = runner.invoke(app, ["display"])
+
+        # Typer catches the unhandled exception — exit code 1 but no
+        # "Display extras" message
+        assert "Display extras not installed" not in result.output
 
 
 class TestNoArgs:
