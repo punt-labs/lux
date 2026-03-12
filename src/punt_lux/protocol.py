@@ -441,6 +441,8 @@ class SceneMessage:
     grid_columns: int | None = None
     frame_id: str | None = None
     frame_title: str | None = None
+    frame_size: tuple[int, int] | None = None
+    frame_flags: dict[str, bool] | None = None
 
 
 @dataclass
@@ -1260,6 +1262,8 @@ def _scene_to_dict(msg: SceneMessage) -> dict[str, Any]:
         "elements": [_element_to_dict(e) for e in msg.elements],
         "frame_id": msg.frame_id,
         "frame_title": msg.frame_title,
+        "frame_size": list(msg.frame_size) if msg.frame_size else None,
+        "frame_flags": msg.frame_flags,
     }
     return _strip_none(d)
 
@@ -1387,6 +1391,19 @@ def _register_serializers() -> None:  # noqa: C901
 _register_serializers()
 
 
+def _parse_frame_size(raw: object) -> tuple[int, int] | None:
+    """Validate and convert a frame_size value to a 2-tuple or None."""
+    if not isinstance(raw, (list, tuple)):
+        return None
+    seq = cast("list[int]", raw)
+    if len(seq) != 2:
+        return None
+    try:
+        return (int(seq[0]), int(seq[1]))
+    except (TypeError, ValueError):
+        return None
+
+
 def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
     """Deserialize a JSON dict to the appropriate Message dataclass."""
     msg_type = d.get("type", "")
@@ -1401,6 +1418,10 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
             grid_columns=d.get("grid_columns"),
             frame_id=d.get("frame_id"),
             frame_title=d.get("frame_title"),
+            frame_size=_parse_frame_size(d.get("frame_size")),
+            frame_flags=(
+                d["frame_flags"] if isinstance(d.get("frame_flags"), dict) else None
+            ),
         )
     if msg_type == "update":
         patches = [_patch_from_dict(p) for p in d.get("patches", [])]

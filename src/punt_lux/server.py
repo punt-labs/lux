@@ -102,6 +102,8 @@ def show(
     layout: str = "single",
     frame_id: str | None = None,
     frame_title: str | None = None,
+    frame_size: list[int] | None = None,
+    frame_flags: dict[str, bool] | None = None,
 ) -> str:
     """Display a scene in the Lux window.
 
@@ -168,10 +170,22 @@ def show(
     All elements with an id support an optional ``"tooltip"`` field
     (string shown on hover).
 
+    Frame sizing (only with ``frame_id``):
+      frame_size:  [width, height] in pixels — initial size hint (first use only).
+      frame_flags: ImGui window flags. Supported keys:
+        no_resize    — prevent user resizing
+        no_collapse  — hide the collapse button
+        auto_resize  — shrink-wrap to content each frame
+
     Returns ``"ack:<scene_id>"`` on success or ``"timeout"`` if the
     display doesn't respond.
     """
     typed_elements = [element_from_dict(e) for e in elements]
+    size_tuple: tuple[int, int] | None = None
+    if frame_size is not None:
+        if len(frame_size) != 2:
+            return "error: frame_size must be [width, height]"
+        size_tuple = (frame_size[0], frame_size[1])
 
     def _call() -> str:
         client = _get_client()
@@ -182,6 +196,8 @@ def show(
             layout=layout,
             frame_id=frame_id,
             frame_title=frame_title,
+            frame_size=size_tuple,
+            frame_flags=frame_flags,
         )
         if ack is None:
             return "timeout"

@@ -857,6 +857,8 @@ class _Frame:
     active_tab: str | None = None
     minimized: bool = False
     cascade_index: int = 0
+    initial_size: tuple[int, int] | None = None
+    flags: dict[str, bool] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -1618,6 +1620,8 @@ class DisplayServer:
                 scenes={},
                 scene_order=[],
                 cascade_index=self._next_cascade_index(),
+                initial_size=msg.frame_size,
+                flags=msg.frame_flags,
             )
             self._frames[frame_id] = frame
         elif frame.owner_fd is None:
@@ -1634,6 +1638,8 @@ class DisplayServer:
         self._upsert_scene_in_frame(frame, msg)
         if msg.frame_title:
             frame.title = msg.frame_title
+        if msg.frame_flags is not None:
+            frame.flags = msg.frame_flags
         frame.minimized = False
         self._focus_frame_id = frame_id
         self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
@@ -1870,6 +1876,28 @@ class DisplayServer:
     _CASCADE_DY = 30.0
     _FRAME_FILL = 0.75
 
+    _FLAG_MAP: ClassVar[dict[str, str]] = {
+        "no_resize": "no_resize",
+        "no_collapse": "no_collapse",
+        "auto_resize": "always_auto_resize",
+    }
+
+    def _resolve_frame_flags(self, frame: _Frame, imgui: Any) -> int:
+        """Map frame flag names to an ImGui window flags bitmask."""
+        result = 0
+        if not frame.flags:
+            return result
+        for key, enabled in frame.flags.items():
+            if not enabled:
+                continue
+            attr = self._FLAG_MAP.get(key)
+            if attr is None:
+                continue
+            flag = getattr(imgui.WindowFlags_, attr, None)
+            if flag is not None:
+                result |= flag.value
+        return result
+
     def _render_frames(self, imgui: Any) -> None:
         """Render each frame as an ImGui inner window."""
         closed_frames: list[str] = []
@@ -1884,13 +1912,16 @@ class DisplayServer:
             x = self._CASCADE_BASE_X + frame.cascade_index * self._CASCADE_DX
             y = self._CASCADE_BASE_Y + frame.cascade_index * self._CASCADE_DY
             imgui.set_next_window_pos((x, y), cond)
-            imgui.set_next_window_size((frame_w, frame_h), cond)
+            fw = float(frame.initial_size[0]) if frame.initial_size else frame_w
+            fh = float(frame.initial_size[1]) if frame.initial_size else frame_h
+            imgui.set_next_window_size((fw, fh), cond)
             if self._focus_frame_id == frame.frame_id:
                 imgui.set_next_window_focus()
                 self._focus_frame_id = None
+            win_flags = self._resolve_frame_flags(frame, imgui)
             still_open = True
             expanded, still_open = imgui.begin(
-                f"{frame.title}##{frame.frame_id}", still_open
+                f"{frame.title}##{frame.frame_id}", still_open, win_flags
             )
             if not still_open:
                 closed_frames.append(frame.frame_id)
@@ -2656,7 +2687,7 @@ class DisplayServer:
             selected_orig, row_clicked = _render_table_rows(
                 page_rows,
                 num_cols,
-                selectable=has_detail,
+                selectable=has_detail or copy_id,
                 table_id=eid,
                 widget_state=self._widget_state,
                 sel_key=sel_key,
@@ -2687,6 +2718,20 @@ class DisplayServer:
             rows=rows,
             imgui=imgui,
         )
+
+        # Emit row_select event on user-initiated click
+        if row_clicked and 0 <= selected_orig < len(rows):
+            self._event_queue.append(
+                InteractionMessage(
+                    element_id=eid,
+                    action="row_select",
+                    ts=time.time(),
+                    value={
+                        "row_index": selected_orig,
+                        "row": rows[selected_orig],
+                    },
+                )
+            )
 
         if has_detail and selected_orig >= 0:
             tbl_row = rows[selected_orig] if selected_orig < len(rows) else None

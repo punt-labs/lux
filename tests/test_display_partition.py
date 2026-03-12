@@ -807,12 +807,16 @@ def _framed_scene(
     frame_id: str,
     *elems: TextElement | ButtonElement | SeparatorElement,
     frame_title: str | None = None,
+    frame_size: tuple[int, int] | None = None,
+    frame_flags: dict[str, bool] | None = None,
 ) -> SceneMessage:
     return SceneMessage(
         id=scene_id,
         elements=list(elems),
         frame_id=frame_id,
         frame_title=frame_title,
+        frame_size=frame_size,
+        frame_flags=frame_flags,
     )
 
 
@@ -1243,6 +1247,85 @@ class TestFrameAutoFocusPartitions:
             )
         )
         assert server._focus_frame_id is None
+
+
+class TestFrameSizeAndFlagsPartitions:
+    """Frame size and flags: initial dimensions and ImGui window flags."""
+
+    def test_frame_size_stored(self):
+        """frame_size from SceneMessage is stored on the _Frame."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_framed_scene(
+            sock, _framed_scene("s1", "f1", frame_size=(400, 200))
+        )
+        assert server._frames["f1"].initial_size == (400, 200)
+
+    def test_frame_size_none_by_default(self):
+        """Frames without frame_size have initial_size=None."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_framed_scene(sock, _framed_scene("s1", "f1"))
+        assert server._frames["f1"].initial_size is None
+
+    def test_frame_flags_stored(self):
+        """frame_flags from SceneMessage are stored on the _Frame."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        flags = {"no_resize": True, "auto_resize": False}
+        server._handle_framed_scene(sock, _framed_scene("s1", "f1", frame_flags=flags))
+        assert server._frames["f1"].flags == flags
+
+    def test_frame_flags_none_by_default(self):
+        """Frames without frame_flags have flags=None."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_framed_scene(sock, _framed_scene("s1", "f1"))
+        assert server._frames["f1"].flags is None
+
+    def test_frame_size_only_set_on_creation(self):
+        """Subsequent scenes to the same frame don't overwrite initial_size."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_framed_scene(
+            sock, _framed_scene("s1", "f1", frame_size=(400, 200))
+        )
+        server._handle_framed_scene(
+            sock, _framed_scene("s2", "f1", frame_size=(800, 600))
+        )
+        # initial_size is set at frame creation time, not updated
+        assert server._frames["f1"].initial_size == (400, 200)
+
+    def test_frame_flags_update_on_subsequent_scene(self):
+        """Subsequent scenes to the same frame update flags."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_framed_scene(
+            sock, _framed_scene("s1", "f1", frame_flags={"no_resize": True})
+        )
+        assert server._frames["f1"].flags == {"no_resize": True}
+        server._handle_framed_scene(
+            sock,
+            _framed_scene("s2", "f1", frame_flags={"auto_resize": True}),
+        )
+        assert server._frames["f1"].flags == {"auto_resize": True}
+
+    def test_frame_flags_unchanged_when_not_provided(self):
+        """Subsequent scenes without frame_flags preserve existing flags."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_framed_scene(
+            sock, _framed_scene("s1", "f1", frame_flags={"no_resize": True})
+        )
+        server._handle_framed_scene(sock, _framed_scene("s2", "f1"))
+        assert server._frames["f1"].flags == {"no_resize": True}
 
 
 class TestWorldMenuPartitions:

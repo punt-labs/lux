@@ -99,7 +99,7 @@ Agents interact with Lux through eight MCP tools exposed by `lux serve`:
 
 | Tool | What it does |
 |------|-------------|
-| `show(scene_id, elements)` | Replace the display with a new element tree |
+| `show(scene_id, elements)` | Replace the display with a new element tree. Supports `frame_id`, `frame_size`, `frame_flags` for windowed frames |
 | `show_table(scene_id, columns, rows)` | Display a filterable data table with optional detail panel |
 | `show_dashboard(scene_id, ...)` | Display a dashboard with metric cards, charts, and a table |
 | `update(scene_id, patches)` | Patch elements by ID (set fields or remove) |
