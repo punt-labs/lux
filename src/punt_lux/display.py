@@ -1198,12 +1198,17 @@ class DisplayServer:
         return bool(clients)
 
     def _show_world_environment_items(self, imgui: Any) -> None:
-        """Render environment-owned items (Minimize All, Close All)."""
+        """Render environment-owned items (Minimize/Restore/Close All)."""
         if not self._frames:
             return
-        if imgui.menu_item("Minimize All", "", False)[0]:  # noqa: FBT003
+        has_minimized = any(f.minimized for f in self._frames.values())
+        has_visible = any(not f.minimized for f in self._frames.values())
+        if has_visible and imgui.menu_item("Minimize All", "", False)[0]:  # noqa: FBT003
             for f in self._frames.values():
                 f.minimized = True
+        if has_minimized and imgui.menu_item("Restore All", "", False)[0]:  # noqa: FBT003
+            for f in self._frames.values():
+                f.minimized = False
         if imgui.menu_item("Close All", "", False)[0]:  # noqa: FBT003
             for fid in list(self._frames):
                 self._close_frame(fid)
@@ -1898,9 +1903,12 @@ class DisplayServer:
                 result |= flag.value
         return result
 
+    _DOCK_BAR_HEIGHT = 28.0
+
     def _render_frames(self, imgui: Any) -> None:
         """Render each frame as an ImGui inner window."""
         closed_frames: list[str] = []
+        minimized_frames: list[str] = []
         # Default frame size: 75% of content region (first use only).
         region = imgui.get_content_region_avail()
         frame_w = max(400.0, region.x * self._FRAME_FILL)
@@ -1927,11 +1935,96 @@ class DisplayServer:
                 closed_frames.append(frame.frame_id)
                 imgui.end()
                 continue
-            if expanded:
-                self._render_frame_contents(frame, imgui)
+            if not expanded:
+                # User clicked the collapse triangle — repurpose as
+                # minimize-to-dock.  Undo the visual collapse so the
+                # frame comes back expanded when restored.
+                imgui.set_window_collapsed(False)
+                minimized_frames.append(frame.frame_id)
+                imgui.end()
+                continue
+            self._render_frame_contents(frame, imgui)
             imgui.end()
         for fid in closed_frames:
             self._close_frame(fid)
+        for fid in minimized_frames:
+            self._frames[fid].minimized = True
+        # Dock bar for minimized frames
+        self._render_dock_bar(imgui)
+
+    def _render_dock_bar(self, imgui: Any) -> None:
+        """Render a bottom dock bar showing minimized frames as pills.
+
+        Draws directly on the foreground overlay using the viewport's
+        draw list and manual hit testing.  This ensures the bar is always
+        visible and clickable regardless of other ImGui windows.
+        """
+        minimized = [f for f in self._frames.values() if f.minimized]
+        if not minimized:
+            return
+
+        from imgui_bundle import ImVec2, ImVec4
+
+        viewport = imgui.get_main_viewport()
+        bar_h = self._DOCK_BAR_HEIGHT
+        bar_y = viewport.pos.y + viewport.size.y - bar_h
+        bar_x = viewport.pos.x
+        bar_w = viewport.size.x
+
+        draw = imgui.get_foreground_draw_list()
+
+        # Bar background — slightly lighter than window bg for contrast.
+        bar_bg = imgui.get_color_u32(ImVec4(0.2, 0.2, 0.2, 0.95))
+        draw.add_rect_filled(
+            ImVec2(bar_x, bar_y),
+            ImVec2(bar_x + bar_w, bar_y + bar_h),
+            bar_bg,
+        )
+        # Top border line.
+        border_col = imgui.get_color_u32(ImVec4(0.4, 0.4, 0.4, 0.8))
+        draw.add_line(
+            ImVec2(bar_x, bar_y),
+            ImVec2(bar_x + bar_w, bar_y),
+            border_col,
+            1.0,
+        )
+
+        # Pill layout.
+        pill_pad = 6.0
+        pill_h = bar_h - pill_pad * 2.0
+        pill_x = bar_x + pill_pad
+        pill_y = bar_y + pill_pad
+        pill_gap = 4.0
+
+        mouse_clicked = imgui.is_mouse_clicked(imgui.MouseButton_.left)
+
+        for frame in minimized:
+            # Measure text to size the pill.
+            text_size = imgui.calc_text_size(frame.title)
+            pill_w = text_size.x + 16.0  # horizontal padding
+
+            p_min = ImVec2(pill_x, pill_y)
+            p_max = ImVec2(pill_x + pill_w, pill_y + pill_h)
+            hovered = imgui.is_mouse_hovering_rect(p_min, p_max)
+
+            # Pill background.
+            if hovered:
+                pill_bg = imgui.get_color_u32(ImVec4(0.45, 0.45, 0.5, 0.95))
+            else:
+                pill_bg = imgui.get_color_u32(ImVec4(0.3, 0.3, 0.35, 0.95))
+            draw.add_rect_filled(p_min, p_max, pill_bg, 4.0)
+
+            # Pill label — centered vertically.
+            text_y = pill_y + (pill_h - text_size.y) * 0.5
+            text_col = imgui.get_color_u32(ImVec4(0.9, 0.9, 0.9, 1.0))
+            draw.add_text(ImVec2(pill_x + 8.0, text_y), text_col, frame.title)
+
+            # Click to restore.
+            if hovered and mouse_clicked:
+                frame.minimized = False
+                self._focus_frame_id = frame.frame_id
+
+            pill_x += pill_w + pill_gap
 
     def _render_frame_contents(self, frame: _Frame, imgui: Any) -> None:
         """Render scenes inside a frame, tabbed if multiple."""

@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Frame minimize/restore** — the collapse triangle (▼) in frame title
+  bars now minimizes to a bottom dock bar instead of collapsing in-place.
+  Clickable pills in the dock bar restore frames, matching Pharo
+  Smalltalk's taskbar pattern.
+- **Dock bar** — a persistent bar at the bottom of the display shows all
+  minimized frames as pills. Click to restore and focus. The bar only
+  appears when frames are minimized.
+- **Restore All** — World menu now shows "Restore All" when frames are
+  minimized, complementing the existing "Minimize All".
+
 ## [0.10.0] - 2026-03-12
 
 ### Added
