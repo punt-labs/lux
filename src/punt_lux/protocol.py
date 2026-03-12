@@ -1398,7 +1398,10 @@ def _parse_frame_size(raw: object) -> tuple[int, int] | None:
     seq = cast("list[int]", raw)
     if len(seq) != 2:
         return None
-    return (int(seq[0]), int(seq[1]))
+    try:
+        return (int(seq[0]), int(seq[1]))
+    except (TypeError, ValueError):
+        return None
 
 
 def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
@@ -1416,7 +1419,9 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
             frame_id=d.get("frame_id"),
             frame_title=d.get("frame_title"),
             frame_size=_parse_frame_size(d.get("frame_size")),
-            frame_flags=d.get("frame_flags"),
+            frame_flags=(
+                d["frame_flags"] if isinstance(d.get("frame_flags"), dict) else None
+            ),
         )
     if msg_type == "update":
         patches = [_patch_from_dict(p) for p in d.get("patches", [])]
