@@ -24,6 +24,10 @@
   `pages` and `page_source` fields. A combo's selected index controls
   which page of children is visible, all client-side with no MCP
   round-trips.
+- **Windows menu: Collapse All, Expand All, Fit All** — Collapse
+  minimizes all frames to dock, Expand restores them, Fit All tiles
+  frames in a non-overlapping grid layout. Items are grayed out when
+  not applicable.
 
 ### Changed
 
