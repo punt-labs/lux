@@ -19,6 +19,7 @@ MARKETPLACE_REPO="punt-labs/claude-plugins"
 MARKETPLACE_NAME="punt-labs"
 PLUGIN_NAME="lux"
 PACKAGE="punt-lux"
+EXTRAS="display"
 VERSION="0.9.0"
 BINARY="lux"
 
@@ -88,7 +89,7 @@ fi
 info "Installing $PACKAGE..."
 
 # shellcheck disable=SC2086
-uv tool install --force $PYTHON_FLAG "$PACKAGE==$VERSION" || fail "Failed to install $PACKAGE==$VERSION"
+uv tool install --force $PYTHON_FLAG "$PACKAGE[$EXTRAS]==$VERSION" || fail "Failed to install $PACKAGE==$VERSION"
 ok "$PACKAGE installed"
 
 if ! command -v "$BINARY" >/dev/null 2>&1; then
