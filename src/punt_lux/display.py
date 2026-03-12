@@ -1139,6 +1139,9 @@ class DisplayServer:
                     self._dirty_windows.clear()
                     self._widget_state = WidgetState()
                     self._render_fn_state = {}
+                    # Close all frames (including minimized / docked).
+                    for fid in list(self._frames):
+                        self._close_frame(fid)
 
                 if imgui.menu_item("Reset Size", "", False)[0]:  # noqa: FBT003
                     hello_imgui.change_window_size((1200, 800))
