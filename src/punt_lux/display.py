@@ -1331,55 +1331,16 @@ class DisplayServer:
             return False
         clicked = False
         try:
-            clients: list[tuple[str, int, list[dict[str, Any]]]] = []
-            for fd, items in self._menu_registrations.items():
-                if items:
-                    raw = self._client_names.get(fd, f"Client {fd}")
-                    clients.append((self._display_name(raw), fd, items))
-            clients.sort(key=lambda c: c[0].lower())
-            for name, fd, items in clients:
+            for name, fd, items in self._sorted_app_clients():
                 if imgui.begin_menu(f"{name}##{fd}"):
                     items_sorted = sorted(items, key=lambda i: i.get("label") or "")
                     for item in items_sorted:
-                        if self._render_world_panel_item(imgui, item):
+                        if self._render_registered_item(imgui, item, "World"):
                             clicked = True
                     imgui.end_menu()
         finally:
             imgui.end_menu()
         return clicked
-
-    def _render_world_panel_item(
-        self,
-        imgui: Any,
-        item: dict[str, Any],
-    ) -> bool:
-        """Render a single item in the World panel. Returns True if clicked."""
-        label = item.get("label")
-        if not isinstance(label, str):
-            return False
-        if label == "---":
-            imgui.separator()
-            return False
-        enabled = item.get("enabled", True)
-        clicked, _ = imgui.menu_item(
-            label,
-            item.get("shortcut", ""),
-            False,  # noqa: FBT003
-            enabled,
-        )
-        if clicked and isinstance(item.get("id"), str):
-            self._event_queue.append(
-                InteractionMessage(
-                    element_id=item["id"],
-                    action="menu",
-                    ts=time.time(),
-                    value={
-                        "menu": "World",
-                        "item": label,
-                    },
-                )
-            )
-        return bool(clicked)
 
     @staticmethod
     def _set_glfw_decorated(*, decorated: bool) -> None:
@@ -1439,29 +1400,40 @@ class DisplayServer:
         if not imgui.begin_menu("Applications"):
             return
         try:
-            clients: list[tuple[str, int, list[dict[str, Any]]]] = []
-            for fd, items in self._menu_registrations.items():
-                if items:
-                    raw = self._client_names.get(fd, f"Client {fd}")
-                    clients.append((self._display_name(raw), fd, items))
-            clients.sort(key=lambda c: c[0].lower())
-            for name, fd, items in clients:
+            for name, fd, items in self._sorted_app_clients():
                 if imgui.begin_menu(f"{name}##{fd}"):
                     items_sorted = sorted(items, key=lambda i: i.get("label") or "")
                     for item in items_sorted:
-                        self._render_menu_bar_item(imgui, item)
+                        self._render_registered_item(imgui, item, "Applications")
                     imgui.end_menu()
         finally:
             imgui.end_menu()
 
-    def _render_menu_bar_item(self, imgui: Any, item: dict[str, Any]) -> None:
-        """Render a single registered item in the menu bar."""
+    def _sorted_app_clients(
+        self,
+    ) -> list[tuple[str, int, list[dict[str, Any]]]]:
+        """Return registered clients sorted by display name."""
+        clients: list[tuple[str, int, list[dict[str, Any]]]] = []
+        for fd, items in self._menu_registrations.items():
+            if items:
+                raw = self._client_names.get(fd, f"Client {fd}")
+                clients.append((self._display_name(raw), fd, items))
+        clients.sort(key=lambda c: c[0].lower())
+        return clients
+
+    def _render_registered_item(
+        self,
+        imgui: Any,
+        item: dict[str, Any],
+        menu_name: str,
+    ) -> bool:
+        """Render a single registered menu item. Returns True if clicked."""
         label = item.get("label")
         if not isinstance(label, str):
-            return
+            return False
         if label == "---":
             imgui.separator()
-            return
+            return False
         enabled = item.get("enabled", True)
         clicked, _ = imgui.menu_item(
             label,
@@ -1476,11 +1448,12 @@ class DisplayServer:
                     action="menu",
                     ts=time.time(),
                     value={
-                        "menu": "Applications",
+                        "menu": menu_name,
                         "item": label,
                     },
                 )
             )
+        return bool(clicked)
 
     def _show_lux_items(self, imgui: Any) -> None:
         """Render Lux menu items (shared by menu bar and World panel)."""

@@ -23,11 +23,11 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import queue
 import select
 import socket
 import threading
 import time
-from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -56,6 +56,15 @@ if TYPE_CHECKING:
     from punt_lux.protocol import Element, Message, Patch
 
 logger = logging.getLogger(__name__)
+
+
+def _drain_queue(q: queue.SimpleQueue[Any]) -> None:
+    """Discard all items from a :class:`queue.SimpleQueue`."""
+    while True:
+        try:
+            q.get_nowait()
+        except queue.Empty:
+            break
 
 
 class LuxClient:
@@ -89,7 +98,7 @@ class LuxClient:
         self._recv_timeout = recv_timeout
         self._sock: socket.socket | None = None
         self._ready: ReadyMessage | None = None
-        self._pending: deque[Message] = deque()
+        self._pending: queue.SimpleQueue[Message] = queue.SimpleQueue()
         self._registered_menu_items: list[dict[str, Any]] = []
 
         # Push-based event handling state
@@ -99,7 +108,8 @@ class LuxClient:
         ] = {}
         self._listener_thread: threading.Thread | None = None
         self._listener_stop = threading.Event()
-        self._ack_queue: deque[AckMessage] = deque()
+        self._ack_queue: queue.SimpleQueue[AckMessage] = queue.SimpleQueue()
+        self._pong_queue: queue.SimpleQueue[PongMessage] = queue.SimpleQueue()
 
     # -- context manager ---------------------------------------------------
 
@@ -205,8 +215,9 @@ class LuxClient:
                 self._sock.close()
             self._sock = None
             self._ready = None
-            self._pending.clear()
-            self._ack_queue.clear()
+            _drain_queue(self._pending)
+            _drain_queue(self._ack_queue)
+            _drain_queue(self._pong_queue)
 
     # -- callback registration ---------------------------------------------
 
@@ -221,6 +232,10 @@ class LuxClient:
         Callbacks are invoked by the background listener thread.  They
         may call :meth:`show_async` and other fire-and-forget methods
         but must not call blocking methods like :meth:`show`.
+
+        If a callback raises an exception, the exception is logged and
+        the event is consumed (not re-queued to pending).  This keeps
+        the listener thread alive at the cost of dropping the event.
 
         Register callbacks before calling :meth:`start_listener`.
         """
@@ -265,26 +280,36 @@ class LuxClient:
         while not self._listener_stop.is_set():
             sock = self._sock
             if sock is None:
+                logger.debug("Listener exiting: socket is None")
                 break
             try:
                 readable, _, _ = select.select([sock], [], [], 0.1)
-            except (OSError, ValueError):
+            except (OSError, ValueError) as exc:
+                logger.warning("Listener exiting: select failed: %s", exc)
                 break
             if not readable:
                 continue
             with self._lock:
                 try:
                     data = sock.recv(65536)
-                except OSError:
+                except OSError as exc:
+                    logger.warning("Listener exiting: recv failed: %s", exc)
                     break
             if not data:
+                logger.debug("Listener exiting: server closed connection")
                 break
             reader.feed(data)
             for msg in reader.drain_typed():
                 self._dispatch_or_buffer(msg)
 
     def _dispatch_or_buffer(self, msg: Message) -> None:
-        """Route a message to the right destination."""
+        """Route a message to the right destination.
+
+        Interaction events with a registered callback are dispatched
+        immediately on the listener thread.  Acks and pongs go to
+        dedicated queues; everything else goes to the general pending
+        queue for :meth:`recv`.
+        """
         if isinstance(msg, InteractionMessage):
             key = (msg.element_id, msg.action)
             cb = self._callbacks.get(key)
@@ -293,15 +318,18 @@ class LuxClient:
                     cb(msg)
                 except Exception:
                     logger.exception(
-                        "Callback error for %s:%s",
+                        "Callback error for %s:%s (event consumed)",
                         msg.element_id,
                         msg.action,
                     )
                 return
         if isinstance(msg, AckMessage):
-            self._ack_queue.append(msg)
+            self._ack_queue.put(msg)
             return
-        self._pending.append(msg)
+        if isinstance(msg, PongMessage):
+            self._pong_queue.put(msg)
+            return
+        self._pending.put(msg)
 
     # -- sending -----------------------------------------------------------
 
@@ -451,16 +479,11 @@ class LuxClient:
         self._send(PingMessage(ts=time.time()))
         deadline = time.monotonic() + self._recv_timeout
         if self.listener_active:
-            # Listener buffers PongMessage to _pending; poll it
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return None
-                for i, pending in enumerate(self._pending):
-                    if isinstance(pending, PongMessage):
-                        del self._pending[i]
-                        return pending
-                time.sleep(0.01)
+            remaining = deadline - time.monotonic()
+            try:
+                return self._pong_queue.get(timeout=max(remaining, 0))
+            except queue.Empty:
+                return None
         sock = self._require_connected()
         while True:
             remaining = deadline - time.monotonic()
@@ -471,57 +494,50 @@ class LuxClient:
                 return None
             if isinstance(received, PongMessage):
                 return received
-            self._pending.append(received)
+            self._pending.put(received)
 
     # -- receiving ---------------------------------------------------------
 
     def recv(self, timeout: float | None = None) -> Message | None:
         """Receive the next message from the display.
 
-        When the listener is active, polls the ``_pending`` buffer.
-        When inactive, reads directly from the socket.
-        Returns ``None`` on timeout.
+        Thread-safe.  When the listener is active, blocks on the
+        ``_pending`` queue.  When inactive, reads directly from the
+        socket.  Returns ``None`` on timeout.
         """
         t = timeout if timeout is not None else self._recv_timeout
         if self.listener_active:
-            deadline = time.monotonic() + t
-            while True:
-                if self._pending:
-                    return self._pending.popleft()
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return None
-                time.sleep(0.01)
-        else:
-            if self._pending:
-                return self._pending.popleft()
-            sock = self._require_connected()
-            return recv_message(sock, timeout=t)
+            try:
+                return self._pending.get(timeout=t)
+            except queue.Empty:
+                return None
+        try:
+            return self._pending.get_nowait()
+        except queue.Empty:
+            pass
+        sock = self._require_connected()
+        return recv_message(sock, timeout=t)
 
     def _recv_ack(self) -> AckMessage | None:
         """Receive expecting an AckMessage.  Buffers non-ack messages.
 
-        When the listener is active, polls ``_ack_queue``.
-        When inactive, reads directly from the socket.
+        Thread-safe.  When the listener is active, blocks on
+        ``_ack_queue``.  When inactive, reads directly from the socket.
         """
-        deadline = time.monotonic() + self._recv_timeout
         if self.listener_active:
-            while True:
-                if self._ack_queue:
-                    return self._ack_queue.popleft()
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return None
-                time.sleep(0.01)
-        else:
-            sock = self._require_connected()
-            while True:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    return None
-                msg = recv_message(sock, timeout=remaining)
-                if msg is None:
-                    return None
-                if isinstance(msg, AckMessage):
-                    return msg
-                self._pending.append(msg)
+            try:
+                return self._ack_queue.get(timeout=self._recv_timeout)
+            except queue.Empty:
+                return None
+        sock = self._require_connected()
+        deadline = time.monotonic() + self._recv_timeout
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            msg = recv_message(sock, timeout=remaining)
+            if msg is None:
+                return None
+            if isinstance(msg, AckMessage):
+                return msg
+            self._pending.put(msg)

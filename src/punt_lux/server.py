@@ -62,6 +62,7 @@ _client: LuxClient | None = None
 def _on_hello_world(_msg: InteractionMessage) -> None:
     """Callback: render Hello World in a frame."""
     if _client is None:
+        logger.warning("_on_hello_world: client is None, ignoring menu click")
         return
     _client.show_async(
         "hello-world-scene",
@@ -82,23 +83,22 @@ def _on_hello_world(_msg: InteractionMessage) -> None:
     )
 
 
-_apps_registered = False
+_apps_registered_for: int | None = None
 
 
 def _setup_apps(client: LuxClient) -> None:
     """Declare built-in application menu items and callbacks.
 
-    Idempotent — safe to call on every ``_get_client()`` invocation.
-    Items are stored locally and sent to the display during
-    ``_post_handshake``, so they survive reconnects without needing
-    a live socket at setup time.
+    Idempotent per client identity — safe to call on every
+    ``_get_client()`` invocation.  Re-registers if the client
+    instance changes (e.g. after recreation).
     """
-    global _apps_registered
-    if _apps_registered:
+    global _apps_registered_for
+    if _apps_registered_for == id(client):
         return
     client.declare_menu_item({"id": "app-hello-world", "label": "Hello World"})
     client.on_event("app-hello-world", "menu", _on_hello_world)
-    _apps_registered = True
+    _apps_registered_for = id(client)
 
 
 def _get_client() -> LuxClient:
@@ -120,24 +120,30 @@ def _get_client() -> LuxClient:
     return _client
 
 
+_SOCKET_ERRORS = (BrokenPipeError, ConnectionResetError, ConnectionAbortedError)
+
+
 def _with_reconnect[T](fn: Callable[[], T]) -> T:
     """Run *fn* with one automatic reconnect on broken pipe.
 
     If the display server restarts, the cached socket dies silently —
     ``is_connected`` still returns True because the socket object exists.
-    This wrapper catches the resulting ``OSError`` (including
-    ``BrokenPipeError``), closes the stale socket, reconnects the same
-    client instance (preserving accumulated state like registered menu
-    items), and retries *fn* exactly once.
+    This wrapper catches socket-specific errors, closes the stale
+    socket, reconnects the same client instance (preserving accumulated
+    state like registered menu items), and retries *fn* exactly once.
     """
     global _client
     try:
         return fn()
-    except OSError:
-        logger.info("Connection lost, reconnecting to display")
+    except _SOCKET_ERRORS as exc:
+        logger.info("Connection lost (%s), reconnecting to display", type(exc).__name__)
         if _client is not None:
             _client.close()
-            _client.connect()
+            try:
+                _client.connect()
+            except (OSError, RuntimeError) as reconnect_exc:
+                msg = f"Reconnect failed after connection loss: {reconnect_exc}"
+                raise RuntimeError(msg) from exc
         return fn()
 
 
