@@ -13,6 +13,20 @@
   appears when frames are minimized.
 - **Restore All** — World menu now shows "Restore All" when frames are
   minimized, complementing the existing "Minimize All".
+- **Detached World menu** — World menu is now a floating panel triggered
+  by clicking the background, matching Pharo Smalltalk's World menu
+  pattern. Appears at click coordinates, supports pin/unpin, and
+  auto-closes on item click when unpinned.
+- **Debug menu** — new menu with "Dump Scene JSON" for inspecting
+  current display state (frames, scenes, clients).
+- **Help menu** — displays current Lux version.
+
+### Changed
+
+- **Menu bar reorganization** — menu bar is now Lux | Debug | Windows |
+  Help. Theme, Always on Top, Borderless, and Opacity moved under
+  Lux > Settings. Opacity changed from slider to preset submenu
+  (25%, 50%, 75%, 100%). "Window" renamed to "Windows".
 
 ## [0.10.0] - 2026-03-12
 
