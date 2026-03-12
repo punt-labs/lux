@@ -1843,19 +1843,14 @@ class DisplayServer:
 
         imgui.get_style().font_scale_main = self._font_scale
 
-        has_content = bool(self._scenes) or bool(self._frames)
-
-        # Always render the logo — small in the corner when content is
-        # present, full idle screen when empty.
-        if has_content:
-            self._render_logo(imgui)
+        # Always render the ambient flame as a background element.
+        # Content renders on top of it.
+        self._render_idle(imgui)
 
         # Render framed scenes (DES-022 workspace model)
         self._render_frames(imgui)
 
         if not self._scenes:
-            if not self._frames:
-                self._render_idle(imgui)
             return
 
         if len(self._scenes) == 1:
@@ -2143,89 +2138,13 @@ class DisplayServer:
             self._render_element(elem)
 
     @staticmethod
-    def _render_logo(imgui: Any) -> None:
-        """Render a small persistent flame logo in the upper-left corner."""
-        import math
-
-        from imgui_bundle import ImVec2, ImVec4
-
-        t = time.time()
-        draw = imgui.get_background_draw_list()
-        viewport = imgui.get_main_viewport()
-
-        # Position: upper-left, offset from the menu bar.
-        cx = viewport.pos.x + 22.0
-        cy = viewport.pos.y + 50.0
-
-        # Logo flame — visible but not distracting.
-        scale = 0.7
-        breath_raw = math.sin(t * 0.8)
-        breath = max(breath_raw, 0.0) ** 0.6
-        sway_phase = math.sin(t * 0.6)
-        sway = sway_phase * sway_phase * sway_phase * 2.0 * scale
-        flicker = math.sin(t * 2.3) * 0.5 + math.sin(t * 3.7) * 0.3
-
-        flame_h = (26.0 + 4.0 * breath) * scale
-        flame_w = (10.0 + 1.5 * breath) * scale
-        base_y = cy + 4.0 * scale
-        tip_y = base_y - flame_h
-        tip_x = cx + sway
-
-        # Glow.
-        glow_r = flame_w + 5.0
-        glow_alpha = 0.08 + 0.04 * breath
-        glow_col = imgui.get_color_u32(ImVec4(1.0, 0.6, 0.2, glow_alpha))
-        draw.add_circle_filled(ImVec2(cx, base_y - flame_h * 0.4), glow_r, glow_col)
-
-        # Outer flame.
-        _draw_flame_shape(
-            draw,
-            imgui,
-            cx,
-            base_y,
-            tip_x,
-            tip_y,
-            flame_w,
-            flame_h,
-            r=1.0,
-            g=0.45,
-            b=0.1,
-            alpha=0.5 + 0.12 * breath,
-        )
-        # Middle flame.
-        _draw_flame_shape(
-            draw,
-            imgui,
-            cx,
-            base_y,
-            tip_x + flicker * 0.3,
-            base_y - flame_h * 0.75,
-            flame_w * 0.65,
-            flame_h * 0.75,
-            r=1.0,
-            g=0.7,
-            b=0.15,
-            alpha=0.6 + 0.12 * breath,
-        )
-        # Inner core.
-        _draw_flame_shape(
-            draw,
-            imgui,
-            cx,
-            base_y + 1,
-            tip_x + flicker * 0.15,
-            base_y + 1 - flame_h * 0.45,
-            flame_w * 0.3,
-            flame_h * 0.45,
-            r=1.0,
-            g=0.95,
-            b=0.7,
-            alpha=0.7 + 0.15 * breath,
-        )
-
-    @staticmethod
     def _render_idle(imgui: Any) -> None:
-        """Render an ambient idle screen with radial light rays and flame."""
+        """Render an ambient idle screen with radial light rays and flame.
+
+        Always called — the flame persists as a background element
+        whether content is present or not.  Frames and scenes render
+        on top since they are separate ImGui windows.
+        """
         import math
 
         from imgui_bundle import ImVec2, ImVec4
