@@ -1391,6 +1391,16 @@ def _register_serializers() -> None:  # noqa: C901
 _register_serializers()
 
 
+def _parse_frame_size(raw: object) -> tuple[int, int] | None:
+    """Validate and convert a frame_size value to a 2-tuple or None."""
+    if not isinstance(raw, (list, tuple)):
+        return None
+    seq = cast("list[int]", raw)
+    if len(seq) != 2:
+        return None
+    return (int(seq[0]), int(seq[1]))
+
+
 def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
     """Deserialize a JSON dict to the appropriate Message dataclass."""
     msg_type = d.get("type", "")
@@ -1405,7 +1415,7 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
             grid_columns=d.get("grid_columns"),
             frame_id=d.get("frame_id"),
             frame_title=d.get("frame_title"),
-            frame_size=tuple(d["frame_size"]) if d.get("frame_size") else None,
+            frame_size=_parse_frame_size(d.get("frame_size")),
             frame_flags=d.get("frame_flags"),
         )
     if msg_type == "update":

@@ -181,7 +181,11 @@ def show(
     display doesn't respond.
     """
     typed_elements = [element_from_dict(e) for e in elements]
-    size_tuple = tuple(frame_size) if frame_size else None
+    size_tuple: tuple[int, int] | None = None
+    if frame_size is not None:
+        if len(frame_size) != 2:
+            return "error: frame_size must be [width, height]"
+        size_tuple = (frame_size[0], frame_size[1])
 
     def _call() -> str:
         client = _get_client()
@@ -192,7 +196,7 @@ def show(
             layout=layout,
             frame_id=frame_id,
             frame_title=frame_title,
-            frame_size=size_tuple,  # type: ignore[arg-type]
+            frame_size=size_tuple,
             frame_flags=frame_flags,
         )
         if ack is None:
