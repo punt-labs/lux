@@ -1164,53 +1164,61 @@ class DisplayServer:
         if not imgui.begin_menu("Debug"):
             return
         try:
-            if imgui.menu_item("Dump Scene JSON", "", False)[0]:  # noqa: FBT003
-                import json
-
-                state: dict[str, Any] = {
-                    "frames": {
-                        fid: {
-                            "title": f.title,
-                            "minimized": f.minimized,
-                            "scene_count": len(f.scenes),
-                            "scenes": list(f.scene_order),
-                        }
-                        for fid, f in self._frames.items()
-                    },
-                    "scenes": {
-                        sid: {
-                            "title": s.title,
-                            "element_count": len(s.elements),
-                        }
-                        for sid, s in self._scenes.items()
-                    },
-                    "clients": dict(self._client_names),
-                    "menu_registrations": {
-                        str(fd): len(items)
-                        for fd, items in self._menu_registrations.items()
-                    },
-                }
-                logger.info(
-                    "Scene dump:\n%s",
-                    json.dumps(state, indent=2),
-                )
+            self._show_debug_items(imgui)
         finally:
             imgui.end_menu()
+
+    def _show_debug_items(self, imgui: Any) -> None:
+        """Render debug items (shared by menu bar and World panel)."""
+        if imgui.menu_item("Dump Scene JSON", "", False)[0]:  # noqa: FBT003
+            import json
+
+            state: dict[str, Any] = {
+                "frames": {
+                    fid: {
+                        "title": f.title,
+                        "minimized": f.minimized,
+                        "scene_count": len(f.scenes),
+                        "scenes": list(f.scene_order),
+                    }
+                    for fid, f in self._frames.items()
+                },
+                "scenes": {
+                    sid: {
+                        "title": s.title,
+                        "element_count": len(s.elements),
+                    }
+                    for sid, s in self._scenes.items()
+                },
+                "clients": dict(self._client_names),
+                "menu_registrations": {
+                    str(fd): len(items)
+                    for fd, items in self._menu_registrations.items()
+                },
+            }
+            logger.info(
+                "Scene dump:\n%s",
+                json.dumps(state, indent=2),
+            )
 
     def _show_help_menu(self, imgui: Any) -> None:
         if not imgui.begin_menu("Help"):
             return
         try:
-            from punt_lux import __version__
-
-            imgui.menu_item(
-                f"Lux v{__version__}",
-                "",
-                False,  # noqa: FBT003
-                False,  # noqa: FBT003
-            )
+            self._show_help_items(imgui)
         finally:
             imgui.end_menu()
+
+    def _show_help_items(self, imgui: Any) -> None:
+        """Render help items (shared by menu bar and World panel)."""
+        from punt_lux import __version__
+
+        imgui.menu_item(
+            f"Lux v{__version__}",
+            "",
+            False,  # noqa: FBT003
+            False,  # noqa: FBT003
+        )
 
     def _check_world_menu_background_click(self, imgui: Any) -> None:
         """Toggle World panel on left-click on the main window background.
@@ -1274,24 +1282,37 @@ class DisplayServer:
             self._world_menu_pinned = not self._world_menu_pinned
         imgui.separator()
 
-        # Client items.
-        has_items = bool(self._menu_registrations)
-        has_frames = bool(self._frames)
-        clicked_any = self._render_world_panel_clients(imgui)
-
-        # Environment items.
-        if has_items and has_frames:
-            imgui.separator()
-        clicked_env = self._render_world_panel_environment(imgui)
-
-        if not has_items and not has_frames:
-            imgui.text_disabled("No clients connected.")
+        clicked_any = self._render_world_panel_sections(imgui)
 
         imgui.end()
 
         # Auto-close on click when unpinned.
-        if (clicked_any or clicked_env) and not self._world_menu_pinned:
+        if clicked_any and not self._world_menu_pinned:
             self._world_menu_open = False
+
+    def _render_world_panel_sections(self, imgui: Any) -> bool:
+        """Render all World panel sections. Returns True if a client item clicked."""
+        from imgui_bundle import hello_imgui
+
+        open_flags = imgui.TreeNodeFlags_.default_open.value
+
+        if imgui.collapsing_header("Lux##world", open_flags):
+            self._show_lux_items(imgui)
+        if imgui.collapsing_header("Debug##world", open_flags):
+            self._show_debug_items(imgui)
+        if imgui.collapsing_header("Windows##world", open_flags):
+            self._show_window_frame_items(imgui)
+            imgui.separator()
+            self._show_window_chrome_items(imgui, hello_imgui)
+        if imgui.collapsing_header("Help##world", open_flags):
+            self._show_help_items(imgui)
+
+        # Client items (agent-registered menu items).
+        clicked_any = False
+        if self._menu_registrations:
+            imgui.separator()
+            clicked_any = self._render_world_panel_clients(imgui)
+        return clicked_any
 
     def _render_world_panel_clients(self, imgui: Any) -> bool:
         """Render client items inside the World panel. Returns True if any clicked."""
@@ -1309,27 +1330,6 @@ class DisplayServer:
                 for item in items_sorted:
                     if self._render_world_panel_item(imgui, item):
                         clicked = True
-        return clicked
-
-    def _render_world_panel_environment(self, imgui: Any) -> bool:
-        """Render environment items in the World panel. Returns True if any clicked."""
-        if not self._frames:
-            return False
-        clicked = False
-        has_minimized = any(f.minimized for f in self._frames.values())
-        has_visible = any(not f.minimized for f in self._frames.values())
-        if has_visible and imgui.menu_item("Minimize All", "", False)[0]:  # noqa: FBT003
-            for f in self._frames.values():
-                f.minimized = True
-            clicked = True
-        if has_minimized and imgui.menu_item("Restore All", "", False)[0]:  # noqa: FBT003
-            for f in self._frames.values():
-                f.minimized = False
-            clicked = True
-        if imgui.menu_item("Close All", "", False)[0]:  # noqa: FBT003
-            for fid in list(self._frames):
-                self._close_frame(fid)
-            clicked = True
         return clicked
 
     def _render_world_panel_item(
@@ -1409,31 +1409,35 @@ class DisplayServer:
         glfw_lib.glfwSetWindowOpacity(ctypes.c_void_p(window_addr), opacity)
 
     def _show_lux_menu(self, imgui: Any) -> None:
-        from imgui_bundle import hello_imgui
-
         if not imgui.begin_menu("Lux"):
             return
         try:
-            # Settings submenu: theme, chrome, opacity.
-            if imgui.begin_menu("Settings"):
-                try:
-                    self._show_settings_items(imgui)
-                finally:
-                    imgui.end_menu()
-
-            imgui.separator()
-
-            if imgui.menu_item("Increase Font", "Cmd++", False)[0]:  # noqa: FBT003
-                self._font_scale = min(round(self._font_scale + 0.1, 1), 3.0)
-            if imgui.menu_item("Decrease Font", "Cmd+-", False)[0]:  # noqa: FBT003
-                self._font_scale = max(round(self._font_scale - 0.1, 1), 0.5)
-
-            imgui.separator()
-
-            if imgui.menu_item("Quit", "Cmd+Q", False)[0]:  # noqa: FBT003
-                hello_imgui.get_runner_params().app_shall_exit = True
+            self._show_lux_items(imgui)
         finally:
             imgui.end_menu()
+
+    def _show_lux_items(self, imgui: Any) -> None:
+        """Render Lux menu items (shared by menu bar and World panel)."""
+        from imgui_bundle import hello_imgui
+
+        # Settings submenu: theme, chrome, opacity.
+        if imgui.begin_menu("Settings"):
+            try:
+                self._show_settings_items(imgui)
+            finally:
+                imgui.end_menu()
+
+        imgui.separator()
+
+        if imgui.menu_item("Increase Font", "Cmd++", False)[0]:  # noqa: FBT003
+            self._font_scale = min(round(self._font_scale + 0.1, 1), 3.0)
+        if imgui.menu_item("Decrease Font", "Cmd+-", False)[0]:  # noqa: FBT003
+            self._font_scale = max(round(self._font_scale - 0.1, 1), 0.5)
+
+        imgui.separator()
+
+        if imgui.menu_item("Quit", "Cmd+Q", False)[0]:  # noqa: FBT003
+            hello_imgui.get_runner_params().app_shall_exit = True
 
     def _show_settings_items(self, imgui: Any) -> None:
         """Render Settings submenu contents: Theme, chrome, opacity."""

@@ -15,8 +15,9 @@
   minimized, complementing the existing "Minimize All".
 - **Detached World menu** — World menu is now a floating panel triggered
   by clicking the background, matching Pharo Smalltalk's World menu
-  pattern. Appears at click coordinates, supports pin/unpin, and
-  auto-closes on item click when unpinned.
+  pattern. Mirrors the full menu bar (Lux, Debug, Windows, Help) plus
+  agent-registered items. Appears at click coordinates, supports
+  pin/unpin, and auto-closes on item click when unpinned.
 - **Debug menu** — new menu with "Dump Scene JSON" for inspecting
   current display state (frames, scenes, clients).
 - **Help menu** — displays current Lux version.

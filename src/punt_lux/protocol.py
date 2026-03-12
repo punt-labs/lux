@@ -739,12 +739,17 @@ def _draw_to_dict(elem: DrawElement) -> dict[str, Any]:
 
 
 def _group_to_dict(elem: GroupElement) -> dict[str, Any]:
-    return {
+    d: dict[str, Any] = {
         "kind": elem.kind,
         "id": elem.id,
         "layout": elem.layout,
         "children": [_element_to_dict(c) for c in elem.children],
     }
+    if elem.pages:
+        d["pages"] = [[_element_to_dict(e) for e in page] for page in elem.pages]
+    if elem.page_source is not None:
+        d["page_source"] = elem.page_source
+    return d
 
 
 def _tab_bar_to_dict(elem: TabBarElement) -> dict[str, Any]:
@@ -1060,10 +1065,14 @@ def _draw_from_dict(d: dict[str, Any]) -> DrawElement:
 
 
 def _group_from_dict(d: dict[str, Any]) -> GroupElement:
+    pages_raw = d.get("pages", [])
+    pages = [[element_from_dict(e) for e in page] for page in pages_raw]
     return GroupElement(
         id=d["id"],
         layout=d.get("layout", "rows"),
         children=[element_from_dict(c) for c in d.get("children", [])],
+        pages=pages,
+        page_source=d.get("page_source"),
     )
 
 
