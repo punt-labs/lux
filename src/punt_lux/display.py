@@ -2236,15 +2236,16 @@ class DisplayServer:
     def _render_dock_bar(self, imgui: Any) -> None:
         """Render a bottom dock bar showing minimized frames as pills.
 
-        Draws directly on the foreground overlay using the viewport's
-        draw list and manual hit testing.  This ensures the bar is always
-        visible and clickable regardless of other ImGui windows.
+        Uses an invisible ImGui window so that pill clicks are properly
+        captured and do not pass through to underlying windows.  Pills
+        that would overflow the viewport are truncated with an ellipsis
+        indicator.  Colors derive from the active ImGui style.
         """
         minimized = [f for f in self._frames.values() if f.minimized]
         if not minimized:
             return
 
-        from imgui_bundle import ImVec2, ImVec4
+        from imgui_bundle import ImVec2
 
         viewport = imgui.get_main_viewport()
         bar_h = self._DOCK_BAR_HEIGHT
@@ -2252,17 +2253,21 @@ class DisplayServer:
         bar_x = viewport.pos.x
         bar_w = viewport.size.x
 
+        # Draw bar background on the foreground draw list so it's
+        # always visible regardless of window stacking.
         draw = imgui.get_foreground_draw_list()
+        style = imgui.get_style()
 
-        # Bar background — slightly lighter than window bg for contrast.
-        bar_bg = imgui.get_color_u32(ImVec4(0.2, 0.2, 0.2, 0.95))
+        # Derive colors from the active theme.
+        bar_bg = imgui.get_color_u32(style.colors[imgui.Col_.title_bg.value])
+        border_col = imgui.get_color_u32(style.colors[imgui.Col_.border.value])
+        text_col = imgui.get_color_u32(style.colors[imgui.Col_.text.value])
+
         draw.add_rect_filled(
             ImVec2(bar_x, bar_y),
             ImVec2(bar_x + bar_w, bar_y + bar_h),
             bar_bg,
         )
-        # Top border line.
-        border_col = imgui.get_color_u32(ImVec4(0.4, 0.4, 0.4, 0.8))
         draw.add_line(
             ImVec2(bar_x, bar_y),
             ImVec2(bar_x + bar_w, bar_y),
@@ -2270,42 +2275,69 @@ class DisplayServer:
             1.0,
         )
 
+        # Invisible window over the dock bar area captures input so
+        # clicks don't pass through to underlying ImGui windows.
+        flags = (
+            imgui.WindowFlags_.no_title_bar.value
+            | imgui.WindowFlags_.no_resize.value
+            | imgui.WindowFlags_.no_move.value
+            | imgui.WindowFlags_.no_scrollbar.value
+            | imgui.WindowFlags_.no_saved_settings.value
+            | imgui.WindowFlags_.no_background.value
+            | imgui.WindowFlags_.no_focus_on_appearing.value
+            | imgui.WindowFlags_.no_bring_to_front_on_focus.value
+        )
+        imgui.set_next_window_pos(ImVec2(bar_x, bar_y))
+        imgui.set_next_window_size(ImVec2(bar_w, bar_h))
+        imgui.begin("##dock_bar", None, flags)
+
         # Pill layout.
         pill_pad = 6.0
         pill_h = bar_h - pill_pad * 2.0
         pill_x = bar_x + pill_pad
         pill_y = bar_y + pill_pad
         pill_gap = 4.0
+        max_x = bar_x + bar_w - pill_pad
 
-        mouse_clicked = imgui.is_mouse_clicked(imgui.MouseButton_.left)
+        pill_normal = imgui.get_color_u32(style.colors[imgui.Col_.button.value])
+        pill_hovered = imgui.get_color_u32(
+            style.colors[imgui.Col_.button_hovered.value]
+        )
 
         for frame in minimized:
-            # Measure text to size the pill.
             text_size = imgui.calc_text_size(frame.title)
-            pill_w = text_size.x + 16.0  # horizontal padding
+            pill_w = text_size.x + 16.0
+
+            # Truncate: if this pill would overflow, show ellipsis.
+            if pill_x + pill_w > max_x:
+                ellipsis_size = imgui.calc_text_size("...")
+                ey = pill_y + (pill_h - ellipsis_size.y) * 0.5
+                draw.add_text(ImVec2(pill_x, ey), text_col, "...")
+                break
 
             p_min = ImVec2(pill_x, pill_y)
             p_max = ImVec2(pill_x + pill_w, pill_y + pill_h)
-            hovered = imgui.is_mouse_hovering_rect(p_min, p_max)
 
-            # Pill background.
-            if hovered:
-                pill_bg = imgui.get_color_u32(ImVec4(0.45, 0.45, 0.5, 0.95))
-            else:
-                pill_bg = imgui.get_color_u32(ImVec4(0.3, 0.3, 0.35, 0.95))
-            draw.add_rect_filled(p_min, p_max, pill_bg, 4.0)
+            # Use invisible_button for proper input capture.
+            imgui.set_cursor_screen_pos(p_min)
+            clicked = imgui.invisible_button(
+                f"##pill_{frame.frame_id}", ImVec2(pill_w, pill_h)
+            )
+            hovered = imgui.is_item_hovered()
 
-            # Pill label — centered vertically.
+            bg = pill_hovered if hovered else pill_normal
+            draw.add_rect_filled(p_min, p_max, bg, 4.0)
+
             text_y = pill_y + (pill_h - text_size.y) * 0.5
-            text_col = imgui.get_color_u32(ImVec4(0.9, 0.9, 0.9, 1.0))
             draw.add_text(ImVec2(pill_x + 8.0, text_y), text_col, frame.title)
 
-            # Click to restore.
-            if hovered and mouse_clicked:
+            if clicked:
                 frame.minimized = False
                 self._focus_frame_id = frame.frame_id
 
             pill_x += pill_w + pill_gap
+
+        imgui.end()
 
     def _render_frame_contents(self, frame: _Frame, imgui: Any) -> None:
         """Render scenes inside a frame, tabbed if multiple."""
