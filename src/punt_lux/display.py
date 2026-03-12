@@ -258,7 +258,10 @@ def _widget_value(elem: Element) -> Any:
 def _get_children(elem: Element) -> list[list[Any]]:
     """Return all child lists owned by a container element."""
     if isinstance(elem, (GroupElement, CollapsingHeaderElement, WindowElement)):
-        return [elem.children]
+        result: list[list[Any]] = [elem.children]
+        if isinstance(elem, GroupElement) and elem.pages:
+            result.extend(elem.pages)
+        return result
     if isinstance(elem, TabBarElement):
         return [t.get("children", []) for t in elem.tabs]
     return []
@@ -2724,9 +2727,35 @@ class DisplayServer:
 
         grp = cast("GroupElement", elem)
         layout = grp.layout
+
+        if layout == "paged":
+            self._render_paged_group(grp)
+            return
+
         for i, child in enumerate(grp.children):
             if layout == "columns" and i > 0:
                 imgui.same_line()
+            self._render_element(child)
+
+    def _render_paged_group(self, grp: Any) -> None:
+        """Render a paged group: always-visible children + combo-driven pages."""
+        # Render the always-visible header (nav bar with combo).
+        for child in grp.children:
+            self._render_element(child)
+
+        # Determine which page to show from the combo's selection.
+        pages = grp.pages
+        if not pages:
+            return
+        page_idx = 0
+        if grp.page_source:
+            raw = self._widget_state.get(grp.page_source)
+            if isinstance(raw, int):
+                page_idx = raw
+        page_idx = max(0, min(page_idx, len(pages) - 1))
+
+        # Render the active page.
+        for child in pages[page_idx]:
             self._render_element(child)
 
     def _render_tab_bar(self, elem: Element) -> None:

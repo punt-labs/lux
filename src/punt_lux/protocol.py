@@ -171,12 +171,22 @@ class DrawElement:
 
 @dataclass
 class GroupElement:
-    """A layout container that arranges children in rows or columns."""
+    """A layout container that arranges children in rows or columns.
+
+    Layout modes:
+      - ``rows`` (default): vertical stack
+      - ``columns``: horizontal side-by-side
+      - ``paged``: combo-driven page switcher.  ``children`` are always
+        visible (header/nav), ``pages`` are indexed content panels
+        switched by the combo identified by ``page_source``.
+    """
 
     id: str
     kind: Literal["group"] = "group"
-    layout: str = "rows"  # "rows" | "columns"
+    layout: str = "rows"  # "rows" | "columns" | "paged"
     children: list[Any] = field(default_factory=lambda: list[Any]())
+    pages: list[list[Any]] = field(default_factory=lambda: list[list[Any]]())
+    page_source: str | None = None  # id of ComboElement driving page index
     tooltip: str | None = None
 
 

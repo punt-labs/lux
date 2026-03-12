@@ -158,6 +158,10 @@ def show(
     Layout containers (nest other elements as children):
       Group:        {"kind": "group", "id": "g1", "layout": "columns",
                      "children": [{"kind": "text", ...}, ...]}
+      Paged group:  {"kind": "group", "id": "g2", "layout": "paged",
+                     "children": [nav_elements],
+                     "pages": [[page0_elems], [page1_elems]],
+                     "page_source": "combo_id"}
       Tab bar:      {"kind": "tab_bar", "id": "tb1",
                      "tabs": [{"label": "Tab 1", "children": [...]}, ...]}
       Collapsing:   {"kind": "collapsing_header", "id": "ch1",
