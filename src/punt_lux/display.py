@@ -1355,11 +1355,15 @@ class DisplayServer:
         try:
             for name, fd, items in self._sorted_app_clients():
                 if imgui.begin_menu(f"{name}##{fd}"):
-                    items_sorted = sorted(items, key=lambda i: i.get("label") or "")
-                    for item in items_sorted:
-                        if self._render_registered_item(imgui, item, "Applications"):
-                            clicked = True
-                    imgui.end_menu()
+                    try:
+                        items_sorted = sorted(items, key=lambda i: i.get("label") or "")
+                        for item in items_sorted:
+                            rendered = self._render_registered_item(
+                                imgui, item, "Applications"
+                            )
+                            clicked = clicked or rendered
+                    finally:
+                        imgui.end_menu()
         finally:
             imgui.end_menu()
         return clicked
@@ -1424,10 +1428,12 @@ class DisplayServer:
         try:
             for name, fd, items in self._sorted_app_clients():
                 if imgui.begin_menu(f"{name}##{fd}"):
-                    items_sorted = sorted(items, key=lambda i: i.get("label") or "")
-                    for item in items_sorted:
-                        self._render_registered_item(imgui, item, "Applications")
-                    imgui.end_menu()
+                    try:
+                        items_sorted = sorted(items, key=lambda i: i.get("label") or "")
+                        for item in items_sorted:
+                            self._render_registered_item(imgui, item, "Applications")
+                    finally:
+                        imgui.end_menu()
         finally:
             imgui.end_menu()
 
