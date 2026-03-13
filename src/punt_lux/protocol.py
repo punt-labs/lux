@@ -171,12 +171,22 @@ class DrawElement:
 
 @dataclass
 class GroupElement:
-    """A layout container that arranges children in rows or columns."""
+    """A layout container that arranges children in rows or columns.
+
+    Layout modes:
+      - ``rows`` (default): vertical stack
+      - ``columns``: horizontal side-by-side
+      - ``paged``: combo-driven page switcher.  ``children`` are always
+        visible (header/nav), ``pages`` are indexed content panels
+        switched by the combo identified by ``page_source``.
+    """
 
     id: str
     kind: Literal["group"] = "group"
-    layout: str = "rows"  # "rows" | "columns"
+    layout: str = "rows"  # "rows" | "columns" | "paged"
     children: list[Any] = field(default_factory=lambda: list[Any]())
+    pages: list[list[Any]] = field(default_factory=lambda: list[list[Any]]())
+    page_source: str | None = None  # id of ComboElement driving page index
     tooltip: str | None = None
 
 
@@ -729,12 +739,17 @@ def _draw_to_dict(elem: DrawElement) -> dict[str, Any]:
 
 
 def _group_to_dict(elem: GroupElement) -> dict[str, Any]:
-    return {
+    d: dict[str, Any] = {
         "kind": elem.kind,
         "id": elem.id,
         "layout": elem.layout,
         "children": [_element_to_dict(c) for c in elem.children],
     }
+    if elem.pages:
+        d["pages"] = [[_element_to_dict(e) for e in page] for page in elem.pages]
+    if elem.page_source is not None:
+        d["page_source"] = elem.page_source
+    return d
 
 
 def _tab_bar_to_dict(elem: TabBarElement) -> dict[str, Any]:
@@ -1050,10 +1065,14 @@ def _draw_from_dict(d: dict[str, Any]) -> DrawElement:
 
 
 def _group_from_dict(d: dict[str, Any]) -> GroupElement:
+    pages_raw = d.get("pages", [])
+    pages = [[element_from_dict(e) for e in page] for page in pages_raw]
     return GroupElement(
         id=d["id"],
         layout=d.get("layout", "rows"),
         children=[element_from_dict(c) for c in d.get("children", [])],
+        pages=pages,
+        page_source=d.get("page_source"),
     )
 
 

@@ -9,8 +9,10 @@
   "mcpServers": {
     "lux": {
       "type": "stdio",
-      "command": "lux",
+      "command": "uv",
       "args": [
+        "run",
+        "lux",
         "serve"
       ]
     }

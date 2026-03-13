@@ -30,6 +30,12 @@ import json, pathlib
 p = pathlib.Path('${PLUGIN_JSON}')
 d = json.loads(p.read_text())
 d['name'] = '${prod_name}'
+# Release uses installed CLI directly (not uv run)
+for srv in d.get('mcpServers', {}).values():
+    args = srv.get('args', [])
+    if srv.get('command') == 'uv' and len(args) >= 2 and args[0] == 'run':
+        srv['command'] = args[1]
+        srv['args'] = args[2:]
 p.write_text(json.dumps(d, indent=2) + '\n')
 "
 

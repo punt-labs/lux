@@ -1391,3 +1391,68 @@ class TestWorldMenuPartitions:
 
         assert server._menu_owners["board"] == 10
         assert server._menu_owners["speak"] == 20
+
+
+class TestFrameMinimizeDockPartitions:
+    """Frame minimize/restore and dock bar behavior."""
+
+    def test_frame_starts_not_minimized(self):
+        """Frames are not minimized on creation."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(sock, _framed_scene("s1", "f1"))
+        assert not server._frames["f1"].minimized
+
+    def test_scene_receipt_restores_and_focuses(self):
+        """Receiving a scene for a minimized frame restores and focuses it."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(sock, _framed_scene("s1", "f1"))
+        server._frames["f1"].minimized = True
+        server._focus_frame_id = None
+        # New scene for the same frame triggers restore + focus.
+        server._handle_message(sock, _framed_scene("s2", "f1"))
+        assert not server._frames["f1"].minimized
+        assert server._focus_frame_id == "f1"
+
+    def test_fit_all_restores_minimized_frames(self):
+        """_apply_fit_all() restores all minimized frames."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(sock, _framed_scene("s1", "f1"))
+        server._handle_message(sock, _framed_scene("s2", "f2"))
+        server._frames["f1"].minimized = True
+        server._frames["f2"].minimized = True
+        server._fit_all_frames = True
+        result = server._apply_fit_all()
+        assert result is True
+        assert not server._frames["f1"].minimized
+        assert not server._frames["f2"].minimized
+
+    def test_fit_all_noop_when_not_requested(self):
+        """_apply_fit_all() returns False when no fit was requested."""
+        server = _server()
+        assert server._apply_fit_all() is False
+
+    def test_scene_receipt_restores_minimized_frame(self):
+        """A new scene for a minimized frame un-minimizes it."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(sock, _framed_scene("s1", "f1"))
+        server._frames["f1"].minimized = True
+        server._handle_message(sock, _framed_scene("s2", "f1"))
+        assert not server._frames["f1"].minimized
+
+    def test_close_frame_removes_minimized_frame(self):
+        """Closing a minimized frame removes it entirely."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(sock, _framed_scene("s1", "f1"))
+        server._frames["f1"].minimized = True
+        server._close_frame("f1")
+        assert "f1" not in server._frames

@@ -51,6 +51,11 @@ def display(
     ),
 ) -> None:
     """Start the Lux display server."""
+    import logging
+    from pathlib import Path
+
+    from punt_lux.paths import default_socket_path, log_file_path
+
     try:
         from punt_lux.display import DisplayServer
     except ModuleNotFoundError as exc:
@@ -62,6 +67,17 @@ def display(
             )
             raise typer.Exit(code=1) from None
         raise
+
+    sock_path = Path(socket) if socket else default_socket_path()
+    log_path = log_file_path(sock_path)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    logging.basicConfig(
+        filename=str(log_path),
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
 
     server = DisplayServer(socket, test_auto_click=test_auto_click)
     server.run()

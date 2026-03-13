@@ -6,7 +6,9 @@ Each handler takes structured input and returns structured output.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import logging
 import os
 import re
 import select
@@ -66,7 +68,8 @@ def read_hook_input() -> dict[str, object]:
         if isinstance(parsed, dict):
             return cast("dict[str, object]", parsed)
         return {}
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError, ValueError):
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError, ValueError) as exc:
+        logging.getLogger(__name__).debug("Failed to read hook input: %s", exc)
         return {}
 
 
@@ -105,12 +108,13 @@ def handle_post_bash(data: dict[str, object]) -> None:
         return
 
     # Fire-and-forget: refresh the display
-    subprocess.Popen(
-        ["lux", "show", "beads"],
-        cwd=str(repo_root),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    with contextlib.suppress(FileNotFoundError):
+        subprocess.Popen(
+            ["lux", "show", "beads"],
+            cwd=str(repo_root),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
 
 def emit(output: dict[str, object]) -> None:

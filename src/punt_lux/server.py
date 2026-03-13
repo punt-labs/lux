@@ -24,6 +24,7 @@ from punt_lux.config import read_config, resolve_config_path, write_field
 from punt_lux.protocol import (
     InteractionMessage,
     Patch,
+    TextElement,
     element_from_dict,
 )
 
@@ -58,39 +59,89 @@ mcp = FastMCP(
 _client: LuxClient | None = None
 
 
+def _on_hello_world(_msg: InteractionMessage) -> None:
+    """Callback: render Hello World in a frame."""
+    if _client is None:
+        logger.warning("_on_hello_world: client is None, ignoring menu click")
+        return
+    _client.show_async(
+        "hello-world-scene",
+        elements=[
+            TextElement(
+                id="hw-greeting",
+                content="Hello World!",
+                style="heading",
+            ),
+            TextElement(
+                id="hw-hint",
+                content="This frame was opened by a menu callback.",
+            ),
+        ],
+        frame_id="hello-world-frame",
+        frame_title="Hello World",
+        frame_size=(350, 100),
+    )
+
+
+_apps_registered_for: int | None = None
+
+
+def _setup_apps(client: LuxClient) -> None:
+    """Declare built-in application menu items and callbacks.
+
+    Idempotent per client identity — safe to call on every
+    ``_get_client()`` invocation.  Re-registers if the client
+    instance changes (e.g. after recreation).
+    """
+    global _apps_registered_for
+    if _apps_registered_for == id(client):
+        return
+    client.declare_menu_item({"id": "app-hello-world", "label": "Hello World"})
+    client.on_event("app-hello-world", "menu", _on_hello_world)
+    _apps_registered_for = id(client)
+
+
 def _get_client() -> LuxClient:
     """Return a connected LuxClient, creating or reconnecting as needed.
 
     Reuses the existing instance when possible so that accumulated state
-    (e.g. registered menu items) survives across reconnects.
+    (e.g. registered menu items, callbacks) survives across reconnects.
+    Starts the background listener after connecting so that registered
+    callbacks dispatch autonomously.
     """
     global _client
     if _client is None:
         _client = LuxClient(name="lux-mcp")
+    _setup_apps(_client)
+    if not _client.is_connected:
         _client.connect()
-    elif not _client.is_connected:
-        _client.connect()
+    if not _client.listener_active:
+        _client.start_listener()
     return _client
 
 
 def _with_reconnect[T](fn: Callable[[], T]) -> T:
-    """Run *fn* with one automatic reconnect on broken pipe.
+    """Run *fn* with one automatic reconnect on socket failure.
 
     If the display server restarts, the cached socket dies silently —
     ``is_connected`` still returns True because the socket object exists.
-    This wrapper catches the resulting ``OSError`` (including
-    ``BrokenPipeError``), closes the stale socket, reconnects the same
-    client instance (preserving accumulated state like registered menu
-    items), and retries *fn* exactly once.
+    This wrapper catches ``OSError`` (covers broken pipe, connection
+    reset, bad file descriptor, etc.), closes the stale socket,
+    reconnects the same client instance (preserving accumulated state
+    like registered menu items), and retries *fn* exactly once.
     """
     global _client
     try:
         return fn()
-    except OSError:
-        logger.info("Connection lost, reconnecting to display")
+    except OSError as exc:
+        logger.info("Connection lost (%s), reconnecting to display", type(exc).__name__)
         if _client is not None:
             _client.close()
-            _client.connect()
+            try:
+                _client.connect()
+            except (OSError, RuntimeError) as reconnect_exc:
+                msg = f"Reconnect failed after connection loss: {reconnect_exc}"
+                raise RuntimeError(msg) from exc
         return fn()
 
 
@@ -158,6 +209,10 @@ def show(
     Layout containers (nest other elements as children):
       Group:        {"kind": "group", "id": "g1", "layout": "columns",
                      "children": [{"kind": "text", ...}, ...]}
+      Paged group:  {"kind": "group", "id": "g2", "layout": "paged",
+                     "children": [{"kind": "combo", "id": "nav", ...}],
+                     "pages": [[{"kind": "text", ...}], ...],
+                     "page_source": "nav"}
       Tab bar:      {"kind": "tab_bar", "id": "tb1",
                      "tabs": [{"label": "Tab 1", "children": [...]}, ...]}
       Collapsing:   {"kind": "collapsing_header", "id": "ch1",

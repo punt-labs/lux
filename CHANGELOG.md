@@ -2,6 +2,57 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Push-based event handling** — `LuxClient` gains a background listener
+  thread with callback registry for autonomous UI event dispatch.
+  `on_event(element_id, action, callback)` registers handlers keyed by
+  `(element_id, action)` tuples (following standard UI framework
+  conventions). Fire-and-forget methods (`show_async`, `update_async`,
+  `clear_async`) are safe to call from callbacks. The listener
+  auto-restarts on reconnect when callbacks are registered. Existing
+  pull-based `recv()` continues to work — unmatched events and acks
+  route to their respective queues.
+- **Frame minimize/restore** — the collapse triangle (▼) in frame title
+  bars now minimizes to a bottom dock bar instead of collapsing in-place.
+  Clickable pills in the dock bar restore frames, matching Pharo
+  Smalltalk's taskbar pattern.
+- **Dock bar** — a persistent bar at the bottom of the display shows all
+  minimized frames as pills. Click to restore and focus. The bar only
+  appears when frames are minimized.
+- **Expand All / Collapse All** — Windows menu shows "Expand All" when
+  frames are minimized and "Collapse All" when visible, for bulk
+  minimize/restore.
+- **Detached World menu** — World menu is now a floating panel triggered
+  by clicking the background, matching Pharo Smalltalk's World menu
+  pattern. Mirrors the full menu bar (Lux, Debug, Windows, Help) plus
+  agent-registered items. Appears at click coordinates, supports
+  pin/unpin, and auto-closes on item click when unpinned.
+- **Debug menu** — new menu with "Dump Scene JSON" for inspecting
+  current display state (frames, scenes, clients).
+- **Help menu** — displays current Lux version.
+- **Paged group layout** — `GroupElement` gains `layout="paged"` with
+  `pages` and `page_source` fields. A combo's selected index controls
+  which page of children is visible, all client-side with no MCP
+  round-trips.
+- **Windows menu: Collapse All, Expand All, Fit All** — Collapse
+  minimizes all frames to dock, Expand restores them, Fit All tiles
+  frames in a non-overlapping grid layout. Items are grayed out when
+  not applicable.
+
+### Changed
+
+- **Menu bar reorganization** — menu bar is now Lux | Applications | Debug |
+  Windows | Help. Theme, Always on Top, Borderless, and Opacity moved under
+  Lux > Settings. Opacity changed from slider to preset submenu
+  (25%, 50%, 75%, 100%). "Window" renamed to "Windows".
+
+### Fixed
+
+- **Markdown initialization** — use `addons.with_markdown=True` instead
+  of manual `initialize_markdown()` to prevent "Markdown was not
+  initialized" warning spam.
+
 ## [0.10.0] - 2026-03-12
 
 ### Added
