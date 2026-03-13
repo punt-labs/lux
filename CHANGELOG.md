@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-03-13
+
 ### Added
 
 - **Push-based event handling** — `LuxClient` gains a background listener
