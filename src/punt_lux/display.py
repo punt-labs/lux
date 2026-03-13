@@ -1207,10 +1207,7 @@ class DisplayServer:
                     for fd, items in self._menu_registrations.items()
                 },
             }
-            logger.info(
-                "Scene dump:\n%s",
-                json.dumps(state, indent=2),
-            )
+            print(json.dumps(state, indent=2))  # noqa: T201 — user-initiated debug dump
         return clicked
 
     def _show_help_menu(self, imgui: Any) -> None:
@@ -1241,6 +1238,10 @@ class DisplayServer:
         loop) is hovered.  When a frame or the World panel is on top,
         the main window is not considered hovered, so clicks on frames
         are ignored.
+
+        The dock bar renders later in the frame, but ImGui tracks window
+        Z-order from the *previous* frame — so dock bar pills are
+        correctly excluded after the first frame they appear.
         """
         if not imgui.is_mouse_clicked(imgui.MouseButton_.left):
             return

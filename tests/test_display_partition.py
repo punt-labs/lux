@@ -1396,63 +1396,46 @@ class TestWorldMenuPartitions:
 class TestFrameMinimizeDockPartitions:
     """Frame minimize/restore and dock bar behavior."""
 
-    def test_minimize_flag_hides_frame_from_render(self):
-        """Minimized frames are skipped during rendering."""
+    def test_frame_starts_not_minimized(self):
+        """Frames are not minimized on creation."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         assert not server._frames["f1"].minimized
-        server._frames["f1"].minimized = True
-        assert server._frames["f1"].minimized
 
-    def test_restore_clears_minimized_flag(self):
-        """Setting minimized=False restores the frame."""
-        server = _server()
-        sock = _sock(fd=10)
-        _register(server, sock)
-        server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._frames["f1"].minimized = True
-        server._frames["f1"].minimized = False
-        assert not server._frames["f1"].minimized
-
-    def test_restore_sets_focus(self):
-        """Restoring a frame should trigger focus."""
+    def test_scene_receipt_restores_and_focuses(self):
+        """Receiving a scene for a minimized frame restores and focuses it."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._frames["f1"].minimized = True
         server._focus_frame_id = None
-        # Simulate restore + focus (as dock bar click does)
-        server._frames["f1"].minimized = False
-        server._focus_frame_id = "f1"
-        assert server._focus_frame_id == "f1"
+        # New scene for the same frame triggers restore + focus.
+        server._handle_message(sock, _framed_scene("s2", "f1"))
         assert not server._frames["f1"].minimized
+        assert server._focus_frame_id == "f1"
 
-    def test_minimize_all_minimizes_every_frame(self):
-        """Minimize All sets minimized=True on all frames."""
+    def test_fit_all_restores_minimized_frames(self):
+        """_apply_fit_all() restores all minimized frames."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._handle_message(sock, _framed_scene("s2", "f2"))
-        for f in server._frames.values():
-            f.minimized = True
-        assert all(f.minimized for f in server._frames.values())
+        server._frames["f1"].minimized = True
+        server._frames["f2"].minimized = True
+        server._fit_all_frames = True
+        result = server._apply_fit_all()
+        assert result is True
+        assert not server._frames["f1"].minimized
+        assert not server._frames["f2"].minimized
 
-    def test_restore_all_restores_every_frame(self):
-        """Restore All sets minimized=False on all frames."""
+    def test_fit_all_noop_when_not_requested(self):
+        """_apply_fit_all() returns False when no fit was requested."""
         server = _server()
-        sock = _sock(fd=10)
-        _register(server, sock)
-        server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._handle_message(sock, _framed_scene("s2", "f2"))
-        for f in server._frames.values():
-            f.minimized = True
-        for f in server._frames.values():
-            f.minimized = False
-        assert all(not f.minimized for f in server._frames.values())
+        assert server._apply_fit_all() is False
 
     def test_scene_receipt_restores_minimized_frame(self):
         """A new scene for a minimized frame un-minimizes it."""
