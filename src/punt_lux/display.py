@@ -1239,9 +1239,10 @@ class DisplayServer:
         the main window is not considered hovered, so clicks on frames
         are ignored.
 
-        The dock bar renders later in the frame, but ImGui tracks window
-        Z-order from the *previous* frame — so dock bar pills are
-        correctly excluded after the first frame they appear.
+        The dock bar renders later in the frame (its ``invisible_button``
+        items and ``##dock_bar`` window haven't been emitted yet), so the
+        hover checks above can't exclude it.  An explicit dock bar rect
+        check handles this case.
         """
         if not imgui.is_mouse_clicked(imgui.MouseButton_.left):
             return
@@ -1250,9 +1251,8 @@ class DisplayServer:
         # Current window = main window.  False when a frame covers the spot.
         if not imgui.is_window_hovered():
             return
-        # Dock bar pills are drawn on the foreground draw list (not ImGui
-        # items/windows), so the checks above don't catch them.  Reject
-        # clicks in the dock bar region when any frames are minimized.
+        # Dock bar renders later in the frame, so its items/window aren't
+        # yet in ImGui's hover state.  Reject clicks in its region.
         if any(f.minimized for f in self._frames.values()):
             viewport = imgui.get_main_viewport()
             mouse = imgui.get_mouse_pos()
