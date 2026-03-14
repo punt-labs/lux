@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Paged group Prev/Next buttons** — paged groups now render built-in
+  `<< Prev` and `Next >>` buttons flanking the combo, wired directly to
+  widget_state with no round-trip required.
+- **ImGui docking** — frames can be drag-merged into tabbed dock nodes
+  via `dock_space_over_viewport` and `DockingEnable` config flag.
+
+### Fixed
+
+- **imgui_bundle 1.92.600 compatibility** — replaced removed
+  `style.colors[col.value]` API with `style.color_(col)`, fixing a
+  crash in dock bar rendering.
+- **imgui_bundle 1.92.600 docking regression** — docking was silently
+  disabled in the new version; now explicitly enabled via config flag
+  and viewport dock space.
+- **Dock bar pill clicks** — replaced unreliable `invisible_button`
+  inside an unfocused overlay window with raw mouse hit-testing, fixing
+  click-to-restore on minimized frame pills.
+- **Collapse vs dock conflict** — collapse-to-minimize no longer fires
+  during ImGui docking transitions (`is_window_docked` guard).
+
+### Changed
+
+- **imgui-bundle pinned** — locked to `==1.92.600` to prevent future
+  API breakage.
+
 ## [0.11.0] - 2026-03-13
 
 ### Added
