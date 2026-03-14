@@ -90,7 +90,7 @@ mcp = FastMCP(
 )
 
 _client: LuxClient | None = None
-_client_lock = threading.Lock()
+_client_lock = threading.RLock()
 
 
 def _on_beads_browser(_msg: InteractionMessage) -> None:

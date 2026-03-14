@@ -9,12 +9,13 @@
   defeating the purpose of eager connect. Removed the guard and moved
   `_get_client()` to a background thread via `asyncio.to_thread()` so
   auto-spawn doesn't block the async event loop.
-- **Thread safety for `_get_client()`** — added `threading.Lock` to prevent
+- **Thread safety for `_get_client()`** — added `threading.RLock` to prevent
   race conditions between the lifespan thread and MCP tool threads that
   could create duplicate `LuxClient` instances with leaked sockets.
 - **Eager connect error visibility** — failures now log at `warning` level
   instead of `debug`, so users who set `display=y` can see why the display
-  didn't start. Narrowed exception filter to `(RuntimeError, OSError)`.
+  didn't start. Separated config-read errors from connect errors with
+  distinct log messages.
 
 ## [0.14.0] - 2026-03-14
 
