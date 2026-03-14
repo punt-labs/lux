@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Markdown font size matches ImGui default** — `MarkdownElement` body text
+  was noticeably larger because imgui_md loads its own Roboto fonts at 16px
+  while Lux uses system fonts. Set `regular_size=13.0` via
+  `with_markdown_options` (not `with_markdown=True`, which triggers a
+  static guard that silently drops custom options). See DES-026.
+- **Markdown text wrapping** — long lines now wrap at the parent container
+  boundary via `push_text_wrap_pos(0.0)` instead of overflowing to the
+  window edge.
+
+### Changed
+
+- **Base font size** — primary font increased from 15px to 16px for better
+  readability at default scale.
+
 ## [0.14.1] - 2026-03-14
 
 ### Fixed

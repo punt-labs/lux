@@ -997,14 +997,14 @@ class DisplayServer:
 
         params = hello_imgui.FontLoadingParams()
         params.inside_assets = False
-        hello_imgui.load_font(primary, 15.0, params)
+        hello_imgui.load_font(primary, 16.0, params)
         logger.info("Loaded primary font: %s", primary)
 
         for sym_path in merge_fonts:
             merge_params = hello_imgui.FontLoadingParams()
             merge_params.inside_assets = False
             merge_params.merge_to_last_font = True
-            hello_imgui.load_font(sym_path, 15.0, merge_params)
+            hello_imgui.load_font(sym_path, 16.0, merge_params)
             logger.info("Merged symbol font: %s", sym_path)
 
     # -- public entry point ------------------------------------------------
@@ -1040,7 +1040,19 @@ class DisplayServer:
 
         addons = immapp.AddOnsParams()
         addons.with_implot = True
-        addons.with_markdown = True
+        # Set markdown regular_size to match the system font visually.
+        # imgui_md loads Roboto (bundled) which renders larger than system
+        # fonts at the same nominal px.  Do NOT also set with_markdown=True
+        # — InitializeMarkdown has a static guard that silently drops the
+        # second call, so the custom options would be ignored.
+        try:
+            from imgui_bundle import imgui_md
+
+            md_opts = imgui_md.MarkdownOptions()
+            md_opts.font_options.regular_size = 13.0
+            addons.with_markdown_options = md_opts
+        except ImportError:
+            addons.with_markdown = True
 
         immapp.run(runner_params, addons)
 
@@ -3376,9 +3388,13 @@ class DisplayServer:
     def _render_markdown(self, elem: Element) -> None:
         md: Any = elem
         try:
-            from imgui_bundle import imgui_md
+            from imgui_bundle import imgui, imgui_md
 
-            imgui_md.render_unindented(md.content)
+            imgui.push_text_wrap_pos(0.0)
+            try:
+                imgui_md.render_unindented(md.content)
+            finally:
+                imgui.pop_text_wrap_pos()
         except ImportError:
             from imgui_bundle import imgui
 

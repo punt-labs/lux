@@ -1768,3 +1768,58 @@ The focus is set via ImGui's `set_next_window_focus()` which applies once on the
 ### Trade-off
 
 This means a background agent continuously updating a frame will keep stealing focus. In practice this hasn't been a problem because agent updates are infrequent (one `show()` call per task, not a continuous stream). If continuous updates become common (e.g., live dashboards), a `no_auto_focus` frame flag could be added to DES-022's `frame_flags` vocabulary.
+
+---
+
+## DES-026: Markdown Font Size — Match imgui_md to ImGui Default
+
+**Date:** 2026-03-14
+**Status:** ACCEPTED
+**Bead:** lux-sc1
+
+### Problem
+
+`MarkdownElement` renders body text noticeably larger than `TextElement` and other ImGui-rendered text. This creates a jarring visual hierarchy where markdown annotations dominate the UI. Observed in z-spec's tutorial browser, where lesson annotations overflowed the paged group frame. The z-spec team had to fall back to plain text elements.
+
+Two sub-issues:
+
+1. Markdown body text larger than ImGui default text
+2. Markdown text doesn't wrap at parent container boundaries
+
+### Root Cause
+
+imgui_md (the markdown renderer bundled with imgui-bundle) loads **its own Roboto fonts** from bundled assets, completely independent of the system fonts Lux loads via `hello_imgui.load_font()`. Even at the same nominal pixel size, Roboto has different visual metrics (larger x-height, taller ascenders) than system fonts like Arial Unicode or SF Pro, making it appear visually larger.
+
+The `MarkdownFontOptions.regular_size` field (default 16.0) controls the **display size**, not the rasterization size. Since v1.92, imgui-bundle always rasterizes fonts at 16px but can display them at any size via `ImGui::PushFont(font, size)`.
+
+### Key Constraint: `InitializeMarkdown` Static Guard
+
+`imgui_md::InitializeMarkdown` has a C++ `static bool wasCalledAlready` guard. It silently drops the second call. This means:
+
+- Setting both `with_markdown = True` AND `with_markdown_options = <custom>` does **not** work — the runner may call `InitializeMarkdown` twice, and the custom options are dropped.
+- Calling `imgui_md.initialize_markdown()` in `_on_post_init` does nothing — it's already been called during `immapp.run()` setup.
+
+### Solution
+
+Set `addons.with_markdown_options` with `regular_size = 13.0` and do **not** also set `with_markdown = True`:
+
+```python
+md_opts = imgui_md.MarkdownOptions()
+md_opts.font_options.regular_size = 13.0
+addons.with_markdown_options = md_opts
+# Do NOT set addons.with_markdown = True
+```
+
+The runner code checks `withMarkdown || withMarkdownOptions.has_value()`, so setting options alone enables markdown. The 13px display size for Roboto visually matches the system font at 16px after `font_scale_main` (1.1x) is applied.
+
+For wrapping: `imgui.push_text_wrap_pos(0.0)` before `render_unindented()` constrains text to the window's work rect boundary, which respects frame/group padding.
+
+### Rejected Approaches
+
+**Changing the primary font to 16px to "match" imgui_md.** Doesn't help — Roboto and system fonts have different metrics at the same nominal size. The visual mismatch persists.
+
+**`imgui.set_window_font_scale()`.** Does not exist in the v1.92 Python bindings.
+
+**Temporarily modifying `font_scale_main` during markdown render.** Would work in theory but is fragile — the scale change could affect nested elements, and the ratio depends on knowing both font sizes at render time.
+
+**Calling `initialize_markdown()` in `_on_post_init`.** Silently dropped by the static guard — the function was already called during `immapp.run()` setup.
