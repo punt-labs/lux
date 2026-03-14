@@ -957,7 +957,7 @@ display = [
 [package.metadata]
 requires-dist = [
     { name = "fastmcp", specifier = ">=3.0.0,<4" },
-    { name = "imgui-bundle", marker = "extra == 'display'", specifier = ">=1.6.0" },
+    { name = "imgui-bundle", marker = "extra == 'display'", specifier = "==1.92.600" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.18.1" },
     { name = "numpy", marker = "extra == 'display'", specifier = ">=2.0.0" },
     { name = "pillow", marker = "extra == 'display'", specifier = ">=11.0.0" },

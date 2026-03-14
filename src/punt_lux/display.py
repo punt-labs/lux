@@ -1041,13 +1041,18 @@ class DisplayServer:
         addons = immapp.AddOnsParams()
         addons.with_implot = True
         addons.with_markdown = True
+
         immapp.run(runner_params, addons)
 
     # -- ImGui callbacks ---------------------------------------------------
 
     def _on_post_init(self) -> None:
         """Called once the OpenGL context is ready."""
-        from imgui_bundle import hello_imgui
+        from imgui_bundle import hello_imgui, imgui
+
+        # Ensure docking is enabled (drag-merge frames into tabs).
+        io = imgui.get_io()
+        io.config_flags |= imgui.ConfigFlags_.docking_enable.value
 
         self._themes = list(hello_imgui.ImGuiTheme_)
         self._setup_socket()
@@ -2098,6 +2103,12 @@ class DisplayServer:
 
         imgui.get_style().font_scale_main = self._font_scale
 
+        # Provide a viewport-wide dock space so manual imgui.begin() windows
+        # can be dragged into tabbed dock nodes by the user.
+        imgui.dock_space_over_viewport(
+            flags=imgui.DockNodeFlags_.passthru_central_node.value,
+        )
+
         # Always render the ambient flame as a background element.
         # Content renders on top of it.
         self._render_idle(imgui)
@@ -2218,10 +2229,54 @@ class DisplayServer:
             result[f.frame_id] = (x, y, cell_w, cell_h)
         return result
 
+    def _render_single_frame(
+        self,
+        frame: _Frame,
+        imgui: Any,
+        *,
+        fitting: bool,
+        tile_layout: dict[str, tuple[float, float, float, float]],
+        default_size: tuple[float, float],
+    ) -> str | None:
+        """Render one frame window. Returns 'closed', 'minimized', or None."""
+        if fitting and frame.frame_id in tile_layout:
+            cond = imgui.Cond_.always.value
+            x, y, fw, fh = tile_layout[frame.frame_id]
+        else:
+            cond = imgui.Cond_.first_use_ever.value
+            x = self._CASCADE_BASE_X + frame.cascade_index * self._CASCADE_DX
+            y = self._CASCADE_BASE_Y + frame.cascade_index * self._CASCADE_DY
+            fw = float(frame.initial_size[0]) if frame.initial_size else default_size[0]
+            fh = float(frame.initial_size[1]) if frame.initial_size else default_size[1]
+        imgui.set_next_window_pos((x, y), cond)
+        imgui.set_next_window_size((fw, fh), cond)
+        if self._focus_frame_id == frame.frame_id:
+            imgui.set_next_window_focus()
+            self._focus_frame_id = None
+        win_flags = self._resolve_frame_flags(frame, imgui)
+        still_open = True
+        expanded, still_open = imgui.begin(
+            f"{frame.title}##{frame.frame_id}", still_open, win_flags
+        )
+        if not still_open:
+            imgui.end()
+            return "closed"
+        if not expanded:
+            # Collapse triangle clicked — minimize to dock bar.
+            # Skip when docked: ImGui reports expanded=False during
+            # docking transitions.
+            if not imgui.is_window_docked():
+                imgui.set_window_collapsed(False)
+                imgui.end()
+                return "minimized"
+            imgui.end()
+            return None
+        self._render_frame_contents(frame, imgui)
+        imgui.end()
+        return None
+
     def _render_frames(self, imgui: Any) -> None:
         """Render each frame as an ImGui inner window."""
-        closed_frames: list[str] = []
-        minimized_frames: list[str] = []
         # Default frame size: 75% of content region (first use only).
         region = imgui.get_content_region_avail()
         frame_w = max(400.0, region.x * self._FRAME_FILL)
@@ -2234,42 +2289,22 @@ class DisplayServer:
                 imgui, region, list(self._frames.values())
             )
 
+        closed_frames: list[str] = []
+        minimized_frames: list[str] = []
         for frame in list(self._frames.values()):
             if frame.minimized:
                 continue
-            if fitting and frame.frame_id in tile_layout:
-                cond = imgui.Cond_.always.value
-                x, y, fw, fh = tile_layout[frame.frame_id]
-            else:
-                cond = imgui.Cond_.first_use_ever.value
-                x = self._CASCADE_BASE_X + frame.cascade_index * self._CASCADE_DX
-                y = self._CASCADE_BASE_Y + frame.cascade_index * self._CASCADE_DY
-                fw = float(frame.initial_size[0]) if frame.initial_size else frame_w
-                fh = float(frame.initial_size[1]) if frame.initial_size else frame_h
-            imgui.set_next_window_pos((x, y), cond)
-            imgui.set_next_window_size((fw, fh), cond)
-            if self._focus_frame_id == frame.frame_id:
-                imgui.set_next_window_focus()
-                self._focus_frame_id = None
-            win_flags = self._resolve_frame_flags(frame, imgui)
-            still_open = True
-            expanded, still_open = imgui.begin(
-                f"{frame.title}##{frame.frame_id}", still_open, win_flags
+            result = self._render_single_frame(
+                frame,
+                imgui,
+                fitting=fitting,
+                tile_layout=tile_layout,
+                default_size=(frame_w, frame_h),
             )
-            if not still_open:
+            if result == "closed":
                 closed_frames.append(frame.frame_id)
-                imgui.end()
-                continue
-            if not expanded:
-                # User clicked the collapse triangle — repurpose as
-                # minimize-to-dock.  Undo the visual collapse so the
-                # frame comes back expanded when restored.
-                imgui.set_window_collapsed(False)
+            elif result == "minimized":
                 minimized_frames.append(frame.frame_id)
-                imgui.end()
-                continue
-            self._render_frame_contents(frame, imgui)
-            imgui.end()
         for fid in closed_frames:
             self._close_frame(fid)
         for fid in minimized_frames:
@@ -2303,9 +2338,9 @@ class DisplayServer:
         style = imgui.get_style()
 
         # Derive colors from the active theme.
-        bar_bg = imgui.get_color_u32(style.colors[imgui.Col_.title_bg.value])
-        border_col = imgui.get_color_u32(style.colors[imgui.Col_.border.value])
-        text_col = imgui.get_color_u32(style.colors[imgui.Col_.text.value])
+        bar_bg = imgui.get_color_u32(style.color_(imgui.Col_.title_bg))
+        border_col = imgui.get_color_u32(style.color_(imgui.Col_.border))
+        text_col = imgui.get_color_u32(style.color_(imgui.Col_.text))
 
         draw.add_rect_filled(
             ImVec2(bar_x, bar_y),
@@ -2319,23 +2354,10 @@ class DisplayServer:
             1.0,
         )
 
-        # Invisible window over the dock bar area captures input so
-        # clicks don't pass through to underlying ImGui windows.
-        flags = (
-            imgui.WindowFlags_.no_title_bar.value
-            | imgui.WindowFlags_.no_resize.value
-            | imgui.WindowFlags_.no_move.value
-            | imgui.WindowFlags_.no_scrollbar.value
-            | imgui.WindowFlags_.no_saved_settings.value
-            | imgui.WindowFlags_.no_background.value
-            | imgui.WindowFlags_.no_focus_on_appearing.value
-            | imgui.WindowFlags_.no_bring_to_front_on_focus.value
-        )
-        imgui.set_next_window_pos(ImVec2(bar_x, bar_y))
-        imgui.set_next_window_size(ImVec2(bar_w, bar_h))
-        imgui.begin("##dock_bar", flags=flags)
-
-        # Pill layout.
+        # Pill layout — use raw mouse hit-testing instead of an invisible
+        # ImGui window.  The dock bar renders on the foreground draw list
+        # which has no window in the z-order, so invisible_button widgets
+        # inside a helper window never receive clicks reliably.
         pill_pad = 6.0
         pill_h = bar_h - pill_pad * 2.0
         pill_x = bar_x + pill_pad
@@ -2343,10 +2365,11 @@ class DisplayServer:
         pill_gap = 4.0
         max_x = bar_x + bar_w - pill_pad
 
-        pill_normal = imgui.get_color_u32(style.colors[imgui.Col_.button.value])
-        pill_hovered = imgui.get_color_u32(
-            style.colors[imgui.Col_.button_hovered.value]
-        )
+        pill_normal = imgui.get_color_u32(style.color_(imgui.Col_.button))
+        pill_hovered = imgui.get_color_u32(style.color_(imgui.Col_.button_hovered))
+
+        mouse = imgui.get_mouse_pos()
+        clicked = imgui.is_mouse_clicked(imgui.MouseButton_.left)
 
         for frame in minimized:
             text_size = imgui.calc_text_size(frame.title)
@@ -2362,12 +2385,8 @@ class DisplayServer:
             p_min = ImVec2(pill_x, pill_y)
             p_max = ImVec2(pill_x + pill_w, pill_y + pill_h)
 
-            # Use invisible_button for proper input capture.
-            imgui.set_cursor_screen_pos(p_min)
-            clicked = imgui.invisible_button(
-                f"##pill_{frame.frame_id}", ImVec2(pill_w, pill_h)
-            )
-            hovered = imgui.is_item_hovered()
+            # Raw hit-test: is the mouse inside this pill rect?
+            hovered = p_min.x <= mouse.x <= p_max.x and p_min.y <= mouse.y <= p_max.y
 
             bg = pill_hovered if hovered else pill_normal
             draw.add_rect_filled(p_min, p_max, bg, 4.0)
@@ -2375,13 +2394,11 @@ class DisplayServer:
             text_y = pill_y + (pill_h - text_size.y) * 0.5
             draw.add_text(ImVec2(pill_x + 8.0, text_y), text_col, frame.title)
 
-            if clicked:
+            if hovered and clicked:
                 frame.minimized = False
                 self._focus_frame_id = frame.frame_id
 
             pill_x += pill_w + pill_gap
-
-        imgui.end()
 
     def _render_frame_contents(self, frame: _Frame, imgui: Any) -> None:
         """Render scenes inside a frame, tabbed if multiple."""
@@ -2945,26 +2962,60 @@ class DisplayServer:
                 imgui.same_line()
             self._render_element(child)
 
+    def _paged_group_state_key(self, grp_id: str, page_source: str | None) -> str:
+        """Return the widget_state key for a paged group's page index."""
+        return page_source if page_source else f"{grp_id}__pg_idx"
+
+    def _paged_group_read_index(self, state_key: str, total: int) -> int:
+        """Read and clamp the current page index from widget_state."""
+        raw = self._widget_state.get(state_key)
+        page_idx = raw if isinstance(raw, int) else 0
+        return max(0, min(page_idx, total - 1)) if total else 0
+
     def _render_paged_group(self, grp: Any) -> None:
-        """Render a paged group: always-visible children + combo-driven pages."""
-        # Render the always-visible header (nav bar with combo).
-        for child in grp.children:
-            self._render_element(child)
+        """Render a paged group with built-in Prev/Next navigation.
 
-        # Determine which page to show from the combo's selection.
+        Renders a nav row (Prev button, combo, Next button) followed by
+        any non-combo children, then the active page.  The Prev/Next
+        buttons modify widget_state directly — no round-trip.
+        """
+        from imgui_bundle import imgui
+
         pages = grp.pages
-        if not pages:
-            return
-        page_idx = 0
-        if grp.page_source:
-            raw = self._widget_state.get(grp.page_source)
-            if isinstance(raw, int):
-                page_idx = raw
-        page_idx = max(0, min(page_idx, len(pages) - 1))
+        total = len(pages) if pages else 0
+        page_source: str | None = grp.page_source
+        state_key = self._paged_group_state_key(grp.id, page_source)
+        page_idx = self._paged_group_read_index(state_key, total)
+        prev_page = page_idx
 
-        # Render the active page.
-        for child in pages[page_idx]:
+        # Nav row: << Prev | [combo] | Next >>
+        if imgui.button(f"<< Prev##{grp.id}_prev") and page_idx > 0:
+            page_idx -= 1
+        imgui.same_line()
+
+        # Write before combo renders so it sees the updated index.
+        if page_idx != prev_page:
+            self._widget_state.set(state_key, page_idx)
+
+        # Render the combo (from page_source) inline; other children after.
+        other_children: list[Any] = []
+        for child in grp.children:
+            if page_source and getattr(child, "id", None) == page_source:
+                self._render_element(child)
+                imgui.same_line()
+            else:
+                other_children.append(child)
+
+        if imgui.button(f"Next >>##{grp.id}_next") and page_idx < total - 1:
+            page_idx += 1
+            self._widget_state.set(state_key, page_idx)
+
+        for child in other_children:
             self._render_element(child)
+
+        if pages and 0 <= page_idx < total:
+            for child in pages[page_idx]:
+                self._render_element(child)
 
     def _render_tab_bar(self, elem: Element) -> None:
         from imgui_bundle import imgui

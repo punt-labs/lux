@@ -26,7 +26,7 @@ dependencies = [
 
 [project.optional-dependencies]
 display = [
-    "imgui-bundle>=1.6.0",
+    "imgui-bundle==1.92.600",
     "Pillow>=11.0.0",
     "numpy>=2.0.0",
     "PyOpenGL>=3.1.0",
