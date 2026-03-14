@@ -91,17 +91,20 @@ Lux is a **CLI + Plugin Hybrid** project. Releases publish to both PyPI and the 
 
 ### Release command
 
+Run `punt release` from the repo root. It handles all 11 phases automatically:
+preflight, version bump, build, release PR, tag, CI wait, GitHub release,
+PyPI verify, post-release (README SHA bump), cross-repo propagation
+(install-all.sh, marketplace, website), and verification. No manual steps
+are needed after the CLI completes.
+
 ```bash
-punt release <version>
+punt release <version>        # Full release
+punt release --dry-run        # Preview without changes
+punt release --resume-from ci # Resume from a specific phase
 ```
 
-### Propagation checklist (post-release)
-
-After `punt release` completes, three manual propagation steps are required:
-
-1. **Marketplace catalog** — update `claude-plugins/.claude-plugin/marketplace.json` with the new `ref` tag and `version`, commit, push
-2. **install-all.sh** — update `punt-kit/install-all.sh` with the new install.sh SHA (`git log -1 --format='%H' -- install.sh`), commit, push to main
-3. **install.sh SHA in README** — if the README references a pinned install.sh URL, update the SHA there too
+See [release-process.md](https://github.com/punt-labs/punt-kit/blob/main/standards/release-process.md) for
+the full 11-phase specification.
 
 ### Release scripts
 
@@ -114,7 +117,6 @@ After `punt release` completes, three manual propagation steps are required:
 
 - `.gitignore` must cover all transient files (`.coverage`, `*.ini`, `demos/`, `__pycache__/`, LaTeX build artifacts) — `punt release` checks for a clean working tree
 - The release-plugin.sh and restore-dev-plugin.sh scripts must exist before first release — `punt release` expects them for hybrid projects
-- Marketplace propagation is not automatic — `punt release` does not create a PR in claude-plugins
 
 ## Available Tooling
 
