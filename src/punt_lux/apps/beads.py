@@ -17,7 +17,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from punt_lux.protocol import TableElement, TextElement
+from punt_lux.protocol import TextElement, element_from_dict
 
 if TYPE_CHECKING:
     from punt_lux.client import LuxClient
@@ -220,18 +220,21 @@ def render_beads_board(client: LuxClient) -> None:
 
     payload = build_beads_payload(issues)
 
+    table = element_from_dict(
+        {
+            "kind": "table",
+            "id": "table",
+            "columns": payload["columns"],
+            "rows": payload["rows"],
+            "flags": ["borders", "row_bg", "resizable", "copy_id"],
+            "filters": payload["filters"],
+            "detail": payload["detail"],
+        }
+    )
+
     client.show_async(
         f"beads-{project}",
-        elements=[
-            TableElement(
-                id="table",
-                columns=payload["columns"],
-                rows=payload["rows"],
-                flags=["borders", "row_bg", "resizable", "copy_id"],
-                filters=payload["filters"],
-                detail=payload["detail"],
-            ),
-        ],
+        elements=[table],
         frame_id=frame_id,
         frame_title=f"Beads: {project}",
     )
