@@ -23,6 +23,7 @@ from fastmcp import FastMCP
 from punt_lux.apps.beads import render_beads_board
 from punt_lux.client import LuxClient
 from punt_lux.config import read_config, resolve_config_path, write_field
+from punt_lux.paths import default_socket_path, is_display_running
 from punt_lux.protocol import (
     InteractionMessage,
     Patch,
@@ -38,10 +39,13 @@ async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
     try:
         cfg = read_config(resolve_config_path())
         if cfg.display == "y":
-            logger.info("display=y, eagerly connecting to display server")
-            _get_client()
+            if is_display_running(default_socket_path()):
+                logger.info("display=y, eagerly connecting to display server")
+                _get_client()
+            else:
+                logger.debug("display=y but server not running, skipping eager connect")
     except (RuntimeError, OSError):
-        logger.debug("Eager connect failed (display may not be running)", exc_info=True)
+        logger.debug("Eager connect failed", exc_info=True)
     yield
 
 
@@ -1064,7 +1068,8 @@ def display_mode(mode: str | None = None) -> str:
     write_field("display", mode, config_path)
     if mode == "y":
         try:
-            _get_client()
+            if is_display_running(default_socket_path()):
+                _get_client()
         except (RuntimeError, OSError):
             logger.debug("Eager connect on display_mode=y failed", exc_info=True)
     return f"display:{mode}"
