@@ -1782,6 +1782,7 @@ This means a background agent continuously updating a frame will keep stealing f
 `MarkdownElement` renders body text noticeably larger than `TextElement` and other ImGui-rendered text. This creates a jarring visual hierarchy where markdown annotations dominate the UI. Observed in z-spec's tutorial browser, where lesson annotations overflowed the paged group frame. The z-spec team had to fall back to plain text elements.
 
 Two sub-issues:
+
 1. Markdown body text larger than ImGui default text
 2. Markdown text doesn't wrap at parent container boundaries
 
