@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Eager connect now auto-spawns display server** — the `is_display_running()`
+  guard prevented the MCP server from starting the display on session start,
+  defeating the purpose of eager connect. Removed the guard and moved
+  `_get_client()` to a background thread via `asyncio.to_thread()` so
+  auto-spawn doesn't block the async event loop.
+
 ## [0.14.0] - 2026-03-14
 
 ### Added
