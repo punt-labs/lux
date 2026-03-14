@@ -44,7 +44,7 @@ async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
                 _get_client()
             else:
                 logger.debug("display=y but server not running, skipping eager connect")
-    except (RuntimeError, OSError):
+    except (RuntimeError, OSError, ValueError, KeyError):
         logger.debug("Eager connect failed", exc_info=True)
     yield
 
@@ -1070,7 +1070,7 @@ def display_mode(mode: str | None = None) -> str:
         try:
             if is_display_running(default_socket_path()):
                 _get_client()
-        except (RuntimeError, OSError):
+        except (RuntimeError, OSError, ValueError, KeyError):
             logger.debug("Eager connect on display_mode=y failed", exc_info=True)
     return f"display:{mode}"
 
