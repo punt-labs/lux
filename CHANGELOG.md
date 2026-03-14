@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.14.1] - 2026-03-14
+
 ### Fixed
 
 - **Eager connect now auto-spawns display server** — the `is_display_running()`
