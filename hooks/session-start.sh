@@ -45,9 +45,4 @@ if command -v jq &>/dev/null && [[ -f "$SETTINGS" ]]; then
   fi
 fi
 
-# ── Ping display server (fire-and-forget, never blocks) ──────────────
-# Wake up the display server if running. Short timeout ensures this
-# completes quickly even if the server is unresponsive.
-lux ping --timeout 1 >/dev/null 2>&1 || true
-
 exit 0

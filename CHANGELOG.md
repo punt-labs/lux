@@ -11,8 +11,6 @@
   server and registers applications immediately on startup when display
   mode is enabled, and again when `display_mode` is set to `y`. No more
   waiting for the first tool call.
-- **SessionStart ping** — the session-start hook now pings the display
-  server on Claude Code startup (async, fire-and-forget, never blocks).
 
 ## [0.13.0] - 2026-03-13
 
