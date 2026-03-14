@@ -2321,9 +2321,7 @@ class DisplayServer:
         # Dock bar for minimized frames
         self._render_dock_bar(imgui, any_frame_hovered=any_frame_hovered)
 
-    def _render_dock_bar(
-        self, imgui: Any, *, any_frame_hovered: bool = False
-    ) -> None:
+    def _render_dock_bar(self, imgui: Any, *, any_frame_hovered: bool = False) -> None:
         """Render a bottom dock bar showing minimized frames as pills.
 
         *any_frame_hovered* is True when the mouse is over a visible frame
