@@ -43,9 +43,10 @@ async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
     async event loop.
     """
     try:
-        cfg = read_config(resolve_config_path())
-    except OSError as exc:
-        logger.warning("Failed to read display config: %s", exc)
+        config_path = resolve_config_path()
+        cfg = read_config(config_path)
+    except (OSError, ValueError) as exc:
+        logger.warning("Failed to read display config (%s): %s", config_path, exc)
         yield
         return
 
@@ -53,7 +54,7 @@ async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
         try:
             logger.info("display=y, eagerly connecting to display server")
             await asyncio.to_thread(_get_client)
-        except (RuntimeError, OSError):
+        except (RuntimeError, OSError, ValueError, KeyError):
             logger.warning(
                 "Eager connect to display failed; will connect on first tool call",
                 exc_info=True,
@@ -162,7 +163,7 @@ def _with_reconnect[T](fn: Callable[[], T]) -> T:
                 except (OSError, RuntimeError) as reconnect_exc:
                     msg = f"Reconnect failed after connection loss: {reconnect_exc}"
                     raise RuntimeError(msg) from exc
-        return fn()
+            return fn()
 
 
 @mcp.tool()
@@ -1085,7 +1086,7 @@ def display_mode(mode: str | None = None) -> str:
     if mode == "y":
         try:
             _get_client()
-        except (RuntimeError, OSError):
+        except (RuntimeError, OSError, ValueError, KeyError):
             logger.warning(
                 "Eager connect on display_mode=y failed; will retry on first tool call",
                 exc_info=True,
