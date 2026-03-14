@@ -165,11 +165,13 @@ def ping(
     from punt_lux.client import LuxClient
 
     try:
-        with LuxClient(str(path), name="ping", recv_timeout=timeout) as client:
+        with LuxClient(
+            str(path), name="ping", recv_timeout=timeout, auto_spawn=False
+        ) as client:
             t0 = time.monotonic()
             pong = client.ping()
             rtt = time.monotonic() - t0
-    except (OSError, TimeoutError):
+    except (OSError, TimeoutError, RuntimeError):
         print("timeout")
         raise typer.Exit(code=1) from None
 

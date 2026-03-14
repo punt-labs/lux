@@ -6,7 +6,11 @@
 
 - **`lux ping` CLI command** — round-trip ping to the display server with
   configurable timeout (default 2s). Exits 0 on pong, 1 on timeout or no
-  server.
+  server. Does not auto-spawn the display server.
+- **Eager connect on display=y** — the MCP server connects to the display
+  server and registers applications immediately on startup when display
+  mode is enabled, and again when `display_mode` is set to `y`. No more
+  waiting for the first tool call.
 - **SessionStart ping** — the session-start hook now pings the display
   server on Claude Code startup (async, fire-and-forget, never blocks).
 

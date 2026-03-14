@@ -11,10 +11,11 @@ Run via stdio transport::
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from fastmcp import FastMCP
@@ -29,6 +30,20 @@ from punt_lux.protocol import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
+    """Eager-connect to the display server when display=y."""
+    try:
+        cfg = read_config(resolve_config_path())
+        if cfg.display == "y":
+            logger.info("display=y, eagerly connecting to display server")
+            _get_client()
+    except (RuntimeError, OSError):
+        logger.debug("Eager connect failed (display may not be running)", exc_info=True)
+    yield
+
 
 mcp = FastMCP(
     "lux",
@@ -54,6 +69,7 @@ mcp = FastMCP(
         "- Form: input_text + combo + checkbox + button for submission\n"
         "- Custom layout: use show() to compose any element tree"
     ),
+    lifespan=_lifespan,
 )
 
 _client: LuxClient | None = None
@@ -1046,6 +1062,11 @@ def display_mode(mode: str | None = None) -> str:
         raise ValueError(msg)
 
     write_field("display", mode, config_path)
+    if mode == "y":
+        try:
+            _get_client()
+        except (RuntimeError, OSError):
+            logger.debug("Eager connect on display_mode=y failed", exc_info=True)
     return f"display:{mode}"
 
 
