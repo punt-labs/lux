@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-03-13
+
 ### Added
 
 - **Paged group Prev/Next buttons** — paged groups now render built-in
