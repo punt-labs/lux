@@ -15,6 +15,7 @@ import asyncio
 import contextlib
 import logging
 import math
+import threading
 import time
 from collections.abc import AsyncIterator, Callable
 from typing import Any
@@ -43,11 +44,20 @@ async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
     """
     try:
         cfg = read_config(resolve_config_path())
-        if cfg.display == "y":
+    except OSError as exc:
+        logger.warning("Failed to read display config: %s", exc)
+        yield
+        return
+
+    if cfg.display == "y":
+        try:
             logger.info("display=y, eagerly connecting to display server")
             await asyncio.to_thread(_get_client)
-    except (RuntimeError, OSError, ValueError, KeyError):
-        logger.debug("Eager connect failed", exc_info=True)
+        except (RuntimeError, OSError):
+            logger.warning(
+                "Eager connect to display failed; will connect on first tool call",
+                exc_info=True,
+            )
     yield
 
 
@@ -79,6 +89,7 @@ mcp = FastMCP(
 )
 
 _client: LuxClient | None = None
+_client_lock = threading.Lock()
 
 
 def _on_beads_browser(_msg: InteractionMessage) -> None:
@@ -110,20 +121,19 @@ def _setup_apps(client: LuxClient) -> None:
 def _get_client() -> LuxClient:
     """Return a connected LuxClient, creating or reconnecting as needed.
 
-    Reuses the existing instance when possible so that accumulated state
-    (e.g. registered menu items, callbacks) survives across reconnects.
-    Starts the background listener after connecting so that registered
-    callbacks dispatch autonomously.
+    Thread-safe: holds ``_client_lock`` to prevent duplicate creation
+    when called concurrently from the lifespan thread and MCP tool threads.
     """
     global _client
-    if _client is None:
-        _client = LuxClient(name="lux-mcp")
-    _setup_apps(_client)
-    if not _client.is_connected:
-        _client.connect()
-    if not _client.listener_active:
-        _client.start_listener()
-    return _client
+    with _client_lock:
+        if _client is None:
+            _client = LuxClient(name="lux-mcp")
+        _setup_apps(_client)
+        if not _client.is_connected:
+            _client.connect()
+        if not _client.listener_active:
+            _client.start_listener()
+        return _client
 
 
 def _with_reconnect[T](fn: Callable[[], T]) -> T:
@@ -135,19 +145,23 @@ def _with_reconnect[T](fn: Callable[[], T]) -> T:
     reset, bad file descriptor, etc.), closes the stale socket,
     reconnects the same client instance (preserving accumulated state
     like registered menu items), and retries *fn* exactly once.
+
+    Holds ``_client_lock`` during the close/reconnect sequence to
+    prevent races with ``_get_client()`` in other threads.
     """
     global _client
     try:
         return fn()
     except OSError as exc:
         logger.info("Connection lost (%s), reconnecting to display", type(exc).__name__)
-        if _client is not None:
-            _client.close()
-            try:
-                _client.connect()
-            except (OSError, RuntimeError) as reconnect_exc:
-                msg = f"Reconnect failed after connection loss: {reconnect_exc}"
-                raise RuntimeError(msg) from exc
+        with _client_lock:
+            if _client is not None:
+                _client.close()
+                try:
+                    _client.connect()
+                except (OSError, RuntimeError) as reconnect_exc:
+                    msg = f"Reconnect failed after connection loss: {reconnect_exc}"
+                    raise RuntimeError(msg) from exc
         return fn()
 
 
@@ -1071,8 +1085,11 @@ def display_mode(mode: str | None = None) -> str:
     if mode == "y":
         try:
             _get_client()
-        except (RuntimeError, OSError, ValueError, KeyError):
-            logger.debug("Eager connect on display_mode=y failed", exc_info=True)
+        except (RuntimeError, OSError):
+            logger.warning(
+                "Eager connect on display_mode=y failed; will retry on first tool call",
+                exc_info=True,
+            )
     return f"display:{mode}"
 
 
