@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-03-13
+
 ### Added
 
 - **Beads Browser application** — the Applications menu now shows "Beads
