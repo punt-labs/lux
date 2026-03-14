@@ -19,12 +19,12 @@ from typing import Any
 
 from fastmcp import FastMCP
 
+from punt_lux.apps.beads import render_beads_board
 from punt_lux.client import LuxClient
 from punt_lux.config import read_config, resolve_config_path, write_field
 from punt_lux.protocol import (
     InteractionMessage,
     Patch,
-    TextElement,
     element_from_dict,
 )
 
@@ -59,28 +59,12 @@ mcp = FastMCP(
 _client: LuxClient | None = None
 
 
-def _on_hello_world(_msg: InteractionMessage) -> None:
-    """Callback: render Hello World in a frame."""
+def _on_beads_browser(_msg: InteractionMessage) -> None:
+    """Callback: open the Beads Browser in a frame."""
     if _client is None:
-        logger.warning("_on_hello_world: client is None, ignoring menu click")
+        logger.warning("_on_beads_browser: client is None, ignoring menu click")
         return
-    _client.show_async(
-        "hello-world-scene",
-        elements=[
-            TextElement(
-                id="hw-greeting",
-                content="Hello World!",
-                style="heading",
-            ),
-            TextElement(
-                id="hw-hint",
-                content="This frame was opened by a menu callback.",
-            ),
-        ],
-        frame_id="hello-world-frame",
-        frame_title="Hello World",
-        frame_size=(350, 100),
-    )
+    render_beads_board(_client)
 
 
 _apps_registered_for: int | None = None
@@ -96,8 +80,8 @@ def _setup_apps(client: LuxClient) -> None:
     global _apps_registered_for
     if _apps_registered_for == id(client):
         return
-    client.declare_menu_item({"id": "app-hello-world", "label": "Hello World"})
-    client.on_event("app-hello-world", "menu", _on_hello_world)
+    client.declare_menu_item({"id": "app-beads", "label": "Beads Browser"})
+    client.on_event("app-beads", "menu", _on_beads_browser)
     _apps_registered_for = id(client)
 
 

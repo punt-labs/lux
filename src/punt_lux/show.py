@@ -7,165 +7,20 @@ no LLM in the loop.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 import typer
+
+from punt_lux.apps.beads import build_beads_payload, load_beads
 
 show_app = typer.Typer(
     help="Show pre-built scenes in the Lux display.",
     no_args_is_help=True,
 )
 
-
-# ---------------------------------------------------------------------------
-# Beads helpers (pure, testable)
-# ---------------------------------------------------------------------------
-
-_ACTIVE_STATUSES = frozenset({"open", "in_progress"})
-
-_FIELD_DEFAULTS: dict[str, Any] = {
-    "title": "",
-    "status": "open",
-    "priority": 4,
-    "issue_type": "task",
-    "description": "",
-    "assignee": "",
-    "owner": "",
-    "created_at": "",
-    "updated_at": "",
-}
-
-
-def load_beads(beads_dir: Path, *, all_issues: bool = False) -> list[dict[str, Any]]:
-    """Read, default-fill, filter, and sort beads issues.
-
-    Returns issues sorted with in_progress first, then by priority
-    ascending, then by updated_at descending within equal groups.
-    """
-    path = beads_dir / "issues.jsonl"
-    if not path.is_file():
-        return []
-
-    issues: list[dict[str, Any]] = []
-    for lineno, line in enumerate(path.read_text().splitlines(), start=1):
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            issue = json.loads(line)
-        except json.JSONDecodeError as exc:
-            msg = f"Malformed JSON in {path} at line {lineno}: {exc.msg}"
-            raise ValueError(msg) from exc
-        if not isinstance(issue, dict):
-            msg = (
-                f"Expected JSON object in {path} at line {lineno}, "
-                f"got {type(issue).__name__}"
-            )
-            raise ValueError(msg)
-        row = cast("dict[str, Any]", issue)
-        for key, default in _FIELD_DEFAULTS.items():
-            if row.get(key) is None:
-                row[key] = default
-        issues.append(row)
-
-    if not all_issues:
-        issues = [i for i in issues if i["status"] in _ACTIVE_STATUSES]
-
-    # Three-pass stable sort: updated_at desc, then priority asc, then
-    # in_progress floats to top.  Python's stable sort preserves earlier
-    # orderings within equal keys at each pass.
-    issues.sort(key=lambda i: i.get("updated_at", ""), reverse=True)
-    issues.sort(key=lambda i: i["priority"])
-    issues.sort(key=lambda i: i["status"] != "in_progress")
-
-    return issues
-
-
-def build_beads_payload(
-    issues: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Build the show_table element dict and metadata for beads issues.
-
-    Returns a dict with keys: ``columns``, ``rows``, ``filters``, ``detail``,
-    ready to be wrapped as a table element.
-    """
-    columns = ["ID", "Title", "Status", "P", "Type"]
-
-    rows: list[list[Any]] = []
-    detail_rows: list[list[str]] = []
-    detail_bodies: list[str] = []
-    statuses: set[str] = set()
-    types: set[str] = set()
-
-    for issue in issues:
-        rows.append(
-            [
-                issue.get("id", ""),
-                issue["title"],
-                issue["status"],
-                f"P{issue['priority']}",
-                issue["issue_type"],
-            ]
-        )
-        detail_rows.append(
-            [
-                issue.get("id", ""),
-                issue["status"],
-                f"P{issue['priority']}",
-                issue["issue_type"],
-                issue["assignee"],
-                issue["owner"],
-                issue["created_at"][:10],
-                issue["updated_at"][:10],
-            ]
-        )
-        detail_bodies.append(issue["description"] or "No description.")
-        statuses.add(issue["status"])
-        types.add(issue["issue_type"])
-
-    filters = [
-        {
-            "type": "search",
-            "column": [0, 1],
-            "hint": "Filter by ID or title...",
-        },
-        {
-            "type": "combo",
-            "column": 2,
-            "items": ["All", *sorted(statuses)],
-            "label": "Status",
-        },
-        {
-            "type": "combo",
-            "column": 4,
-            "items": ["All", *sorted(types)],
-            "label": "Type",
-        },
-    ]
-
-    detail = {
-        "fields": [
-            "ID",
-            "Status",
-            "Priority",
-            "Type",
-            "Claimed By",
-            "Owner",
-            "Created",
-            "Updated",
-        ],
-        "rows": detail_rows,
-        "body": detail_bodies,
-    }
-
-    return {
-        "columns": columns,
-        "rows": rows,
-        "filters": filters,
-        "detail": detail,
-    }
+# Re-export for backwards compatibility with any external callers.
+__all__ = ["build_beads_payload", "load_beads", "show_app"]
 
 
 # ---------------------------------------------------------------------------
