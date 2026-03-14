@@ -2369,7 +2369,13 @@ class DisplayServer:
         pill_hovered = imgui.get_color_u32(style.color_(imgui.Col_.button_hovered))
 
         mouse = imgui.get_mouse_pos()
-        clicked = imgui.is_mouse_clicked(imgui.MouseButton_.left)
+        # Only accept clicks when no ImGui item or window is capturing input,
+        # so frames overlapping the dock bar don't trigger pill restore.
+        clicked = (
+            imgui.is_mouse_clicked(imgui.MouseButton_.left)
+            and not imgui.is_any_item_hovered()
+            and not imgui.is_window_hovered(imgui.HoveredFlags_.any_window.value)
+        )
 
         for frame in minimized:
             text_size = imgui.calc_text_size(frame.title)
@@ -2986,16 +2992,12 @@ class DisplayServer:
         page_source: str | None = grp.page_source
         state_key = self._paged_group_state_key(grp.id, page_source)
         page_idx = self._paged_group_read_index(state_key, total)
-        prev_page = page_idx
 
         # Nav row: << Prev | [combo] | Next >>
         if imgui.button(f"<< Prev##{grp.id}_prev") and page_idx > 0:
             page_idx -= 1
-        imgui.same_line()
-
-        # Write before combo renders so it sees the updated index.
-        if page_idx != prev_page:
             self._widget_state.set(state_key, page_idx)
+        imgui.same_line()
 
         # Render the combo (from page_source) inline; other children after.
         other_children: list[Any] = []
@@ -3009,6 +3011,10 @@ class DisplayServer:
         if imgui.button(f"Next >>##{grp.id}_next") and page_idx < total - 1:
             page_idx += 1
             self._widget_state.set(state_key, page_idx)
+
+        # Re-read after all interactions (Prev, combo change, Next) so the
+        # page content always reflects the final widget_state value.
+        page_idx = self._paged_group_read_index(state_key, total)
 
         for child in other_children:
             self._render_element(child)
