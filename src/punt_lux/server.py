@@ -42,8 +42,8 @@ async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
     and potential ``ensure_display()`` auto-spawn don't stall the
     async event loop.
     """
+    config_path = resolve_config_path()
     try:
-        config_path = resolve_config_path()
         cfg = read_config(config_path)
     except (OSError, ValueError) as exc:
         logger.warning("Failed to read display config (%s): %s", config_path, exc)
