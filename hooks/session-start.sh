@@ -45,9 +45,4 @@ if command -v jq &>/dev/null && [[ -f "$SETTINGS" ]]; then
   fi
 fi
 
-# ── Hook is async — no additionalContext injection ───────────────────
-# Display mode is discovered via the MCP server on first tool call.
-# The Python handler (lux hook session-start) was removed because async
-# hooks cannot inject additionalContext — the window has already closed.
-
 exit 0

@@ -11,10 +11,11 @@ Run via stdio transport::
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import math
 import time
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
 from typing import Any
 
 from fastmcp import FastMCP
@@ -22,6 +23,7 @@ from fastmcp import FastMCP
 from punt_lux.apps.beads import render_beads_board
 from punt_lux.client import LuxClient
 from punt_lux.config import read_config, resolve_config_path, write_field
+from punt_lux.paths import default_socket_path, is_display_running
 from punt_lux.protocol import (
     InteractionMessage,
     Patch,
@@ -29,6 +31,23 @@ from punt_lux.protocol import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+@contextlib.asynccontextmanager
+async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
+    """Eager-connect to the display server when display=y."""
+    try:
+        cfg = read_config(resolve_config_path())
+        if cfg.display == "y":
+            if is_display_running(default_socket_path()):
+                logger.info("display=y, eagerly connecting to display server")
+                _get_client()
+            else:
+                logger.debug("display=y but server not running, skipping eager connect")
+    except (RuntimeError, OSError, ValueError, KeyError):
+        logger.debug("Eager connect failed", exc_info=True)
+    yield
+
 
 mcp = FastMCP(
     "lux",
@@ -54,6 +73,7 @@ mcp = FastMCP(
         "- Form: input_text + combo + checkbox + button for submission\n"
         "- Custom layout: use show() to compose any element tree"
     ),
+    lifespan=_lifespan,
 )
 
 _client: LuxClient | None = None
@@ -1046,6 +1066,12 @@ def display_mode(mode: str | None = None) -> str:
         raise ValueError(msg)
 
     write_field("display", mode, config_path)
+    if mode == "y":
+        try:
+            if is_display_running(default_socket_path()):
+                _get_client()
+        except (RuntimeError, OSError, ValueError, KeyError):
+            logger.debug("Eager connect on display_mode=y failed", exc_info=True)
     return f"display:{mode}"
 
 

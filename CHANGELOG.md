@@ -2,6 +2,24 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`lux ping` CLI command** — round-trip ping to the display server with
+  configurable timeout (default 2s). Exits 0 on pong, 1 on timeout or no
+  server. Does not auto-spawn the display server.
+- **Eager connect on display=y** — the MCP server connects to the display
+  server and registers applications immediately on startup when display
+  mode is enabled, and again when `display_mode` is set to `y`. No more
+  waiting for the first tool call.
+
+### Fixed
+
+- **Dock bar pill clicks broken by dock space** — `dock_space_over_viewport`
+  covers the entire viewport, making the `is_window_hovered(any_window)`
+  guard always true and blocking all pill clicks. Replaced with explicit
+  per-frame hover tracking so pills only reject clicks when a visible
+  frame window overlaps the dock bar.
+
 ## [0.13.0] - 2026-03-13
 
 ### Added

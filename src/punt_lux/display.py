@@ -2237,8 +2237,12 @@ class DisplayServer:
         fitting: bool,
         tile_layout: dict[str, tuple[float, float, float, float]],
         default_size: tuple[float, float],
-    ) -> str | None:
-        """Render one frame window. Returns 'closed', 'minimized', or None."""
+    ) -> tuple[str | None, bool]:
+        """Render one frame window.
+
+        Returns (result, hovered) where result is 'closed', 'minimized',
+        or None, and hovered indicates the mouse is over this frame.
+        """
         if fitting and frame.frame_id in tile_layout:
             cond = imgui.Cond_.always.value
             x, y, fw, fh = tile_layout[frame.frame_id]
@@ -2258,9 +2262,12 @@ class DisplayServer:
         expanded, still_open = imgui.begin(
             f"{frame.title}##{frame.frame_id}", still_open, win_flags
         )
+        hovered = imgui.is_window_hovered(
+            imgui.HoveredFlags_.root_and_child_windows.value
+        )
         if not still_open:
             imgui.end()
-            return "closed"
+            return "closed", hovered
         if not expanded:
             # Collapse triangle clicked — minimize to dock bar.
             # Skip when docked: ImGui reports expanded=False during
@@ -2268,12 +2275,12 @@ class DisplayServer:
             if not imgui.is_window_docked():
                 imgui.set_window_collapsed(False)
                 imgui.end()
-                return "minimized"
+                return "minimized", hovered
             imgui.end()
-            return None
+            return None, hovered
         self._render_frame_contents(frame, imgui)
         imgui.end()
-        return None
+        return None, hovered
 
     def _render_frames(self, imgui: Any) -> None:
         """Render each frame as an ImGui inner window."""
@@ -2291,16 +2298,18 @@ class DisplayServer:
 
         closed_frames: list[str] = []
         minimized_frames: list[str] = []
+        any_frame_hovered = False
         for frame in list(self._frames.values()):
             if frame.minimized:
                 continue
-            result = self._render_single_frame(
+            result, hovered = self._render_single_frame(
                 frame,
                 imgui,
                 fitting=fitting,
                 tile_layout=tile_layout,
                 default_size=(frame_w, frame_h),
             )
+            any_frame_hovered = any_frame_hovered or hovered
             if result == "closed":
                 closed_frames.append(frame.frame_id)
             elif result == "minimized":
@@ -2310,15 +2319,14 @@ class DisplayServer:
         for fid in minimized_frames:
             self._frames[fid].minimized = True
         # Dock bar for minimized frames
-        self._render_dock_bar(imgui)
+        self._render_dock_bar(imgui, any_frame_hovered=any_frame_hovered)
 
-    def _render_dock_bar(self, imgui: Any) -> None:
+    def _render_dock_bar(self, imgui: Any, *, any_frame_hovered: bool = False) -> None:
         """Render a bottom dock bar showing minimized frames as pills.
 
-        Uses an invisible ImGui window so that pill clicks are properly
-        captured and do not pass through to underlying windows.  Pills
-        that would overflow the viewport are truncated with an ellipsis
-        indicator.  Colors derive from the active ImGui style.
+        *any_frame_hovered* is True when the mouse is over a visible frame
+        window.  When set, pill clicks are suppressed to prevent restoring
+        a frame when the user clicks on a frame that overlaps the dock bar.
         """
         minimized = [f for f in self._frames.values() if f.minimized]
         if not minimized:
@@ -2369,12 +2377,15 @@ class DisplayServer:
         pill_hovered = imgui.get_color_u32(style.color_(imgui.Col_.button_hovered))
 
         mouse = imgui.get_mouse_pos()
-        # Only accept clicks when no ImGui item or window is capturing input,
-        # so frames overlapping the dock bar don't trigger pill restore.
+        # Accept clicks when no frame window or ImGui item is under the
+        # cursor.  The previous is_window_hovered(any_window) guard was
+        # always true because dock_space_over_viewport covers the entire
+        # viewport, blocking all pill clicks.  We now use the explicit
+        # any_frame_hovered flag computed during frame rendering.
         clicked = (
             imgui.is_mouse_clicked(imgui.MouseButton_.left)
             and not imgui.is_any_item_hovered()
-            and not imgui.is_window_hovered(imgui.HoveredFlags_.any_window.value)
+            and not any_frame_hovered
         )
 
         for frame in minimized:

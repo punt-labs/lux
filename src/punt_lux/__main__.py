@@ -147,6 +147,42 @@ def version() -> None:
 
 
 @app.command()
+def ping(
+    socket: str | None = typer.Option(None, "--socket", "-s", help="Socket path"),
+    timeout: float = typer.Option(2.0, "--timeout", "-t", help="Timeout in seconds"),
+) -> None:
+    """Ping the display server and print round-trip time."""
+    import time
+    from pathlib import Path
+
+    from punt_lux.paths import default_socket_path, is_display_running
+
+    path = Path(socket) if socket else default_socket_path()
+    if not is_display_running(path):
+        print("Display not running")
+        raise typer.Exit(code=1)
+
+    from punt_lux.client import LuxClient
+
+    try:
+        with LuxClient(
+            str(path), name="ping", recv_timeout=timeout, auto_spawn=False
+        ) as client:
+            t0 = time.monotonic()
+            pong = client.ping()
+            rtt = time.monotonic() - t0
+    except (OSError, TimeoutError, RuntimeError):
+        print("timeout")
+        raise typer.Exit(code=1) from None
+
+    if pong is None:
+        print("timeout")
+        raise typer.Exit(code=1)
+
+    print(f"pong rtt={rtt:.3f}s")
+
+
+@app.command()
 def status(
     socket: str | None = typer.Option(None, "--socket", "-s", help="Socket path"),
 ) -> None:
