@@ -13,7 +13,6 @@ Public API:
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -21,8 +20,6 @@ from punt_lux.protocol import TextElement, element_from_dict
 
 if TYPE_CHECKING:
     from punt_lux.client import LuxClient
-
-logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Data loading (pure, testable)
@@ -205,7 +202,18 @@ def render_beads_board(client: LuxClient) -> None:
         )
         return
 
-    issues = load_beads(beads_dir)
+    try:
+        issues = load_beads(beads_dir)
+    except ValueError as exc:
+        client.show_async(
+            f"beads-{project}",
+            elements=[
+                TextElement(id="error", content=f"Error loading beads:\n{exc}"),
+            ],
+            frame_id=frame_id,
+            frame_title=f"Beads: {project}",
+        )
+        return
 
     if not issues:
         client.show_async(
