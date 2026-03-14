@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.14.2] - 2026-03-14
+
 ### Fixed
 
 - **Markdown font size matches ImGui default** — `MarkdownElement` body text
