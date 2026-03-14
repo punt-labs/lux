@@ -1038,8 +1038,6 @@ class DisplayServer:
         runner_params.callbacks.before_exit = self._on_exit
         runner_params.fps_idling.fps_idle = 30.0
 
-        from imgui_bundle import imgui_md
-
         addons = immapp.AddOnsParams()
         addons.with_implot = True
         # Set markdown regular_size to match the system font visually.
@@ -1047,9 +1045,14 @@ class DisplayServer:
         # fonts at the same nominal px.  Do NOT also set with_markdown=True
         # — InitializeMarkdown has a static guard that silently drops the
         # second call, so the custom options would be ignored.
-        md_opts = imgui_md.MarkdownOptions()
-        md_opts.font_options.regular_size = 13.0
-        addons.with_markdown_options = md_opts
+        try:
+            from imgui_bundle import imgui_md
+
+            md_opts = imgui_md.MarkdownOptions()
+            md_opts.font_options.regular_size = 13.0
+            addons.with_markdown_options = md_opts
+        except ImportError:
+            addons.with_markdown = True
 
         immapp.run(runner_params, addons)
 
@@ -3388,8 +3391,10 @@ class DisplayServer:
             from imgui_bundle import imgui, imgui_md
 
             imgui.push_text_wrap_pos(0.0)
-            imgui_md.render_unindented(md.content)
-            imgui.pop_text_wrap_pos()
+            try:
+                imgui_md.render_unindented(md.content)
+            finally:
+                imgui.pop_text_wrap_pos()
         except ImportError:
             from imgui_bundle import imgui
 
