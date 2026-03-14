@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`lux ping` CLI command** — round-trip ping to the display server with
+  configurable timeout (default 2s). Exits 0 on pong, 1 on timeout or no
+  server.
+- **SessionStart ping** — the session-start hook now pings the display
+  server on Claude Code startup (async, fire-and-forget, never blocks).
+
 ## [0.13.0] - 2026-03-13
 
 ### Added

@@ -45,9 +45,9 @@ if command -v jq &>/dev/null && [[ -f "$SETTINGS" ]]; then
   fi
 fi
 
-# ── Hook is async — no additionalContext injection ───────────────────
-# Display mode is discovered via the MCP server on first tool call.
-# The Python handler (lux hook session-start) was removed because async
-# hooks cannot inject additionalContext — the window has already closed.
+# ── Ping display server (fire-and-forget, never blocks) ──────────────
+# Wake up the display server if running. Short timeout ensures this
+# completes quickly even if the server is unresponsive.
+lux ping --timeout 1 >/dev/null 2>&1 || true
 
 exit 0
