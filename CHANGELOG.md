@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Beads Browser application** — the Applications menu now shows "Beads
+  Browser" instead of "Hello World". Clicking it opens the beads issue
+  board in a frame, same as the `/lux:beads` skill. The hook-based
+  auto-refresh after `bd` commands continues to work alongside the menu
+  entry.
+
+### Changed
+
+- **Extractable beads module** — `load_beads` and `build_beads_payload`
+  moved from `show.py` to `apps/beads.py`, a self-contained module with
+  no Lux display internals. Designed for future extraction into the beads
+  repo as an optional dependency.
+
+### Removed
+
+- **Hello World demo app** — replaced by the Beads Browser application.
+
 ## [0.12.0] - 2026-03-13
 
 ### Added
