@@ -1812,6 +1812,8 @@ addons.with_markdown_options = md_opts
 
 The runner code checks `withMarkdown || withMarkdownOptions.has_value()`, so setting options alone enables markdown. The 13px display size for Roboto visually matches the system font at 16px after `font_scale_main` (1.1x) is applied.
 
+The primary font was also bumped from 15px to 16px for better readability at the default scale. This is independent of the markdown fix — the size mismatch existed at both 15px and 16px because the root cause is different typefaces (system font vs Roboto), not different sizes.
+
 For wrapping: `imgui.push_text_wrap_pos(0.0)` before `render_unindented()` constrains text to the window's work rect boundary, which respects frame/group padding.
 
 ### Rejected Approaches
@@ -1823,3 +1825,70 @@ For wrapping: `imgui.push_text_wrap_pos(0.0)` before `render_unindented()` const
 **Temporarily modifying `font_scale_main` during markdown render.** Would work in theory but is fragile — the scale change could affect nested elements, and the ratio depends on knowing both font sizes at render time.
 
 **Calling `initialize_markdown()` in `_on_post_init`.** Silently dropped by the static guard — the function was already called during `immapp.run()` setup.
+
+---
+
+## DES-027: Application Containment — the `apps/` Subsystem
+
+**Date:** 2026-03-14
+**Status:** ACCEPTED
+
+### Problem
+
+Lux ships with a Beads Browser application that lets users view their project's issue board in a Lux frame. But the beads issue tracker is a separate product (`punt-beads`) maintained by a different team. Embedding beads-specific business logic — JSONL parsing, issue filtering and sorting, table layout — inside Lux's display server or MCP server couples Lux to a product it doesn't own. If beads changes its data format, Lux breaks. If another team wants to build a Lux applet (e.g., a Quarry search viewer), there's no pattern to follow.
+
+### Design Principle
+
+**Lux is a renderer. Applications are guests.**
+
+DES-022 D2 established that "the display shouldn't know what a Beads Explorer is — frames are the client's domain." This principle extends beyond the display server to the entire Lux codebase. Application-specific business logic lives in `src/punt_lux/apps/`, a containment boundary that isolates guest code from Lux internals.
+
+### Containment Rules
+
+1. **`apps/` modules import only `LuxClient` and `protocol` types.** No imports from `display.py`, `hooks.py`, `server.py`, or other Lux internals. The dependency rule: host modules (`server.py`, `hooks.py`, `show.py`) import from `apps/`; `apps/` modules import only from `client` and `protocol` — never from host modules.
+
+2. **Pure data functions are testable without a display.** `load_beads()` and `build_beads_payload()` are pure functions that read files and return dicts. They can be tested, extracted, or replaced without touching the renderer.
+
+3. **Wiring lives in the host, not the app.** The MCP server (`server.py`) registers the menu item and callback. The hook dispatcher (`hooks.py`) triggers refreshes. The CLI (`show.py`) exposes the command. The app module itself has no knowledge of menus, hooks, or CLI — it just builds content and sends it to a `LuxClient`.
+
+4. **Each app is extractable.** `apps/beads.py` is designed to move to the `punt-beads` repo as an optional Lux integration. When that happens, Lux removes `apps/beads.py` and the wiring in `server.py`/`hooks.py`/`show.py`. The beads team owns their applet; Lux provides the rendering surface.
+
+### Current Structure
+
+```text
+src/punt_lux/
+├── apps/
+│   ├── __init__.py
+│   └── beads.py          ← guest: data loading + table layout
+├── server.py             ← host: menu registration + callback wiring
+├── hooks.py              ← host: PostToolUse Bash → auto-refresh
+├── show.py               ← host: CLI `lux show beads`
+└── display.py            ← renderer: knows nothing about beads
+```
+
+**Surface area per app:**
+
+| Layer | What the host provides | What the app provides |
+|-------|----------------------|---------------------|
+| Menu | `declare_menu_item` + `on_event` callback in `server.py` | Click handler calls `render_*()` |
+| Hook | PostToolUse matcher in `hooks.json` + dispatcher in `hooks.py` | Nothing — refresh is the host's concern |
+| CLI | `show_app.command()` in `show.py` | `load_*()` + `build_*_payload()` |
+| Display | Frame rendering (DES-022) | Nothing — the display is generic |
+
+### Future: `lux-applets` Extraction
+
+When multiple apps exist (beads, quarry, z-spec tutorial, etc.), the `apps/` directory becomes its own package — `punt-lux-applets` or similar — that depends on `punt-lux[client]` (the lightweight install from DES-023). Each applet is a module with the same contract:
+
+- `load_*()` — pure data loading
+- `build_*_payload()` — pure layout construction
+- `render_*_board(client)` — send to display
+
+The MCP server discovers and wires applets at import time. Applets that fail to import (missing dependencies) are silently skipped — the menu item simply doesn't appear.
+
+### Why Not a Plugin System Now
+
+A formal plugin/applet registry with entry points, discovery, and lifecycle management is premature. There is exactly one app (beads), and it may move to its own repo soon. The `apps/` directory with manual wiring is the minimum viable containment. If a third app arrives, the pattern will be clear enough to extract into a registry.
+
+### Relationship to DES-022
+
+DES-022's rejected alternative — "Server-side frame creation: the display could create frames when clients connect, but this introduces business logic into the renderer" — is the same principle applied at the codebase level. The display server is a pure renderer. The MCP server is a protocol bridge. Business logic lives in `apps/`, and the wiring that connects apps to menus, hooks, and CLI lives in the host modules. No layer reaches into another's domain.

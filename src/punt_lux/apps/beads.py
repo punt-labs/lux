@@ -5,9 +5,10 @@ other Lux internals.  Designed to be extractable into the beads repo
 as an optional dependency.
 
 Public API:
-    load_beads          — read and filter issues from .beads/issues.jsonl
-    build_beads_payload — build a table element dict from issue data
-    render_beads_board  — send the beads table to a LuxClient
+    load_beads           — read and filter issues from .beads/issues.jsonl
+    build_beads_payload  — build a table element dict from issue data
+    build_beads_elements — build display elements from issue data
+    render_beads_board   — send the beads table to a LuxClient
 """
 
 from __future__ import annotations
@@ -175,6 +176,30 @@ def build_beads_payload(
 # ---------------------------------------------------------------------------
 
 
+def build_beads_elements(issues: list[dict[str, Any]]) -> list[Any]:
+    """Build display elements for a beads issue list.
+
+    Returns a list of protocol elements ready to pass to ``LuxClient.show()``.
+    Empty list produces a placeholder text element.
+    """
+    if not issues:
+        return [TextElement(id="empty", content="No active issues.")]
+
+    payload = build_beads_payload(issues)
+    table = element_from_dict(
+        {
+            "kind": "table",
+            "id": "table",
+            "columns": payload["columns"],
+            "rows": payload["rows"],
+            "flags": ["borders", "row_bg", "resizable", "copy_id"],
+            "filters": payload["filters"],
+            "detail": payload["detail"],
+        }
+    )
+    return [table]
+
+
 def render_beads_board(client: LuxClient) -> None:
     """Send the beads issue board to the display via *client*.
 
@@ -215,34 +240,9 @@ def render_beads_board(client: LuxClient) -> None:
         )
         return
 
-    if not issues:
-        client.show_async(
-            f"beads-{project}",
-            elements=[
-                TextElement(id="empty", content="No active issues."),
-            ],
-            frame_id=frame_id,
-            frame_title=f"Beads: {project}",
-        )
-        return
-
-    payload = build_beads_payload(issues)
-
-    table = element_from_dict(
-        {
-            "kind": "table",
-            "id": "table",
-            "columns": payload["columns"],
-            "rows": payload["rows"],
-            "flags": ["borders", "row_bg", "resizable", "copy_id"],
-            "filters": payload["filters"],
-            "detail": payload["detail"],
-        }
-    )
-
     client.show_async(
         f"beads-{project}",
-        elements=[table],
+        elements=build_beads_elements(issues),
         frame_id=frame_id,
         frame_title=f"Beads: {project}",
     )
