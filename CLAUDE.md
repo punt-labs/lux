@@ -98,7 +98,7 @@ GitHub release, PyPI verify, post-release (README SHA bump), cross-repo propagat
 (install-all.sh, marketplace, website), and verification. No manual steps
 are needed after the command completes.
 
-```
+```text
 /punt:auto release [version=X.Y.Z]
 ```
 
