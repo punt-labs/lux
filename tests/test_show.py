@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     import pytest
 
 from punt_lux.__main__ import app
-from punt_lux.show import build_beads_payload, load_beads
+from punt_lux.show import build_beads_elements, build_beads_payload, load_beads
 
 runner = CliRunner()
 
@@ -170,6 +170,28 @@ class TestBuildBeadsPayload:
         payload = build_beads_payload([])
         assert payload["rows"] == []
         assert payload["detail"]["rows"] == []
+
+
+# ---------------------------------------------------------------------------
+# build_beads_elements
+# ---------------------------------------------------------------------------
+
+
+class TestBuildBeadsElements:
+    def test_empty_issues_returns_placeholder(self) -> None:
+        elements = build_beads_elements([])
+        assert len(elements) == 1
+        assert elements[0].kind == "text"
+        assert "No active issues" in elements[0].content
+
+    def test_nonempty_issues_returns_table(self) -> None:
+        active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
+        elements = build_beads_elements(active)
+        assert len(elements) == 1
+        assert elements[0].kind == "table"
+        assert elements[0].id == "table"
+        assert len(elements[0].rows) == 2
+        assert elements[0].columns == ["ID", "Title", "Status", "P", "Type"]
 
 
 # ---------------------------------------------------------------------------

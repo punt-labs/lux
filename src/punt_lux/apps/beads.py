@@ -17,7 +17,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-from punt_lux.protocol import TextElement, element_from_dict
+from punt_lux.protocol import Element, TextElement, element_from_dict
 
 if TYPE_CHECKING:
     from punt_lux.client import LuxClient
@@ -176,11 +176,11 @@ def build_beads_payload(
 # ---------------------------------------------------------------------------
 
 
-def build_beads_elements(issues: list[dict[str, Any]]) -> list[Any]:
+def build_beads_elements(issues: list[dict[str, Any]]) -> list[Element]:
     """Build display elements for a beads issue list.
 
     Returns a list of protocol elements ready to pass to ``LuxClient.show()``.
-    Empty list produces a placeholder text element.
+    If *issues* is empty, returns a placeholder text element.
     """
     if not issues:
         return [TextElement(id="empty", content="No active issues.")]
