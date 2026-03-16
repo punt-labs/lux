@@ -1,6 +1,7 @@
 name: Biff CI Notifications
 on:
   workflow_run:
+    workflows: [Tests, Lint, Docs, Release]
     types: [completed]
 
 permissions:
@@ -14,8 +15,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
+          ref: ${{ github.event.workflow_run.head_sha }}
           sparse-checkout: .biff
       - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
       - env:
@@ -23,6 +25,6 @@ jobs:
           BRANCH: ${{ github.event.workflow_run.head_branch }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}
         run: >-
-          uvx punt-biff --user github-actions wall
+          uvx punt-biff@0.3 --user github-actions wall
           "CI failed: ${WORKFLOW_NAME} on ${BRANCH} — ${RUN_URL}"
           --duration 2h
