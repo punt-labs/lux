@@ -1401,7 +1401,7 @@ class DisplayServer:
         from imgui_bundle import hello_imgui
 
         glfw_decorated = 0x00020005  # GLFW_DECORATED
-        window_addr = hello_imgui.get_glfw_window_address()
+        window_addr = hello_imgui.get_glfw_window_address()  # type: ignore[attr-defined]
 
         # RTLD_NOLOAD (0x10 on macOS) returns the existing handle
         # without loading a second copy of the library.
@@ -1425,7 +1425,7 @@ class DisplayServer:
 
         from imgui_bundle import hello_imgui
 
-        window_addr = hello_imgui.get_glfw_window_address()
+        window_addr = hello_imgui.get_glfw_window_address()  # type: ignore[attr-defined]
         rtld_noload = 0x10
         glfw_lib = ctypes.CDLL("libglfw.3.dylib", mode=rtld_noload)
         glfw_lib.glfwSetWindowOpacity.argtypes = [ctypes.c_void_p, ctypes.c_float]
