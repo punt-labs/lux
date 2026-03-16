@@ -2491,10 +2491,10 @@ class DisplayServer:
         """Remove a frame and all its scenes.
 
         When *notify* is True, a ``frame_close`` event is sent to all
-        contributing clients (``owner_fds``).  This covers both
-        user-initiated close and auto-close when the last scene is
-        dismissed during disconnect cleanup.  When False, no events are
-        emitted (used when the caller handles notification itself).
+        contributing clients (``owner_fds``).  Used for user-initiated
+        close and tab close.  When False, no events are emitted — used
+        during disconnect cleanup where the departing client's fd is
+        already removed and surviving clients should not be notified.
         """
         frame = self._frames.pop(frame_id, None)
         if frame is None:
