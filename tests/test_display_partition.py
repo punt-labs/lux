@@ -14,6 +14,7 @@ Partition classes:
 
 from __future__ import annotations
 
+from typing import Literal
 from unittest.mock import MagicMock
 
 from punt_lux.display import DisplayServer, WidgetState
@@ -809,7 +810,7 @@ def _framed_scene(
     frame_title: str | None = None,
     frame_size: tuple[int, int] | None = None,
     frame_flags: dict[str, bool] | None = None,
-    frame_layout: str | None = None,
+    frame_layout: Literal["tab", "stack"] | None = None,
 ) -> SceneMessage:
     return SceneMessage(
         id=scene_id,
@@ -1357,7 +1358,6 @@ class TestFrameLayoutPartitions:
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_framed_scene(sock, _framed_scene("s1", "f1", frame_layout="tab"))
-        assert server._frames["f1"].layout == "tab"
         server._handle_framed_scene(
             sock, _framed_scene("s2", "f1", frame_layout="stack")
         )

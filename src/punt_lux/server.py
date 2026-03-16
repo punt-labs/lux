@@ -18,7 +18,7 @@ import math
 import threading
 import time
 from collections.abc import AsyncIterator, Callable
-from typing import Any
+from typing import Any, Literal, cast
 
 from fastmcp import FastMCP
 
@@ -268,6 +268,9 @@ def show(
         size_tuple = (frame_size[0], frame_size[1])
     if frame_layout is not None and frame_layout not in ("tab", "stack"):
         return f"error: frame_layout must be 'tab' or 'stack', got {frame_layout!r}"
+    validated_layout: Literal["tab", "stack"] | None = (
+        cast("Literal['tab', 'stack']", frame_layout) if frame_layout else None
+    )
 
     def _call() -> str:
         client = _get_client()
@@ -280,7 +283,7 @@ def show(
             frame_title=frame_title,
             frame_size=size_tuple,
             frame_flags=frame_flags,
-            frame_layout=frame_layout,
+            frame_layout=validated_layout,
         )
         if ack is None:
             return "timeout"
