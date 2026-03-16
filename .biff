@@ -1,2 +1,5 @@
 [relay]
 url = "tls://connect.ngs.global"
+
+[peers]
+repos = ["punt-labs/biff"]

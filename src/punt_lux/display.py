@@ -22,7 +22,7 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
 
 import numpy as np
 from PIL import Image
@@ -848,8 +848,9 @@ class _Frame:
     """A named inner window in the workspace.
 
     Each frame is rendered as an ``imgui.begin()/end()`` window.  It owns
-    one or more scenes and tracks its own tab state when multiple scenes
-    are present.
+    one or more scenes.  When ``layout`` is ``"tab"`` (default), multiple
+    scenes appear as tabs; when ``"stack"``, they stack vertically with
+    collapsing headers.
     """
 
     frame_id: str
@@ -862,6 +863,7 @@ class _Frame:
     cascade_index: int = 0
     initial_size: tuple[int, int] | None = None
     flags: dict[str, bool] | None = None
+    layout: Literal["tab", "stack"] = "tab"
 
 
 # ---------------------------------------------------------------------------
@@ -1902,6 +1904,7 @@ class DisplayServer:
                 cascade_index=self._next_cascade_index(),
                 initial_size=msg.frame_size,
                 flags=msg.frame_flags,
+                layout=msg.frame_layout or "tab",
             )
             self._frames[frame_id] = frame
         elif frame.owner_fd is None:
@@ -1920,6 +1923,8 @@ class DisplayServer:
             frame.title = msg.frame_title
         if msg.frame_flags is not None:
             frame.flags = msg.frame_flags
+        if msg.frame_layout is not None:
+            frame.layout = msg.frame_layout
         frame.minimized = False
         self._focus_frame_id = frame_id
         self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
@@ -2420,13 +2425,25 @@ class DisplayServer:
             pill_x += pill_w + pill_gap
 
     def _render_frame_contents(self, frame: _Frame, imgui: Any) -> None:
-        """Render scenes inside a frame, tabbed if multiple."""
+        """Render scenes inside a frame.
+
+        Layout modes:
+        - ``"tab"`` (default): multiple scenes as tabs, one visible at a time.
+        - ``"stack"``: all scenes stacked vertically with collapsing headers.
+        """
         if not frame.scenes:
             return
         if len(frame.scenes) == 1:
             scene_id = frame.scene_order[0]
             self._render_framed_scene(frame, scene_id)
             return
+        if frame.layout == "stack":
+            self._render_frame_stack(frame, imgui)
+        else:
+            self._render_frame_tabs(frame, imgui)
+
+    def _render_frame_tabs(self, frame: _Frame, imgui: Any) -> None:
+        """Render multi-scene frame as tabs."""
         if imgui.begin_tab_bar(f"##frame_tabs_{frame.frame_id}"):
             closed_tabs: list[str] = []
             for scene_id in list(frame.scene_order):
@@ -2445,6 +2462,22 @@ class DisplayServer:
             imgui.end_tab_bar()
             for sid in closed_tabs:
                 self._dismiss_framed_scene(frame, sid)
+
+    def _render_frame_stack(self, frame: _Frame, imgui: Any) -> None:
+        """Render multi-scene frame as vertically stacked collapsing headers.
+
+        Unlike tab layout, stack layout has no per-scene close affordance.
+        Scenes represent live data feeds (e.g. per-repo status) and are
+        managed programmatically, not dismissed by the user.
+        """
+        for scene_id in list(frame.scene_order):
+            scene = frame.scenes[scene_id]
+            label = scene.title or scene_id
+            flags = imgui.TreeNodeFlags_.default_open.value
+            if imgui.collapsing_header(f"{label}##{scene_id}", flags=flags):
+                imgui.push_id(scene_id)
+                self._render_framed_scene(frame, scene_id)
+                imgui.pop_id()
 
     def _render_framed_scene(self, frame: _Frame, scene_id: str) -> None:
         """Render a scene's elements inside a frame."""
