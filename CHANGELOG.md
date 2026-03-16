@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Shared frame ownership** — frames now accept scenes from multiple clients.
+  `owner_fd` replaced with `owner_fds: set[int]`. When a client disconnects,
+  only its scenes are removed from the frame; other clients' scenes persist.
+  Frames close when no scenes remain, regardless of connected owners.
+
 ## [0.15.0] - 2026-03-15
 
 ### Added
