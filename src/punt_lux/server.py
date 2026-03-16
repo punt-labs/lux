@@ -176,6 +176,7 @@ def show(
     frame_title: str | None = None,
     frame_size: list[int] | None = None,
     frame_flags: dict[str, bool] | None = None,
+    frame_layout: str | None = None,  # "tab" or "stack"
 ) -> str:
     """Display a scene in the Lux window.
 
@@ -252,6 +253,9 @@ def show(
         no_resize    — prevent user resizing
         no_collapse  — hide the collapse button
         auto_resize  — shrink-wrap to content each frame
+      frame_layout: How multiple scenes in the same frame are arranged.
+        "tab"   — one scene visible at a time via tab bar (default)
+        "stack" — all scenes stacked vertically with collapsing headers
 
     Returns ``"ack:<scene_id>"`` on success or ``"timeout"`` if the
     display doesn't respond.
@@ -262,6 +266,8 @@ def show(
         if len(frame_size) != 2:
             return "error: frame_size must be [width, height]"
         size_tuple = (frame_size[0], frame_size[1])
+    if frame_layout is not None and frame_layout not in ("tab", "stack"):
+        return f"error: frame_layout must be 'tab' or 'stack', got {frame_layout!r}"
 
     def _call() -> str:
         client = _get_client()
@@ -274,6 +280,7 @@ def show(
             frame_title=frame_title,
             frame_size=size_tuple,
             frame_flags=frame_flags,
+            frame_layout=frame_layout,
         )
         if ack is None:
             return "timeout"

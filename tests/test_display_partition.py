@@ -809,6 +809,7 @@ def _framed_scene(
     frame_title: str | None = None,
     frame_size: tuple[int, int] | None = None,
     frame_flags: dict[str, bool] | None = None,
+    frame_layout: str | None = None,
 ) -> SceneMessage:
     return SceneMessage(
         id=scene_id,
@@ -817,6 +818,7 @@ def _framed_scene(
         frame_title=frame_title,
         frame_size=frame_size,
         frame_flags=frame_flags,
+        frame_layout=frame_layout,
     )
 
 
@@ -1326,6 +1328,109 @@ class TestFrameSizeAndFlagsPartitions:
         )
         server._handle_framed_scene(sock, _framed_scene("s2", "f1"))
         assert server._frames["f1"].flags == {"no_resize": True}
+
+
+class TestFrameLayoutPartitions:
+    """Frame layout: tab vs stack rendering mode."""
+
+    def test_default_layout_is_tab(self):
+        """Frames default to tab layout."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_framed_scene(sock, _framed_scene("s1", "f1"))
+        assert server._frames["f1"].layout == "tab"
+
+    def test_stack_layout_on_creation(self):
+        """frame_layout='stack' sets layout on frame creation."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_framed_scene(
+            sock, _framed_scene("s1", "f1", frame_layout="stack")
+        )
+        assert server._frames["f1"].layout == "stack"
+
+    def test_layout_updated_by_subsequent_scene(self):
+        """Subsequent scene with frame_layout updates the frame layout."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_framed_scene(sock, _framed_scene("s1", "f1", frame_layout="tab"))
+        assert server._frames["f1"].layout == "tab"
+        server._handle_framed_scene(
+            sock, _framed_scene("s2", "f1", frame_layout="stack")
+        )
+        assert server._frames["f1"].layout == "stack"
+
+    def test_layout_unchanged_when_not_provided(self):
+        """Subsequent scene without frame_layout preserves existing layout."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_framed_scene(
+            sock, _framed_scene("s1", "f1", frame_layout="stack")
+        )
+        server._handle_framed_scene(sock, _framed_scene("s2", "f1"))
+        assert server._frames["f1"].layout == "stack"
+
+    def test_frame_layout_in_protocol_round_trip(self):
+        """frame_layout survives serialization and deserialization."""
+        from punt_lux.protocol import message_from_dict, message_to_dict
+
+        msg = SceneMessage(
+            id="s1",
+            elements=[TextElement(id="t1", content="Hello")],
+            frame_id="f1",
+            frame_layout="stack",
+        )
+        d = message_to_dict(msg)
+        assert d["frame_layout"] == "stack"
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert restored.frame_layout == "stack"
+
+    def test_frame_layout_none_omitted_in_protocol(self):
+        """frame_layout=None is stripped from serialized dict."""
+        from punt_lux.protocol import message_to_dict
+
+        msg = SceneMessage(
+            id="s1",
+            elements=[TextElement(id="t1", content="Hello")],
+            frame_id="f1",
+        )
+        d = message_to_dict(msg)
+        assert "frame_layout" not in d
+
+    def test_invalid_frame_layout_deserialized_as_none(self):
+        """Invalid frame_layout values in wire data are discarded."""
+        from punt_lux.protocol import message_from_dict
+
+        d = {
+            "type": "scene",
+            "id": "s1",
+            "elements": [{"kind": "text", "id": "t1", "content": "Hello"}],
+            "frame_id": "f1",
+            "frame_layout": "bogus",
+        }
+        msg = message_from_dict(d)
+        assert isinstance(msg, SceneMessage)
+        assert msg.frame_layout is None
+
+    def test_non_string_frame_layout_deserialized_as_none(self):
+        """Non-string frame_layout values in wire data are discarded."""
+        from punt_lux.protocol import message_from_dict
+
+        d = {
+            "type": "scene",
+            "id": "s1",
+            "elements": [{"kind": "text", "id": "t1", "content": "Hello"}],
+            "frame_id": "f1",
+            "frame_layout": 42,
+        }
+        msg = message_from_dict(d)
+        assert isinstance(msg, SceneMessage)
+        assert msg.frame_layout is None
 
 
 class TestWorldMenuPartitions:

@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Frame stack layout** — new `frame_layout="stack"` option for multi-scene
+  frames. Scenes render as vertically stacked collapsing headers (all visible,
+  individually collapsible) instead of the default tab bar. Set via
+  `frame_layout` parameter on `show()` / MCP `show` tool.
+
 ### Fixed
 
 - **Updates no longer steal window focus** — `UpdateMessage` previously called

@@ -453,6 +453,7 @@ class SceneMessage:
     frame_title: str | None = None
     frame_size: tuple[int, int] | None = None
     frame_flags: dict[str, bool] | None = None
+    frame_layout: Literal["tab", "stack"] | None = None
 
 
 @dataclass
@@ -1283,6 +1284,7 @@ def _scene_to_dict(msg: SceneMessage) -> dict[str, Any]:
         "frame_title": msg.frame_title,
         "frame_size": list(msg.frame_size) if msg.frame_size else None,
         "frame_flags": msg.frame_flags,
+        "frame_layout": msg.frame_layout,
     }
     return _strip_none(d)
 
@@ -1440,6 +1442,12 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
             frame_size=_parse_frame_size(d.get("frame_size")),
             frame_flags=(
                 d["frame_flags"] if isinstance(d.get("frame_flags"), dict) else None
+            ),
+            frame_layout=(
+                d["frame_layout"]
+                if isinstance(d.get("frame_layout"), str)
+                and d["frame_layout"] in ("tab", "stack")
+                else None
             ),
         )
     if msg_type == "update":

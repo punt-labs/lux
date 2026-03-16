@@ -31,7 +31,7 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from punt_lux.paths import default_socket_path, ensure_display
 from punt_lux.protocol import (
@@ -369,6 +369,7 @@ class LuxClient:
         frame_title: str | None = None,
         frame_size: tuple[int, int] | None = None,
         frame_flags: dict[str, bool] | None = None,
+        frame_layout: Literal["tab", "stack"] | None = None,
     ) -> AckMessage | None:
         """Send a scene to the display and wait for acknowledgement.
 
@@ -387,6 +388,7 @@ class LuxClient:
             frame_title=frame_title,
             frame_size=frame_size,
             frame_flags=frame_flags,
+            frame_layout=frame_layout,
         )
         self._send(msg)
         return self._recv_ack()
@@ -403,6 +405,7 @@ class LuxClient:
         frame_title: str | None = None,
         frame_size: tuple[int, int] | None = None,
         frame_flags: dict[str, bool] | None = None,
+        frame_layout: Literal["tab", "stack"] | None = None,
     ) -> None:
         """Send a scene without waiting for ack.  Safe to call from callbacks."""
         msg = SceneMessage(
@@ -415,6 +418,7 @@ class LuxClient:
             frame_title=frame_title,
             frame_size=frame_size,
             frame_flags=frame_flags,
+            frame_layout=frame_layout,
         )
         self._send(msg)
 
