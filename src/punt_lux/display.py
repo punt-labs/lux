@@ -1964,20 +1964,10 @@ class DisplayServer:
                 return frame.scenes.get(scene_id)
         return None
 
-    def _focus_owning_frame(self, scene_id: str) -> None:
-        """Auto-focus the frame that owns *scene_id*, if any."""
-        frame_id = self._scene_to_frame.get(scene_id)
-        if frame_id is not None:
-            frame = self._frames.get(frame_id)
-            if frame is not None:
-                frame.minimized = False
-                self._focus_frame_id = frame_id
-
     def _apply_update(self, msg: UpdateMessage) -> None:
         scene = self._resolve_scene(msg.scene_id)
         if scene is None:
             return
-        self._focus_owning_frame(msg.scene_id)
         ws = self._scene_widget_state.get(msg.scene_id)
         rfs = self._scene_render_fn_state.get(msg.scene_id)
         for patch in msg.patches:

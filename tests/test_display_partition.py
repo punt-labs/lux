@@ -1149,7 +1149,7 @@ class TestFrameStaleEventDrainPartitions:
 
 
 class TestFrameAutoFocusPartitions:
-    """Frames auto-focus and restore on scene/update receipt."""
+    """Frames auto-focus and restore on scene creation only."""
 
     def test_scene_sets_focus_frame_id(self):
         """Receiving a framed scene sets _focus_frame_id."""
@@ -1169,8 +1169,8 @@ class TestFrameAutoFocusPartitions:
         server._handle_message(sock, _framed_scene("s1", "f1"))
         assert not server._frames["f1"].minimized
 
-    def test_update_sets_focus_for_framed_scene(self):
-        """UpdateMessage on a framed scene sets _focus_frame_id."""
+    def test_update_does_not_focus_framed_scene(self):
+        """UpdateMessage on a framed scene does not steal focus."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
@@ -1185,10 +1185,10 @@ class TestFrameAutoFocusPartitions:
                 patches=[Patch(id="t1", set={"content": "New"})],
             )
         )
-        assert server._focus_frame_id == "f1"
+        assert server._focus_frame_id is None
 
-    def test_update_restores_minimized_framed_scene(self):
-        """UpdateMessage on a framed scene un-minimizes the frame."""
+    def test_update_does_not_restore_minimized_framed_scene(self):
+        """UpdateMessage on a framed scene leaves minimized state unchanged."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
@@ -1203,7 +1203,7 @@ class TestFrameAutoFocusPartitions:
                 patches=[Patch(id="t1", set={"content": "New"})],
             )
         )
-        assert not server._frames["f1"].minimized
+        assert server._frames["f1"].minimized
 
     def test_close_frame_clears_focus(self):
         """Closing a frame clears _focus_frame_id if it matches."""

@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **Updates no longer steal window focus** — `UpdateMessage` previously called
+  `_focus_owning_frame`, raising the target frame to the front on every patch.
+  With multiple frames receiving concurrent updates, this caused z-order
+  fighting. Only `show` (scene creation) now raises frames.
+
 ## [0.14.2] - 2026-03-14
 
 ### Fixed
