@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-03-15
+
 ### Added
 
 - **Frame stack layout** — new `frame_layout="stack"` option for multi-scene
