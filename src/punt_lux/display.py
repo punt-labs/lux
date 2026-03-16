@@ -2475,7 +2475,9 @@ class DisplayServer:
             label = scene.title or scene_id
             flags = imgui.TreeNodeFlags_.default_open.value
             if imgui.collapsing_header(f"{label}##{scene_id}", flags=flags):
+                imgui.push_id(scene_id)
                 self._render_framed_scene(frame, scene_id)
+                imgui.pop_id()
 
     def _render_framed_scene(self, frame: _Frame, scene_id: str) -> None:
         """Render a scene's elements inside a frame."""
