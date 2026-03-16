@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-03-16
+
 ### Changed
 
 - **Shared frame ownership** — frames now accept scenes from multiple clients.

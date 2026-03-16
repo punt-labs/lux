@@ -1,7 +1,7 @@
 {
   "name": "lux-dev",
   "description": "Visual output surface for Claude Code: display text, images, tables, plots, and interactive elements",
-  "version": "0.15.0",
+  "version": "0.15.1",
   "author": {
     "name": "Punt Labs",
     "email": "hello@punt-labs.com"
