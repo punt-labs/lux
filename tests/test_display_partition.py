@@ -836,7 +836,7 @@ class TestCreateFramePartitions:
 
         assert "frame-beads" in server._frames
         frame = server._frames["frame-beads"]
-        assert frame.owner_fd == 10
+        assert frame.owner_fds == {10}
         assert frame.title == "frame-beads"
         assert "s1" in frame.scenes
         assert frame.scene_order == ["s1"]
@@ -1019,16 +1019,52 @@ class TestCloseFramePartitions:
 
 
 class TestDisconnectFrameCleanupPartitions:
-    """DisconnectClient: orphans frames owned by the departing client."""
+    """DisconnectClient: removes that client's scenes from shared frames."""
 
-    def test_disconnect_orphans_owned_frames(self):
-        """Disconnecting a client orphans its frames (they persist)."""
+    def test_disconnect_removes_client_scenes(self):
+        """Disconnecting a client removes its scenes from the frame."""
         server = _server()
         s1 = _sock(fd=10)
         s2 = _sock(fd=20)
         _register(server, s1)
         _register(server, s2)
-        # Client 1 owns frame f1, client 2 owns frame f2
+        server._handle_message(
+            s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
+        )
+        server._handle_message(
+            s2, _framed_scene("s2", "f1", TextElement(id="t2", content="B"))
+        )
+
+        server._remove_client(s1)
+
+        # Frame persists with client 2's scene
+        assert "f1" in server._frames
+        frame = server._frames["f1"]
+        assert "s1" not in frame.scenes
+        assert "s2" in frame.scenes
+        assert frame.owner_fds == {20}
+
+    def test_disconnect_sole_owner_removes_frame(self):
+        """Disconnecting the only client removes the frame entirely."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(
+            sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
+        )
+
+        server._remove_client(sock)
+
+        assert "f1" not in server._frames
+        assert "s1" not in server._scene_to_frame
+
+    def test_disconnect_preserves_other_frames(self):
+        """Disconnecting a client does not affect other clients' frames."""
+        server = _server()
+        s1 = _sock(fd=10)
+        s2 = _sock(fd=20)
+        _register(server, s1)
+        _register(server, s2)
         server._handle_message(
             s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
@@ -1038,32 +1074,9 @@ class TestDisconnectFrameCleanupPartitions:
 
         server._remove_client(s1)
 
-        # Frame persists but is orphaned (owner_fd=None)
-        assert "f1" in server._frames
-        assert server._frames["f1"].owner_fd is None
-        assert "s1" in server._scene_to_frame
-        # Client 2's frame is unaffected
+        assert "f1" not in server._frames
         assert "f2" in server._frames
-        assert server._frames["f2"].owner_fd == 20
-
-    def test_orphaned_frame_adopted_by_another_client(self):
-        """Another connected client can adopt an orphaned frame."""
-        server = _server()
-        s1 = _sock(fd=10)
-        s2 = _sock(fd=20)
-        _register(server, s1)
-        _register(server, s2)
-        server._handle_message(
-            s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
-        )
-        server._remove_client(s1)
-        assert server._frames["f1"].owner_fd is None
-
-        # New client sends to same frame — adopts it
-        server._handle_message(
-            s2, _framed_scene("s3", "f1", TextElement(id="t3", content="C"))
-        )
-        assert server._frames["f1"].owner_fd == 20
+        assert server._frames["f2"].owner_fds == {20}
 
     def test_disconnect_with_no_frames_is_clean(self):
         """Disconnecting a client with no frames is clean."""
@@ -1077,10 +1090,10 @@ class TestDisconnectFrameCleanupPartitions:
 
 
 class TestFrameOwnershipPartitions:
-    """Frame ownership enforcement (DES-022 invariant)."""
+    """Frame ownership: multiple clients can contribute to the same frame."""
 
-    def test_non_owner_rejected(self):
-        """A different client cannot add scenes to another's frame."""
+    def test_second_client_contributes_to_frame(self):
+        """A different client can add scenes to any frame."""
         server = _server()
         s1 = _sock(fd=10)
         s2 = _sock(fd=20)
@@ -1090,15 +1103,32 @@ class TestFrameOwnershipPartitions:
             s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
 
-        # Client 2 tries to add to client 1's frame
         server._handle_message(
             s2, _framed_scene("s2", "f1", TextElement(id="t2", content="B"))
         )
 
         frame = server._frames["f1"]
-        assert len(frame.scenes) == 1
+        assert len(frame.scenes) == 2
         assert "s1" in frame.scenes
-        assert "s2" not in frame.scenes
+        assert "s2" in frame.scenes
+        assert frame.owner_fds == {10, 20}
+
+    def test_scene_to_owner_tracks_contributing_client(self):
+        """Each scene tracks which client contributed it."""
+        server = _server()
+        s1 = _sock(fd=10)
+        s2 = _sock(fd=20)
+        _register(server, s1)
+        _register(server, s2)
+        server._handle_message(
+            s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
+        )
+        server._handle_message(
+            s2, _framed_scene("s2", "f1", TextElement(id="t2", content="B"))
+        )
+
+        assert server._scene_to_owner["s1"] == 10
+        assert server._scene_to_owner["s2"] == 20
 
 
 class TestFrameUpdatePartitions:

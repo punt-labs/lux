@@ -848,14 +848,14 @@ class _Frame:
     """A named inner window in the workspace.
 
     Each frame is rendered as an ``imgui.begin()/end()`` window.  It owns
-    one or more scenes.  When ``layout`` is ``"tab"`` (default), multiple
-    scenes appear as tabs; when ``"stack"``, they stack vertically with
-    collapsing headers.
+    one or more scenes contributed by one or more clients.  When ``layout``
+    is ``"tab"`` (default), multiple scenes appear as tabs; when ``"stack"``,
+    they stack vertically with collapsing headers.
     """
 
     frame_id: str
     title: str
-    owner_fd: int | None
+    owner_fds: set[int]
     scenes: dict[str, SceneMessage]
     scene_order: list[str]
     active_tab: str | None = None
@@ -892,6 +892,7 @@ class DisplayServer:
         self._frames: dict[str, _Frame] = {}  # frame_id → frame
         self._focus_frame_id: str | None = None  # auto-focus on next render
         self._scene_to_frame: dict[str, str] = {}  # scene_id → frame_id
+        self._scene_to_owner: dict[str, int] = {}  # scene_id → contributing fd
         self._scene_widget_state: dict[str, WidgetState] = {}  # per-scene
         self._scene_render_fn_state: dict[str, dict[str, _RenderFnState]] = {}
         self._event_queue: list[InteractionMessage] = []
@@ -1697,18 +1698,24 @@ class DisplayServer:
             fd = sock.fileno()
         except OSError:
             fd = None
+            logger.warning("Client socket fd unavailable — skipping cleanup")
         if fd is not None:
             self._readers.pop(fd, None)
             self._fd_to_client.pop(fd, None)
             self._client_names.pop(fd, None)
             self._menu_registrations.pop(fd, None)
             self._menu_owners = {k: v for k, v in self._menu_owners.items() if v != fd}
-            # Orphan frames owned by this client — they persist with
-            # content intact and can be adopted by the next client that
-            # sends a scene to the same frame_id.
-            for f in self._frames.values():
-                if f.owner_fd == fd:
-                    f.owner_fd = None
+            # Remove this client's scenes from shared frames.
+            # _dismiss_framed_scene may auto-close empty frames (mutating
+            # _frames), so iterate over a snapshot.
+            for f in list(self._frames.values()):
+                f.owner_fds.discard(fd)
+                owned_scenes = [
+                    sid for sid in f.scene_order if self._scene_to_owner.get(sid) == fd
+                ]
+                for sid in owned_scenes:
+                    if f.frame_id in self._frames:
+                        self._dismiss_framed_scene(f, sid, notify=False)
         with contextlib.suppress(OSError):
             sock.close()
         logger.debug("Client disconnected (remaining: %d)", len(self._clients))
@@ -1736,6 +1743,7 @@ class DisplayServer:
             self._active_tab = None
             self._frames.clear()
             self._scene_to_frame.clear()
+            self._scene_to_owner.clear()
             self._scene_widget_state.clear()
             self._scene_render_fn_state.clear()
             self._event_queue.clear()
@@ -1898,7 +1906,7 @@ class DisplayServer:
             frame = _Frame(
                 frame_id=frame_id,
                 title=title,
-                owner_fd=fd,
+                owner_fds={fd},
                 scenes={},
                 scene_order=[],
                 cascade_index=self._next_cascade_index(),
@@ -1907,18 +1915,10 @@ class DisplayServer:
                 layout=msg.frame_layout or "tab",
             )
             self._frames[frame_id] = frame
-        elif frame.owner_fd is None:
-            frame.owner_fd = fd
-            logger.info("Frame %s adopted by fd %d", frame_id, fd)
-        elif frame.owner_fd != fd:
-            logger.warning(
-                "Rejecting scene for frame %s from non-owner fd %d (owner=%d)",
-                frame_id,
-                fd,
-                frame.owner_fd,
-            )
-            return
+        else:
+            frame.owner_fds.add(fd)
         self._upsert_scene_in_frame(frame, msg)
+        self._scene_to_owner[msg.id] = fd
         if msg.frame_title:
             frame.title = msg.frame_title
         if msg.frame_flags is not None:
@@ -2490,9 +2490,11 @@ class DisplayServer:
     def _close_frame(self, frame_id: str, *, notify: bool = True) -> None:
         """Remove a frame and all its scenes.
 
-        When *notify* is True (user-initiated close), a ``frame_close``
-        event is sent to the owning client.  When False (disconnect
-        cleanup), the owner is already gone — no event is emitted.
+        When *notify* is True, a ``frame_close`` event is sent to all
+        contributing clients (``owner_fds``).  This covers both
+        user-initiated close and auto-close when the last scene is
+        dismissed during disconnect cleanup.  When False, no events are
+        emitted (used when the caller handles notification itself).
         """
         frame = self._frames.pop(frame_id, None)
         if frame is None:
@@ -2509,24 +2511,25 @@ class DisplayServer:
             self._scene_widget_state.pop(scene_id, None)
             self._scene_render_fn_state.pop(scene_id, None)
             self._scene_to_frame.pop(scene_id, None)
+            self._scene_to_owner.pop(scene_id, None)
         if removed_ids:
             self._event_queue = [
                 ev for ev in self._event_queue if ev.element_id not in removed_ids
             ]
-        if notify and frame.owner_fd is not None:
-            # Route frame_close only to the owning client
-            owner_sock = self._fd_to_client.get(frame.owner_fd)
-            if owner_sock is not None:
-                self._send_to_client(
-                    owner_sock,
-                    InteractionMessage(
-                        element_id=frame_id,
-                        action="frame_close",
-                        ts=time.time(),
-                    ),
-                )
+        if notify:
+            close_event = InteractionMessage(
+                element_id=frame_id,
+                action="frame_close",
+                ts=time.time(),
+            )
+            for ofd in frame.owner_fds:
+                owner_sock = self._fd_to_client.get(ofd)
+                if owner_sock is not None:
+                    self._send_to_client(owner_sock, close_event)
 
-    def _dismiss_framed_scene(self, frame: _Frame, scene_id: str) -> None:
+    def _dismiss_framed_scene(
+        self, frame: _Frame, scene_id: str, *, notify: bool = True
+    ) -> None:
         """Remove a single scene from a frame."""
         dismissed = frame.scenes.pop(scene_id, None)
         if dismissed is not None:
@@ -2541,10 +2544,11 @@ class DisplayServer:
         self._scene_widget_state.pop(scene_id, None)
         self._scene_render_fn_state.pop(scene_id, None)
         self._scene_to_frame.pop(scene_id, None)
+        self._scene_to_owner.pop(scene_id, None)
         if frame.active_tab == scene_id:
             frame.active_tab = frame.scene_order[0] if frame.scene_order else None
         if not frame.scenes:
-            self._close_frame(frame.frame_id)
+            self._close_frame(frame.frame_id, notify=notify)
 
     def _render_scene_tab(self, scene_id: str) -> None:
         """Render a single scene's elements with its own widget state."""
