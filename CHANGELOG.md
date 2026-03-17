@@ -17,8 +17,9 @@
 
 ### Fixed
 
-- **TextElement tooltip hover** — tooltips on text elements now use `selectable()`
-  for reliable hover detection instead of `imgui.text()` which is not hoverable.
+- **TextElement tooltip hover** — tooltips on unstyled text elements now use
+  `selectable()` for reliable hover detection. Styled text (heading, caption, code)
+  uses the standard generic tooltip handler.
 
 ## [0.15.1] - 2026-03-16
 

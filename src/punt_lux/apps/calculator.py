@@ -2,7 +2,7 @@
 
 Render-function-based applet for the Applications menu.  Supports
 arithmetic, bitwise operations, and multi-base display (Dec/Hex/Bin/Oct)
-with toggleable bit grid.
+with interactive bit grid.
 
 Public API:
     CALCULATOR_SOURCE  — render function source string
@@ -74,11 +74,13 @@ def render(ctx):
                 imgui.push_style_color(
                     imgui.Col_.button.value, btn_color,
                 )
-            if imgui.button(label, imgui.ImVec2(18, 18)):
-                v ^= (1 << i)
-                set_display(v)
-            if bit_set:
-                imgui.pop_style_color()
+            try:
+                if imgui.button(label, imgui.ImVec2(18, 18)):
+                    v ^= (1 << i)
+                    set_display(v)
+            finally:
+                if bit_set:
+                    imgui.pop_style_color()
             if i > row_start - cols + 1:
                 imgui.same_line()
         # bit index labels
@@ -99,11 +101,13 @@ def render(ctx):
             imgui.push_style_color(
                 imgui.Col_.button.value, sel_color,
             )
-        if imgui.button(f"{bw}-bit"):
-            s["bit_width"] = bw
-            set_display(cur_val())
-        if selected:
-            imgui.pop_style_color()
+        try:
+            if imgui.button(f"{bw}-bit"):
+                s["bit_width"] = bw
+                set_display(cur_val())
+        finally:
+            if selected:
+                imgui.pop_style_color()
 
     imgui.separator()
 

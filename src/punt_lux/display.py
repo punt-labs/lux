@@ -2825,11 +2825,8 @@ class DisplayServer:
         finally:
             if color:
                 imgui.pop_style_color()
-        if imgui.is_item_hovered():
-            tooltip = text_elem.tooltip
-            imgui.begin_tooltip()
-            imgui.text(tooltip)
-            imgui.end_tooltip()
+        if imgui.is_item_hovered(imgui.HoveredFlags_.for_tooltip.value):
+            imgui.set_tooltip(text_elem.tooltip)
 
     def _render_text(self, elem: Element) -> None:
         from imgui_bundle import ImVec4, imgui
