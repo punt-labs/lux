@@ -2783,10 +2783,8 @@ class DisplayServer:
         )
         if not is_text_with_inline_tooltip:
             tooltip = getattr(elem, "tooltip", None)
-            if tooltip and imgui.is_item_hovered():
-                imgui.begin_tooltip()
-                imgui.text(tooltip)
-                imgui.end_tooltip()
+            if tooltip and imgui.is_item_hovered(imgui.HoveredFlags_.for_tooltip.value):
+                imgui.set_tooltip(tooltip)
 
     @staticmethod
     def _parse_hex_color(hex_str: str) -> tuple[float, float, float, float] | None:
