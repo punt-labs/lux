@@ -1,4 +1,4 @@
-.PHONY: help test lint type check format fuzz prob clean-tex font-test
+.PHONY: help test lint type check format build clean fuzz prob clean-tex font-test
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -20,6 +20,14 @@ check: lint type test ## Run all quality gates
 format: ## Auto-format code
 	uv run ruff check --fix .
 	uv run ruff format .
+
+build: ## Build wheel and sdist
+	rm -rf dist/
+	uv build
+	uvx twine check dist/*
+
+clean: ## Remove build artifacts
+	rm -rf dist/ .tmp/
 
 PROBCLI ?= $(HOME)/Applications/ProB/probcli
 PROB_SETSIZE ?= 2
