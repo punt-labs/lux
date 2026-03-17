@@ -206,7 +206,8 @@ def show(
     Each element is a dict with a ``kind`` field (defaults to "text").
 
     Display elements:
-      Text:         {"kind": "text", "id": "t1", "content": "Hello"}
+      Text:         {"kind": "text", "id": "t1", "content": "Hello",
+                     "color": "#FF3333", "style": "heading"}
       Button:       {"kind": "button", "id": "b1", "label": "Click me"}
       Image:        {"kind": "image", "id": "i1", "path": "/path/to/img.png"}
       Separator:    {"kind": "separator"}

@@ -2773,9 +2773,15 @@ class DisplayServer:
         else:
             imgui.text(f"[unsupported element: {elem.kind}]")
 
-        # Text elements handle their own tooltip in _render_text
-        # (selectable() is needed for hover detection on text).
-        if elem.kind != "text":
+        # Unstyled text with tooltip uses selectable() in _render_text_tooltip
+        # and handles its own tooltip there.  All other elements (including
+        # styled text) use this generic tooltip handler.
+        is_text_with_inline_tooltip = (
+            elem.kind == "text"
+            and not getattr(elem, "style", None)
+            and getattr(elem, "tooltip", None)
+        )
+        if not is_text_with_inline_tooltip:
             tooltip = getattr(elem, "tooltip", None)
             if tooltip and imgui.is_item_hovered():
                 imgui.begin_tooltip()
@@ -2837,30 +2843,36 @@ class DisplayServer:
         color_str: str | None = getattr(text_elem, "color", None)
         color = self._parse_hex_color(color_str) if color_str else None
 
-        if style == "heading":
-            if color:
-                imgui.push_style_color(imgui.Col_.text.value, ImVec4(*color))
-            try:
-                imgui.separator_text(content)
-            finally:
-                if color:
-                    imgui.pop_style_color()
-        elif style == "caption":
-            cap_color = ImVec4(*color) if color else ImVec4(0.6, 0.6, 0.6, 1.0)
-            imgui.text_colored(cap_color, content)
-        elif style == "code":
-            imgui.indent(10.0)
-            if color:
-                imgui.text_colored(ImVec4(*color), content)
-            else:
-                imgui.text(content)
-            imgui.unindent(10.0)
-        elif has_tooltip:
+        # For unstyled text with a tooltip, use selectable() for hover.
+        # Styled text handles tooltips via the generic post-render block.
+        if has_tooltip and not style:
             self._render_text_tooltip(text_elem, content, color)
-        elif color:
-            imgui.text_colored(ImVec4(*color), content)
-        else:
-            imgui.text_wrapped(content)
+            return
+
+        if color:
+            imgui.push_style_color(imgui.Col_.text.value, ImVec4(*color))
+        try:
+            if style == "heading":
+                imgui.separator_text(content)
+            elif style == "caption":
+                if not color:
+                    imgui.push_style_color(
+                        imgui.Col_.text.value, ImVec4(0.6, 0.6, 0.6, 1.0)
+                    )
+                try:
+                    imgui.text_wrapped(content)
+                finally:
+                    if not color:
+                        imgui.pop_style_color()
+            elif style == "code":
+                imgui.indent(10.0)
+                imgui.text(content)
+                imgui.unindent(10.0)
+            else:
+                imgui.text_wrapped(content)
+        finally:
+            if color:
+                imgui.pop_style_color()
 
     def _render_button(self, elem: Element) -> None:
         from imgui_bundle import imgui

@@ -30,7 +30,6 @@ def render(ctx):
         s["new_input"] = True
         s["history"] = []
         s["bit_width"] = 32
-        s["base"] = 10
 
     bit_width = s["bit_width"]
     mask = (1 << bit_width) - 1
@@ -180,6 +179,8 @@ def render(ctx):
                         s["history"].append(
                             f"{expr} = {masked}",
                         )
+                        if len(s["history"]) > 50:
+                            s["history"] = s["history"][-50:]
                         s["operator"] = None
                         s["new_input"] = True
                 else:
