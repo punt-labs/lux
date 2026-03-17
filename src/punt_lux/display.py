@@ -2773,11 +2773,14 @@ class DisplayServer:
         else:
             imgui.text(f"[unsupported element: {elem.kind}]")
 
-        tooltip = getattr(elem, "tooltip", None)
-        if tooltip and imgui.is_item_hovered():
-            imgui.begin_tooltip()
-            imgui.text(tooltip)
-            imgui.end_tooltip()
+        # Text elements handle their own tooltip in _render_text
+        # (selectable() is needed for hover detection on text).
+        if elem.kind != "text":
+            tooltip = getattr(elem, "tooltip", None)
+            if tooltip and imgui.is_item_hovered():
+                imgui.begin_tooltip()
+                imgui.text(tooltip)
+                imgui.end_tooltip()
 
     @staticmethod
     def _parse_hex_color(hex_str: str) -> tuple[float, float, float, float] | None:
@@ -2795,6 +2798,35 @@ class DisplayServer:
             return None
         return None
 
+    @staticmethod
+    def _render_text_tooltip(
+        text_elem: Any,
+        content: str,
+        color: tuple[float, float, float, float] | None,
+    ) -> None:
+        """Render a text element with tooltip via selectable().
+
+        selectable() is hoverable — imgui.text() is not. Tooltip is
+        handled here (not in the generic _render_element handler) to
+        avoid first-item-after-collapsing-header hover detection issues.
+        """
+        from imgui_bundle import ImVec4, imgui
+
+        eid = getattr(text_elem, "id", "t")
+        if color:
+            imgui.push_style_color(imgui.Col_.text.value, ImVec4(*color))
+        try:
+            selected = False
+            imgui.selectable(f"{content}##{eid}", selected)
+        finally:
+            if color:
+                imgui.pop_style_color()
+        if imgui.is_item_hovered():
+            tooltip = text_elem.tooltip
+            imgui.begin_tooltip()
+            imgui.text(tooltip)
+            imgui.end_tooltip()
+
     def _render_text(self, elem: Element) -> None:
         from imgui_bundle import ImVec4, imgui
 
@@ -2806,7 +2838,13 @@ class DisplayServer:
         color = self._parse_hex_color(color_str) if color_str else None
 
         if style == "heading":
-            imgui.separator_text(content)
+            if color:
+                imgui.push_style_color(imgui.Col_.text.value, ImVec4(*color))
+            try:
+                imgui.separator_text(content)
+            finally:
+                if color:
+                    imgui.pop_style_color()
         elif style == "caption":
             cap_color = ImVec4(*color) if color else ImVec4(0.6, 0.6, 0.6, 1.0)
             imgui.text_colored(cap_color, content)
@@ -2818,24 +2856,7 @@ class DisplayServer:
                 imgui.text(content)
             imgui.unindent(10.0)
         elif has_tooltip:
-            # selectable() is hoverable — imgui.text() is not.
-            # Tooltip is handled inline here (not in the generic
-            # _render_element handler) to avoid first-item-after-
-            # collapsing-header hover detection issues.
-            eid = getattr(text_elem, "id", "t")
-            if color:
-                imgui.push_style_color(imgui.Col_.text.value, ImVec4(*color))
-            try:
-                selected = False
-                imgui.selectable(f"{content}##{eid}", selected)
-            finally:
-                if color:
-                    imgui.pop_style_color()
-            if imgui.is_item_hovered():
-                tooltip = text_elem.tooltip
-                imgui.begin_tooltip()
-                imgui.text(tooltip)
-                imgui.end_tooltip()
+            self._render_text_tooltip(text_elem, content, color)
         elif color:
             imgui.text_colored(ImVec4(*color), content)
         else:
