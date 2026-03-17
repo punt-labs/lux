@@ -2167,6 +2167,9 @@ class DisplayServer:
         "no_resize": "no_resize",
         "no_collapse": "no_collapse",
         "auto_resize": "always_auto_resize",
+        "no_title_bar": "no_title_bar",
+        "no_background": "no_background",
+        "no_scrollbar": "no_scrollbar",
     }
 
     def _resolve_frame_flags(self, frame: _Frame, imgui: Any) -> int:
@@ -2771,8 +2774,26 @@ class DisplayServer:
             imgui.text(f"[unsupported element: {elem.kind}]")
 
         tooltip = getattr(elem, "tooltip", None)
-        if tooltip:
-            imgui.set_item_tooltip(tooltip)
+        if tooltip and imgui.is_item_hovered():
+            imgui.begin_tooltip()
+            imgui.text(tooltip)
+            imgui.end_tooltip()
+
+    @staticmethod
+    def _parse_hex_color(hex_str: str) -> tuple[float, float, float, float] | None:
+        """Parse "#RRGGBB" or "#RRGGBBAA" to (r, g, b, a) floats."""
+        s = hex_str.lstrip("#")
+        try:
+            if len(s) == 6:
+                r, g, b = int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
+                return (r / 255.0, g / 255.0, b / 255.0, 1.0)
+            if len(s) == 8:
+                r = int(s[0:2], 16)
+                g, b, a = int(s[2:4], 16), int(s[4:6], 16), int(s[6:8], 16)
+                return (r / 255.0, g / 255.0, b / 255.0, a / 255.0)
+        except ValueError:
+            return None
+        return None
 
     def _render_text(self, elem: Element) -> None:
         from imgui_bundle import ImVec4, imgui
@@ -2780,15 +2801,43 @@ class DisplayServer:
         text_elem: Any = elem
         content: str = text_elem.content
         style: str | None = text_elem.style
+        has_tooltip = bool(getattr(text_elem, "tooltip", None))
+        color_str: str | None = getattr(text_elem, "color", None)
+        color = self._parse_hex_color(color_str) if color_str else None
 
         if style == "heading":
             imgui.separator_text(content)
         elif style == "caption":
-            imgui.text_colored(ImVec4(0.6, 0.6, 0.6, 1.0), content)
+            cap_color = ImVec4(*color) if color else ImVec4(0.6, 0.6, 0.6, 1.0)
+            imgui.text_colored(cap_color, content)
         elif style == "code":
             imgui.indent(10.0)
-            imgui.text(content)
+            if color:
+                imgui.text_colored(ImVec4(*color), content)
+            else:
+                imgui.text(content)
             imgui.unindent(10.0)
+        elif has_tooltip:
+            # selectable() is hoverable — imgui.text() is not.
+            # Tooltip is handled inline here (not in the generic
+            # _render_element handler) to avoid first-item-after-
+            # collapsing-header hover detection issues.
+            eid = getattr(text_elem, "id", "t")
+            if color:
+                imgui.push_style_color(imgui.Col_.text.value, ImVec4(*color))
+            try:
+                selected = False
+                imgui.selectable(f"{content}##{eid}", selected)
+            finally:
+                if color:
+                    imgui.pop_style_color()
+            if imgui.is_item_hovered():
+                tooltip = text_elem.tooltip
+                imgui.begin_tooltip()
+                imgui.text(tooltip)
+                imgui.end_tooltip()
+        elif color:
+            imgui.text_colored(ImVec4(*color), content)
         else:
             imgui.text_wrapped(content)
 

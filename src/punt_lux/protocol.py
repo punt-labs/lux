@@ -58,6 +58,7 @@ class TextElement:
     kind: Literal["text"] = "text"
     style: str | None = None  # "body", "heading", "caption", "code"
     tooltip: str | None = None
+    color: str | None = None  # hex color e.g. "#FF3333"
 
 
 @dataclass
