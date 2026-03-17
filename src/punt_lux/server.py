@@ -23,6 +23,8 @@ from typing import Any
 from fastmcp import FastMCP
 
 from punt_lux.apps.beads import render_beads_board
+from punt_lux.apps.calculator import render_calculator
+from punt_lux.apps.clock import render_clock
 from punt_lux.client import LuxClient
 from punt_lux.config import read_config, resolve_config_path, write_field
 from punt_lux.protocol import (
@@ -101,6 +103,22 @@ def _on_beads_browser(_msg: InteractionMessage) -> None:
     render_beads_board(_client)
 
 
+def _on_calculator(_msg: InteractionMessage) -> None:
+    """Callback: open the Programmer Calculator in a frame."""
+    if _client is None:
+        logger.warning("_on_calculator: client is None, ignoring menu click")
+        return
+    render_calculator(_client)
+
+
+def _on_clock(_msg: InteractionMessage) -> None:
+    """Callback: open the Analog Clock in a frame."""
+    if _client is None:
+        logger.warning("_on_clock: client is None, ignoring menu click")
+        return
+    render_clock(_client)
+
+
 _apps_registered_for: int | None = None
 
 
@@ -116,6 +134,10 @@ def _setup_apps(client: LuxClient) -> None:
         return
     client.declare_menu_item({"id": "app-beads", "label": "Beads Browser"})
     client.on_event("app-beads", "menu", _on_beads_browser)
+    client.declare_menu_item({"id": "app-calculator", "label": "Calculator"})
+    client.on_event("app-calculator", "menu", _on_calculator)
+    client.declare_menu_item({"id": "app-clock", "label": "Clock"})
+    client.on_event("app-clock", "menu", _on_clock)
     _apps_registered_for = id(client)
 
 
@@ -184,7 +206,8 @@ def show(
     Each element is a dict with a ``kind`` field (defaults to "text").
 
     Display elements:
-      Text:         {"kind": "text", "id": "t1", "content": "Hello"}
+      Text:         {"kind": "text", "id": "t1", "content": "Hello",
+                     "color": "#FF3333", "style": "heading"}
       Button:       {"kind": "button", "id": "b1", "label": "Click me"}
       Image:        {"kind": "image", "id": "i1", "path": "/path/to/img.png"}
       Separator:    {"kind": "separator"}
@@ -250,9 +273,12 @@ def show(
     Frame sizing (only with ``frame_id``):
       frame_size:  [width, height] in pixels — initial size hint (first use only).
       frame_flags: ImGui window flags. Supported keys:
-        no_resize    — prevent user resizing
-        no_collapse  — hide the collapse button
-        auto_resize  — shrink-wrap to content each frame
+        no_resize      — prevent user resizing
+        no_collapse    — hide the collapse button
+        auto_resize    — shrink-wrap to content each frame
+        no_title_bar   — hide the title bar
+        no_background  — transparent frame background
+        no_scrollbar   — disable scrollbars
       frame_layout: How multiple scenes in the same frame are arranged.
         "tab"   — one scene visible at a time via tab bar (default)
         "stack" — all scenes stacked vertically with collapsing headers

@@ -58,6 +58,7 @@ class TextElement:
     kind: Literal["text"] = "text"
     style: str | None = None  # "body", "heading", "caption", "code"
     tooltip: str | None = None
+    color: str | None = None  # hex color e.g. "#FF3333"
 
 
 @dataclass
@@ -638,6 +639,7 @@ def _text_to_dict(elem: TextElement) -> dict[str, Any]:
             "id": elem.id,
             "content": elem.content,
             "style": elem.style,
+            "color": elem.color,
         }
     )
 
@@ -984,7 +986,12 @@ def _image_from_dict(d: dict[str, Any]) -> ImageElement:
 
 
 def _text_from_dict(d: dict[str, Any]) -> TextElement:
-    return TextElement(id=d["id"], content=d.get("content", ""), style=d.get("style"))
+    return TextElement(
+        id=d["id"],
+        content=d.get("content", ""),
+        style=d.get("style"),
+        color=d.get("color"),
+    )
 
 
 def _button_from_dict(d: dict[str, Any]) -> ButtonElement:

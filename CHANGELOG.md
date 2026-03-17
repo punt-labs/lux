@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Programmer Calculator applet** — multi-base integer calculator with bit grid,
+  bitwise operations (AND/OR/XOR/NOT/shift), and computation history. Available
+  via Applications > Calculator.
+- **Analog Clock applet** — smooth-sweeping analog clock face with hour, minute,
+  and second hands rendered via ImGui draw list. Transparent, borderless floating
+  window. Available via Applications > Clock.
+- **Frame flags `no_title_bar`, `no_background`, `no_scrollbar`** — new ImGui
+  window flags for `frame_flags` on `show()`. Enable borderless/transparent frames.
+- **`TextElement.color` field** — hex color string (e.g. `"#FF3333"`) for text
+  elements, applied across all text styles.
+
+### Fixed
+
+- **TextElement tooltip hover** — tooltips on unstyled text elements now use
+  `selectable()` for reliable hover detection. Styled text (heading, caption, code)
+  uses the standard generic tooltip handler.
+
 ## [0.15.1] - 2026-03-16
 
 ### Changed
