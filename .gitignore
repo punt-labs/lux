@@ -32,3 +32,6 @@ docs/*.out
 docs/*.pdf
 !docs/architecture.pdf
 docs/*.synctex.gz
+
+# Local uv overrides (depot find-links, etc.)
+uv.toml
