@@ -3235,13 +3235,20 @@ class DisplayServer:
         label: str = tree.label
         nodes: list[dict[str, Any]] = tree.nodes
 
+        flat: bool = getattr(tree, "flat", False)
+
         if label:
             imgui.text(label)
         for i, node in enumerate(nodes):
-            self._render_tree_node(node, f"{eid}_{i}", eid)
+            self._render_tree_node(node, f"{eid}_{i}", eid, flat=flat)
 
     def _render_tree_node(
-        self, node: dict[str, Any], node_id: str, tree_id: str
+        self,
+        node: dict[str, Any],
+        node_id: str,
+        tree_id: str,
+        *,
+        flat: bool = False,
     ) -> None:
         from imgui_bundle import imgui
 
@@ -3249,20 +3256,30 @@ class DisplayServer:
         children: list[dict[str, Any]] = node.get("children", [])
 
         if children:
-            opened = imgui.tree_node(f"{label}##{node_id}")
+            if flat:
+                no_push = imgui.TreeNodeFlags_.no_tree_push_on_open.value
+                opened = imgui.tree_node_ex(f"{label}##{node_id}", no_push)
+            else:
+                opened = imgui.tree_node(f"{label}##{node_id}")
             if imgui.is_item_clicked():
                 self._emit_node_click(tree_id, node_id, label)
             if opened:
                 for i, child in enumerate(children):
-                    self._render_tree_node(child, f"{node_id}_{i}", tree_id)
-                imgui.tree_pop()
+                    self._render_tree_node(child, f"{node_id}_{i}", tree_id, flat=flat)
+                if not flat:
+                    imgui.tree_pop()
         else:
-            leaf = imgui.TreeNodeFlags_.leaf.value
-            no_push = imgui.TreeNodeFlags_.no_tree_push_on_open.value
-            flags = leaf | no_push
-            imgui.tree_node_ex(f"{label}##{node_id}", flags)
-            if imgui.is_item_clicked():
-                self._emit_node_click(tree_id, node_id, label)
+            if flat:
+                imgui.text_wrapped(label)
+                if imgui.is_item_clicked():
+                    self._emit_node_click(tree_id, node_id, label)
+            else:
+                leaf = imgui.TreeNodeFlags_.leaf.value
+                no_push = imgui.TreeNodeFlags_.no_tree_push_on_open.value
+                flags = leaf | no_push
+                imgui.tree_node_ex(f"{label}##{node_id}", flags)
+                if imgui.is_item_clicked():
+                    self._emit_node_click(tree_id, node_id, label)
 
     def _emit_node_click(self, tree_id: str, node_id: str, label: str) -> None:
         self._event_queue.append(

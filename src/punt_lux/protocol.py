@@ -258,6 +258,7 @@ class TreeElement:
     kind: Literal["tree"] = "tree"
     label: str = ""
     nodes: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
+    flat: bool = False
     tooltip: str | None = None
 
 
@@ -819,12 +820,15 @@ def _selectable_to_dict(elem: SelectableElement) -> dict[str, Any]:
 
 
 def _tree_to_dict(elem: TreeElement) -> dict[str, Any]:
-    return {
+    d: dict[str, Any] = {
         "kind": elem.kind,
         "id": elem.id,
         "label": elem.label,
         "nodes": elem.nodes,
     }
+    if elem.flat:
+        d["flat"] = True
+    return d
 
 
 def _table_detail_to_dict(d: TableDetail) -> dict[str, Any]:
@@ -1152,6 +1156,7 @@ def _tree_from_dict(d: dict[str, Any]) -> TreeElement:
         id=d["id"],
         label=d.get("label", ""),
         nodes=_normalize_tree_nodes(d.get("nodes", [])),
+        flat=d.get("flat", False),
     )
 
 
