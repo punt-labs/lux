@@ -252,6 +252,11 @@ class TreeElement:
     Each node in ``nodes`` is a dict with ``"label"`` (str) and optional
     ``"children"`` (list of nodes).  Leaf nodes omit ``"children"`` or
     use an empty list.
+
+    When ``flat`` is True, children render without indentation: branch
+    nodes use ``NoTreePushOnOpen`` (arrow toggles but no indent push),
+    and leaf nodes render as selectable items instead of tree leaves.
+    Useful for inline disclosure patterns where horizontal space is tight.
     """
 
     id: str
