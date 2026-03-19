@@ -3270,7 +3270,8 @@ class DisplayServer:
                     imgui.tree_pop()
         else:
             if flat:
-                clicked, _ = imgui.selectable(f"{label}##{node_id}", False)
+                selected = False
+                clicked, _ = imgui.selectable(f"{label}##{node_id}", selected)
                 if clicked:
                     self._emit_node_click(tree_id, node_id, label)
             else:
