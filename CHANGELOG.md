@@ -14,6 +14,10 @@
   window flags for `frame_flags` on `show()`. Enable borderless/transparent frames.
 - **`TextElement.color` field** — hex color string (e.g. `"#FF3333"`) for text
   elements, applied across all text styles.
+- **TreeElement `flat` flag** — `flat=True` renders tree nodes without child
+  indentation. Branch nodes use `NoTreePushOnOpen` for arrow+label toggle,
+  leaf children render as flush-left selectable items. Useful for inline
+  disclosure patterns where hierarchical indentation wastes horizontal space.
 
 ### Fixed
 

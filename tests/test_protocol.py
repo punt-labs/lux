@@ -242,6 +242,11 @@ class TestElements:
         e = TreeElement(id="tr1")
         assert e.label == ""
         assert e.nodes == []
+        assert e.flat is False
+
+    def test_tree_element_flat(self):
+        e = TreeElement(id="tr1", label="Info", flat=True)
+        assert e.flat is True
 
     def test_table_element(self):
         e = TableElement(
@@ -847,6 +852,28 @@ class TestSerialization:
         assert len(tree.nodes) == 2
         assert tree.nodes[0]["label"] == "src"
         assert len(tree.nodes[0]["children"]) == 2
+
+    def test_tree_flat_roundtrip(self):
+        e = TreeElement(
+            id="tr1",
+            label="Details",
+            nodes=[{"label": "info", "children": [{"label": "value"}]}],
+            flat=True,
+        )
+        scene = SceneMessage(id="s1", elements=[e])
+        d = message_to_dict(scene)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        tree = restored.elements[0]
+        assert isinstance(tree, TreeElement)
+        assert tree.flat is True
+
+    def test_tree_flat_false_not_serialized(self):
+        """flat=False should not appear in the wire dict (default omission)."""
+        e = TreeElement(id="tr1", label="X")
+        d = message_to_dict(SceneMessage(id="s1", elements=[e]))
+        elem_dict = d["elements"][0]
+        assert "flat" not in elem_dict
 
     def test_tree_empty_nodes_roundtrip(self):
         e = TreeElement(id="tr1", label="Empty")
