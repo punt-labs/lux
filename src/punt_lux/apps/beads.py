@@ -192,7 +192,7 @@ def build_beads_elements(issues: list[dict[str, Any]]) -> list[Element]:
             "id": "table",
             "columns": payload["columns"],
             "rows": payload["rows"],
-            "flags": ["borders", "row_bg", "resizable", "copy_id"],
+            "flags": ["borders", "row_bg", "resizable", "sortable", "copy_id"],
             "filters": payload["filters"],
             "detail": payload["detail"],
         }

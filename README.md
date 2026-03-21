@@ -98,7 +98,7 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 
 ## Features
 
-- **23 element kinds** --- text, buttons, images, sliders, checkboxes, combos, inputs, radios, color pickers, selectables, trees, tables, plots, progress bars, spinners, markdown, draw canvases, render functions, groups, tab bars, collapsing headers, windows, separators
+- **25 element kinds** --- text, buttons (arrow, small), images, sliders, checkboxes, combos, inputs (text, number), radios, color pickers (alpha, full picker), selectables, trees, tables, plots, progress bars, spinners, markdown, draw canvases, render functions, modals, groups, tab bars, collapsing headers, windows, separators
 - **Frames** --- scenes target named frames (inner windows) via `frame_id`. Frames persist after disconnect, can be adopted by new clients, and support initial sizing (`frame_size`) and ImGui window flags (`frame_flags`)
 - **Layout nesting** --- windows contain tab bars contain groups contain any element, arbitrarily deep
 - **Incremental updates** --- `update` patches individual elements by ID without replacing the scene
@@ -186,13 +186,13 @@ Returns `"interaction:element=b1,action=click,value=True"`.
 
 | Category | Kinds |
 |----------|-------|
-| Display | `text`, `button`, `image`, `separator` |
-| Interactive | `slider`, `checkbox`, `combo`, `input_text`, `radio`, `color_picker` |
+| Display | `text`, `button` (arrow, small variants), `image`, `separator` |
+| Interactive | `slider`, `checkbox`, `combo`, `input_text`, `input_number`, `radio`, `color_picker` (alpha, picker modes) |
 | Lists | `selectable`, `tree` |
 | Data | `table`, `plot`, `progress`, `spinner`, `markdown` |
 | Canvas | `draw` (line, rect, circle, triangle, polyline, text, bezier) |
 | Code | `render_function` (agent-submitted Python with AST safety scan) |
-| Layout | `group`, `tab_bar`, `collapsing_header`, `window` |
+| Layout | `group`, `tab_bar`, `collapsing_header`, `window`, `modal` |
 
 All elements with an `id` support an optional `tooltip` field (string shown on hover).
 

@@ -19,11 +19,13 @@ from punt_lux.protocol import (
     FrameReader,
     GroupElement,
     ImageElement,
+    InputNumberElement,
     InputTextElement,
     InteractionMessage,
     MarkdownElement,
     MenuMessage,
     Message,
+    ModalElement,
     Patch,
     PingMessage,
     PlotElement,
@@ -50,6 +52,7 @@ from punt_lux.protocol import (
     WindowElement,
     WindowMessage,
     decode_frame,
+    element_from_dict,
     encode_frame,
     encode_message,
     message_from_dict,
@@ -332,6 +335,83 @@ class TestElements:
     def test_tooltip_default_is_none(self):
         e = ButtonElement(id="b1", label="OK")
         assert e.tooltip is None
+
+    # -- InputNumberElement -------------------------------------------------
+
+    def test_input_number_element(self):
+        e = InputNumberElement(id="in1", label="Price", value=9.99, step=0.01)
+        assert e.kind == "input_number"
+        assert e.value == 9.99
+        assert e.step == 0.01
+        assert not e.integer
+
+    def test_input_number_integer(self):
+        e = InputNumberElement(id="in2", label="Qty", integer=True, min=1, max=100)
+        assert e.integer
+        assert e.min == 1
+        assert e.max == 100
+
+    def test_input_number_defaults(self):
+        e = InputNumberElement(id="in3", label="X")
+        assert e.value == 0.0
+        assert e.min is None
+        assert e.max is None
+        assert e.step is None
+        assert e.format == "%.3f"
+        assert not e.integer
+
+    # -- ButtonElement extensions ------------------------------------------
+
+    def test_button_arrow(self):
+        e = ButtonElement(id="b1", label="Prev", arrow="left")
+        assert e.arrow == "left"
+        assert not e.small
+
+    def test_button_small(self):
+        e = ButtonElement(id="b2", label="Save", small=True)
+        assert e.small
+        assert e.arrow is None
+
+    def test_button_defaults_unchanged(self):
+        e = ButtonElement(id="b3", label="OK")
+        assert e.arrow is None
+        assert not e.small
+        assert not e.disabled
+
+    # -- ColorPickerElement extensions -------------------------------------
+
+    def test_color_picker_alpha(self):
+        e = ColorPickerElement(id="cp1", label="BG", alpha=True, value="#FF0000FF")
+        assert e.alpha
+        assert not e.picker
+        assert e.value == "#FF0000FF"
+
+    def test_color_picker_full_picker(self):
+        e = ColorPickerElement(id="cp2", label="Accent", picker=True)
+        assert e.picker
+        assert not e.alpha
+
+    def test_color_picker_defaults_unchanged(self):
+        e = ColorPickerElement(id="cp3", label="Color")
+        assert not e.alpha
+        assert not e.picker
+        assert e.value == "#FFFFFF"
+
+    # -- ModalElement ------------------------------------------------------
+
+    def test_modal_element(self):
+        child = TextElement(id="t1", content="Are you sure?")
+        e = ModalElement(id="m1", title="Confirm", children=[child])
+        assert e.kind == "modal"
+        assert e.title == "Confirm"
+        assert e.open is True
+        assert len(e.children) == 1
+
+    def test_modal_defaults(self):
+        e = ModalElement(id="m2")
+        assert e.title == ""
+        assert e.open is True
+        assert e.children == []
 
 
 # ---------------------------------------------------------------------------
@@ -1286,6 +1366,164 @@ class TestSerialization:
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
         assert len(restored.elements) == 9
+
+    # -- element_from_dict for new/extended types --------------------------
+
+    def test_input_number_from_dict(self):
+        d = {
+            "kind": "input_number",
+            "id": "in1",
+            "label": "Price",
+            "value": 9.99,
+            "min": 0,
+            "max": 100,
+            "step": 0.01,
+            "format": "%.2f",
+        }
+        e = element_from_dict(d)
+        assert isinstance(e, InputNumberElement)
+        assert e.value == 9.99
+        assert e.min == 0
+        assert e.max == 100
+        assert e.step == 0.01
+        assert e.format == "%.2f"
+        assert not e.integer
+
+    def test_input_number_from_dict_integer(self):
+        d = {"kind": "input_number", "id": "qty", "label": "Qty", "integer": True}
+        e = element_from_dict(d)
+        assert isinstance(e, InputNumberElement)
+        assert e.integer
+        assert e.value == 0.0
+
+    def test_input_number_from_dict_defaults(self):
+        d = {"kind": "input_number", "id": "x", "label": "X"}
+        e = element_from_dict(d)
+        assert isinstance(e, InputNumberElement)
+        assert e.min is None
+        assert e.max is None
+        assert e.step is None
+
+    def test_button_from_dict_arrow(self):
+        d = {"kind": "button", "id": "b1", "label": "Prev", "arrow": "left"}
+        e = element_from_dict(d)
+        assert isinstance(e, ButtonElement)
+        assert e.arrow == "left"
+        assert not e.small
+
+    def test_button_from_dict_small(self):
+        d = {"kind": "button", "id": "b2", "label": "Save", "small": True}
+        e = element_from_dict(d)
+        assert isinstance(e, ButtonElement)
+        assert e.small
+
+    def test_button_from_dict_backwards_compat(self):
+        d = {"kind": "button", "id": "b3", "label": "OK"}
+        e = element_from_dict(d)
+        assert isinstance(e, ButtonElement)
+        assert e.arrow is None
+        assert not e.small
+
+    def test_color_picker_from_dict_alpha(self):
+        d = {
+            "kind": "color_picker",
+            "id": "cp1",
+            "label": "BG",
+            "value": "#FF0000FF",
+            "alpha": True,
+        }
+        e = element_from_dict(d)
+        assert isinstance(e, ColorPickerElement)
+        assert e.alpha
+        assert not e.picker
+
+    def test_color_picker_from_dict_picker(self):
+        d = {"kind": "color_picker", "id": "cp2", "label": "Accent", "picker": True}
+        e = element_from_dict(d)
+        assert isinstance(e, ColorPickerElement)
+        assert e.picker
+
+    def test_color_picker_from_dict_backwards_compat(self):
+        d = {"kind": "color_picker", "id": "cp3", "label": "Color"}
+        e = element_from_dict(d)
+        assert isinstance(e, ColorPickerElement)
+        assert not e.alpha
+        assert not e.picker
+
+    def test_modal_from_dict(self):
+        d = {
+            "kind": "modal",
+            "id": "m1",
+            "title": "Confirm",
+            "open": True,
+            "children": [
+                {"kind": "text", "id": "t1", "content": "Sure?"},
+                {"kind": "button", "id": "b1", "label": "Yes"},
+            ],
+        }
+        e = element_from_dict(d)
+        assert isinstance(e, ModalElement)
+        assert e.title == "Confirm"
+        assert e.open is True
+        assert len(e.children) == 2
+        assert isinstance(e.children[0], TextElement)
+        assert isinstance(e.children[1], ButtonElement)
+
+    def test_modal_from_dict_defaults(self):
+        d = {"kind": "modal", "id": "m2"}
+        e = element_from_dict(d)
+        assert isinstance(e, ModalElement)
+        assert e.title == ""
+        assert e.open is True
+        assert e.children == []
+
+    def test_modal_open_false_roundtrip(self):
+        original = SceneMessage(
+            id="s1",
+            elements=[ModalElement(id="m1", title="X", open=False)],
+        )
+        d = message_to_dict(original)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        modal = restored.elements[0]
+        assert isinstance(modal, ModalElement)
+        assert modal.open is False
+
+    def test_modal_scene_roundtrip(self):
+        original = SceneMessage(
+            id="s1",
+            elements=[
+                ModalElement(
+                    id="m1",
+                    title="Confirm",
+                    children=[
+                        TextElement(id="t1", content="Delete?"),
+                        ButtonElement(id="b1", label="Yes", action="confirm"),
+                    ],
+                ),
+            ],
+        )
+        d = message_to_dict(original)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert len(restored.elements) == 1
+        modal = restored.elements[0]
+        assert isinstance(modal, ModalElement)
+        assert modal.title == "Confirm"
+        assert len(modal.children) == 2
+
+    def test_input_number_scene_roundtrip(self):
+        original = SceneMessage(
+            id="s1",
+            elements=[
+                InputNumberElement(id="in1", label="Price", value=9.99, step=0.01),
+            ],
+        )
+        d = message_to_dict(original)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        assert len(restored.elements) == 1
+        assert isinstance(restored.elements[0], InputNumberElement)
 
 
 # ---------------------------------------------------------------------------
