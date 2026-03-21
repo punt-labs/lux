@@ -1477,6 +1477,18 @@ class TestSerialization:
         assert e.open is True
         assert e.children == []
 
+    def test_modal_open_false_roundtrip(self):
+        original = SceneMessage(
+            id="s1",
+            elements=[ModalElement(id="m1", title="X", open=False)],
+        )
+        d = message_to_dict(original)
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        modal = restored.elements[0]
+        assert isinstance(modal, ModalElement)
+        assert modal.open is False
+
     def test_modal_scene_roundtrip(self):
         original = SceneMessage(
             id="s1",

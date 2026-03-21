@@ -1021,15 +1021,13 @@ def _render_function_to_dict(elem: RenderFunctionElement) -> dict[str, Any]:
 
 
 def _modal_to_dict(elem: ModalElement) -> dict[str, Any]:
-    d: dict[str, Any] = {
+    return {
         "kind": elem.kind,
         "id": elem.id,
         "title": elem.title,
+        "open": elem.open,
         "children": [_element_to_dict(c) for c in elem.children],
     }
-    if elem.open:
-        d["open"] = True
-    return d
 
 
 _ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
