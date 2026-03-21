@@ -18,6 +18,15 @@
   indentation. Branch nodes use `NoTreePushOnOpen` for arrow+label toggle,
   leaf children render as flush-left selectable items. Useful for inline
   disclosure patterns where hierarchical indentation wastes horizontal space.
+- **`InputNumberElement`** — numeric input field with optional step buttons,
+  min/max clamping, and integer mode. Wraps `imgui.input_int`/`input_float`.
+- **`ModalElement`** — modal popup dialog that blocks background interaction.
+  Container element with children; emits `"closed"` event on user dismissal.
+- **`ButtonElement` arrow/small variants** — `arrow` field renders directional
+  arrow buttons (left/right/up/down); `small` field renders compact buttons.
+- **`ColorPickerElement` alpha/picker modes** — `alpha=True` enables RGBA
+  editing via `ColorEdit4`; `picker=True` renders full color picker widget.
+- **Beads board sortable columns** — table now includes `sortable` flag.
 
 ### Fixed
 

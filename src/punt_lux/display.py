@@ -2747,6 +2747,7 @@ class DisplayServer:
         "checkbox": "_render_checkbox",
         "combo": "_render_combo",
         "input_text": "_render_input_text",
+        "input_number": "_render_input_number",
         "radio": "_render_radio",
         "color_picker": "_render_color_picker",
         "draw": "_render_draw",
@@ -2762,6 +2763,7 @@ class DisplayServer:
         "spinner": "_render_spinner",
         "markdown": "_render_markdown",
         "render_function": "_render_render_function",
+        "modal": "_render_modal",
     }
 
     def _render_element(self, elem: Element) -> None:
@@ -2869,6 +2871,20 @@ class DisplayServer:
             if color:
                 imgui.pop_style_color()
 
+    _arrow_dirs: ClassVar[dict[str, Any] | None] = None
+
+    def _resolve_arrow_dir(self, name: str) -> Any | None:
+        from imgui_bundle import imgui
+
+        if DisplayServer._arrow_dirs is None:
+            DisplayServer._arrow_dirs = {
+                "left": imgui.Dir.left,
+                "right": imgui.Dir.right,
+                "up": imgui.Dir.up,
+                "down": imgui.Dir.down,
+            }
+        return DisplayServer._arrow_dirs.get(name)
+
     def _render_button(self, elem: Element) -> None:
         from imgui_bundle import imgui
 
@@ -2877,11 +2893,26 @@ class DisplayServer:
         eid: str = btn.id
         action: str = btn.action or eid
         disabled: bool = btn.disabled
+        arrow: str | None = btn.arrow
+        small: bool = btn.small
 
         if disabled:
             imgui.begin_disabled()
 
-        if imgui.button(f"{label}##{eid}"):
+        clicked = False
+        if arrow:
+            direction = self._resolve_arrow_dir(arrow)
+            if direction is not None:
+                clicked = imgui.arrow_button(f"##{eid}", direction)
+            else:
+                logger.warning("Unknown arrow direction %r for %s", arrow, eid)
+                clicked = imgui.button(f"{label}##{eid}")
+        elif small:
+            clicked = imgui.small_button(f"{label}##{eid}")
+        else:
+            clicked = imgui.button(f"{label}##{eid}")
+
+        if clicked:
             self._event_queue.append(
                 InteractionMessage(
                     element_id=eid,
@@ -3025,6 +3056,53 @@ class DisplayServer:
                 )
             )
 
+    def _render_input_number(self, elem: Element) -> None:
+        from imgui_bundle import imgui
+
+        el: Any = elem
+        eid: str = el.id
+        label: str = el.label
+        is_int: bool = el.integer
+        step: float | None = el.step
+        fmt: str = el.format
+
+        initial: int | float = el.value
+        if el.min is not None and initial < el.min:
+            initial = int(el.min) if is_int else el.min
+        if el.max is not None and initial > el.max:
+            initial = int(el.max) if is_int else el.max
+        current = self._widget_state.ensure(eid, initial)
+
+        result: int | float
+        if is_int:
+            s = int(step) if step is not None else 1
+            changed, result = imgui.input_int(
+                f"{label}##{eid}", int(current), s, s * 10
+            )
+        else:
+            s_f = step if step is not None else 0.0
+            changed, result = imgui.input_float(
+                f"{label}##{eid}", float(current), s_f, s_f * 10.0, fmt
+            )
+
+        if el.min is not None and result < el.min:
+            result = int(el.min) if is_int else el.min
+            changed = True
+        if el.max is not None and result > el.max:
+            result = int(el.max) if is_int else el.max
+            changed = True
+
+        if changed:
+            self._widget_state.set(eid, result)
+            self._event_queue.append(
+                InteractionMessage(
+                    element_id=eid,
+                    action="changed",
+                    ts=time.time(),
+                    value=result,
+                )
+            )
+
     def _render_radio(self, elem: Element) -> None:
         from imgui_bundle import imgui
 
@@ -3060,15 +3138,34 @@ class DisplayServer:
         eid: str = cp.id
         label: str = cp.label
         hex_str: str = cp.value
+        use_alpha: bool = cp.alpha
+        use_picker: bool = cp.picker
 
-        r, g, b, _a = _parse_color(hex_str)
-        initial = ImVec4(r / 255.0, g / 255.0, b / 255.0, 1.0)
+        r, g, b, a = _parse_color(hex_str)
+        initial = ImVec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0)
         current = self._widget_state.ensure(eid, initial)
 
-        changed, new_color = imgui.color_edit3(f"{label}##{eid}", current)
+        if use_picker:
+            if use_alpha:
+                changed, new_color = imgui.color_picker4(f"{label}##{eid}", current)
+            else:
+                changed, new_color = imgui.color_picker3(f"{label}##{eid}", current)
+        elif use_alpha:
+            changed, new_color = imgui.color_edit4(f"{label}##{eid}", current)
+        else:
+            changed, new_color = imgui.color_edit3(f"{label}##{eid}", current)
+
         if changed:
             self._widget_state.set(eid, new_color)
-            hex_val = _color_to_hex(new_color[0], new_color[1], new_color[2])
+            if use_alpha:
+                nc = new_color
+                r_ = int(nc[0] * 255 + 0.5)
+                g_ = int(nc[1] * 255 + 0.5)
+                b_ = int(nc[2] * 255 + 0.5)
+                a_ = int(nc[3] * 255 + 0.5)
+                hex_val = f"#{r_:02X}{g_:02X}{b_:02X}{a_:02X}"
+            else:
+                hex_val = _color_to_hex(new_color[0], new_color[1], new_color[2])
             self._event_queue.append(
                 InteractionMessage(
                     element_id=eid,
@@ -3601,6 +3698,60 @@ class DisplayServer:
                 return
             avail = imgui.get_content_region_avail()
             executor.render(imgui.get_io().delta_time, avail.x, avail.y)
+
+    # -- modal rendering ---------------------------------------------------
+
+    _MODAL_OPEN = 1
+    _MODAL_CLOSED = 0
+
+    def _render_modal(self, elem: Element) -> None:
+        from imgui_bundle import imgui
+
+        md: Any = elem
+        eid: str = md.id
+        title: str = md.title or md.id
+        should_open: bool = md.open
+        popup_id = f"{title}##{eid}"
+        open_key = f"{eid}__open"
+        dismiss_key = f"{eid}__dismissed"
+
+        on = self._MODAL_OPEN
+        off = self._MODAL_CLOSED
+        was_open = self._widget_state.ensure(open_key, off) == on
+        dismissed = self._widget_state.ensure(dismiss_key, off) == on
+
+        # When the agent sets open=False, clear the dismissed latch
+        # so the modal can be re-opened later.
+        if not should_open:
+            if was_open or dismissed:
+                self._widget_state.set(open_key, self._MODAL_CLOSED)
+                self._widget_state.set(dismiss_key, self._MODAL_CLOSED)
+            return
+
+        # Don't re-open if user already dismissed and agent hasn't acked yet.
+        if should_open and not was_open and not dismissed:
+            imgui.open_popup(popup_id)
+            self._widget_state.set(open_key, self._MODAL_OPEN)
+            was_open = True
+
+        visible, _p_open = imgui.begin_popup_modal(popup_id, True)  # noqa: FBT003
+
+        if visible:
+            for child in md.children:
+                self._render_element(child)
+            imgui.end_popup()
+
+        if was_open and not visible:
+            self._widget_state.set(open_key, self._MODAL_CLOSED)
+            self._widget_state.set(dismiss_key, self._MODAL_OPEN)
+            self._event_queue.append(
+                InteractionMessage(
+                    element_id=eid,
+                    action="closed",
+                    ts=time.time(),
+                    value=None,
+                )
+            )
 
     # -- draw element rendering --------------------------------------------
 

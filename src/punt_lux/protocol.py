@@ -63,13 +63,20 @@ class TextElement:
 
 @dataclass
 class ButtonElement:
-    """A clickable button."""
+    """A clickable button.
+
+    Variants:
+      - ``small=True``: compact button (ImGui SmallButton)
+      - ``arrow``: directional arrow button ("left"/"right"/"up"/"down")
+    """
 
     id: str
     label: str
     kind: Literal["button"] = "button"
     action: str | None = None
     disabled: bool = False
+    small: bool = False
+    arrow: str | None = None  # "left", "right", "up", "down"
     tooltip: str | None = None
 
 
@@ -145,13 +152,37 @@ class RadioElement:
 
 
 @dataclass
+class InputNumberElement:
+    """A numeric input field with optional step buttons and clamping."""
+
+    id: str
+    label: str
+    kind: Literal["input_number"] = "input_number"
+    value: float = 0.0
+    min: float | None = None
+    max: float | None = None
+    step: float | None = None
+    format: str = "%.3f"
+    integer: bool = False
+    tooltip: str | None = None
+
+
+@dataclass
 class ColorPickerElement:
-    """An RGB color picker."""
+    """A color picker with optional alpha channel and full picker mode.
+
+    Modes:
+      - default: inline ``ColorEdit3`` (RGB)
+      - ``alpha=True``: ``ColorEdit4`` (RGBA), value uses ``#RRGGBBAA``
+      - ``picker=True``: full ``ColorPicker3``/``ColorPicker4`` widget
+    """
 
     id: str
     label: str
     kind: Literal["color_picker"] = "color_picker"
     value: str = "#FFFFFF"
+    alpha: bool = False
+    picker: bool = False
     tooltip: str | None = None
 
 
@@ -405,6 +436,23 @@ class RenderFunctionElement:
     tooltip: str | None = None
 
 
+@dataclass
+class ModalElement:
+    """A modal popup dialog that blocks interaction with background content.
+
+    Set ``open=True`` to show the modal.  Children render inside.
+    The display emits a ``"closed"`` event when the user dismisses it
+    (Escape or X button).  Button clicks inside fire normal button events.
+    """
+
+    id: str
+    kind: Literal["modal"] = "modal"
+    title: str = ""
+    open: bool = True
+    children: list[Any] = field(default_factory=lambda: list[Any]())
+    tooltip: str | None = None
+
+
 Element = (
     ImageElement
     | TextElement
@@ -414,6 +462,7 @@ Element = (
     | CheckboxElement
     | ComboElement
     | InputTextElement
+    | InputNumberElement
     | RadioElement
     | ColorPickerElement
     | DrawElement
@@ -429,6 +478,7 @@ Element = (
     | SpinnerElement
     | MarkdownElement
     | RenderFunctionElement
+    | ModalElement
 )
 
 # ---------------------------------------------------------------------------
@@ -659,6 +709,10 @@ def _button_to_dict(elem: ButtonElement) -> dict[str, Any]:
     }
     if elem.disabled:
         d["disabled"] = True
+    if elem.small:
+        d["small"] = True
+    if elem.arrow is not None:
+        d["arrow"] = elem.arrow
     return _strip_none(d)
 
 
@@ -725,13 +779,37 @@ def _radio_to_dict(elem: RadioElement) -> dict[str, Any]:
     }
 
 
+def _input_number_to_dict(elem: InputNumberElement) -> dict[str, Any]:
+    d: dict[str, Any] = {
+        "kind": elem.kind,
+        "id": elem.id,
+        "label": elem.label,
+        "value": elem.value,
+        "format": elem.format,
+    }
+    if elem.min is not None:
+        d["min"] = elem.min
+    if elem.max is not None:
+        d["max"] = elem.max
+    if elem.step is not None:
+        d["step"] = elem.step
+    if elem.integer:
+        d["integer"] = True
+    return d
+
+
 def _color_picker_to_dict(elem: ColorPickerElement) -> dict[str, Any]:
-    return {
+    d: dict[str, Any] = {
         "kind": elem.kind,
         "id": elem.id,
         "label": elem.label,
         "value": elem.value,
     }
+    if elem.alpha:
+        d["alpha"] = True
+    if elem.picker:
+        d["picker"] = True
+    return d
 
 
 def _draw_to_dict(elem: DrawElement) -> dict[str, Any]:
@@ -942,6 +1020,18 @@ def _render_function_to_dict(elem: RenderFunctionElement) -> dict[str, Any]:
     }
 
 
+def _modal_to_dict(elem: ModalElement) -> dict[str, Any]:
+    d: dict[str, Any] = {
+        "kind": elem.kind,
+        "id": elem.id,
+        "title": elem.title,
+        "children": [_element_to_dict(c) for c in elem.children],
+    }
+    if elem.open:
+        d["open"] = True
+    return d
+
+
 _ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
     ImageElement: _image_to_dict,
     TextElement: _text_to_dict,
@@ -951,6 +1041,7 @@ _ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
     CheckboxElement: _checkbox_to_dict,
     ComboElement: _combo_to_dict,
     InputTextElement: _input_text_to_dict,
+    InputNumberElement: _input_number_to_dict,
     RadioElement: _radio_to_dict,
     ColorPickerElement: _color_picker_to_dict,
     DrawElement: _draw_to_dict,
@@ -966,6 +1057,7 @@ _ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
     SpinnerElement: _spinner_to_dict,
     MarkdownElement: _markdown_to_dict,
     RenderFunctionElement: _render_function_to_dict,
+    ModalElement: _modal_to_dict,
 }
 
 
@@ -1009,6 +1101,8 @@ def _button_from_dict(d: dict[str, Any]) -> ButtonElement:
         label=d.get("label", ""),
         action=d.get("action"),
         disabled=d.get("disabled", False),
+        small=d.get("small", False),
+        arrow=d.get("arrow"),
     )
 
 
@@ -1063,11 +1157,26 @@ def _radio_from_dict(d: dict[str, Any]) -> RadioElement:
     )
 
 
+def _input_number_from_dict(d: dict[str, Any]) -> InputNumberElement:
+    return InputNumberElement(
+        id=d["id"],
+        label=d.get("label", ""),
+        value=d.get("value", 0.0),
+        min=d.get("min"),
+        max=d.get("max"),
+        step=d.get("step"),
+        format=d.get("format", "%.3f"),
+        integer=d.get("integer", False),
+    )
+
+
 def _color_picker_from_dict(d: dict[str, Any]) -> ColorPickerElement:
     return ColorPickerElement(
         id=d["id"],
         label=d.get("label", ""),
         value=d.get("value", "#FFFFFF"),
+        alpha=d.get("alpha", False),
+        picker=d.get("picker", False),
     )
 
 
@@ -1224,6 +1333,15 @@ def _render_function_from_dict(d: dict[str, Any]) -> RenderFunctionElement:
     )
 
 
+def _modal_from_dict(d: dict[str, Any]) -> ModalElement:
+    return ModalElement(
+        id=d["id"],
+        title=d.get("title", ""),
+        open=d.get("open", True),
+        children=[element_from_dict(c) for c in d.get("children", [])],
+    )
+
+
 _ELEMENT_DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Element]] = {
     "image": _image_from_dict,
     "text": _text_from_dict,
@@ -1233,6 +1351,7 @@ _ELEMENT_DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Element]] = {
     "checkbox": _checkbox_from_dict,
     "combo": _combo_from_dict,
     "input_text": _input_text_from_dict,
+    "input_number": _input_number_from_dict,
     "radio": _radio_from_dict,
     "color_picker": _color_picker_from_dict,
     "draw": _draw_from_dict,
@@ -1248,6 +1367,7 @@ _ELEMENT_DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Element]] = {
     "spinner": _spinner_from_dict,
     "markdown": _markdown_from_dict,
     "render_function": _render_function_from_dict,
+    "modal": _modal_from_dict,
 }
 
 
