@@ -127,7 +127,7 @@ Estimated: architecture work, likely 0.6.x or 0.7.x scope.
 
 Every new element must be fully describable as JSON. The test: can an agent build a valid element dict without understanding ImGui internals?
 
-- **Good**: `{"type": "input_float", "id": "x", "value": 3.14, "min": 0, "max": 10}`
+- **Good**: `{"kind": "input_number", "id": "x", "label": "X", "value": 3.14, "min": 0, "max": 10}`
 - **Bad**: requiring the agent to manage ImGui state flags or frame-to-frame continuity
 
 ### Event model

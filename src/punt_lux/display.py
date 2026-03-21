@@ -3075,7 +3075,7 @@ class DisplayServer:
 
         result: int | float
         if is_int:
-            s = int(step) if step is not None else 1
+            s = int(step) if step is not None else 0
             changed, result = imgui.input_int(
                 f"{label}##{eid}", int(current), s, s * 10
             )
@@ -3159,10 +3159,10 @@ class DisplayServer:
             self._widget_state.set(eid, new_color)
             if use_alpha:
                 nc = new_color
-                r_ = int(nc[0] * 255 + 0.5)
-                g_ = int(nc[1] * 255 + 0.5)
-                b_ = int(nc[2] * 255 + 0.5)
-                a_ = int(nc[3] * 255 + 0.5)
+                r_ = int(max(0.0, min(1.0, nc[0])) * 255)
+                g_ = int(max(0.0, min(1.0, nc[1])) * 255)
+                b_ = int(max(0.0, min(1.0, nc[2])) * 255)
+                a_ = int(max(0.0, min(1.0, nc[3])) * 255)
                 hex_val = f"#{r_:02X}{g_:02X}{b_:02X}{a_:02X}"
             else:
                 hex_val = _color_to_hex(new_color[0], new_color[1], new_color[2])
