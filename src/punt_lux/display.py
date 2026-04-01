@@ -69,6 +69,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Sentinel fd for scenes whose owning client has disconnected and no other
+# client remains in the frame.  The scene persists until the user closes the
+# frame or a new client adopts it.
+_ORPHAN_FD = -1
+
 # ---------------------------------------------------------------------------
 # Texture cache
 # ---------------------------------------------------------------------------
@@ -1705,17 +1710,20 @@ class DisplayServer:
             self._client_names.pop(fd, None)
             self._menu_registrations.pop(fd, None)
             self._menu_owners = {k: v for k, v in self._menu_owners.items() if v != fd}
-            # Remove this client's scenes from shared frames.
-            # _dismiss_framed_scene may auto-close empty frames (mutating
-            # _frames), so iterate over a snapshot.
+            # Transfer ownership of this client's scenes to another client
+            # in the same frame, or mark them as orphans if no other client
+            # remains.  Scenes persist — they are never dismissed on disconnect.
             for f in list(self._frames.values()):
                 f.owner_fds.discard(fd)
                 owned_scenes = [
                     sid for sid in f.scene_order if self._scene_to_owner.get(sid) == fd
                 ]
                 for sid in owned_scenes:
-                    if f.frame_id in self._frames:
-                        self._dismiss_framed_scene(f, sid, notify=False)
+                    remaining = f.owner_fds
+                    if remaining:
+                        self._scene_to_owner[sid] = next(iter(remaining))
+                    else:
+                        self._scene_to_owner[sid] = _ORPHAN_FD
         with contextlib.suppress(OSError):
             sock.close()
         logger.debug("Client disconnected (remaining: %d)", len(self._clients))
