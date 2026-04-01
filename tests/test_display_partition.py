@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Literal
 from unittest.mock import MagicMock
 
-from punt_lux.display import DisplayServer, WidgetState
+from punt_lux.display import _ORPHAN_FD, DisplayServer, WidgetState
 from punt_lux.protocol import (
     ButtonElement,
     ClearMessage,
@@ -1021,7 +1021,7 @@ class TestCloseFramePartitions:
 class TestDisconnectFrameCleanupPartitions:
     """DisconnectClient: orphans scenes instead of removing them."""
 
-    def test_disconnect_removes_client_scenes(self):
+    def test_disconnect_transfers_client_scenes(self):
         """Disconnecting a client transfers its scenes to remaining client."""
         server = _server()
         s1 = _sock(fd=10)
@@ -1057,7 +1057,7 @@ class TestDisconnectFrameCleanupPartitions:
         server._remove_client(sock)
 
         assert "f1" in server._frames
-        assert server._scene_to_owner["s1"] == -1  # _ORPHAN_FD
+        assert server._scene_to_owner["s1"] == _ORPHAN_FD
 
     def test_disconnect_preserves_other_frames(self):
         """Disconnecting a client orphans its frame; other frames unaffected."""
@@ -1103,7 +1103,7 @@ class TestDisconnectFrameCleanupPartitions:
         assert "f1" in server._frames
         frame = server._frames["f1"]
         assert "s1" in frame.scenes
-        assert server._scene_to_owner["s1"] == -1
+        assert server._scene_to_owner["s1"] == _ORPHAN_FD
 
     def test_orphaned_frame_closeable_by_user(self):
         """An orphaned frame can be closed via _close_frame()."""

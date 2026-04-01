@@ -75,9 +75,13 @@ async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
                 exc_info=True,
             )
             retry_task = asyncio.create_task(_retry_eager_connect())
-    yield
-    if retry_task is not None and not retry_task.done():
-        retry_task.cancel()
+    try:
+        yield
+    finally:
+        if retry_task is not None and not retry_task.done():
+            retry_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await retry_task
 
 
 mcp = FastMCP(
