@@ -1019,10 +1019,10 @@ class TestCloseFramePartitions:
 
 
 class TestDisconnectFrameCleanupPartitions:
-    """DisconnectClient: removes that client's scenes from shared frames."""
+    """DisconnectClient: orphans scenes instead of removing them."""
 
     def test_disconnect_removes_client_scenes(self):
-        """Disconnecting a client removes its scenes from the frame."""
+        """Disconnecting a client transfers its scenes to remaining client."""
         server = _server()
         s1 = _sock(fd=10)
         s2 = _sock(fd=20)
@@ -1037,15 +1037,16 @@ class TestDisconnectFrameCleanupPartitions:
 
         server._remove_client(s1)
 
-        # Frame persists with client 2's scene
+        # Frame persists — s1 transferred to remaining client (fd=20)
         assert "f1" in server._frames
         frame = server._frames["f1"]
-        assert "s1" not in frame.scenes
+        assert "s1" in frame.scenes
         assert "s2" in frame.scenes
         assert frame.owner_fds == {20}
+        assert server._scene_to_owner["s1"] == 20
 
     def test_disconnect_sole_owner_removes_frame(self):
-        """Disconnecting the only client removes the frame entirely."""
+        """Disconnecting the only client orphans the frame, not removes it."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
@@ -1055,11 +1056,11 @@ class TestDisconnectFrameCleanupPartitions:
 
         server._remove_client(sock)
 
-        assert "f1" not in server._frames
-        assert "s1" not in server._scene_to_frame
+        assert "f1" in server._frames
+        assert server._scene_to_owner["s1"] == -1  # _ORPHAN_FD
 
     def test_disconnect_preserves_other_frames(self):
-        """Disconnecting a client does not affect other clients' frames."""
+        """Disconnecting a client orphans its frame; other frames unaffected."""
         server = _server()
         s1 = _sock(fd=10)
         s2 = _sock(fd=20)
@@ -1074,7 +1075,7 @@ class TestDisconnectFrameCleanupPartitions:
 
         server._remove_client(s1)
 
-        assert "f1" not in server._frames
+        assert "f1" in server._frames
         assert "f2" in server._frames
         assert server._frames["f2"].owner_fds == {20}
 
@@ -1087,6 +1088,76 @@ class TestDisconnectFrameCleanupPartitions:
         server._remove_client(sock)
 
         assert len(server._frames) == 0
+
+    def test_ephemeral_client_scene_persists(self):
+        """One client sends a framed scene and disconnects — scene persists."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(
+            sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
+        )
+
+        server._remove_client(sock)
+
+        assert "f1" in server._frames
+        frame = server._frames["f1"]
+        assert "s1" in frame.scenes
+        assert server._scene_to_owner["s1"] == -1
+
+    def test_orphaned_frame_closeable_by_user(self):
+        """An orphaned frame can be closed via _close_frame()."""
+        server = _server()
+        sock = _sock(fd=10)
+        _register(server, sock)
+        server._handle_message(
+            sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
+        )
+        server._remove_client(sock)
+        assert "f1" in server._frames
+
+        server._close_frame("f1")
+
+        assert "f1" not in server._frames
+
+    def test_new_client_adopts_orphaned_frame(self):
+        """After a frame is orphaned, a new client can adopt it."""
+        server = _server()
+        s1 = _sock(fd=10)
+        _register(server, s1)
+        server._handle_message(
+            s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
+        )
+        server._remove_client(s1)
+        assert "f1" in server._frames
+
+        s2 = _sock(fd=20)
+        _register(server, s2)
+        server._handle_message(
+            s2, _framed_scene("s2", "f1", TextElement(id="t2", content="B"))
+        )
+
+        frame = server._frames["f1"]
+        assert 20 in frame.owner_fds
+
+    def test_ownership_transfers_on_disconnect(self):
+        """Two clients in a frame; disconnect transfers scenes to survivor."""
+        server = _server()
+        s1 = _sock(fd=10)
+        s2 = _sock(fd=20)
+        _register(server, s1)
+        _register(server, s2)
+        server._handle_message(
+            s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
+        )
+        server._handle_message(
+            s2, _framed_scene("s2", "f1", TextElement(id="t2", content="B"))
+        )
+
+        server._remove_client(s1)
+
+        assert server._scene_to_owner["s1"] == 20
+        assert server._scene_to_owner["s2"] == 20
 
 
 class TestFrameOwnershipPartitions:

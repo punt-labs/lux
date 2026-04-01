@@ -36,6 +36,18 @@ from punt_lux.protocol import (
 logger = logging.getLogger(__name__)
 
 
+async def _retry_eager_connect() -> None:
+    """Background retries for eager display connect."""
+    for delay in (2.0, 5.0, 10.0):
+        await asyncio.sleep(delay)
+        try:
+            await asyncio.to_thread(_get_client)
+            logger.info("Eager connect retry succeeded")
+            return
+        except Exception:  # noqa: BLE001
+            logger.debug("Eager connect retry failed", exc_info=True)
+
+
 @contextlib.asynccontextmanager
 async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
     """Eager-connect to the display server when display=y.
@@ -52,16 +64,20 @@ async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
         yield
         return
 
+    retry_task: asyncio.Task[None] | None = None
     if cfg.display == "y":
         try:
             logger.info("display=y, eagerly connecting to display server")
             await asyncio.to_thread(_get_client)
-        except (RuntimeError, OSError, ValueError, KeyError):
+        except Exception:  # noqa: BLE001 — best-effort startup
             logger.warning(
-                "Eager connect to display failed; will connect on first tool call",
+                "Eager connect failed; scheduling retries",
                 exc_info=True,
             )
+            retry_task = asyncio.create_task(_retry_eager_connect())
     yield
+    if retry_task is not None and not retry_task.done():
+        retry_task.cancel()
 
 
 mcp = FastMCP(
