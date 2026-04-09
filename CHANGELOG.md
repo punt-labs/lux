@@ -27,12 +27,35 @@
 - **`ColorPickerElement` alpha/picker modes** — `alpha=True` enables RGBA
   editing via `ColorEdit4`; `picker=True` renders full color picker widget.
 - **Beads board sortable columns** — table now includes `sortable` flag.
+- **`make depot` target** — builds the wheel and copies it to the local depot
+  (`../.depot`) for cross-project dev iteration. Sibling projects that list
+  the depot in `uv.toml` pick up the local wheel instead of the stale PyPI
+  version.
 
 ### Fixed
 
+- **Orphan scenes on disconnect** — scenes from a disconnecting client now
+  persist instead of being dismissed. If another client shares the frame,
+  ownership transfers; otherwise scenes are marked as orphans and the frame
+  stays open until the user closes it or a new client adopts it. Fixes
+  fire-and-forget CLI usage (`lux show beads`) where the beads frame would
+  flash and disappear.
+- **Eager connect retry with backoff** — MCP server lifespan retries the
+  initial display connection up to 3 times (2s, 5s, 10s) instead of giving
+  up silently on the first failure.
+- **Development Status classifier** — reverted to `3 - Alpha` in `pyproject.toml`
+  to match the project's actual stage.
 - **TextElement tooltip hover** — tooltips on unstyled text elements now use
   `selectable()` for reliable hover detection. Styled text (heading, caption, code)
   uses the standard generic tooltip handler.
+
+### Security
+
+- **`cryptography` → 46.0.6, `pygments` → 2.20.0** — CVE-2026-34073,
+  CVE-2026-4539.
+- **`fastmcp` → 3.2.0** — CVE-2026-32871, CVE-2026-27124.
+- **`PyJWT` ≥ 2.12.0** — high-severity vulnerability where the library
+  accepted unknown `crit` header extensions.
 
 ## [0.15.1] - 2026-03-16
 
