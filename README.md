@@ -30,7 +30,7 @@ The design follows Smalltalk's Morphic model: every visible element is a composa
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/ddf25c0/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/3180aab/install.sh | sh
 ```
 
 Restart Claude Code twice. The Lux display window opens automatically when agents send visual output.
@@ -68,7 +68,7 @@ This pulls ~2 MB of lightweight deps. The 66 MB display stack (imgui-bundle, num
 <summary>Verify before running</summary>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/ddf25c0/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/3180aab/install.sh -o install.sh
 shasum -a 256 install.sh
 cat install.sh
 sh install.sh
