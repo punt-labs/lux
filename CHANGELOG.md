@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-04-09
+
 ### Added
 
 - **Programmer Calculator applet** — multi-base integer calculator with bit grid,
