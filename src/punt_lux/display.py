@@ -1232,7 +1232,7 @@ class DisplayServer:
                     for fd, items in self._menu_registrations.items()
                 },
             }
-            print(json.dumps(state, indent=2))  # noqa: T201 — user-initiated debug dump
+            print(json.dumps(state, indent=2), flush=True)  # noqa: T201 — user-initiated debug dump
         return clicked
 
     def _show_help_menu(self, imgui: Any) -> None:
