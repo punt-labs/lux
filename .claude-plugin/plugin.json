@@ -1,5 +1,5 @@
 {
-  "name": "lux-dev",
+  "name": "lux",
   "description": "Visual output surface for Claude Code: display text, images, tables, plots, and interactive elements",
   "version": "0.16.1",
   "author": {
@@ -9,10 +9,8 @@
   "mcpServers": {
     "lux": {
       "type": "stdio",
-      "command": "uv",
+      "command": "lux",
       "args": [
-        "run",
-        "lux",
         "serve"
       ]
     }
