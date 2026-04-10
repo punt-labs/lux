@@ -36,6 +36,14 @@
 
 ### Fixed
 
+- **PostToolUse hook stdin on Linux** — `signal-beads.sh` used `< /dev/stdin`
+  which fails on Linux where `/bin/sh` is dash. The redirect opens
+  `/proc/self/fd/0` as a separate file descriptor, losing pipe data. Removed
+  the explicit redirect; stdin inherits naturally per hook standards § 3.
+- **Debug scene dump flushing** — `Dump Scene JSON` menu item used `print()`
+  without `flush=True`. With stdout redirected to a file (via `ensure_display`
+  Popen), full buffering prevented the dump from reaching disk until process
+  exit. Added `flush=True`.
 - **Orphan scenes on disconnect** — scenes from a disconnecting client now
   persist instead of being dismissed. If another client shares the frame,
   ownership transfers; otherwise scenes are marked as orphans and the frame
