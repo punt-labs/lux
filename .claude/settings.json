@@ -1,9 +1,6 @@
 {
   "permissions": {
     "allow": [
-      "Read(../**)",
-      "Edit(../**)",
-      "Write(../**)",
       "Bash(git:*)",
       "Bash(gh:*)",
       "Bash(bd:*)",
