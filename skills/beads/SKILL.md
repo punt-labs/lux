@@ -11,6 +11,9 @@ allowed-tools:
   - mcp__plugin_lux_lux__show_table
   - mcp__plugin_lux-dev_lux__show_table
   - mcp__lux__show_table
+  - mcp__plugin_lux_lux__show
+  - mcp__plugin_lux-dev_lux__show
+  - mcp__lux__show
 ---
 
 # /lux:beads — Beads Issue Board
@@ -53,6 +56,8 @@ Call the `show_table` MCP tool with:
 
 - **`scene_id`**: `"beads-<project>"` where `<project>` is the current directory name (e.g. `"beads-lux"`, `"beads-quarry"`). This gives each project its own tab.
 - **`title`**: `"Beads: <project>"` (e.g. `"Beads: lux"`)
+- **`frame_id`**: `"beads-<project>"` — isolates the board in its own frame so it doesn't replace other content.
+- **`frame_title`**: `"Beads: <project>"` — display title for the frame tab.
 - **`columns`**: `["ID", "Title", "Status", "P", "Type"]`
 - **`rows`**: the main table rows from Step 2
 - **`filters`**:

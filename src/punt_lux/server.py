@@ -344,6 +344,8 @@ def show_table(
     detail: dict[str, Any] | None = None,
     flags: list[str] | None = None,
     title: str | None = None,
+    frame_id: str | None = None,
+    frame_title: str | None = None,
 ) -> str:
     """Display a filterable data table with optional detail panel.
 
@@ -376,6 +378,8 @@ def show_table(
             Available: "borders", "row_bg", "resizable", "sortable",
             "copy_id" (copy first column to clipboard on row select).
         title: Window title.
+        frame_id: Target frame for tab isolation (e.g., "beads-lux").
+        frame_title: Display title for the frame (e.g., "Beads: lux").
 
     Example — issue explorer with search, status filter, and detail::
 
@@ -417,7 +421,9 @@ def show_table(
         table["filters"] = filters
     if detail is not None:
         table["detail"] = detail
-    return show(scene_id, [table], title=title)
+    return show(
+        scene_id, [table], title=title, frame_id=frame_id, frame_title=frame_title
+    )
 
 
 @mcp.tool()
