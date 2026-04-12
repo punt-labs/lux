@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`show_table` `frame_id`/`frame_title` parameters** — convenience wrapper
+  now forwards frame parameters to `show()`, enabling tab-isolated tables
+  (e.g., per-project beads boards) without falling back to raw `show()` calls.
+
+### Fixed
+
+- **`/lux:beads` skill frame isolation** — skill now passes `frame_id` and
+  `frame_title` to `show_table` so the beads board renders in its own frame
+  instead of replacing the main scene.
+
 ## [0.16.1] - 2026-04-09
 
 ## [0.16.0] - 2026-04-09
