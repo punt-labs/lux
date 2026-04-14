@@ -77,7 +77,7 @@
 
 % ── Document version ─────────────────────────────────────────────────────────
 \newcommand{\prfaqversion}[2]{\def\theprfaqmajor{#1}\def\theprfaqminor{#2}}
-\prfaqversion{1}{0}
+\prfaqversion{2}{1}
 
 % ── Header/footer ────────────────────────────────────────────────────────────
 \usepackage{fancyhdr}
@@ -161,13 +161,14 @@
 % ── Headline block ───────────────────────────────────────────────────────────
 \begin{center}
   {\LARGE\bfseries\color{SectionBlue}
-    Self-Extending Display Compositor Gives AI Agents\\
-    a Shared Visual Surface That Grows On Demand} \\[0.8em]
+    Self-Extending Display Server Gives Terminal-Hosted AI Agents\\
+    a Visual Surface Without Giving Up Local Compute} \\[0.8em]
   {\large\color{AccentGray}
     Lux~v2 lets agents author new visual capabilities in minutes ---
-    no vendor release required, no web stack, pure Python} \\[0.3em]
+    native GPU-accelerated rendering via ImGui and SDL2, no web stack,
+    no vendor compute required} \\[0.3em]
   {\large\color{AccentGray}
-    Open-source compositor with community extension registry,
+    Open-source display server with community extension registry,
     three rendering modes, and an in-display agent SDK}
 \end{center}
 
@@ -180,37 +181,50 @@
 \section*{Press Release}
 
 AUSTIN, TX --- October 2026 --- Punt Labs today released Lux~v2, a
-Python-native display compositor that gives AI coding agents a persistent,
-shared visual surface.  Unlike terminal scrollback or vendor dashboards,
-Lux~v2 extends itself: when an agent needs a visualization that does not
-exist, it authors a new extension, installs it, and renders --- in under
-five minutes, without a product release.  Extensions are shareable through
-a community registry with ratings and verification badges, so most users
-never need to author code themselves
-(see \faqref{faq:community}).
+GPU-accelerated display server that gives terminal-hosted AI coding
+agents a persistent, shared visual surface --- without moving compute to a
+vendor's cloud.  The most powerful agentic coding tools (Claude
+Code\cite{anthropic2025claudecode}, Codex) run in the terminal on the
+developer's own machine; Lux~v2 gives them a native visual surface built on
+Dear~ImGui\cite{imgui2025} and SDL2, keeping everything local.  Unlike
+vendor dashboards that require running the entire agent on remote compute,
+or terminal scrollback that has no structure at all, Lux~v2 extends itself:
+when an agent needs a visualization that does not exist, it authors a new
+extension, installs it, and renders --- in under five minutes, without a
+product release.  Extensions are shareable through a community registry with
+ratings and verification badges, so most users never need to author code
+themselves (see \faqref{faq:community}).
 
 \prsection{Problem}
 
-Developers running AI coding agents --- Claude Code\cite{anthropic2025claudecode},
-Cursor, Codex --- coordinate multiple agents across repos, sessions, and
-machines.  The only visibility into what those agents are doing is terminal
-scrollback.  As Steve Yegge has noted, coordinating multiple agents is ``hard
-and exhausting''\cite{yegge2025agents}.  When an agent produces structured
-output --- a table, a chart, an architecture diagram --- the developer sees
-raw text or takes an ad~hoc screenshot.
+Developers running AI coding agents coordinate multiple agents across repos,
+sessions, and machines.  The most capable agentic tools --- Claude
+Code\cite{anthropic2025claudecode}, Codex --- are terminal-hosted, running on
+the developer's own machine with full tool use, MCP integration, and
+multi-turn autonomous operation.  As Steve Yegge has noted, coordinating
+multiple agents is ``hard and exhausting''\cite{yegge2025agents}.  When an
+agent produces structured output --- a table, a chart, an architecture
+diagram --- the developer sees raw text or takes an ad~hoc screenshot.
 
-Every vendor is building a web-based solution: dashboards, chat panels,
-embedded notebooks.  These force the developer to wait for the vendor to
-ship the specific view they need (see \faqref{faq:competition}).
-The developer's terminal environment has no structured visual output.
+Vendors are responding with web dashboards to manage these agents.  But those
+dashboards often require running the \emph{entire agent} on the vendor's
+compute --- not just the LLM call, the agent itself.  The developer trades
+local control for visual management (see \faqref{faq:competition}).
+IDE-hosted tools like Cursor offer agent management features but remain
+all-text; Claude Desktop produces novel visual interfaces but lacks agentic
+power --- no tool use, no MCP, no multi-turn autonomous work.  The result:
+the most powerful agents have no visual surface, and the tools with visual
+surfaces lack agentic power.
 
 \prsection{Solution}
 
 Lux~v2 is a persistent local service --- like Ollama\cite{ollama2025} for
 inference, but for display.  Agents connect via an HTTP service API and send
-structured content.  The display renders it in a native window at 60\,fps
-using Dear~ImGui\cite{imgui2025}.  Multiple agents share one display, each
-in its own frame, with clear attribution.
+structured content.  The display renders it in a native GPU-accelerated
+window at 60\,fps using Dear~ImGui\cite{imgui2025} and SDL2.  Multiple
+agents share one display, each in its own frame, with clear attribution.
+Everything runs on the developer's machine --- no vendor compute, no cloud
+dependency.
 
 The core handles transport, protocol dispatch, extension registry, frame
 management, render loop, and safety.  Everything the user sees ---
@@ -272,10 +286,13 @@ Anthropic API key.
 ``Lux~v1 proved the display has value --- the beads browser alone changed
 how we work.  Pharo proved a self-extending system is valuable --- an agent
 that writes its own UI code, tests it, and persists it.  Lux~v2 combines
-both: the pragmatic Python-native display from v1, plus the self-extension
-model from Pharo, grounded in Python's ecosystem.  The result is that
-`Lux can't do X' stops being a limitation and becomes a five-minute
-problem.''
+both: the GPU-accelerated ImGui/SDL2 display from v1, plus the
+self-extension model from Pharo.  Terminal
+agents are the most powerful agentic tools available, but they have no visual
+surface.  Web dashboards provide visuals but pull your agent onto vendor
+compute.  Lux fills that gap --- native rendering, local-first, and the
+result is that `Lux can't do X' stops being a limitation and becomes a
+five-minute problem.''
 
 \raggedleft --- \textbf{Jim Freeman}, Punt Labs
 \end{spokespersonquote}
@@ -300,23 +317,27 @@ submissions.
 \subsection*{External FAQs}
 
 \begin{faqpair}{What is Lux and who is it for?}\label{faq:what}
-  Lux is a Python-native display compositor --- a persistent local visual
-  surface that AI coding agents write to and read from.  It is for developers who
-  use CLI-based coding agents (Claude Code, Cursor, Codex, or similar) and
-  need structured visual output: tables, charts, diagrams, interactive
-  controls, and custom visualizations.  Lux runs on macOS and Linux.
+  Lux is a GPU-accelerated display server --- a persistent local visual
+  surface that AI coding agents write to and read from, built on
+  Dear~ImGui\cite{imgui2025} and SDL2.  It is for developers who run
+  terminal-hosted coding agents (Claude Code, Codex, or similar) and
+  need structured visual output --- tables, charts, diagrams, interactive
+  controls, and custom visualizations --- without moving their agents to
+  vendor compute.  Lux runs on macOS and Linux.
 \end{faqpair}
 
 \begin{faqpair}{How is this different from terminal scrollback, Claude Desktop, or vendor dashboards?}\label{faq:competition}
-  Terminal scrollback is unstructured text.  Claude Desktop and vendor
-  dashboards are structured but closed: you get the views the vendor ships,
-  on the vendor's release schedule.  Lux is open and extensible: when you
-  need a visualization that does not exist, an agent authors it in minutes
-  and it persists for every future session.
+  Terminal agents (Claude Code, Codex) are the most powerful but have no
+  visual output.  Claude Desktop has visual output but lacks agentic
+  power (no tool use, no MCP).  Vendor web dashboards provide visuals
+  but require running the entire agent on vendor compute.  IDEs like
+  Cursor manage agents but output is text-only.
 
-  Lux is also Python-native, not web.  It integrates with Python's
-  visualization ecosystem (matplotlib, plotly, PIL, pyte, Qt, tkinter)
-  directly, without transpiling to JavaScript.
+  Lux fills the gap: a GPU-accelerated visual surface for
+  terminal-hosted agents, running on the developer's machine.  When you
+  need a visualization that does not exist, an agent authors it in
+  minutes and it persists.  See \faqref{faq:competitors} for detailed
+  competitive analysis.
 \end{faqpair}
 
 \begin{faqpair}{How do I get started?}
@@ -373,11 +394,11 @@ submissions.
 \subsubsection*{Value \& Market}
 
 \begin{faqpair}{What is the total addressable market?}\label{faq:tam}
-  The primary market is developers using CLI-based AI coding agents.
-  Claude Code, Cursor (CLI mode), and Codex are the leading tools.
-  Anthropic reports millions of Claude Code users.  The secondary market
-  is any developer running Python-based AI pipelines who needs visual
-  output.
+  The primary market is developers using terminal-hosted AI coding agents.
+  Claude Code and Codex are the leading tools --- the most capable agentic
+  solutions, both terminal-hosted.  Anthropic reports millions of Claude
+  Code users.  The secondary market is any developer running Python-based
+  AI pipelines who needs visual output without cloud dependency.
 
   Bottoms-up: 1\% adoption of active Claude Code users (free, zero-config
   install) is tens of thousands of active installations.  Registry value
@@ -405,17 +426,26 @@ submissions.
 \end{faqpair}
 
 \begin{faqpair}{Who are the competitors and why will we win?}\label{faq:competitors}
-  Every AI coding tool vendor is building visual output for agents:
+  The competitive landscape divides by two axes: agentic power and visual
+  surface.
 
   \begin{itemize}[nosep]
-    \item \textbf{Claude Desktop} --- Anthropic's consumer product.
-      Web-based, integrated with the chat interface.  Closed; users
-      cannot add custom visualizations.
-    \item \textbf{Cursor} --- IDE with AI features.  Visual output is
-      in-editor.  Extensible via VS Code extensions, but these are
-      IDE-scoped and written by hand.
-    \item \textbf{Codex} --- OpenAI's coding agent.  Terminal-only as of
-      2026.  No visual output surface.
+    \item \textbf{Claude Code / Codex} --- Terminal-hosted, the most
+      powerful agentic tools: full tool use, MCP, multi-turn autonomous
+      work.  No visual output surface beyond scrollback.  \emph{Lux's
+      primary integration targets.}
+    \item \textbf{Claude Desktop} --- Produces novel visual interfaces
+      conceptually similar to the self-extending display we describe.
+      But it lacks Claude Code's agentic power: no tool use, no MCP, no
+      multi-turn autonomous operation.  Cannot drive complex coding
+      workflows.
+    \item \textbf{Cursor} --- IDE with agent management features, but all
+      text --- no visual output surface for structured data.  Extensible
+      via VS~Code extensions, but these are IDE-scoped and written by hand.
+    \item \textbf{Vendor web dashboards} --- Provide visual management but
+      often require running the \emph{entire agent} on vendor compute ---
+      not just the LLM call, the agent itself.  The developer gives up
+      local control for visual output.
     \item \textbf{Jupyter notebooks} --- Rich visual output via
       kernel/display protocol.  Not agent-first; requires notebook UX.
   \end{itemize}
@@ -423,17 +453,18 @@ submissions.
   \textbf{Primary threat: Anthropic-native visual output.}  Anthropic has
   every incentive to build visual panels into Claude Code.  A basic
   built-in display narrows Lux's install-base advantage.  An extensible
-  one collapses Lux's differentiation to ``Python-native vs.\ web-native.''
+  one narrows differentiation to ``local GPU-accelerated vs.\ web-native.''
   Survival strategies: (a)~Lux's extension ecosystem reaches critical mass
   before Anthropic ships, becoming the de-facto standard; (b)~Lux becomes
   a complementary extension provider for whatever Anthropic builds;
-  (c)~Python-native rendering and offline operation remain valuable for
-  users who want local-only display.
+  (c)~native ImGui/SDL2 rendering and fully local operation remain valuable
+  for developers who refuse to move agents to vendor compute.
 
-  Lux's structural advantage: it grows its vocabulary via LLM-authored
-  extensions.  Vendor products ship features on their schedule; Lux
-  delivers a new capability in minutes because the agent writes it.
-  A competitor copying the extension registry concept would have to abandon
+  \textbf{Structural advantage: local-first + self-extending.}  Lux grows
+  its vocabulary via LLM-authored extensions without any vendor release.
+  Vendor dashboards ship features on their schedule and require their
+  compute.  Lux delivers a new capability in minutes, on the developer's
+  machine.  A competitor copying the extension concept would have to abandon
   web-only rendering to integrate Python's visualization libraries ---
   a platform-level decision they are unlikely to reverse.
 \end{faqpair}
@@ -517,7 +548,7 @@ submissions.
   SDK for Smalltalk\cite{claudeagentsdk2026} provides the in-image tool
   runner.
 
-  Lux is the pragmatic Python-native path.  It shares the self-extension
+  Lux is the pragmatic local-first path.  It shares the self-extension
   philosophy --- agent authors code, code persists, system grows --- but
   uses Python's ecosystem instead of Smalltalk's.
 
@@ -558,18 +589,20 @@ submissions.
   \end{enumerate}
 
   Decision threshold: if daily active sessions are below 30 after
-  6~months, revisit whether the self-extending compositor framing
+  6~months, revisit whether the self-extending display server framing
   resonates or whether Lux should remain a simpler display surface
   with a fixed vocabulary.
 \end{faqpair}
 
 \begin{faqpair}{Why now?  What has changed?}
-  Three things converged.  (1)~AI coding agents are mainstream ---
-  Claude Code, Cursor, and Codex have millions of users [CITATION NEEDED],
-  all producing output invisible beyond terminal scrollback.  (2)~LLMs
-  can write UI extensions on demand --- the authoring loop that was
+  Four things converged.  (1)~The most powerful AI coding agents --- Claude
+  Code, Codex --- are terminal-hosted with millions of users [CITATION
+  NEEDED], all producing output invisible beyond scrollback.  (2)~Vendors
+  are responding with web dashboards that require running the entire agent
+  on vendor compute, creating a gap for local-first visual output.
+  (3)~LLMs can write UI extensions on demand --- the authoring loop that was
   impossible two years ago is now routine (proven on Postern/Pharo).
-  (3)~Lux~v1 proved the display surface has value and the
+  (4)~Lux~v1 proved the display surface has value and the
   protocol-as-API design works.
 \end{faqpair}
 
@@ -658,7 +691,9 @@ submissions.
 Value      & \textcolor{RiskAmber}{Medium} &
   v1 proved the display has value for Punt Labs.  Unproven: external
   developer adoption, whether the extension model resonates beyond power
-  users, and whether the agent IDE framing is the right positioning. \\
+  users, and whether the ``visual surface for terminal agents without
+  giving up local compute'' positioning lands with developers who currently
+  accept text-only output. \\
 Usability  & \textcolor{RiskAmber}{Medium} &
   Install and basic display are proven (one curl command, auto-open).
   Extension consumption is plausible but untested with external users.
@@ -672,7 +707,9 @@ Feasibility & \textcolor{RiskAmber}{Medium} &
   community registry bootstrapping, and remote TCP/TLS.  No single risk
   is High, but the aggregate --- 12+ HTTP endpoints, a tool-use loop,
   five permission modes, three render contexts --- is substantial new
-  work. \\
+  work.  Outside view: single-engineer 6-phase rewrites with new
+  extension systems typically underestimate scope.  Mitigated by
+  phased delivery with a defined cut line after phase~3. \\
 Viability  & \textcolor{RiskAmber}{Medium} &
   Open-source with no direct revenue.  Strategic value depends on
   ecosystem pull for other Punt Labs tools.  If Lux~v2 does not drive
@@ -756,18 +793,19 @@ Not launch-blocking.  Fast follow-up candidates.
 Explicitly excluded to clarify scope.
 
 \begin{enumerate}[nosep,leftmargin=2.5em]
-  \featureitem{Web-based rendering}{Lux is Python-native.  HTML,
-    Electron, and webviews are out of scope.  If content needs web
-    embedding, use a web-native tool}\label{feat:no-web}
+  \featureitem{Web-based rendering}{Lux renders natively via ImGui/SDL2
+    on the developer's GPU.  HTML, Electron, and webviews are out of
+    scope --- web rendering paths lead to vendor-compute dependency,
+    which is the problem Lux exists to avoid}\label{feat:no-web}
   \featureitem{GUI framework}{Lux hosts extensions; it does not
     define a widget class hierarchy.  No Lux-specific widget
     SDK}\label{feat:no-framework}
   \featureitem{Local LLM inference}{the in-display agent calls
     Anthropic's API; Lux does not host models
     locally}\label{feat:no-inference}
-  \featureitem{Window manager}{OS-native windows from window-mode
-    extensions are coordinated, not composited.  No tiling WM, no
-    compositor}\label{feat:no-wm}
+  \featureitem{OS-level window manager}{window-mode extensions own
+    native OS windows; Lux coordinates lifecycle and focus but does
+    not tile, composite, or manage window placement}\label{feat:no-wm}
   \featureitem{Mobile or tablet}{desktop only (macOS,
     Linux)}\label{feat:no-mobile}
 \end{enumerate}
