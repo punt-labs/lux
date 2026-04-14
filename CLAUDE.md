@@ -13,7 +13,7 @@ Lux is a **visual output surface for Claude Code**. Vox gives agents a voice; Lu
 - **PyPI package**: `punt-lux`
 - **CLI command**: `lux`
 - **Projection surfaces**: library, CLI, MCP server, plugin
-- **Stage**: v0.5.0
+- **Stage**: v0.16.1 (v2 vision in `docs/v2-vision.md`)
 
 ### Capabilities
 
@@ -33,13 +33,23 @@ Lux is a **visual output surface for Claude Code**. Vox gives agents a voice; Lu
 
 Punt Labs builds CLI tools, Claude Code plugins, and MCP servers that bring rigour to agentic software engineering. Core thesis: AI removes the time penalty from rigour. Every tool follows the same universal access pattern (library → CLI → MCP → REST) from a single codebase. The terminal is the primary interface.
 
-## Vision / Inspiration
+## Product Vision
 
-**Smalltalk as north star.** Pharo/Squeak's live, image-based environment is the long-term inspiration for what Lux could become. In Smalltalk, the Morphic UI treats every visible element as a live, inspectable, composable object — windows inside windows, drag anything, modify anything at runtime. Lux's composable element tree (windows, tabs, groups, collapsing headers nesting arbitrary children) is building toward the same idea, but with an LLM as the "programmer at the keyboard" instead of a human typing into a Smalltalk workspace.
+The PR/FAQ (`lux-prfaq-v2.tex`) is the authoritative source for product vision, target market, competitive positioning, phasing, risk assessment, and "what we are not building." When there are questions about scope, priorities, or product direction, consult the PR/FAQ first. The vision document (`docs/v2-vision.md`) is the north-star intent.
 
-**The endgame:** a Pharo-like live environment where the MCP server is the message bus, Lux is the Morphic layer, and the agent can introspect and reshape the UI while it's running. System browser, inspector, workspace — all draggable windows populated and driven by the agent. This would be a separate application built on top of Lux primitives, not part of Lux itself.
+**v2 thesis:** Lux is a self-extending, GPU-accelerated display server for terminal-hosted AI agents. Closed core, open extension surface. Everything user-visible is an extension. Extensions are LLM-authored on demand and shared via a community registry. The protocol is the API surface — if an agent can describe it as JSON, Lux renders it.
 
-**What this means for primitives:** every element kind we add should be evaluated against "does this compose into a live environment?" Keep elements small, nestable, and data-driven. The protocol is the API surface — if an agent can describe it as JSON, Lux should render it.
+**Pharo relationship:** Complementary, not competing. Pharo (via Postern) is the ambitious live-environment substrate. Lux is the pragmatic local-first path grounded in Python's ecosystem. See `docs/v2-vision.md` § "The Pharo Relationship."
+
+## Design Decision Log
+
+`DESIGN.md` is the authoritative record of design decisions, prior approaches, and their outcomes. Every design change must be logged there before implementation. Consult it before proposing any change — do not revisit a settled decision without new evidence.
+
+The architecture specification (`docs/architecture.tex` for v1, `docs/v2-architecture.tex` for v2) documents the system architecture. Both compile to PDF.
+
+## Scratch Files
+
+Use `.tmp/` at the project root for scratch and temporary files — never `/tmp`. The `TMPDIR` environment variable is set via `.envrc` so that `tempfile` and subprocesses automatically use it. Contents are gitignored; only `.gitkeep` is tracked.
 
 ## Quality Gates
 
@@ -71,6 +81,97 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy src/ tests/ &
 - [ ] **README updated** if user-facing behavior changed
 - [ ] **prfaq.tex updated** if the change shifts product direction or validates/invalidates a risk
 - [ ] **Quality gates pass** — `uv run ruff check . && uv run ruff format --check . && uv run mypy src/ tests/ && uv run pyright && uv run pytest`
+
+## Workflow: Ethos Missions and Pipelines
+
+Use ethos missions for structured delegation. Every non-trivial change goes through a typed mission contract with file-level write-set boundaries, bounded rounds, and an append-only audit trail.
+
+**Mission archetypes** — declare `type:` on the contract:
+
+| Archetype | Purpose | Budget | Write-set constraints |
+|-----------|---------|--------|-----------------------|
+| `implement` | Code change with specific outcome | 3 rounds | Any path |
+| `design` | Produce a design document | 2 rounds | `*.md`, `docs/**` |
+| `test` | Add or improve tests | 2 rounds | `*_test.*`, `tests/**`, `docs/**` |
+| `review` | Read and report findings | 1 round | `*.md`, `*.yaml`, `.tmp/**` |
+| `report` | Gather info and summarize (read-only) | 1 round | Empty allowed |
+| `task` | Execute a specific instruction | 3 rounds | Any path |
+
+**Pipeline selection** — match the pipeline to the nature of the work, not just its size:
+
+| Pipeline | Stages | Use when |
+|----------|--------|----------|
+| `quick` | implement → review | Small, well-understood change |
+| `standard` | design → implement → test → review → document | Default feature work |
+| `full` | prfaq → spec → design → implement → test → coverage → review → document → retro | Large or cross-cutting work |
+| `product` | prfaq → design → implement → test → review → document | New user-facing feature |
+| `formal` | spec → design → implement → test → coverage → review → document | Protocol or state machine |
+| `docs` | design → review | Documentation-only change |
+| `coe` | investigate → root-cause → fix → test → document | Bug that keeps coming back |
+| `coverage` | measure → test → verify | Targeted test improvement |
+
+**Instantiate a pipeline:**
+
+```bash
+ethos mission pipeline instantiate standard \
+  --leader claude --worker rmh --evaluator djb \
+  --var feature=hook-stdin-fix --var target=hooks/signal-beads.sh
+```
+
+This creates one mission per stage, wired with `depends_on` edges. The worker picks up stage 1, submits a result, the leader reflects and advances.
+
+**Contract field notes:**
+
+- Use `inputs.ticket` (not `inputs.bead` — deprecated alias).
+- `ethos mission lint` suggests a pipeline and flags common contract issues.
+- Escalation only goes up. If `quick` reveals unexpected scope, escalate to `standard`. Never demote mid-flight.
+
+**Specialist agents** — delegate to ethos agents, not bare agents:
+
+| Agent | Domain | Use for |
+|-------|--------|---------|
+| `rmh` | Python implementation | All Python code changes in Lux |
+| `adb` | Infrastructure, CI/CD | CI workflows, build scripts, cross-repo tooling |
+| `djb` | Security review | Extension safety, consent model, trust boundaries |
+| `mdm` | CLI design | CLI commands, UX, flags, help text |
+| `kpz` | ML inference | LLM integration, agent SDK |
+
+## Knowledge Propagation Protocol
+
+After merging a PR that introduces new patterns, design decisions, or hard-won debugging insights, propagate knowledge outward before closing the session:
+
+### 1. Document in DESIGN.md
+
+Log the decision in DESIGN.md. Include: what changed, why, what was rejected, and what evidence drove the decision.
+
+### 2. Propagate to punt-kit
+
+If the pattern is reusable across projects:
+
+- **Pattern file** — Create or update `punt-kit/patterns/<name>.md` if a new architectural pattern emerged.
+- **Standard update** — Update `punt-kit/standards/*.md` if an existing standard was invalidated or needs refinement.
+- **PR directly** for factual corrections. **Bead** in punt-kit for broader work.
+
+### 3. Hand off to public-website
+
+If the discovery is interesting to external developers:
+
+- Create a **bead** in `public-website/` describing what to add (blog post, docs page).
+- Include: the story arc, technical details, and audience.
+
+### 4. Update prfaq.tex and README
+
+If the feature was on the roadmap, move it to "Shipped" in both `README.md` and `lux-prfaq-v2.tex`. Recompile the PDF. Features should never remain listed as "Next" after they ship.
+
+### Checklist
+
+```text
+[ ] DESIGN.md updated (if design decision)
+[ ] punt-kit patterns/ or standards/ updated (if reusable pattern)
+[ ] public-website bead created (if externally interesting)
+[ ] README.md and lux-prfaq-v2.tex updated (if shipped feature)
+[ ] lux-prfaq-v2.pdf recompiled
+```
 
 ### Code Review Flow
 
