@@ -39,7 +39,7 @@
 
 \title{Lux: Technical Architecture Specification}
 \author{Visual Output Surface for AI Agents}
-\date{March 2026 --- v0.7.0}
+\date{April 2026 --- v0.16.1}
 \hypersetup{
   pdftitle={Lux: Technical Architecture Specification},
   pdfauthor={Punt Labs},
@@ -120,6 +120,14 @@ Config      & \modpath{config.py}    & \texttt{.lux/config.md} YAML
 Hooks       & \modpath{hooks.py}     & Claude Code lifecycle hook handlers \\
 CLI         & \modpath{\_\_main\_\_.py} & Typer CLI: display, serve, enable,
               disable, status, doctor, install, uninstall \\
+Show        & \modpath{show.py}      & CLI subcommands for pre-built scenes
+              (beads board) \\
+Apps/Beads  & \modpath{apps/beads.py} & Beads issue browser; loads
+              \texttt{.beads/issues.jsonl}, renders filterable table \\
+Apps/Calc   & \modpath{apps/calculator.py} & Programmer calculator; multi-base
+              display with bit grid and bitwise operations \\
+Apps/Clock  & \modpath{apps/clock.py} & Analog clock; smooth hand animation
+              via render function \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -206,9 +214,20 @@ disconnection.
 \msg{PingMessage}   & Heartbeat.  Field: \field{ts}. \\
 \msg{MenuMessage}   & Set agent-provided menu entries. \\
 \msg{ThemeMessage}   & Apply theme by name. \\
+\msg{ConnectMessage} & Client identity handshake.  Field: \field{name}. \\
+\msg{RegisterMenuMessage} & Register per-client menu items.
+  Field: \field{items[]}. \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+\textbf{SceneMessage frame fields} (since v0.9.0): \msg{SceneMessage}
+includes optional fields \field{frame\_id}, \field{frame\_title},
+\field{frame\_size} (initial \texttt{[width, height]}),
+\field{frame\_flags} (dict of ImGui window flags such as
+\texttt{no\_resize}, \texttt{no\_collapse}, \texttt{no\_title\_bar},
+\texttt{no\_background}, \texttt{no\_scrollbar}, \texttt{auto\_resize}),
+and \field{frame\_layout} (\texttt{"tab"} or \texttt{"stack"}).
 
 \subsubsection{Display $\to$ Client}
 
@@ -231,7 +250,7 @@ disconnection.
 
 \subsection{Element Kinds}
 
-25 element kinds organized by category:
+27 element kinds organized by category:
 
 \begin{center}
 \begin{longtable}{llp{6cm}}
@@ -243,18 +262,23 @@ disconnection.
 \textbf{Category} & \textbf{Element} & \textbf{Notes} \\
 \midrule
 \endhead
-Text        & \elem{text}              & Content + style (heading, caption, success, error, code) \\
+Text        & \elem{text}              & Content + style (heading, caption, success, error, code);
+              optional \field{color} hex string \\
             & \elem{markdown}          & CommonMark rendering via imgui\_md \\
 \midrule
 Media       & \elem{image}             & File path or base64 data \\
 \midrule
-Interactive & \elem{button}            & Label, action, disabled flag \\
+Interactive & \elem{button}            & Label, action, disabled flag;
+              \field{arrow} (directional) and \field{small} variants \\
             & \elem{slider}            & Min/max/value, integer mode \\
             & \elem{checkbox}          & Boolean toggle \\
             & \elem{combo}             & Dropdown selection \\
             & \elem{input\_text}       & Single-line text input \\
             & \elem{radio}             & Radio button group \\
-            & \elem{color\_picker}     & RGB/RGBA hex picker \\
+            & \elem{input\_number}     & Numeric input with step buttons, min/max clamping,
+              integer mode \\
+            & \elem{color\_picker}     & RGB/RGBA hex picker;
+              \field{alpha} (RGBA) and \field{picker} (full widget) modes \\
 \midrule
 Data        & \elem{table}             & Columns, rows, built-in filters, detail panel, pagination \\
             & \elem{plot}              & ImPlot: line, scatter, bar series \\
@@ -262,12 +286,16 @@ Data        & \elem{table}             & Columns, rows, built-in filters, detail
             & \elem{spinner}           & Loading indicator \\
 \midrule
 Lists       & \elem{selectable}        & Click-to-select item \\
-            & \elem{tree}              & Recursive node hierarchy \\
+            & \elem{tree}              & Recursive node hierarchy;
+              \field{flat} flag for non-indented expansion \\
 \midrule
 Drawing     & \elem{draw}              & Canvas with draw commands \\
             & \elem{render\_function}  & Agent-submitted Python (consent-gated) \\
 \midrule
-Layout      & \elem{group}             & Row or column layout \\
+Layout      & \elem{modal}             & Modal popup dialog; container with children,
+              emits \texttt{"closed"} event \\
+            & \elem{group}             & Row, column, or paged layout
+              (\field{pages} + \field{page\_source}) \\
             & \elem{tab\_bar}          & Tabbed container \\
             & \elem{collapsing\_header} & Expandable section \\
             & \elem{window}            & Movable, resizable floating panel \\
@@ -293,9 +321,12 @@ Each frame executes four phases in sequence:
     sockets with timeout~0.  Read available data into per-client
     \texttt{FrameReader}.  Dispatch complete messages to
     \texttt{\_handle\_message()}.  Remove errored sockets.
-  \item \textbf{Render scene.}  If no scenes: render idle screen
-    (flame animation).  If one scene: render directly (no tab bar
-    chrome).  If multiple scenes: render closable tab bar.
+  \item \textbf{Render scene.}  Enable docking via
+    \texttt{dock\_space\_over\_viewport}.  Render idle flame background.
+    Check for World menu background click.  Render World panel if open.
+    Render all workspace frames (see \S\ref{sec:frames}).  Render dock
+    bar for minimized frames.  Legacy fallback: if no frames, render
+    unframed scenes as tabs.
   \item \textbf{Flush events.}  Broadcast all buffered
     \msg{InteractionMessage}s to all connected clients, then clear
     the queue.
@@ -323,6 +354,26 @@ microseconds when idle.  ImGui handles frame pacing via GLFW vsync.
   shared across all scenes. \\
 \texttt{\_dirty\_windows}      & \texttt{set[str]} --- window element IDs
   needing initial position set. \\
+\midrule
+\multicolumn{2}{l}{\textbf{Frame state (since v0.9.0)}} \\
+\midrule
+\texttt{\_frames}             & \texttt{dict[str, \_Frame]} --- all workspace
+  frames, keyed by \field{frame\_id}. \\
+\texttt{\_focus\_frame\_id}   & \texttt{str | None} --- frame to auto-focus
+  on next render. \\
+\texttt{\_scene\_to\_frame}   & \texttt{dict[str, str]} --- scene
+  $\to$ frame lookup. \\
+\texttt{\_scene\_to\_owner}   & \texttt{dict[str, int]} --- scene
+  $\to$ client fd ownership. \\
+\midrule
+\multicolumn{2}{l}{\textbf{Client identity (since v0.9.0)}} \\
+\midrule
+\texttt{\_client\_names}      & \texttt{dict[int, str]} --- client fd
+  $\to$ display name. \\
+\texttt{\_menu\_registrations} & \texttt{dict[int, list]} --- per-client
+  menu items. \\
+\texttt{\_menu\_owners}       & \texttt{dict[str, int]} --- menu item ID
+  $\to$ owner fd. \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -396,6 +447,134 @@ render loop:
 \end{enumerate}
 
 % ===================================================================
+\section{Frame Architecture}\label{sec:frames}
+% ===================================================================
+
+Since v0.9.0, scenes can target named \emph{frames}---persistent ImGui
+windows that outlive client connections.  Frames are the primary unit
+of workspace organization, following the Smalltalk Morphic pattern of
+composable, persistent windows.
+
+\subsection{\_Frame Dataclass}
+
+\begin{center}
+\begin{tabular}{lp{8cm}}
+\toprule
+\textbf{Field} & \textbf{Type and Purpose} \\
+\midrule
+\field{frame\_id}       & \texttt{str} --- Unique identifier. \\
+\field{title}           & \texttt{str} --- Window title bar text. \\
+\field{owner\_fds}      & \texttt{set[int]} --- File descriptors of contributing
+  clients. \\
+\field{scenes}          & \texttt{dict[str, SceneMessage]} --- All scenes in
+  this frame, keyed by \field{scene\_id}. \\
+\field{scene\_order}    & \texttt{list[str]} --- Tab ordering. \\
+\field{active\_tab}     & \texttt{str | None} --- Currently visible scene. \\
+\field{minimized}       & \texttt{bool} --- Docked to bottom bar. \\
+\field{cascade\_index}  & \texttt{int} --- Stagger offset for initial
+  positioning. \\
+\field{initial\_size}   & \texttt{tuple[int,int] | None} --- Width/height hint
+  (first use only). \\
+\field{flags}           & \texttt{dict[str,bool] | None} --- ImGui window flags
+  (\texttt{no\_resize}, \texttt{no\_collapse}, \texttt{no\_title\_bar},
+  \texttt{no\_background}, \texttt{no\_scrollbar}, \texttt{auto\_resize}). \\
+\field{layout}          & \texttt{"tab" | "stack"} --- Multi-scene composition
+  mode. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Frame Lifecycle}
+
+\begin{description}[style=nextline]
+  \item[Creation]
+    A frame is created on the first \msg{SceneMessage} with a
+    \field{frame\_id} not already in \texttt{\_frames}.  The client's
+    fd is added to \field{owner\_fds}.
+
+  \item[Shared ownership]
+    Multiple clients can contribute scenes to the same frame.  Each
+    client's fd is added to \field{owner\_fds} on scene insertion.
+
+  \item[Client disconnect]
+    On disconnect, the client's fd is removed from \field{owner\_fds}.
+    Scenes owned by the departing client are re-assigned to a remaining
+    owner if one exists, or marked as orphans (\texttt{\_ORPHAN\_FD = -1}
+    sentinel).  Frames persist with orphaned scenes---they are never
+    dismissed on disconnect.
+
+  \item[Focus]
+    Every \msg{SceneMessage} targeting a frame sets
+    \texttt{\_focus\_frame\_id}.  The next render pass calls
+    \texttt{imgui.set\_next\_window\_focus()} on that frame, then
+    clears the field.  Minimized frames are restored on focus.
+
+  \item[Close]
+    Frames are removed only by: user clicking the X button,
+    \texttt{Clear All} in the Windows menu, or a \msg{ClearMessage}
+    from any client.
+\end{description}
+
+\subsection{Dock Bar}
+
+Minimized frames appear as clickable pills in a persistent bar at
+the bottom of the viewport.  Click a pill to restore and focus the
+frame.  The bar is only rendered when at least one frame is minimized.
+
+The Windows menu provides bulk operations: \texttt{Collapse All}
+(minimize all visible frames), \texttt{Expand All} (restore all
+minimized frames), and \texttt{Fit All} (tile frames in a
+non-overlapping grid layout).
+
+\subsection{Frame Rendering}
+
+Within \texttt{\_render\_frames()}, each render pass:
+
+\begin{enumerate}
+  \item Computes default frame size (75\% of content region).
+  \item Applies fit-all tiling layout if active.
+  \item For each non-minimized frame: renders an ImGui window via
+    \texttt{\_render\_single\_frame()}.
+  \item Dispatches frame contents based on \field{layout}:
+    \texttt{"tab"} renders a closable tab bar;
+    \texttt{"stack"} renders vertically stacked collapsing headers.
+  \item Renders the dock bar with minimized frame pills.
+\end{enumerate}
+
+% ===================================================================
+\section{World Menu and Applications}
+% ===================================================================
+
+The display server provides a floating World menu panel (inspired by
+Pharo Smalltalk's World menu) triggered by clicking the viewport
+background.  The panel mirrors the menu bar structure: Lux,
+Applications, Debug, Windows, Help.  It supports pin/unpin; when
+unpinned, it auto-closes on item click.
+
+\subsection{Applications Menu}
+
+Built-in applets register in the Applications menu via
+\texttt{declare\_menu\_item()} and \texttt{on\_event()} callbacks:
+
+\begin{itemize}
+  \item \textbf{Beads Browser} --- opens the beads issue board in a
+    frame.  Reads \texttt{.beads/issues.jsonl} from the MCP server's
+    working directory.
+  \item \textbf{Programmer Calculator} --- multi-base integer
+    calculator with bit grid and bitwise operations.
+  \item \textbf{Analog Clock} --- smooth-sweeping clock face rendered
+    via ImGui draw list in a chromeless floating window.
+\end{itemize}
+
+\subsection{Per-Client Menu Namespaces}
+
+Each connected MCP server registers menu items via
+\msg{RegisterMenuMessage}.  Items are grouped by client name in the
+Applications menu.  Item clicks generate \msg{InteractionMessage}
+events routed only to the owning client (not broadcast).  Menu items
+and ownership are cleaned up on client disconnect.
+
+% ===================================================================
 \section{IPC and Process Management}
 % ===================================================================
 
@@ -457,7 +636,9 @@ and the call is retried exactly once.  No retry loop.
 \textbf{Parameter} & \textbf{Value} & \textbf{Notes} \\
 \midrule
 Idle FPS            & 30             & \texttt{fps\_idling.fps\_idle = 30.0} \\
-Active FPS          & 60+            & GLFW vsync, GPU-bound \\
+Active FPS          & 60+            & GLFW vsync, GPU-bound.  Docking enabled
+                                       via \texttt{DockingEnable} config flag
+                                       (v0.12.0). \\
 Socket poll timeout & 0              & Non-blocking \texttt{select()} \\
 Max message size    & 16\,MiB        & Hard limit in \texttt{FrameReader} \\
 Connection timeout  & 5.0\,s         & \texttt{ensure\_display()} and handshake \\
@@ -526,6 +707,13 @@ UI at 30\,FPS idle.
     every frame even when nothing changed.  Not a problem at current
     scale but would benefit from dirty-flag optimization for
     10{,}000+ row tables.
+  \item \textbf{ClearMessage is unscoped.}  Any client sending
+    \msg{ClearMessage} clears all frames and scenes for all clients.
+    No per-client or per-frame scoping.
+  \item \textbf{No frame-scoped events.}  \msg{InteractionMessage}
+    carries \field{element\_id} but not \field{frame\_id}.  Events
+    from elements in different frames with the same element ID are
+    indistinguishable.
 \end{enumerate}
 
 % ===================================================================
@@ -669,18 +857,20 @@ isolation.
 \textbf{Tool} & \textbf{Signature and Purpose} \\
 \midrule
 \endhead
-\tool{show}           & \texttt{(scene\_id, elements, title?, layout?)}
-  --- Display a scene.  Comprehensive docstring lists all 25 element
-  kinds with examples. \\
+\tool{show}           & \texttt{(scene\_id, elements, title?, layout?,
+  frame\_id?, frame\_title?, frame\_size?, frame\_flags?, frame\_layout?)}
+  --- Display a scene.  Comprehensive docstring lists all 27 element
+  kinds with examples.  Frame parameters enable tab-isolated windows. \\
 \tool{show\_table}    & \texttt{(scene\_id, columns, rows, filters?,
-  detail?, title?)} --- Convenience wrapper for filterable data tables
-  with search, combo filters, and detail panel. \\
+  detail?, flags?, title?, frame\_id?, frame\_title?)} --- Convenience
+  wrapper for filterable data tables with search, combo filters, and
+  detail panel.  Delegates to \tool{show}. \\
 \tool{show\_dashboard} & \texttt{(scene\_id, metrics?, charts?,
   table\_columns?, table\_rows?, title?)} --- Metrics cards + charts +
-  summary table. \\
+  summary table.  Delegates to \tool{show}. \\
 \tool{show\_diagram}  & \texttt{(scene\_id, layers, edges?, title?)}
   --- Layered architecture diagram with auto-layout, routed edges,
-  and arrowheads. \\
+  and arrowheads.  Delegates to \tool{show}. \\
 \tool{update}         & \texttt{(scene\_id, patches)} --- Incremental
   JSON patches targeting elements by ID. \\
 \tool{clear}          & \texttt{()} --- Clear all scenes. \\
@@ -690,6 +880,8 @@ isolation.
   (interaction, window lifecycle). \\
 \tool{set\_menu}      & \texttt{(menus)} --- Set agent-provided menu
   bar entries. \\
+\tool{register\_tool} & \texttt{(label, tool\_id)} --- Register a World
+  menu item routed only to the calling server via \tool{recv()}. \\
 \tool{set\_theme}     & \texttt{(theme)} --- Apply display theme. \\
 \tool{display\_mode}  & \texttt{(mode?)} --- Get or set display mode
   (y/n); advisory L3 signal for consumer plugins. \\
@@ -723,10 +915,11 @@ Partition tests in \texttt{tests/test\_display\_partition.py} derive
 test cases from the Z specification using the Test Template Framework
 (TTF), covering all input space partitions of each operation schema.
 
-\textbf{Note}: the formal model predates multi-scene tabs and models
-a single-scene display.  The abstraction function maps multi-scene
+\textbf{Note}: the formal model predates frames and models a
+single-scene display.  The abstraction function maps multi-scene
 state to the active tab for backward compatibility.  A specification
-update to model the full multi-scene state is pending.
+update to model frames, shared ownership, and orphan semantics is
+pending.
 
 % ===================================================================
 \section{Test Architecture}
@@ -737,23 +930,26 @@ update to model the full multi-scene state is pending.
 \toprule
 \textbf{Test File} & \textbf{Count} & \textbf{What It Tests} \\
 \midrule
-\texttt{test\_display\_state.py}      & 32  & State machine logic (no ImGui) \\
-\texttt{test\_display\_partition.py}   & 51  & TTF-derived partitions from Z spec \\
+\texttt{test\_protocol.py}            & 162 & Serialization, deserialization, framing \\
+\texttt{test\_display\_partition.py}   & 107 & TTF-derived partitions from Z spec \\
+\texttt{test\_server.py}              & 70  & MCP tool behavior (mocked client) \\
+\texttt{test\_display\_state.py}      & 65  & State machine logic (no ImGui) \\
 \texttt{test\_display\_refinement.py}  & 28  & Abstraction function commutativity \\
-\texttt{test\_protocol.py}            & 97  & Serialization, deserialization, framing \\
-\texttt{test\_server.py}              & 60  & MCP tool behavior (mocked client) \\
-\texttt{test\_client.py}              & 15  & Client library (real sockets, threads) \\
-\texttt{test\_ast\_check.py}          & 41  & AST visitor coverage \\
+\texttt{test\_client.py}              & 26  & Client library (real sockets, threads) \\
 \texttt{test\_runtime.py}             & 23  & CodeExecutor lifecycle \\
+\texttt{test\_show.py}                & 20  & CLI show subcommands \\
+\texttt{test\_hooks.py}               & 17  & Hook handler output \\
 \texttt{test\_paths.py}               & 16  & Socket discovery, PID, auto-spawn \\
 \texttt{test\_config.py}              & 16  & Config read/write \\
+\texttt{test\_ast\_check.py}          & 12  & AST visitor coverage \\
+\texttt{test\_cli.py}                 & 11  & CLI command smoke tests \\
 \texttt{test\_consent.py}             & 9   & Consent dialog state machine \\
-\texttt{test\_hooks.py}               & 4   & Hook handler output \\
-\texttt{test\_cli.py}                 & 9   & CLI command smoke tests \\
+\texttt{test\_apps\_clock.py}         & 7   & Clock applet rendering \\
 \texttt{test\_unit.py}                & 6   & Misc unit tests \\
+\texttt{test\_apps\_calculator.py}    & 3   & Calculator applet logic \\
 \texttt{test\_version.py}             & 2   & Version string consistency \\
 \midrule
-\textbf{Total}                        & 443 & \\
+\textbf{Total}                        & 629 & (11 e2e/integration deselected in CI) \\
 \bottomrule
 \end{tabular}
 \end{center}

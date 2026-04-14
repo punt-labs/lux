@@ -1,0 +1,661 @@
+%
+% v2-architecture.tex
+%
+% Lux v2 Architecture — bones and interface sketches.
+% Written at hypothesis stage; details will evolve.
+%
+% Compile: pdflatex v2-architecture.tex
+%
+
+\documentclass[a4paper,10pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{longtable}
+\usepackage{tabularx}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  keywordstyle=\color{blue!80!black},
+  commentstyle=\color{green!50!black},
+  stringstyle=\color{red!60!black},
+  breaklines=true,
+  frame=single,
+  framerule=0.3pt,
+  rulecolor=\color{gray!50},
+  backgroundcolor=\color{gray!5},
+  columns=fullflexible,
+}
+
+\newcommand{\api}[1]{\texttt{#1}}
+\newcommand{\field}[1]{\texttt{#1}}
+\newcommand{\ext}[1]{\texttt{#1}}
+
+\begin{document}
+
+\title{Lux v2: Architecture Sketch}
+\author{Agent IDE for Python-Native Visual Output}
+\date{April 2026 --- Hypothesis Stage}
+\hypersetup{
+  pdftitle={Lux v2: Architecture Sketch},
+  pdfauthor={Punt Labs},
+  pdfsubject={Architecture},
+}
+\maketitle
+
+\tableofcontents
+\newpage
+
+% ===================================================================
+\section{Overview}
+% ===================================================================
+
+Lux~v2 is a Python-native display compositor for AI agents.  It
+provides a persistent local service that agents connect to, renders
+their content, and grows new capabilities on demand through
+LLM-authored extensions.
+
+\subsection{Design Principles}
+
+\begin{enumerate}[label=\textbf{P\arabic*}.]
+  \item \textbf{Everything is an extension.}  The core provides
+    transport, dispatch, registry, frame management, render loop, and
+    safety wrapper.  Every user-visible element kind, applet, theme,
+    and service is an extension.
+  \item \textbf{Closed core, open extension surface.}  The core is
+    small and stable.  Extensions are the growth vector.  Open-Closed
+    Principle applied at the system level.
+  \item \textbf{Python is the substrate.}  Not web.  Extensions use
+    Python's package ecosystem directly: matplotlib, plotly, PIL,
+    pyte, Qt, tkinter.  No transpilation to JavaScript.
+  \item \textbf{Ollama-shaped service.}  The primary interface is HTTP
+    endpoints on localhost.  Any agent, any language, any machine
+    (with TCP transport) can drive the display.  MCP is an adapter
+    layer.
+  \item \textbf{Self-extending by default.}  When an agent needs a
+    visualization that does not exist, it can author one.  The
+    extension persists for the user and optionally for the community.
+  \item \textbf{Bidirectional.}  The display is not passive.  Agents
+    write to Lux; Lux writes back (events, menu clicks, interaction
+    messages, screenshots).  The display can drive agent behavior.
+\end{enumerate}
+
+\subsection{Relationship to v1}
+
+Lux~v1 is a fixed 27-element vocabulary with a hardcoded ImGui
+dispatcher.  v2 preserves the wire protocol shape, the frame system,
+the ImGui render loop, and the MCP adapter --- but refactors element
+dispatch from hardcoded to registry-based and adds the extension
+system, service API, and in-display agent.
+
+% ===================================================================
+\section{System Architecture}
+% ===================================================================
+
+\subsection{Component Map}
+
+\begin{center}
+\small
+\begin{tabularx}{\linewidth}{@{}l>{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Component} & \textbf{Responsibility} \\
+\midrule
+\textbf{Core} & \\
+\quad Transport     & Unix socket (local) + TCP/TLS (remote).
+  Length-prefixed JSON framing (inherited from v1). \\
+\quad Protocol      & Message types, element schemas, serialization.
+  Extended with extension-declared element kinds. \\
+\quad Registry      & Runtime dispatch table: element kind $\to$
+  renderer.  Populated by extension loader at startup,
+  extensible at runtime. \\
+\quad Loader        & Scans extension directories, validates manifests,
+  imports renderers, registers with the registry.
+  Crash-isolates each extension. \\
+\quad Frame Manager & Frame lifecycle, shared ownership, orphan model,
+  dock bar, focus coordination.  Inherited from v1. \\
+\quad Render Loop   & ImGui event loop via \texttt{immapp.run()}.
+  Polls sockets, dispatches to registry, flushes events.
+  Single-threaded. \\
+\quad Safety Wrapper & Exception isolation per extension render call.
+  Crash $\to$ error placeholder.  Consent dialog on install. \\
+\midrule
+\textbf{Service Layer} & \\
+\quad HTTP Server   & Localhost HTTP endpoints (ollama-shaped).
+  Runs in a thread; posts to main-thread queue. \\
+\quad /help         & Auto-documenting endpoint.  Returns installed
+  element kinds, services, conventions, permission mode. \\
+\quad MCP Adapter   & Thin translation: MCP tool calls $\to$ service
+  API calls.  Preserves Claude Code integration. \\
+\midrule
+\textbf{Extensions} & \\
+\quad Starter Pack  & Bundled extensions: text, button, table, plot,
+  markdown, image, draw, etc.  Ship with install. \\
+\quad User Local    & \texttt{\char`\~/.lux/extensions/}.  Persists
+  across sessions. \\
+\quad Project Local & \texttt{.lux/extensions/}.  Scoped to repo. \\
+\quad Community     & Registry of published extensions.  Installed
+  via \texttt{lux ext install}. \\
+\midrule
+\textbf{Agent SDK} (optional) & \\
+\quad LuxExchange   & Tool-use loop (Anthropic Python SDK).  Drives
+  the in-display agent. \\
+\quad Commands      & Leaf + composite tool commands operating on the
+  display.  Transactional composites with rollback. \\
+\quad Permission    & Five-mode policy: Plan, Default, Accept-edits,
+  Bypass, DontAsk. \\
+\bottomrule
+\end{tabularx}
+\normalsize
+\end{center}
+
+\subsection{Data Flow}
+
+\begin{verbatim}
+External Agent (Claude Code, CLI, remote)
+  |
+  |  HTTP or MCP
+  v
+Service Layer (thread)
+  |
+  |  Queue (thread-safe)
+  v
+Main Thread: Render Loop
+  |
+  +-- Registry lookup: element kind -> extension renderer
+  |
+  +-- Extension renderer: imgui | texture | window
+  |
+  +-- Frame Manager: position, focus, dock
+  |
+  +-- Event flush: InteractionMessages -> all clients
+\end{verbatim}
+
+% ===================================================================
+\section{Extension System}
+% ===================================================================
+
+\subsection{Extension Manifest}
+
+Every extension declares itself in a manifest file
+(\texttt{extension.py} or \texttt{extension.toml}) at the extension
+root:
+
+\begin{lstlisting}[language=Python]
+# ~/.lux/extensions/sankey/extension.py
+
+LUX_EXTENSION = {
+    "name": "sankey",
+    "version": "1.0.0",
+    "author": "maya-torres",
+    "description": "Sankey flow diagram",
+    "element_kind": "sankey",
+    "render_mode": "texture",     # imgui | texture | window
+    "schema": {
+        "nodes": {"type": "list", "required": True},
+        "edges": {"type": "list", "required": True},
+        "title": {"type": "str",  "required": False},
+    },
+    "dependencies": ["plotly>=5.0"],
+    "lux_version": ">=2.0",
+}
+
+def render(element, ctx):
+    """Render a sankey diagram.
+
+    Args:
+        element: Validated element dict (matches schema).
+        ctx: RenderContext with mode-specific capabilities.
+    """
+    import plotly.graph_objects as go
+    fig = go.Figure(go.Sankey(
+        node=dict(label=[n["label"] for n in element["nodes"]]),
+        link=dict(
+            source=[e["source"] for e in element["edges"]],
+            target=[e["target"] for e in element["edges"]],
+            value=[e["value"] for e in element["edges"]],
+        ),
+    ))
+    fig.update_layout(title=element.get("title", ""))
+    ctx.render_figure(fig)  # texture mode: fig -> PNG -> texture
+\end{lstlisting}
+
+\subsection{Three Rendering Modes}
+
+Each extension declares one of three rendering modes.  The mode
+determines the \texttt{RenderContext} capabilities:
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}lp{3cm}>{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Mode} & \textbf{ctx Provides} & \textbf{When to Use} \\
+\midrule
+\ext{imgui} &
+  \texttt{imgui} module,
+  \texttt{draw\_list},
+  \texttt{widget\_state},
+  \texttt{send\_event()} &
+  Native ImGui widgets, custom drawing, interactive controls.
+  Preferred mode --- single-window UX, full interactivity. \\
+\ext{texture} &
+  \texttt{render\_image(pil\_img)},
+  \texttt{render\_figure(mpl\_fig)},
+  \texttt{render\_bytes(png)} &
+  Libraries that render to bitmaps: matplotlib, PIL, plotly
+  (static export), any numpy$\to$pixels pipeline.  Displayed
+  as ImGui image in the Lux window.  Limited interactivity
+  (click forwarding, no native zoom/pan). \\
+\ext{window} &
+  \texttt{create\_window(title)},
+  \texttt{on\_close(callback)},
+  \texttt{send\_event()} &
+  Libraries that require their own OS window: Qt, tkinter,
+  Jupyter kernels, Pharo (via Postern).  Lux tracks lifecycle
+  and coordinates focus but does not composite pixels.
+  Escape hatch for anything ImGui cannot host. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Extension Lifecycle}
+
+\begin{enumerate}
+  \item \textbf{Discovery.}  Loader scans directories in order:
+    bundled starter pack, project-local
+    (\texttt{.lux/extensions/}), user-local
+    (\texttt{\char`\~/.lux/extensions/}).
+  \item \textbf{Validation.}  Manifest parsed.  Schema checked.
+    Dependencies verified via \texttt{importlib.metadata}.
+    Incompatible \field{lux\_version} $\to$ skipped with warning.
+  \item \textbf{Registration.}  Element kind added to registry.
+    Renderer function stored in dispatch table.
+  \item \textbf{Rendering.}  When a scene contains an element with
+    \field{kind} matching this extension, the registry dispatches
+    to the extension's \texttt{render()} function with a
+    mode-appropriate \texttt{RenderContext}.
+  \item \textbf{Crash isolation.}  Every \texttt{render()} call is
+    wrapped in \texttt{try/except}.  Exception $\to$ error
+    placeholder rendered in place; core keeps running.  Repeated
+    crashes $\to$ extension disabled for the session.
+  \item \textbf{Hot install.}  \api{lux ext install} writes to
+    user-local directory and signals the display process to re-scan.
+    New extension available next frame.  No restart required.
+\end{enumerate}
+
+\subsection{Extension Registry API}
+
+The registry is a Python dict at runtime:
+
+\begin{lstlisting}[language=Python]
+_registry: dict[str, ExtensionEntry] = {}
+
+@dataclass
+class ExtensionEntry:
+    name: str
+    kind: str                     # element kind
+    render_mode: str              # "imgui" | "texture" | "window"
+    schema: dict                  # field validation
+    renderer: Callable            # render(element, ctx)
+    metadata: dict                # author, version, description
+    crash_count: int = 0          # for auto-disable
+\end{lstlisting}
+
+% ===================================================================
+\section{Service API}
+% ===================================================================
+
+The primary interface to Lux~v2 is HTTP on localhost (default port
+8423).  The shape follows Ollama: simple REST endpoints, JSON
+payloads, streaming where appropriate.
+
+\subsection{Endpoints}
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}llX@{}}
+\toprule
+\textbf{Method} & \textbf{Path} & \textbf{Purpose} \\
+\midrule
+POST & \api{/api/show}      & Render a scene (elements, frame
+  targeting). \\
+POST & \api{/api/update}    & Patch elements by ID. \\
+GET  & \api{/api/events}    & Stream interaction events (SSE). \\
+GET  & \api{/api/frames}    & Introspect current frame state. \\
+POST & \api{/api/clear}     & Clear all scenes and frames. \\
+GET  & \api{/api/ping}      & Health check with round-trip time. \\
+\midrule
+GET  & \api{/api/extensions}          & List installed extensions. \\
+POST & \api{/api/extensions/install}  & Install from path or URL. \\
+POST & \api{/api/extensions/author}   & LLM-authored extension
+  (requires in-display agent). \\
+DELETE & \api{/api/extensions/\{name\}} & Remove an extension. \\
+\midrule
+GET  & \api{/api/capabilities} & Installed kinds, services,
+  render modes. \\
+GET  & \api{/help}           & Auto-documenting: conventions,
+  schemas, permission mode.  Same contract as
+  Postern's \api{/help}. \\
+\midrule
+POST & \api{/api/screenshot} & Capture display as PNG.  Returns
+  base64 or writes to path. \\
+POST & \api{/api/agent/run}  & Submit a prompt to the in-display
+  agent (requires Agent SDK). \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{The \api{/help} Contract}
+
+\api{/help} returns runtime truth from the live registry, not
+static documentation.  An agent that has never seen this Lux
+instance reads \api{/help} first and learns:
+
+\begin{itemize}[nosep]
+  \item What element kinds are installed right now
+  \item What schemas each kind expects
+  \item What rendering modes are active
+  \item What permission mode is configured
+  \item What extensions are available but not loaded (disabled,
+    missing deps)
+  \item Conventions and safety rules
+\end{itemize}
+
+This is the same pattern as Postern's \api{/help} endpoint:
+the live system self-documents.
+
+\subsection{MCP Adapter}
+
+The MCP server (\texttt{lux serve}) becomes a thin translation
+layer:
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{MCP Tool} & \textbf{Service Call} \\
+\midrule
+\texttt{show()}          & \api{POST /api/show} \\
+\texttt{update()}        & \api{POST /api/update} \\
+\texttt{recv()}          & \api{GET /api/events} (single event) \\
+\texttt{clear()}         & \api{POST /api/clear} \\
+\texttt{ping()}          & \api{GET /api/ping} \\
+\texttt{display\_mode()} & \api{GET/POST /api/config/display} \\
+\texttt{show\_table()}   & \api{POST /api/show} (convenience) \\
+\texttt{show\_dashboard()} & \api{POST /api/show} (convenience) \\
+\texttt{show\_diagram()} & \api{POST /api/show} (convenience) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Existing Claude Code integration is preserved.  Agents that want
+the richer surface (extension management, streaming events,
+agent interaction) use the service API directly.
+
+% ===================================================================
+\section{In-Display Agent SDK}
+% ===================================================================
+
+Optional component.  Same architecture as the Claude Agent SDK for
+Smalltalk: a tool-use loop where tools operate on the live display
+process.
+
+\subsection{LuxExchange}
+
+\begin{lstlisting}[language=Python]
+exchange = LuxExchange(
+    client=anthropic.Client(),
+    commands=[
+        ShowSceneCommand(),
+        InstallExtensionCommand(),
+        AuthorExtensionCommand(),
+        IntrospectFramesCommand(),
+        ScreenshotCommand(),
+        RunPythonCommand(),       # consent-gated
+    ],
+    permission_policy=DefaultPolicy(),
+    max_iterations=20,
+)
+exchange.run("Render this data as a sankey diagram")
+\end{lstlisting}
+
+\subsection{Tool Commands}
+
+Following the Gang-of-Four Composite pattern from the Smalltalk SDK:
+
+\begin{center}
+\begin{tabularx}{\linewidth}{@{}lll>{\raggedright\arraybackslash}X@{}}
+\toprule
+\textbf{Command} & \textbf{Type} & \textbf{Mode} & \textbf{Purpose} \\
+\midrule
+ShowScene        & Leaf & Safe   & Render a scene. \\
+UpdateScene      & Leaf & Safe   & Patch elements. \\
+ClearScene       & Leaf & Safe   & Clear frames. \\
+IntrospectFrames & Leaf & Safe   & Dump current state. \\
+ListExtensions   & Leaf & Safe   & Registry query. \\
+ListCapabilities & Leaf & Safe   & What kinds are available. \\
+Screenshot       & Leaf & Safe   & Capture display as image. \\
+InstallExtension & Leaf & Gated  & Add extension (consent). \\
+RemoveExtension  & Leaf & Gated  & Remove extension. \\
+AuthorExtension  & Leaf & Gated  & Generate via LLM. \\
+RunPython        & Leaf & Gated  & Exec in display namespace. \\
+\midrule
+AuthorAndInstall & Composite & Gated & Author + install + verify.
+  Rollback on failure. \\
+RenderWithExt    & Composite & Gated & Install if needed + render.
+  Rollback on render failure. \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\subsection{Permission Policy}
+
+Five modes, same as the Smalltalk SDK:
+
+\begin{center}
+\begin{tabular}{@{}lp{8cm}@{}}
+\toprule
+\textbf{Mode} & \textbf{Behavior} \\
+\midrule
+Plan        & Show plan, do not execute.  For review. \\
+Default     & Ask per gated call.  Consent dialog. \\
+Accept-edits & Auto-approve install/author.  Ask for
+  RunPython. \\
+Bypass      & Approve everything.  For trusted pipelines. \\
+DontAsk     & Deny all gated calls.  Safe mode. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Screenshot-Driven Iteration}
+
+The in-display agent can take a screenshot of its own output and
+feed it back to the LLM for visual QA:
+
+\begin{enumerate}[nosep]
+  \item Agent authors an extension and renders content.
+  \item Agent calls \texttt{ScreenshotCommand}.
+  \item Screenshot sent to Claude as an image content block.
+  \item Claude evaluates: ``the columns are misaligned.''
+  \item Agent modifies the extension and re-renders.
+  \item Repeat until visually correct.
+\end{enumerate}
+
+This technique was proven at scale during the Postern/Pharo work,
+where agents iteratively refined Morphic UIs using screenshots
+of the running image.
+
+% ===================================================================
+\section{Community Registry}
+% ===================================================================
+
+\subsection{Extension Distribution}
+
+Extensions are distributed as directories containing:
+
+\begin{itemize}[nosep]
+  \item \texttt{extension.py} or \texttt{extension.toml} --- manifest
+  \item \texttt{renderer.py} --- render function (or inline in
+    manifest)
+  \item \texttt{requirements.txt} --- Python dependencies
+  \item \texttt{tests/} --- test suite
+  \item \texttt{README.md} --- usage documentation
+\end{itemize}
+
+\subsection{Registry Structure}
+
+A GitHub repository with a \texttt{registry.json} index:
+
+\begin{lstlisting}
+{
+  "extensions": [
+    {
+      "name": "sankey",
+      "version": "1.0.0",
+      "author": "maya-torres",
+      "repo": "github.com/maya-torres/lux-ext-sankey",
+      "ref": "v1.0.0",
+      "render_mode": "texture",
+      "rating": 4.2,
+      "downloads": 347,
+      "verified": {
+        "lint": true,
+        "ci": true,
+        "tests": 12,
+        "coverage": 0.85
+      }
+    }
+  ]
+}
+\end{lstlisting}
+
+\subsection{CLI}
+
+\begin{center}
+\begin{tabular}{@{}lp{8cm}@{}}
+\toprule
+\textbf{Command} & \textbf{Purpose} \\
+\midrule
+\texttt{lux ext list}      & List installed extensions. \\
+\texttt{lux ext search <q>} & Search community registry. \\
+\texttt{lux ext install <name>} & Install from registry. \\
+\texttt{lux ext remove <name>}  & Remove. \\
+\texttt{lux ext publish}   & Publish to registry (requires account). \\
+\texttt{lux ext info <name>} & Show metadata, ratings, verification. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Verification Badges}
+
+Each community extension displays verification status, similar to
+GitHub repository badges:
+
+\begin{itemize}[nosep]
+  \item \textbf{Lint passing} --- \texttt{ruff check} clean
+  \item \textbf{CI green} --- tests pass on latest Lux version
+  \item \textbf{Test coverage} --- percentage reported
+  \item \textbf{Community rating} --- 1--5 stars from users
+  \item \textbf{Download count} --- adoption signal
+  \item \textbf{Author verified} --- GitHub identity confirmed
+\end{itemize}
+
+This allows consumers to assess extension quality without reading
+the source code.  The producer/consumer asymmetry is key: a small
+number of authors (who enable LLM authoring or write extensions
+manually) produce extensions consumed by a much larger number of
+users who never need to author code.
+
+% ===================================================================
+\section{Frame Management}
+% ===================================================================
+
+Inherited from v1 with no structural changes.  Frames are the
+organizing primitive:
+
+\begin{itemize}[nosep]
+  \item Created on first scene with a \field{frame\_id}.
+  \item Shared ownership via \field{owner\_fds} set.
+  \item Orphan model: disconnect $\to$ scenes persist with
+    \texttt{\_ORPHAN\_FD} sentinel.
+  \item Dock bar for minimized frames.
+  \item Layout modes: tab (default) and stack.
+  \item Frame flags: \field{no\_resize}, \field{no\_collapse},
+    \field{no\_title\_bar}, \field{no\_background},
+    \field{no\_scrollbar}, \field{auto\_resize}.
+\end{itemize}
+
+The service API adds introspection (\api{GET /api/frames}) and
+remote frame creation (\api{POST /api/show} with
+\field{frame\_id}).
+
+% ===================================================================
+\section{Security Model}
+% ===================================================================
+
+\subsection{Trust Boundaries}
+
+\begin{center}
+\begin{tabular}{@{}lp{4cm}p{5cm}@{}}
+\toprule
+\textbf{Boundary} & \textbf{Threat} & \textbf{Mitigation} \\
+\midrule
+Socket/HTTP & Unauthorized connection & Localhost binding by
+  default.  Token auth for TCP/TLS. \\
+Extension install & Malicious code & Consent dialog shows source.
+  Community verification badges. \\
+Extension render & Crash or hang & Exception isolation.  Auto-disable
+  after repeated crashes. \\
+RunPython command & Arbitrary exec & Consent-gated per permission
+  mode.  Same trust as Bash tool. \\
+Community registry & Supply chain & Verification badges (lint, CI,
+  tests).  Pinned refs (git SHA). \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Consent Model}
+
+Extension installation follows the same consent pattern as v1's
+render functions:
+
+\begin{enumerate}[nosep]
+  \item User or agent requests installation.
+  \item Lux shows the extension source code in a consent dialog.
+  \item User clicks Allow or Deny.
+  \item Allowed: extension installs and registers.
+  \item Denied: extension is not loaded.  No partial state.
+\end{enumerate}
+
+Community extensions with high ratings and green verification
+badges may be auto-approved in Accept-edits or Bypass permission
+modes.
+
+% ===================================================================
+\section{Migration from v1}
+% ===================================================================
+
+\begin{enumerate}
+  \item \textbf{Phase 1: Registry.}  Refactor element dispatch from
+    hardcoded \texttt{if/elif} chain to registry lookup.  All 27
+    existing kinds become built-in extensions loaded at startup.
+    Wire protocol unchanged.  MCP tools unchanged.  Zero user-facing
+    change.
+  \item \textbf{Phase 2: Service API.}  Add HTTP server alongside
+    existing Unix socket.  MCP adapter calls service API internally.
+    Both interfaces active.
+  \item \textbf{Phase 3: User extensions.}  Enable
+    \texttt{\char`\~/.lux/extensions/} loading.  Ship reference
+    extensions.  \texttt{lux ext} CLI.
+  \item \textbf{Phase 4: Agent SDK.}  Add LuxExchange, commands,
+    permission policy.  Optional --- no impact on users who do not
+    enable it.
+  \item \textbf{Phase 5: Community.}  Launch registry.  Publish
+    starter pack + reference extensions.  Verification pipeline.
+\end{enumerate}
+
+Each phase is independently shippable.  Phase 1 alone improves
+the codebase (removes hardcoded dispatch) without changing the
+product.  Phase 3 is where Lux~v2 becomes a different product
+from v1.
+
+\end{document}
