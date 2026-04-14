@@ -1,0 +1,820 @@
+\documentclass[11pt,letterpaper]{article}
+
+% ── Geometry ──────────────────────────────────────────────────────────────────
+\usepackage[margin=1in]{geometry}
+
+% ── Pagination ────────────────────────────────────────────────────────────────
+\usepackage[all]{nowidow}    % Require ≥2 lines on each side of a page break
+\brokenpenalty=10000         % No hyphenated words across page breaks
+\raggedbottom                % Allow uneven page bottoms rather than stretching
+
+% ── Fonts ─────────────────────────────────────────────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage{newpxtext}     % Palatino-based serif (TeX Gyre Pagella)
+\usepackage{newpxmath}     % Matching math font
+
+% ── Colors ────────────────────────────────────────────────────────────────────
+\usepackage[dvipsnames]{xcolor}
+\definecolor{SectionBlue}{HTML}{1B3A5C}
+\definecolor{AccentGray}{HTML}{4A4A4A}
+\definecolor{QuoteBorder}{HTML}{8B9DAF}
+\definecolor{RiskRed}{HTML}{C0392B}
+\definecolor{RiskAmber}{HTML}{E67E22}
+\definecolor{RiskGreen}{HTML}{27AE60}
+\definecolor{BoxBg}{HTML}{F7F8FA}
+
+% ── Tables ────────────────────────────────────────────────────────────────────
+\usepackage{booktabs}
+\usepackage{tabularx}
+
+% ── Boxes ─────────────────────────────────────────────────────────────────────
+\usepackage[framemethod=tikz]{mdframed}
+
+% ── Lists ─────────────────────────────────────────────────────────────────────
+\usepackage{enumitem}
+\usepackage{needspace}
+
+% ── Hyperlinks ────────────────────────────────────────────────────────────────
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=SectionBlue,
+  urlcolor=SectionBlue,
+  citecolor=SectionBlue,
+  pdfauthor={Punt Labs},
+  pdftitle={Lux v2 PR/FAQ},
+  pdfsubject={Working Backwards — Agent IDE},
+}
+
+% ── Bibliography ─────────────────────────────────────────────────────────────
+\usepackage[style=numeric,backend=biber,sorting=none]{biblatex}
+\addbibresource{lux-prfaq-v2.bib}
+
+% ── Section styling ───────────────────────────────────────────────────────────
+\usepackage{titlesec}
+\titleformat{\section}
+  {\needspace{6\baselineskip}\Large\bfseries\color{SectionBlue}}
+  {}
+  {0pt}
+  {}
+
+\titleformat{\subsection}
+  {\needspace{5\baselineskip}\large\bfseries\color{AccentGray}}
+  {}
+  {0pt}
+  {}
+
+\titleformat{\subsubsection}
+  {\normalsize\bfseries\color{AccentGray}}
+  {}
+  {0pt}
+  {}
+\titlespacing*{\subsubsection}{0pt}{1em}{0.5em}[0pt]
+
+% ── Document stage ───────────────────────────────────────────────────────────
+\newcommand{\prfaqstage}[1]{\def\theprfaqstage{#1}}
+\prfaqstage{hypothesis}
+
+% ── Document version ─────────────────────────────────────────────────────────
+\newcommand{\prfaqversion}[2]{\def\theprfaqmajor{#1}\def\theprfaqminor{#2}}
+\prfaqversion{2}{1}
+
+% ── Header/footer ────────────────────────────────────────────────────────────
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize\textcolor{AccentGray}{Stage: \theprfaqstage{} \enspace\textbar\enspace v\theprfaqmajor.\theprfaqminor}}
+\fancyhead[R]{\footnotesize\textcolor{AccentGray}{\thepage}}
+\renewcommand{\headrulewidth}{0pt}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% Custom environments
+% ══════════════════════════════════════════════════════════════════════════════
+
+\newcommand{\prsection}[1]{%
+  \vspace{1em}%
+  {\large\bfseries\color{SectionBlue}#1}%
+  \vspace{0.3em}\par%
+}
+
+\newmdenv[
+  topline=false,
+  bottomline=false,
+  rightline=false,
+  linewidth=3pt,
+  linecolor=QuoteBorder,
+  backgroundcolor=BoxBg,
+  innerleftmargin=12pt,
+  innerrightmargin=12pt,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+  skipabove=\baselineskip,
+  skipbelow=\baselineskip,
+]{customerquote}
+
+\newmdenv[
+  topline=false,
+  bottomline=false,
+  rightline=false,
+  linewidth=3pt,
+  linecolor=SectionBlue,
+  backgroundcolor=BoxBg,
+  innerleftmargin=12pt,
+  innerrightmargin=12pt,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+  skipabove=\baselineskip,
+  skipbelow=\baselineskip,
+]{spokespersonquote}
+
+\newcounter{faqnum}
+\newenvironment{faqpair}[1]{%
+  \needspace{4\baselineskip}%
+  \vspace{0.5em}%
+  \refstepcounter{faqnum}%
+  \noindent\textbf{\color{SectionBlue}Q\thefaqnum: #1}\par\nopagebreak[4]%
+  \vspace{0.2em}%
+  \begin{adjustwidth}{1em}{0pt}%
+  \setlength{\parindent}{0pt}%
+}{%
+  \end{adjustwidth}%
+  \vspace{0.5em}%
+}
+\newcommand{\faqref}[1]{\hyperref[#1]{FAQ~\ref*{#1}}}
+
+\newcounter{featurenum}
+\newcommand{\featureitem}[2]{%
+  \refstepcounter{featurenum}%
+  \item[\textbf{\color{SectionBlue}F\thefeaturenum.}]%
+  \textbf{#1} --- #2%
+}
+\newcommand{\featureref}[1]{\hyperref[#1]{Feature~\ref*{#1}}}
+
+\usepackage{changepage}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% Document
+% ══════════════════════════════════════════════════════════════════════════════
+
+\begin{document}
+
+% ── Headline block ───────────────────────────────────────────────────────────
+\begin{center}
+  {\LARGE\bfseries\color{SectionBlue}
+    Self-Extending Display Server Gives Terminal-Hosted AI Agents\\
+    a Visual Surface Without Giving Up Local Compute} \\[0.8em]
+  {\large\color{AccentGray}
+    Lux~v2 lets agents author new visual capabilities in minutes ---
+    native GPU-accelerated rendering via ImGui and SDL2, no web stack,
+    no vendor compute required} \\[0.3em]
+  {\large\color{AccentGray}
+    Open-source display server with community extension registry,
+    three rendering modes, and an in-display agent SDK}
+\end{center}
+
+\vspace{0.5em}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% PRESS RELEASE
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section*{Press Release}
+
+AUSTIN, TX --- October 2026 --- Punt Labs today released Lux~v2, a
+GPU-accelerated display server that gives terminal-hosted AI coding
+agents a persistent, shared visual surface --- without moving compute to a
+vendor's cloud.  The most powerful agentic coding tools (Claude
+Code\cite{anthropic2025claudecode}, Codex) run in the terminal on the
+developer's own machine; Lux~v2 gives them a native visual surface built on
+Dear~ImGui\cite{imgui2025} and SDL2, keeping everything local.  Unlike
+vendor dashboards that require running the entire agent on remote compute,
+or terminal scrollback that has no structure at all, Lux~v2 extends itself:
+when an agent needs a visualization that does not exist, it authors a new
+extension, installs it, and renders --- in under five minutes, without a
+product release.  Extensions are shareable through a community registry with
+ratings and verification badges, so most users never need to author code
+themselves (see \faqref{faq:community}).
+
+\prsection{Problem}
+
+Developers running AI coding agents coordinate multiple agents across repos,
+sessions, and machines.  The most capable agentic tools --- Claude
+Code\cite{anthropic2025claudecode}, Codex --- are terminal-hosted, running on
+the developer's own machine with full tool use, MCP integration, and
+multi-turn autonomous operation.  As Steve Yegge has noted, coordinating
+multiple agents is ``hard and exhausting''\cite{yegge2025agents}.  When an
+agent produces structured output --- a table, a chart, an architecture
+diagram --- the developer sees raw text or takes an ad~hoc screenshot.
+
+Vendors are responding with web dashboards to manage these agents.  But those
+dashboards often require running the \emph{entire agent} on the vendor's
+compute --- not just the LLM call, the agent itself.  The developer trades
+local control for visual management (see \faqref{faq:competition}).
+IDE-hosted tools like Cursor offer agent management features but remain
+all-text; Claude Desktop produces novel visual interfaces but lacks agentic
+power --- no tool use, no MCP, no multi-turn autonomous work.  The result:
+the most powerful agents have no visual surface, and the tools with visual
+surfaces lack agentic power.
+
+\prsection{Solution}
+
+Lux~v2 is a persistent local service --- like Ollama\cite{ollama2025} for
+inference, but for display.  Agents connect via an HTTP service API and send
+structured content.  The display renders it in a native GPU-accelerated
+window at 60\,fps using Dear~ImGui\cite{imgui2025} and SDL2.  Multiple
+agents share one display, each in its own frame, with clear attribution.
+Everything runs on the developer's machine --- no vendor compute, no cloud
+dependency.
+
+The core handles transport, protocol dispatch, extension registry, frame
+management, render loop, and safety.  Everything the user sees ---
+every element kind, every applet, every theme --- is an extension.  Lux ships
+with a starter pack of bundled extensions (text, tables, plots, diagrams,
+interactive controls), but the vocabulary is not fixed.
+
+When no installed extension covers a visualization need, an agent can author
+one: generate the manifest and renderer code, run tests, and install ---
+all through the service API.  The user approves via a consent dialog.
+The extension persists in the local registry and is available for every
+future session.  Publishing to the community registry lets anyone install it
+with one command (see \faqref{faq:authoring}).
+
+Lux is not a passive display.  The bidirectional write path --- user and
+agent both driving the display, the display driving agents back --- was the
+key lesson from v1 (see \faqref{faq:v1-lessons}).  An in-display agent
+built on the Anthropic Python SDK can receive intent from external agents,
+author extensions, introspect frames, and take screenshots for iterative GUI
+refinement --- a technique proven during the Postern/Pharo
+work\cite{postern2026,claudeagentsdk2026} (see \faqref{faq:pharo}).
+
+\prsection{Customer Quote}
+
+\begin{customerquote}
+\textit{``I run six Claude Code sessions across three repos.  Before Lux, I
+had six terminal windows and no idea what any of them were doing unless I
+scrolled back.  Now I glance at one window and see beads boards, test
+dashboards, and architecture diagrams --- one frame per agent, all live.
+Last week an agent needed a dependency graph and there was no built-in
+widget for it.  It wrote one.  Took three minutes.  I've been using that
+widget every day since.''}
+
+\raggedleft --- \textbf{Maya Torres}, Staff Engineer at a Series~B DevTools Startup
+\end{customerquote}
+
+\prsection{Getting Started}
+
+Getting started takes one command:
+
+\begin{enumerate}[nosep]
+  \item Install:
+
+    {\small\texttt{curl -fsSL https://raw.githubusercontent.com/\allowbreak punt-labs/lux/main/install.sh | sh}}
+  \item Restart Claude Code.  The Lux display opens automatically when any
+    agent sends visual output.
+  \item Browse community extensions:
+    {\small\texttt{lux ext search <keyword>}} and install with
+    {\small\texttt{lux ext install <name>}}.
+\end{enumerate}
+
+No API key is required for the display or community extensions.  The
+optional in-display agent (for authoring new extensions) requires an
+Anthropic API key.
+
+\prsection{Spokesperson Quote}
+
+\begin{spokespersonquote}
+``Lux~v1 proved the display has value --- the beads browser alone changed
+how we work.  Pharo proved a self-extending system is valuable --- an agent
+that writes its own UI code, tests it, and persists it.  Lux~v2 combines
+both: the GPU-accelerated ImGui/SDL2 display from v1, plus the
+self-extension model from Pharo.  Terminal
+agents are the most powerful agentic tools available, but they have no visual
+surface.  Web dashboards provide visuals but pull your agent onto vendor
+compute.  Lux fills that gap --- native rendering, local-first, and the
+result is that `Lux can't do X' stops being a limitation and becomes a
+five-minute problem.''
+
+\raggedleft --- \textbf{Jim Freeman}, Punt Labs
+\end{spokespersonquote}
+
+\prsection{Call to Action}
+
+Lux~v2 is free and open-source under the MIT license.  Visit
+{\small\texttt{https://github.com/punt-labs/lux}} to install, browse the
+extension registry, or contribute.  The community registry is open for
+submissions.
+
+\newpage
+
+% ══════════════════════════════════════════════════════════════════════════════
+% FREQUENTLY ASKED QUESTIONS
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section*{Frequently Asked Questions}
+
+% ── External FAQs (Customer-facing) ──────────────────────────────────────────
+
+\subsection*{External FAQs}
+
+\begin{faqpair}{What is Lux and who is it for?}\label{faq:what}
+  Lux is a GPU-accelerated display server --- a persistent local visual
+  surface that AI coding agents write to and read from, built on
+  Dear~ImGui\cite{imgui2025} and SDL2.  It is for developers who run
+  terminal-hosted coding agents (Claude Code, Codex, or similar) and
+  need structured visual output --- tables, charts, diagrams, interactive
+  controls, and custom visualizations --- without moving their agents to
+  vendor compute.  Lux runs on macOS and Linux.
+\end{faqpair}
+
+\begin{faqpair}{How is this different from terminal scrollback, Claude Desktop, or vendor dashboards?}\label{faq:competition}
+  Terminal agents (Claude Code, Codex) are the most powerful but have no
+  visual output.  Claude Desktop has visual output but lacks agentic
+  power (no tool use, no MCP).  Vendor web dashboards provide visuals
+  but require running the entire agent on vendor compute.  IDEs like
+  Cursor manage agents but output is text-only.
+
+  Lux fills the gap: a GPU-accelerated visual surface for
+  terminal-hosted agents, running on the developer's machine.  When you
+  need a visualization that does not exist, an agent authors it in
+  minutes and it persists.  See \faqref{faq:competitors} for detailed
+  competitive analysis.
+\end{faqpair}
+
+\begin{faqpair}{How do I get started?}
+  One curl command installs Lux and registers the Claude Code plugin.
+  Restart Claude Code.  The display opens automatically when any agent
+  sends visual output.  Most users see their first visualization within
+  60 seconds of install.
+\end{faqpair}
+
+\begin{faqpair}{How much does it cost?}
+  Free and open-source (MIT).  Community extensions are free.  The optional
+  in-display agent for authoring new extensions requires an Anthropic API
+  key (usage-based, same pricing as any Claude API call).
+\end{faqpair}
+
+\begin{faqpair}{What happens to my data?}
+  All data stays local.  Lux communicates over a Unix domain socket
+  (localhost only by default) or TCP with TLS for remote agents.  No
+  telemetry, no data leaves your machine.  Extensions run in-process;
+  the consent model gates what code executes.
+\end{faqpair}
+
+\begin{faqpair}{Can I use Lux without enabling LLM-powered extension authoring?}
+\label{faq:community}
+  Yes.  The community registry provides pre-built extensions authored,
+  tested, and rated by other users.  Install with
+  {\small\texttt{lux ext install <name>}}.  No API key required.  No LLM
+  runs in your Lux instance.  The extension store shows verification
+  badges --- lint passing, CI green, test coverage, community ratings ---
+  so you can assess quality before installing.
+
+  A small number of extension authors produce extensions consumed by a
+  larger population of users who never need to write code.
+\end{faqpair}
+
+\begin{faqpair}{What Python visualization libraries can Lux host?}
+  Lux supports three rendering modes.  \textbf{ImGui mode}: extensions
+  render natively in the Lux window using Dear~ImGui --- full interactivity,
+  single-window UX.  \textbf{Texture mode}: extensions produce pixel
+  buffers (matplotlib, PIL, plotly snapshots) displayed as images in the Lux
+  window --- limited interactivity but zero integration effort.
+  \textbf{Window mode}: extensions own their own OS window (Qt, tkinter,
+  Jupyter kernels) --- full interactivity, coordinated lifecycle, separate
+  window.
+
+  Any Python library that can render to a buffer or open a window works.
+\end{faqpair}
+
+% ── Internal FAQs (Business-facing) ──────────────────────────────────────────
+
+\newpage
+\subsection*{Internal FAQs}
+
+\subsubsection*{Value \& Market}
+
+\begin{faqpair}{What is the total addressable market?}\label{faq:tam}
+  The primary market is developers using terminal-hosted AI coding agents.
+  Claude Code and Codex are the leading tools --- the most capable agentic
+  solutions, both terminal-hosted.  Anthropic reports millions of Claude
+  Code users.  The secondary market is any developer running Python-based
+  AI pipelines who needs visual output without cloud dependency.
+
+  Bottoms-up: 1\% adoption of active Claude Code users (free, zero-config
+  install) is tens of thousands of active installations.  Registry value
+  scales with adoption --- more users means more extensions, which means
+  more users.  [CITATION NEEDED: Claude Code user count]
+\end{faqpair}
+
+\begin{faqpair}{What evidence do we have that customers want this?}\label{faq:evidence}
+  Lux~v1 shipped in March 2026 and has been in daily use across Punt Labs
+  projects since.  The beads issue browser --- a filterable table that
+  auto-refreshes on every \texttt{bd} command --- runs in every active
+  agent session.  v1 proved three things: (1)~the display has value,
+  (2)~the hook architecture (PostToolUse auto-refresh) makes it feel live,
+  and (3)~agents and humans share one display surface effectively.
+
+  The self-extension hypothesis is validated by the Postern/Pharo
+  work\cite{postern2026}: 199~classes, 2,358~methods, and 765~tests
+  written entirely by agents driving a live image via HTTP --- authored UI
+  code, screenshotted, iterated, committed, all without human GUI
+  interaction.
+
+  What v1 did \emph{not} prove: whether community sharing works, whether
+  the three rendering modes compose well, and whether the in-display agent
+  is useful outside Punt Labs.  These are the hypotheses v2 must test.
+\end{faqpair}
+
+\begin{faqpair}{Who are the competitors and why will we win?}\label{faq:competitors}
+  The competitive landscape divides by two axes: agentic power and visual
+  surface.
+
+  \begin{itemize}[nosep]
+    \item \textbf{Claude Code / Codex} --- Terminal-hosted, the most
+      powerful agentic tools: full tool use, MCP, multi-turn autonomous
+      work.  No visual output surface beyond scrollback.  \emph{Lux's
+      primary integration targets.}
+    \item \textbf{Claude Desktop} --- Produces novel visual interfaces
+      conceptually similar to the self-extending display we describe.
+      But it lacks Claude Code's agentic power: no tool use, no MCP, no
+      multi-turn autonomous operation.  Cannot drive complex coding
+      workflows.
+    \item \textbf{Cursor} --- IDE with agent management features, but all
+      text --- no visual output surface for structured data.  Extensible
+      via VS~Code extensions, but these are IDE-scoped and written by hand.
+    \item \textbf{Vendor web dashboards} --- Provide visual management but
+      often require running the \emph{entire agent} on vendor compute ---
+      not just the LLM call, the agent itself.  The developer gives up
+      local control for visual output.
+    \item \textbf{Jupyter notebooks} --- Rich visual output via
+      kernel/display protocol.  Not agent-first; requires notebook UX.
+  \end{itemize}
+
+  \textbf{Primary threat: Anthropic-native visual output.}  Anthropic has
+  every incentive to build visual panels into Claude Code.  A basic
+  built-in display narrows Lux's install-base advantage.  An extensible
+  one narrows differentiation to ``local GPU-accelerated vs.\ web-native.''
+  Survival strategies: (a)~Lux's extension ecosystem reaches critical mass
+  before Anthropic ships, becoming the de-facto standard; (b)~Lux becomes
+  a complementary extension provider for whatever Anthropic builds;
+  (c)~native ImGui/SDL2 rendering and fully local operation remain valuable
+  for developers who refuse to move agents to vendor compute.
+
+  \textbf{Structural advantage: local-first + self-extending.}  Lux grows
+  its vocabulary via LLM-authored extensions without any vendor release.
+  Vendor dashboards ship features on their schedule and require their
+  compute.  Lux delivers a new capability in minutes, on the developer's
+  machine.  A competitor copying the extension concept would have to abandon
+  web-only rendering to integrate Python's visualization libraries ---
+  a platform-level decision they are unlikely to reverse.
+\end{faqpair}
+
+\begin{faqpair}{What is your next step to validate the vision?}\label{faq:next-step}
+  Two parallel tracks.
+
+  \textbf{External demand:} Interview 5--10 developers running 3+
+  concurrent agent sessions daily (staff-level, startups or mid-size
+  companies).  Key questions: (a)~how do you track what your agents are
+  doing? (b)~when an agent produces structured output, how do you consume
+  it? (c)~would you install a display tool if it took 60 seconds?
+  Go/no-go: if fewer than half describe agent visibility as a top-3 pain
+  point, revisit the value proposition before committing to phases 4--6.
+
+  \textbf{Technical:} Build the extension loader and registry as the first
+  v2 milestone.  Migrate existing element kinds to registered extensions.
+  Ship 3--5 reference extensions (matplotlib plot, terminal emulator,
+  sankey diagram).  Measure: can an agent author and install a new
+  extension in under five minutes?  Run the loop 10 times and report
+  median and range.
+\end{faqpair}
+
+\subsubsection*{Technical}
+
+\begin{faqpair}{What are the major technical risks?}\label{faq:tech-risks}
+  \begin{enumerate}[nosep]
+    \item \textbf{Extension safety.}  Python has no in-process sandbox;
+      extensions run with full process access.  Mitigation: exception
+      isolation (crash $\to$ error placeholder, core keeps rendering),
+      consent dialog on install, community verification badges (lint, CI,
+      tests).  The trust model is identical to \texttt{pip install} ---
+      the user is the security boundary.
+    \item \textbf{Python dynamism limits.}  Python cannot do Smalltalk's
+      \texttt{become} or image persistence.  Extensions persist as files;
+      the process is disposable.  Adequate for hot-loading new element
+      kinds, but the display cannot save arbitrary runtime state across
+      restarts.
+    \item \textbf{Three rendering modes composing well.}  ImGui, texture,
+      and window modes coexist in one session.  The risk is UX
+      fragmentation --- separate OS windows feel disconnected.  Mitigation:
+      prefer ImGui mode; texture mode for most Python viz libraries;
+      window mode as escape hatch only.
+    \item \textbf{Community registry bootstrapping.}  A registry with no
+      extensions has no users.  Mitigation: ship 20+ starter-pack
+      extensions plus 5+ reference extensions from day one.
+  \end{enumerate}
+\end{faqpair}
+
+\begin{faqpair}{What is the estimated development timeline?}\label{faq:timeline}
+  Phased delivery, ordered by dependency.  Scope compresses by cutting
+  later phases.
+
+  \begin{enumerate}[nosep]
+    \item \textbf{Extension system.}  Registry, loader, manifest format,
+      safety wrapper.  Migrate existing element kinds to extensions.
+    \item \textbf{Service API.}  HTTP endpoints (ollama-shaped).  MCP
+      adapter becomes a thin translation layer.  Auto-documenting
+      \texttt{/help} endpoint.
+    \item \textbf{Reference extensions.}  Matplotlib, terminal (pyte),
+      plotly snapshot, custom ImGui widgets.  Proves the extension
+      contract with real libraries.
+    \item \textbf{In-display agent.}  Anthropic SDK integration.
+      LuxExchange tool-use loop.  Leaf and composite commands.
+      Permission policy.  Screenshot-driven iteration.
+    \item \textbf{Community registry.}  GitHub-hosted.  CLI:
+      \texttt{lux ext install/publish/search}.  Verification badges.
+      Ratings.
+    \item \textbf{Remote transport.}  TCP with TLS.  Multi-machine
+      agent sessions.
+  \end{enumerate}
+
+  Cut line: phases 5--6 are valuable but not launch-blocking.  Core
+  value is in phases 1--3.
+\end{faqpair}
+
+\begin{faqpair}{What is the relationship to Pharo and Postern?}\label{faq:pharo}
+  Complementary, not competing.  Pharo is the ambitious live-environment
+  substrate: full image persistence, introspection, Morphic rendering.
+  Postern\cite{postern2026} exposes Pharo over HTTP.  The Claude Agent
+  SDK for Smalltalk\cite{claudeagentsdk2026} provides the in-image tool
+  runner.
+
+  Lux is the pragmatic local-first path.  It shares the self-extension
+  philosophy --- agent authors code, code persists, system grows --- but
+  uses Python's ecosystem instead of Smalltalk's.
+
+  The two connect: a Lux window-mode extension can host Pharo-rendered
+  content via Postern, and extensions designed in Morphic can be exported
+  as Lux extensions for Python consumers.
+\end{faqpair}
+
+\subsubsection*{Business}
+
+\begin{faqpair}{What is the revenue model?}
+  Lux is free and open-source (MIT).  Follow-on revenue opportunities:
+  hosted managed instances, premium verified extensions, enterprise
+  support.  None are launch requirements.
+
+  Strategic value: Lux drives adoption of other Punt Labs tools via two
+  mechanisms.  First, Lux surfaces those tools in its UI --- the beads
+  browser, biff presence panels, vox controls, and quarry search all
+  render as Lux extensions; users who see them discover the underlying
+  tools.  Second, the install script bundles the full Punt Labs CLI suite.
+  Validation target: 10\% of Lux users install one additional Punt Labs
+  tool within 6~months.
+\end{faqpair}
+
+\begin{faqpair}{What are the key metrics for success?}\label{faq:metrics}
+  \begin{enumerate}[nosep]
+    \item \textbf{Daily active display sessions} --- target: 100 within
+      3~months of v2 launch.
+    \item \textbf{Community extensions published} --- target: 50 within
+      6~months.
+    \item \textbf{Extension install rate} --- target: average user
+      installs 3+ community extensions.
+    \item \textbf{Agent-authored extension success rate} --- target:
+      80\% of authoring attempts produce a working extension on first
+      try.
+    \item \textbf{Time to new capability} --- target: median under
+      5~minutes from ``I need X'' to ``X is rendering.''
+  \end{enumerate}
+
+  Decision threshold: if daily active sessions are below 30 after
+  6~months, revisit whether the self-extending display server framing
+  resonates or whether Lux should remain a simpler display surface
+  with a fixed vocabulary.
+\end{faqpair}
+
+\begin{faqpair}{Why now?  What has changed?}
+  Four things converged.  (1)~The most powerful AI coding agents --- Claude
+  Code, Codex --- are terminal-hosted with millions of users [CITATION
+  NEEDED], all producing output invisible beyond scrollback.  (2)~Vendors
+  are responding with web dashboards that require running the entire agent
+  on vendor compute, creating a gap for local-first visual output.
+  (3)~LLMs can write UI extensions on demand --- the authoring loop that was
+  impossible two years ago is now routine (proven on Postern/Pharo).
+  (4)~Lux~v1 proved the display surface has value and the
+  protocol-as-API design works.
+\end{faqpair}
+
+\begin{faqpair}{What lessons did Lux~v1 teach?}\label{faq:v1-lessons}
+  Five lessons from nine weeks of daily use:
+
+  \begin{enumerate}[nosep]
+    \item The display has value.  The beads browser changed daily workflow.
+    \item Bidirectional matters.  Passive display is not enough; the
+      display must drive agent behavior (via events, menu clicks,
+      interaction messages).
+    \item Fixed vocabularies are limiting.  27~element kinds is both too
+      many (most unused) and too few (missing what users actually need).
+    \item The hook architecture works.  PostToolUse auto-refresh makes
+      the display feel live without explicit agent coordination.
+    \item Multi-agent display is real.  Per-project frames, shared
+      ownership, and orphan persistence solve the N-to-1 problem at the
+      protocol level.
+  \end{enumerate}
+\end{faqpair}
+
+\begin{faqpair}{How does the LLM extension authoring loop work?}\label{faq:authoring}
+  An agent calls \texttt{/api/extensions/author} with a description.
+  The in-display agent (Anthropic Python SDK) generates the extension:
+  a manifest declaring the element kind, schema, dependencies, and
+  rendering mode, plus a renderer function.  It runs tests.  A consent
+  dialog shows the generated code.  The user approves.  The extension
+  installs to \texttt{\textasciitilde/.lux/extensions/} and is available
+  immediately.
+
+  The in-display agent can screenshot the rendered result and iterate ---
+  ``the table is misaligned, fix the column widths'' --- using the same
+  technique proven on Postern/Pharo.  This visual feedback loop is what
+  makes rapid authoring realistic.
+\end{faqpair}
+
+\begin{faqpair}{What resources does this require?}
+  Lux~v2 is built by one engineer with AI agent assistance (Claude Code
+  driving implementation, review, and testing --- the same model used for
+  Lux~v1's 629 tests and the Smalltalk SDK's 811 tests).
+
+  Phases 1--3 (extension system, service API, reference extensions) are
+  the priority; other Punt Labs tools (biff, vox, quarry) slow to
+  maintenance-only during that work.  Phases 4--6 are sequenced after
+  phases 1--3 ship and external demand is validated.
+\end{faqpair}
+
+\begin{faqpair}{Pre-mortem: it is 12 months from now and Lux~v2 has
+  failed.  What happened?}\label{faq:premortem}
+  Five plausible failure scenarios:
+
+  \begin{enumerate}[nosep]
+    \item \textbf{Anthropic ships built-in visual output in Claude Code.}
+      A first-party surface, even a basic one, eliminates Lux's
+      install-friction advantage.  If it is also extensible, Lux's
+      core differentiation collapses.
+    \item \textbf{External developers do not care about agent visibility.}
+      The Punt Labs team uses the beads browser daily, but this may be a
+      niche workflow.  Fewer than half of interviewed developers describing
+      visibility as a top-3 pain point means the market is smaller than
+      projected.
+    \item \textbf{Extension authoring success rate is below 50\%.}
+      Agents failing more often than they succeed turns the ``five-minute''
+      promise into ``thirty minutes of debugging,'' and users give up.
+    \item \textbf{Community registry never bootstraps.}  Below 100 active
+      users, the registry has too few extensions to attract users and too
+      few users to attract authors.  The flywheel never spins.
+    \item \textbf{Three rendering modes fragment the UX.}  Window-mode
+      extensions feel disconnected; texture-mode interactivity is too
+      limited.  Users perceive Lux as inconsistent rather than flexible.
+  \end{enumerate}
+\end{faqpair}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% FOUR RISKS ASSESSMENT
+% ══════════════════════════════════════════════════════════════════════════════
+
+\newpage
+\section*{Risk Assessment}
+
+\renewcommand{\arraystretch}{1.6}
+\begin{tabularx}{\textwidth}{@{} l l X @{}}
+\toprule
+\textbf{\color{SectionBlue}Risk} & \textbf{\color{SectionBlue}Rating} & \textbf{\color{SectionBlue}Assessment} \\
+\midrule
+Value      & \textcolor{RiskAmber}{Medium} &
+  v1 proved the display has value for Punt Labs.  Unproven: external
+  developer adoption, whether the extension model resonates beyond power
+  users, and whether the ``visual surface for terminal agents without
+  giving up local compute'' positioning lands with developers who currently
+  accept text-only output. \\
+Usability  & \textcolor{RiskAmber}{Medium} &
+  Install and basic display are proven (one curl command, auto-open).
+  Extension consumption is plausible but untested with external users.
+  Extension authoring --- the headline differentiator --- requires a
+  multi-step consent flow (generate, review, approve, iterate via
+  screenshot) not yet tested outside Punt Labs. \\
+Feasibility & \textcolor{RiskAmber}{Medium} &
+  Core rendering and IPC are proven.  Extension loader is a
+  well-understood pattern.  New risks: three rendering modes composing
+  coherently (only ImGui exists in v1), in-display agent SDK integration,
+  community registry bootstrapping, and remote TCP/TLS.  No single risk
+  is High, but the aggregate --- 12+ HTTP endpoints, a tool-use loop,
+  five permission modes, three render contexts --- is substantial new
+  work.  Outside view: single-engineer 6-phase rewrites with new
+  extension systems typically underestimate scope.  Mitigated by
+  phased delivery with a defined cut line after phase~3. \\
+Viability  & \textcolor{RiskAmber}{Medium} &
+  Open-source with no direct revenue.  Strategic value depends on
+  ecosystem pull for other Punt Labs tools.  If Lux~v2 does not drive
+  adoption of biff/vox/quarry/beadle, the investment is a public good
+  without business return.  Acceptable if treated as infrastructure,
+  not a profit center. \\
+\bottomrule
+\end{tabularx}
+\renewcommand{\arraystretch}{1.0}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% FEATURE APPENDIX
+% ══════════════════════════════════════════════════════════════════════════════
+
+\newpage
+\section*{Feature Appendix}
+
+Defines the scope boundary for Lux~v2.  Every feature is categorized
+to prevent scope creep and force prioritization upfront.
+
+\subsection*{Must Do}
+
+Essential for launch.  Without these, Lux~v2 is not distinguishable
+from v1.
+
+\begin{enumerate}[nosep,leftmargin=2.5em]
+  \featureitem{Extension registry and loader}{runtime dispatch table
+    replacing hardcoded element kinds; scan, validate, register,
+    crash-isolate}\label{feat:registry}
+  \featureitem{Extension manifest format}{declared element kind, schema,
+    dependencies, rendering mode (imgui/texture/window), metadata}\label{feat:manifest}
+  \featureitem{Starter pack migration}{existing 27 element kinds
+    refactored as bundled extensions, not core code}\label{feat:migration}
+  \featureitem{HTTP service API}{ollama-shaped endpoints for show,
+    update, events, extensions, capabilities; MCP becomes thin
+    adapter}\label{feat:service-api}
+  \featureitem{Auto-documenting \texttt{/help} endpoint}{runtime
+    truth from live registry: installed kinds, services, conventions,
+    permission mode}\label{feat:help}
+  \featureitem{Extension CLI}{install, list, and remove extensions via
+    \texttt{lux ext}; user-local persistence at
+    \texttt{\char`\~/.lux/extensions/}}\label{feat:ext-cli}
+  \featureitem{Safety wrapper}{exception isolation per extension
+    render call; crash shows error placeholder, core keeps
+    rendering}\label{feat:safety}
+  \featureitem{Consent model for extension install}{show source,
+    user approves; same trust model as render\_function}\label{feat:consent}
+\end{enumerate}
+
+\subsection*{Should Do}
+
+Not launch-blocking.  Fast follow-up candidates.
+
+\begin{enumerate}[nosep,leftmargin=2.5em]
+  \featureitem{In-display agent}{Anthropic SDK, LuxExchange tool-use
+    loop, leaf/composite commands, five-mode permission
+    policy}\label{feat:agent}
+  \featureitem{LLM extension authoring endpoint}{\texttt{/api/extensions/author}
+    driven by in-display agent; screenshot-iterate
+    loop}\label{feat:authoring}
+  \featureitem{Community registry}{GitHub-hosted extension store with
+    publish and search; ratings, download counts, verification badges
+    (lint, CI, tests)}\label{feat:community}
+  \featureitem{Reference extensions}{matplotlib plot, terminal
+    (pyte), plotly snapshot, sankey diagram, confusion
+    matrix}\label{feat:reference}
+  \featureitem{Texture rendering mode}{extensions produce pixel
+    buffers displayed as ImGui images; integrates matplotlib and
+    PIL}\label{feat:texture}
+  \featureitem{Window rendering mode}{extensions own native OS
+    windows; Lux tracks lifecycle and coordinates
+    focus}\label{feat:window}
+  \featureitem{Remote transport}{TCP with TLS; multi-machine agent
+    sessions connecting to one display}\label{feat:remote}
+  \featureitem{Screenshot API}{capture display state as image for
+    LLM-driven GUI iteration}\label{feat:screenshot}
+\end{enumerate}
+
+\subsection*{Won't Do}
+
+Explicitly excluded to clarify scope.
+
+\begin{enumerate}[nosep,leftmargin=2.5em]
+  \featureitem{Web-based rendering}{Lux renders natively via ImGui/SDL2
+    on the developer's GPU.  HTML, Electron, and webviews are out of
+    scope --- web rendering paths lead to vendor-compute dependency,
+    which is the problem Lux exists to avoid}\label{feat:no-web}
+  \featureitem{GUI framework}{Lux hosts extensions; it does not
+    define a widget class hierarchy.  No Lux-specific widget
+    SDK}\label{feat:no-framework}
+  \featureitem{Local LLM inference}{the in-display agent calls
+    Anthropic's API; Lux does not host models
+    locally}\label{feat:no-inference}
+  \featureitem{OS-level window manager}{window-mode extensions own
+    native OS windows; Lux coordinates lifecycle and focus but does
+    not tile, composite, or manage window placement}\label{feat:no-wm}
+  \featureitem{Mobile or tablet}{desktop only (macOS,
+    Linux)}\label{feat:no-mobile}
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% REFERENCES
+% ══════════════════════════════════════════════════════════════════════════════
+
+\newpage
+\printbibliography[title={References}]
+
+\end{document}
