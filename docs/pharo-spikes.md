@@ -97,8 +97,8 @@ write correct Morphic code without external help?
   (`allMethodsWithSourceString:`)
 - Context-rich error recovery: when `Compiler evaluate:` fails, return the
   error plus suggestions (did-you-mean selectors, matching methods on the class)
-- Cost measurement: instrument query times to validate that image browsing is
-  sub-millisecond
+- Cost measurement: instrument query times — target single-digit milliseconds
+  per batch query (see Success criteria)
 
 **Success criteria:**
 
