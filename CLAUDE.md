@@ -53,7 +53,7 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy src/ tests/ &
 
 Identity: `agent: claude` per `.punt-labs/ethos.yaml`. Sub-agent calls (`Agent(subagent_type=…)`) match ethos identity handles.
 
-Lux is Python (ImGui + Unix-socket IPC) with a strong UX and protocol-design dimension. Every element added to the protocol is a contract — agents render against it, and consumers compose it. Worker pairs split across the visual layer (UX / element design) and the implementation layer (Python / IPC / build). Worker and evaluator must be distinct handles with no shared role. Claude is the leader, never the evaluator.
+Lux is Python (ImGui + Unix-socket IPC) with a strong UX and protocol-design dimension. Every element added to the protocol is a contract — agents render against it, and consumers compose it. Worker pairs split across the visual layer (UX / element design) and the implementation layer (Python / IPC / build). Within each row, the worker and evaluator must be distinct handles. Claude is the leader, never the evaluator.
 
 | Task type | Worker | Evaluator |
 |-----------|--------|-----------|
@@ -61,7 +61,7 @@ Lux is Python (ImGui + Unix-socket IPC) with a strong UX and protocol-design dim
 | Visual / layout / theming change | `dna` | `edt` |
 | Python implementation (rendering, IPC, scenes) | `rmh` (Hettinger) | `gvr` (van Rossum) |
 | Protocol amendment (JSON patch, Unix-socket schema) | `gvr` | `rmh` |
-| CLI surface (`lux …` commands, plugin shell) | `mdm` (Pike) | `rop` (McIlroy) |
+| CLI surface (`lux …` commands, plugin shell) | `mdm` (McIlroy) | `rop` (Pike) |
 | MCP tool surface (`show`, `update`, `clear`, etc.) | `mdm` | `rmh` |
 | GPU / inference / perf-sensitive rendering paths | `kpz` (Karpathy) | `rmh` |
 | Security review (socket auth, IPC trust boundary) | `djb` (Bernstein) | `rmh` |
