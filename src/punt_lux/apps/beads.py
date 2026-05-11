@@ -29,8 +29,6 @@ if TYPE_CHECKING:
 # Data loading (pure, testable)
 # ---------------------------------------------------------------------------
 
-_ACTIVE_STATUSES = frozenset({"open", "in_progress"})
-
 _FIELD_DEFAULTS: dict[str, Any] = {
     "title": "",
     "status": "open",
@@ -57,7 +55,16 @@ def load_beads(*, all_issues: bool = False) -> list[dict[str, Any]]:
     else:
         cmd.extend(["--status=open,in_progress"])
 
-    result = subprocess.run(cmd, capture_output=True, text=True, check=False)  # noqa: S603
+    try:
+        result = subprocess.run(  # noqa: S603
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
     if result.returncode != 0 or not result.stdout.strip():
         return []
 
@@ -121,7 +128,6 @@ def build_beads_payload(
                 f"P{issue['priority']}",
                 issue["issue_type"],
                 issue["owner"],
-                issue["owner"],
                 issue["created_at"][:10],
                 issue["updated_at"][:10],
             ]
@@ -156,7 +162,6 @@ def build_beads_payload(
             "Status",
             "Priority",
             "Type",
-            "Claimed By",
             "Owner",
             "Created",
             "Updated",

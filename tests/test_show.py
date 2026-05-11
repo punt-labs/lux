@@ -162,6 +162,13 @@ class TestLoadBeads:
         args = mock_run.call_args[0][0]
         assert "--status=open,in_progress" in args
 
+    def test_bd_not_found_returns_empty(self) -> None:
+        with patch(
+            "punt_lux.apps.beads.subprocess.run",
+            side_effect=FileNotFoundError("bd not found"),
+        ):
+            assert load_beads() == []
+
 
 # ---------------------------------------------------------------------------
 # build_beads_payload
@@ -185,8 +192,8 @@ class TestBuildBeadsPayload:
         active = [_ISSUES[0]]
         payload = build_beads_payload(active)
         detail_row = payload["detail"]["rows"][0]
-        assert detail_row[6] == "2026-03-01"  # created_at truncated
-        assert detail_row[7] == "2026-03-09"  # updated_at truncated
+        assert detail_row[5] == "2026-03-01"  # created_at truncated
+        assert detail_row[6] == "2026-03-09"  # updated_at truncated
 
     def test_empty_description_shows_placeholder(self) -> None:
         active = [_ISSUES[1]]  # description is ""
