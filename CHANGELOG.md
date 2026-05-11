@@ -8,6 +8,13 @@
   now forwards frame parameters to `show()`, enabling tab-isolated tables
   (e.g., per-project beads boards) without falling back to raw `show()` calls.
 
+### Changed
+
+- **Beads browser fetches live data from DoltDB** — `load_beads()` now calls
+  `bd list --json` via subprocess instead of reading the stale `.beads/issues.jsonl`
+  file. The `/lux:beads` skill uses the Bash tool with `bd list --json` instead
+  of the Read tool with JSONL files.
+
 ### Fixed
 
 - **`/lux:beads` skill frame isolation** — skill now passes `frame_id` and

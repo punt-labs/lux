@@ -7,7 +7,7 @@ description: >
   visually browse project issues. Also triggered by "issue board", "task board",
   "kanban", "backlog view", or "bd ready in lux".
 allowed-tools:
-  - Read
+  - Bash
   - mcp__plugin_lux_lux__show_table
   - mcp__plugin_lux-dev_lux__show_table
   - mcp__lux__show_table
@@ -20,14 +20,14 @@ allowed-tools:
 
 Display beads issues in a filterable list/detail table in the Lux window.
 
-## Step 1: Read the data
+## Step 1: Fetch the data
 
-Read `.beads/issues.jsonl` using the Read tool. If the file does not exist, tell the user: "No beads database found. Run `bd init` to set up beads for this project." and stop.
+Run `bd list --status=open,in_progress --json` via the Bash tool to get live issue data from DoltDB. If the user asks for all issues, run `bd list --all --json` instead. If the command fails or returns empty output, tell the user: "No beads data available. Check that `bd` is configured for this project." and stop.
 
-Each line is a JSON object that may include: `id`, `title`, `status`, `priority`, `issue_type`, `description`, `assignee`, `owner`, `created_at`, `updated_at`. Use these defaults for missing fields:
+Parse the JSON array output. Each object has fields: `id`, `title`, `description`, `status`, `priority`, `issue_type`, `owner`, `created_at`, `updated_at`. Use these defaults for missing fields:
 
 - `title`: `""`, `status`: `"open"`, `priority`: `4`, `issue_type`: `"task"`
-- `description`, `assignee`, `owner`, `created_at`, `updated_at`: `""`
+- `description`, `owner`, `created_at`, `updated_at`: `""`
 
 ## Step 2: Build the table data
 
@@ -42,7 +42,7 @@ Build three parallel arrays (same length, same order):
 `[id, title, status, "P{priority}", issue_type]`
 
 **`detail.rows`** — detail panel fields for each issue:
-`[id, status, "P{priority}", issue_type, assignee_or_empty, owner_or_empty, created_at[:10], updated_at[:10]]`
+`[id, status, "P{priority}", issue_type, owner_or_empty, created_at[:10], updated_at[:10]]`
 Truncate `created_at` and `updated_at` to the first 10 characters (date only, e.g. `"2026-03-09"`).
 
 **`detail.body`** — description text for each issue:
@@ -76,7 +76,7 @@ Call the `show_table` MCP tool with:
 
   ```json
   {
-    "fields": ["ID", "Status", "Priority", "Type", "Claimed By", "Owner", "Created", "Updated"],
+    "fields": ["ID", "Status", "Priority", "Type", "Owner", "Created", "Updated"],
     "rows": detail_rows,
     "body": detail_bodies
   }
@@ -92,4 +92,4 @@ After `show_table` returns a value starting with `ack:`, the board is live. If i
 
 ## Refreshing
 
-If the user asks to refresh, or after running any `bd` command (close, update, etc.), re-read the JSONL and call `show_table` again.
+If the user asks to refresh, or after running any `bd` command (close, update, etc.), re-run `bd list --json` via the Bash tool and call `show_table` again.

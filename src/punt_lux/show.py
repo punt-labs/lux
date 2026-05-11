@@ -36,19 +36,7 @@ def beads(
     from punt_lux.client import LuxClient
     from punt_lux.paths import default_socket_path
 
-    beads_dir = Path(".beads")
-    if not beads_dir.is_dir():
-        typer.echo(
-            "No .beads/ directory found. Run `bd init` to set up beads.",
-            err=True,
-        )
-        raise typer.Exit(code=1)
-
-    try:
-        issues = load_beads(beads_dir, all_issues=all_issues)
-    except ValueError as exc:
-        typer.echo(str(exc), err=True)
-        raise typer.Exit(code=1) from None
+    issues = load_beads(all_issues=all_issues)
 
     project = Path.cwd().name or "unknown"
     sock_path = Path(socket) if socket else default_socket_path()
