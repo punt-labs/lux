@@ -18,7 +18,6 @@ import logging
 import platform
 import select
 import socket
-import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -896,10 +895,6 @@ class DisplayServer:
         self._agent_menus: list[dict[str, Any]] = []
         self._menu_registrations: dict[int, list[dict[str, Any]]] = {}  # fd → items
         self._menu_owners: dict[str, int] = {}  # item_id → fd
-        self._builtin_apps: list[dict[str, str]] = [
-            {"label": "Beads Browser", "app": "beads"},
-        ]
-        self._pending_app_launches: list[str] = []
         self._themes: list[Any] = []
         self._decorated: bool = True
         self._opacity: float = 1.0
@@ -1123,7 +1118,6 @@ class DisplayServer:
                 self._show_agent_menu(imgui, menu)
         except Exception:
             logger.exception("Error rendering menus")
-        self._drain_app_launches()
 
     def _apply_theme(self, theme_name: str) -> None:
         """Apply a theme by snake_case name (e.g. 'imgui_colors_light')."""
@@ -1438,21 +1432,11 @@ class DisplayServer:
 
     def _show_apps_menu(self, imgui: Any) -> None:
         """Render the Applications menu in the menu bar."""
-        has_builtin = bool(self._builtin_apps)
-        has_registered = bool(self._menu_registrations)
-        if not has_builtin and not has_registered:
+        if not self._menu_registrations:
             return
         if not imgui.begin_menu("Applications"):
             return
         try:
-            # Built-in apps first — available without any MCP connection.
-            for app in self._builtin_apps:
-                clicked, _ = imgui.menu_item(app["label"], "", False, True)  # noqa: FBT003
-                if clicked:
-                    self._pending_app_launches.append(app["app"])
-            if has_builtin and has_registered:
-                imgui.separator()
-            # Client-registered items follow.
             for name, fd, items in self._sorted_app_clients():
                 if imgui.begin_menu(f"{name}##{fd}"):
                     try:
@@ -1463,29 +1447,6 @@ class DisplayServer:
                         imgui.end_menu()
         finally:
             imgui.end_menu()
-
-    def _drain_app_launches(self) -> None:
-        """Launch pending built-in apps in background threads."""
-        while self._pending_app_launches:
-            app_key = self._pending_app_launches.pop(0)
-            threading.Thread(
-                target=self._launch_builtin_app,
-                args=(app_key,),
-                daemon=True,
-            ).start()
-
-    def _launch_builtin_app(self, app_key: str) -> None:
-        """Run a built-in app's render function via a short-lived client."""
-        from punt_lux.client import LuxClient
-
-        try:
-            with LuxClient(self._socket_path, name=f"lux-{app_key}") as client:
-                if app_key == "beads":
-                    from punt_lux.apps.beads import render_beads_board
-
-                    render_beads_board(client)
-        except Exception:
-            logger.exception("Failed to launch built-in app: %s", app_key)
 
     def _sorted_app_clients(
         self,
