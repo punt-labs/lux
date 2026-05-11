@@ -62,14 +62,14 @@ def load_beads(*, all_issues: bool = False) -> list[dict[str, Any]]:
         return []
 
     try:
-        raw: object = json.loads(result.stdout)
+        raw = json.loads(result.stdout)
     except json.JSONDecodeError:
         return []
 
     if not isinstance(raw, list):
         return []
     issues: list[dict[str, Any]] = []
-    for entry in raw:
+    for entry in cast("list[Any]", raw):  # type: ignore[redundant-cast]
         if not isinstance(entry, dict):
             continue
         row = cast("dict[str, Any]", entry)
