@@ -34,7 +34,7 @@ Parse the JSON array output. Each object has fields: `id`, `title`, `description
 From the parsed issues, filter and sort:
 
 1. **Filter**: Keep only issues where `status` is `"open"` or `"in_progress"` (default). If the user asks for all issues, skip this filter.
-2. **Sort**: Primary sort by `priority` ascending (P1 first), secondary sort by `updated_at` descending (most recent first).
+2. **Sort**: `in_progress` issues float to top, then by `priority` ascending (P1 first), then by `updated_at` descending (most recent first) within equal groups.
 
 Build three parallel arrays (same length, same order):
 

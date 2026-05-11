@@ -320,7 +320,7 @@ Games, complex animations, and novel visualizations cannot be expressed as stati
 ## DES-005: Element Vocabulary — Full ImGui Primitive Coverage
 
 **Date:** 2026-03-06
-**Status:** IN PROGRESS
+**Status:** SETTLED
 **Topic:** Which ImGui primitives are exposed as JSON element kinds
 
 ### Design
@@ -404,16 +404,16 @@ Docking requires OS-specific accessibility APIs (macOS `CGWindow`, Linux `xdotoo
 ## DES-007: Image Generation Backend — OpenAI
 
 **Date:** 2026-03-06
-**Status:** SETTLED (for v0.1)
+**Status:** REJECTED (never implemented)
 **Topic:** Which image generation provider to use initially
 
 ### Design
 
-OpenAI image generation (DALL-E 3 or gpt-image-1) as the first backend. API key available. May be slow but acceptable for initial development.
+OpenAI image generation (DALL-E 3 or gpt-image-1) as the first backend.
 
-### Future
+### Outcome
 
-Multi-provider support following the same pattern as Vox (which supports ElevenLabs, OpenAI, AWS Polly, macOS say, espeak-ng). Lux will support swapping providers without changing calling code.
+Never implemented. Lux focused on data display (tables, dashboards, diagrams) rather than image generation. The ImageElement renders images from file paths or base64 data, but there is no generation backend. This ADR is closed as rejected — image generation is out of scope for Lux v1.
 
 ---
 
