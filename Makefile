@@ -1,4 +1,4 @@
-.PHONY: help test lint type check format build clean depot fuzz prob clean-tex font-test
+.PHONY: help test lint type check format build install clean depot fuzz prob clean-tex font-test
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -25,6 +25,9 @@ build: ## Build wheel and sdist
 	rm -rf dist/
 	uv build
 	uvx twine check dist/*
+
+install: build ## Build and install locally (with display extras)
+	uv tool install --force "$$(ls dist/punt_lux-*.whl)[display]"
 
 clean: ## Remove build artifacts
 	rm -rf dist/ .tmp/
