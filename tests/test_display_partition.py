@@ -67,7 +67,6 @@ def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
     if scene.id not in server._scene_order:
         server._scene_order.append(scene.id)
     server._scene_widget_state[scene.id] = WidgetState()
-    server._scene_render_fn_state[scene.id] = {}
     server._active_tab = scene.id
 
 
@@ -76,7 +75,6 @@ def _clear_all_scenes(server: DisplayServer) -> None:
     server._scene_order.clear()
     server._active_tab = None
     server._scene_widget_state.clear()
-    server._scene_render_fn_state.clear()
 
 
 # ---------------------------------------------------------------------------

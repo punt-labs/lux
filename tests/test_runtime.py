@@ -73,12 +73,6 @@ class TestCodeExecutorConstruction:
         assert "Module-level error" in executor.error_message
         assert executor.error_traceback is not None
 
-    def test_missing_render_function(self) -> None:
-        executor = CodeExecutor("x = 1")
-        assert executor.has_error
-        assert executor.error_message is not None
-        assert "render(ctx)" in executor.error_message
-
     def test_render_not_callable(self) -> None:
         executor = CodeExecutor("render = 42")
         assert executor.has_error

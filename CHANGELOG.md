@@ -19,10 +19,20 @@
   file. The `/lux:beads` skill uses the Bash tool with `bd list --json` instead
   of the Read tool with JSONL files.
 
+### Removed
+
+- **Clock and Calculator applets** — removed along with the `render_function`
+  element kind and consent dialog. Code-on-demand was a proof of concept; the
+  core product is ImGui via JSON, not agent-submitted Python.
+- **`show_diagram` MCP tool** — removed the 450-line auto-layout engine. ImGui
+  has no native diagram support; this fought the framework. The `draw` element
+  remains for custom 2D rendering.
+- **`consent.py` and AST safety scanner** — only used by `render_function`.
+
 ### Fixed
 
-- **Applications menu appears at display startup** — built-in apps (Beads
-  Browser, Calculator, Clock) are now registered by the display server at init,
+- **Applications menu appears at display startup** — Beads Browser is registered
+  by the display server at init,
   not by the MCP client on first tool call. The menu is visible immediately.
 
 - **`/lux:beads` skill frame isolation** — skill now passes `frame_id` and

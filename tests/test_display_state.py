@@ -58,7 +58,6 @@ def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
     if scene.id not in server._scene_order:
         server._scene_order.append(scene.id)
     server._scene_widget_state[scene.id] = WidgetState()
-    server._scene_render_fn_state[scene.id] = {}
     server._active_tab = scene.id
 
 
@@ -651,7 +650,6 @@ class TestMultiScene:
         assert server._scene_order == []
         assert server._active_tab is None
         assert len(server._scene_widget_state) == 0
-        assert len(server._scene_render_fn_state) == 0
 
     def test_scene_order_preserved(self) -> None:
         """Scenes appear in insertion order."""
@@ -690,7 +688,6 @@ class TestMultiScene:
         assert "s1" not in server._scenes
         assert server._scene_order == ["s2"]
         assert "s1" not in server._scene_widget_state
-        assert "s1" not in server._scene_render_fn_state
         assert server._active_tab == "s2"
 
     def test_dismiss_middle_tab_selects_next_neighbor(self) -> None:

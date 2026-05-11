@@ -21,9 +21,9 @@ Tables and data display. The beads issue browser is the primary consumer — liv
 
 The architecture is sound: MCP holds state, ImGui renders each frame from the latest JSON scene. This makes immediate mode "cached" — the agent sends state once, the display re-renders it every frame without further communication.
 
-### What Lux Has But Doesn't Use Much
+### Current State
 
-25 element kinds are fully implemented, but agents primarily use: text, table, plot, group, button, separator. The interactive widgets (sliders, color pickers, radio groups, input fields) work end-to-end but have near-zero real usage outside demos. The code-on-demand system (`render_function` with consent dialog) powers the clock and calculator applets but is complex machinery for two toy apps.
+24 element kinds covering ImGui's core primitives. Agents primarily use tables, text, plots, groups, and buttons today. The interactive widgets (sliders, color pickers, radio groups, input fields) are fully implemented and will see more usage as agents build richer UIs. The roadmap is full ImGui primitive coverage (15 additional widget kinds tracked in beads).
 
 ### Key Relationships
 

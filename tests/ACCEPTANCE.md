@@ -85,28 +85,6 @@ Every phase defines acceptance across three dimensions:
 - [ ] Invalid plot data shows error text (not crash)
 - [ ] Texture upload failure logged and recovered
 
-## Phase 4: Code-on-Demand
-
-### Functional
-
-- [ ] `render_function` element shows consent modal before execution
-- [ ] User can Allow or Deny code execution
-- [ ] Allowed code runs each frame with RenderContext (state, dt, dimensions)
-- [ ] Code errors display in-window in red (not crash display)
-- [ ] New code triggers new consent prompt (hot-reload)
-- [ ] AST scanner flags suspicious patterns in the consent modal
-
-### Performance
-
-- [ ] Compiled render function adds < 1ms per frame overhead
-- [ ] Consent modal renders at 60fps during code review
-
-### Error
-
-- [ ] Syntax errors in code caught at compile time, shown in modal
-- [ ] Runtime errors caught per-frame, displayed without crashing
-- [ ] Denied code shows "Execution denied" placeholder
-
 ## Phase 5: Image Generation
 
 ### Functional
