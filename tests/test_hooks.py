@@ -6,7 +6,12 @@ from pathlib import Path
 from typing import cast
 from unittest.mock import patch
 
+from punt_lux.config import LuxConfig
 from punt_lux.hooks import handle_post_bash, handle_session_start
+
+_DISPLAY_ON = LuxConfig(display="y")
+_DISPLAY_OFF = LuxConfig(display="n")
+_DUMMY_PATH = Path("/dev/null")
 
 
 def _ctx(result: dict[str, object]) -> str:
@@ -74,7 +79,15 @@ class TestHandlePostBash:
         (tmp_path / ".beads").mkdir()
         mock_run = patch("punt_lux.hooks.subprocess.run")
         mock_popen = patch("punt_lux.hooks.subprocess.Popen")
-        with mock_run as m_run, mock_popen as m_popen:
+        mock_cfg = patch(
+            "punt_lux.hooks.read_config",
+            return_value=_DISPLAY_ON,
+        )
+        mock_cp = patch(
+            "punt_lux.hooks.resolve_config_path",
+            return_value=_DUMMY_PATH,
+        )
+        with mock_run as m_run, mock_popen as m_popen, mock_cfg, mock_cp:
             m_run.return_value.returncode = 0
             m_run.return_value.stdout = str(tmp_path) + "\n"
             handle_post_bash(_bash_data("bd ready"))
@@ -84,7 +97,15 @@ class TestHandlePostBash:
         (tmp_path / ".beads").mkdir()
         mock_run = patch("punt_lux.hooks.subprocess.run")
         mock_popen = patch("punt_lux.hooks.subprocess.Popen")
-        with mock_run as m_run, mock_popen as m_popen:
+        mock_cfg = patch(
+            "punt_lux.hooks.read_config",
+            return_value=_DISPLAY_ON,
+        )
+        mock_cp = patch(
+            "punt_lux.hooks.resolve_config_path",
+            return_value=_DUMMY_PATH,
+        )
+        with mock_run as m_run, mock_popen as m_popen, mock_cfg, mock_cp:
             m_run.return_value.returncode = 0
             m_run.return_value.stdout = str(tmp_path) + "\n"
             handle_post_bash(_bash_data("bd list --status=open"))
@@ -97,7 +118,15 @@ class TestHandlePostBash:
         # git rev-parse succeeds but .beads/ does not exist
         mock_run = patch("punt_lux.hooks.subprocess.run")
         mock_popen = patch("punt_lux.hooks.subprocess.Popen")
-        with mock_run as m_run, mock_popen as m_popen:
+        mock_cfg = patch(
+            "punt_lux.hooks.read_config",
+            return_value=_DISPLAY_ON,
+        )
+        mock_cp = patch(
+            "punt_lux.hooks.resolve_config_path",
+            return_value=_DUMMY_PATH,
+        )
+        with mock_run as m_run, mock_popen as m_popen, mock_cfg, mock_cp:
             m_run.return_value.returncode = 0
             m_run.return_value.stdout = str(tmp_path) + "\n"
             handle_post_bash(_bash_data("bd create --title=T"))
@@ -107,7 +136,15 @@ class TestHandlePostBash:
         (tmp_path / ".beads").mkdir()
         mock_run = patch("punt_lux.hooks.subprocess.run")
         mock_popen = patch("punt_lux.hooks.subprocess.Popen")
-        with mock_run as m_run, mock_popen as m_popen:
+        mock_cfg = patch(
+            "punt_lux.hooks.read_config",
+            return_value=_DISPLAY_ON,
+        )
+        mock_cp = patch(
+            "punt_lux.hooks.resolve_config_path",
+            return_value=_DUMMY_PATH,
+        )
+        with mock_run as m_run, mock_popen as m_popen, mock_cfg, mock_cp:
             m_run.return_value.returncode = 0
             m_run.return_value.stdout = str(tmp_path) + "\n"
             handle_post_bash(_bash_data("bd create --title=T"))
@@ -119,7 +156,15 @@ class TestHandlePostBash:
         (tmp_path / ".beads").mkdir()
         mock_run = patch("punt_lux.hooks.subprocess.run")
         mock_popen = patch("punt_lux.hooks.subprocess.Popen")
-        with mock_run as m_run, mock_popen as m_popen:
+        mock_cfg = patch(
+            "punt_lux.hooks.read_config",
+            return_value=_DISPLAY_ON,
+        )
+        mock_cp = patch(
+            "punt_lux.hooks.resolve_config_path",
+            return_value=_DUMMY_PATH,
+        )
+        with mock_run as m_run, mock_popen as m_popen, mock_cfg, mock_cp:
             m_run.return_value.returncode = 0
             m_run.return_value.stdout = str(tmp_path) + "\n"
             handle_post_bash(_bash_data("bd close lux-abc"))
@@ -129,7 +174,15 @@ class TestHandlePostBash:
         (tmp_path / ".beads").mkdir()
         mock_run = patch("punt_lux.hooks.subprocess.run")
         mock_popen = patch("punt_lux.hooks.subprocess.Popen")
-        with mock_run as m_run, mock_popen as m_popen:
+        mock_cfg = patch(
+            "punt_lux.hooks.read_config",
+            return_value=_DISPLAY_ON,
+        )
+        mock_cp = patch(
+            "punt_lux.hooks.resolve_config_path",
+            return_value=_DUMMY_PATH,
+        )
+        with mock_run as m_run, mock_popen as m_popen, mock_cfg, mock_cp:
             m_run.return_value.returncode = 0
             m_run.return_value.stdout = str(tmp_path) + "\n"
             handle_post_bash(
@@ -141,7 +194,15 @@ class TestHandlePostBash:
         (tmp_path / ".beads").mkdir()
         mock_run = patch("punt_lux.hooks.subprocess.run")
         mock_popen = patch("punt_lux.hooks.subprocess.Popen")
-        with mock_run as m_run, mock_popen as m_popen:
+        mock_cfg = patch(
+            "punt_lux.hooks.read_config",
+            return_value=_DISPLAY_ON,
+        )
+        mock_cp = patch(
+            "punt_lux.hooks.resolve_config_path",
+            return_value=_DUMMY_PATH,
+        )
+        with mock_run as m_run, mock_popen as m_popen, mock_cfg, mock_cp:
             m_run.return_value.returncode = 0
             m_run.return_value.stdout = str(tmp_path) + "\n"
             handle_post_bash(_bash_data("bd dep add lux-a lux-b"))
@@ -151,7 +212,15 @@ class TestHandlePostBash:
         (tmp_path / ".beads").mkdir()
         mock_run = patch("punt_lux.hooks.subprocess.run")
         mock_popen = patch("punt_lux.hooks.subprocess.Popen")
-        with mock_run as m_run, mock_popen as m_popen:
+        mock_cfg = patch(
+            "punt_lux.hooks.read_config",
+            return_value=_DISPLAY_ON,
+        )
+        mock_cp = patch(
+            "punt_lux.hooks.resolve_config_path",
+            return_value=_DUMMY_PATH,
+        )
+        with mock_run as m_run, mock_popen as m_popen, mock_cfg, mock_cp:
             m_run.return_value.returncode = 0
             m_run.return_value.stdout = str(tmp_path) + "\n"
             handle_post_bash(_bash_data("bd sync"))
@@ -164,7 +233,15 @@ class TestHandlePostBash:
         (tmp_path / ".beads").mkdir()
         mock_run = patch("punt_lux.hooks.subprocess.run")
         mock_popen = patch("punt_lux.hooks.subprocess.Popen")
-        with mock_run as m_run, mock_popen as m_popen:
+        mock_cfg = patch(
+            "punt_lux.hooks.read_config",
+            return_value=_DISPLAY_ON,
+        )
+        mock_cp = patch(
+            "punt_lux.hooks.resolve_config_path",
+            return_value=_DUMMY_PATH,
+        )
+        with mock_run as m_run, mock_popen as m_popen, mock_cfg, mock_cp:
             m_run.return_value.returncode = 0
             m_run.return_value.stdout = str(tmp_path) + "\n"
             handle_post_bash(
@@ -175,7 +252,31 @@ class TestHandlePostBash:
     def test_ignores_when_git_fails(self) -> None:
         mock_run = patch("punt_lux.hooks.subprocess.run")
         mock_popen = patch("punt_lux.hooks.subprocess.Popen")
-        with mock_run as m_run, mock_popen as m_popen:
+        mock_cfg = patch(
+            "punt_lux.hooks.read_config",
+            return_value=_DISPLAY_ON,
+        )
+        mock_cp = patch(
+            "punt_lux.hooks.resolve_config_path",
+            return_value=_DUMMY_PATH,
+        )
+        with mock_run as m_run, mock_popen as m_popen, mock_cfg, mock_cp:
             m_run.return_value.returncode = 128
             handle_post_bash(_bash_data("bd create --title=T"))
+        m_popen.assert_not_called()
+
+    def test_skips_when_display_off(self) -> None:
+        mock_run = patch("punt_lux.hooks.subprocess.run")
+        mock_popen = patch("punt_lux.hooks.subprocess.Popen")
+        mock_cfg = patch(
+            "punt_lux.hooks.read_config",
+            return_value=_DISPLAY_OFF,
+        )
+        mock_cp = patch(
+            "punt_lux.hooks.resolve_config_path",
+            return_value=_DUMMY_PATH,
+        )
+        with mock_run as m_run, mock_popen as m_popen, mock_cfg, mock_cp:
+            handle_post_bash(_bash_data("bd ready"))
+        m_run.assert_not_called()
         m_popen.assert_not_called()

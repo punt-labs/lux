@@ -90,6 +90,11 @@ def handle_post_bash(data: dict[str, object]) -> None:
     if not _BD_CMD_RE.search(command):
         return
 
+    # Gate: display must be enabled
+    cfg = read_config(resolve_config_path())
+    if cfg.display != "y":
+        return
+
     # Gate: .beads/ must exist in the repo
     try:
         result = subprocess.run(
