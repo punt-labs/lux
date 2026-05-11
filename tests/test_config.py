@@ -16,7 +16,7 @@ from punt_lux.config import (
 
 @pytest.fixture
 def config_path(tmp_path: Path) -> Path:
-    return tmp_path / ".lux" / "config.md"
+    return tmp_path / ".punt-labs" / "lux.md"
 
 
 # ---------------------------------------------------------------------------
