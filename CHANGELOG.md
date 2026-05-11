@@ -21,6 +21,10 @@
 
 ### Fixed
 
+- **Applications menu appears at display startup** — built-in apps (Beads
+  Browser, Calculator, Clock) are now registered by the display server at init,
+  not by the MCP client on first tool call. The menu is visible immediately.
+
 - **`/lux:beads` skill frame isolation** — skill now passes `frame_id` and
   `frame_title` to `show_table` so the beads board renders in its own frame
   instead of replacing the main scene.
