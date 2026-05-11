@@ -1,8 +1,8 @@
-"""Centralized read/write for .lux/config.md YAML frontmatter.
+"""Centralized read/write for .punt-labs/lux.md YAML frontmatter.
 
 Python components that need config (e.g. server, CLI) import from here.
 Shell hooks (e.g. ``hooks/*.sh``) read the same file via their own
-bash-based reader.  The canonical path is ``.lux/config.md`` in the
+bash-based reader.  The canonical path is ``.punt-labs/lux.md`` in the
 repo root.  All fields return safe defaults when the file is missing.
 
 Only the YAML frontmatter block (between the first ``---`` and the
@@ -20,7 +20,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CONFIG_PATH = Path(".lux/config.md")
+DEFAULT_CONFIG_PATH = Path(".punt-labs/lux.md")
 
 ALLOWED_CONFIG_KEYS: frozenset[str] = frozenset({"display"})
 
@@ -43,11 +43,11 @@ def _extract_frontmatter(text: str) -> str:
 
 @functools.lru_cache(maxsize=1)
 def resolve_config_path() -> Path:
-    """Resolve .lux/config.md at the main repo root (worktree-safe).
+    """Resolve .punt-labs/lux.md at the main repo root (worktree-safe).
 
     Uses ``git rev-parse --git-common-dir`` to find the shared git
     directory, then resolves to its parent.  Falls back to cwd-relative
-    ``.lux/config.md`` when git is unavailable or not in a repo.
+    ``.punt-labs/lux.md`` when git is unavailable or not in a repo.
 
     Result is cached for the process lifetime.
     """
@@ -61,7 +61,7 @@ def resolve_config_path() -> Path:
         )
         git_common = result.stdout.strip()
         if git_common:
-            return Path(git_common).resolve().parent / ".lux" / "config.md"
+            return Path(git_common).resolve().parent / ".punt-labs" / "lux.md"
     except (
         subprocess.CalledProcessError,
         FileNotFoundError,
@@ -73,7 +73,7 @@ def resolve_config_path() -> Path:
 
 @dataclass(frozen=True)
 class LuxConfig:
-    """Snapshot of all config fields from .lux/config.md."""
+    """Snapshot of all config fields from .punt-labs/lux.md."""
 
     display: str  # "y" | "n"
 
@@ -125,7 +125,7 @@ def write_field(
     value: str,
     config_path: Path | None = None,
 ) -> None:
-    """Write a single YAML frontmatter field to .lux/config.md.
+    """Write a single YAML frontmatter field to .punt-labs/lux.md.
 
     Updates the field in-place if present, or inserts it before the
     closing ``---`` if absent.  Creates the file with minimal

@@ -4,7 +4,7 @@
 .biff.local
 .worktrees/
 .mcp.json
-.lux/
+.punt-labs/lux.md
 .vox/
 .vscode/
 .coverage
