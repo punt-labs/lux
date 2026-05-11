@@ -20,7 +20,6 @@ import select
 import socket
 import threading
 import time
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
@@ -840,16 +839,6 @@ def _table_column_weights(
 
 
 @dataclass
-class _RenderFnState:
-    """Lifecycle state for a single render_function element."""
-
-    source: str = ""
-    dialog: Any = None  # ConsentDialog | None
-    executor: Any = None  # CodeExecutor | None
-    denied: bool = False
-
-
-@dataclass
 class _Frame:
     """A named inner window in the workspace.
 
@@ -900,7 +889,6 @@ class DisplayServer:
         self._scene_to_frame: dict[str, str] = {}  # scene_id → frame_id
         self._scene_to_owner: dict[str, int] = {}  # scene_id → contributing fd
         self._scene_widget_state: dict[str, WidgetState] = {}  # per-scene
-        self._scene_render_fn_state: dict[str, dict[str, _RenderFnState]] = {}
         self._event_queue: list[InteractionMessage] = []
         self._textures = TextureCache()
         self._widget_state = WidgetState()  # active scene's state (swapped)
@@ -910,11 +898,8 @@ class DisplayServer:
         self._menu_owners: dict[str, int] = {}  # item_id → fd
         self._builtin_apps: list[dict[str, str]] = [
             {"label": "Beads Browser", "app": "beads"},
-            {"label": "Calculator", "app": "calculator"},
-            {"label": "Clock", "app": "clock"},
         ]
         self._pending_app_launches: list[str] = []
-        self._render_fn_state: dict[str, _RenderFnState] = {}  # active (swapped)
         self._themes: list[Any] = []
         self._decorated: bool = True
         self._opacity: float = 1.0
@@ -1190,11 +1175,9 @@ class DisplayServer:
             self._scene_order.clear()
             self._active_tab = None
             self._scene_widget_state.clear()
-            self._scene_render_fn_state.clear()
             self._event_queue.clear()
             self._dirty_windows.clear()
             self._widget_state = WidgetState()
-            self._render_fn_state = {}
             for fid in list(self._frames):
                 self._close_frame(fid)
             clicked = True
@@ -1501,14 +1484,6 @@ class DisplayServer:
                     from punt_lux.apps.beads import render_beads_board
 
                     render_beads_board(client)
-                elif app_key == "calculator":
-                    from punt_lux.apps.calculator import render_calculator
-
-                    render_calculator(client)
-                elif app_key == "clock":
-                    from punt_lux.apps.clock import render_clock
-
-                    render_clock(client)
         except Exception:
             logger.exception("Failed to launch built-in app: %s", app_key)
 
@@ -1802,11 +1777,9 @@ class DisplayServer:
             self._scene_to_frame.clear()
             self._scene_to_owner.clear()
             self._scene_widget_state.clear()
-            self._scene_render_fn_state.clear()
             self._event_queue.clear()
             self._dirty_windows.clear()
             self._widget_state = WidgetState()
-            self._render_fn_state = {}
         elif isinstance(msg, RegisterMenuMessage):
             self._handle_register_menu(sock, msg)
         elif isinstance(msg, MenuMessage):
@@ -1909,7 +1882,6 @@ class DisplayServer:
         if is_new:
             self._scene_order.append(msg.id)
             self._scene_widget_state[msg.id] = WidgetState()
-            self._scene_render_fn_state[msg.id] = {}
             self._active_tab = msg.id
             for elem in msg.elements:
                 if isinstance(elem, WindowElement):
@@ -1938,7 +1910,6 @@ class DisplayServer:
                 ev for ev in self._event_queue if ev.element_id not in stale_ids
             ]
         self._scene_widget_state[msg.id].clear()
-        self._scene_render_fn_state[msg.id].clear()
 
     def _next_cascade_index(self) -> int:
         """Return the smallest non-negative index not used by any open frame."""
@@ -2005,7 +1976,6 @@ class DisplayServer:
         if is_new:
             frame.scene_order.append(msg.id)
             self._scene_widget_state[msg.id] = WidgetState()
-            self._scene_render_fn_state[msg.id] = {}
             frame.active_tab = msg.id
             self._scene_to_frame[msg.id] = frame.frame_id
             for elem in msg.elements:
@@ -2031,7 +2001,6 @@ class DisplayServer:
         if scene is None:
             return
         ws = self._scene_widget_state.get(msg.scene_id)
-        rfs = self._scene_render_fn_state.get(msg.scene_id)
         for patch in msg.patches:
             result = _find_element(scene.elements, patch.id)
             if result is None:
@@ -2043,8 +2012,6 @@ class DisplayServer:
                     if ws is not None:
                         ws.set(eid, None)
                         ws.clear_suffix(f"_{eid}")
-                    if rfs is not None:
-                        rfs.pop(eid, None)
             elif patch.set:
                 self._apply_patch_set(parent_list[idx], patch.set, ws)
 
@@ -2542,7 +2509,6 @@ class DisplayServer:
     def _render_framed_scene(self, frame: _Frame, scene_id: str) -> None:
         """Render a scene's elements inside a frame."""
         self._widget_state = self._scene_widget_state[scene_id]
-        self._render_fn_state = self._scene_render_fn_state[scene_id]
         scene = frame.scenes[scene_id]
         for elem in scene.elements:
             self._render_element(elem)
@@ -2569,7 +2535,6 @@ class DisplayServer:
                 for elem in scene.elements:
                     removed_ids.update(_collect_ids(elem))
             self._scene_widget_state.pop(scene_id, None)
-            self._scene_render_fn_state.pop(scene_id, None)
             self._scene_to_frame.pop(scene_id, None)
             self._scene_to_owner.pop(scene_id, None)
         if removed_ids:
@@ -2602,7 +2567,6 @@ class DisplayServer:
                 ]
         frame.scene_order = [s for s in frame.scene_order if s != scene_id]
         self._scene_widget_state.pop(scene_id, None)
-        self._scene_render_fn_state.pop(scene_id, None)
         self._scene_to_frame.pop(scene_id, None)
         self._scene_to_owner.pop(scene_id, None)
         if frame.active_tab == scene_id:
@@ -2613,7 +2577,6 @@ class DisplayServer:
     def _render_scene_tab(self, scene_id: str) -> None:
         """Render a single scene's elements with its own widget state."""
         self._widget_state = self._scene_widget_state[scene_id]
-        self._render_fn_state = self._scene_render_fn_state[scene_id]
         scene = self._scenes[scene_id]
         if scene.title and len(self._scenes) == 1:
             from imgui_bundle import imgui
@@ -2786,7 +2749,6 @@ class DisplayServer:
             ]
         self._scene_order = [s for s in old_order if s != scene_id]
         self._scene_widget_state.pop(scene_id, None)
-        self._scene_render_fn_state.pop(scene_id, None)
         if self._active_tab == scene_id:
             if self._scene_order:
                 # Select neighbor: next tab, or last if dismissed was rightmost
@@ -2819,7 +2781,6 @@ class DisplayServer:
         "progress": "_render_progress",
         "spinner": "_render_spinner",
         "markdown": "_render_markdown",
-        "render_function": "_render_render_function",
         "modal": "_render_modal",
     }
 
@@ -3675,86 +3636,6 @@ class DisplayServer:
             from imgui_bundle import imgui
 
             imgui.text_unformatted(md.content)
-
-    # -- render_function element -------------------------------------------
-
-    def _make_event_callback(
-        self, eid: str
-    ) -> Callable[[str, dict[str, Any] | None], None]:
-        """Create an event callback that routes ctx.send() to the event queue."""
-
-        def _cb(action: str, data: dict[str, Any] | None) -> None:
-            self._event_queue.append(
-                InteractionMessage(
-                    element_id=eid,
-                    action=action,
-                    ts=time.time(),
-                    value=data,
-                )
-            )
-
-        return _cb
-
-    def _render_render_function(self, elem: Element) -> None:
-        from imgui_bundle import ImVec4, imgui
-
-        from punt_lux.ast_check import check_source
-        from punt_lux.consent import ConsentDialog, ConsentResult
-        from punt_lux.runtime import CodeExecutor
-
-        rf: Any = elem
-        eid: str = rf.id
-        source: str = rf.source
-
-        # Get or create per-element state
-        state = self._render_fn_state.get(eid)
-        if state is None or state.source != source:
-            old_executor = state.executor if state is not None else None
-            warnings = check_source(source)
-            state = _RenderFnState(
-                source=source,
-                dialog=ConsentDialog(source, warnings),
-                executor=old_executor,  # preserve for hot_reload
-            )
-            self._render_fn_state[eid] = state
-
-        # Phase 1: Consent pending
-        if state.dialog is not None:
-            result = state.dialog.draw()
-            if result == ConsentResult.ALLOWED:
-                state.dialog = None
-                old: CodeExecutor | None = state.executor
-                if old is not None:
-                    state.executor = old.hot_reload(source)
-                else:
-                    state.executor = CodeExecutor(
-                        source,
-                        event_callback=self._make_event_callback(eid),
-                    )
-            elif result == ConsentResult.DENIED:
-                state.dialog = None
-                state.executor = None
-                state.denied = True
-            return
-
-        # Phase 2: Denied
-        if state.denied:
-            imgui.text_colored(
-                ImVec4(1.0, 0.4, 0.4, 1.0), f"[{eid}] Code execution denied"
-            )
-            return
-
-        # Phase 3: Running (or errored)
-        if state.executor is not None:
-            executor: CodeExecutor = state.executor
-            if executor.has_error:
-                imgui.text_colored(
-                    ImVec4(1.0, 0.3, 0.3, 1.0),
-                    f"Error: {executor.error_message}",
-                )
-                return
-            avail = imgui.get_content_region_avail()
-            executor.render(imgui.get_io().delta_time, avail.x, avail.y)
 
     # -- modal rendering ---------------------------------------------------
 

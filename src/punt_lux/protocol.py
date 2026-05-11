@@ -427,16 +427,6 @@ class MarkdownElement:
 
 
 @dataclass
-class RenderFunctionElement:
-    """Python source code that defines a render(ctx) function."""
-
-    id: str
-    source: str
-    kind: Literal["render_function"] = "render_function"
-    tooltip: str | None = None
-
-
-@dataclass
 class ModalElement:
     """A modal popup dialog that blocks interaction with background content.
 
@@ -477,7 +467,6 @@ Element = (
     | ProgressElement
     | SpinnerElement
     | MarkdownElement
-    | RenderFunctionElement
     | ModalElement
 )
 
@@ -1012,14 +1001,6 @@ def _markdown_to_dict(elem: MarkdownElement) -> dict[str, Any]:
     }
 
 
-def _render_function_to_dict(elem: RenderFunctionElement) -> dict[str, Any]:
-    return {
-        "kind": elem.kind,
-        "id": elem.id,
-        "source": elem.source,
-    }
-
-
 def _modal_to_dict(elem: ModalElement) -> dict[str, Any]:
     return {
         "kind": elem.kind,
@@ -1054,7 +1035,6 @@ _ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
     ProgressElement: _progress_to_dict,
     SpinnerElement: _spinner_to_dict,
     MarkdownElement: _markdown_to_dict,
-    RenderFunctionElement: _render_function_to_dict,
     ModalElement: _modal_to_dict,
 }
 
@@ -1324,13 +1304,6 @@ def _markdown_from_dict(d: dict[str, Any]) -> MarkdownElement:
     )
 
 
-def _render_function_from_dict(d: dict[str, Any]) -> RenderFunctionElement:
-    return RenderFunctionElement(
-        id=d["id"],
-        source=d["source"],
-    )
-
-
 def _modal_from_dict(d: dict[str, Any]) -> ModalElement:
     return ModalElement(
         id=d["id"],
@@ -1364,7 +1337,6 @@ _ELEMENT_DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Element]] = {
     "progress": _progress_from_dict,
     "spinner": _spinner_from_dict,
     "markdown": _markdown_from_dict,
-    "render_function": _render_function_from_dict,
     "modal": _modal_from_dict,
 }
 

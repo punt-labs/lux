@@ -98,7 +98,7 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 
 ## Features
 
-- **25 element kinds** --- text, buttons (arrow, small), images, sliders, checkboxes, combos, inputs (text, number), radios, color pickers (alpha, full picker), selectables, trees, tables, plots, progress bars, spinners, markdown, draw canvases, render functions, modals, groups, tab bars, collapsing headers, windows, separators
+- **24 element kinds** --- text, buttons (arrow, small), images, sliders, checkboxes, combos, inputs (text, number), radios, color pickers (alpha, full picker), selectables, trees, tables, plots, progress bars, spinners, markdown, draw canvases, modals, groups, tab bars, collapsing headers, windows, separators
 - **Frames** --- scenes target named frames (inner windows) via `frame_id`. Frames persist after disconnect, can be adopted by new clients, and support initial sizing (`frame_size`) and ImGui window flags (`frame_flags`)
 - **Layout nesting** --- windows contain tab bars contain groups contain any element, arbitrarily deep
 - **Incremental updates** --- `update` patches individual elements by ID without replacing the scene
@@ -112,14 +112,13 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 
 ## MCP Tools
 
-Agents interact with Lux through 12 MCP tools exposed by `lux serve`:
+Agents interact with Lux through 11 MCP tools exposed by `lux serve`:
 
 | Tool | What it does |
 |------|-------------|
 | `show(scene_id, elements)` | Replace the display with a new element tree. Supports `frame_id`, `frame_size`, `frame_flags` for windowed frames |
 | `show_table(scene_id, columns, rows)` | Display a filterable data table with optional detail panel |
 | `show_dashboard(scene_id, ...)` | Display a dashboard with metric cards, charts, and a table |
-| `show_diagram(scene_id, ...)` | Display an auto-laid-out architecture diagram with layers, nodes, and edges |
 | `update(scene_id, patches)` | Patch elements by ID (set fields or remove) |
 | `set_menu(menus)` | Add custom menus to the menu bar |
 | `register_tool(id, label)` | Register a World menu item routed only to the calling server via `recv()` |
@@ -191,7 +190,6 @@ Returns `"interaction:element=b1,action=click,value=True"`.
 | Lists | `selectable`, `tree` |
 | Data | `table`, `plot`, `progress`, `spinner`, `markdown` |
 | Canvas | `draw` (line, rect, circle, triangle, polyline, text, bezier) |
-| Code | `render_function` (agent-submitted Python with AST safety scan) |
 | Layout | `group`, `tab_bar`, `collapsing_header`, `window`, `modal` |
 
 All elements with an `id` support an optional `tooltip` field (string shown on hover).

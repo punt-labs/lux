@@ -73,7 +73,6 @@ def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
     if scene.id not in server._scene_order:
         server._scene_order.append(scene.id)
     server._scene_widget_state[scene.id] = WidgetState()
-    server._scene_render_fn_state[scene.id] = {}
     server._active_tab = scene.id
 
 
@@ -415,7 +414,6 @@ class TestRefinementShutdown:
         server._scene_order.clear()
         server._active_tab = None
         server._scene_widget_state.clear()
-        server._scene_render_fn_state.clear()
         server._event_queue.clear()
         server._server_sock = None
 
@@ -432,7 +430,6 @@ class TestRefinementShutdown:
         server._scene_order.clear()
         server._active_tab = None
         server._scene_widget_state.clear()
-        server._scene_render_fn_state.clear()
         server._event_queue.clear()
         server._server_sock = None
 
