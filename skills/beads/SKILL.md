@@ -42,7 +42,7 @@ Build three parallel arrays (same length, same order):
 `[id, title, status, "P{priority}", issue_type]`
 
 **`detail.rows`** — detail panel fields for each issue:
-`[id, status, "P{priority}", issue_type, assignee_or_empty, owner_or_empty, created_at[:10], updated_at[:10]]`
+`[id, status, "P{priority}", issue_type, owner_or_empty, created_at[:10], updated_at[:10]]`
 Truncate `created_at` and `updated_at` to the first 10 characters (date only, e.g. `"2026-03-09"`).
 
 **`detail.body`** — description text for each issue:
@@ -76,7 +76,7 @@ Call the `show_table` MCP tool with:
 
   ```json
   {
-    "fields": ["ID", "Status", "Priority", "Type", "Claimed By", "Owner", "Created", "Updated"],
+    "fields": ["ID", "Status", "Priority", "Type", "Owner", "Created", "Updated"],
     "rows": detail_rows,
     "body": detail_bodies
   }

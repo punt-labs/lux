@@ -26,7 +26,7 @@ if TYPE_CHECKING:
     from punt_lux.client import LuxClient
 
 # ---------------------------------------------------------------------------
-# Data loading (pure, testable)
+# Data loading
 # ---------------------------------------------------------------------------
 
 _FIELD_DEFAULTS: dict[str, Any] = {
