@@ -32,8 +32,10 @@ from punt_lux.protocol import (
 )
 from punt_lux.server import (
     clear,
+    display_mode,
     ping,
     recv,
+    set_display_mode,
     set_menu,
     set_theme,
     show,
@@ -554,7 +556,12 @@ class TestUpdateTool:
 
 class TestClearTool:
     @patch("punt_lux.server._get_client")
-    def test_clear_returns_cleared(self, mock_get: MagicMock) -> None:
+    @patch("punt_lux.server.is_display_running", return_value=True)
+    @patch("punt_lux.server.default_socket_path")
+    def test_clear_returns_cleared(
+        self, mock_path: MagicMock, mock_running: MagicMock, mock_get: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/socket"
         client = _mock_client()
         mock_get.return_value = client
 
@@ -566,7 +573,16 @@ class TestClearTool:
 class TestPingTool:
     @patch("punt_lux.server.time")
     @patch("punt_lux.server._get_client")
-    def test_ping_returns_rtt(self, mock_get: MagicMock, mock_time: MagicMock) -> None:
+    @patch("punt_lux.server.is_display_running", return_value=True)
+    @patch("punt_lux.server.default_socket_path")
+    def test_ping_returns_rtt(
+        self,
+        mock_path: MagicMock,
+        mock_running: MagicMock,
+        mock_get: MagicMock,
+        mock_time: MagicMock,
+    ) -> None:
+        mock_path.return_value = "/fake/socket"
         client = _mock_client()
         ts = 1000.0
         mock_time.time.return_value = ts + 0.042
@@ -574,10 +590,15 @@ class TestPingTool:
         mock_get.return_value = client
 
         result = ping()
-        assert result == "pong:rtt=0.042s"
+        assert result == "pong rtt=0.042s"
 
     @patch("punt_lux.server._get_client")
-    def test_ping_timeout(self, mock_get: MagicMock) -> None:
+    @patch("punt_lux.server.is_display_running", return_value=True)
+    @patch("punt_lux.server.default_socket_path")
+    def test_ping_timeout(
+        self, mock_path: MagicMock, mock_running: MagicMock, mock_get: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/socket"
         client = _mock_client()
         client.ping.return_value = None
         mock_get.return_value = client
@@ -608,3 +629,124 @@ class TestRecvTool:
 
         result = recv(timeout=0.1)
         assert result == "none"
+
+
+class TestDisplayModeTool:
+    @patch("punt_lux.server.read_config")
+    @patch("punt_lux.server.resolve_config_path")
+    def test_display_mode_returns_on(
+        self, mock_path: MagicMock, mock_read: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/config"
+        cfg = MagicMock()
+        cfg.display = "y"
+        mock_read.return_value = cfg
+
+        result = display_mode()
+        assert result == "display:on"
+
+    @patch("punt_lux.server.read_config")
+    @patch("punt_lux.server.resolve_config_path")
+    def test_display_mode_returns_off(
+        self, mock_path: MagicMock, mock_read: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/config"
+        cfg = MagicMock()
+        cfg.display = "n"
+        mock_read.return_value = cfg
+
+        result = display_mode()
+        assert result == "display:off"
+
+
+class TestSetDisplayModeTool:
+    @patch("punt_lux.server._get_client")
+    @patch("punt_lux.server.write_field")
+    @patch("punt_lux.server.resolve_config_path")
+    def test_set_display_mode_y(
+        self, mock_path: MagicMock, mock_write: MagicMock, mock_get: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/config"
+        mock_get.return_value = _mock_client()
+
+        result = set_display_mode("y")
+        assert result == "display:on"
+        mock_write.assert_called_once_with("display", "y", "/fake/config")
+
+    @patch("punt_lux.server.write_field")
+    @patch("punt_lux.server.resolve_config_path")
+    def test_set_display_mode_n(
+        self, mock_path: MagicMock, mock_write: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/config"
+
+        result = set_display_mode("n")
+        assert result == "display:off"
+        mock_write.assert_called_once_with("display", "n", "/fake/config")
+
+    def test_set_display_mode_invalid(self) -> None:
+        with pytest.raises(ValueError, match="Invalid mode"):
+            set_display_mode("bogus")
+
+
+class TestClearNoAutoSpawn:
+    @patch("punt_lux.server._get_client")
+    @patch("punt_lux.server.is_display_running", return_value=False)
+    @patch("punt_lux.server.default_socket_path")
+    def test_clear_noop_when_not_running(
+        self, mock_path: MagicMock, mock_running: MagicMock, mock_get: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/socket"
+
+        result = clear()
+        assert result == "cleared"
+        mock_get.assert_not_called()
+
+    @patch("punt_lux.server._get_client")
+    @patch("punt_lux.server.is_display_running", return_value=True)
+    @patch("punt_lux.server.default_socket_path")
+    def test_clear_calls_client_when_running(
+        self, mock_path: MagicMock, mock_running: MagicMock, mock_get: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/socket"
+        client = _mock_client()
+        mock_get.return_value = client
+
+        result = clear()
+        assert result == "cleared"
+        client.clear.assert_called_once()
+
+
+class TestPingNoAutoSpawn:
+    @patch("punt_lux.server._get_client")
+    @patch("punt_lux.server.is_display_running", return_value=False)
+    @patch("punt_lux.server.default_socket_path")
+    def test_ping_not_running(
+        self, mock_path: MagicMock, mock_running: MagicMock, mock_get: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/socket"
+
+        result = ping()
+        assert result == "not running"
+        mock_get.assert_not_called()
+
+    @patch("punt_lux.server.time")
+    @patch("punt_lux.server._get_client")
+    @patch("punt_lux.server.is_display_running", return_value=True)
+    @patch("punt_lux.server.default_socket_path")
+    def test_ping_returns_rtt_when_running(
+        self,
+        mock_path: MagicMock,
+        mock_running: MagicMock,
+        mock_get: MagicMock,
+        mock_time: MagicMock,
+    ) -> None:
+        mock_path.return_value = "/fake/socket"
+        client = _mock_client()
+        ts = 1000.0
+        mock_time.time.return_value = ts + 0.042
+        client.ping.return_value = PongMessage(ts=ts, display_ts=ts + 0.005)
+        mock_get.return_value = client
+
+        result = ping()
+        assert result == "pong rtt=0.042s"

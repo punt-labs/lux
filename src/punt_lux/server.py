@@ -24,6 +24,7 @@ from fastmcp import FastMCP
 from punt_lux.apps.beads import render_beads_board
 from punt_lux.client import LuxClient
 from punt_lux.config import read_config, resolve_config_path, write_field
+from punt_lux.paths import default_socket_path, is_display_running
 from punt_lux.protocol import (
     InteractionMessage,
     Patch,
@@ -626,7 +627,12 @@ def set_theme(theme: str) -> str:
 
 @mcp.tool()
 def clear() -> str:
-    """Clear the Lux display window. Removes all content."""
+    """Clear the Lux display window. Removes all content.
+
+    No-op if the display server is not running.
+    """
+    if not is_display_running(default_socket_path()):
+        return "cleared"
 
     def _call() -> str:
         client = _get_client()
@@ -638,7 +644,9 @@ def clear() -> str:
 
 @mcp.tool()
 def ping() -> str:
-    """Ping the display server. Returns round-trip time or "timeout"."""
+    """Ping the display server. Returns round-trip time, "timeout", or "not running"."""
+    if not is_display_running(default_socket_path()):
+        return "not running"
 
     def _call() -> str:
         client = _get_client()
@@ -647,42 +655,50 @@ def ping() -> str:
             return "timeout"
         if pong.ts is not None:
             rtt = time.time() - pong.ts
-            return f"pong:rtt={rtt:.3f}s"
+            return f"pong rtt={rtt:.3f}s"
         return "pong"
 
     return _with_reconnect(_call)
 
 
 @mcp.tool()
-def display_mode(mode: str | None = None) -> str:
-    """Get or set the display mode.
+def display_mode() -> str:
+    """Read the current display mode.
 
-    When called with no argument, returns the current mode.
-    When called with "y" or "n", sets the mode and returns confirmation.
-
-    The display mode is an advisory signal for consumer plugins.
-    Lux itself always accepts show() calls regardless of mode.
+    Returns "display:on" or "display:off". The display mode is an advisory signal
+    for consumer plugins. Lux itself always accepts show() calls
+    regardless of mode.
     """
     config_path = resolve_config_path()
+    cfg = read_config(config_path)
+    label = "on" if cfg.display == "y" else "off"
+    return f"display:{label}"
 
-    if mode is None:
-        cfg = read_config(config_path)
-        return f"display:{cfg.display}"
 
+@mcp.tool()
+def set_display_mode(mode: str) -> str:
+    """Set the display mode to "y" (on) or "n" (off).
+
+    When set to "y", eagerly connects to the display server.
+    The display mode is an advisory signal for consumer plugins.
+    """
     if mode not in ("y", "n"):
         msg = f"Invalid mode '{mode}'. Use 'y' or 'n'."
         raise ValueError(msg)
 
+    config_path = resolve_config_path()
     write_field("display", mode, config_path)
     if mode == "y":
         try:
             _get_client()
         except (RuntimeError, OSError, ValueError, KeyError):
             logger.warning(
-                "Eager connect on display_mode=y failed; will retry on first tool call",
+                "Eager connect on set_display_mode=y failed; "
+                "will retry on first tool call",
                 exc_info=True,
             )
-    return f"display:{mode}"
+    label = "on" if mode == "y" else "off"
+    return f"display:{label}"
 
 
 @mcp.tool()
