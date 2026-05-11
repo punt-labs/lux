@@ -4,6 +4,10 @@
 
 ### Added
 
+- **`make install` target** — builds wheel and installs locally with `[display]`
+  extras, preventing the silent loss of display dependencies that occurs when
+  running `uv tool install` on a bare wheel without extras.
+
 - **`show_table` `frame_id`/`frame_title` parameters** — convenience wrapper
   now forwards frame parameters to `show()`, enabling tab-isolated tables
   (e.g., per-project beads boards) without falling back to raw `show()` calls.
