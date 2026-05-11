@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-05-11
+
 ### Added
 
 - **`make install` target** — builds wheel and installs locally with `[display]`
