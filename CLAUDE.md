@@ -8,38 +8,35 @@ There is no such thing as a "pre-existing" issue. If you see a problem — in co
 
 ## What Is Lux?
 
-Lux is a **visual output surface for Claude Code**. Vox gives agents a voice; Lux gives agents a screen — tables, charts, dashboards, and interactive elements rendered in a native ImGui window via Unix socket IPC.
+Lux is a **visual output surface for Claude Code**. Vox gives agents a voice; Lux gives agents a screen. An ImGui window renders JSON element trees sent by agents over Unix socket IPC.
 
 - **PyPI package**: `punt-lux`
 - **CLI command**: `lux`
+- **Version**: 0.16.1 (alpha)
 - **Projection surfaces**: library, CLI, MCP server, plugin
-- **Stage**: v0.5.0
 
-### Capabilities
+### What Lux Is Good At
 
-- Composable element tree: text, tables, plots, buttons, inputs, sliders, checkboxes, combos, color pickers
-- Layout containers: groups (columns), tabs, collapsing headers, floating windows
-- Built-in table filtering (search + combo) at 60fps with zero MCP round-trips
-- Scene-based updates via JSON patch protocol over Unix sockets
-- Auto-spawn: display server starts on first `show()` call
+Tables and data display. The beads issue browser is the primary consumer — live DoltDB data in a filterable table with detail panel, rendered in a single `show_table()` call. Filters, search, and row selection run at 60fps with zero MCP round-trips. `show_dashboard()` composes metric cards, charts, and tables. `show_diagram()` renders auto-laid-out architecture diagrams.
+
+The architecture is sound: MCP holds state, ImGui renders each frame from the latest JSON scene. This makes immediate mode "cached" — the agent sends state once, the display re-renders it every frame without further communication.
+
+### What Lux Has But Doesn't Use Much
+
+25 element kinds are fully implemented, but agents primarily use: text, table, plot, group, button, separator. The interactive widgets (sliders, color pickers, radio groups, input fields) work end-to-end but have near-zero real usage outside demos. The code-on-demand system (`render_function` with consent dialog) powers the clock and calculator applets but is complex machinery for two toy apps.
 
 ### Key Relationships
 
 - **Vox** (`../vox/`) — audio counterpart; Lux follows the same plugin/release patterns
-- **LangLearn** (`../langlearn/`) — orchestrator that will compose Lux for visual assets
 - **claude-plugins** (`../claude-plugins/`) — marketplace catalog entry
 
-### Punt Labs Context
+## Vision
 
-Punt Labs builds CLI tools, Claude Code plugins, and MCP servers that bring rigour to agentic software engineering. Core thesis: AI removes the time penalty from rigour. Every tool follows the same universal access pattern (library → CLI → MCP → REST) from a single codebase. The terminal is the primary interface.
+**v1 (current):** A display canvas for Claude Code agents — tables, data, dashboards. The value is showing structured data that doesn't fit in a terminal. The protocol is the API surface — agents describe JSON, Lux renders it.
 
-## Vision / Inspiration
+**v2 (future):** A Pharo-inspired live environment where the MCP server is the message bus and Lux is the Morphic rendering layer. The agent introspects and reshapes the UI at runtime. System browser, inspector, workspace — all driven by the agent. This is a separate application built on top of Lux primitives, not part of v1.
 
-**Smalltalk as north star.** Pharo/Squeak's live, image-based environment is the long-term inspiration for what Lux could become. In Smalltalk, the Morphic UI treats every visible element as a live, inspectable, composable object — windows inside windows, drag anything, modify anything at runtime. Lux's composable element tree (windows, tabs, groups, collapsing headers nesting arbitrary children) is building toward the same idea, but with an LLM as the "programmer at the keyboard" instead of a human typing into a Smalltalk workspace.
-
-**The endgame:** a Pharo-like live environment where the MCP server is the message bus, Lux is the Morphic layer, and the agent can introspect and reshape the UI while it's running. System browser, inspector, workspace — all draggable windows populated and driven by the agent. This would be a separate application built on top of Lux primitives, not part of Lux itself.
-
-**What this means for primitives:** every element kind we add should be evaluated against "does this compose into a live environment?" Keep elements small, nestable, and data-driven. The protocol is the API surface — if an agent can describe it as JSON, Lux should render it.
+**Guiding constraint for v1:** do not add features in service of v2. Hone the data-display core. Every element kind should justify itself by current agent usage, not by v2 composability.
 
 ## Quality Gates
 

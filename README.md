@@ -15,7 +15,7 @@ The design follows Smalltalk's Morphic model: every visible element is a composa
 
 **Stage:** alpha --- protocol is stable, published on PyPI as `punt-lux`
 
-*A Claude Code plugin displaying a project issue board --- the agent reads JSONL, builds a filterable table with detail panel, and renders it in a single tool call. Filters and row selection run at 60fps with zero MCP round-trips.*
+*A Claude Code plugin displaying a project issue board --- the agent fetches live data from DoltDB via `bd list --json`, builds a filterable table with detail panel, and renders it in a single tool call. Filters and row selection run at 60fps with zero MCP round-trips.*
 
 ![Beads issue board with filterable table and detail panel](docs/beads-board.png)
 
@@ -106,7 +106,7 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 - **Interaction events** --- button clicks, slider changes, table row selections, menu clicks queue as events the agent reads via `recv`
 - **Frame auto-focus** --- frames automatically focus (brought to front) when they receive a scene update
 - **Persistent tabs** --- each `show()` call opens a dismissable tab; same `scene_id` replaces content in-place. Users can close individual tabs
-- **Themes** --- dark, light, classic, cherry via `set_theme`
+- **Themes** --- 11 themes via `set_theme`: `imgui_colors_dark`, `imgui_colors_light`, `imgui_colors_classic`, `darcula`, `darcula_darker`, `material_flat`, `photoshop_style`, `grey_flat`, `cherry`, `light_rounded`, `microsoft_style`
 - **Auto-spawn** --- `LuxClient` starts the display server on first connection if it isn't running
 - **Unix socket IPC** --- length-prefixed JSON frames, no HTTP overhead, no threads
 
@@ -123,7 +123,7 @@ Agents interact with Lux through 12 MCP tools exposed by `lux serve`:
 | `update(scene_id, patches)` | Patch elements by ID (set fields or remove) |
 | `set_menu(menus)` | Add custom menus to the menu bar |
 | `register_tool(id, label)` | Register a World menu item routed only to the calling server via `recv()` |
-| `set_theme(theme)` | Switch display theme (dark, light, classic, cherry) |
+| `set_theme(theme)` | Switch display theme (11 themes available) |
 | `display_mode(mode)` | Get or set display mode (`y`/`n`) --- advisory signal for consumer plugins |
 | `clear()` | Remove all content from the display |
 | `ping()` | Round-trip latency check |
