@@ -114,11 +114,15 @@ _apps_registered_for: int | None = None
 
 
 def _on_beads_browser(_msg: InteractionMessage) -> None:
-    """Callback: open the Beads Browser in a frame."""
+    """Callback: open the Beads Browser in a frame.
+
+    Runs in a daemon thread to avoid blocking the listener thread
+    (render_beads_board calls subprocess.run with a 10s timeout).
+    """
     if _client is None:
         logger.warning("_on_beads_browser: client is None, ignoring menu click")
         return
-    render_beads_board(_client)
+    threading.Thread(target=render_beads_board, args=(_client,), daemon=True).start()
 
 
 def _setup_apps(client: LuxClient) -> None:
