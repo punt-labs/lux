@@ -909,9 +909,9 @@ class DisplayServer:
         self._menu_registrations: dict[int, list[dict[str, Any]]] = {}  # fd → items
         self._menu_owners: dict[str, int] = {}  # item_id → fd
         self._builtin_apps: list[dict[str, str]] = [
-            {"id": "app-beads", "label": "Beads Browser", "app": "beads"},
-            {"id": "app-calculator", "label": "Calculator", "app": "calculator"},
-            {"id": "app-clock", "label": "Clock", "app": "clock"},
+            {"label": "Beads Browser", "app": "beads"},
+            {"label": "Calculator", "app": "calculator"},
+            {"label": "Clock", "app": "clock"},
         ]
         self._pending_app_launches: list[str] = []
         self._render_fn_state: dict[str, _RenderFnState] = {}  # active (swapped)
@@ -1496,7 +1496,7 @@ class DisplayServer:
         from punt_lux.client import LuxClient
 
         try:
-            with LuxClient(name=f"lux-{app_key}") as client:
+            with LuxClient(self._socket_path, name=f"lux-{app_key}") as client:
                 if app_key == "beads":
                     from punt_lux.apps.beads import render_beads_board
 
