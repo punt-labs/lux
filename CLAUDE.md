@@ -59,6 +59,27 @@ Run before every commit. Zero violations, zero errors, all tests green.
 uv run ruff check . && uv run ruff format --check . && uv run mypy src/ tests/ && uv run pyright && uv run pytest
 ```
 
+## Ethos & Delegation
+
+Identity: `agent: claude` per `.punt-labs/ethos.yaml`. Sub-agent calls (`Agent(subagent_type=…)`) match ethos identity handles.
+
+Lux is Python (ImGui + Unix-socket IPC) with a strong UX and protocol-design dimension. Every element added to the protocol is a contract — agents render against it, and consumers compose it. Worker pairs split across the visual layer (UX / element design) and the implementation layer (Python / IPC / build). Within each row, the worker and evaluator must be distinct handles. Claude is the leader, never the evaluator.
+
+| Task type | Worker | Evaluator |
+|-----------|--------|-----------|
+| New element kind / protocol extension | `edt` (Tufte) | `dna` (Norman) |
+| Visual / layout / theming change | `dna` | `edt` |
+| Python implementation (rendering, IPC, scenes) | `rmh` (Hettinger) | `gvr` (van Rossum) |
+| Protocol amendment (JSON patch, Unix-socket schema) | `gvr` | `rmh` |
+| CLI surface (`lux …` commands, plugin shell) | `mdm` (McIlroy) | `rop` (Pike) |
+| MCP tool surface (`show`, `update`, `clear`, etc.) | `mdm` | `rmh` |
+| GPU / inference / perf-sensitive rendering paths | `kpz` (Karpathy) | `rmh` |
+| Security review (socket auth, IPC trust boundary) | `djb` (Bernstein) | `rmh` |
+| Release / packaging / hybrid plugin pipeline | `adb` (Lovelace) | `mdm` |
+| Frame-rate / latency budget verification | `kpz` | `edt` |
+
+Use the `standard` pipeline for new elements and protocol changes (design → implement → review → ship). Use `quick` for bugfixes inside an existing element. Treat the JSON protocol as the API surface — any change there demands an evaluator distinct from the worker.
+
 ## Standards References
 
 - [GitHub](https://github.com/punt-labs/punt-kit/blob/main/standards/github.md)
