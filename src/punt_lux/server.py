@@ -21,6 +21,7 @@ from typing import Any
 
 from fastmcp import FastMCP
 
+from punt_lux.apps.beads import render_beads_board
 from punt_lux.client import LuxClient
 from punt_lux.config import read_config, resolve_config_path, write_field
 from punt_lux.protocol import (
@@ -109,6 +110,34 @@ mcp = FastMCP(
 _client: LuxClient | None = None
 _client_lock = threading.RLock()
 
+_apps_registered_for: int | None = None
+
+
+def _on_beads_browser(_msg: InteractionMessage) -> None:
+    """Callback: open the Beads Browser in a frame.
+
+    Runs in a daemon thread to avoid blocking the listener thread
+    (render_beads_board calls subprocess.run with a 10s timeout).
+    """
+    if _client is None:
+        logger.warning("_on_beads_browser: client is None, ignoring menu click")
+        return
+    threading.Thread(target=render_beads_board, args=(_client,), daemon=True).start()
+
+
+def _setup_apps(client: LuxClient) -> None:
+    """Register built-in app menu items and callbacks.
+
+    Idempotent per client identity — safe to call on every
+    ``_get_client()`` invocation.
+    """
+    global _apps_registered_for
+    if _apps_registered_for == id(client):
+        return
+    client.declare_menu_item({"id": "app-beads", "label": "Beads Browser"})
+    client.on_event("app-beads", "menu", _on_beads_browser)
+    _apps_registered_for = id(client)
+
 
 def _get_client() -> LuxClient:
     """Return a connected LuxClient, creating or reconnecting as needed.
@@ -120,6 +149,7 @@ def _get_client() -> LuxClient:
     with _client_lock:
         if _client is None:
             _client = LuxClient(name="lux-mcp")
+        _setup_apps(_client)
         if not _client.is_connected:
             _client.connect()
         if not _client.listener_active:
