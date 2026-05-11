@@ -71,14 +71,12 @@ if [[ "$TOOL_NAME" == "set_theme" ]]; then
 fi
 
 if [[ "$TOOL_NAME" == "display_mode" ]]; then
-  # Result is "display:y" or "display:n"
-  if [[ "$RESULT" == "display:y" ]]; then
-    emit "◻ display:on" "$RESULT"
-  elif [[ "$RESULT" == "display:n" ]]; then
-    emit "◻ display:off" "$RESULT"
-  else
-    emit "◻ ${RESULT}" "$RESULT"
-  fi
+  emit "◻ ${RESULT}" "$RESULT"
+  exit 0
+fi
+
+if [[ "$TOOL_NAME" == "set_display_mode" ]]; then
+  emit "◻ ${RESULT}" "$RESULT"
   exit 0
 fi
 
@@ -88,13 +86,8 @@ if [[ "$TOOL_NAME" == "clear" ]]; then
 fi
 
 if [[ "$TOOL_NAME" == "ping" ]]; then
-  # Extract RTT from "pong:rtt=0.003s" format
-  RTT=$(echo "$RESULT" | sed -n 's/^pong:rtt=//p')
-  if [[ -n "$RTT" ]]; then
-    emit "◻ pong rtt=${RTT}" ""
-  else
-    emit "◻ pong" ""
-  fi
+  # Result is "pong rtt=0.003s", "timeout", or "not running"
+  emit "◻ ${RESULT}" ""
   exit 0
 fi
 

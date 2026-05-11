@@ -644,7 +644,7 @@ def clear() -> str:
 
 @mcp.tool()
 def ping() -> str:
-    """Ping the display server. Returns round-trip time or "timeout"."""
+    """Ping the display server. Returns round-trip time, "timeout", or "not running"."""
     if not is_display_running(default_socket_path()):
         return "not running"
 
@@ -665,7 +665,7 @@ def ping() -> str:
 def display_mode() -> str:
     """Read the current display mode.
 
-    Returns "on" or "off". The display mode is an advisory signal
+    Returns "display:on" or "display:off". The display mode is an advisory signal
     for consumer plugins. Lux itself always accepts show() calls
     regardless of mode.
     """

@@ -690,15 +690,17 @@ class TestSetDisplayModeTool:
 
 
 class TestClearNoAutoSpawn:
+    @patch("punt_lux.server._get_client")
     @patch("punt_lux.server.is_display_running", return_value=False)
     @patch("punt_lux.server.default_socket_path")
     def test_clear_noop_when_not_running(
-        self, mock_path: MagicMock, mock_running: MagicMock
+        self, mock_path: MagicMock, mock_running: MagicMock, mock_get: MagicMock
     ) -> None:
         mock_path.return_value = "/fake/socket"
 
         result = clear()
         assert result == "cleared"
+        mock_get.assert_not_called()
 
     @patch("punt_lux.server._get_client")
     @patch("punt_lux.server.is_display_running", return_value=True)
@@ -716,15 +718,17 @@ class TestClearNoAutoSpawn:
 
 
 class TestPingNoAutoSpawn:
+    @patch("punt_lux.server._get_client")
     @patch("punt_lux.server.is_display_running", return_value=False)
     @patch("punt_lux.server.default_socket_path")
     def test_ping_not_running(
-        self, mock_path: MagicMock, mock_running: MagicMock
+        self, mock_path: MagicMock, mock_running: MagicMock, mock_get: MagicMock
     ) -> None:
         mock_path.return_value = "/fake/socket"
 
         result = ping()
         assert result == "not running"
+        mock_get.assert_not_called()
 
     @patch("punt_lux.server.time")
     @patch("punt_lux.server._get_client")
