@@ -620,6 +620,15 @@ class ConnectMessage:
     type: Literal["connect"] = "connect"
 
 
+@dataclass
+class QueryRequest:
+    """Generic introspection/control request."""
+
+    method: str
+    params: dict[str, Any] = field(default_factory=lambda: dict[str, Any]())
+    type: Literal["query_request"] = "query_request"
+
+
 ClientMessage = (
     SceneMessage
     | UpdateMessage
@@ -632,6 +641,7 @@ ClientMessage = (
     | ThemeMessage
     | RegisterMenuMessage
     | ConnectMessage
+    | QueryRequest
 )
 
 # ---------------------------------------------------------------------------
@@ -689,6 +699,16 @@ class PongMessage:
 
 
 @dataclass
+class QueryResponse:
+    """Generic introspection/control response."""
+
+    method: str
+    result: dict[str, Any] = field(default_factory=lambda: dict[str, Any]())
+    type: Literal["query_response"] = "query_response"
+    error: str | None = None
+
+
+@dataclass
 class UnknownMessage:
     """Passthrough for unrecognized message types.
 
@@ -711,6 +731,7 @@ DisplayMessage = (
     | IntrospectResponse
     | ListScenesResponse
     | ScreenshotResponse
+    | QueryResponse
 )
 Message = ClientMessage | DisplayMessage | UnknownMessage
 
@@ -1615,6 +1636,22 @@ def _register_serializers() -> None:  # noqa: C901
 
     _MESSAGE_SERIALIZERS[ScreenshotResponse] = _screenshot_resp
 
+    def _query_req(m: QueryRequest) -> dict[str, Any]:
+        d: dict[str, Any] = {"type": m.type, "method": m.method}
+        if m.params:
+            d["params"] = m.params
+        return d
+
+    _MESSAGE_SERIALIZERS[QueryRequest] = _query_req
+
+    def _query_resp(m: QueryResponse) -> dict[str, Any]:
+        d: dict[str, Any] = {"type": m.type, "method": m.method, "result": m.result}
+        if m.error is not None:
+            d["error"] = m.error
+        return d
+
+    _MESSAGE_SERIALIZERS[QueryResponse] = _query_resp
+
     def _unknown(m: UnknownMessage) -> dict[str, Any]:
         d = dict(m.data)
         d["type"] = m.raw_type
@@ -1728,6 +1765,14 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
             err = "ConnectMessage missing or invalid 'name' field"
             raise ValueError(err)
         return ConnectMessage(name=name)
+    if msg_type == "query_request":
+        return QueryRequest(method=d["method"], params=d.get("params", {}))
+    if msg_type == "query_response":
+        return QueryResponse(
+            method=d["method"],
+            result=d.get("result", {}),
+            error=d.get("error"),
+        )
 
     if not isinstance(msg_type, str) or not msg_type:
         err = "Message missing or invalid 'type' field"
