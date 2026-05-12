@@ -17,6 +17,7 @@ from punt_lux.protocol import (
     GroupElement,
     InputTextElement,
     InteractionMessage,
+    IntrospectResponse,
     MarkdownElement,
     PlotElement,
     PongMessage,
@@ -33,6 +34,7 @@ from punt_lux.protocol import (
 from punt_lux.server import (
     clear,
     display_mode,
+    inspect_scene,
     ping,
     recv,
     set_display_mode,
@@ -750,3 +752,67 @@ class TestPingNoAutoSpawn:
 
         result = ping()
         assert result == "pong rtt=0.042s"
+
+
+class TestInspectSceneTool:
+    @patch("punt_lux.server._get_client")
+    @patch("punt_lux.server.is_display_running", return_value=False)
+    @patch("punt_lux.server.default_socket_path")
+    def test_inspect_scene_not_running(
+        self, mock_path: MagicMock, mock_running: MagicMock, mock_get: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/socket"
+
+        result = inspect_scene("s1")
+        assert result == "not running"
+        mock_get.assert_not_called()
+
+    @patch("punt_lux.server._get_client")
+    @patch("punt_lux.server.is_display_running", return_value=True)
+    @patch("punt_lux.server.default_socket_path")
+    def test_inspect_scene_returns_elements(
+        self, mock_path: MagicMock, mock_running: MagicMock, mock_get: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/socket"
+        client = _mock_client()
+        elements = [
+            {"kind": "text", "id": "t1", "content": "hello"},
+        ]
+        client.inspect_scene.return_value = IntrospectResponse(
+            scene_id="s1", elements=elements
+        )
+        mock_get.return_value = client
+
+        result = inspect_scene("s1")
+        assert '"scene_id": "s1"' in result
+        assert '"content": "hello"' in result
+
+    @patch("punt_lux.server._get_client")
+    @patch("punt_lux.server.is_display_running", return_value=True)
+    @patch("punt_lux.server.default_socket_path")
+    def test_inspect_scene_not_found(
+        self, mock_path: MagicMock, mock_running: MagicMock, mock_get: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/socket"
+        client = _mock_client()
+        client.inspect_scene.return_value = IntrospectResponse(
+            scene_id="missing", error="Scene 'missing' not found"
+        )
+        mock_get.return_value = client
+
+        result = inspect_scene("missing")
+        assert result == "error: Scene 'missing' not found"
+
+    @patch("punt_lux.server._get_client")
+    @patch("punt_lux.server.is_display_running", return_value=True)
+    @patch("punt_lux.server.default_socket_path")
+    def test_inspect_scene_timeout(
+        self, mock_path: MagicMock, mock_running: MagicMock, mock_get: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/socket"
+        client = _mock_client()
+        client.inspect_scene.return_value = None
+        mock_get.return_value = client
+
+        result = inspect_scene("s1")
+        assert result == "timeout"

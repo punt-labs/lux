@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- **`inspect_scene` MCP tool** — query the display server for a scene's element
+  tree as JSON. Enables agent self-debugging: see exactly what elements are
+  rendered for a given scene_id without human intervention. Inspired by
+  Postern's dashboard introspection pattern.
+
 ## [0.17.1] - 2026-05-11
 
 ## [0.17.0] - 2026-05-11

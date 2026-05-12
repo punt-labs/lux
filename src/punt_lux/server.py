@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import json
 import logging
 import threading
 import time
@@ -657,6 +658,32 @@ def ping() -> str:
             rtt = time.time() - pong.ts
             return f"pong rtt={rtt:.3f}s"
         return "pong"
+
+    return _with_reconnect(_call)
+
+
+@mcp.tool()
+def inspect_scene(scene_id: str) -> str:
+    """Return the element tree for a scene as JSON.
+
+    Use this to debug rendering issues -- see exactly what elements
+    the display server has for a given scene_id. Returns "not running"
+    if the display server is not available.
+    """
+    if not is_display_running(default_socket_path()):
+        return "not running"
+
+    def _call() -> str:
+        client = _get_client()
+        response = client.inspect_scene(scene_id)
+        if response is None:
+            return "timeout"
+        if response.error:
+            return f"error: {response.error}"
+        return json.dumps(
+            {"scene_id": response.scene_id, "elements": response.elements},
+            indent=2,
+        )
 
     return _with_reconnect(_call)
 
