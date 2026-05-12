@@ -1862,20 +1862,9 @@ class DisplayServer:
         self._client_names[fd] = name
         logger.info("Client fd=%d identified as %r", fd, name)
 
-    def _find_scene(self, scene_id: str) -> SceneMessage | None:
-        """Look up a scene by ID in both top-level and framed scenes."""
-        scene = self._scenes.get(scene_id)
-        if scene is not None:
-            return scene
-        for frame in self._frames.values():
-            scene = frame.scenes.get(scene_id)
-            if scene is not None:
-                return scene
-        return None
-
     def _handle_introspect(self, sock: socket.socket, msg: IntrospectRequest) -> None:
         """Return the element tree for a scene to the requesting client."""
-        scene = self._find_scene(msg.scene_id)
+        scene = self._resolve_scene(msg.scene_id)
         if scene is None:
             resp = IntrospectResponse(
                 scene_id=msg.scene_id,
