@@ -161,18 +161,21 @@ def _mini_query_server(
     ready: threading.Event,
     handler: Any = None,
 ) -> socket.socket:
-    """Start a mini server that handles QueryRequest messages.
+    """Start a mini server that accepts one client and sends ReadyMessage.
 
-    If *handler* is None, echoes the method back in the result.
-    Returns the server-side connection socket.
+    Returns the server-side connection socket. The caller owns both
+    the returned connection and the listening socket (closed here).
     """
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    server.bind(str(sock_path))
-    server.listen(1)
-    ready.set()
-    conn, _ = server.accept()
-    send_message(conn, ReadyMessage())
-    return conn
+    try:
+        server.bind(str(sock_path))
+        server.listen(1)
+        ready.set()
+        conn, _ = server.accept()
+        send_message(conn, ReadyMessage())
+        return conn
+    finally:
+        server.close()
 
 
 def _serve_queries(

@@ -132,7 +132,7 @@ info "Registering luxd service..."
 info "Waiting for luxd..."
 _i=0
 while [ $_i -lt 10 ]; do
-  if curl -fs http://127.0.0.1:8430/health >/dev/null 2>&1; then
+  if curl -fs --max-time 3 http://127.0.0.1:8430/health >/dev/null 2>&1; then
     ok "luxd running"
     break
   fi

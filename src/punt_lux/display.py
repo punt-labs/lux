@@ -1875,54 +1875,23 @@ class DisplayServer:
 
     def _handle_introspect(self, sock: socket.socket, msg: IntrospectRequest) -> None:
         """Return the element tree for a scene to the requesting client."""
-        scene = self._resolve_scene(msg.scene_id)
-        if scene is None:
+        try:
+            data = self._query_inspect_scene(scene_id=msg.scene_id)
+            resp = IntrospectResponse(
+                scene_id=msg.scene_id,
+                elements=data["elements"],
+            )
+        except LookupError:
             resp = IntrospectResponse(
                 scene_id=msg.scene_id,
                 error=f"Scene '{msg.scene_id}' not found",
-            )
-        else:
-            resp = IntrospectResponse(
-                scene_id=msg.scene_id,
-                elements=[element_to_dict(e) for e in scene.elements],
             )
         self._send_to_client(sock, resp)
 
     def _handle_list_scenes(self, sock: socket.socket, _msg: ListScenesRequest) -> None:
         """Return the list of active scenes and frames."""
-        scenes: list[dict[str, Any]] = []
-        for sid, scene in self._scenes.items():
-            scenes.append(
-                {
-                    "scene_id": sid,
-                    "element_count": len(scene.elements),
-                    "frame_id": self._scene_to_frame.get(sid),
-                    "owner_fd": self._scene_to_owner.get(sid),
-                }
-            )
-        for fid, frame in self._frames.items():
-            for sid, scene in frame.scenes.items():
-                scenes.append(
-                    {
-                        "scene_id": sid,
-                        "element_count": len(scene.elements),
-                        "frame_id": fid,
-                        "owner_fd": self._scene_to_owner.get(sid),
-                    }
-                )
-        frames: list[dict[str, Any]] = []
-        for fid, frame in self._frames.items():
-            frame_scenes = [s for s, f in self._scene_to_frame.items() if f == fid]
-            frames.append(
-                {
-                    "frame_id": fid,
-                    "title": frame.title,
-                    "scene_count": len(frame_scenes),
-                    "scene_ids": frame_scenes,
-                    "layout": frame.layout,
-                }
-            )
-        resp = ListScenesResponse(scenes=scenes, frames=frames)
+        data = self._query_list_scenes()
+        resp = ListScenesResponse(scenes=data["scenes"], frames=data["frames"])
         self._send_to_client(sock, resp)
 
     # -- generic query dispatcher ------------------------------------------
@@ -1939,6 +1908,7 @@ class DisplayServer:
                 result = handler(**(msg.params or {}))
                 resp = QueryResponse(method=msg.method, result=result)
             except Exception as exc:  # noqa: BLE001
+                logger.warning("Query handler %s failed: %s", msg.method, exc)
                 resp = QueryResponse(method=msg.method, error=str(exc))
         self._send_to_client(sock, resp)
 
@@ -1948,7 +1918,8 @@ class DisplayServer:
         """Query handler for inspect_scene."""
         scene = self._resolve_scene(scene_id)
         if scene is None:
-            return {"error": f"Scene '{scene_id}' not found"}
+            msg = f"Scene '{scene_id}' not found"
+            raise LookupError(msg)
         return {
             "scene_id": scene_id,
             "elements": [element_to_dict(e) for e in scene.elements],
@@ -1994,10 +1965,10 @@ class DisplayServer:
         """Query handler for screenshot.
 
         Screenshots require GL context (post-swap capture).  The generic
-        query path cannot defer to the frame loop, so this returns an
-        error directing callers to the dedicated ScreenshotRequest path.
+        query path cannot defer to the frame loop.
         """
-        return {"error": "Use the dedicated screenshot_request message"}
+        msg = "Use the dedicated screenshot_request message"
+        raise RuntimeError(msg)
 
     def client_name(self, fd: int) -> str | None:
         """Return the display name for a connected client, or ``None``."""
