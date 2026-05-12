@@ -1038,6 +1038,7 @@ class DisplayServer:
         runner_params.callbacks.show_menus = self._show_menus
         runner_params.callbacks.post_init = self._on_post_init
         runner_params.callbacks.show_gui = self._on_frame
+        runner_params.callbacks.after_swap = self._on_after_swap
         runner_params.callbacks.before_exit = self._on_exit
         runner_params.fps_idling.fps_idle = 30.0
 
@@ -1093,25 +1094,38 @@ class DisplayServer:
         self._poll_clients()
         self._render_scene()
         self._flush_events()
+
+    def _on_after_swap(self) -> None:
+        """Called after GL buffer swap — GL_FRONT has rendered content."""
         if self._screenshot_pending is not None:
             sock = self._screenshot_pending
             self._screenshot_pending = None
             self._capture_screenshot(sock)
 
     def _capture_screenshot(self, sock: socket.socket) -> None:
-        """Capture the framebuffer and send the path back."""
+        """Capture the OpenGL framebuffer after swap and send the path back.
+
+        Called from ``_on_after_swap`` so GL_FRONT contains the fully
+        rendered frame. Uses ``glReadPixels`` with Retina scale factor.
+        """
         import os
         import tempfile
 
         import OpenGL.GL as GL
+        from imgui_bundle import hello_imgui, imgui
 
         try:
-            viewport = GL.glGetIntegerv(GL.GL_VIEWPORT)
-            x, y, width, height = viewport
+            scale = hello_imgui.final_app_window_screenshot_framebuffer_scale()
+            io = imgui.get_io()
+            fb_width = int(io.display_size.x * scale)
+            fb_height = int(io.display_size.y * scale)
+            GL.glReadBuffer(GL.GL_FRONT)
             GL.glPixelStorei(GL.GL_PACK_ALIGNMENT, 1)
-            data = GL.glReadPixels(x, y, width, height, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
+            data = GL.glReadPixels(
+                0, 0, fb_width, fb_height, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE
+            )
 
-            image = Image.frombytes("RGBA", (width, height), data)
+            image = Image.frombytes("RGBA", (fb_width, fb_height), data)
             image = image.transpose(Image.FLIP_TOP_BOTTOM)
 
             tmp_dir = Path(tempfile.gettempdir()) / "lux-screenshots"
@@ -1126,7 +1140,6 @@ class DisplayServer:
         except Exception as exc:
             logger.exception("Screenshot capture failed")
             resp = ScreenshotResponse(error=str(exc))
-
         self._send_to_client(sock, resp)
 
     def _on_exit(self) -> None:

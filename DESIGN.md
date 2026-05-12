@@ -1892,3 +1892,61 @@ A formal plugin/applet registry with entry points, discovery, and lifecycle mana
 ### Relationship to DES-022
 
 DES-022's rejected alternative — "Server-side frame creation: the display could create frames when clients connect, but this introduces business logic into the renderer" — is the same principle applied at the codebase level. The display server is a pure renderer. The MCP server is a protocol bridge. Business logic lives in `apps/`, and the wiring that connects apps to menus, hooks, and CLI lives in the host modules. No layer reaches into another's domain.
+
+---
+
+## DES-028: Screenshot Capture — Framebuffer Access
+
+**Date:** 2026-05-12
+**Status:** IN PROGRESS
+**Topic:** How the display server captures its own rendered output as a PNG for agent introspection
+
+### Motivation
+
+Agents need to see what the display server is rendering — the Pharo "World asForm" pattern. Send a scene, take a screenshot, read the image, diagnose issues. This closes the debugging loop: no human in the loop for visual verification.
+
+### What we built
+
+Protocol: `ScreenshotRequest` / `ScreenshotResponse` following the introspect request-response pattern. The MCP tool (`screenshot`) sends the request; the display server captures on the render thread and returns a file path. The agent reads the PNG via the Read tool.
+
+### What we know
+
+1. **Backend is `Glfw - OpenGL3`** on macOS (confirmed via `hello_imgui.get_backend_description()`). Not Metal, despite macOS having Metal support in imgui-bundle.
+
+2. **`glReadPixels` captures partial content.** Reading from `GL_FRONT` after buffer swap captures the window background color, frame borders, and the Lux watermark — but NOT ImGui widget content (text, sliders, buttons, tables). Reading from `GL_BACK` before swap returns white (empty buffer).
+
+3. **Timing explored:**
+   - End of `show_gui` callback (`_on_frame`): GL_BACK is empty — ImGui hasn't rendered draw data to GL yet.
+   - `after_swap` callback: GL_FRONT has background but not widgets.
+   - Both timings produce incomplete captures.
+
+4. **`hello_imgui.final_app_window_screenshot()`** only works after `run()` exits (confirmed by reading `imgui_bundle/_patch_runners_add_save_screenshot_param.py`). Not usable at runtime.
+
+5. **`CGWindowListCreateImage` (macOS Quartz)** hangs when called from the render thread. Would need to run in a separate thread, but the window ID lookup requires Quartz framework access.
+
+6. **`pyobjc-framework-Quartz`** added to `[display]` extras for the CG approach but not yet successfully used.
+
+### What we don't know
+
+1. **Whether hello_imgui uses an intermediate FBO.** The docking system may render ImGui content to a framebuffer object that is then composited onto the default framebuffer. If so, `glReadPixels` on the default framebuffer would see only the background clear color — which matches our observations. **This is the primary open question.** The imgui-bundle source at `~/Coding/imgui/` is raw Dear ImGui (no hello_imgui). The hello_imgui FBO pipeline needs to be traced in the imgui-bundle package source.
+
+2. **Whether there is a post-render, pre-swap callback** in hello_imgui that fires after `ImGui_ImplOpenGL3_RenderDrawData()` but before `glfwSwapBuffers()`. The `after_swap` callback fires too late (front buffer only has the composited result without widget content). The `before_imgui_render` callback fires too early.
+
+3. **Whether `CGWindowListCreateImage` works from a background thread** spawned by the render thread. The hang may be a main-thread-only restriction or a deadlock from calling Quartz APIs during the GL render loop.
+
+### Rejected approaches
+
+| Approach | Why rejected |
+|----------|-------------|
+| Force `RendererBackendType.open_gl3` | Changes the entire rendering pipeline for one feature |
+| `final_app_window_screenshot()` at runtime | Only works after `run()` exits |
+| `CGWindowListCreateImage` on render thread | Hangs |
+| `screencapture -l` shell-out | User rejected shell-out approach |
+
+### Next steps
+
+1. **Read the imgui-bundle hello_imgui source** to understand the FBO pipeline. Specifically: does `immapp.run` use an intermediate FBO for docking, and if so, how does `final_app_window_screenshot` read it at exit?
+
+2. **Try `CGWindowListCreateImage` from a background thread** with the result communicated back to the render thread via a queue. This is the OS-level capture approach that works regardless of rendering backend.
+
+3. **Investigate `backend_pointers`** — `hello_imgui.RunnerParams.backend_pointers` may expose the GL context or FBO IDs needed to read the correct buffer.

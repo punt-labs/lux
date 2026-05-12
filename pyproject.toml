@@ -32,6 +32,7 @@ display = [
     "PyOpenGL>=3.1.0",
     "setproctitle>=1.3.0",
     "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
+    "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
 ]
 dev = [
     "ruff>=0.13.0",
