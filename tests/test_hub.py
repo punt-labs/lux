@@ -58,15 +58,18 @@ class TestMcpWebsocketRoute:
         # The MCP protocol handshake won't complete in test, but the
         # session_key should be tracked while the connection is open.
         _active_sessions.discard("test-pid")
+        was_tracked = False
         try:
             with client.websocket_connect("/mcp?session_key=test-pid"):
-                # Session should be tracked while connected
-                assert "test-pid" in _active_sessions
+                was_tracked = "test-pid" in _active_sessions
         except Exception:  # noqa: BLE001, S110
             # MCP protocol error expected -- no real MCP client
             pass
-        # After disconnect, session should be cleaned up
-        assert "test-pid" not in _active_sessions
+        finally:
+            _active_sessions.discard("test-pid")
+        assert was_tracked, (
+            "_active_sessions should have contained 'test-pid' during connection"
+        )
 
 
 class TestBuildApp:

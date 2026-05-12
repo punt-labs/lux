@@ -386,39 +386,67 @@ def hub_uninstall() -> None:
     print(service_uninstall())
 
 
-@app.command("ensure-hub")
-def ensure_hub(
-    restart: bool = typer.Option(False, "--restart", help="Restart luxd if running"),
-) -> None:
-    """Ensure luxd is running. Restart if --restart flag is set."""
+def _restart_hub() -> None:
+    """Send SIGTERM and wait for the service manager to respawn luxd."""
     import os as _os
     import signal
     import time
 
     from punt_lux.paths import hub_pid_path, is_hub_running, read_hub_port
 
-    if restart and is_hub_running():
-        pid_path = hub_pid_path()
-        try:
-            pid = int(pid_path.read_text().strip())
-            _os.kill(pid, signal.SIGTERM)
-            print(f"Sent SIGTERM to luxd (pid {pid}), waiting for restart...")
-        except (ValueError, OSError) as exc:
-            print(f"Could not signal luxd: {exc}")
-            raise typer.Exit(code=1) from None
+    pid_path = hub_pid_path()
+    try:
+        old_pid = int(pid_path.read_text().strip())
+        _os.kill(old_pid, signal.SIGTERM)
+        print(f"Sent SIGTERM to luxd (pid {old_pid}), waiting for restart...")
+    except (ValueError, OSError) as exc:
+        print(f"Could not signal luxd: {exc}")
+        raise typer.Exit(code=1) from None
 
-        # Wait for launchd/systemd to restart it
-        for _ in range(20):  # 10 seconds
-            time.sleep(0.5)
-            if is_hub_running():
-                port = read_hub_port()
-                if port is not None:
-                    print(f"luxd restarted (port {port})")
-                else:
-                    print("luxd restarted (port file not yet written)")
-                return
-        print("luxd did not restart within 10s")
+    # Wait for old process to die
+    for _ in range(20):  # 10 seconds
+        time.sleep(0.5)
+        try:
+            _os.kill(old_pid, 0)
+        except ProcessLookupError:
+            break  # Old process is gone
+        except PermissionError:
+            break  # Can't check, assume dead
+    else:
+        print(f"luxd (pid {old_pid}) did not stop within 10s")
         raise typer.Exit(code=1)
+
+    # Wait for launchd/systemd to respawn with a new PID
+    for _ in range(20):  # 10 seconds
+        time.sleep(0.5)
+        if not is_hub_running():
+            continue
+        try:
+            new_pid = int(pid_path.read_text().strip())
+        except (ValueError, OSError):
+            continue
+        if new_pid == old_pid:
+            continue
+        port = read_hub_port()
+        if port is not None:
+            print(f"luxd restarted (pid {new_pid}, port {port})")
+        else:
+            print(f"luxd restarted (pid {new_pid}, port file not yet written)")
+        return
+    print("luxd did not restart within 10s")
+    raise typer.Exit(code=1)
+
+
+@app.command("ensure-hub")
+def ensure_hub(
+    restart: bool = typer.Option(False, "--restart", help="Restart luxd if running"),
+) -> None:
+    """Ensure luxd is running. Restart if --restart flag is set."""
+    from punt_lux.paths import is_hub_running, read_hub_port
+
+    if restart and is_hub_running():
+        _restart_hub()
+        return
 
     if is_hub_running():
         port = read_hub_port()

@@ -13,6 +13,7 @@ from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from socket import socket
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 import uvicorn
 from starlette.applications import Starlette
@@ -31,7 +32,7 @@ DEFAULT_HUB_PORT = 8430
 
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
 
-_ALLOWED_ORIGINS = frozenset({"http://localhost", "http://127.0.0.1"})
+_ALLOWED_HOSTS = frozenset({"localhost", "127.0.0.1"})
 
 _active_sessions: set[str] = set()
 
@@ -67,7 +68,7 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
     # an Origin header on WebSocket upgrades; non-browser clients (mcp-proxy)
     # do not. Allowlist localhost origins for Electron-based editors.
     origin = websocket.headers.get("Origin")
-    if origin is not None and origin not in _ALLOWED_ORIGINS:
+    if origin is not None and urlparse(origin).hostname not in _ALLOWED_HOSTS:
         logger.warning("Rejected CSWSH: Origin=%s, session_key=%s", origin, session_key)
         await websocket.close(code=1008)
         return

@@ -336,9 +336,12 @@ def _has_linger() -> bool:
         user = os.getlogin()
     except OSError:
         return True  # Can't check; don't warn
-    result = subprocess.run(
-        ["loginctl", "show-user", user, "--property=Linger"],
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            ["loginctl", "show-user", user, "--property=Linger"],
+            capture_output=True,
+            text=True,
+        )
+    except FileNotFoundError:
+        return True  # No loginctl (container/minimal install); don't warn
     return "Linger=yes" in result.stdout
