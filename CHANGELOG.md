@@ -29,6 +29,16 @@
 - **mcp-proxy config management** — `remote.py` reads/writes
   `~/.punt-labs/mcp-proxy/lux.toml` with atomic writes and 0600 permissions.
 
+- **Generic query infrastructure** — `QueryRequest`/`QueryResponse` protocol
+  types with generic dispatcher in the display server. Adding a new
+  introspection operation now requires only a handler function and an MCP
+  tool — no protocol changes. Existing `inspect_scene`, `list_scenes`,
+  `screenshot` registered as query handlers alongside their dedicated paths.
+
+- **mcp-proxy plugin fallback** — `plugin.json` tries mcp-proxy → luxd when
+  `lux.toml` is configured, falls back to direct `lux serve`. `install.sh`
+  adds mcp-proxy install, luxd service registration, and proxy config steps.
+
 - **`inspect_scene` MCP tool** — query the display server for a scene's element
   tree as JSON. Enables agent self-debugging: see exactly what elements are
   rendered for a given scene_id without human intervention. Inspired by
