@@ -61,7 +61,11 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
     from mcp.server.websocket import websocket_server
 
     # Sanitize user-controlled value before logging (CWE-117).
-    raw_key = websocket.query_params.get("session_key", "unknown")
+    raw_key = websocket.query_params.get("session_key", "")
+    if not raw_key:
+        import uuid
+
+        raw_key = str(uuid.uuid4())[:8]
     session_key = _CONTROL_CHAR_RE.sub("", raw_key)[:64]
 
     # Reject cross-site WebSocket hijacking (CSWSH). Browsers always send
