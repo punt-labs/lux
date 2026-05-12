@@ -57,6 +57,8 @@ from punt_lux.protocol import (
     ReadyMessage,
     RegisterMenuMessage,
     SceneMessage,
+    ScreenshotRequest,
+    ScreenshotResponse,
     SelectableElement,
     SliderElement,
     TabBarElement,
@@ -908,6 +910,7 @@ class DisplayServer:
         self._world_menu_open: bool = False
         self._world_menu_pinned: bool = False
         self._world_menu_spawn_pos: tuple[float, float] | None = None
+        self._screenshot_pending: socket.socket | None = None
         self._test_auto_click = test_auto_click
 
     @property
@@ -1090,6 +1093,41 @@ class DisplayServer:
         self._poll_clients()
         self._render_scene()
         self._flush_events()
+        if self._screenshot_pending is not None:
+            sock = self._screenshot_pending
+            self._screenshot_pending = None
+            self._capture_screenshot(sock)
+
+    def _capture_screenshot(self, sock: socket.socket) -> None:
+        """Capture the framebuffer and send the path back."""
+        import os
+        import tempfile
+
+        import OpenGL.GL as GL
+
+        try:
+            viewport = GL.glGetIntegerv(GL.GL_VIEWPORT)
+            x, y, width, height = viewport
+            GL.glPixelStorei(GL.GL_PACK_ALIGNMENT, 1)
+            data = GL.glReadPixels(x, y, width, height, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE)
+
+            image = Image.frombytes("RGBA", (width, height), data)
+            image = image.transpose(Image.FLIP_TOP_BOTTOM)
+
+            tmp_dir = Path(tempfile.gettempdir()) / "lux-screenshots"
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            fd, path = tempfile.mkstemp(
+                suffix=".png", prefix="lux-screenshot-", dir=str(tmp_dir)
+            )
+            os.close(fd)
+            image.save(path)
+
+            resp = ScreenshotResponse(path=path)
+        except Exception as exc:
+            logger.exception("Screenshot capture failed")
+            resp = ScreenshotResponse(error=str(exc))
+
+        self._send_to_client(sock, resp)
 
     def _on_exit(self) -> None:
         """Called before the window closes."""
@@ -1760,6 +1798,8 @@ class DisplayServer:
             self._handle_introspect(sock, msg)
         elif isinstance(msg, ListScenesRequest):
             self._handle_list_scenes(sock, msg)
+        elif isinstance(msg, ScreenshotRequest):
+            self._screenshot_pending = sock
         elif isinstance(msg, UnknownMessage):
             logger.debug("Ignoring unknown message type %r", msg.raw_type)
 

@@ -23,6 +23,7 @@ from punt_lux.protocol import (
     PlotElement,
     PongMessage,
     ProgressElement,
+    ScreenshotResponse,
     SelectableElement,
     SliderElement,
     SpinnerElement,
@@ -39,6 +40,7 @@ from punt_lux.server import (
     list_scenes,
     ping,
     recv,
+    screenshot,
     set_display_mode,
     set_menu,
     set_theme,
@@ -884,3 +886,63 @@ class TestListScenesTool:
         result = list_scenes()
         assert '"scenes": []' in result
         assert '"frames": []' in result
+
+
+class TestScreenshotTool:
+    @patch("punt_lux.server._get_client")
+    @patch("punt_lux.server.is_display_running", return_value=False)
+    @patch("punt_lux.server.default_socket_path")
+    def test_screenshot_not_running(
+        self, mock_path: MagicMock, mock_running: MagicMock, mock_get: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/socket"
+
+        result = screenshot()
+        assert result == "not running"
+        mock_get.assert_not_called()
+
+    @patch("punt_lux.server._get_client")
+    @patch("punt_lux.server.is_display_running", return_value=True)
+    @patch("punt_lux.server.default_socket_path")
+    def test_screenshot_returns_path(
+        self, mock_path: MagicMock, mock_running: MagicMock, mock_get: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/socket"
+        client = _mock_client()
+        client.screenshot.return_value = ScreenshotResponse(
+            path="/tmp/lux-screenshot-abc.png"
+        )
+        mock_get.return_value = client
+
+        result = screenshot()
+        assert result == "/tmp/lux-screenshot-abc.png"
+
+    @patch("punt_lux.server._get_client")
+    @patch("punt_lux.server.is_display_running", return_value=True)
+    @patch("punt_lux.server.default_socket_path")
+    def test_screenshot_error(
+        self, mock_path: MagicMock, mock_running: MagicMock, mock_get: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/socket"
+        client = _mock_client()
+        client.screenshot.return_value = ScreenshotResponse(
+            error="OpenGL not available"
+        )
+        mock_get.return_value = client
+
+        result = screenshot()
+        assert result == "error: OpenGL not available"
+
+    @patch("punt_lux.server._get_client")
+    @patch("punt_lux.server.is_display_running", return_value=True)
+    @patch("punt_lux.server.default_socket_path")
+    def test_screenshot_timeout(
+        self, mock_path: MagicMock, mock_running: MagicMock, mock_get: MagicMock
+    ) -> None:
+        mock_path.return_value = "/fake/socket"
+        client = _mock_client()
+        client.screenshot.return_value = None
+        mock_get.return_value = client
+
+        result = screenshot()
+        assert result == "timeout"

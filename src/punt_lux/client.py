@@ -50,6 +50,8 @@ from punt_lux.protocol import (
     ReadyMessage,
     RegisterMenuMessage,
     SceneMessage,
+    ScreenshotRequest,
+    ScreenshotResponse,
     ThemeMessage,
     UpdateMessage,
     encode_message,
@@ -119,6 +121,9 @@ class LuxClient:
             queue.SimpleQueue()
         )
         self._list_scenes_queue: queue.SimpleQueue[ListScenesResponse] = (
+            queue.SimpleQueue()
+        )
+        self._screenshot_queue: queue.SimpleQueue[ScreenshotResponse] = (
             queue.SimpleQueue()
         )
 
@@ -234,6 +239,7 @@ class LuxClient:
             _drain_queue(self._pong_queue)
             _drain_queue(self._introspect_queue)
             _drain_queue(self._list_scenes_queue)
+            _drain_queue(self._screenshot_queue)
 
     # -- callback registration ---------------------------------------------
 
@@ -357,6 +363,9 @@ class LuxClient:
             return
         if isinstance(msg, ListScenesResponse):
             self._list_scenes_queue.put(msg)
+            return
+        if isinstance(msg, ScreenshotResponse):
+            self._screenshot_queue.put(msg)
             return
         self._pending.put(msg)
 
@@ -570,6 +579,28 @@ class LuxClient:
             if received is None:
                 return None
             if isinstance(received, ListScenesResponse):
+                return received
+            self._pending.put(received)
+
+    def screenshot(self) -> ScreenshotResponse | None:
+        """Request a screenshot from the display server."""
+        self._send(ScreenshotRequest())
+        deadline = time.monotonic() + self._recv_timeout
+        if self.listener_active:
+            remaining = deadline - time.monotonic()
+            try:
+                return self._screenshot_queue.get(timeout=max(remaining, 0))
+            except queue.Empty:
+                return None
+        sock = self._require_connected()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            received = recv_message(sock, timeout=remaining)
+            if received is None:
+                return None
+            if isinstance(received, ScreenshotResponse):
                 return received
             self._pending.put(received)
 

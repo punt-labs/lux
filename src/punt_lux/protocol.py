@@ -563,6 +563,22 @@ class ListScenesResponse:
 
 
 @dataclass
+class ScreenshotRequest:
+    """Request a screenshot of the current display."""
+
+    type: Literal["screenshot_request"] = "screenshot_request"
+
+
+@dataclass
+class ScreenshotResponse:
+    """Response with path to the captured screenshot."""
+
+    path: str = ""
+    type: Literal["screenshot_response"] = "screenshot_response"
+    error: str | None = None
+
+
+@dataclass
 class MenuMessage:
     """Set custom menus in the menu bar (agent-extensible)."""
 
@@ -611,6 +627,7 @@ ClientMessage = (
     | PingMessage
     | IntrospectRequest
     | ListScenesRequest
+    | ScreenshotRequest
     | MenuMessage
     | ThemeMessage
     | RegisterMenuMessage
@@ -693,6 +710,7 @@ DisplayMessage = (
     | PongMessage
     | IntrospectResponse
     | ListScenesResponse
+    | ScreenshotResponse
 )
 Message = ClientMessage | DisplayMessage | UnknownMessage
 
@@ -1584,6 +1602,19 @@ def _register_serializers() -> None:  # noqa: C901
 
     _MESSAGE_SERIALIZERS[ListScenesResponse] = _list_scenes_resp
 
+    def _screenshot_req(m: ScreenshotRequest) -> dict[str, Any]:
+        return {"type": m.type}
+
+    _MESSAGE_SERIALIZERS[ScreenshotRequest] = _screenshot_req
+
+    def _screenshot_resp(m: ScreenshotResponse) -> dict[str, Any]:
+        d: dict[str, Any] = {"type": m.type, "path": m.path}
+        if m.error is not None:
+            d["error"] = m.error
+        return d
+
+    _MESSAGE_SERIALIZERS[ScreenshotResponse] = _screenshot_resp
+
     def _unknown(m: UnknownMessage) -> dict[str, Any]:
         d = dict(m.data)
         d["type"] = m.raw_type
@@ -1662,6 +1693,13 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
         return ListScenesResponse(
             scenes=d.get("scenes", []),
             frames=d.get("frames", []),
+        )
+    if msg_type == "screenshot_request":
+        return ScreenshotRequest()
+    if msg_type == "screenshot_response":
+        return ScreenshotResponse(
+            path=d.get("path", ""),
+            error=d.get("error"),
         )
     if msg_type == "ready":
         return ReadyMessage(

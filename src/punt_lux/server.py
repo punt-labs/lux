@@ -714,6 +714,29 @@ def list_scenes() -> str:
 
 
 @mcp.tool()
+def screenshot() -> str:
+    """Capture a screenshot of the display window.
+
+    Returns the file path to a PNG image of the current display.
+    The agent can read this image to see exactly what is rendered.
+    Returns "not running" if the display server is not available.
+    """
+    if not is_display_running(default_socket_path()):
+        return "not running"
+
+    def _call() -> str:
+        client = _get_client()
+        response = client.screenshot()
+        if response is None:
+            return "timeout"
+        if response.error:
+            return f"error: {response.error}"
+        return response.path
+
+    return _with_reconnect(_call)
+
+
+@mcp.tool()
 def display_mode() -> str:
     """Read the current display mode.
 
