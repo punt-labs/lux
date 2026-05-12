@@ -1125,8 +1125,8 @@ class DisplayServer:
                 0, 0, fb_width, fb_height, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE
             )
 
-            image = Image.frombytes("RGBA", (fb_width, fb_height), data)
-            image = image.transpose(Image.FLIP_TOP_BOTTOM)
+            image = Image.frombytes("RGBA", (fb_width, fb_height), bytes(data))
+            image = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
 
             tmp_dir = Path(tempfile.gettempdir()) / "lux-screenshots"
             tmp_dir.mkdir(parents=True, exist_ok=True)

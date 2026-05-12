@@ -17,7 +17,7 @@ import json
 import logging
 import threading
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 from fastmcp import FastMCP
@@ -48,7 +48,7 @@ async def _retry_eager_connect() -> None:
 
 
 @contextlib.asynccontextmanager
-async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
+async def _lifespan(_server: FastMCP) -> AsyncGenerator[None]:
     """Eager-connect to the display server when display=y.
 
     Runs ``_get_client()`` in a thread so the blocking socket connect

@@ -1935,12 +1935,14 @@ Read `~/Coding/hello_imgui/` source:
 2. **`OpenglScreenshotRgb()`** (`opengl_screenshot.cpp:14`) is the GL implementation. It calls `glReadPixels` on `GL_RGB` with dimensions from `ImGui::GetDrawData()->FramebufferScale`. It has an explicit assert: "Cannot be called from show_gui() since that runs between NewFrame and Render."
 
 3. **The render loop order** (`abstract_runner.cpp:1240-1427`):
-   ```
+
+   ```text
    ImGui::Render()                          // line 1240
    Impl_RenderDrawData_To_3D()              // line 1241 — GL draws
    Impl_SwapBuffers()                       // line 1247
    AfterSwap() callback                     // line 1427
    ```
+
    The screenshot must happen between `RenderDrawData` (1241) and `SwapBuffers` (1247). There is NO callback at that exact point. `BeforeImGuiRender` fires before line 1240 (too early). `AfterSwap` fires after line 1247 (back buffer is gone).
 
 4. **`AppWindowScreenshotRgbBuffer` is not exposed in Python.** Only `final_app_window_screenshot` and `final_app_window_screenshot_framebuffer_scale` are bound. The runtime function exists in C++ but has no Python binding in imgui-bundle 1.92.600.
