@@ -40,14 +40,14 @@ Three operational problems stem from one architectural root cause: Claude Code o
 
 ### Current
 
-```
+```text
 Claude Code --stdio--> lux serve --Unix socket--> lux-display
   (session)             (per-session)               (singleton)
 ```
 
 ### Proposed
 
-```
+```text
 Claude Code --stdio--> mcp-proxy --WebSocket--> luxd --Unix/TCP--> lux-display
   (transport             (session hub)              (renderer)
    bridge)
@@ -82,7 +82,6 @@ The separation is justified by three properties:
 
 Net memory drops because four redundant Python MCP servers are eliminated. The proxy processes are lightweight (Go static binary, no Python import overhead).
 
-
 ## User Model: Display Window Lifecycle
 
 The display process behaves like a macOS menu bar app: closing the window hides it, it does not kill the process. Scenes persist, events still queue. `lux-display` stays connected to `luxd`.
@@ -96,6 +95,7 @@ The display process behaves like a macOS menu bar app: closing the window hides 
 `luxd` calls `ensure_display()` on the first `show()` MCP call. Once `lux-display` is running, it stays running until the user explicitly kills it or the machine shuts down. The window appears and disappears via show/hide — no process restart, no scene loss, no reconnection overhead.
 
 This model means:
+
 - `lux-display` is long-lived (login to shutdown), same as `luxd`.
 - The window is ephemeral (shown when agents have output, hidden when the user dismisses it).
 - `lux show` and `lux hide` are CLI commands routed to `lux-display` via `luxd`'s Unix/TCP socket.
@@ -156,11 +156,11 @@ Replace `owner_fd` with `owner_session` (the `session_key` of the WebSocket conn
 **Decision: `luxd` on Host A, SSH reverse tunnel, `mcp-proxy` on Host B. Step by step below in Scenario 5.**
 
 The user on Host A (local Mac) runs two things:
+
 1. `lux ensure-hub` -- starts `luxd` if not running.
 2. `ssh -R 8430:127.0.0.1:8430 host-b` -- creates the reverse tunnel.
 
 The display auto-spawns when the agent's first `show()` call arrives through the tunnel. No manual `lux-display` needed.
-
 
 ## Implementation Components
 
@@ -270,6 +270,7 @@ def read_proxy_config() -> dict[str, Any]:
 ### service.py structure
 
 Follows `quarry/service.py` structure. Key differences:
+
 - Label: `com.punt-labs.lux` (Quarry uses `com.punt-labs.quarry`)
 - Binary: `~/.local/bin/luxd --port 8430`
 - No TLS (SSH tunnel provides encryption for remote)
@@ -305,24 +306,25 @@ Following Quarry's exact pattern (`quarry/.claude-plugin/plugin.json:13-16`):
 ```
 
 Three conditions, all required for proxy mode:
+
 1. `mcp-proxy` binary exists on PATH
 2. Config file `~/.punt-labs/mcp-proxy/lux.toml` exists
 3. Config file contains a `[lux]` section
 
 If any condition fails: fall back to `exec lux serve` (current direct mode). This preserves backward compatibility.
 
-The `lux ensure-hub` call is NOT in the plugin.json one-liner. The daemon is managed by launchd/systemd (installed by `install.sh`). The proxy connects to an already-running daemon. If the daemon is down, the proxy fails to connect and Claude Code reports the MCP server as unavailable -- this is the correct behavior (the user needs to start the daemon, not have it silently auto-started by a shell wrapper with no service management).
+The `lux ensure-hub` call is NOT in the plugin.json one-liner. `luxd` is managed by launchd/systemd (installed by `install.sh`). The proxy connects to an already-running `luxd`. If `luxd` is down, the proxy fails to connect and Claude Code reports the MCP server as unavailable -- this is the correct behavior (the user needs to start `luxd`, not have it silently auto-started by a shell wrapper with no service management).
 
 ### Port selection
 
 Default: `8430`. Resolution order:
+
 1. `$LUX_HUB_PORT` environment variable
 2. Default `8430`
 
 `luxd` writes the bound port to `~/.punt-labs/lux/hub.port` after binding. The `lux ensure-hub` command reads this file to verify `luxd` is healthy. The proxy config (`lux.toml`) uses the configured port.
 
 Port collision: If `8430` is in use, `luxd` fails to bind and exits with a clear error message. The user sets `$LUX_HUB_PORT` to override. `lux ensure-hub` does NOT support ephemeral port selection -- a stable port is required for the proxy config and SSH tunnel.
-
 
 ## Scenario Walk-throughs
 
@@ -339,10 +341,12 @@ Port collision: If `8430` is in use, `luxd` fails to bind and exits with a clear
    - Loads the plist: `launchctl load -w <path>`.
    - `luxd` starts, binds `ws://127.0.0.1:8430/mcp`, writes `~/.punt-labs/lux/hub.port`.
 5. `install.sh` calls `lux setup-proxy` (writes `~/.punt-labs/mcp-proxy/lux.toml`):
+
    ```toml
    [lux]
    url = "ws://127.0.0.1:8430/mcp"
    ```
+
 6. `install.sh` health-checks `luxd`: `curl -fs http://127.0.0.1:8430/health` with retry loop (10 attempts, 2s apart).
 7. `install.sh` registers marketplace and installs plugin (same pattern as Quarry's `install.sh` steps 7-9).
 8. User opens Claude Code. Plugin loads.
@@ -403,17 +407,20 @@ This matches current behavior exactly. `luxd` does not kill `lux-display` or clo
    - If not running: `lux ensure-hub`.
    - If `luxd` was installed via `install.sh`, launchd already started it.
 3. SSH to Host B with reverse tunnel:
-   ```
+
+   ```bash
    ssh -R 8430:127.0.0.1:8430 host-b
    ```
+
    This binds `localhost:8430` on Host B to `luxd` on Host A.
 
 **What the user does on Host B (remote, in the SSH session):**
 
-4. Install Lux if needed: `uv tool install punt-lux`.
-5. Install mcp-proxy if needed: same as step 3 in Scenario 1.
-6. Write proxy config manually (no `install.sh` on remote -- `luxd` runs on Host A):
-   ```
+1. Install Lux if needed: `uv tool install punt-lux`.
+2. Install mcp-proxy if needed: same as step 3 in Scenario 1.
+3. Write proxy config manually (no `install.sh` on remote -- `luxd` runs on Host A):
+
+   ```bash
    mkdir -p ~/.punt-labs/mcp-proxy
    cat > ~/.punt-labs/mcp-proxy/lux.toml << 'EOF'
    [lux]
@@ -421,22 +428,23 @@ This matches current behavior exactly. `luxd` does not kill `lux-display` or clo
    EOF
    chmod 600 ~/.punt-labs/mcp-proxy/lux.toml
    ```
+
    Or: `lux setup-proxy --url ws://127.0.0.1:8430/mcp` (convenience command).
-7. Do NOT run `lux install` on Host B -- no `luxd` needed here. The proxy connects through the tunnel to Host A's `luxd`.
+4. Do NOT run `lux install` on Host B -- no `luxd` needed here. The proxy connects through the tunnel to Host A's `luxd`.
 
 **What happens at runtime:**
 
-8. User opens Claude Code on Host B.
-9. Plugin.json runs: detects mcp-proxy + lux.toml. Runs `exec mcp-proxy --config lux`.
-10. Proxy connects to `ws://127.0.0.1:8430/mcp` -- which, via SSH tunnel, reaches Host A's `luxd`.
-11. Agent calls `show(...)`. Proxy sends to `luxd` on Host A. `luxd` sends to `lux-display` on Host A. User sees the rendering on their local Mac.
+1. User opens Claude Code on Host B.
+2. Plugin.json runs: detects mcp-proxy + lux.toml. Runs `exec mcp-proxy --config lux`.
+3. Proxy connects to `ws://127.0.0.1:8430/mcp` -- which, via SSH tunnel, reaches Host A's `luxd`.
+4. Agent calls `show(...)`. Proxy sends to `luxd` on Host A. `luxd` sends to `lux-display` on Host A. User sees the rendering on their local Mac.
 
 **When the SSH session ends:**
 
-12. Tunnel closes. Proxy loses WebSocket connection.
-13. Proxy detects disconnect via keepalive (5s ping, 2s pong timeout). Retries with exponential backoff (250 ms to 5s cap).
-14. `lux-display` on Host A is unaffected. Scenes persist.
-15. User re-establishes SSH with `-R 8430:...`. Proxy reconnects within 5s. Agent resumes.
+1. Tunnel closes. Proxy loses WebSocket connection.
+2. Proxy detects disconnect via keepalive (5s ping, 2s pong timeout). Retries with exponential backoff (250 ms to 5s cap).
+3. `lux-display` on Host A is unaffected. Scenes persist.
+4. User re-establishes SSH with `-R 8430:...`. Proxy reconnects within 5s. Agent resumes.
 
 ### Scenario 6: Agent calls `show()` then `recv()` from two different sessions
 
@@ -452,17 +460,17 @@ This matches current behavior exactly. `luxd` does not kill `lux-display` or clo
 
 **recv() from Session B:**
 
-6. Session B's proxy sends `recv(timeout=1.0)` over its WebSocket.
-7. `luxd` receives on Session B's WebSocket handler (`_session_key = "B"`).
-8. `luxd` checks Session B's event queue. It is empty.
-9. After 1.0s timeout, returns `"none"`.
+1. Session B's proxy sends `recv(timeout=1.0)` over its WebSocket.
+2. `luxd` receives on Session B's WebSocket handler (`_session_key = "B"`).
+3. `luxd` checks Session B's event queue. It is empty.
+4. After 1.0s timeout, returns `"none"`.
 
 **recv() from Session A (after user clicks a button in Session A's scene):**
 
-10. `lux-display` sends an interaction event (button click in scene "dashboard") to `luxd`'s `DisplayClient`.
-11. `luxd`'s listener thread receives the event. Looks up `scene_owner["dashboard"]` = "A".
-12. Routes the event to Session A's event queue.
-13. Session A calls `recv()`. `luxd` checks Session A's event queue. Finds the button click. Returns it.
+1. `lux-display` sends an interaction event (button click in scene "dashboard") to `luxd`'s `DisplayClient`.
+2. `luxd`'s listener thread receives the event. Looks up `scene_owner["dashboard"]` = "A".
+3. Routes the event to Session A's event queue.
+4. Session A calls `recv()`. `luxd` checks Session A's event queue. Finds the button click. Returns it.
 
 **Key invariant:** Events route to the session that owns the scene. If a scene was sent by Session A, only Session A receives interaction events from that scene. Session B calling `recv()` never sees Session A's events.
 
@@ -508,12 +516,11 @@ This matches current behavior exactly. `luxd` does not kill `lux-display` or clo
 
 **What restarts it:** `ensure_display()` inside `luxd`, triggered by the tool call failure. Same mechanism as today.
 
-
 ## install.sh Changes
 
 The Lux `install.sh` follows Quarry's `install.sh` structure. Key steps:
 
-```
+```text
 Step 1: Install punt-lux (uv tool install)
 Step 2: Install mcp-proxy (if not present)
 Step 3: Register luxd service (lux install)
@@ -524,18 +531,19 @@ Step 7: Install plugin
 ```
 
 Step 3 calls `lux install`, which is the Lux equivalent of `quarry install`:
+
 - Writes launchd plist / systemd unit
 - Loads/enables the service
 - `luxd` starts via the service manager
 
 Step 5 calls `lux setup-proxy`, which writes `~/.punt-labs/mcp-proxy/lux.toml`:
+
 ```toml
 [lux]
 url = "ws://127.0.0.1:8430/mcp"
 ```
 
 This is Quarry's `quarry login localhost` equivalent, but simpler: no TLS, no API key, just the WebSocket URL. The `write_proxy_config()` function in `remote.py` handles atomic write + chmod 0600.
-
 
 ## Migration Plan
 
@@ -554,6 +562,7 @@ The migration is handled by re-running `install.sh`:
 **Zero-downtime:** If the user does NOT re-run `install.sh`, the old plugin.json still works: `exec lux serve` (direct stdio). The fallback in the new plugin.json also preserves this: if lux.toml doesn't exist, it falls back to direct mode. Migration is opt-in via `install.sh`, not forced.
 
 **Rollback:** If `luxd` has issues, the user can:
+
 1. `lux uninstall` -- removes the launchd/systemd service.
 2. `rm ~/.punt-labs/mcp-proxy/lux.toml` -- removes proxy config.
 3. Next Claude Code restart: plugin.json falls back to direct `lux serve`.
@@ -563,7 +572,6 @@ The migration is handled by re-running `install.sh`:
 When the marketplace plugin.json updates, users get the new `sh -c` wrapper automatically. But without `lux.toml`, it falls back to direct mode. They must run `install.sh` to get `luxd` + proxy mode.
 
 This is the correct behavior: the proxy architecture requires service installation (launchd/systemd). That cannot be done silently via a plugin update.
-
 
 ## Alternatives Considered
 
@@ -584,6 +592,7 @@ Watch source files for changes, exec-replace the display process.
 The v1 proposal had `lux ensure-hub && exec mcp-proxy --config lux` in the plugin.json one-liner. This auto-starts `luxd` from the Claude Code launch path.
 
 **Rejected in v2:** `luxd` should be managed by launchd/systemd, not by a shell one-liner in plugin.json. Reasons:
+
 - `KeepAlive=true` in launchd restarts `luxd` on crash. A shell one-liner cannot do this.
 - `RunAtLoad=true` starts `luxd` at login. The proxy connects to an already-running `luxd` with zero startup delay.
 - Quarry uses the service model (`quarry/service.py`). Lux should follow the same pattern for consistency.
@@ -595,7 +604,6 @@ Accept the status quo.
 
 **Rejected:** 30-60 second iteration cost per code change. 10-30 minutes lost per development session. Problems 2 and 3 remain unsolved. Every other Punt Labs MCP project is adopting mcp-proxy.
 
-
 ## Resolved Open Questions
 
 1. **FastMCP WebSocket transport.** FastMCP (as of v3.2.0) supports `streamable-http` transport but does not natively expose a per-session WebSocket transport suitable for mcp-proxy's connection model. `luxd` requires a custom Starlette/uvicorn ASGI app following Quarry's `http_server.py` pattern: Starlette routes `/mcp` (WebSocket) and `/health` (HTTP), with `_mcp_websocket_route()` extracting `session_key` and running an isolated MCP session per connection. This is ~250 lines, not 80. The Quarry implementation is the proven template.
@@ -604,10 +612,10 @@ Accept the status quo.
 
 3. **Graceful luxd shutdown.** When the user shuts down their machine, `launchd` sends SIGTERM. `luxd` should close WebSocket connections cleanly (so proxies reconnect rather than hang), write any pending state, and exit. `lux-display` is independent and stays running until its own window closes.
 
-
 ## Implementation Plan
 
 **Phase 1: Hub infrastructure** (service.py, hub.py, remote.py, CLI additions)
+
 - `luxd`: WebSocket server with `/mcp` and `/health`
 - `lux install` / `lux uninstall`: launchd/systemd service management
 - `lux ensure-hub`: health check + optional `--restart`
@@ -615,6 +623,7 @@ Accept the status quo.
 - `lux hub-status`: show PID, port, uptime, connected sessions
 
 **Phase 2: Session multiplexing** (tools.py refactor)
+
 - Extract `_client`, `_client_lock`, session state into a class
 - Add `_session_key` ContextVar
 - Per-session event queues for `recv()`
@@ -622,11 +631,13 @@ Accept the status quo.
 - `run_mcp_session()` entry point for hub.py
 
 **Phase 3: Plugin migration** (plugin.json, install.sh)
+
 - Update plugin.json with `sh -c` wrapper + fallback
 - Update install.sh with `luxd` service + proxy config steps
 - Verify: fresh install, existing install, no-proxy fallback
 
 **Phase 4: Remote display** (documentation + testing)
+
 - SSH tunnel setup guide
 - `lux setup-proxy --url <ws-url>` for manual remote config
 - Test: Host A `luxd`, Host B proxy, tunnel lifecycle

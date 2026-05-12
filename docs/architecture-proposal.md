@@ -17,7 +17,6 @@ implementation: new files, modified files, scenario walk-throughs,
 migration plan. This document covers the architecture and its rationale.
 Read this first for the "why," then the mcp-proxy proposal for the "how."
 
-
 ## Definitions
 
 - **Display server** (`lux-display`): The process that owns the screen.
@@ -31,7 +30,6 @@ Read this first for the "why," then the mcp-proxy proposal for the "how."
   WebSocket (`luxd` leg). The protocol is the API surface.
 - **Seat**: A (user, display) pair. Today, one user has one display.
   Multi-monitor is future optionality.
-
 
 ## Naming
 
@@ -52,13 +50,12 @@ Canonical names for binaries, modules, and classes:
 that connects to `lux-display` without going through `luxd`. It is a subcommand of
 the `lux` CLI, not a separate binary.
 
-
 ## The X11 Analogy
 
 Lux follows the X Window System's three-tier separation. The mapping is
 direct:
 
-```
+```text
 X11 model                              Lux model
 
 +------------------+                    +------------------+
@@ -100,7 +97,6 @@ survive crashes (`KeepAlive=true`), start at login (`RunAtLoad=true`),
 and be visible in `launchctl list` for diagnostics. This is a lifecycle
 choice, not an architectural one: `luxd` is still just a client
 of the display.
-
 
 ## Three Processes, Three Roles
 
@@ -196,7 +192,6 @@ and exits) or long-lived (a service that continuously updates a
 dashboard). `lux-display` and `luxd` are indifferent to client lifetime.
 Scenes persist after the client disconnects.
 
-
 ## Cardinality
 
 | Process | Current | Future optionality |
@@ -209,7 +204,6 @@ Scenes persist after the client disconnects.
 The common deployment: 1 `lux-display`, 1 `luxd`, 5-10 clients. The
 architecture does not prevent other ratios, but we are not building
 for them now.
-
 
 ## The Protocol Is the API Surface
 
@@ -245,13 +239,12 @@ display. An MCP tool call to `show()` eventually becomes a
 length-prefixed JSON message on the Unix socket -- the same message a
 Go client would send directly.
 
-
 ## The Launcher Pattern
 
 `luxd` does not run application logic. It registers menu items and
 spawns subprocesses on click:
 
-```
+```text
 Applications menu (rendered by lux-display, registered by luxd)
   |
   +-- Beads Browser    -> spawns: lux show beads
@@ -288,7 +281,6 @@ a live Pharo image running and accepts work over HTTP. `luxd`
 keeps the display alive and accepts work over WebSocket. Both are
 infrastructure that outlives any single client interaction.
 
-
 ## Display Lifecycle
 
 The display process behaves like a macOS menu bar app:
@@ -314,7 +306,6 @@ running, `luxd` does not manage its lifecycle further. If `lux-display`
 crashes, `luxd` detects the broken socket on the next tool
 call, re-spawns it, and reconnects.
 
-
 ## Remote Display
 
 ### Immediate goal
@@ -322,7 +313,7 @@ call, re-spawns it, and reconnects.
 Local and remote agents, unified display. An agent on Host B (SSH)
 renders on Host A (the user's Mac).
 
-```
+```text
 Host B (remote)                          Host A (local)
 
 Claude Code                              luxd
@@ -344,7 +335,7 @@ The architecture permits separating the three processes across three
 hosts. The `luxd`-to-display leg today uses a Unix domain socket
 (local only). Adding TCP transport on that leg would allow:
 
-```
+```text
 Host C (cloud agent)     Host B (persistent server)     Host A (user's Mac)
 
 mcp-proxy --WS-->        luxd --TCP-->                   lux-display
@@ -359,7 +350,6 @@ The constraint is latency: ImGui renders at 60fps, and the
 `luxd`-to-display leg carries element trees that can be tens of KB.
 Over LAN this is fine. Over WAN it depends on the update frequency.
 This is a measurement question, not an architecture question.
-
 
 ## `lux y|n` Semantics
 
@@ -394,7 +384,6 @@ where the display is. The `.punt-labs/lux.md` file lives in the repo
 on Host B. `luxd` on Host A cannot read Host B's filesystem. The
 skill layer on Host B is the correct enforcement point.
 
-
 ## Applications Without Agents
 
 The Beads Browser works when no Claude Code session is running:
@@ -418,7 +407,6 @@ Claude Code is running, it is a terminal extension. If Lux works
 independently, it is a display system that agents happen to use. The
 second framing is correct and the architecture must preserve it.
 
-
 ## Relationship to the MCP-Proxy Proposal
 
 The mcp-proxy proposal (`docs/mcp-proxy-proposal.md`) is Phase 1 of
@@ -439,7 +427,6 @@ fully realized for the local case. Remote display requires only an SSH
 tunnel and a proxy config on the remote host -- no additional code.
 Multi-host display (three processes on three hosts) requires TCP
 transport on the `luxd`-to-display leg, which is additive.
-
 
 ## What We Build Now vs. What Is Optionality
 
@@ -466,7 +453,6 @@ transport on the `luxd`-to-display leg, which is additive.
   would require auth (Bearer token or TLS client cert).
 - Display process managed by launchd (currently managed by `luxd`
   via `ensure_display()`)
-
 
 ## Summary
 
