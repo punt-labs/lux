@@ -24,6 +24,8 @@ from punt_lux.protocol import (
     InteractionMessage,
     IntrospectRequest,
     IntrospectResponse,
+    ListScenesRequest,
+    ListScenesResponse,
     MarkdownElement,
     MenuMessage,
     Message,
@@ -1659,3 +1661,50 @@ class TestIntrospect:
         assert restored.scene_id == "missing"
         assert restored.error == "Scene 'missing' not found"
         assert restored.elements == []
+
+
+# ---------------------------------------------------------------------------
+# ListScenesRequest / ListScenesResponse
+# ---------------------------------------------------------------------------
+
+
+class TestListScenes:
+    def test_list_scenes_request_roundtrip(self) -> None:
+        original = ListScenesRequest()
+        d = message_to_dict(original)
+        assert d["type"] == "list_scenes_request"
+        restored = message_from_dict(d)
+        assert isinstance(restored, ListScenesRequest)
+
+    def test_list_scenes_response_roundtrip(self) -> None:
+        scenes = [
+            {"scene_id": "s1", "element_count": 3, "frame_id": "f1", "owner_fd": 5},
+        ]
+        frames = [
+            {
+                "frame_id": "f1",
+                "title": "Main",
+                "scene_count": 1,
+                "scene_ids": ["s1"],
+                "layout": "tab",
+            },
+        ]
+        original = ListScenesResponse(scenes=scenes, frames=frames)
+        d = message_to_dict(original)
+        assert d["type"] == "list_scenes_response"
+        assert len(d["scenes"]) == 1
+        assert len(d["frames"]) == 1
+        restored = message_from_dict(d)
+        assert isinstance(restored, ListScenesResponse)
+        assert restored.scenes == scenes
+        assert restored.frames == frames
+
+    def test_list_scenes_response_empty_roundtrip(self) -> None:
+        original = ListScenesResponse()
+        d = message_to_dict(original)
+        assert d["scenes"] == []
+        assert d["frames"] == []
+        restored = message_from_dict(d)
+        assert isinstance(restored, ListScenesResponse)
+        assert restored.scenes == []
+        assert restored.frames == []

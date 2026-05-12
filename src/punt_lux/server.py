@@ -689,6 +689,31 @@ def inspect_scene(scene_id: str) -> str:
 
 
 @mcp.tool()
+def list_scenes() -> str:
+    """List all active scenes and frames in the display.
+
+    Returns JSON with scenes (scene_id, element_count, frame_id) and
+    frames (frame_id, title, scene_count). Use to understand what the
+    display is currently showing. Returns "not running" if the display
+    server is not available.
+    """
+    if not is_display_running(default_socket_path()):
+        return "not running"
+
+    def _call() -> str:
+        client = _get_client()
+        response = client.list_scenes()
+        if response is None:
+            return "timeout"
+        return json.dumps(
+            {"scenes": response.scenes, "frames": response.frames},
+            indent=2,
+        )
+
+    return _with_reconnect(_call)
+
+
+@mcp.tool()
 def display_mode() -> str:
     """Read the current display mode.
 

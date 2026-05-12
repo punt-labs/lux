@@ -48,6 +48,8 @@ from punt_lux.protocol import (
     InteractionMessage,
     IntrospectRequest,
     IntrospectResponse,
+    ListScenesRequest,
+    ListScenesResponse,
     MenuMessage,
     PingMessage,
     PongMessage,
@@ -1756,6 +1758,8 @@ class DisplayServer:
             self._send_to_client(sock, PongMessage(ts=msg.ts, display_ts=time.time()))
         elif isinstance(msg, IntrospectRequest):
             self._handle_introspect(sock, msg)
+        elif isinstance(msg, ListScenesRequest):
+            self._handle_list_scenes(sock, msg)
         elif isinstance(msg, UnknownMessage):
             logger.debug("Ignoring unknown message type %r", msg.raw_type)
 
@@ -1818,6 +1822,33 @@ class DisplayServer:
                 scene_id=msg.scene_id,
                 elements=[element_to_dict(e) for e in scene.elements],
             )
+        self._send_to_client(sock, resp)
+
+    def _handle_list_scenes(self, sock: socket.socket, _msg: ListScenesRequest) -> None:
+        """Return the list of active scenes and frames."""
+        scenes: list[dict[str, Any]] = []
+        for sid, scene in self._scenes.items():
+            scenes.append(
+                {
+                    "scene_id": sid,
+                    "element_count": len(scene.elements),
+                    "frame_id": self._scene_to_frame.get(sid),
+                    "owner_fd": self._scene_to_owner.get(sid),
+                }
+            )
+        frames: list[dict[str, Any]] = []
+        for fid, frame in self._frames.items():
+            frame_scenes = [s for s, f in self._scene_to_frame.items() if f == fid]
+            frames.append(
+                {
+                    "frame_id": fid,
+                    "title": frame.title,
+                    "scene_count": len(frame_scenes),
+                    "scene_ids": frame_scenes,
+                    "layout": frame.layout,
+                }
+            )
+        resp = ListScenesResponse(scenes=scenes, frames=frames)
         self._send_to_client(sock, resp)
 
     def client_name(self, fd: int) -> str | None:

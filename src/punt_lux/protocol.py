@@ -547,6 +547,22 @@ class IntrospectResponse:
 
 
 @dataclass
+class ListScenesRequest:
+    """Request the list of active scenes and frames."""
+
+    type: Literal["list_scenes_request"] = "list_scenes_request"
+
+
+@dataclass
+class ListScenesResponse:
+    """Response with active scenes and frames."""
+
+    scenes: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
+    frames: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
+    type: Literal["list_scenes_response"] = "list_scenes_response"
+
+
+@dataclass
 class MenuMessage:
     """Set custom menus in the menu bar (agent-extensible)."""
 
@@ -594,6 +610,7 @@ ClientMessage = (
     | ClearMessage
     | PingMessage
     | IntrospectRequest
+    | ListScenesRequest
     | MenuMessage
     | ThemeMessage
     | RegisterMenuMessage
@@ -675,6 +692,7 @@ DisplayMessage = (
     | WindowMessage
     | PongMessage
     | IntrospectResponse
+    | ListScenesResponse
 )
 Message = ClientMessage | DisplayMessage | UnknownMessage
 
@@ -1556,6 +1574,16 @@ def _register_serializers() -> None:  # noqa: C901
 
     _MESSAGE_SERIALIZERS[ConnectMessage] = _connect
 
+    def _list_scenes_req(m: ListScenesRequest) -> dict[str, Any]:
+        return {"type": m.type}
+
+    _MESSAGE_SERIALIZERS[ListScenesRequest] = _list_scenes_req
+
+    def _list_scenes_resp(m: ListScenesResponse) -> dict[str, Any]:
+        return {"type": m.type, "scenes": m.scenes, "frames": m.frames}
+
+    _MESSAGE_SERIALIZERS[ListScenesResponse] = _list_scenes_resp
+
     def _unknown(m: UnknownMessage) -> dict[str, Any]:
         d = dict(m.data)
         d["type"] = m.raw_type
@@ -1627,6 +1655,13 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
             scene_id=d["scene_id"],
             elements=d.get("elements", []),
             error=d.get("error"),
+        )
+    if msg_type == "list_scenes_request":
+        return ListScenesRequest()
+    if msg_type == "list_scenes_response":
+        return ListScenesResponse(
+            scenes=d.get("scenes", []),
+            frames=d.get("frames", []),
         )
     if msg_type == "ready":
         return ReadyMessage(
