@@ -17,7 +17,7 @@ import json
 import logging
 import threading
 import time
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from typing import Any
 
 from fastmcp import FastMCP
@@ -48,7 +48,7 @@ async def _retry_eager_connect() -> None:
 
 
 @contextlib.asynccontextmanager
-async def _lifespan(_server: FastMCP) -> AsyncIterator[None]:
+async def _lifespan(_server: FastMCP) -> AsyncGenerator[None]:
     """Eager-connect to the display server when display=y.
 
     Runs ``_get_client()`` in a thread so the blocking socket connect
@@ -684,6 +684,54 @@ def inspect_scene(scene_id: str) -> str:
             {"scene_id": response.scene_id, "elements": response.elements},
             indent=2,
         )
+
+    return _with_reconnect(_call)
+
+
+@mcp.tool()
+def list_scenes() -> str:
+    """List all active scenes and frames in the display.
+
+    Returns JSON with scenes (scene_id, element_count, frame_id) and
+    frames (frame_id, title, scene_count). Use to understand what the
+    display is currently showing. Returns "not running" if the display
+    server is not available.
+    """
+    if not is_display_running(default_socket_path()):
+        return "not running"
+
+    def _call() -> str:
+        client = _get_client()
+        response = client.list_scenes()
+        if response is None:
+            return "timeout"
+        return json.dumps(
+            {"scenes": response.scenes, "frames": response.frames},
+            indent=2,
+        )
+
+    return _with_reconnect(_call)
+
+
+@mcp.tool()
+def screenshot() -> str:
+    """Capture a screenshot of the display window.
+
+    Returns the file path to a PNG image of the current display.
+    The agent can read this image to see exactly what is rendered.
+    Returns "not running" if the display server is not available.
+    """
+    if not is_display_running(default_socket_path()):
+        return "not running"
+
+    def _call() -> str:
+        client = _get_client()
+        response = client.screenshot()
+        if response is None:
+            return "timeout"
+        if response.error:
+            return f"error: {response.error}"
+        return response.path
 
     return _with_reconnect(_call)
 

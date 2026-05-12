@@ -1892,3 +1892,81 @@ A formal plugin/applet registry with entry points, discovery, and lifecycle mana
 ### Relationship to DES-022
 
 DES-022's rejected alternative — "Server-side frame creation: the display could create frames when clients connect, but this introduces business logic into the renderer" — is the same principle applied at the codebase level. The display server is a pure renderer. The MCP server is a protocol bridge. Business logic lives in `apps/`, and the wiring that connects apps to menus, hooks, and CLI lives in the host modules. No layer reaches into another's domain.
+
+---
+
+## DES-028: Screenshot Capture — Framebuffer Access
+
+**Date:** 2026-05-12
+**Status:** IN PROGRESS
+**Topic:** How the display server captures its own rendered output as a PNG for agent introspection
+
+### Motivation
+
+Agents need to see what the display server is rendering — the Pharo "World asForm" pattern. Send a scene, take a screenshot, read the image, diagnose issues. This closes the debugging loop: no human in the loop for visual verification.
+
+### What we built
+
+Protocol: `ScreenshotRequest` / `ScreenshotResponse` following the introspect request-response pattern. The MCP tool (`screenshot`) sends the request; the display server captures on the render thread and returns a file path. The agent reads the PNG via the Read tool.
+
+### What we know
+
+1. **Backend is `Glfw - OpenGL3`** on macOS (confirmed via `hello_imgui.get_backend_description()`). Not Metal, despite macOS having Metal support in imgui-bundle.
+
+2. **`glReadPixels` captures partial content.** Reading from `GL_FRONT` after buffer swap captures the window background color, frame borders, and the Lux watermark — but NOT ImGui widget content (text, sliders, buttons, tables). Reading from `GL_BACK` before swap returns white (empty buffer).
+
+3. **Timing explored:**
+   - End of `show_gui` callback (`_on_frame`): GL_BACK is empty — ImGui hasn't rendered draw data to GL yet.
+   - `after_swap` callback: GL_FRONT has background but not widgets.
+   - Both timings produce incomplete captures.
+
+4. **`hello_imgui.final_app_window_screenshot()`** only works after `run()` exits (confirmed by reading `imgui_bundle/_patch_runners_add_save_screenshot_param.py`). Not usable at runtime.
+
+5. **`CGWindowListCreateImage` (macOS Quartz)** hangs when called from the render thread. Would need to run in a separate thread, but the window ID lookup requires Quartz framework access.
+
+6. **`pyobjc-framework-Quartz`** added to `[display]` extras for the CG approach but not yet successfully used.
+
+### Source investigation (hello_imgui C++)
+
+Read `~/Coding/hello_imgui/` source:
+
+1. **`AppWindowScreenshotRgbBuffer()` exists** (`hello_imgui_screenshot.h:25`). This is a **runtime** screenshot function — distinct from `FinalAppWindowScreenshotRgbBuffer()` which only works at exit. It calls `GetAbstractRunner()->ScreenshotRgb()`.
+
+2. **`OpenglScreenshotRgb()`** (`opengl_screenshot.cpp:14`) is the GL implementation. It calls `glReadPixels` on `GL_RGB` with dimensions from `ImGui::GetDrawData()->FramebufferScale`. It has an explicit assert: "Cannot be called from show_gui() since that runs between NewFrame and Render."
+
+3. **The render loop order** (`abstract_runner.cpp:1240-1427`):
+
+   ```text
+   ImGui::Render()                          // line 1240
+   Impl_RenderDrawData_To_3D()              // line 1241 — GL draws
+   Impl_SwapBuffers()                       // line 1247
+   AfterSwap() callback                     // line 1427
+   ```
+
+   The screenshot must happen between `RenderDrawData` (1241) and `SwapBuffers` (1247). There is NO callback at that exact point. `BeforeImGuiRender` fires before line 1240 (too early). `AfterSwap` fires after line 1247 (back buffer is gone).
+
+4. **`AppWindowScreenshotRgbBuffer` is not exposed in Python.** Only `final_app_window_screenshot` and `final_app_window_screenshot_framebuffer_scale` are bound. The runtime function exists in C++ but has no Python binding in imgui-bundle 1.92.600.
+
+### Root cause
+
+`glReadPixels` from any callback available to us reads an empty or partially-composited buffer because the actual widget rendering (`ImGui_ImplOpenGL3_RenderDrawData`) happens after our `show_gui` callback returns and before the next callback we can hook. The `after_swap` callback is too late — the back buffer was swapped.
+
+### Rejected approaches
+
+| Approach | Why rejected |
+|----------|-------------|
+| `glReadPixels` from `show_gui` | Too early — between NewFrame and Render, back buffer empty |
+| `glReadPixels` from `after_swap` | Too late — back buffer swapped, front has incomplete content |
+| `GL_FRONT` after swap | Captures background/chrome but not widget content |
+| Force `RendererBackendType.open_gl3` | Unnecessary (already using GL3) and changes rendering for one feature |
+| `final_app_window_screenshot()` at runtime | Only works after `run()` exits |
+| `CGWindowListCreateImage` on render thread | Hangs (Quartz APIs deadlock during GL render loop) |
+| `screencapture -l` shell-out | Shell-out is not the right approach |
+
+### Path forward
+
+1. **Request Python binding for `AppWindowScreenshotRgbBuffer()`** from imgui-bundle. Open an issue or PR at `pthom/imgui_bundle`. This is the correct API — it exists in C++, handles the timing correctly, and works on all backends.
+
+2. **Alternative: add a `before_swap` or `post_render` callback to hello_imgui** that fires between `RenderDrawData` and `SwapBuffers`. This would let us call `glReadPixels` at the right time without needing the C++ screenshot function.
+
+3. **Alternative: `CGWindowListCreateImage` from a background thread** with the result communicated back via queue. The hang on the render thread may be a main-thread-only Quartz restriction. This is the OS-level approach that works regardless of GL timing.

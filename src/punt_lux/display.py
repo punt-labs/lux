@@ -48,6 +48,8 @@ from punt_lux.protocol import (
     InteractionMessage,
     IntrospectRequest,
     IntrospectResponse,
+    ListScenesRequest,
+    ListScenesResponse,
     MenuMessage,
     PingMessage,
     PongMessage,
@@ -55,6 +57,8 @@ from punt_lux.protocol import (
     ReadyMessage,
     RegisterMenuMessage,
     SceneMessage,
+    ScreenshotRequest,
+    ScreenshotResponse,
     SelectableElement,
     SliderElement,
     TabBarElement,
@@ -906,6 +910,7 @@ class DisplayServer:
         self._world_menu_open: bool = False
         self._world_menu_pinned: bool = False
         self._world_menu_spawn_pos: tuple[float, float] | None = None
+        self._screenshot_pending: socket.socket | None = None
         self._test_auto_click = test_auto_click
 
     @property
@@ -1033,6 +1038,7 @@ class DisplayServer:
         runner_params.callbacks.show_menus = self._show_menus
         runner_params.callbacks.post_init = self._on_post_init
         runner_params.callbacks.show_gui = self._on_frame
+        runner_params.callbacks.after_swap = self._on_after_swap
         runner_params.callbacks.before_exit = self._on_exit
         runner_params.fps_idling.fps_idle = 30.0
 
@@ -1088,6 +1094,53 @@ class DisplayServer:
         self._poll_clients()
         self._render_scene()
         self._flush_events()
+
+    def _on_after_swap(self) -> None:
+        """Called after GL buffer swap — GL_FRONT has rendered content."""
+        if self._screenshot_pending is not None:
+            sock = self._screenshot_pending
+            self._screenshot_pending = None
+            self._capture_screenshot(sock)
+
+    def _capture_screenshot(self, sock: socket.socket) -> None:
+        """Capture the OpenGL framebuffer after swap and send the path back.
+
+        Called from ``_on_after_swap`` so GL_FRONT contains the fully
+        rendered frame. Uses ``glReadPixels`` with Retina scale factor.
+        """
+        import os
+        import tempfile
+
+        import OpenGL.GL as GL
+        from imgui_bundle import hello_imgui, imgui
+
+        try:
+            scale = hello_imgui.final_app_window_screenshot_framebuffer_scale()
+            io = imgui.get_io()
+            fb_width = int(io.display_size.x * scale)
+            fb_height = int(io.display_size.y * scale)
+            GL.glReadBuffer(GL.GL_FRONT)
+            GL.glPixelStorei(GL.GL_PACK_ALIGNMENT, 1)
+            data = GL.glReadPixels(
+                0, 0, fb_width, fb_height, GL.GL_RGBA, GL.GL_UNSIGNED_BYTE
+            )
+
+            image = Image.frombytes("RGBA", (fb_width, fb_height), bytes(data))
+            image = image.transpose(Image.Transpose.FLIP_TOP_BOTTOM)
+
+            tmp_dir = Path(tempfile.gettempdir()) / "lux-screenshots"
+            tmp_dir.mkdir(parents=True, exist_ok=True)
+            fd, path = tempfile.mkstemp(
+                suffix=".png", prefix="lux-screenshot-", dir=str(tmp_dir)
+            )
+            os.close(fd)
+            image.save(path)
+
+            resp = ScreenshotResponse(path=path)
+        except Exception as exc:
+            logger.exception("Screenshot capture failed")
+            resp = ScreenshotResponse(error=str(exc))
+        self._send_to_client(sock, resp)
 
     def _on_exit(self) -> None:
         """Called before the window closes."""
@@ -1756,6 +1809,10 @@ class DisplayServer:
             self._send_to_client(sock, PongMessage(ts=msg.ts, display_ts=time.time()))
         elif isinstance(msg, IntrospectRequest):
             self._handle_introspect(sock, msg)
+        elif isinstance(msg, ListScenesRequest):
+            self._handle_list_scenes(sock, msg)
+        elif isinstance(msg, ScreenshotRequest):
+            self._screenshot_pending = sock
         elif isinstance(msg, UnknownMessage):
             logger.debug("Ignoring unknown message type %r", msg.raw_type)
 
@@ -1807,7 +1864,7 @@ class DisplayServer:
 
     def _handle_introspect(self, sock: socket.socket, msg: IntrospectRequest) -> None:
         """Return the element tree for a scene to the requesting client."""
-        scene = self._scenes.get(msg.scene_id)
+        scene = self._resolve_scene(msg.scene_id)
         if scene is None:
             resp = IntrospectResponse(
                 scene_id=msg.scene_id,
@@ -1818,6 +1875,43 @@ class DisplayServer:
                 scene_id=msg.scene_id,
                 elements=[element_to_dict(e) for e in scene.elements],
             )
+        self._send_to_client(sock, resp)
+
+    def _handle_list_scenes(self, sock: socket.socket, _msg: ListScenesRequest) -> None:
+        """Return the list of active scenes and frames."""
+        scenes: list[dict[str, Any]] = []
+        for sid, scene in self._scenes.items():
+            scenes.append(
+                {
+                    "scene_id": sid,
+                    "element_count": len(scene.elements),
+                    "frame_id": self._scene_to_frame.get(sid),
+                    "owner_fd": self._scene_to_owner.get(sid),
+                }
+            )
+        for fid, frame in self._frames.items():
+            for sid, scene in frame.scenes.items():
+                scenes.append(
+                    {
+                        "scene_id": sid,
+                        "element_count": len(scene.elements),
+                        "frame_id": fid,
+                        "owner_fd": self._scene_to_owner.get(sid),
+                    }
+                )
+        frames: list[dict[str, Any]] = []
+        for fid, frame in self._frames.items():
+            frame_scenes = [s for s, f in self._scene_to_frame.items() if f == fid]
+            frames.append(
+                {
+                    "frame_id": fid,
+                    "title": frame.title,
+                    "scene_count": len(frame_scenes),
+                    "scene_ids": frame_scenes,
+                    "layout": frame.layout,
+                }
+            )
+        resp = ListScenesResponse(scenes=scenes, frames=frames)
         self._send_to_client(sock, resp)
 
     def client_name(self, fd: int) -> str | None:
