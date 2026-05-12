@@ -91,17 +91,17 @@ This model means:
 
 ### Decision 1: `display=n` with daemon
 
-**Decision: (c) Daemon always runs, but defers display connection until first `show()` with `display=y`.**
+**Decision: (c) Daemon always runs, defers display connection until first `show()` call.**
 
-The daemon is a WebSocket server that costs ~40 MB at idle. When `display=n`, it serves MCP tools normally but does not call `ensure_display()` and does not open a Unix socket connection to the display. The first call to `set_display_mode("y")` -- or `show()` when `display=y` -- triggers the display connection and auto-spawn.
+The daemon is a WebSocket server that costs ~40 MB at idle. It does NOT read `.punt-labs/lux.md` to decide whether to connect to the display. Display mode (`lux y|n`) is a per-repo agent preference enforced by the skill layer on the agent host — the daemon is user-scoped and cannot read per-repo config (especially in remote mode where the repo is on a different host).
+
+The daemon connects to the display lazily: the first `show()` call from any session triggers `ensure_display()`. No eager connect at startup. The `set_display_mode()` MCP tool writes `.punt-labs/lux.md` (for the skill layer to read back) but does not trigger a display connection itself.
 
 Why not (a): "Daemon always runs, `show()` returns silent ack when display=n" means every `show()` call in `n` mode still traverses the full tool path and returns a fake ack that could confuse agents expecting real rendering.
 
-Why not (b): "No daemon when display=n" defeats the purpose. The daemon must be running before the proxy can connect. If the daemon is not running, the proxy has no WebSocket endpoint and Claude Code's MCP server fails to initialize. The proxy has no "offline" mode -- it either connects or it is not running.
+Why not (b): "No daemon when display=n" defeats the purpose. The daemon must be running before the proxy can connect.
 
-The daemon process is always started by `lux ensure-daemon`. Whether it connects to a display depends on the config at startup and `set_display_mode()` calls during the session.
-
-**Canonical invariant:** The daemon's display connection, once established, is never torn down by the daemon. It persists until the daemon exits or the display process dies. `display=n` only prevents the initial eager connection — it does not sever an existing one. The first `show()` call or `set_display_mode("y")` call triggers the connection, whichever comes first. If the daemon restarts while `display=n`, it does not connect to the display on startup, even if a display process is already running.
+**Canonical invariant:** The daemon's display connection, once established, is never torn down by the daemon. It persists until the daemon exits or the display process dies. The first `show()` call triggers the connection. If the daemon restarts, it does not connect to the display on startup — it waits for the first `show()` call.
 
 ### Decision 2: Remote `/lux y|n`
 
@@ -162,7 +162,7 @@ The display auto-spawns when the agent's first `show()` call arrives through the
 
 | File | Changes |
 |------|---------|
-| `src/punt_lux/server.py` | Extract session state into a class. Add `run_mcp_session()` function that `daemon.py` calls per WebSocket. Keep `mcp.run(transport="stdio")` as the direct-mode entry point. |
+| `src/punt_lux/server.py` | Extract session state into a class. Add `run_mcp_session()` function that `daemon.py` calls per WebSocket. Keep `mcp.run(transport="stdio")` as the direct-mode entry point. Remove `_setup_apps()`, `_on_beads_browser()`, and the `render_beads_board` import — app logic moves to the launcher pattern in daemon.py. |
 | `src/punt_lux/__main__.py` | Add `ensure-daemon`, `daemon-status` subcommands. Add `--daemon` flag to `serve`. |
 | `src/punt_lux/paths.py` | Add `daemon_pid_path()`, `daemon_port_path()`, `daemon_log_path()` functions alongside existing display helpers. |
 | `.claude-plugin/plugin.json` | Command changes to `sh -c` wrapper with fallback. |
@@ -196,7 +196,8 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
     # 3. Extract session_key from ?session_key= query param
     # 4. Register session state (event queue, menu registrations)
     # 5. async with websocket_server(...) as (read, write): await run_mcp_session(read, write)
-    # 6. finally: cleanup session state (unregister menus, drain event queue)
+    # 6. finally: cleanup session state (unregister session menus, drain event queue)
+    #    Note: only unregister menus where session_key != "__daemon__"
 
 async def _health_route(request: Request) -> Response:
     """Returns 200 with {"status": "ok", "sessions": N, "display": bool}."""
@@ -207,6 +208,36 @@ def create_app(token: str | None = None) -> Starlette:
 def serve(host: str = "127.0.0.1", port: int = 8430, token: str | None = None) -> None:
     """Entry point: run uvicorn with the app. Write port file. Clean up on shutdown."""
 ```
+
+### Application launcher
+
+The daemon does not run application logic. It registers menu items and
+spawns subprocesses on click (the launcher pattern from the architecture
+proposal). No app-specific imports in the daemon.
+
+```python
+# In daemon.py — launcher registry
+_LAUNCHER_APPS: dict[str, list[str]] = {
+    "app-beads": ["lux", "show", "beads"],
+}
+
+def _register_launcher_apps(client: LuxClient) -> None:
+    """Register launcher menu items at daemon startup (session_key='__daemon__')."""
+    for app_id, cmd in _LAUNCHER_APPS.items():
+        label = app_id.replace("app-", "").replace("-", " ").title()
+        client.declare_menu_item({"id": app_id, "label": label})
+
+def _on_launcher_click(msg: InteractionMessage) -> None:
+    """Spawn the app subprocess on menu click. Fire and forget."""
+    cmd = _LAUNCHER_APPS.get(msg.element_id)
+    if cmd:
+        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+```
+
+Launcher menus are registered once at daemon startup with sentinel
+`session_key="__daemon__"`. They persist across session connect/disconnect
+cycles. Session cleanup only unregisters menus where `session_key !=
+"__daemon__"`. New apps are entries in `_LAUNCHER_APPS` — config, not code.
 
 ### remote.py structure
 
@@ -303,39 +334,37 @@ Port collision: If `8430` is in use, the daemon fails to bind and exits with a c
 8. User opens Claude Code. Plugin loads.
 9. Plugin.json runs: detects mcp-proxy + lux.toml + `[lux]` section. Runs `exec mcp-proxy --config lux`.
 10. Proxy connects to `ws://127.0.0.1:8430/mcp?session_key=<PID>`.
-11. Agent calls `set_display_mode("y")`.
-12. Daemon reads config, calls `ensure_display()`, spawns `lux display`, connects via Unix socket.
-13. Agent calls `show(...)` -- proxy forwards to daemon, daemon sends to display.
+11. Agent calls `show(...)` -- this is the first `show()` call.
+12. Daemon's `show()` handler calls `ensure_display()`, spawns `lux display`, connects via Unix socket.
+13. Scene renders on display.
 
 ### Scenario 2: Returning user, local
 
 **Precondition:** Lux was installed previously. Machine was rebooted.
 
 1. At login, launchd starts `lux serve --daemon` (KeepAlive + RunAtLoad).
-2. Daemon binds `ws://127.0.0.1:8430/mcp`, writes port file.
+2. Daemon binds `ws://127.0.0.1:8430/mcp`, writes port file, registers launcher menus. No display connection yet.
 3. User opens Claude Code.
 4. Plugin.json runs: detects mcp-proxy + lux.toml. Runs `exec mcp-proxy --config lux`.
 5. Proxy connects to daemon's WebSocket.
-6. If `display=y` in `.punt-labs/lux.md`: daemon's lifespan already connected to display (or auto-spawned it).
-7. Agent sends MCP calls. Everything works.
+6. Agent sends `show(...)`. Daemon connects to display on first `show()` call via `ensure_display()`.
+7. Display renders. Subsequent calls go through immediately.
 
 Total time from Claude Code open to first tool call: <200 ms (proxy startup ~10 ms, WebSocket connect ~5 ms).
 
 ### Scenario 3: User types `/lux y` (display was off)
 
-**Precondition:** Daemon is running, connected to proxy. `display=n` in config. No display process.
+**Precondition:** Daemon is running, connected to proxy. `display=n` in `.punt-labs/lux.md`. No display process.
 
 1. Skill calls `set_display_mode("y")` MCP tool.
 2. Proxy forwards to daemon via WebSocket.
 3. Daemon's `set_display_mode()` handler:
    a. Writes `display: "y"` to `.punt-labs/lux.md` via `write_field()`.
-   b. Calls `_get_client()` which calls `ensure_display()`.
-   c. `ensure_display()` spawns `lux display` (no PID file found, or process dead).
-   d. Waits up to 5s for display socket to appear.
-   e. Connects `LuxClient` to display via Unix socket.
-   f. Calls `_setup_apps(client)` to register menu items.
-4. Returns `"display:on"`.
-5. Subsequent `show()` calls render to the now-connected display.
+   b. Returns `"display:on"`.
+   c. Does NOT connect to the display — that happens lazily on first `show()`.
+4. Skill layer reads `display=y` and allows subsequent display tool calls.
+5. Agent calls `show(...)`. Daemon's `show()` handler calls `ensure_display()`, spawns display, connects, registers launcher menus.
+6. Scene renders.
 
 ### Scenario 4: User types `/lux n` (display was on)
 
@@ -456,7 +485,7 @@ This matches current behavior exactly. The daemon does not kill the display proc
    c. Calls `_get_client()` which calls `ensure_display()`.
    d. `ensure_display()` finds no PID file (or dead process). Spawns a new `lux display`.
    e. Waits for socket. Connects.
-   f. Re-registers menu items via `_setup_apps()`.
+   f. Re-registers launcher menu items via `_register_launcher_apps()`.
    g. Retries the `show()` call. Succeeds.
 4. From the proxy's perspective: one `show()` call took ~2s instead of ~50ms. No disconnect, no error.
 5. Scenes are lost (they were in the crashed display's memory). The agent must re-send them.
