@@ -47,6 +47,8 @@ from punt_lux.protocol import (
     MenuMessage,
     PingMessage,
     PongMessage,
+    QueryRequest,
+    QueryResponse,
     ReadyMessage,
     RegisterMenuMessage,
     SceneMessage,
@@ -126,6 +128,7 @@ class DisplayClient:
         self._screenshot_queue: queue.SimpleQueue[ScreenshotResponse] = (
             queue.SimpleQueue()
         )
+        self._query_queue: queue.SimpleQueue[QueryResponse] = queue.SimpleQueue()
 
     # -- context manager ---------------------------------------------------
 
@@ -240,6 +243,7 @@ class DisplayClient:
             _drain_queue(self._introspect_queue)
             _drain_queue(self._list_scenes_queue)
             _drain_queue(self._screenshot_queue)
+            _drain_queue(self._query_queue)
 
     # -- callback registration ---------------------------------------------
 
@@ -366,6 +370,9 @@ class DisplayClient:
             return
         if isinstance(msg, ScreenshotResponse):
             self._screenshot_queue.put(msg)
+            return
+        if isinstance(msg, QueryResponse):
+            self._query_queue.put(msg)
             return
         self._pending.put(msg)
 
@@ -601,6 +608,34 @@ class DisplayClient:
             if received is None:
                 return None
             if isinstance(received, ScreenshotResponse):
+                return received
+            self._pending.put(received)
+
+    def query(
+        self,
+        method: str,
+        params: dict[str, Any] | None = None,
+        timeout: float | None = None,
+    ) -> QueryResponse | None:
+        """Send a generic query and wait for the response."""
+        t = timeout if timeout is not None else self._recv_timeout
+        self._send(QueryRequest(method=method, params=params or {}))
+        deadline = time.monotonic() + t
+        if self.listener_active:
+            remaining = deadline - time.monotonic()
+            try:
+                return self._query_queue.get(timeout=max(remaining, 0))
+            except queue.Empty:
+                return None
+        sock = self._require_connected()
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return None
+            received = recv_message(sock, timeout=remaining)
+            if received is None:
+                return None
+            if isinstance(received, QueryResponse):
                 return received
             self._pending.put(received)
 

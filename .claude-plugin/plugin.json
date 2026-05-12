@@ -9,11 +9,10 @@
   "mcpServers": {
     "lux": {
       "type": "stdio",
-      "command": "uv",
+      "command": "sh",
       "args": [
-        "run",
-        "lux",
-        "serve"
+        "-c",
+        "if command -v mcp-proxy >/dev/null 2>&1 && [ -f \"${HOME}/.punt-labs/mcp-proxy/lux.toml\" ] && grep -q '^\\[lux\\]' \"${HOME}/.punt-labs/mcp-proxy/lux.toml\"; then exec mcp-proxy --config lux; else exec lux serve; fi"
       ]
     }
   }
