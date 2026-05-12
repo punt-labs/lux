@@ -22,6 +22,8 @@ from punt_lux.protocol import (
     InputNumberElement,
     InputTextElement,
     InteractionMessage,
+    IntrospectRequest,
+    IntrospectResponse,
     MarkdownElement,
     MenuMessage,
     Message,
@@ -1611,3 +1613,49 @@ class TestFrameReader:
         reader.feed(struct.pack("!I", 16 * 1024 * 1024 + 1))
         with pytest.raises(ValueError, match="exceeds maximum size"):
             reader.drain()
+
+
+# ---------------------------------------------------------------------------
+# IntrospectRequest / IntrospectResponse
+# ---------------------------------------------------------------------------
+
+
+class TestIntrospect:
+    def test_introspect_request_roundtrip(self):
+        original = IntrospectRequest(scene_id="s1")
+        d = message_to_dict(original)
+        assert d["type"] == "introspect_request"
+        assert d["scene_id"] == "s1"
+        restored = message_from_dict(d)
+        assert isinstance(restored, IntrospectRequest)
+        assert restored.scene_id == "s1"
+
+    def test_introspect_response_roundtrip(self):
+        elements = [
+            {"kind": "text", "id": "t1", "content": "hello"},
+            {"kind": "button", "id": "b1", "label": "OK"},
+        ]
+        original = IntrospectResponse(scene_id="s1", elements=elements)
+        d = message_to_dict(original)
+        assert d["type"] == "introspect_response"
+        assert d["scene_id"] == "s1"
+        assert len(d["elements"]) == 2
+        assert "error" not in d
+        restored = message_from_dict(d)
+        assert isinstance(restored, IntrospectResponse)
+        assert restored.scene_id == "s1"
+        assert restored.elements == elements
+        assert restored.error is None
+
+    def test_introspect_response_error_roundtrip(self):
+        original = IntrospectResponse(
+            scene_id="missing", error="Scene 'missing' not found"
+        )
+        d = message_to_dict(original)
+        assert d["error"] == "Scene 'missing' not found"
+        assert d["elements"] == []
+        restored = message_from_dict(d)
+        assert isinstance(restored, IntrospectResponse)
+        assert restored.scene_id == "missing"
+        assert restored.error == "Scene 'missing' not found"
+        assert restored.elements == []

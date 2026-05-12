@@ -527,6 +527,26 @@ class PingMessage:
 
 
 @dataclass
+class IntrospectRequest:
+    """Request the element tree for a scene."""
+
+    scene_id: str
+    type: Literal["introspect_request"] = "introspect_request"
+
+
+@dataclass
+class IntrospectResponse:
+    """Response with the scene's element tree."""
+
+    scene_id: str
+    elements: list[dict[str, Any]] = field(
+        default_factory=lambda: list[dict[str, Any]]()
+    )
+    type: Literal["introspect_response"] = "introspect_response"
+    error: str | None = None
+
+
+@dataclass
 class MenuMessage:
     """Set custom menus in the menu bar (agent-extensible)."""
 
@@ -573,6 +593,7 @@ ClientMessage = (
     | UpdateMessage
     | ClearMessage
     | PingMessage
+    | IntrospectRequest
     | MenuMessage
     | ThemeMessage
     | RegisterMenuMessage
@@ -648,7 +669,12 @@ class UnknownMessage:
 
 
 DisplayMessage = (
-    ReadyMessage | AckMessage | InteractionMessage | WindowMessage | PongMessage
+    ReadyMessage
+    | AckMessage
+    | InteractionMessage
+    | WindowMessage
+    | PongMessage
+    | IntrospectResponse
 )
 Message = ClientMessage | DisplayMessage | UnknownMessage
 
@@ -1050,6 +1076,11 @@ def _element_to_dict(elem: Element) -> dict[str, Any]:
         return result
     msg = f"Unknown element type: {type(elem)}"
     raise TypeError(msg)
+
+
+def element_to_dict(elem: Element) -> dict[str, Any]:
+    """Serialize an Element dataclass to a JSON-compatible dict."""
+    return _element_to_dict(elem)
 
 
 def _image_from_dict(d: dict[str, Any]) -> ImageElement:
@@ -1503,6 +1534,23 @@ def _register_serializers() -> None:  # noqa: C901
 
     _MESSAGE_SERIALIZERS[PongMessage] = _pong
 
+    def _introspect_req(m: IntrospectRequest) -> dict[str, Any]:
+        return {"type": m.type, "scene_id": m.scene_id}
+
+    _MESSAGE_SERIALIZERS[IntrospectRequest] = _introspect_req
+
+    def _introspect_resp(m: IntrospectResponse) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "type": m.type,
+            "scene_id": m.scene_id,
+            "elements": m.elements,
+        }
+        if m.error is not None:
+            d["error"] = m.error
+        return d
+
+    _MESSAGE_SERIALIZERS[IntrospectResponse] = _introspect_resp
+
     def _connect(m: ConnectMessage) -> dict[str, Any]:
         return {"type": m.type, "name": m.name}
 
@@ -1572,6 +1620,14 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
         return RegisterMenuMessage(items=[e for e in raw_items if isinstance(e, dict)])
     if msg_type == "ping":
         return PingMessage(ts=d.get("ts"))
+    if msg_type == "introspect_request":
+        return IntrospectRequest(scene_id=d["scene_id"])
+    if msg_type == "introspect_response":
+        return IntrospectResponse(
+            scene_id=d["scene_id"],
+            elements=d.get("elements", []),
+            error=d.get("error"),
+        )
     if msg_type == "ready":
         return ReadyMessage(
             version=d.get("version", PROTOCOL_VERSION),

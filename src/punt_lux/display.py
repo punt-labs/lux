@@ -46,6 +46,8 @@ from punt_lux.protocol import (
     GroupElement,
     InputTextElement,
     InteractionMessage,
+    IntrospectRequest,
+    IntrospectResponse,
     MenuMessage,
     PingMessage,
     PongMessage,
@@ -60,6 +62,7 @@ from punt_lux.protocol import (
     UnknownMessage,
     UpdateMessage,
     WindowElement,
+    element_to_dict,
     encode_message,
 )
 
@@ -1721,7 +1724,7 @@ class DisplayServer:
 
     # -- message handling --------------------------------------------------
 
-    def _handle_message(self, sock: socket.socket, msg: Message) -> None:
+    def _handle_message(self, sock: socket.socket, msg: Message) -> None:  # noqa: C901
         if isinstance(msg, SceneMessage):
             self._handle_scene(sock, msg)
         elif isinstance(msg, UpdateMessage):
@@ -1751,6 +1754,8 @@ class DisplayServer:
             self._handle_connect(sock, msg)
         elif isinstance(msg, PingMessage):
             self._send_to_client(sock, PongMessage(ts=msg.ts, display_ts=time.time()))
+        elif isinstance(msg, IntrospectRequest):
+            self._handle_introspect(sock, msg)
         elif isinstance(msg, UnknownMessage):
             logger.debug("Ignoring unknown message type %r", msg.raw_type)
 
@@ -1799,6 +1804,21 @@ class DisplayServer:
             return
         self._client_names[fd] = name
         logger.info("Client fd=%d identified as %r", fd, name)
+
+    def _handle_introspect(self, sock: socket.socket, msg: IntrospectRequest) -> None:
+        """Return the element tree for a scene to the requesting client."""
+        scene = self._scenes.get(msg.scene_id)
+        if scene is None:
+            resp = IntrospectResponse(
+                scene_id=msg.scene_id,
+                error=f"Scene '{msg.scene_id}' not found",
+            )
+        else:
+            resp = IntrospectResponse(
+                scene_id=msg.scene_id,
+                elements=[element_to_dict(e) for e in scene.elements],
+            )
+        self._send_to_client(sock, resp)
 
     def client_name(self, fd: int) -> str | None:
         """Return the display name for a connected client, or ``None``."""
