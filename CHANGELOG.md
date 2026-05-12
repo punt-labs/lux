@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Canonical file and class renames** — `server.py` → `tools.py`,
+  `client.py` → `display_client.py`, `LuxClient` → `DisplayClient`.
+  Aligns module names with the distributed architecture proposal where
+  `tools.py` holds MCP tool definitions and `display_client.py` is the
+  client library for connecting to `lux-display`. `LuxClient` is
+  available as a backward-compatible alias.
+
 ### Added
 
 - **`inspect_scene` MCP tool** — query the display server for a scene's element

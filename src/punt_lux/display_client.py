@@ -1,6 +1,6 @@
 """Lux client library — connect to the display server and send scenes.
 
-Provides :class:`LuxClient`, a context-manager that connects to the Lux
+Provides :class:`DisplayClient`, a context-manager that connects to the Lux
 display server over a Unix domain socket, waits for the ``ReadyMessage``
 handshake, and exposes typed methods for sending scenes, updates, clears,
 and pings.  Receives ack, interaction, window, and pong events.
@@ -13,9 +13,9 @@ dedicated queues consumed by :meth:`show` and :meth:`ping`.
 
 Usage::
 
-    from punt_lux.client import LuxClient
+    from punt_lux.display_client import DisplayClient
 
-    with LuxClient() as client:
+    with DisplayClient() as client:
         client.show("s1", elements=[TextElement(id="t1", content="Hello")])
         event = client.recv()
 """
@@ -74,7 +74,7 @@ def _drain_queue(q: queue.SimpleQueue[Any]) -> None:
             break
 
 
-class LuxClient:
+class DisplayClient:
     """Client for the Lux display server.
 
     Parameters
@@ -129,7 +129,7 @@ class LuxClient:
 
     # -- context manager ---------------------------------------------------
 
-    def __enter__(self) -> LuxClient:
+    def __enter__(self) -> DisplayClient:
         self.connect()
         return self
 

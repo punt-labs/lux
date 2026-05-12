@@ -260,7 +260,7 @@ class TestShowBeadsCLI:
                 "punt_lux.apps.beads.subprocess.run",
                 return_value=_mock_bd_result([], returncode=1),
             ),
-            patch("punt_lux.client.LuxClient", return_value=mock_client),
+            patch("punt_lux.display_client.DisplayClient", return_value=mock_client),
         ):
             result = runner.invoke(
                 app,
@@ -290,7 +290,7 @@ class TestShowBeadsCLI:
                 "punt_lux.apps.beads.subprocess.run",
                 return_value=_mock_bd_result(active),
             ),
-            patch("punt_lux.client.LuxClient", return_value=mock_client),
+            patch("punt_lux.display_client.DisplayClient", return_value=mock_client),
         ):
             result = runner.invoke(
                 app,
@@ -322,7 +322,7 @@ class TestShowBeadsCLI:
                 "punt_lux.apps.beads.subprocess.run",
                 return_value=_mock_bd_result(_ISSUES),
             ),
-            patch("punt_lux.client.LuxClient", return_value=mock_client),
+            patch("punt_lux.display_client.DisplayClient", return_value=mock_client),
         ):
             result = runner.invoke(
                 app,

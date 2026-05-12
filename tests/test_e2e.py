@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from punt_lux.client import LuxClient
+from punt_lux.display_client import DisplayClient
 from punt_lux.protocol import ButtonElement, InteractionMessage, TextElement
 
 
@@ -84,7 +84,9 @@ class TestWalkingSkeleton:
         try:
             _wait_for_socket(sock_path, proc)
 
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=5.0) as client:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=5.0
+            ) as client:
                 assert client.is_connected
                 assert client.ready_message is not None
 
@@ -137,7 +139,9 @@ class TestWalkingSkeleton:
         try:
             _wait_for_socket(sock_path, proc)
 
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=5.0) as client:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=5.0
+            ) as client:
                 # Send scene with 2 buttons
                 ack = client.show(
                     "e2e-click-test",

@@ -54,7 +54,7 @@ claude plugin install lux@punt-labs
 <details>
 <summary>Lightweight install (library use only)</summary>
 
-If you only need `LuxClient` to send scenes from Python (no display server):
+If you only need `DisplayClient` to send scenes from Python (no display server):
 
 ```bash
 uv add punt-lux
@@ -107,7 +107,7 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 - **Frame auto-focus** --- frames automatically focus (brought to front) when they receive a scene update
 - **Persistent tabs** --- each `show()` call opens a dismissable tab; same `scene_id` replaces content in-place. Users can close individual tabs
 - **Themes** --- 11 themes via `set_theme`: `imgui_colors_dark`, `imgui_colors_light`, `imgui_colors_classic`, `darcula`, `darcula_darker`, `material_flat`, `photoshop_style`, `grey_flat`, `cherry`, `light_rounded`, `microsoft_style`
-- **Auto-spawn** --- `LuxClient` starts the display server on first connection if it isn't running
+- **Auto-spawn** --- `DisplayClient` starts the display server on first connection if it isn't running
 - **Unix socket IPC** --- length-prefixed JSON frames, no HTTP overhead, no threads
 
 ## MCP Tools
@@ -226,7 +226,7 @@ Window on screen
 
 The display server and MCP server are separate processes. The MCP server is a thin adapter that translates MCP tool calls into protocol messages sent over the Unix socket. The display server runs the ImGui render loop, polls the socket each frame via `select()` with zero timeout, and renders whatever scene the agent last sent.
 
-Client code can also use `LuxClient` directly as a Python library, bypassing MCP. The demos do this.
+Client code can also use `DisplayClient` directly as a Python library, bypassing MCP. The demos do this.
 
 ## Documentation
 

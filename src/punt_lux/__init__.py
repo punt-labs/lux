@@ -9,7 +9,7 @@ try:
 except PackageNotFoundError:  # pragma: no cover
     __version__ = "0.0.0"
 
-from punt_lux.client import LuxClient
+from punt_lux.display_client import DisplayClient
 from punt_lux.paths import default_socket_path, ensure_display
 from punt_lux.protocol import (
     AckMessage,
@@ -56,6 +56,9 @@ from punt_lux.protocol import (
     send_message,
 )
 
+# Backward compatibility alias
+LuxClient = DisplayClient
+
 __all__ = [
     "AckMessage",
     "ButtonElement",
@@ -64,6 +67,7 @@ __all__ = [
     "CollapsingHeaderElement",
     "ColorPickerElement",
     "ComboElement",
+    "DisplayClient",
     "DrawElement",
     "FrameReader",
     "GroupElement",

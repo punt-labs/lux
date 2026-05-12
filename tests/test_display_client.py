@@ -1,4 +1,4 @@
-"""Unit tests for punt_lux.client — LuxClient connection and messaging."""
+"""Unit tests for punt_lux.display_client — DisplayClient connection and messaging."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from punt_lux.client import LuxClient
+from punt_lux.display_client import DisplayClient
 from punt_lux.protocol import (
     AckMessage,
     ClearMessage,
@@ -33,7 +33,7 @@ from punt_lux.protocol import (
 # ---------------------------------------------------------------------------
 
 
-def _verify_closed(client: LuxClient) -> None:
+def _verify_closed(client: DisplayClient) -> None:
     """Assert client is disconnected (separate function to avoid mypy narrowing)."""
     assert not client.is_connected
     assert client.ready_message is None
@@ -78,7 +78,7 @@ class TestConnect:
         ready_event.wait(timeout=5)
 
         try:
-            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.connect()
 
             assert client.is_connected
@@ -97,7 +97,7 @@ class TestConnect:
             shutil.rmtree(short_dir, ignore_errors=True)
 
     def test_context_manager(self, tmp_path: Path) -> None:
-        """LuxClient works as a context manager."""
+        """DisplayClient works as a context manager."""
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
@@ -114,7 +114,9 @@ class TestConnect:
         ready_event.wait(timeout=5)
 
         try:
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
                 assert client.is_connected
             assert not client.is_connected
         finally:
@@ -128,7 +130,7 @@ class TestConnect:
     def test_connect_no_server_raises(self, tmp_path: Path) -> None:
         """Connecting to a nonexistent socket raises RuntimeError."""
         sock_path = tmp_path / "nonexistent.sock"
-        client = LuxClient(sock_path, auto_spawn=False)
+        client = DisplayClient(sock_path, auto_spawn=False)
         with pytest.raises(RuntimeError, match="Cannot connect"):
             client.connect()
 
@@ -150,7 +152,7 @@ class TestConnect:
         ready_event.wait(timeout=5)
 
         try:
-            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.connect()
             client.connect()  # should be a no-op
             assert client.is_connected
@@ -195,7 +197,9 @@ class TestSendMessages:
         ready_event.wait(timeout=5)
 
         try:
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
                 ack = client.show(
                     "s1",
                     elements=[TextElement(id="t1", content="Hello")],
@@ -240,7 +244,9 @@ class TestSendMessages:
         ready_event.wait(timeout=5)
 
         try:
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
                 ack = client.show(
                     "s1",
                     elements=[TextElement(id="t1", content="Hello")],
@@ -283,7 +289,9 @@ class TestSendMessages:
         ready_event.wait(timeout=5)
 
         try:
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
                 ack = client.update(
                     "s1",
                     patches=[Patch(id="t1", set={"content": "Updated"})],
@@ -319,7 +327,9 @@ class TestSendMessages:
         ready_event.wait(timeout=5)
 
         try:
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
                 client.clear()
             # Join BEFORE closing server_conn — the server thread may
             # still be inside recv_message's finally block restoring
@@ -354,7 +364,9 @@ class TestSendMessages:
         ready_event.wait(timeout=5)
 
         try:
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
                 pong = client.ping()
                 assert isinstance(pong, PongMessage)
         finally:
@@ -398,7 +410,9 @@ class TestRecvEvents:
         ready_event.wait(timeout=5)
 
         try:
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
                 msg = client.recv(timeout=2.0)
                 assert isinstance(msg, InteractionMessage)
                 assert msg.element_id == "b1"
@@ -429,7 +443,9 @@ class TestRecvEvents:
         ready_event.wait(timeout=5)
 
         try:
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
                 msg = client.recv(timeout=0.2)
                 assert msg is None
         finally:
@@ -449,19 +465,19 @@ class TestRecvEvents:
 class TestErrorHandling:
     def test_send_without_connect_raises(self) -> None:
         """Calling show() before connect() raises RuntimeError."""
-        client = LuxClient(auto_spawn=False)
+        client = DisplayClient(auto_spawn=False)
         with pytest.raises(RuntimeError, match="Not connected"):
             client.show("s1", elements=[])
 
     def test_recv_without_connect_raises(self) -> None:
         """Calling recv() before connect() raises RuntimeError."""
-        client = LuxClient(auto_spawn=False)
+        client = DisplayClient(auto_spawn=False)
         with pytest.raises(RuntimeError, match="Not connected"):
             client.recv()
 
     def test_close_without_connect_is_noop(self) -> None:
         """Calling close() without connecting doesn't crash."""
-        client = LuxClient(auto_spawn=False)
+        client = DisplayClient(auto_spawn=False)
         client.close()  # should not raise
 
 
@@ -490,9 +506,9 @@ class TestAutoSpawn:
 
         try:
             with patch(
-                "punt_lux.client.ensure_display", return_value=sock_path
+                "punt_lux.display_client.ensure_display", return_value=sock_path
             ) as mock_ensure:
-                client = LuxClient(sock_path, auto_spawn=True, connect_timeout=2.0)
+                client = DisplayClient(sock_path, auto_spawn=True, connect_timeout=2.0)
                 client.connect()
                 mock_ensure.assert_called_once_with(sock_path, timeout=2.0)
                 client.close()
@@ -536,7 +552,9 @@ class TestRegisterMenuItem:
         ready_event.wait(timeout=5)
 
         try:
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
                 client.register_menu_item({"id": "a", "label": "A"})
                 client.register_menu_item({"id": "b", "label": "B"})
             t.join(timeout=5)
@@ -579,7 +597,9 @@ class TestRegisterMenuItem:
         ready_event.wait(timeout=5)
 
         try:
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
                 client.register_menu_item({"id": "x", "label": "Old"})
                 client.register_menu_item({"id": "x", "label": "New"})
             t.join(timeout=5)
@@ -622,7 +642,7 @@ class TestRegisterMenuItem:
 
         try:
             # First connection: register an item
-            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.connect()
             client.register_menu_item({"id": "t1", "label": "Tool 1"})
             msg = recv_message(conns[0], timeout=5)
@@ -683,7 +703,7 @@ class TestBackgroundListener:
         ready_event.wait(timeout=5)
 
         try:
-            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.on_event("btn1", "click", lambda msg: received.append(msg))
             client.connect()
             client.start_listener()
@@ -735,7 +755,7 @@ class TestBackgroundListener:
         ready_event.wait(timeout=5)
 
         try:
-            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.connect()
             client.start_listener()
             # Both should arrive in _pending via recv()
@@ -775,7 +795,7 @@ class TestBackgroundListener:
         ready_event.wait(timeout=5)
 
         try:
-            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.connect()
             client.start_listener()
             ack = client.show("s1", elements=[TextElement(id="t1", content="Hello")])
@@ -822,7 +842,7 @@ class TestBackgroundListener:
         ready_event.wait(timeout=5)
 
         try:
-            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
 
             def on_trigger(msg: InteractionMessage) -> None:
                 client.show_async(
@@ -885,7 +905,7 @@ class TestBackgroundListener:
         ready_event.wait(timeout=5)
 
         try:
-            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.on_event("btn2", "click", lambda msg: received.append(msg))
             client.connect()
             client.start_listener()
@@ -958,7 +978,7 @@ class TestBackgroundListener:
         ready_event.wait(timeout=5)
 
         try:
-            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.on_event("slider1", "click", lambda msg: click_received.append(msg))
             client.connect()
             client.start_listener()
@@ -1026,7 +1046,7 @@ class TestBackgroundListener:
         ready_event.wait(timeout=5)
 
         try:
-            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
 
             def on_hello(msg: InteractionMessage) -> None:
                 client.show_async(
@@ -1081,7 +1101,7 @@ class TestBackgroundListener:
         ready_event.wait(timeout=5)
 
         try:
-            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.connect()
             client.start_listener()
             msg = client.recv(timeout=0.2)

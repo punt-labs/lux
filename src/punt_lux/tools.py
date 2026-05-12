@@ -2,7 +2,7 @@
 
 Provides FastMCP tools: ``show``, ``show_table``, ``show_dashboard``,
 ``update``, ``clear``, ``ping``, and ``recv``.
-Uses :class:`LuxClient` under the hood with lazy connection on first call.
+Uses :class:`DisplayClient` under the hood with lazy connection on first call.
 
 Run via stdio transport::
 
@@ -23,8 +23,8 @@ from typing import Any
 from fastmcp import FastMCP
 
 from punt_lux.apps.beads import render_beads_board
-from punt_lux.client import LuxClient
 from punt_lux.config import read_config, resolve_config_path, write_field
+from punt_lux.display_client import DisplayClient
 from punt_lux.paths import default_socket_path, is_display_running
 from punt_lux.protocol import (
     InteractionMessage,
@@ -109,7 +109,7 @@ mcp = FastMCP(
     lifespan=_lifespan,
 )
 
-_client: LuxClient | None = None
+_client: DisplayClient | None = None
 _client_lock = threading.RLock()
 
 _apps_registered_for: int | None = None
@@ -127,7 +127,7 @@ def _on_beads_browser(_msg: InteractionMessage) -> None:
     threading.Thread(target=render_beads_board, args=(_client,), daemon=True).start()
 
 
-def _setup_apps(client: LuxClient) -> None:
+def _setup_apps(client: DisplayClient) -> None:
     """Register built-in app menu items and callbacks.
 
     Idempotent per client identity — safe to call on every
@@ -141,8 +141,8 @@ def _setup_apps(client: LuxClient) -> None:
     _apps_registered_for = id(client)
 
 
-def _get_client() -> LuxClient:
-    """Return a connected LuxClient, creating or reconnecting as needed.
+def _get_client() -> DisplayClient:
+    """Return a connected DisplayClient, creating or reconnecting as needed.
 
     Thread-safe: holds ``_client_lock`` to prevent duplicate creation
     when called concurrently from the lifespan thread and MCP tool threads.
@@ -150,7 +150,7 @@ def _get_client() -> LuxClient:
     global _client
     with _client_lock:
         if _client is None:
-            _client = LuxClient(name="lux-mcp")
+            _client = DisplayClient(name="lux-mcp")
         _setup_apps(_client)
         if not _client.is_connected:
             _client.connect()

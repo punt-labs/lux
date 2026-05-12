@@ -38,7 +38,7 @@ The Z spec `ReceiveScene` schema sets `eventQueue' = {}` unconditionally. The co
 
 ### 2.1 `_with_reconnect` Module-Level Client Singleton Not Thread-Safe (Important)
 
-`_with_reconnect()` in `server.py:70-87` catches `OSError`, resets `_client = None`, and retries. The module-level `_client` singleton is not protected against concurrent access. FastMCP may run tools concurrently. If two concurrent tool calls both see `OSError`, both reset `_client = None`, and both call `_get_client()` which creates two `LuxClient` instances. The first connection leaks.
+`_with_reconnect()` in `tools.py:70-87` catches `OSError`, resets `_client = None`, and retries. The module-level `_client` singleton is not protected against concurrent access. FastMCP may run tools concurrently. If two concurrent tool calls both see `OSError`, both reset `_client = None`, and both call `_get_client()` which creates two `DisplayClient` instances. The first connection leaks.
 
 ### 2.2 Widget State Swap Leaves Stale Reference on Rendering Exception (Minor)
 

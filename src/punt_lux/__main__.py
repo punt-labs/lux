@@ -86,7 +86,7 @@ def display(
 @app.command()
 def serve() -> None:
     """Start the Lux MCP server (stdio transport)."""
-    from punt_lux.server import mcp
+    from punt_lux.tools import mcp
 
     mcp.run(transport="stdio")
 
@@ -162,10 +162,10 @@ def ping(
         print("Display not running")
         raise typer.Exit(code=1)
 
-    from punt_lux.client import LuxClient
+    from punt_lux.display_client import DisplayClient
 
     try:
-        with LuxClient(
+        with DisplayClient(
             str(path), name="ping", recv_timeout=timeout, auto_spawn=False
         ) as client:
             t0 = time.monotonic()

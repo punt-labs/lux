@@ -1335,7 +1335,7 @@ def _flush_events(self) -> None:
 
 ### MCP Tool: `register_tool`
 
-New MCP tool in `server.py`:
+New MCP tool in `tools.py`:
 
 ```python
 @mcp.tool()
@@ -1363,7 +1363,7 @@ def register_tool(
     return f"registered:{tool_id}"
 ```
 
-The client library gets a corresponding `register_menu_item` method that accumulates items and sends a `RegisterMenuMessage`. `LuxClient` stores registered items in `self._registered_menu_items: list[dict[str, Any]]` and replays them during `connect()` if non-empty — making re-registration after display restart automatic regardless of which code path triggers reconnect.
+The client library gets a corresponding `register_menu_item` method that accumulates items and sends a `RegisterMenuMessage`. `DisplayClient` stores registered items in `self._registered_menu_items: list[dict[str, Any]]` and replays them during `connect()` if non-empty — making re-registration after display restart automatic regardless of which code path triggers reconnect.
 
 ### Item ID Uniqueness
 
@@ -1431,7 +1431,7 @@ Five iterative slices, each a working end-to-end increment:
 |-------|------|------|
 | 1 | **Additive menu registration** — `RegisterMenuMessage` type, display stores per-client items, merges into Tools menu, cleanup on disconnect. Also: fix `message_from_dict` to return passthrough for unknown types instead of raising (partial lux-rq4). | Two test clients register items → both appear in Tools menu → disconnect one → its items vanish |
 | 2 | **Routed event delivery** — `_flush_events` routes menu clicks to owning client only | Click "Refresh Beads" → only Lux client receives the event, Vox client receives nothing |
-| 3 | **Client library + MCP tool** — `LuxClient.register_menu_item()`, `register_tool` MCP tool, `recv()` gets routed events | MCP server calls `register_tool` → item appears → click → `recv()` returns the event |
+| 3 | **Client library + MCP tool** — `DisplayClient.register_menu_item()`, `register_tool` MCP tool, `recv()` gets routed events | MCP server calls `register_tool` → item appears → click → `recv()` returns the event |
 | 4 | **First consumer: beads refresh** — Lux MCP server registers "Refresh Beads" on startup, handles the callback | Start Lux plugin → Tools > Refresh Beads → beads board refreshes |
 | 5 | **Cross-server demo** — Vox registers "Mute/Unmute", both coexist | Lux + Vox connected → Tools shows both items → clicks route correctly |
 
@@ -1638,7 +1638,7 @@ Each slice is one PR. Slice 1 is the spike — if it reveals blocking issues, th
 | Pillow | 12.5 MB |
 | PyOpenGL | 7.5 MB |
 
-Consumers like Vox and Z-Spec only need `LuxClient` + protocol types — ~15 KB of pure Python with zero heavy deps. Forcing them to pay 66 MB for a client socket library is unreasonable.
+Consumers like Vox and Z-Spec only need `DisplayClient` + protocol types — ~15 KB of pure Python with zero heavy deps. Forcing them to pay 66 MB for a client socket library is unreasonable.
 
 ### Design
 
@@ -1669,7 +1669,7 @@ The split is surgical because the existing code already practiced lazy imports:
 
 1. **`protocol.py`** — pure stdlib (json, socket, struct, dataclasses)
 2. **`paths.py`** — pure stdlib (os, subprocess, pathlib)
-3. **`client.py`** — imports only from protocol.py and paths.py
+3. **`display_client.py`** — imports only from protocol.py and paths.py
 4. **`display.py`** — imports numpy and PIL at module level, imgui_bundle in method bodies
 5. **`__main__.py`** — imports display.py lazily inside CLI command functions
 
@@ -1845,13 +1845,13 @@ DES-022 D2 established that "the display shouldn't know what a Beads Explorer is
 
 ### Containment Rules
 
-1. **`apps/` modules import only `LuxClient` and `protocol` types.** No imports from `display.py`, `hooks.py`, `server.py`, or other Lux internals. The dependency rule: host modules (`server.py`, `hooks.py`, `show.py`) import from `apps/`; `apps/` modules import only from `client` and `protocol` — never from host modules.
+1. **`apps/` modules import only `DisplayClient` and `protocol` types.** No imports from `display.py`, `hooks.py`, `tools.py`, or other Lux internals. The dependency rule: host modules (`tools.py`, `hooks.py`, `show.py`) import from `apps/`; `apps/` modules import only from `display_client` and `protocol` — never from host modules.
 
 2. **Pure data functions are testable without a display.** `load_beads()` and `build_beads_payload()` are pure functions that read files and return dicts. They can be tested, extracted, or replaced without touching the renderer.
 
-3. **Wiring lives in the host, not the app.** The MCP server (`server.py`) registers the menu item and callback. The hook dispatcher (`hooks.py`) triggers refreshes. The CLI (`show.py`) exposes the command. The app module itself has no knowledge of menus, hooks, or CLI — it just builds content and sends it to a `LuxClient`.
+3. **Wiring lives in the host, not the app.** The MCP server (`tools.py`) registers the menu item and callback. The hook dispatcher (`hooks.py`) triggers refreshes. The CLI (`show.py`) exposes the command. The app module itself has no knowledge of menus, hooks, or CLI — it just builds content and sends it to a `DisplayClient`.
 
-4. **Each app is extractable.** `apps/beads.py` is designed to move to the `punt-beads` repo as an optional Lux integration. When that happens, Lux removes `apps/beads.py` and the wiring in `server.py`/`hooks.py`/`show.py`. The beads team owns their applet; Lux provides the rendering surface.
+4. **Each app is extractable.** `apps/beads.py` is designed to move to the `punt-beads` repo as an optional Lux integration. When that happens, Lux removes `apps/beads.py` and the wiring in `tools.py`/`hooks.py`/`show.py`. The beads team owns their applet; Lux provides the rendering surface.
 
 ### Current Structure
 
@@ -1860,7 +1860,7 @@ src/punt_lux/
 ├── apps/
 │   ├── __init__.py
 │   └── beads.py          ← guest: data loading + table layout
-├── server.py             ← host: menu registration + callback wiring
+├── tools.py              ← host: menu registration + callback wiring
 ├── hooks.py              ← host: PostToolUse Bash → auto-refresh
 ├── show.py               ← host: CLI `lux show beads`
 └── display.py            ← renderer: knows nothing about beads
@@ -1870,7 +1870,7 @@ src/punt_lux/
 
 | Layer | What the host provides | What the app provides |
 |-------|----------------------|---------------------|
-| Menu | `declare_menu_item` + `on_event` callback in `server.py` | Click handler calls `render_*()` |
+| Menu | `declare_menu_item` + `on_event` callback in `tools.py` | Click handler calls `render_*()` |
 | Hook | PostToolUse matcher in `hooks.json` + dispatcher in `hooks.py` | Nothing — refresh is the host's concern |
 | CLI | `show_app.command()` in `show.py` | `load_*()` + `build_*_payload()` |
 | Display | Frame rendering (DES-022) | Nothing — the display is generic |
