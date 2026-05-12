@@ -34,12 +34,16 @@ from punt_lux.protocol import (
     element_from_dict,
 )
 from punt_lux.tools import (
+    _cleanup_session,
+    _session_key,
+    _session_menus,
     clear,
     display_mode,
     inspect_scene,
     list_scenes,
     ping,
     recv,
+    register_tool,
     screenshot,
     set_display_mode,
     set_menu,
@@ -946,3 +950,55 @@ class TestScreenshotTool:
 
         result = screenshot()
         assert result == "timeout"
+
+
+class TestSessionKey:
+    def test_default_is_local(self) -> None:
+        assert _session_key.get() == "local"
+
+    def test_set_and_reset(self) -> None:
+        token = _session_key.set("ws-42")
+        try:
+            assert _session_key.get() == "ws-42"
+        finally:
+            _session_key.reset(token)
+        assert _session_key.get() == "local"
+
+
+class TestCleanupSession:
+    def test_removes_tracked_items(self) -> None:
+        _session_menus["sess-1"] = ["tool-a", "tool-b"]
+        _cleanup_session("sess-1")
+        assert "sess-1" not in _session_menus
+
+    def test_noop_when_no_items(self) -> None:
+        _session_menus.pop("nonexistent", None)
+        _cleanup_session("nonexistent")
+        assert "nonexistent" not in _session_menus
+
+
+class TestRegisterToolSessionTracking:
+    @patch("punt_lux.tools._get_client")
+    def test_tracks_in_session_menus(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+
+        _session_menus.pop("local", None)
+        register_tool(label="Run", tool_id="run-btn")
+        assert "run-btn" in _session_menus.get("local", [])
+        # Cleanup
+        _session_menus.pop("local", None)
+
+    @patch("punt_lux.tools._get_client")
+    def test_tracks_under_custom_session_key(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+
+        token = _session_key.set("ws-99")
+        try:
+            _session_menus.pop("ws-99", None)
+            register_tool(label="Build", tool_id="build-btn")
+            assert "build-btn" in _session_menus.get("ws-99", [])
+        finally:
+            _session_key.reset(token)
+            _session_menus.pop("ws-99", None)

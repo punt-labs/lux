@@ -76,37 +76,14 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
         async with websocket_server(
             websocket.scope, websocket.receive, websocket.send
         ) as (read_stream, write_stream):
-            await _run_mcp_session(read_stream, write_stream)
+            from punt_lux.tools import run_mcp_session
+
+            await run_mcp_session(read_stream, write_stream, session_key=session_key)
     except Exception:
         logger.exception("MCP WebSocket error: session_key=%s", session_key)
     finally:
         _active_sessions.discard(session_key)
         logger.info("MCP WebSocket disconnected: session_key=%s", session_key)
-
-
-async def _run_mcp_session(
-    read_stream: object,
-    write_stream: object,
-) -> None:
-    """Run an MCP session on the given streams.
-
-    Accesses FastMCP's internal ``_mcp_server`` to run a per-WebSocket
-    session, following Quarry's established pattern.
-    """
-    from punt_lux.tools import mcp
-
-    server = getattr(mcp, "_mcp_server", None)
-    if server is None:
-        msg = (
-            "FastMCP._mcp_server not found. "
-            "This private API may have changed; check fastmcp version."
-        )
-        raise RuntimeError(msg)
-    await server.run(
-        read_stream,
-        write_stream,
-        server.create_initialization_options(),
-    )
 
 
 # ---------------------------------------------------------------------------
