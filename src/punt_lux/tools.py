@@ -2,7 +2,7 @@
 
 Provides FastMCP tools: ``show``, ``show_table``, ``show_dashboard``,
 ``update``, ``clear``, ``ping``, and ``recv``.
-Uses :class:`LuxClient` under the hood with lazy connection on first call.
+Uses :class:`DisplayClient` under the hood with lazy connection on first call.
 
 Run via stdio transport::
 
@@ -18,13 +18,21 @@ import logging
 import threading
 import time
 from collections.abc import AsyncGenerator, Callable
-from typing import Any
+from contextvars import ContextVar
+from typing import TYPE_CHECKING, Any
 
 from fastmcp import FastMCP
 
+if TYPE_CHECKING:
+    from anyio.streams.memory import (
+        MemoryObjectReceiveStream,
+        MemoryObjectSendStream,
+    )
+    from mcp.shared.message import SessionMessage
+
 from punt_lux.apps.beads import render_beads_board
-from punt_lux.client import LuxClient
 from punt_lux.config import read_config, resolve_config_path, write_field
+from punt_lux.display_client import DisplayClient
 from punt_lux.paths import default_socket_path, is_display_running
 from punt_lux.protocol import (
     InteractionMessage,
@@ -109,10 +117,65 @@ mcp = FastMCP(
     lifespan=_lifespan,
 )
 
-_client: LuxClient | None = None
+_client: DisplayClient | None = None
 _client_lock = threading.RLock()
 
 _apps_registered_for: int | None = None
+
+# -- Per-session state for hub mode ----------------------------------------
+
+_session_key: ContextVar[str] = ContextVar("session_key", default="local")
+
+# Tracks menu items registered by each session for cleanup on disconnect.
+_session_menus: dict[str, list[str]] = {}
+
+
+def _cleanup_session(session_key: str) -> None:
+    """Clean up state when a session disconnects.
+
+    Best-effort: DisplayClient has no unregister_menu_item method, so
+    menu cleanup logs and skips.  The display server handles per-client
+    cleanup on disconnect anyway.
+    """
+    with _client_lock:
+        items = _session_menus.pop(session_key, [])
+    if items:
+        logger.debug(
+            "Session %s disconnected; %d menu items orphaned (display handles cleanup)",
+            session_key,
+            len(items),
+        )
+
+
+async def run_mcp_session(
+    read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
+    write_stream: MemoryObjectSendStream[SessionMessage],
+    session_key: str = "local",
+) -> None:
+    """Run an MCP session on the given read/write streams.
+
+    Called by hub.py for each WebSocket connection.
+    Sets ``_session_key`` ContextVar for per-session state isolation.
+    """
+    token = _session_key.set(session_key)
+    try:
+        # FastMCP private API — verify on fastmcp upgrades.
+        # Quarry uses the same pattern (quarry/http_server.py).
+        server = getattr(mcp, "_mcp_server", None)
+        if server is None:
+            msg = (
+                "FastMCP._mcp_server not found. "
+                "This private API may have changed; check fastmcp version."
+            )
+            raise RuntimeError(msg)
+        await server.run(
+            read_stream,
+            write_stream,
+            server.create_initialization_options(),
+        )
+    finally:
+        _session_key.reset(token)
+        _cleanup_session(session_key)
 
 
 def _on_beads_browser(_msg: InteractionMessage) -> None:
@@ -127,7 +190,7 @@ def _on_beads_browser(_msg: InteractionMessage) -> None:
     threading.Thread(target=render_beads_board, args=(_client,), daemon=True).start()
 
 
-def _setup_apps(client: LuxClient) -> None:
+def _setup_apps(client: DisplayClient) -> None:
     """Register built-in app menu items and callbacks.
 
     Idempotent per client identity — safe to call on every
@@ -141,8 +204,8 @@ def _setup_apps(client: LuxClient) -> None:
     _apps_registered_for = id(client)
 
 
-def _get_client() -> LuxClient:
-    """Return a connected LuxClient, creating or reconnecting as needed.
+def _get_client() -> DisplayClient:
+    """Return a connected DisplayClient, creating or reconnecting as needed.
 
     Thread-safe: holds ``_client_lock`` to prevent duplicate creation
     when called concurrently from the lifespan thread and MCP tool threads.
@@ -150,7 +213,7 @@ def _get_client() -> LuxClient:
     global _client
     with _client_lock:
         if _client is None:
-            _client = LuxClient(name="lux-mcp")
+            _client = DisplayClient(name="lux-mcp")
         _setup_apps(_client)
         if not _client.is_connected:
             _client.connect()
@@ -601,6 +664,9 @@ def register_tool(
     def _call() -> str:
         client = _get_client()
         client.register_menu_item(item)
+        with _client_lock:
+            key = _session_key.get()
+            _session_menus.setdefault(key, []).append(tool_id)
         return f"registered:{tool_id}"
 
     return _with_reconnect(_call)

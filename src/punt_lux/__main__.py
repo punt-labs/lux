@@ -86,7 +86,7 @@ def display(
 @app.command()
 def serve() -> None:
     """Start the Lux MCP server (stdio transport)."""
-    from punt_lux.server import mcp
+    from punt_lux.tools import mcp
 
     mcp.run(transport="stdio")
 
@@ -162,10 +162,10 @@ def ping(
         print("Display not running")
         raise typer.Exit(code=1)
 
-    from punt_lux.client import LuxClient
+    from punt_lux.display_client import DisplayClient
 
     try:
-        with LuxClient(
+        with DisplayClient(
             str(path), name="ping", recv_timeout=timeout, auto_spawn=False
         ) as client:
             t0 = time.monotonic()
@@ -368,6 +368,145 @@ def doctor(
 
     if failed > 0:
         raise typer.Exit(code=1)
+
+
+@app.command("hub-install")
+def hub_install() -> None:
+    """Register luxd as a system service (launchd/systemd)."""
+    from punt_lux.service import install as service_install
+
+    print(service_install())
+
+
+@app.command("hub-uninstall")
+def hub_uninstall() -> None:
+    """Remove luxd system service."""
+    from punt_lux.service import uninstall as service_uninstall
+
+    print(service_uninstall())
+
+
+def _restart_hub() -> None:
+    """Send SIGTERM and wait for the service manager to respawn luxd."""
+    import os as _os
+    import signal
+    import time
+
+    from punt_lux.paths import hub_pid_path, is_hub_running, read_hub_port
+
+    pid_path = hub_pid_path()
+    try:
+        old_pid = int(pid_path.read_text().strip())
+        _os.kill(old_pid, signal.SIGTERM)
+        print(f"Sent SIGTERM to luxd (pid {old_pid}), waiting for restart...")
+    except (ValueError, OSError) as exc:
+        print(f"Could not signal luxd: {exc}")
+        raise typer.Exit(code=1) from None
+
+    # Wait for old process to die
+    for _ in range(20):  # 10 seconds
+        time.sleep(0.5)
+        try:
+            _os.kill(old_pid, 0)
+        except ProcessLookupError:
+            break  # Old process is gone
+        except PermissionError:
+            break  # Can't check, assume dead
+    else:
+        print(f"luxd (pid {old_pid}) did not stop within 10s")
+        raise typer.Exit(code=1)
+
+    # Wait for launchd/systemd to respawn with a new PID
+    for _ in range(20):  # 10 seconds
+        time.sleep(0.5)
+        if not is_hub_running():
+            continue
+        try:
+            new_pid = int(pid_path.read_text().strip())
+        except (ValueError, OSError):
+            continue
+        if new_pid == old_pid:
+            continue
+        port = read_hub_port()
+        if port is not None:
+            print(f"luxd restarted (pid {new_pid}, port {port})")
+        else:
+            print(f"luxd restarted (pid {new_pid}, port file not yet written)")
+        return
+    print("luxd did not restart within 10s")
+    raise typer.Exit(code=1)
+
+
+@app.command("ensure-hub")
+def ensure_hub(
+    restart: bool = typer.Option(False, "--restart", help="Restart luxd if running"),
+) -> None:
+    """Ensure luxd is running. Restart if --restart flag is set."""
+    from punt_lux.paths import is_hub_running, read_hub_port
+
+    if restart and is_hub_running():
+        _restart_hub()
+        return
+
+    if is_hub_running():
+        port = read_hub_port()
+        if port is not None:
+            print(f"luxd running (port {port})")
+        else:
+            print("luxd running (port unknown)")
+    else:
+        print("luxd not running. Run 'lux hub-install' to register the service.")
+        raise typer.Exit(code=1)
+
+
+@app.command("hub-status")
+def hub_status() -> None:
+    """Show luxd hub status."""
+    import json
+    import urllib.request
+
+    from punt_lux.paths import hub_pid_path, is_hub_running, read_hub_port
+
+    if not is_hub_running():
+        print("luxd not running")
+        raise typer.Exit(code=1)
+
+    pid_path = hub_pid_path()
+    try:
+        pid = int(pid_path.read_text().strip())
+    except (ValueError, OSError):
+        pid = None
+
+    port = read_hub_port()
+    if port is None:
+        print(f"luxd running (pid {pid}) but port file unreadable")
+        raise typer.Exit(code=1)
+
+    # Try to hit the health endpoint
+    try:
+        url = f"http://127.0.0.1:{port}/health"
+        with urllib.request.urlopen(url, timeout=2) as resp:  # noqa: S310
+            data = json.loads(resp.read())
+        sessions = data.get("sessions", 0)
+        print(f"luxd running (pid {pid}, port {port})")
+        print(f"  sessions: {sessions}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"luxd running (pid {pid}, port {port}) but health check failed: {exc}")
+
+
+@app.command("setup-proxy")
+def setup_proxy(
+    url: str = typer.Option(
+        "ws://127.0.0.1:8430/mcp",
+        "--url",
+        help="WebSocket URL for luxd",
+    ),
+) -> None:
+    """Write mcp-proxy config for luxd."""
+    from punt_lux.remote import MCP_PROXY_CONFIG_PATH, write_proxy_config
+
+    write_proxy_config(url)
+    print(f"Wrote {MCP_PROXY_CONFIG_PATH}")
 
 
 @app.command()

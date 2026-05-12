@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 from punt_lux import decode_frame, encode_frame
-from punt_lux.client import LuxClient
+from punt_lux.display_client import DisplayClient
 from punt_lux.protocol import (
     AckMessage,
     ReadyMessage,
@@ -177,7 +177,9 @@ class TestRapidSceneUpdates:
         assert ready_event.wait(timeout=5)
 
         try:
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
                 acked_ids: list[str] = []
                 for seq in range(NUM_RAPID_SCENES):
                     scene_id = f"s{seq}"
@@ -223,7 +225,9 @@ class TestRapidSceneUpdates:
 
         try:
             t0 = time.monotonic()
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
                 for seq in range(NUM_RAPID_SCENES):
                     ack = client.show(
                         f"s{seq}",
@@ -273,7 +277,7 @@ class TestGracefulDisconnection:
         assert ready_event.wait(timeout=5)
 
         try:
-            client = LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.connect()
             assert client.is_connected
             client.close()
@@ -307,7 +311,9 @@ class TestGracefulDisconnection:
         assert ready_event.wait(timeout=5)
 
         try:
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
                 client_connected.set()
                 msg = client.recv(timeout=2.0)
                 assert msg is None
@@ -326,7 +332,7 @@ class TestReconnection:
 
     @pytest.mark.integration
     def test_reconnect_after_server_restart(self) -> None:
-        """A new LuxClient connects after the server restarts."""
+        """A new DisplayClient connects after the server restarts."""
         short_dir, sock_path = _short_sock_path()
         server_conn_1: socket.socket | None = None
         server_conn_2: socket.socket | None = None
@@ -350,7 +356,9 @@ class TestReconnection:
             t1.start()
             assert ready1.wait(timeout=5)
 
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client1:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client1:
                 ack = client1.show(
                     "s1",
                     elements=[TextElement(id="t1", content="first")],
@@ -383,7 +391,9 @@ class TestReconnection:
             t2.start()
             assert ready2.wait(timeout=5)
 
-            with LuxClient(sock_path, auto_spawn=False, connect_timeout=2.0) as client2:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client2:
                 ack = client2.show(
                     "s2",
                     elements=[TextElement(id="t1", content="second")],

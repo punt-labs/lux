@@ -10,7 +10,7 @@ Public API:
     load_beads           — fetch and filter issues via ``bd list --json``
     build_beads_payload  — build a table element dict from issue data
     build_beads_elements — build display elements from issue data
-    render_beads_board   — send the beads table to a LuxClient
+    render_beads_board   — send the beads table to a DisplayClient
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any, cast
 from punt_lux.protocol import Element, TextElement, element_from_dict
 
 if TYPE_CHECKING:
-    from punt_lux.client import LuxClient
+    from punt_lux.display_client import DisplayClient
 
 # ---------------------------------------------------------------------------
 # Data loading
@@ -179,14 +179,14 @@ def build_beads_payload(
 
 
 # ---------------------------------------------------------------------------
-# Rendering (uses LuxClient — the only Lux dependency)
+# Rendering (uses DisplayClient — the only Lux dependency)
 # ---------------------------------------------------------------------------
 
 
 def build_beads_elements(issues: list[dict[str, Any]]) -> list[Element]:
     """Build display elements for a beads issue list.
 
-    Returns a list of protocol elements ready to pass to ``LuxClient.show()``.
+    Returns a list of protocol elements ready to pass to ``DisplayClient.show()``.
     If *issues* is empty, returns a placeholder text element.
     """
     if not issues:
@@ -207,7 +207,7 @@ def build_beads_elements(issues: list[dict[str, Any]]) -> list[Element]:
     return [table]
 
 
-def render_beads_board(client: LuxClient) -> None:
+def render_beads_board(client: DisplayClient) -> None:
     """Send the beads issue board to the display via *client*.
 
     Fetches live data from DoltDB via ``bd list --json``.  If the command

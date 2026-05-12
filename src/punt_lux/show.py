@@ -1,7 +1,7 @@
 """CLI subcommands for ``lux show`` — pre-built display scenes.
 
 Each command reads local data, builds a scene payload, and sends it
-to the display server via :class:`LuxClient`.  No MCP round-trip,
+to the display server via :class:`DisplayClient`.  No MCP round-trip,
 no LLM in the loop.
 """
 
@@ -33,7 +33,7 @@ def beads(
     all_issues: bool = typer.Option(False, "--all", "-a", help="Include closed issues"),
 ) -> None:
     """Display the beads issue board in the Lux window."""
-    from punt_lux.client import LuxClient
+    from punt_lux.display_client import DisplayClient
     from punt_lux.paths import default_socket_path
 
     issues = load_beads(all_issues=all_issues)
@@ -42,7 +42,7 @@ def beads(
     sock_path = Path(socket) if socket else default_socket_path()
     elements = build_beads_elements(issues)
 
-    with LuxClient(sock_path, name="lux-beads") as client:
+    with DisplayClient(sock_path, name="lux-beads") as client:
         ack = client.show(
             f"beads-{project}",
             elements,
