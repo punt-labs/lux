@@ -934,7 +934,9 @@ dependencies = [
     { name = "fastmcp" },
     { name = "pydantic" },
     { name = "rich" },
+    { name = "starlette" },
     { name = "typer" },
+    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
@@ -972,7 +974,9 @@ requires-dist = [
     { name = "rich", specifier = ">=13.0.0,<14" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.13.0" },
     { name = "setproctitle", marker = "extra == 'display'", specifier = ">=1.3.0" },
+    { name = "starlette", specifier = ">=0.46.0" },
     { name = "typer", specifier = ">=0.15.0,<1" },
+    { name = "uvicorn", specifier = ">=0.34.0" },
 ]
 provides-extras = ["display", "dev"]
 
