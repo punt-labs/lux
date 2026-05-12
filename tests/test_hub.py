@@ -18,7 +18,7 @@ class TestHealthRoute:
         data = resp.json()
         assert data["status"] == "ok"
         assert data["sessions"] == 0
-        assert data["display"] is False
+        assert "display" not in data
 
     def test_session_count_reflects_active(self):
         """Verify the health endpoint reports _active_sessions count."""

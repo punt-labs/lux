@@ -137,7 +137,8 @@ def _cleanup_session(session_key: str) -> None:
     menu cleanup logs and skips.  The display server handles per-client
     cleanup on disconnect anyway.
     """
-    items = _session_menus.pop(session_key, [])
+    with _client_lock:
+        items = _session_menus.pop(session_key, [])
     if items:
         logger.debug(
             "Session %s disconnected; %d menu items orphaned (display handles cleanup)",
@@ -158,9 +159,8 @@ async def run_mcp_session(
     """
     token = _session_key.set(session_key)
     try:
-        # Access private attribute via getattr to satisfy pyright's
-        # reportPrivateUsage — this is the documented FastMCP pattern
-        # for running per-connection sessions (see quarry, hub.py).
+        # FastMCP private API — verify on fastmcp upgrades.
+        # Quarry uses the same pattern (quarry/http_server.py).
         server = getattr(mcp, "_mcp_server", None)
         if server is None:
             msg = (
@@ -664,8 +664,9 @@ def register_tool(
     def _call() -> str:
         client = _get_client()
         client.register_menu_item(item)
-        key = _session_key.get()
-        _session_menus.setdefault(key, []).append(tool_id)
+        with _client_lock:
+            key = _session_key.get()
+            _session_menus.setdefault(key, []).append(tool_id)
         return f"registered:{tool_id}"
 
     return _with_reconnect(_call)

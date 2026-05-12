@@ -42,9 +42,10 @@ def _luxd_exec_args() -> list[str]:
     """
     local_bin = Path.home() / ".local" / "bin" / "luxd"
     if local_bin.exists():
-        resolved = local_bin.resolve()
-        logger.info("Service binary: %s (uv tool)", resolved)
-        return [str(resolved), "--port", str(DEFAULT_HUB_PORT)]
+        # Use the symlink path, not resolve() — the symlink is the stable
+        # contract that survives uv tool upgrade.
+        logger.info("Service binary: %s (uv tool)", local_bin)
+        return [str(local_bin), "--port", str(DEFAULT_HUB_PORT)]
 
     msg = (
         "Cannot find luxd binary at ~/.local/bin/luxd. "
@@ -93,6 +94,9 @@ def _launchd_plist_content() -> str:
 
 def _launchd_install() -> None:
     """Write the plist and load luxd into launchd."""
+    from punt_lux.paths import hub_log_dir
+
+    hub_log_dir().mkdir(parents=True, exist_ok=True)
     _LAUNCHD_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
 
     # Unload any existing service first -- handles upgrades where the
@@ -140,10 +144,18 @@ def _launchd_install() -> None:
 def _launchd_uninstall() -> None:
     """Unload luxd from launchd and remove the plist."""
     if _LAUNCHD_PLIST.exists():
-        subprocess.run(
+        result = subprocess.run(
             ["launchctl", "unload", "-w", str(_LAUNCHD_PLIST)],
+            capture_output=True,
+            text=True,
             check=False,
         )
+        if result.returncode != 0:
+            logger.warning(
+                "launchctl unload failed (rc=%d): %s",
+                result.returncode,
+                result.stderr.strip(),
+            )
         _LAUNCHD_PLIST.unlink()
         logger.info("Removed %s", _LAUNCHD_PLIST)
     else:
@@ -200,7 +212,23 @@ def _systemd_unit_content() -> str:
 def _systemd_install() -> None:
     """Write the unit file, reload systemd, and enable+start luxd."""
     _SYSTEMD_DIR.mkdir(parents=True, exist_ok=True)
-    _SYSTEMD_UNIT.write_text(_systemd_unit_content())
+    content = _systemd_unit_content()
+    tmp_path = _SYSTEMD_UNIT.with_name(_SYSTEMD_UNIT.name + ".tmp")
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+    fd = os.open(str(tmp_path), flags, 0o600)
+    try:
+        f = os.fdopen(fd, "w")
+    except BaseException:
+        os.close(fd)
+        tmp_path.unlink(missing_ok=True)
+        raise
+    try:
+        with f:
+            f.write(content)
+        tmp_path.replace(_SYSTEMD_UNIT)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
     logger.info("Wrote %s", _SYSTEMD_UNIT)
 
     subprocess.run(
@@ -304,8 +332,12 @@ def uninstall() -> str:
 
 def _has_linger() -> bool:
     """Check if loginctl linger is enabled for the current user (Linux only)."""
+    try:
+        user = os.getlogin()
+    except OSError:
+        return True  # Can't check; don't warn
     result = subprocess.run(
-        ["loginctl", "show-user", os.getlogin(), "--property=Linger"],
+        ["loginctl", "show-user", user, "--property=Linger"],
         capture_output=True,
         text=True,
     )

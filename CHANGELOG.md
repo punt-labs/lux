@@ -13,6 +13,22 @@
 
 ### Added
 
+- **`luxd` session hub daemon** — WebSocket server (Starlette + uvicorn) that
+  multiplexes MCP sessions onto a single display connection. Phase 1 of the
+  distributed architecture: `/mcp` endpoint for mcp-proxy, `/health` for
+  monitoring, CSWSH protection, session tracking. Managed by launchd (macOS)
+  or systemd (Linux) with `KeepAlive=true`.
+
+- **Hub CLI commands** — `lux hub-install`, `lux hub-uninstall`,
+  `lux ensure-hub` (with `--restart`), `lux hub-status`, `lux setup-proxy`.
+
+- **Session multiplexing in MCP tools** — `_session_key` ContextVar for
+  per-session state isolation. Per-session menu registration tracking with
+  cleanup on WebSocket disconnect. `run_mcp_session()` entry point for hub.
+
+- **mcp-proxy config management** — `remote.py` reads/writes
+  `~/.punt-labs/mcp-proxy/lux.toml` with atomic writes and 0600 permissions.
+
 - **`inspect_scene` MCP tool** — query the display server for a scene's element
   tree as JSON. Enables agent self-debugging: see exactly what elements are
   rendered for a given scene_id without human intervention. Inspired by

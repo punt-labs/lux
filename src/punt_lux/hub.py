@@ -7,6 +7,7 @@ connection is one Claude Code session, identified by ?session_key=<pid>.
 from __future__ import annotations
 
 import logging
+import os
 import re
 from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
@@ -30,8 +31,9 @@ DEFAULT_HUB_PORT = 8430
 
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
 
+_ALLOWED_ORIGINS = frozenset({"http://localhost", "http://127.0.0.1"})
+
 _active_sessions: set[str] = set()
-_display_connected: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -45,7 +47,6 @@ async def _health_route(request: Request) -> JSONResponse:  # noqa: ARG001
         {
             "status": "ok",
             "sessions": len(_active_sessions),
-            "display": _display_connected,
         }
     )
 
@@ -58,17 +59,19 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
     """
     from mcp.server.websocket import websocket_server
 
-    # Reject cross-site WebSocket hijacking (CSWSH). Browsers always send
-    # an Origin header on WebSocket upgrades; non-browser clients (mcp-proxy)
-    # do not. If an Origin is present it must match the allowed CORS origins.
-    origin = websocket.headers.get("Origin")
-    if origin is not None:
-        await websocket.close(code=1008)
-        return
-
     # Sanitize user-controlled value before logging (CWE-117).
     raw_key = websocket.query_params.get("session_key", "unknown")
     session_key = _CONTROL_CHAR_RE.sub("", raw_key)[:64]
+
+    # Reject cross-site WebSocket hijacking (CSWSH). Browsers always send
+    # an Origin header on WebSocket upgrades; non-browser clients (mcp-proxy)
+    # do not. Allowlist localhost origins for Electron-based editors.
+    origin = websocket.headers.get("Origin")
+    if origin is not None and origin not in _ALLOWED_ORIGINS:
+        logger.warning("Rejected CSWSH: Origin=%s, session_key=%s", origin, session_key)
+        await websocket.close(code=1008)
+        return
+
     logger.info("MCP WebSocket connected: session_key=%s", session_key)
 
     _active_sessions.add(session_key)
@@ -156,14 +159,16 @@ def serve(
     port: int = DEFAULT_HUB_PORT,
 ) -> None:
     """Start the luxd hub. Blocks until shutdown."""
-    from punt_lux.paths import hub_port_path
+    from punt_lux.paths import hub_pid_path, hub_port_path
 
+    pid_path = hub_pid_path()
     port_path = hub_port_path()
 
     @asynccontextmanager
     async def lifespan(_app: Starlette) -> AsyncGenerator[None]:
         yield
         _remove_port_file(port_path)
+        pid_path.unlink(missing_ok=True)
 
     app = build_app(lifespan=lifespan)
 
@@ -188,7 +193,11 @@ def serve(
         if server.servers and server.servers[0].sockets:
             actual_port = server.servers[0].sockets[0].getsockname()[1]
             _write_port_file(port_path, actual_port)
-            logger.info("luxd listening on %s:%d", host, actual_port)
+            pid_path.parent.mkdir(parents=True, exist_ok=True)
+            pid_path.write_text(str(os.getpid()))
+            logger.info(
+                "luxd listening on %s:%d (pid %d)", host, actual_port, os.getpid()
+            )
         else:
             logger.error("Server started but no bound sockets; port file not written")
 

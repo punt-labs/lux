@@ -5,11 +5,14 @@ Shared between the display server and client — no ImGui dependency.
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import sys
 import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 def default_socket_path() -> Path:
@@ -135,7 +138,8 @@ def read_hub_port() -> int | None:
         return None
     try:
         return int(path.read_text().strip())
-    except (ValueError, OSError):
+    except (ValueError, OSError) as exc:
+        logger.warning("Could not read hub port from %s: %s", path, exc)
         return None
 
 

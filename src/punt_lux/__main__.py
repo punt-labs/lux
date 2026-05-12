@@ -412,14 +412,20 @@ def ensure_hub(
             time.sleep(0.5)
             if is_hub_running():
                 port = read_hub_port()
-                print(f"luxd restarted (port {port})")
+                if port is not None:
+                    print(f"luxd restarted (port {port})")
+                else:
+                    print("luxd restarted (port file not yet written)")
                 return
         print("luxd did not restart within 10s")
         raise typer.Exit(code=1)
 
     if is_hub_running():
         port = read_hub_port()
-        print(f"luxd running (port {port})")
+        if port is not None:
+            print(f"luxd running (port {port})")
+        else:
+            print("luxd running (port unknown)")
     else:
         print("luxd not running. Run 'lux hub-install' to register the service.")
         raise typer.Exit(code=1)
@@ -437,12 +443,16 @@ def hub_status() -> None:
         print("luxd not running")
         raise typer.Exit(code=1)
 
-    port = read_hub_port()
     pid_path = hub_pid_path()
     try:
         pid = int(pid_path.read_text().strip())
     except (ValueError, OSError):
         pid = None
+
+    port = read_hub_port()
+    if port is None:
+        print(f"luxd running (pid {pid}) but port file unreadable")
+        raise typer.Exit(code=1)
 
     # Try to hit the health endpoint
     try:
@@ -450,12 +460,10 @@ def hub_status() -> None:
         with urllib.request.urlopen(url, timeout=2) as resp:  # noqa: S310
             data = json.loads(resp.read())
         sessions = data.get("sessions", 0)
-        display = data.get("display", False)
         print(f"luxd running (pid {pid}, port {port})")
         print(f"  sessions: {sessions}")
-        print(f"  display: {'connected' if display else 'not connected'}")
-    except Exception:  # noqa: BLE001
-        print(f"luxd running (pid {pid}, port {port}) but health check failed")
+    except Exception as exc:  # noqa: BLE001
+        print(f"luxd running (pid {pid}, port {port}) but health check failed: {exc}")
 
 
 @app.command("setup-proxy")
