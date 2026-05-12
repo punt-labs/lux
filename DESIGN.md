@@ -1926,27 +1926,45 @@ Protocol: `ScreenshotRequest` / `ScreenshotResponse` following the introspect re
 
 6. **`pyobjc-framework-Quartz`** added to `[display]` extras for the CG approach but not yet successfully used.
 
-### What we don't know
+### Source investigation (hello_imgui C++)
 
-1. **Whether hello_imgui uses an intermediate FBO.** The docking system may render ImGui content to a framebuffer object that is then composited onto the default framebuffer. If so, `glReadPixels` on the default framebuffer would see only the background clear color — which matches our observations. **This is the primary open question.** The imgui-bundle source at `~/Coding/imgui/` is raw Dear ImGui (no hello_imgui). The hello_imgui FBO pipeline needs to be traced in the imgui-bundle package source.
+Read `~/Coding/hello_imgui/` source:
 
-2. **Whether there is a post-render, pre-swap callback** in hello_imgui that fires after `ImGui_ImplOpenGL3_RenderDrawData()` but before `glfwSwapBuffers()`. The `after_swap` callback fires too late (front buffer only has the composited result without widget content). The `before_imgui_render` callback fires too early.
+1. **`AppWindowScreenshotRgbBuffer()` exists** (`hello_imgui_screenshot.h:25`). This is a **runtime** screenshot function — distinct from `FinalAppWindowScreenshotRgbBuffer()` which only works at exit. It calls `GetAbstractRunner()->ScreenshotRgb()`.
 
-3. **Whether `CGWindowListCreateImage` works from a background thread** spawned by the render thread. The hang may be a main-thread-only restriction or a deadlock from calling Quartz APIs during the GL render loop.
+2. **`OpenglScreenshotRgb()`** (`opengl_screenshot.cpp:14`) is the GL implementation. It calls `glReadPixels` on `GL_RGB` with dimensions from `ImGui::GetDrawData()->FramebufferScale`. It has an explicit assert: "Cannot be called from show_gui() since that runs between NewFrame and Render."
+
+3. **The render loop order** (`abstract_runner.cpp:1240-1427`):
+   ```
+   ImGui::Render()                          // line 1240
+   Impl_RenderDrawData_To_3D()              // line 1241 — GL draws
+   Impl_SwapBuffers()                       // line 1247
+   AfterSwap() callback                     // line 1427
+   ```
+   The screenshot must happen between `RenderDrawData` (1241) and `SwapBuffers` (1247). There is NO callback at that exact point. `BeforeImGuiRender` fires before line 1240 (too early). `AfterSwap` fires after line 1247 (back buffer is gone).
+
+4. **`AppWindowScreenshotRgbBuffer` is not exposed in Python.** Only `final_app_window_screenshot` and `final_app_window_screenshot_framebuffer_scale` are bound. The runtime function exists in C++ but has no Python binding in imgui-bundle 1.92.600.
+
+### Root cause
+
+`glReadPixels` from any callback available to us reads an empty or partially-composited buffer because the actual widget rendering (`ImGui_ImplOpenGL3_RenderDrawData`) happens after our `show_gui` callback returns and before the next callback we can hook. The `after_swap` callback is too late — the back buffer was swapped.
 
 ### Rejected approaches
 
 | Approach | Why rejected |
 |----------|-------------|
-| Force `RendererBackendType.open_gl3` | Changes the entire rendering pipeline for one feature |
+| `glReadPixels` from `show_gui` | Too early — between NewFrame and Render, back buffer empty |
+| `glReadPixels` from `after_swap` | Too late — back buffer swapped, front has incomplete content |
+| `GL_FRONT` after swap | Captures background/chrome but not widget content |
+| Force `RendererBackendType.open_gl3` | Unnecessary (already using GL3) and changes rendering for one feature |
 | `final_app_window_screenshot()` at runtime | Only works after `run()` exits |
-| `CGWindowListCreateImage` on render thread | Hangs |
-| `screencapture -l` shell-out | User rejected shell-out approach |
+| `CGWindowListCreateImage` on render thread | Hangs (Quartz APIs deadlock during GL render loop) |
+| `screencapture -l` shell-out | Shell-out is not the right approach |
 
-### Next steps
+### Path forward
 
-1. **Read the imgui-bundle hello_imgui source** to understand the FBO pipeline. Specifically: does `immapp.run` use an intermediate FBO for docking, and if so, how does `final_app_window_screenshot` read it at exit?
+1. **Request Python binding for `AppWindowScreenshotRgbBuffer()`** from imgui-bundle. Open an issue or PR at `pthom/imgui_bundle`. This is the correct API — it exists in C++, handles the timing correctly, and works on all backends.
 
-2. **Try `CGWindowListCreateImage` from a background thread** with the result communicated back to the render thread via a queue. This is the OS-level capture approach that works regardless of rendering backend.
+2. **Alternative: add a `before_swap` or `post_render` callback to hello_imgui** that fires between `RenderDrawData` and `SwapBuffers`. This would let us call `glReadPixels` at the right time without needing the C++ screenshot function.
 
-3. **Investigate `backend_pointers`** — `hello_imgui.RunnerParams.backend_pointers` may expose the GL context or FBO IDs needed to read the correct buffer.
+3. **Alternative: `CGWindowListCreateImage` from a background thread** with the result communicated back via queue. The hang on the render thread may be a main-thread-only Quartz restriction. This is the OS-level approach that works regardless of GL timing.
