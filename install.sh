@@ -101,7 +101,54 @@ fi
 
 ok "$BINARY $(command -v "$BINARY")"
 
-# --- Step 5: Register marketplace ---
+# --- Step 5: Install mcp-proxy ---
+
+info "Checking mcp-proxy..."
+
+if command -v mcp-proxy >/dev/null 2>&1; then
+  ok "mcp-proxy already installed"
+else
+  info "Installing mcp-proxy..."
+  curl -fsSL https://github.com/punt-labs/mcp-proxy/releases/latest/download/install.sh | sh
+  if ! command -v mcp-proxy >/dev/null 2>&1; then
+    export PATH="$HOME/.local/bin:$PATH"
+    if ! command -v mcp-proxy >/dev/null 2>&1; then
+      warn "mcp-proxy install failed -- plugin will use direct stdio fallback"
+    else
+      ok "mcp-proxy installed"
+    fi
+  else
+    ok "mcp-proxy installed"
+  fi
+fi
+
+# --- Step 6: Register luxd service ---
+
+info "Registering luxd service..."
+"$BINARY" hub-install || warn "Failed to register luxd service -- proxy mode may not work"
+
+# --- Step 7: Health-check luxd ---
+
+info "Waiting for luxd..."
+_i=0
+while [ $_i -lt 10 ]; do
+  if curl -fs http://127.0.0.1:8430/health >/dev/null 2>&1; then
+    ok "luxd running"
+    break
+  fi
+  sleep 2
+  _i=$((_i + 1))
+done
+if [ $_i -eq 10 ]; then
+  warn "luxd did not respond after 20s -- proxy mode may not work"
+fi
+
+# --- Step 8: Configure mcp-proxy ---
+
+info "Configuring mcp-proxy for lux..."
+"$BINARY" setup-proxy || warn "Failed to write proxy config -- plugin will use direct stdio fallback"
+
+# --- Step 9: Register marketplace ---
 
 info "Registering Punt Labs marketplace..."
 
@@ -113,7 +160,7 @@ else
   ok "marketplace registered"
 fi
 
-# --- Step 6: SSH fallback for plugin install ---
+# --- Step 10: SSH fallback for plugin install ---
 
 # claude plugin install clones via SSH (git@github.com:...).
 # Users without SSH keys need an HTTPS fallback.
@@ -132,7 +179,7 @@ if ! ssh -n -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ConnectTimeo
   NEED_HTTPS_REWRITE=1
 fi
 
-# --- Step 7: Install or upgrade plugin ---
+# --- Step 11: Install or upgrade plugin ---
 
 info "Installing $PLUGIN_NAME plugin..."
 
@@ -149,7 +196,7 @@ ok "$PLUGIN_NAME plugin installed"
 
 cleanup_https_rewrite
 
-# --- Step 8: Verify ---
+# --- Step 12: Verify ---
 
 info "Verifying installation..."
 printf '\n'
