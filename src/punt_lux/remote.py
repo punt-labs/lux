@@ -25,7 +25,7 @@ def _serialize_config(config: dict[str, Any]) -> str:
     for section, values in config.items():
         lines.append(f"[{section}]\n")
         if isinstance(values, dict):
-            for key, val in values.items():
+            for key, val in values.items():  # pyright: ignore[reportUnknownVariableType]
                 lines.append(f'{key} = "{_toml_escape(str(val))}"\n')
         lines.append("\n")
     return "".join(lines)

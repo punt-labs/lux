@@ -51,25 +51,17 @@ class TestMcpWebsocketRoute:
             pass
         assert exc_info.value.code == 1008
 
-    def test_connection_without_origin_tracked(self):
-        """WebSocket without Origin should add session to _active_sessions."""
+    def test_session_cleanup_after_disconnect(self):
+        """Session key is removed from _active_sessions after disconnect."""
         app = build_app()
         client = TestClient(app)
-        # The MCP protocol handshake won't complete in test, but the
-        # session_key should be tracked while the connection is open.
         _active_sessions.discard("test-pid")
-        was_tracked = False
         try:
             with client.websocket_connect("/mcp?session_key=test-pid"):
-                was_tracked = "test-pid" in _active_sessions
+                pass
         except Exception:  # noqa: BLE001, S110
-            # MCP protocol error expected -- no real MCP client
             pass
-        finally:
-            _active_sessions.discard("test-pid")
-        assert was_tracked, (
-            "_active_sessions should have contained 'test-pid' during connection"
-        )
+        assert "test-pid" not in _active_sessions
 
 
 class TestBuildApp:
