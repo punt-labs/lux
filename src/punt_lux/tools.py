@@ -819,6 +819,96 @@ def screenshot() -> str:
 
 
 @mcp.tool()
+def get_display_info() -> str:
+    """Return display server metadata: backend, resolution, FPS, PID, uptime."""
+    if not is_display_running(default_socket_path()):
+        return "not running"
+
+    def _call() -> str:
+        client = _get_client()
+        response = client.query("get_display_info")
+        if response is None:
+            return "timeout"
+        if response.error:
+            return f"error: {response.error}"
+        return json.dumps(response.result, indent=2)
+
+    return _with_reconnect(_call)
+
+
+@mcp.tool()
+def get_window_settings() -> str:
+    """Return current window settings: font scale, idle FPS."""
+    if not is_display_running(default_socket_path()):
+        return "not running"
+
+    def _call() -> str:
+        client = _get_client()
+        response = client.query("get_window_settings")
+        if response is None:
+            return "timeout"
+        if response.error:
+            return f"error: {response.error}"
+        return json.dumps(response.result, indent=2)
+
+    return _with_reconnect(_call)
+
+
+@mcp.tool()
+def get_theme() -> str:
+    """Return current theme and available themes."""
+    if not is_display_running(default_socket_path()):
+        return "not running"
+
+    def _call() -> str:
+        client = _get_client()
+        response = client.query("get_theme")
+        if response is None:
+            return "timeout"
+        if response.error:
+            return f"error: {response.error}"
+        return json.dumps(response.result, indent=2)
+
+    return _with_reconnect(_call)
+
+
+@mcp.tool()
+def list_clients() -> str:
+    """List all clients connected to the display server."""
+    if not is_display_running(default_socket_path()):
+        return "not running"
+
+    def _call() -> str:
+        client = _get_client()
+        response = client.query("list_clients")
+        if response is None:
+            return "timeout"
+        if response.error:
+            return f"error: {response.error}"
+        return json.dumps(response.result, indent=2)
+
+    return _with_reconnect(_call)
+
+
+@mcp.tool()
+def list_menus() -> str:
+    """List all registered menus and their items."""
+    if not is_display_running(default_socket_path()):
+        return "not running"
+
+    def _call() -> str:
+        client = _get_client()
+        response = client.query("list_menus")
+        if response is None:
+            return "timeout"
+        if response.error:
+            return f"error: {response.error}"
+        return json.dumps(response.result, indent=2)
+
+    return _with_reconnect(_call)
+
+
+@mcp.tool()
 def display_mode() -> str:
     """Read the current display mode.
 
@@ -856,6 +946,50 @@ def set_display_mode(mode: str) -> str:
             )
     label = "on" if mode == "y" else "off"
     return f"display:{label}"
+
+
+@mcp.tool()
+def list_recent_events(count: int = 50) -> str:
+    """Return the last N interaction events from the display.
+
+    Events include button clicks, slider changes, combo selections,
+    and other user interactions. Default 50, max 200.
+    """
+    if not is_display_running(default_socket_path()):
+        return "not running"
+
+    def _call() -> str:
+        client = _get_client()
+        response = client.query("list_recent_events", {"count": count})
+        if response is None:
+            return "timeout"
+        if response.error:
+            return f"error: {response.error}"
+        return json.dumps(response.result, indent=2)
+
+    return _with_reconnect(_call)
+
+
+@mcp.tool()
+def list_errors(count: int = 20) -> str:
+    """Return the last N display-side errors and warnings.
+
+    Each entry includes timestamp, severity, message, and context.
+    Default 20, max 100.
+    """
+    if not is_display_running(default_socket_path()):
+        return "not running"
+
+    def _call() -> str:
+        client = _get_client()
+        response = client.query("list_errors", {"count": count})
+        if response is None:
+            return "timeout"
+        if response.error:
+            return f"error: {response.error}"
+        return json.dumps(response.result, indent=2)
+
+    return _with_reconnect(_call)
 
 
 @mcp.tool()

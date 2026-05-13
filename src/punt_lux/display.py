@@ -19,6 +19,7 @@ import platform
 import select
 import socket
 import time
+from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -890,6 +891,7 @@ class DisplayServer:
         self._readers: dict[int, FrameReader] = {}  # fd -> reader
         self._fd_to_client: dict[int, socket.socket] = {}  # fd -> socket (O(1) lookup)
         self._client_names: dict[int, str] = {}  # fd -> display name
+        self._client_connect_times: dict[int, float] = {}  # fd -> connect timestamp
         self._scenes: dict[str, SceneMessage] = {}  # ordered by insertion
         self._scene_order: list[str] = []  # explicit tab order
         self._active_tab: str | None = None  # currently selected tab
@@ -915,12 +917,25 @@ class DisplayServer:
         self._world_menu_spawn_pos: tuple[float, float] | None = None
         self._screenshot_pending: socket.socket | None = None
         self._test_auto_click = test_auto_click
+        self._start_time: float = time.time()
+        self._current_theme: str = "imgui_colors_dark"
 
         # Generic query dispatcher — one handler per method name.
         self._query_handlers: dict[str, Callable[..., dict[str, Any]]] = {}
         self._query_handlers["inspect_scene"] = self._query_inspect_scene
         self._query_handlers["list_scenes"] = self._query_list_scenes
         self._query_handlers["screenshot"] = self._query_screenshot
+        self._query_handlers["get_display_info"] = self._query_get_display_info
+        self._query_handlers["get_window_settings"] = self._query_get_window_settings
+        self._query_handlers["get_theme"] = self._query_get_theme
+        self._query_handlers["list_clients"] = self._query_list_clients
+        self._query_handlers["list_menus"] = self._query_list_menus
+        self._query_handlers["list_recent_events"] = self._query_list_recent_events
+        self._query_handlers["list_errors"] = self._query_list_errors
+
+        # Ring buffers for event/error introspection.
+        self._recent_events: deque[dict[str, Any]] = deque(maxlen=200)
+        self._recent_errors: deque[dict[str, Any]] = deque(maxlen=100)
 
     @property
     def socket_path(self) -> Path:
@@ -1148,6 +1163,7 @@ class DisplayServer:
             resp = ScreenshotResponse(path=path)
         except Exception as exc:
             logger.exception("Screenshot capture failed")
+            self._record_error("error", str(exc), "screenshot")
             resp = ScreenshotResponse(error=str(exc))
         self._send_to_client(sock, resp)
 
@@ -1191,6 +1207,7 @@ class DisplayServer:
         for theme in self._themes:
             if theme.name == theme_name:
                 hello_imgui.apply_theme(theme)
+                self._current_theme = theme_name
                 return
         logger.warning("Unknown theme %r", theme_name)
 
@@ -1601,6 +1618,7 @@ class DisplayServer:
                     name = theme.name.replace("_", " ").title()
                     if imgui.menu_item(name, "", False)[0]:  # noqa: FBT003
                         hello_imgui.apply_theme(theme)
+                        self._current_theme = str(theme.name)
                         clicked = True
             finally:
                 imgui.end_menu()
@@ -1730,9 +1748,10 @@ class DisplayServer:
             # here means malformed wire data, not a handler bug.
             try:
                 messages = reader.drain_typed()
-            except (ValueError, KeyError, TypeError):
+            except (ValueError, KeyError, TypeError) as exc:
                 fd = sock.fileno()
                 logger.warning("Malformed message from fd %d", fd)
+                self._record_error("error", str(exc), "message_parse")
                 self._remove_client(sock)
                 return
             for msg in messages:
@@ -1742,7 +1761,8 @@ class DisplayServer:
                 self._handle_message(sock, msg)
                 if sock not in self._clients:
                     return  # removed during handle (e.g. send failed)
-        except (ConnectionError, OSError):
+        except (ConnectionError, OSError) as exc:
+            self._record_error("warning", str(exc), "client_connection")
             self._remove_client(sock)
 
     def _remove_client(self, sock: socket.socket) -> None:
@@ -1758,6 +1778,7 @@ class DisplayServer:
             self._readers.pop(fd, None)
             self._fd_to_client.pop(fd, None)
             self._client_names.pop(fd, None)
+            self._client_connect_times.pop(fd, None)
             self._menu_registrations.pop(fd, None)
             self._menu_owners = {k: v for k, v in self._menu_owners.items() if v != fd}
             # Transfer ownership of this client's scenes to another client
@@ -1871,6 +1892,7 @@ class DisplayServer:
         except OSError:
             return
         self._client_names[fd] = name
+        self._client_connect_times[fd] = time.time()
         logger.info("Client fd=%d identified as %r", fd, name)
 
     def _handle_introspect(self, sock: socket.socket, msg: IntrospectRequest) -> None:
@@ -1909,6 +1931,7 @@ class DisplayServer:
                 resp = QueryResponse(method=msg.method, result=result)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("Query handler %s failed: %s", msg.method, exc)
+                self._record_error("error", str(exc), f"query:{msg.method}")
                 resp = QueryResponse(method=msg.method, error=str(exc))
         self._send_to_client(sock, resp)
 
@@ -1969,6 +1992,101 @@ class DisplayServer:
         """
         msg = "Use the dedicated screenshot_request message"
         raise RuntimeError(msg)
+
+    def _query_get_display_info(self, **_kwargs: Any) -> dict[str, Any]:
+        """Return display server metadata."""
+        import os
+
+        from imgui_bundle import hello_imgui
+
+        backend = str(hello_imgui.get_runner_params().renderer_backend_type)
+        screen_size = (
+            hello_imgui.get_runner_params().app_window_params.window_geometry.size
+        )
+
+        return {
+            "backend": backend,
+            "window_width": screen_size[0],
+            "window_height": screen_size[1],
+            "fps": round(hello_imgui.frame_rate(), 1),
+            "pid": os.getpid(),
+            "uptime_seconds": round(time.time() - self._start_time, 1),
+            "protocol_version": "1.0",
+            "element_kinds": len(self._RENDERERS),
+        }
+
+    def _query_get_window_settings(self, **_kwargs: Any) -> dict[str, Any]:
+        """Return current window settings."""
+        from imgui_bundle import hello_imgui, imgui
+
+        return {
+            "font_scale": round(imgui.get_font_size(), 1),
+            "fps_idle": hello_imgui.get_runner_params().fps_idling.fps_idle,
+        }
+
+    def _query_get_theme(self, **_kwargs: Any) -> dict[str, Any]:
+        """Return current theme and available themes."""
+        return {
+            "current": self._current_theme,
+            "available": [str(t) for t in self._themes],
+        }
+
+    def _query_list_clients(self, **_kwargs: Any) -> dict[str, Any]:
+        """Return list of connected clients."""
+        now = time.time()
+        clients = []
+        for fd, name in self._client_names.items():
+            connected_at = self._client_connect_times.get(fd, now)
+            menu_count = len(self._menu_registrations.get(fd, []))
+            clients.append(
+                {
+                    "connection_id": fd,
+                    "name": name,
+                    "connected_seconds": round(now - connected_at, 1),
+                    "menu_item_count": menu_count,
+                }
+            )
+        return {"clients": clients}
+
+    def _query_list_menus(self, **_kwargs: Any) -> dict[str, Any]:
+        """Return all registered menus and their items."""
+        menus: list[dict[str, Any]] = [
+            {
+                "id": item.get("id", ""),
+                "label": item.get("label", ""),
+                "shortcut": item.get("shortcut"),
+                "owner_fd": fd,
+                "owner_name": self._client_names.get(fd, f"fd={fd}"),
+            }
+            for fd, items in self._menu_registrations.items()
+            for item in items
+        ]
+        return {"menu_items": menus, "total": len(menus)}
+
+    def _record_error(self, severity: str, message: str, context: str = "") -> None:
+        """Record an error in the ring buffer for introspection."""
+        self._recent_errors.append(
+            {
+                "timestamp": time.time(),
+                "severity": severity,
+                "message": message,
+                "context": context,
+            }
+        )
+
+    def _query_list_recent_events(
+        self, count: int = 50, **_kwargs: Any
+    ) -> dict[str, Any]:
+        """Return the last N interaction events."""
+        count = min(count, 200)
+        events = list(self._recent_events)[-count:]
+        return {"events": events, "total_buffered": len(self._recent_events)}
+
+    def _query_list_errors(self, count: int = 20, **_kwargs: Any) -> dict[str, Any]:
+        """Return the last N display-side errors."""
+        count = min(count, 100)
+        errors = list(self._recent_errors)[-count:]
+        return {"errors": errors, "total_buffered": len(self._recent_errors)}
 
     def client_name(self, fd: int) -> str | None:
         """Return the display name for a connected client, or ``None``."""
@@ -4022,6 +4140,16 @@ class DisplayServer:
     def _flush_events(self) -> None:
         if not self._event_queue:
             return
+        # Record events in the introspection ring buffer before dispatch.
+        for event in self._event_queue:
+            self._recent_events.append(
+                {
+                    "element_id": event.element_id,
+                    "action": event.action,
+                    "value": event.value,
+                    "timestamp": event.ts if event.ts is not None else time.time(),
+                }
+            )
         if self._clients:
             for event in self._event_queue:
                 is_world_menu = (
