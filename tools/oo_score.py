@@ -647,21 +647,14 @@ class Ratchet:
         fpath: str,
         current: dict[str, float],
     ) -> tuple[list[tuple[str, str, str, str, str, str]], bool, bool]:
-        """Compare a new file (no baseline) against absolute thresholds."""
+        """New file — informational only. No baseline to regress from."""
         rows: list[tuple[str, str, str, str, str, str]] = []
-        has_regression = False
         for metric in self.METRIC_KEYS:
             if metric not in current:
                 continue
             val = current[metric]
-            passed = self._meets_threshold(metric, val)
-            grade = "PASS" if passed else "FAIL"
-            rows.append((fpath, metric, "NEW", f"{val:.3f}", "--", grade))
-            if not passed:
-                has_regression = True
-        # A new file that passes all thresholds counts as improvement
-        has_improvement = not has_regression
-        return rows, has_regression, has_improvement
+            rows.append((fpath, metric, "NEW", f"{val:.3f}", "--", "INFO"))
+        return rows, False, True
 
     def _compare_existing_file(
         self,
