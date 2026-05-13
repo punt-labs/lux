@@ -18,6 +18,7 @@ Metrics produced:
     public_attr_violations count of self.X = without underscore (target: 0)
     future_annotations   whether from __future__ import annotations present (target: 1)
 """
+
 from __future__ import annotations
 
 import ast
@@ -59,9 +60,9 @@ class ModuleMetrics:
 
     def _count_classes(self) -> int:
         return sum(
-            1 for node in ast.iter_child_nodes(self._tree)
-            if isinstance(node, ast.ClassDef)
-            and not self._is_type_definition(node)
+            1
+            for node in ast.iter_child_nodes(self._tree)
+            if isinstance(node, ast.ClassDef) and not self._is_type_definition(node)
         )
 
     @staticmethod
@@ -80,14 +81,18 @@ class ModuleMetrics:
 
     def _count_top_level_functions(self) -> int:
         return sum(
-            1 for node in ast.iter_child_nodes(self._tree)
+            1
+            for node in ast.iter_child_nodes(self._tree)
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
         )
 
     def _count_top_level_statements(self) -> int:
         skip_types = (
-            ast.Import, ast.ImportFrom, ast.ClassDef,
-            ast.FunctionDef, ast.AsyncFunctionDef,
+            ast.Import,
+            ast.ImportFrom,
+            ast.ClassDef,
+            ast.FunctionDef,
+            ast.AsyncFunctionDef,
         )
         count = 0
         for node in ast.iter_child_nodes(self._tree):
@@ -296,8 +301,7 @@ class Scorer:
     @property
     def grades(self) -> dict[str, str]:
         return {
-            k: "PASS" if self._check(k, v) else "FAIL"
-            for k, v in self.summary.items()
+            k: "PASS" if self._check(k, v) else "FAIL" for k, v in self.summary.items()
         }
 
     @property
@@ -346,8 +350,10 @@ class Scorer:
             if not values:
                 continue
             if k in (
-                "max_complexity", "module_size",
-                "init_violations", "public_attr_violations",
+                "max_complexity",
+                "module_size",
+                "init_violations",
+                "public_attr_violations",
             ):
                 summary[k] = max(values)
             elif k in ("future_annotations",):
