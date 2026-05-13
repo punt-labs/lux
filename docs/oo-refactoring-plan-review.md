@@ -234,7 +234,7 @@ counted as having methods). But `tools.py` at 0.0, `hooks.py` at 0.0,
 `show.py` at 0.0, and `__main__.py` near 0.0 will drag the average down.
 
 With ~25 files, and about 6 files at or near 0.0, the average will be
-roughly (19 * ~0.8 + 6 * ~0.05) / 25 = ~0.62. This is below the 0.80
+roughly `(19 * ~0.8 + 6 * ~0.05) / 25 = ~0.62`. This is below the 0.80
 target.
 
 VERDICT: **method_ratio will likely NOT pass.** The plan does not address
@@ -317,7 +317,7 @@ but the average across 25 files dilutes it below 3.
 
 **8. `class_to_func_ratio` (current: 0.31, target: >= 0.5).** Averaged
 across files. Same concern as `method_ratio` — files with 0 classes and
-many functions (tools.py, hooks.py, show.py, __main__.py) drag the average
+many functions (tools.py, hooks.py, show.py, `__main__.py`) drag the average
 down.
 
 VERDICT: **Will likely NOT pass** for the same reasons as `method_ratio`.
