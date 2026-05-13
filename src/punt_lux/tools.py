@@ -160,19 +160,22 @@ async def run_mcp_session(
     token = _session_key.set(session_key)
     try:
         # FastMCP private API — verify on fastmcp upgrades.
-        # Quarry uses the same pattern (quarry/http_server.py).
+        # _lifespan_manager() must be entered before server.run() so the
+        # lifespan context (eager display connect, retry tasks) is available.
         server = getattr(mcp, "_mcp_server", None)
-        if server is None:
+        lifespan_mgr = getattr(mcp, "_lifespan_manager", None)
+        if server is None or lifespan_mgr is None:
             msg = (
-                "FastMCP._mcp_server not found. "
+                "FastMCP._mcp_server or _lifespan_manager not found. "
                 "This private API may have changed; check fastmcp version."
             )
             raise RuntimeError(msg)
-        await server.run(
-            read_stream,
-            write_stream,
-            server.create_initialization_options(),
-        )
+        async with lifespan_mgr():
+            await server.run(
+                read_stream,
+                write_stream,
+                server.create_initialization_options(),
+            )
     finally:
         _session_key.reset(token)
         _cleanup_session(session_key)
