@@ -388,14 +388,23 @@ class TestSetMenuTool:
 
 
 class TestSetThemeTool:
+    @patch("punt_lux.tools.is_display_running", return_value=True)
     @patch("punt_lux.tools._get_client")
-    def test_set_theme_returns_theme_name(self, mock_get: MagicMock) -> None:
+    def test_set_theme_returns_theme_name(
+        self, mock_get: MagicMock, _mock_running: MagicMock
+    ) -> None:
         client = _mock_client()
+        mock_response = MagicMock()
+        mock_response.error = None
+        mock_response.result = {"theme": "imgui_colors_light"}
+        client.query.return_value = mock_response
         mock_get.return_value = client
 
         result = set_theme("imgui_colors_light")
         assert result == "theme:imgui_colors_light"
-        client.set_theme.assert_called_once_with("imgui_colors_light")
+        client.query.assert_called_once_with(
+            "set_theme", {"theme": "imgui_colors_light"}
+        )
 
 
 class TestShowTool:

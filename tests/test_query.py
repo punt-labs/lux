@@ -462,3 +462,41 @@ class TestTier1EventErrorTools:
 
         with patch("punt_lux.tools.is_display_running", return_value=False):
             assert list_errors() == "not running"
+
+
+# ---------------------------------------------------------------------------
+# Tier 3 write-operation MCP tool tests
+# ---------------------------------------------------------------------------
+
+
+class TestTier3WriteTools:
+    """Test Tier 3 control (write) MCP tools."""
+
+    def test_set_window_settings_not_running(self) -> None:
+        from unittest.mock import patch
+
+        from punt_lux.tools import set_window_settings
+
+        with patch("punt_lux.tools.is_display_running", return_value=False):
+            assert set_window_settings(opacity=0.5) == "not running"
+
+    def test_set_window_settings_no_params(self) -> None:
+        from punt_lux.tools import set_window_settings
+
+        assert set_window_settings() == "error: no settings provided"
+
+    def test_set_frame_state_not_running(self) -> None:
+        from unittest.mock import patch
+
+        from punt_lux.tools import set_frame_state
+
+        with patch("punt_lux.tools.is_display_running", return_value=False):
+            assert set_frame_state(frame_id="test") == "not running"
+
+    def test_set_theme_not_running(self) -> None:
+        from unittest.mock import patch
+
+        from punt_lux.tools import set_theme
+
+        with patch("punt_lux.tools.is_display_running", return_value=False):
+            assert set_theme("dark") == "not running"

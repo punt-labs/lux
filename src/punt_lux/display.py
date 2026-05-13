@@ -932,6 +932,9 @@ class DisplayServer:
         self._query_handlers["list_menus"] = self._query_list_menus
         self._query_handlers["list_recent_events"] = self._query_list_recent_events
         self._query_handlers["list_errors"] = self._query_list_errors
+        self._query_handlers["set_window_settings"] = self._query_set_window_settings
+        self._query_handlers["set_frame_state"] = self._query_set_frame_state
+        self._query_handlers["set_theme"] = self._query_set_theme
 
         # Ring buffers for event/error introspection.
         self._recent_events: deque[dict[str, Any]] = deque(maxlen=200)
@@ -2087,6 +2090,71 @@ class DisplayServer:
         count = min(count, 100)
         errors = list(self._recent_errors)[-count:]
         return {"errors": errors, "total_buffered": len(self._recent_errors)}
+
+    # -- Tier 3 write handlers ------------------------------------------------
+
+    def _query_set_window_settings(self, **kwargs: Any) -> dict[str, Any]:
+        """Modify window settings. Only provided fields are changed."""
+        changed: dict[str, Any] = {}
+
+        if "opacity" in kwargs:
+            val = float(kwargs["opacity"])
+            val = max(0.1, min(1.0, val))
+            self._opacity = val
+            self._set_glfw_opacity(opacity=val)
+            changed["opacity"] = val
+
+        if "font_scale" in kwargs:
+            val = float(kwargs["font_scale"])
+            val = max(0.5, min(3.0, round(val, 1)))
+            self._font_scale = val
+            changed["font_scale"] = val
+
+        if "decorated" in kwargs:
+            decorated = bool(kwargs["decorated"])
+            self._decorated = decorated
+            self._set_glfw_decorated(decorated=decorated)
+            changed["decorated"] = decorated
+
+        if "fps_idle" in kwargs:
+            from imgui_bundle import hello_imgui
+
+            fps = float(kwargs["fps_idle"])
+            fps = max(1.0, min(120.0, fps))
+            hello_imgui.get_runner_params().fps_idling.fps_idle = fps
+            changed["fps_idle"] = fps
+
+        return {"changed": changed}
+
+    def _query_set_frame_state(
+        self, frame_id: str = "", **kwargs: Any
+    ) -> dict[str, Any]:
+        """Modify frame state."""
+        if not frame_id:
+            msg = "frame_id is required"
+            raise ValueError(msg)
+        frame = self._frames.get(frame_id)
+        if frame is None:
+            msg = f"frame '{frame_id}' not found"
+            raise LookupError(msg)
+        changed: dict[str, Any] = {}
+
+        if "minimized" in kwargs:
+            frame.minimized = bool(kwargs["minimized"])
+            changed["minimized"] = frame.minimized
+        elif "collapsed" in kwargs:
+            frame.minimized = bool(kwargs["collapsed"])
+            changed["minimized"] = frame.minimized
+
+        return {"frame_id": frame_id, "changed": changed}
+
+    def _query_set_theme(self, theme: str = "", **_kwargs: Any) -> dict[str, Any]:
+        """Set the display theme via query path."""
+        if not theme:
+            msg = "theme name is required"
+            raise ValueError(msg)
+        self._apply_theme(theme)
+        return {"theme": self._current_theme}
 
     def client_name(self, fd: int) -> str | None:
         """Return the display name for a connected client, or ``None``."""
