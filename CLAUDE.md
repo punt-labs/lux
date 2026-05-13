@@ -11,8 +11,8 @@ There is no such thing as a "pre-existing" issue. If you see a problem — in co
 Lux is a **visual output surface for Claude Code**. Vox gives agents a voice; Lux gives agents a screen. An ImGui window renders JSON element trees sent by agents over Unix socket IPC.
 
 - **PyPI package**: `punt-lux`
-- **CLI command**: `lux`
-- **Version**: 0.16.1 (alpha)
+- **CLI command**: `lux`, `luxd`
+- **Version**: 0.18.0 (alpha)
 - **Projection surfaces**: library, CLI, MCP server, plugin
 
 ### What Lux Is Good At
@@ -20,6 +20,12 @@ Lux is a **visual output surface for Claude Code**. Vox gives agents a voice; Lu
 Tables and data display. The beads issue browser is the primary consumer — live DoltDB data in a filterable table with detail panel, rendered in a single `show_table()` call. Filters, search, and row selection run at 60fps with zero MCP round-trips. `show_dashboard()` composes metric cards, charts, and tables. `show_diagram()` renders auto-laid-out architecture diagrams.
 
 The architecture is sound: MCP holds state, ImGui renders each frame from the latest JSON scene. This makes immediate mode "cached" — the agent sends state once, the display re-renders it every frame without further communication.
+
+Three-tier distributed architecture (see `docs/architecture-proposal.md`):
+
+- `lux-display` — ImGui renderer, Unix socket IPC
+- `luxd` — WebSocket session hub, multiplexes MCP sessions
+- `mcp-proxy` — transport bridge, Claude Code stdio → luxd WebSocket
 
 ### Current State
 
@@ -40,11 +46,27 @@ The architecture is sound: MCP holds state, ImGui renders each frame from the la
 
 ## Quality Gates
 
-Run before every commit. Zero violations, zero errors, all tests green.
+Run `make check` before every commit. Zero violations, zero errors, all tests green. The Makefile uses `--extra display` so all targets work after a plain `uv sync`.
 
 ```bash
-uv run ruff check . && uv run ruff format --check . && uv run mypy src/ tests/ && uv run pyright && uv run pytest
+make check
 ```
+
+### Code Quality Standards
+
+This is PEP-compliant, object-oriented Python. Every change must improve or maintain code quality.
+
+**Module size limits.** No module over 500 lines without a design reason. `display.py` (4,200 lines) is a known violation — it must be decomposed before new features are added to it. When a module grows past the limit, the next change to that module must include extraction.
+
+**Class design.** Classes have a single responsibility. A class with more than 20 methods is a candidate for decomposition. God classes (one class that does everything) are not acceptable. Prefer composition over inheritance. Use `Protocol` for structural typing at boundaries.
+
+**Function design.** Module-level functions that share a pattern (e.g., 29 MCP tools with identical boilerplate) signal a missing abstraction. Extract the pattern. Use ABC metrics (Assignments, Branches, Conditions) to measure complexity — high-ABC functions need decomposition.
+
+**Serialization.** Protocol dataclasses should own their serialization via methods or a registry pattern, not via a parallel set of module-level functions. The current 73-function serialization layer in `protocol.py` is a known debt.
+
+**No copy-paste.** If you are writing the same structure a third time, extract it. Three similar functions is not "better than a premature abstraction" when the pattern is proven.
+
+**Metrics tools.** `python-abc` is available at `~/Coding/python-abc/` for ABC metric analysis. Run it periodically on changed modules. Coverage reports via `coverage` are available — `make check` does not currently enforce coverage, but new code should have tests.
 
 ## Ethos & Delegation
 
@@ -66,6 +88,18 @@ Lux is Python (ImGui + Unix-socket IPC) with a strong UX and protocol-design dim
 | Frame-rate / latency budget verification | `kpz` | `edt` |
 
 Use the `standard` pipeline for new elements and protocol changes (design → implement → review → ship). Use `quick` for bugfixes inside an existing element. Treat the JSON protocol as the API surface — any change there demands an evaluator distinct from the worker.
+
+### Design-First Delegation
+
+Every non-trivial delegation has two phases:
+
+1. **Design mission.** The spec describes the problem, the constraints, and the invariants. It does NOT prescribe a write set (which files to create/modify). The design mission's output IS the write set — the specialist decides what to create, what to split, what to extract based on the code quality standards above.
+
+2. **Implementation mission.** Uses the write set produced by the design mission. The implementation spec references the design output and says "build this."
+
+The COO must not read implementation files before writing the design spec. "Add a handler to display.py at line 923" is a predetermined write set that prevents the specialist from making design decisions. "Add a query operation that returns display metadata — the codebase has a generic query infrastructure, the implementation must follow code quality standards" gives the specialist latitude to decompose, extract, or restructure as needed.
+
+**Never skip the design phase to save time.** A feature that makes the code worse is not a feature — it is debt with a feature label. There is no situation where urgency warrants making the software worse.
 
 ## Standards References
 
