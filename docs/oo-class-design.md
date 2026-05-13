@@ -1,8 +1,11 @@
-# Class Responsibility Report
+# OO Class Design
 
-Analysis of `src/punt_lux/` -- every class that exists, every class that
-should exist, what each one owns, what it collaborates with, and which
-existing functions/methods move into it.
+**Related documents:**
+
+- [`oo-class-design-review.md`](oo-class-design-review.md) — Peer review of this report. Verdict: GO with modifications.
+- [`oo-refactoring-plan.md`](oo-refactoring-plan.md) — Executable step-by-step plan that implements this design.
+
+**This document** is the OO design analysis: every class that exists, every class that should exist, what each one owns, what it collaborates with, and which existing functions/methods move into it.
 
 Calibration: the merchants/game reference project has 2K LOC across 14
 files, 20 classes, largest module 363 lines.  Each class has one

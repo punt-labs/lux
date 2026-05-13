@@ -1,4 +1,11 @@
-# Peer Review: Class Responsibility Report (v3)
+# OO Class Design Review
+
+**Related documents:**
+
+- [`oo-class-design.md`](oo-class-design.md) — The design report this review evaluates.
+- [`oo-refactoring-plan.md`](oo-refactoring-plan.md) — Executable step-by-step plan that incorporates this review's modifications.
+
+**This document** is the peer review. Verdict: GO with modifications.
 
 Reviewer: Ralph Johnson (rej) -- Smalltalk specialist, co-author *Design
 Patterns: Elements of Reusable Object-Oriented Software*.
