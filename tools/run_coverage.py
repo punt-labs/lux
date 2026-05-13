@@ -6,17 +6,29 @@ Runs pytest with coverage measurement and generates terminal + HTML reports.
 
 from __future__ import annotations
 
+import shutil
 import subprocess
 import sys
 
 
+def _resolve_coverage() -> str:
+    """Return the full path to the coverage executable."""
+    path = shutil.which("coverage")
+    if path is None:
+        print("coverage not found", file=sys.stderr)
+        sys.exit(1)
+    return path
+
+
 def run_coverage() -> None:
     """Run tests with coverage and generate reports."""
-    subprocess.run(["coverage", "erase"], check=True)
+    cov = _resolve_coverage()
+
+    subprocess.run([cov, "erase"], check=True)
 
     result = subprocess.run(
         [
-            "coverage",
+            cov,
             "run",
             "--source=src/punt_lux",
             "-m",
@@ -31,9 +43,10 @@ def run_coverage() -> None:
 
     if result.returncode not in (0, 5):
         print(f"Tests exited with code {result.returncode}", file=sys.stderr)
+        sys.exit(result.returncode)
 
-    subprocess.run(["coverage", "report", "-m"], check=True)
-    subprocess.run(["coverage", "html"], check=True)
+    subprocess.run([cov, "report", "-m"], check=True)
+    subprocess.run([cov, "html"], check=True)
 
     print("\nHTML coverage report: htmlcov/index.html")
 
