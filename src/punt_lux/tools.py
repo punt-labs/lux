@@ -621,7 +621,6 @@ def update(
             id=p["id"],
             set=p.get("set"),
             remove=p.get("remove", False),
-            insert_after=p.get("insert_after"),
         )
         for p in patches
     ]

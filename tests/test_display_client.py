@@ -22,8 +22,9 @@ from punt_lux.protocol import (
     RegisterMenuMessage,
     SceneMessage,
     TextElement,
+    UnknownMessage,
     UpdateMessage,
-    WindowMessage,
+    encode_frame,
     recv_message,
     send_message,
 )
@@ -744,11 +745,8 @@ class TestBackgroundListener:
                     element_id="other", action="click", ts=time.time(), value=True
                 ),
             )
-            # Send a non-interaction message
-            send_message(
-                server_conn,
-                WindowMessage(event="resized", width=800, height=600),
-            )
+            # Send an unknown message type (falls through to pending queue)
+            server_conn.sendall(encode_frame({"type": "custom_event", "data": "hello"}))
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
@@ -763,7 +761,7 @@ class TestBackgroundListener:
             assert isinstance(msg1, InteractionMessage)
             assert msg1.element_id == "other"
             msg2 = client.recv(timeout=2.0)
-            assert isinstance(msg2, WindowMessage)
+            assert isinstance(msg2, UnknownMessage)
             client.close()
         finally:
             if server_conn:

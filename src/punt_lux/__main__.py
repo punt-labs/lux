@@ -9,13 +9,36 @@ from typing import Protocol
 
 import typer
 
+from punt_lux import __version__
 from punt_lux.show import show_app
+
+
+def _version_callback(value: bool) -> None:
+    if value:
+        print(f"lux {__version__}")
+        raise typer.Exit
+
 
 app = typer.Typer(
     name="lux",
     help="lux: visual output surface for AI agents.",
     no_args_is_help=True,
 )
+
+
+@app.callback(invoke_without_command=True)
+def _main(  # pyright: ignore[reportUnusedFunction]
+    version: bool = typer.Option(
+        False,
+        "--version",
+        "-V",
+        callback=_version_callback,
+        is_eager=True,
+        help="Print version and exit.",
+    ),
+) -> None:
+    """lux: visual output surface for AI agents."""
+
 
 hook_app = typer.Typer(hidden=True)
 app.add_typer(hook_app, name="hook")

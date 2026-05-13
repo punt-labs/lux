@@ -919,6 +919,7 @@ class DisplayServer:
         self._test_auto_click = test_auto_click
         self._start_time: float = time.time()
         self._current_theme: str = "imgui_colors_dark"
+        self._current_scene_id: str | None = None
 
         # Generic query dispatcher — one handler per method name.
         self._query_handlers: dict[str, Callable[..., dict[str, Any]]] = {}
@@ -1275,35 +1276,8 @@ class DisplayServer:
 
     def _show_debug_items(self, imgui: Any) -> bool:
         """Render debug items. Returns True if any item clicked."""
-        clicked: bool = imgui.menu_item("Dump Scene JSON", "", False)[0]  # noqa: FBT003
-        if clicked:
-            import json
-
-            state: dict[str, Any] = {
-                "frames": {
-                    fid: {
-                        "title": f.title,
-                        "minimized": f.minimized,
-                        "scene_count": len(f.scenes),
-                        "scenes": list(f.scene_order),
-                    }
-                    for fid, f in self._frames.items()
-                },
-                "scenes": {
-                    sid: {
-                        "title": s.title,
-                        "element_count": len(s.elements),
-                    }
-                    for sid, s in self._scenes.items()
-                },
-                "clients": dict(self._client_names),
-                "menu_registrations": {
-                    str(fd): len(items)
-                    for fd, items in self._menu_registrations.items()
-                },
-            }
-            print(json.dumps(state, indent=2), flush=True)  # noqa: T201 — user-initiated debug dump
-        return clicked
+        imgui.text_disabled("Use inspect_scene / list_scenes MCP tools")
+        return False
 
     def _show_help_menu(self, imgui: Any) -> None:
         if not imgui.begin_menu("Help"):
@@ -1566,7 +1540,7 @@ class DisplayServer:
             enabled,
         )
         if clicked and isinstance(item.get("id"), str):
-            self._event_queue.append(
+            self._emit_event(
                 InteractionMessage(
                     element_id=item["id"],
                     action="menu",
@@ -1675,7 +1649,7 @@ class DisplayServer:
                         enabled,
                     )
                     if clicked and isinstance(item.get("id"), str):
-                        self._event_queue.append(
+                        self._emit_event(
                             InteractionMessage(
                                 element_id=item["id"],
                                 action="menu",
@@ -2066,6 +2040,12 @@ class DisplayServer:
         ]
         return {"menu_items": menus, "total": len(menus)}
 
+    def _emit_event(self, event: InteractionMessage) -> None:
+        """Stamp scene_id and append to the event queue."""
+        if event.scene_id is None:
+            event.scene_id = self._current_scene_id
+        self._emit_event(event)
+
     def _record_error(self, severity: str, message: str, context: str = "") -> None:
         """Record an error in the ring buffer for introspection."""
         self._recent_errors.append(
@@ -2361,7 +2341,7 @@ class DisplayServer:
             if elem.kind == "button" and not getattr(elem, "disabled", False):
                 eid: str = getattr(elem, "id", "")
                 action: str = getattr(elem, "action", None) or eid
-                self._event_queue.append(
+                self._emit_event(
                     InteractionMessage(
                         element_id=eid,
                         action=action,
@@ -2371,7 +2351,7 @@ class DisplayServer:
                 )
             elif isinstance(elem, SliderElement):
                 val: int | float = int(elem.value) if elem.integer else elem.value
-                self._event_queue.append(
+                self._emit_event(
                     InteractionMessage(
                         element_id=elem.id,
                         action="changed",
@@ -2380,7 +2360,7 @@ class DisplayServer:
                     )
                 )
             elif isinstance(elem, CheckboxElement):
-                self._event_queue.append(
+                self._emit_event(
                     InteractionMessage(
                         element_id=elem.id,
                         action="changed",
@@ -2394,7 +2374,7 @@ class DisplayServer:
                     if 0 <= elem.selected < len(elem.items)
                     else ""
                 )
-                self._event_queue.append(
+                self._emit_event(
                     InteractionMessage(
                         element_id=elem.id,
                         action="changed",
@@ -2403,7 +2383,7 @@ class DisplayServer:
                     )
                 )
             elif isinstance(elem, InputTextElement):
-                self._event_queue.append(
+                self._emit_event(
                     InteractionMessage(
                         element_id=elem.id,
                         action="changed",
@@ -2417,7 +2397,7 @@ class DisplayServer:
                     if 0 <= elem.selected < len(elem.items)
                     else ""
                 )
-                self._event_queue.append(
+                self._emit_event(
                     InteractionMessage(
                         element_id=elem.id,
                         action="changed",
@@ -2426,7 +2406,7 @@ class DisplayServer:
                     )
                 )
             elif isinstance(elem, ColorPickerElement):
-                self._event_queue.append(
+                self._emit_event(
                     InteractionMessage(
                         element_id=elem.id,
                         action="changed",
@@ -2435,7 +2415,7 @@ class DisplayServer:
                     )
                 )
             elif isinstance(elem, SelectableElement):
-                self._event_queue.append(
+                self._emit_event(
                     InteractionMessage(
                         element_id=elem.id,
                         action="clicked",
@@ -2893,6 +2873,7 @@ class DisplayServer:
 
     def _render_scene_tab(self, scene_id: str) -> None:
         """Render a single scene's elements with its own widget state."""
+        self._current_scene_id = scene_id
         self._widget_state = self._scene_widget_state[scene_id]
         scene = self._scenes[scene_id]
         if scene.title and len(self._scenes) == 1:
@@ -3181,15 +3162,21 @@ class DisplayServer:
             self._render_text_tooltip(text_elem, content, color)
             return
 
+        style_colors: dict[str, tuple[float, float, float, float]] = {
+            "caption": (0.6, 0.6, 0.6, 1.0),
+            "success": (0.2, 0.8, 0.2, 1.0),
+            "error": (0.9, 0.2, 0.2, 1.0),
+        }
+
         if color:
             imgui.push_style_color(imgui.Col_.text.value, ImVec4(*color))
         try:
             if style == "heading":
                 imgui.separator_text(content)
-            elif style == "caption":
+            elif style in style_colors:
                 if not color:
                     imgui.push_style_color(
-                        imgui.Col_.text.value, ImVec4(0.6, 0.6, 0.6, 1.0)
+                        imgui.Col_.text.value, ImVec4(*style_colors[style])
                     )
                 try:
                     imgui.text_wrapped(content)
@@ -3248,7 +3235,7 @@ class DisplayServer:
             clicked = imgui.button(f"{label}##{eid}")
 
         if clicked:
-            self._event_queue.append(
+            self._emit_event(
                 InteractionMessage(
                     element_id=eid,
                     action=action,
@@ -3305,7 +3292,7 @@ class DisplayServer:
 
         if changed:
             self._widget_state.set(eid, new_val)
-            self._event_queue.append(
+            self._emit_event(
                 InteractionMessage(
                     element_id=eid,
                     action="changed",
@@ -3325,7 +3312,7 @@ class DisplayServer:
         changed, new_val = imgui.checkbox(f"{label}##{eid}", current)
         if changed:
             self._widget_state.set(eid, new_val)
-            self._event_queue.append(
+            self._emit_event(
                 InteractionMessage(
                     element_id=eid,
                     action="changed",
@@ -3354,7 +3341,7 @@ class DisplayServer:
         if changed:
             self._widget_state.set(eid, new_val)
             item_text = items[new_val] if 0 <= new_val < len(items) else ""
-            self._event_queue.append(
+            self._emit_event(
                 InteractionMessage(
                     element_id=eid,
                     action="changed",
@@ -3382,7 +3369,7 @@ class DisplayServer:
 
         if changed:
             self._widget_state.set(eid, new_val)
-            self._event_queue.append(
+            self._emit_event(
                 InteractionMessage(
                     element_id=eid,
                     action="changed",
@@ -3429,7 +3416,7 @@ class DisplayServer:
 
         if changed:
             self._widget_state.set(eid, result)
-            self._event_queue.append(
+            self._emit_event(
                 InteractionMessage(
                     element_id=eid,
                     action="changed",
@@ -3454,7 +3441,7 @@ class DisplayServer:
         for i, item in enumerate(items):
             if imgui.radio_button(f"{item}##{eid}_{i}", current == i) and current != i:
                 self._widget_state.set(eid, i)
-                self._event_queue.append(
+                self._emit_event(
                     InteractionMessage(
                         element_id=eid,
                         action="changed",
@@ -3501,7 +3488,7 @@ class DisplayServer:
                 hex_val = f"#{r_:02X}{g_:02X}{b_:02X}{a_:02X}"
             else:
                 hex_val = _color_to_hex(new_color[0], new_color[1], new_color[2])
-            self._event_queue.append(
+            self._emit_event(
                 InteractionMessage(
                     element_id=eid,
                     action="changed",
@@ -3650,7 +3637,7 @@ class DisplayServer:
         clicked, new_val = imgui.selectable(f"{label}##{eid}", current)
         if clicked:
             self._widget_state.set(eid, new_val)
-            self._event_queue.append(
+            self._emit_event(
                 InteractionMessage(
                     element_id=eid,
                     action="clicked",
@@ -3715,7 +3702,7 @@ class DisplayServer:
                     self._emit_node_click(tree_id, node_id, label)
 
     def _emit_node_click(self, tree_id: str, node_id: str, label: str) -> None:
-        self._event_queue.append(
+        self._emit_event(
             InteractionMessage(
                 element_id=tree_id,
                 action="node_clicked",
@@ -3836,7 +3823,7 @@ class DisplayServer:
 
         # Emit row_select event on user-initiated click
         if row_clicked and 0 <= selected_orig < len(rows):
-            self._event_queue.append(
+            self._emit_event(
                 InteractionMessage(
                     element_id=eid,
                     action="row_select",
@@ -3999,7 +3986,7 @@ class DisplayServer:
         if was_open and not visible:
             self._widget_state.set(open_key, self._MODAL_CLOSED)
             self._widget_state.set(dismiss_key, self._MODAL_OPEN)
-            self._event_queue.append(
+            self._emit_event(
                 InteractionMessage(
                     element_id=eid,
                     action="closed",
@@ -4228,6 +4215,8 @@ class DisplayServer:
                 owner_fd = (
                     self._menu_owners.get(event.element_id) if is_world_menu else None
                 )
+                if owner_fd is None and event.scene_id:
+                    owner_fd = self._scene_to_owner.get(event.scene_id)
                 if owner_fd is not None:
                     target = self._fd_to_client.get(owner_fd)
                     if target is not None:
