@@ -72,6 +72,7 @@ See `docs/architecture.tex` for the full current system description.
 **OO ratchet:** `make check-oo` (part of `make check`) compares current OO scores against `.oo-baseline.json`. It passes only if no metric regressed on touched files and at least one metric improved. It fails if any metric got worse or nothing improved.
 
 Workflow:
+
 1. Write code that improves OO quality on the files you touch.
 2. `make check` runs `check-oo --check` automatically. If it fails, fix the regression.
 3. After all checks pass, run `make update-oo` to write the new baseline.
