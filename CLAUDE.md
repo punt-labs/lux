@@ -66,7 +66,12 @@ This is PEP-compliant, object-oriented Python. Every change must improve or main
 
 **No copy-paste.** If you are writing the same structure a third time, extract it. Three similar functions is not "better than a premature abstraction" when the pattern is proven.
 
-**Metrics tools.** `python-abc` is available at `~/Coding/python-abc/` for ABC metric analysis. Run it periodically on changed modules. Coverage reports via `coverage` are available — `make check` does not currently enforce coverage, but new code should have tests.
+**Metrics tools.** Available via Makefile:
+
+- `make metrics` — ABC complexity analysis (Assignments, Branches, Conditions). Any module over magnitude 200 needs attention. `display.py` is currently at 1,795.
+- `make coverage` — test coverage with HTML report in `htmlcov/`
+
+Run `make metrics` after refactoring to verify complexity decreased. Run `make coverage` to find untested code paths.
 
 ## Ethos & Delegation
 

@@ -39,6 +39,12 @@ depot: build ## Build and copy wheel to local depot
 	@cp dist/*.whl $(DEPOT)/
 	@echo "depot: $$(ls dist/*.whl | xargs -n1 basename) -> $(DEPOT)/"
 
+metrics: ## Run ABC complexity metrics on src/
+	python scripts/run_metrics.py
+
+coverage: ## Run tests with coverage report
+	uv run --extra display python scripts/run_coverage.py
+
 PROBCLI ?= $(HOME)/Applications/ProB/probcli
 PROB_SETSIZE ?= 2
 PROB_MAXINT ?= 4
