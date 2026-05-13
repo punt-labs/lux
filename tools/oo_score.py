@@ -27,6 +27,7 @@ from __future__ import annotations
 import ast
 import datetime
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -465,27 +466,38 @@ class Ratchet:
     # ------------------------------------------------------------------
 
     @staticmethod
+    def _resolve_git() -> str | None:
+        """Return the absolute path to git, or None if not found."""
+        return shutil.which("git")
+
+    @staticmethod
     def _git_commit_short() -> str | None:
+        git = Ratchet._resolve_git()
+        if git is None:
+            return None
         try:
-            result = subprocess.run(
-                ["git", "rev-parse", "--short", "HEAD"],
+            result = subprocess.run(  # noqa: S603
+                [git, "rev-parse", "--short", "HEAD"],
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
             if result.returncode == 0:
                 return result.stdout.strip()
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except subprocess.TimeoutExpired:
             pass
         return None
 
     @staticmethod
     def _git_touched_files() -> list[str] | None:
         """Return repo-relative paths changed in the latest commit."""
+        git = Ratchet._resolve_git()
+        if git is None:
+            return None
         try:
             # Compare HEAD against its parent — works in CI (clean checkout)
-            result = subprocess.run(
-                ["git", "diff", "--name-only", "HEAD~1..HEAD"],
+            result = subprocess.run(  # noqa: S603
+                [git, "diff", "--name-only", "HEAD~1..HEAD"],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -493,7 +505,7 @@ class Ratchet:
             if result.returncode == 0:
                 return [line for line in result.stdout.strip().splitlines() if line]
             # HEAD~1 may not exist (initial commit) — fall through to None
-        except (FileNotFoundError, subprocess.TimeoutExpired):
+        except subprocess.TimeoutExpired:
             pass
         return None
 
@@ -573,19 +585,7 @@ class Ratchet:
             return 1
 
         current_by_file = self._results_by_file(scorer.results)
-
-        # Determine which files are "touched"
-        git_touched = self._git_touched_files()
-        scored_files = set(current_by_file)
-
-        if git_touched is not None:
-            touched = scored_files & set(git_touched)
-        else:
-            # Git unavailable — compare all scored files against baseline
-            touched = scored_files
-
-        # Filter to only Python files
-        touched = {f for f in touched if f.endswith(".py")}
+        touched = self._resolve_touched_files(current_by_file)
 
         if not touched:
             _writeln("No Python files touched -- trivial pass")
@@ -599,55 +599,117 @@ class Ratchet:
             current = current_by_file.get(fpath)
             if current is None:
                 continue
-            baseline_entry = self._baseline.get(fpath)
+            file_rows, has_regression, has_improvement = self._compare_file(
+                fpath,
+                current,
+            )
+            rows.extend(file_rows)
+            if has_regression:
+                any_regression = True
+            if has_improvement:
+                any_improvement = True
 
-            if baseline_entry is None:
-                # New file — check against absolute thresholds only
-                all_passed = True
-                for metric in self.METRIC_KEYS:
-                    if metric not in current:
-                        continue
-                    val = current[metric]
-                    passed = self._meets_threshold(metric, val)
-                    grade = "PASS" if passed else "FAIL"
-                    rows.append((fpath, metric, "NEW", f"{val:.3f}", "--", grade))
-                    if not passed:
-                        any_regression = True
-                        all_passed = False
-                # A new file that passes all thresholds counts as improvement
-                if all_passed:
-                    any_improvement = True
+        return self._print_check_results(
+            rows,
+            any_regression=any_regression,
+            any_improvement=any_improvement,
+        )
+
+    def _resolve_touched_files(
+        self,
+        current_by_file: dict[str, dict[str, float]],
+    ) -> set[str]:
+        """Determine which scored Python files were touched in the latest commit."""
+        git_touched = self._git_touched_files()
+        scored_files = set(current_by_file)
+
+        if git_touched is not None:
+            touched = scored_files & set(git_touched)
+        else:
+            # Git unavailable — compare all scored files against baseline
+            touched = scored_files
+
+        return {f for f in touched if f.endswith(".py")}
+
+    def _compare_file(
+        self,
+        fpath: str,
+        current: dict[str, float],
+    ) -> tuple[list[tuple[str, str, str, str, str, str]], bool, bool]:
+        """Compare one file against baseline."""
+        baseline_entry = self._baseline.get(fpath)
+        if baseline_entry is None:
+            return self._compare_new_file(fpath, current)
+        return self._compare_existing_file(fpath, current, baseline_entry)
+
+    def _compare_new_file(
+        self,
+        fpath: str,
+        current: dict[str, float],
+    ) -> tuple[list[tuple[str, str, str, str, str, str]], bool, bool]:
+        """Compare a new file (no baseline) against absolute thresholds."""
+        rows: list[tuple[str, str, str, str, str, str]] = []
+        has_regression = False
+        for metric in self.METRIC_KEYS:
+            if metric not in current:
                 continue
+            val = current[metric]
+            passed = self._meets_threshold(metric, val)
+            grade = "PASS" if passed else "FAIL"
+            rows.append((fpath, metric, "NEW", f"{val:.3f}", "--", grade))
+            if not passed:
+                has_regression = True
+        # A new file that passes all thresholds counts as improvement
+        has_improvement = not has_regression
+        return rows, has_regression, has_improvement
 
-            for metric in self.METRIC_KEYS:
-                if metric not in current or metric not in baseline_entry:
-                    continue
-                cur_val = current[metric]
-                base_val = baseline_entry[metric]
-                delta = cur_val - base_val
+    def _compare_existing_file(
+        self,
+        fpath: str,
+        current: dict[str, float],
+        baseline_entry: dict[str, float],
+    ) -> tuple[list[tuple[str, str, str, str, str, str]], bool, bool]:
+        """Compare a file with a baseline entry."""
+        rows: list[tuple[str, str, str, str, str, str]] = []
+        has_regression = False
+        has_improvement = False
+        for metric in self.METRIC_KEYS:
+            if metric not in current or metric not in baseline_entry:
+                continue
+            cur_val = current[metric]
+            base_val = baseline_entry[metric]
+            delta = cur_val - base_val
 
-                if self._is_strictly_better(metric, cur_val, base_val):
-                    grade = "IMPROVED"
-                    any_improvement = True
-                elif self._is_better_or_equal(metric, cur_val, base_val):
-                    grade = "PASS"
-                else:
-                    grade = "REGRESSED"
-                    any_regression = True
+            if self._is_strictly_better(metric, cur_val, base_val):
+                grade = "IMPROVED"
+                has_improvement = True
+            elif self._is_better_or_equal(metric, cur_val, base_val):
+                grade = "PASS"
+            else:
+                grade = "REGRESSED"
+                has_regression = True
 
-                if delta != 0.0 or grade == "REGRESSED":
-                    rows.append(
-                        (
-                            fpath,
-                            metric,
-                            f"{base_val:.3f}",
-                            f"{cur_val:.3f}",
-                            f"{delta:+.3f}",
-                            grade,
-                        )
+            if delta != 0.0 or grade == "REGRESSED":
+                rows.append(
+                    (
+                        fpath,
+                        metric,
+                        f"{base_val:.3f}",
+                        f"{cur_val:.3f}",
+                        f"{delta:+.3f}",
+                        grade,
                     )
+                )
+        return rows, has_regression, has_improvement
 
-        # Print comparison table
+    @staticmethod
+    def _print_check_results(
+        rows: list[tuple[str, str, str, str, str, str]],
+        *,
+        any_regression: bool,
+        any_improvement: bool,
+    ) -> int:
+        """Print the comparison table and return exit code."""
         _writeln(
             f"\n{'File':<40} {'Metric':<26} {'Baseline':>10} "
             f"{'Current':>10} {'Delta':>8} {'Status':>10}",
@@ -681,69 +743,37 @@ class Ratchet:
         current_by_file = self._results_by_file(scorer.results)
         new_baseline = dict(self._baseline)
         refused: list[tuple[str, str]] = []
-        updated_count = 0
-        added_count = 0
-
-        # Track deltas for audit
         deltas: dict[str, dict[str, list[float]]] = {}
+        added_count = 0
+        updated_count = 0
 
         for fpath in sorted(current_by_file):
             current = current_by_file[fpath]
             baseline_entry = self._baseline.get(fpath)
 
             if baseline_entry is None:
-                # New file — add unconditionally
                 new_baseline[fpath] = current
                 added_count += 1
-                # Record all metrics as deltas for new files
-                file_deltas: dict[str, list[float]] = {}
-                for metric in self.METRIC_KEYS:
-                    if metric in current:
-                        file_deltas[metric] = [0.0, current[metric]]
+                file_deltas = self._deltas_for_new_file(current)
                 if file_deltas:
                     deltas[fpath] = file_deltas
                 continue
 
-            # Check for regressions
-            has_regression = False
-            for metric in self.METRIC_KEYS:
-                if metric not in current or metric not in baseline_entry:
-                    continue
-                cur_val = current[metric]
-                base_val = baseline_entry[metric]
-                if not self._is_better_or_equal(metric, cur_val, base_val):
-                    refused.append((fpath, metric))
-                    has_regression = True
-
-            if has_regression:
+            file_refused = self._find_regressions(fpath, current, baseline_entry)
+            if file_refused:
+                refused.extend(file_refused)
                 continue
 
-            # No regression — update and record deltas
-            file_deltas = {}
-            for metric in self.METRIC_KEYS:
-                if metric not in current or metric not in baseline_entry:
-                    continue
-                if current[metric] != baseline_entry[metric]:
-                    file_deltas[metric] = [baseline_entry[metric], current[metric]]
-
+            file_deltas = self._compute_deltas(current, baseline_entry)
             new_baseline[fpath] = current
             updated_count += 1
             if file_deltas:
                 deltas[fpath] = file_deltas
 
-        # Remove deleted files (in baseline but not on disk)
-        removed_count = 0
-        for fpath in list(new_baseline):
-            if fpath not in current_by_file:
-                del new_baseline[fpath]
-                removed_count += 1
-
+        removed_count = self._remove_deleted_files(new_baseline, current_by_file)
         self._save_baseline(new_baseline)
 
-        # Count improved files (files where at least one metric changed for the better)
         files_improved = sum(1 for d in deltas.values() if d)
-
-        # Append audit log
         self._append_audit(
             files_scored=len(current_by_file),
             files_improved=files_improved,
@@ -752,9 +782,78 @@ class Ratchet:
             deltas=deltas,
         )
 
-        # Report
+        return self._report_update(
+            len(current_by_file),
+            added_count,
+            updated_count,
+            removed_count,
+            refused,
+        )
+
+    def _deltas_for_new_file(
+        self,
+        current: dict[str, float],
+    ) -> dict[str, list[float]]:
+        """Build delta entries for a file with no baseline."""
+        return {
+            metric: [0.0, current[metric]]
+            for metric in self.METRIC_KEYS
+            if metric in current
+        }
+
+    def _find_regressions(
+        self,
+        fpath: str,
+        current: dict[str, float],
+        baseline_entry: dict[str, float],
+    ) -> list[tuple[str, str]]:
+        """Return (file, metric) pairs for any regressed metrics."""
+        regressions: list[tuple[str, str]] = []
+        for metric in self.METRIC_KEYS:
+            if metric not in current or metric not in baseline_entry:
+                continue
+            cur_val = current[metric]
+            base_val = baseline_entry[metric]
+            if not self._is_better_or_equal(metric, cur_val, base_val):
+                regressions.append((fpath, metric))
+        return regressions
+
+    def _compute_deltas(
+        self,
+        current: dict[str, float],
+        baseline_entry: dict[str, float],
+    ) -> dict[str, list[float]]:
+        """Return {metric: [old, new]} for metrics that changed."""
+        return {
+            metric: [baseline_entry[metric], current[metric]]
+            for metric in self.METRIC_KEYS
+            if metric in current
+            and metric in baseline_entry
+            and current[metric] != baseline_entry[metric]
+        }
+
+    @staticmethod
+    def _remove_deleted_files(
+        baseline: dict[str, dict[str, float]],
+        current_by_file: dict[str, dict[str, float]],
+    ) -> int:
+        """Remove files from baseline that are no longer on disk. Return count."""
+        to_remove = [f for f in baseline if f not in current_by_file]
+        for fpath in to_remove:
+            del baseline[fpath]
+        return len(to_remove)
+
+    def _report_update(
+        self,
+        files_scored: int,
+        added_count: int,
+        updated_count: int,
+        removed_count: int,
+        refused: list[tuple[str, str]],
+    ) -> int:
+        """Print update summary and return exit code."""
         _writeln(f"\nBaseline updated: {self._baseline_path}")
-        _writeln(f"  files scored:  {len(current_by_file)}")
+        _writeln(f"  files scored:  {files_scored}")
         _writeln(f"  files added:   {added_count}")
         _writeln(f"  files updated: {updated_count}")
         _writeln(f"  files removed: {removed_count}")
