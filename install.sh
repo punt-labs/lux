@@ -89,7 +89,7 @@ fi
 info "Installing $PACKAGE..."
 
 # shellcheck disable=SC2086
-uv tool install --force $PYTHON_FLAG "$PACKAGE[$EXTRAS]==$VERSION" || fail "Failed to install $PACKAGE[$EXTRAS]==$VERSION"
+uv tool install --force $PYTHON_FLAG "${PACKAGE}[${EXTRAS}]==${VERSION}" || fail "Failed to install ${PACKAGE}[${EXTRAS}]==${VERSION}"
 ok "$PACKAGE installed"
 
 if ! command -v "$BINARY" >/dev/null 2>&1; then
@@ -100,6 +100,19 @@ if ! command -v "$BINARY" >/dev/null 2>&1; then
 fi
 
 ok "$BINARY $(command -v "$BINARY")"
+
+# --- Step 4b: Restart display if already running ---
+
+if "$BINARY" status >/dev/null 2>&1; then
+  _pid_file="/tmp/lux-$(whoami)/display.sock.pid"
+  if [ -f "$_pid_file" ]; then
+    _old_pid=$(cat "$_pid_file" 2>/dev/null)
+    if [ -n "$_old_pid" ] && kill -0 "$_old_pid" 2>/dev/null; then
+      kill "$_old_pid" 2>/dev/null
+      info "Stopped old display server (pid $_old_pid) — next show() will spawn the new version"
+    fi
+  fi
+fi
 
 # --- Step 5: Install mcp-proxy ---
 
