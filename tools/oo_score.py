@@ -24,7 +24,7 @@ import ast
 import json
 import sys
 from pathlib import Path
-from typing import Self
+from typing import ClassVar, Self
 
 
 class ModuleMetrics:
@@ -36,7 +36,7 @@ class ModuleMetrics:
         self = super().__new__(cls)
         self._path = path
         self._tree = ast.parse(source, filename=path)
-        self._source_lines = len([l for l in source.splitlines() if l.strip()])
+        self._source_lines = len([line for line in source.splitlines() if line.strip()])
         return self
 
     def compute(self) -> dict[str, float | int | str]:
@@ -70,7 +70,11 @@ class ModuleMetrics:
         for base in node.bases:
             if isinstance(base, ast.Name) and base.id in type_bases:
                 return True
-            if isinstance(base, ast.Subscript) and isinstance(base.value, ast.Name) and base.value.id in type_bases:
+            if (
+                isinstance(base, ast.Subscript)
+                and isinstance(base.value, ast.Name)
+                and base.value.id in type_bases
+            ):
                 return True
         return False
 
@@ -89,7 +93,11 @@ class ModuleMetrics:
         for node in ast.iter_child_nodes(self._tree):
             if isinstance(node, skip_types):
                 continue
-            if isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
+            if (
+                isinstance(node, ast.Expr)
+                and isinstance(node.value, ast.Constant)
+                and isinstance(node.value.value, str)
+            ):
                 continue
             count += 1
         return count
@@ -164,21 +172,25 @@ class ModuleMetrics:
         return max_cc
 
     def _avg_complexity(self) -> float:
-        complexities = []
-        for node in ast.walk(self._tree):
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                complexities.append(self._cyclomatic_complexity(node))
+        complexities = [
+            self._cyclomatic_complexity(node)
+            for node in ast.walk(self._tree)
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+        ]
         if not complexities:
             return 0.0
         return round(sum(complexities) / len(complexities), 2)
 
     @staticmethod
-    def _cyclomatic_complexity(func_node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
+    def _cyclomatic_complexity(
+        func_node: ast.FunctionDef | ast.AsyncFunctionDef,
+    ) -> int:
         cc = 1
         for node in ast.walk(func_node):
-            if isinstance(node, (ast.If, ast.While, ast.For, ast.AsyncFor)):
-                cc += 1
-            elif isinstance(node, ast.ExceptHandler):
+            if isinstance(
+                node,
+                (ast.If, ast.While, ast.For, ast.AsyncFor, ast.ExceptHandler),
+            ):
                 cc += 1
             elif isinstance(node, ast.BoolOp):
                 cc += len(node.values) - 1
@@ -193,7 +205,11 @@ class ModuleMetrics:
         for d in node.decorator_list:
             if isinstance(d, ast.Name) and d.id == "dataclass":
                 return True
-            if isinstance(d, ast.Call) and isinstance(d.func, ast.Name) and d.func.id == "dataclass":
+            if (
+                isinstance(d, ast.Call)
+                and isinstance(d.func, ast.Name)
+                and d.func.id == "dataclass"
+            ):
                 return True
             if isinstance(d, ast.Attribute) and d.attr == "dataclass":
                 return True
@@ -229,11 +245,12 @@ class ModuleMetrics:
 
     def _has_future_annotations(self) -> int:
         for node in ast.iter_child_nodes(self._tree):
-            if isinstance(node, ast.ImportFrom):
-                if node.module == "__future__" and any(
-                    alias.name == "annotations" for alias in node.names
-                ):
-                    return 1
+            if (
+                isinstance(node, ast.ImportFrom)
+                and node.module == "__future__"
+                and any(alias.name == "annotations" for alias in node.names)
+            ):
+                return 1
         return 0
 
 
@@ -243,7 +260,7 @@ class Scorer:
     _thresholds: dict[str, tuple[str, float]]
     _results: list[dict[str, float | int | str]]
 
-    THRESHOLDS: dict[str, tuple[str, float]] = {
+    THRESHOLDS: ClassVar[dict[str, tuple[str, float]]] = {
         "method_ratio": (">=", 0.80),
         "encapsulation_ratio": (">=", 1.0),
         "avg_params": ("<=", 4.0),
@@ -328,7 +345,10 @@ class Scorer:
         for k, values in agg.items():
             if not values:
                 continue
-            if k in ("max_complexity", "module_size", "init_violations", "public_attr_violations"):
+            if k in (
+                "max_complexity", "module_size",
+                "init_violations", "public_attr_violations",
+            ):
                 summary[k] = max(values)
             elif k in ("future_annotations",):
                 summary[k] = min(values)
