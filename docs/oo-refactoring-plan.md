@@ -1,9 +1,10 @@
 # Lux Refactoring Plan
 
 **This document** is the executable refactoring plan. It combines the
-OO design analysis from the class-responsibility report with the peer
-review feedback into step-by-step instructions that preserve behavior
-at every step. An agent executing this plan needs no other document.
+OO design analysis from `oo-class-design.md` with the peer review
+feedback from `oo-class-design-review.md` into step-by-step
+instructions that preserve behavior at every step. An agent executing
+this plan needs no other document.
 
 Every step is a behavior-preserving transformation. `make check` passes
 after every step. One class extraction per step -- never two at once.

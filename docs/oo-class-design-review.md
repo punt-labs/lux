@@ -1,9 +1,9 @@
-# Peer Review: Class Responsibility Report (v3)
+# OO Class Design Review
 
 **Related documents:**
 
-- [`class-responsibility-report.md`](class-responsibility-report.md) — The design report this review evaluates.
-- [`refactoring-plan.md`](refactoring-plan.md) — Executable step-by-step plan that incorporates this review's modifications.
+- [`oo-class-design.md`](oo-class-design.md) — The design report this review evaluates.
+- [`oo-refactoring-plan.md`](oo-refactoring-plan.md) — Executable step-by-step plan that incorporates this review's modifications.
 
 **This document** is the peer review. Verdict: GO with modifications.
 

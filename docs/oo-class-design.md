@@ -1,9 +1,9 @@
-# Class Responsibility Report
+# OO Class Design
 
 **Related documents:**
 
-- [`class-responsibility-review.md`](class-responsibility-review.md) — Peer review of this report. Verdict: GO with modifications.
-- [`refactoring-plan.md`](refactoring-plan.md) — Executable step-by-step plan that implements this design.
+- [`oo-class-design-review.md`](oo-class-design-review.md) — Peer review of this report. Verdict: GO with modifications.
+- [`oo-refactoring-plan.md`](oo-refactoring-plan.md) — Executable step-by-step plan that implements this design.
 
 **This document** is the OO design analysis: every class that exists, every class that should exist, what each one owns, what it collaborates with, and which existing functions/methods move into it.
 
