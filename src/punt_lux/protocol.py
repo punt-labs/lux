@@ -482,7 +482,6 @@ class Patch:
     id: str
     set: dict[str, Any] | None = None
     remove: bool = False
-    insert_after: dict[str, Any] | None = None
 
 
 @dataclass
@@ -494,7 +493,6 @@ class SceneMessage:
     type: Literal["scene"] = "scene"
     layout: str = "single"  # "single", "rows", "columns", "grid"
     title: str | None = None
-    grid_columns: int | None = None
     frame_id: str | None = None
     frame_title: str | None = None
     frame_size: tuple[int, int] | None = None
@@ -677,16 +675,7 @@ class InteractionMessage:
     type: Literal["interaction"] = "interaction"
     ts: float | None = None
     value: Any = None
-
-
-@dataclass
-class WindowMessage:
-    """Window lifecycle event."""
-
-    event: str  # "resized", "closed", "focused", "unfocused"
-    type: Literal["window"] = "window"
-    width: int | None = None
-    height: int | None = None
+    scene_id: str | None = None
 
 
 @dataclass
@@ -726,7 +715,6 @@ DisplayMessage = (
     ReadyMessage
     | AckMessage
     | InteractionMessage
-    | WindowMessage
     | PongMessage
     | IntrospectResponse
     | ListScenesResponse
@@ -1453,8 +1441,6 @@ def _patch_to_dict(p: Patch) -> dict[str, Any]:
         d["set"] = p.set
     if p.remove:
         d["remove"] = True
-    if p.insert_after is not None:
-        d["insert_after"] = p.insert_after
     return d
 
 
@@ -1463,7 +1449,6 @@ def _patch_from_dict(d: dict[str, Any]) -> Patch:
         id=d["id"],
         set=d.get("set"),
         remove=d.get("remove", False),
-        insert_after=d.get("insert_after"),
     )
 
 
@@ -1473,7 +1458,6 @@ def _scene_to_dict(msg: SceneMessage) -> dict[str, Any]:
         "id": msg.id,
         "layout": msg.layout,
         "title": msg.title,
-        "grid_columns": msg.grid_columns,
         "elements": [_element_to_dict(e) for e in msg.elements],
         "frame_id": msg.frame_id,
         "frame_title": msg.frame_title,
@@ -1502,15 +1486,8 @@ def _interaction_to_dict(msg: InteractionMessage) -> dict[str, Any]:
         d["ts"] = msg.ts
     if msg.value is not None:
         d["value"] = msg.value
-    return d
-
-
-def _window_to_dict(msg: WindowMessage) -> dict[str, Any]:
-    d: dict[str, Any] = {"type": msg.type, "event": msg.event}
-    if msg.width is not None:
-        d["width"] = msg.width
-    if msg.height is not None:
-        d["height"] = msg.height
+    if msg.scene_id is not None:
+        d["scene_id"] = msg.scene_id
     return d
 
 
@@ -1539,7 +1516,6 @@ def _register_serializers() -> None:  # noqa: C901
     _MESSAGE_SERIALIZERS[SceneMessage] = _scene_to_dict
     _MESSAGE_SERIALIZERS[UpdateMessage] = _update_to_dict
     _MESSAGE_SERIALIZERS[InteractionMessage] = _interaction_to_dict
-    _MESSAGE_SERIALIZERS[WindowMessage] = _window_to_dict
 
     def _clear(m: ClearMessage) -> dict[str, Any]:
         return {"type": m.type}
@@ -1687,7 +1663,6 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
             elements=elements,
             layout=d.get("layout", "single"),
             title=d.get("title"),
-            grid_columns=d.get("grid_columns"),
             frame_id=d.get("frame_id"),
             frame_title=d.get("frame_title"),
             frame_size=_parse_frame_size(d.get("frame_size")),
@@ -1751,10 +1726,7 @@ def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
             action=d["action"],
             ts=d.get("ts"),
             value=d.get("value"),
-        )
-    if msg_type == "window":
-        return WindowMessage(
-            event=d["event"], width=d.get("width"), height=d.get("height")
+            scene_id=d.get("scene_id"),
         )
     if msg_type == "pong":
         return PongMessage(ts=d.get("ts"), display_ts=d.get("display_ts"))

@@ -55,7 +55,6 @@ from punt_lux.protocol import (
     UnknownMessage,
     UpdateMessage,
     WindowElement,
-    WindowMessage,
     decode_frame,
     element_from_dict,
     encode_frame,
@@ -452,10 +451,6 @@ class TestMessages:
         msg = InteractionMessage(element_id="b1", action="click", value=42)
         assert msg.value == 42
 
-    def test_window_message(self):
-        msg = WindowMessage(event="resized", width=800, height=600)
-        assert msg.event == "resized"
-
     def test_pong_message(self):
         msg = PongMessage(ts=1.0, display_ts=2.0)
         assert msg.display_ts == 2.0
@@ -646,7 +641,6 @@ class TestSerialization:
             ReadyMessage(capabilities=["implot"]),
             AckMessage(scene_id="s1", ts=2.0),
             InteractionMessage(element_id="b1", action="click"),
-            WindowMessage(event="closed"),
             PongMessage(ts=1.0, display_ts=2.0),
         ]
         for msg in messages:
