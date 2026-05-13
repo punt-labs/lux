@@ -699,11 +699,87 @@ def set_theme(theme: str) -> str:
 
     Example: set_theme("imgui_colors_light") for dashboards and data views.
     """
+    if not is_display_running(default_socket_path()):
+        return "not running"
 
     def _call() -> str:
         client = _get_client()
-        client.set_theme(theme)
-        return f"theme:{theme}"
+        response = client.query("set_theme", {"theme": theme})
+        if response is None:
+            return "timeout"
+        if response.error:
+            return f"error: {response.error}"
+        return f"theme:{response.result.get('theme', theme)}"
+
+    return _with_reconnect(_call)
+
+
+@mcp.tool()
+def set_window_settings(
+    opacity: float | None = None,
+    font_scale: float | None = None,
+    decorated: bool | None = None,  # noqa: FBT001
+    fps_idle: float | None = None,
+) -> str:
+    """Modify display window settings. Only provided fields are changed.
+
+    Args:
+        opacity: Window opacity (0.1-1.0).
+        font_scale: Font size multiplier (0.5-3.0).
+        decorated: Show window title bar and borders.
+        fps_idle: Target FPS when idle (1-120).
+    """
+    params: dict[str, Any] = {}
+    if opacity is not None:
+        params["opacity"] = opacity
+    if font_scale is not None:
+        params["font_scale"] = font_scale
+    if decorated is not None:
+        params["decorated"] = decorated
+    if fps_idle is not None:
+        params["fps_idle"] = fps_idle
+    if not params:
+        return "error: no settings provided"
+    if not is_display_running(default_socket_path()):
+        return "not running"
+
+    def _call() -> str:
+        client = _get_client()
+        response = client.query("set_window_settings", params)
+        if response is None:
+            return "timeout"
+        if response.error:
+            return f"error: {response.error}"
+        return json.dumps(response.result, indent=2)
+
+    return _with_reconnect(_call)
+
+
+@mcp.tool()
+def set_frame_state(
+    frame_id: str,
+    minimized: bool | None = None,  # noqa: FBT001
+) -> str:
+    """Modify a frame's state (minimize/expand).
+
+    Args:
+        frame_id: Target frame identifier.
+        minimized: True to minimize, False to expand.
+    """
+    if not is_display_running(default_socket_path()):
+        return "not running"
+    params: dict[str, Any] = {"frame_id": frame_id}
+    if minimized is not None:
+        params["minimized"] = minimized
+
+    def _call() -> str:
+        client = _get_client()
+        response = client.query("set_frame_state", params)
+        if response is None:
+            return "timeout"
+        if response.error:
+            return f"error: {response.error}"
+        return json.dumps(response.result, indent=2)
 
     return _with_reconnect(_call)
 
