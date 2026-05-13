@@ -1,4 +1,4 @@
-.PHONY: help test lint type check check-oo report format build install clean depot fuzz prob clean-tex font-test
+.PHONY: help test lint type check check-oo update-oo report format build install clean depot fuzz prob clean-tex font-test
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -10,6 +10,7 @@ lint: ## Lint and format check
 	uv run --extra display ruff check .
 	uv run --extra display ruff format --check .
 	npx markdownlint-cli2 "**/*.md" "#node_modules"
+	bash scripts/check-skill-permissions.sh
 
 type: ## Type check with mypy and pyright
 	uv run --extra display mypy src/ tests/
@@ -17,8 +18,11 @@ type: ## Type check with mypy and pyright
 
 check: check-oo lint type test ## Run all quality gates
 
-check-oo: ## OO structure score (tools/oo_score.py)
-	uv run --extra display python tools/oo_score.py src/punt_lux/
+check-oo: ## OO ratchet — must improve over baseline, never regress
+	uv run --extra display python tools/oo_score.py src/punt_lux/ --check
+
+update-oo: ## Update OO baseline after improvements (stage .oo-baseline.json and .oo-audit.jsonl)
+	uv run --extra display python tools/oo_score.py src/punt_lux/ --update
 
 report: ## Full diagnostics (OO score + all checks, no fail-fast)
 	-uv run --extra display python tools/oo_score.py src/punt_lux/ --threshold
@@ -52,10 +56,10 @@ depot: build ## Build and copy wheel to local depot
 	@echo "depot: $$(ls dist/*.whl | xargs -n1 basename) -> $(DEPOT)/"
 
 metrics: ## Run ABC complexity metrics on src/
-	python scripts/run_metrics.py
+	python tools/run_metrics.py
 
 coverage: ## Run tests with coverage report
-	uv run --extra display python scripts/run_coverage.py
+	uv run --extra display python tools/run_coverage.py
 
 PROBCLI ?= $(HOME)/Applications/ProB/probcli
 PROB_SETSIZE ?= 2
@@ -89,7 +93,7 @@ LATEX_ARTIFACTS = docs/*.aux docs/*.log docs/*.out docs/*.bbl docs/*.bcf docs/*.
                   docs/*.toc docs/*.fuzz docs/*.mf docs/fuzz.sty
 
 font-test: ## Visual font coverage test (SMP + BMP double-struck letters)
-	uv run python scripts/font-test.py
+	uv run python tools/font-test.py
 
 clean-tex: ## Remove LaTeX intermediate files
 	@rm -f $(LATEX_ARTIFACTS)
