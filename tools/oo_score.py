@@ -532,7 +532,7 @@ class Ratchet:
                     )
         except subprocess.TimeoutExpired:
             pass
-        return list(files) if files else None
+        return list(files)
 
     # ------------------------------------------------------------------
     # Metric comparison helpers
