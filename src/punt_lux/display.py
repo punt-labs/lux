@@ -1196,7 +1196,6 @@ class DisplayServer:
         try:
             self._show_lux_menu(imgui)
             self._show_apps_menu(imgui)
-            self._show_debug_menu(imgui)
             self._show_window_menu(imgui)
             self._show_help_menu(imgui)
             for menu in self._agent_menus:
@@ -1265,19 +1264,6 @@ class DisplayServer:
             hello_imgui.change_window_size((1200, 800))
             clicked = True
         return clicked
-
-    def _show_debug_menu(self, imgui: Any) -> None:
-        if not imgui.begin_menu("Debug"):
-            return
-        try:
-            self._show_debug_items(imgui)
-        finally:
-            imgui.end_menu()
-
-    def _show_debug_items(self, imgui: Any) -> bool:
-        """Render debug items. Returns True if any item clicked."""
-        imgui.text_disabled("Use inspect_scene / list_scenes MCP tools")
-        return False
 
     def _show_help_menu(self, imgui: Any) -> None:
         if not imgui.begin_menu("Help"):
@@ -1387,11 +1373,6 @@ class DisplayServer:
         if self._menu_registrations:
             clicked_any = self._render_world_panel_apps(imgui) or clicked_any
 
-        if imgui.begin_menu("Debug##world"):
-            try:
-                clicked_any = self._show_debug_items(imgui) or clicked_any
-            finally:
-                imgui.end_menu()
         if imgui.begin_menu("Windows##world"):
             try:
                 clicked_any = self._show_window_frame_items(imgui) or clicked_any
