@@ -22,8 +22,10 @@ These hold throughout the entire refactoring. Violations are bugs.
    `grep -r 'from punt_lux.display import' src/punt_lux/scene_manager.py`
    must return nothing (and likewise for every new module).
 
-2. **`make check` passes after every step.** Lint, type check (mypy +
-   pyright), and all tests green. No exceptions.
+2. **`make check` passes after every step.** This includes `make
+   check-oo` (OO quality scores), lint, type check (mypy + pyright),
+   and all tests green. No exceptions. OO scores must improve or
+   stay the same — never regress.
 
 3. **Backward compatibility via wrappers.** When a module-level function
    moves into a class, the old function stays as a thin wrapper that
@@ -114,11 +116,74 @@ Create the callback type alias file described above.
 
 **Verification:** `make check`.
 
-### P.3: Establish baseline metrics
+### P.3: Fix `future_annotations` import
 
-Run `make metrics` and record the baseline ABC scores. Run
-`make coverage` and record the baseline coverage. These numbers are
-compared after each phase to verify complexity decreased.
+`apps/__init__.py` is missing `from __future__ import annotations`.
+Add it. This is the only module missing the import — every other
+module already has it.
+
+**Files modified:** `src/punt_lux/apps/__init__.py` (1 line).
+
+**Verification:** `make check-oo` — `future_annotations` metric
+changes from FAIL to PASS.
+
+### P.4: Fix `public_attr_violations` and `encapsulation_ratio`
+
+Per-file breakdown shows 6 public attr violations in `runtime.py`
+and 1 in `protocol.py`. These are `self.X = ...` assignments
+without an underscore prefix.
+
+**runtime.py (6 violations):** `RenderContext` and `CodeExecutor`
+use public attrs (`self.state`, `self.dt`, `self.frame`,
+`self.width`, `self.height`, `self.source`). Prefix with underscore
+and add `@property` accessors where external read access is needed.
+
+**protocol.py (1 violation):** `FrameReader` has one public attr.
+Prefix with underscore.
+
+**Files modified:** `src/punt_lux/runtime.py`, `src/punt_lux/protocol.py`.
+
+**Verification:** `make check-oo` — `public_attr_violations` drops
+to 0, `encapsulation_ratio` reaches 1.0.
+
+### P.5: Fix `init_violations`
+
+Per-file breakdown shows `__init__` used in:
+
+- `display.py` (3): `TextureCache.__init__`, `WidgetState.__init__`,
+  `DisplayServer.__init__`. These are non-dataclass classes.
+- `display_client.py` (1): `DisplayClient.__init__`.
+- `protocol.py` (1): `FrameReader.__init__`.
+- `runtime.py` (2): `RenderContext.__init__`, `CodeExecutor.__init__`.
+
+The OO scoring tool flags `__init__` on non-dataclass classes and
+expects `__new__` instead. Convert each `__init__` to `__new__`
+with `Self` return type, replacing `self.X = ...` with attribute
+assignment on the new instance.
+
+**Note:** This is a mechanical transformation. Each `__init__` becomes
+`__new__` with `self = super().__new__(cls)` at the top and
+`return self` at the bottom (if not already using that pattern).
+The tool's `oo_score.py` itself uses `__new__` — follow that pattern.
+
+**Files modified:** `src/punt_lux/display.py`,
+`src/punt_lux/display_client.py`, `src/punt_lux/protocol.py`,
+`src/punt_lux/runtime.py`.
+
+**Verification:** `make check-oo` — `init_violations` drops to 0.
+
+### P.6: Establish baseline metrics
+
+Run `make check-oo`, `make metrics`, and `make coverage`. Record
+all baselines. After pre-flight fixes P.1–P.5, the remaining
+`check-oo` failures should be only the structural metrics that
+require the full refactoring to fix:
+
+- `method_ratio` (needs class extractions)
+- `module_size` (needs file splits)
+- `max_complexity` (needs god class decomposition)
+- `classes_per_module` (needs file splits)
+- `class_to_func_ratio` (needs class extractions)
 
 Record the results in `.tmp/refactoring-baseline.txt` (gitignored).
 
