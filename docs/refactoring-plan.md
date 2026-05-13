@@ -1,11 +1,9 @@
 # Lux Refactoring Plan
 
-**Related documents:**
-
-- [`class-responsibility-report.md`](class-responsibility-report.md) — OO design analysis. Defines every class (existing and proposed), its single responsibility, compositions, collaborations, and the functions/methods that move into it. The design source of truth.
-- [`class-responsibility-review.md`](class-responsibility-review.md) — Peer review of the design report by `rej` (Ralph Johnson). Verdict: GO with modifications. This plan incorporates those modifications.
-
-**This document** is the executable refactoring plan. It combines the report's class designs with the review's feedback into step-by-step instructions that preserve behavior at every step.
+**This document** is the executable refactoring plan. It combines the
+OO design analysis from the class-responsibility report with the peer
+review feedback into step-by-step instructions that preserve behavior
+at every step. An agent executing this plan needs no other document.
 
 Every step is a behavior-preserving transformation. `make check` passes
 after every step. One class extraction per step -- never two at once.
@@ -176,6 +174,82 @@ other test that imports from `punt_lux.protocol`) is the verification.
 5. Update `protocol/__init__.py` to re-export everything from
    `elements.py`.
 
+**Class design: ElementCodec (`__init_subclass__` registration).**
+
+The proposed `ElementCodec` replaces the 48 module-level
+`_*_to_dict` / `_*_from_dict` functions and the two dispatch dicts
+(`_ELEMENT_SERIALIZERS`, `_ELEMENT_DESERIALIZERS`) with a mixin that
+auto-registers each element dataclass's codec pair:
+
+- **Responsibility:** Serialize Element dataclasses to dicts and
+  deserialize dicts to Elements.
+- **Compositions:** None.
+- **Collaborations:** Every Element dataclass (registered via
+  `__init_subclass__`); `element_from_dict` / `element_to_dict`
+  become module-level wrappers around the singleton.
+- **Key methods:**
+  - `to_dict(elem: Element) -> dict[str, Any]`
+  - `from_dict(data: dict[str, Any]) -> Element`
+  - `register(kind: str, cls: type, to_fn: Callable, from_fn: Callable) -> None`
+
+```python
+class _ElementBase:
+    """Mixin that auto-registers element codecs via __init_subclass__."""
+
+    _to_dict_fn: ClassVar[Callable[..., dict[str, Any]]]
+    _from_dict_fn: ClassVar[Callable[[dict[str, Any]], Any]]
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        kind = cls.__dataclass_fields__["kind"].default  # type: ignore[attr-defined]
+        if kind and hasattr(cls, "_to_dict_fn") and hasattr(cls, "_from_dict_fn"):
+            _ELEMENT_SERIALIZERS[type(cls)] = cls._to_dict_fn  # type: ignore[arg-type]
+            _ELEMENT_DESERIALIZERS[kind] = cls._from_dict_fn
+
+@dataclass
+class TextElement(_ElementBase):
+    id: str
+    content: str
+    kind: Literal["text"] = "text"
+    style: str | None = None
+    tooltip: str | None = None
+    color: str | None = None
+
+    @staticmethod
+    def _to_dict_fn(elem: TextElement) -> dict[str, Any]:
+        return _strip_none({
+            "kind": elem.kind,
+            "id": elem.id,
+            "content": elem.content,
+            "style": elem.style,
+            "color": elem.color,
+        })
+
+    @staticmethod
+    def _from_dict_fn(d: dict[str, Any]) -> TextElement:
+        return TextElement(
+            id=d["id"],
+            content=d.get("content", ""),
+            style=d.get("style"),
+            color=d.get("color"),
+        )
+```
+
+The gain is structural, not functional. The current code works. The
+free functions are repetitive but each is under 20 lines. The dispatch
+dicts are already the right pattern, just spelled at module scope. The
+`__init_subclass__` version eliminates the manual dict maintenance and
+puts serialization next to the dataclass it serves. The real gain
+comes when plugins register new element kinds --
+`__init_subclass__` makes that automatic.
+
+**Rejected alternative:** `to_dict()` / `from_dict()` as instance and
+class methods directly on the dataclasses, without a mixin or registry.
+This scatters the codec across 24 classes with no central dispatch.
+`element_from_dict(d)` would need to inspect `d["kind"]` and then
+somehow find the right class. A registry -- whether module-level dicts
+or `__init_subclass__` -- is unavoidable for deserialization.
+
 **Files created:** `src/punt_lux/protocol/elements.py`.
 
 **Files modified:** `src/punt_lux/protocol/__init__.py` (imports added,
@@ -211,6 +285,96 @@ unchanged.
 6. Update `protocol/__init__.py` to re-export everything from
    `messages.py`.
 
+**Class design: MessageCodec registry.**
+
+The proposed `MessageCodec` replaces the 95-line `message_from_dict`
+if/elif chain and the 120-line `_register_serializers` closure factory
+with a type-string registry.
+
+- **Responsibility:** Serialize and deserialize Message dataclasses.
+  Replace `message_to_dict`, `message_from_dict`,
+  `_register_serializers`, and the `_MESSAGE_SERIALIZERS` dict.
+- **Compositions:** None.
+- **Collaborations:** Every Message dataclass;
+  `encode_message` / `encode_frame` use `MessageCodec.to_dict`;
+  `FrameReader.drain_typed` uses `MessageCodec.from_dict`.
+- **Key methods:**
+  - `to_dict(msg: Message) -> dict[str, Any]`
+  - `from_dict(data: dict[str, Any]) -> Message`
+
+**Concrete code -- the `_register_message` pattern:**
+
+```python
+_MESSAGE_CODECS: dict[str, tuple[type, Callable, Callable]] = {}
+
+
+def _register_message(
+    type_str: str,
+    cls: type,
+    to_fn: Callable[..., dict[str, Any]],
+    from_fn: Callable[[dict[str, Any]], Any],
+) -> None:
+    _MESSAGE_CODECS[type_str] = (cls, to_fn, from_fn)
+    _MESSAGE_SERIALIZERS[cls] = to_fn
+
+
+def message_from_dict(d: dict[str, Any]) -> Message:
+    msg_type = d.get("type", "")
+    codec = _MESSAGE_CODECS.get(msg_type)
+    if codec is not None:
+        _, _, from_fn = codec
+        return from_fn(d)
+    if not isinstance(msg_type, str) or not msg_type:
+        raise ValueError("Message missing or invalid 'type' field")
+    return UnknownMessage(raw_type=msg_type, data=d)
+
+
+# Registration -- replaces 120-line _register_serializers():
+
+_register_message("scene", SceneMessage, _scene_to_dict, _scene_from_dict)
+_register_message("update", UpdateMessage, _update_to_dict, _update_from_dict)
+_register_message("clear", ClearMessage,
+    lambda m: {"type": m.type},
+    lambda d: ClearMessage())
+_register_message("ping", PingMessage,
+    lambda m: _ts_dict(m.type, m.ts),
+    lambda d: PingMessage(ts=d.get("ts")))
+# ... one line per message type
+```
+
+**Before** (`message_from_dict`, 95-line if/elif chain):
+
+```python
+def message_from_dict(d: dict[str, Any]) -> Message:
+    msg_type = d.get("type", "")
+    if msg_type == "scene":
+        return _scene_from_dict(d)
+    elif msg_type == "update":
+        return _update_from_dict(d)
+    elif msg_type == "clear":
+        return ClearMessage()
+    # ... 90 more lines of elif
+```
+
+**After** (registry lookup, 12 lines):
+
+```python
+def message_from_dict(d: dict[str, Any]) -> Message:
+    msg_type = d.get("type", "")
+    codec = _MESSAGE_CODECS.get(msg_type)
+    if codec is not None:
+        _, _, from_fn = codec
+        return from_fn(d)
+    if not isinstance(msg_type, str) or not msg_type:
+        raise ValueError("Message missing or invalid 'type' field")
+    return UnknownMessage(raw_type=msg_type, data=d)
+```
+
+This replaces 215 lines (95-line `message_from_dict` + 120-line
+`_register_serializers`) with ~40 lines of registration plus the
+same `_*_to_dict` / `_*_from_dict` functions. Net savings: ~100 lines,
+plus the if/elif chain is gone.
+
 **Files created:** `src/punt_lux/protocol/messages.py` (and optionally
 `src/punt_lux/protocol/framing.py`).
 
@@ -240,7 +404,57 @@ ImGui dependency).
 
 **New file:** `src/punt_lux/scene_manager.py` (~300 LOC).
 
-**Class:** `SceneManager` + `Frame` (promoted from `_Frame`).
+**Class design:**
+
+- **Responsibility:** Own the scene graph -- frames, scenes,
+  scene-to-frame mapping, widget state per scene, and the
+  update/patch pipeline. Pure state machine with no ImGui, no
+  socket, no OpenGL dependency.
+- **Compositions:**
+  - `Frame` dataclass (promoted from `_Frame`)
+  - `WidgetState` (one per scene)
+- **Collaborations:**
+  - `DisplayServer` -- renders scenes the manager provides
+  - `SocketServer` -- receives `SceneMessage` / `UpdateMessage` /
+    `ClearMessage`
+  - `ElementRenderer` -- queries scene content for rendering
+- **Constructor signature:**
+
+  ```python
+  def __init__(
+      self,
+      emit_event: EmitEventFn,
+      on_scene_replaced: OnSceneReplacedFn,
+  ) -> None:
+  ```
+
+  - `emit_event: EmitEventFn` -- callback for events emitted during
+    `_apply_patch_set` (e.g., tree node toggle events).
+  - `on_scene_replaced: OnSceneReplacedFn` -- called by
+    `replace_scene_state` so DisplayServer can drain stale events
+    from its own queue. SceneManager does NOT own the event queue.
+
+- **Key method signatures:**
+
+  ```python
+  def handle_scene(self, fd: int, msg: SceneMessage) -> AckMessage: ...
+  def handle_framed_scene(self, fd: int, msg: SceneMessage) -> AckMessage: ...
+  def upsert_scene_in_frame(self, frame_id: str, scene_id: str, elements: list[Element]) -> None: ...
+  def apply_update(self, scene_id: str, patches: list[Patch]) -> AckMessage: ...
+  def resolve_scene(self, scene_id: str) -> list[Element] | None: ...
+  def dismiss_scene(self, scene_id: str) -> None: ...
+  def close_frame(self, frame_id: str) -> None: ...
+  def clear_all(self) -> None: ...
+  def current_widget_state(self, scene_id: str) -> WidgetState: ...
+  ```
+
+**Class: `Frame` (promoted from `_Frame`).**
+
+- **Responsibility:** State for a named inner window -- owns scenes,
+  tracks layout mode, cascade index, minimized state.
+- The underscore prefix signals "private to this module" which is no
+  longer accurate when it lives in `scene_manager.py`. This is a
+  first-class domain object, not a private implementation detail.
 
 **State that moves from `DisplayServer.__init__`:**
 
@@ -276,17 +490,13 @@ ImGui dependency).
 
 These are scene-graph utilities. They belong with SceneManager.
 
-**`_Frame` becomes `Frame`.**  The underscore prefix signals
-module-private, which is wrong once the class is the primary domain
-object in `scene_manager.py`.
-
-**Constructor dependencies:**
-
-- `emit_event: EmitEventFn` -- callback for events emitted during
-  `_apply_patch_set` (e.g., tree node toggle events).
-- `on_scene_replaced: OnSceneReplacedFn` -- called by
-  `replace_scene_state` so DisplayServer can drain stale events from
-  its own queue. SceneManager does NOT own the event queue.
+**`on_scene_replaced` callback design.** `_replace_scene_state`
+currently drains stale events from the event queue. SceneManager must
+not own the event queue -- that stays on DisplayServer where
+`_flush_events` lives. SceneManager receives
+`on_scene_replaced(stale_scene_ids: list[str])`, and DisplayServer
+drains its own queue. This keeps the event queue in the coordinator
+where it belongs.
 
 **What stays on DisplayServer:**
 
@@ -338,7 +548,49 @@ ABC score decreases.
 
 **New file:** `src/punt_lux/socket_server.py` (~200 LOC).
 
-**Class:** `SocketServer`.
+**Class design:**
+
+- **Responsibility:** Accept, poll, read from, send to, and remove
+  Unix socket client connections. The socket layer has no ImGui
+  dependency. Extracting it makes IPC testable without a GPU context.
+- **Compositions:**
+  - `FrameReader` (one per client fd) -- buffered message framing
+- **Collaborations:**
+  - `DisplayServer` -- calls `poll()` each frame, receives typed
+    messages
+  - `protocol.encode_message` / `FrameReader.drain_typed` -- wire
+    format
+- **Constructor signature:**
+
+  ```python
+  def __init__(
+      self,
+      on_message: Callable[[socket.socket, Message], None],
+      on_client_disconnected: OnClientDisconnectedFn,
+      on_error: Callable[[str, str, str], None],
+  ) -> None:
+  ```
+
+  - `on_message` -- callback for each deserialized message.
+    DisplayServer's `_handle_message` is registered here.
+  - `on_client_disconnected` -- callback when a client fd
+    disconnects. DisplayServer uses this to transfer scene
+    ownership. `_remove_client` currently calls into scene
+    ownership transfer -- that callback replaces the direct call.
+    SocketServer must not import SceneManager.
+  - `on_error` -- callback for error recording (currently
+    `_record_error`).
+
+- **Key method signatures:**
+
+  ```python
+  def setup(self, socket_path: Path) -> None: ...
+  def accept_connections(self) -> None: ...
+  def poll_clients(self) -> list[tuple[int, Message]]: ...
+  def send_to_client(self, fd: int, msg: Message) -> None: ...
+  def remove_client(self, fd: int) -> None: ...
+  def broadcast(self, msg: Message) -> None: ...
+  ```
 
 **Methods that move from `DisplayServer`:**
 
@@ -357,17 +609,6 @@ ABC score decreases.
 - `_fd_to_client: dict[int, socket.socket]`
 - `_client_names: dict[int, str]`
 - `_client_connect_times: dict[int, float]`
-
-**Constructor dependencies:**
-
-- `on_message: Callable[[socket.socket, Message], None]` -- callback
-  for each deserialized message. DisplayServer's `_handle_message`
-  is registered here.
-- `on_client_disconnected: OnClientDisconnectedFn` -- callback when a
-  client fd disconnects. DisplayServer uses this to transfer scene
-  ownership.
-- `on_error: Callable[[str, str, str], None]` -- callback for error
-  recording (currently `_record_error`).
 
 **Characterization tests to write first** (in
 `tests/test_socket_server.py`):
@@ -398,7 +639,48 @@ is pure Python and highly testable).
 
 **New file:** `src/punt_lux/table_renderer.py` (~500 LOC).
 
-**Class:** `TableRenderer`.
+**Class design:**
+
+- **Responsibility:** Render the `table` element kind -- filters,
+  pagination, row selection, detail panel, column sizing, keyboard
+  navigation, copy-to-clipboard.
+- **Compositions:** None.
+- **Collaborations:**
+  - `ElementRenderer` -- delegates `_render_table` to this class
+  - `WidgetState` -- filter state, selection state, page state
+- **Constructor signature:**
+
+  ```python
+  def __init__(
+      self,
+      widget_state: WidgetState,
+      imgui: Any,
+      emit_event: EmitEventFn,
+  ) -> None:
+  ```
+
+  - `widget_state` -- mutable reference, swapped by DisplayServer
+    before each scene render.
+  - `imgui` -- the imgui module.
+  - `emit_event` -- for table row selection events.
+
+- **Key method signatures:**
+
+  ```python
+  def render(self, table: TableElement, scene_id: str) -> None: ...
+  def apply_filters(self, rows: list, filters: list[TableFilter]) -> list: ...
+  def render_pagination(self, total_rows: int) -> tuple[int, int]: ...
+  def render_rows(self, columns: list[str], rows: list, flags: list[str]) -> int | None: ...
+  def render_detail(self, detail: TableDetail, selected_row: int) -> None: ...
+  ```
+
+**Why a class.** The 15 module-level functions all take the same
+parameters: `widget_state`, `table_id`, `imgui`. This is a class
+spelled as free functions. The constructor takes `widget_state` and
+`imgui`; `table_id` is a method parameter (one instance serves
+multiple tables in a single frame). The filter logic
+(`_apply_table_filters`, `_filter_indexed_rows`, `_filter_combo`) is
+pure Python and can be tested without ImGui.
 
 **Functions that move from module-level in `display.py`:**
 
@@ -424,17 +706,6 @@ is pure Python and highly testable).
 - `_render_table` method -- becomes `TableRenderer.render`. The
   `_RENDERERS` dict entry for `"table"` delegates to the
   `TableRenderer` instance.
-
-**Constructor dependencies:**
-
-- `emit_event: EmitEventFn` -- for table row selection events.
-
-**Why a class.** The 15 module-level functions all take the same
-parameters: `widget_state`, `table_id`, `imgui`. This is a class
-spelled as free functions. The constructor takes `widget_state` and
-`imgui`; `table_id` is a method parameter. The filter logic
-(`_apply_table_filters`, `_filter_indexed_rows`, `_filter_combo`) is
-pure Python and can be tested without ImGui.
 
 **Characterization tests to write first** (in
 `tests/test_table_renderer.py`):
@@ -471,7 +742,41 @@ unit-testable).
 
 **New file:** `src/punt_lux/query_dispatcher.py` (~300 LOC).
 
-**Class:** `QueryDispatcher`.
+**Class design:**
+
+- **Responsibility:** Route `QueryRequest` messages to handler methods
+  and return `QueryResponse`. Own the ring buffers for events and
+  errors (for introspection only). No ImGui dependency -- fully
+  unit-testable.
+- **Compositions:** None.
+- **Collaborations:**
+  - `DisplayServer` -- registers handlers in `__init__`, receives
+    query messages from socket layer
+  - `SceneManager` -- many queries inspect scene state
+  - `MenuManager` -- `list_menus`, `list_clients` query menu state
+- **Constructor signature:**
+
+  ```python
+  def __init__(
+      self,
+      scene_manager: SceneManager,
+      # Read accessors for client and menu state (lambdas or protocol
+      # objects, not references to DisplayServer):
+      get_client_names: Callable[[], dict[int, str]],
+      get_client_connect_times: Callable[[], dict[int, float]],
+      get_menu_registrations: Callable[[], dict[int, list[dict[str, Any]]]],
+      get_agent_menus: Callable[[], list[dict[str, Any]]],
+  ) -> None:
+  ```
+
+- **Key method signatures:**
+
+  ```python
+  def handle_query(self, fd: int, msg: QueryRequest) -> QueryResponse: ...
+  def register_handler(self, method: str, handler: Callable) -> None: ...
+  def record_event(self, event: InteractionMessage) -> None: ...
+  def record_error(self, error: dict) -> None: ...
+  ```
 
 **Methods that move from `DisplayServer`:**
 
@@ -512,11 +817,21 @@ during QueryDispatcher construction.
 - `_recent_events: deque[dict[str, Any]]` (ring buffer)
 - `_recent_errors: deque[dict[str, Any]]` (ring buffer)
 
-**Constructor dependencies:**
+**Handler registration pattern.** DisplayServer registers its own
+handlers during construction:
 
-- `scene_manager: SceneManager` -- for `inspect_scene`, `list_scenes`.
-- Read accessors for client and menu state (lambdas or protocol
-  objects, not references to DisplayServer).
+```python
+self._query_dispatcher = QueryDispatcher(
+    scene_manager=self._scene_manager,
+    get_client_names=lambda: self._socket_server._client_names,
+    get_client_connect_times=lambda: self._socket_server._client_connect_times,
+    get_menu_registrations=lambda: self._menu_manager._menu_registrations,
+    get_agent_menus=lambda: self._menu_manager._agent_menus,
+)
+self._query_dispatcher.register_handler("get_display_info", self._query_get_display_info)
+self._query_dispatcher.register_handler("get_window_settings", self._query_get_window_settings)
+# ... etc.
+```
 
 **Characterization tests to write first** (in
 `tests/test_query_dispatcher.py`):
@@ -546,14 +861,63 @@ during QueryDispatcher construction.
 
 **New file:** `src/punt_lux/element_renderer.py` (~1,200 LOC).
 
-**Class:** `ElementRenderer`.
+**Class design:**
 
-**Design pattern:** Visitor. The `_RENDERERS` dict maps element kind
-strings to method names. When a new element kind is added, one method
-is added to `ElementRenderer` and one entry to `_RENDERERS`. This is
-the Open/Closed Principle: the class is open for extension (new
-element kinds) and closed for modification (existing render methods
-don't change).
+- **Responsibility:** Render protocol Element dataclasses as ImGui
+  widgets. One method per element kind. Dispatch by kind string via
+  the existing `_RENDERERS` class variable.
+- **Design pattern:** Visitor. The `_RENDERERS` dict maps element kind
+  strings to method names. When a new element kind is added, one
+  method is added to `ElementRenderer` and one entry to `_RENDERERS`.
+  This is the Open/Closed Principle: the class is open for extension
+  (new element kinds) and closed for modification (existing render
+  methods don't change).
+- **Compositions:** None.
+- **Collaborations:**
+  - `DisplayServer` / `SceneManager` -- provides elements + widget
+    state
+  - `WidgetState` -- reads/writes interactive widget values
+  - `TextureCache` -- image rendering
+  - `emit_event: Callable[[InteractionMessage], None]` -- emits
+    events
+- **Constructor signature (three dependencies):**
+
+  ```python
+  def __init__(
+      self,
+      widget_state: WidgetState,
+      texture_cache: TextureCache,
+      emit_event: EmitEventFn,
+  ) -> None:
+  ```
+
+  - `widget_state: WidgetState` -- mutable reference, swapped by
+    DisplayServer before each scene render.
+  - `texture_cache: TextureCache` -- for `_render_image`.
+  - `emit_event: EmitEventFn` -- for user interaction events.
+
+  The `_RENDERERS` class variable maps kind strings to method names:
+
+  ```python
+  _RENDERERS: ClassVar[dict[str, str]] = {
+      "text": "_render_text",
+      "button": "_render_button",
+      "separator": "_render_separator",
+      # ... one entry per element kind
+  }
+  ```
+
+- **Key method signatures:**
+
+  ```python
+  def render_element(self, element: Element, scene_id: str) -> None: ...
+  # Plus 24 _render_* methods (one per element kind)
+  ```
+
+**Widget state handoff.** DisplayServer sets
+`element_renderer.widget_state = scene_manager.current_widget_state(scene_id)`
+before each scene render. This is an explicit assignment, not a shared
+mutable reference threaded through layers.
 
 **Methods that move from `DisplayServer`:**
 
@@ -576,18 +940,6 @@ don't change).
 - `_widget_value` (module-level, if present)
 
 These are rendering utilities that belong with the renderer.
-
-**Constructor dependencies (three):**
-
-- `widget_state: WidgetState` -- mutable reference, swapped by
-  DisplayServer before each scene render.
-- `texture_cache: TextureCache` -- for `_render_image`.
-- `emit_event: EmitEventFn` -- for user interaction events.
-
-**Widget state handoff.** DisplayServer sets
-`element_renderer.widget_state = scene_manager.current_widget_state(scene_id)`
-before each scene render. This is an explicit assignment, not a shared
-mutable reference threaded through layers.
 
 **Note on `_render_table`.** If Step 2.3 has already extracted
 `TableRenderer`, then `ElementRenderer._render_table` delegates to
@@ -616,7 +968,49 @@ event emission pattern).
 
 **New file:** `src/punt_lux/menu_manager.py` (~400 LOC).
 
-**Class:** `MenuManager`.
+**Class design:**
+
+- **Responsibility:** Own all menu state -- the Lux menu, Applications
+  menu, Window menu, Help menu, World panel, agent menus, and
+  per-client menu registrations. Render menus. Dispatch menu-click
+  events via callbacks.
+- **Compositions:** None (menu items are dicts).
+- **Collaborations:**
+  - `DisplayServer` -- calls `render_menus()` in the ImGui callback
+  - `SocketServer` -- receives `MenuMessage`, `RegisterMenuMessage`
+  - `SceneManager` -- window menu items (collapse all, fit all) act
+    on frames
+- **Constructor signature:**
+
+  ```python
+  def __init__(
+      self,
+      emit_event: EmitEventFn,
+      on_theme_selected: Callable[[str], None],
+      on_decorated_toggled: Callable[[bool], None],
+      on_opacity_changed: Callable[[float], None],
+      on_font_scale_changed: Callable[[float], None],
+      # Read accessors for display-wide state:
+      get_themes: Callable[[], list[str]],
+      get_current_theme: Callable[[], str],
+      get_decorated: Callable[[], bool],
+      get_opacity: Callable[[], float],
+      get_font_scale: Callable[[], float],
+  ) -> None:
+  ```
+
+  MenuManager receives callbacks for user selections (e.g., "user
+  selected theme X", "user toggled decorated") but does not own the
+  state those callbacks mutate.
+
+- **Key method signatures:**
+
+  ```python
+  def show_menus(self, imgui_context: Any) -> None: ...
+  def handle_register_menu(self, fd: int, msg: RegisterMenuMessage) -> None: ...
+  def handle_menu_message(self, msg: MenuMessage) -> None: ...
+  def render_world_panel(self) -> None: ...
+  ```
 
 **Methods that move from `DisplayServer`:**
 
@@ -650,16 +1044,8 @@ event emission pattern).
 
 MenuManager receives callbacks for user selections (e.g., "user
 selected theme X", "user toggled decorated") but does not own the
-state those callbacks mutate.
-
-**Constructor dependencies:**
-
-- `emit_event: EmitEventFn` -- for menu click events.
-- `on_theme_selected: Callable[[str], None]`
-- `on_decorated_toggled: Callable[[bool], None]`
-- `on_opacity_changed: Callable[[float], None]`
-- `on_font_scale_changed: Callable[[float], None]`
-- Read accessors for theme list, current theme, decorated state, etc.
+state those callbacks mutate. This keeps the invariant clean:
+MenuManager owns menu registrations and renders menus.
 
 **Characterization tests.** MenuManager requires ImGui. The existing
 tests in `test_display_state.py` that test menu registration and
@@ -700,14 +1086,26 @@ After all six extractions, DisplayServer should be ~600 lines with
 **What to do.**
 
 Add a `_query_tool` decorator to `tools.py` that eliminates the
-repeated 12-line pattern across 15 query-wrapper tools:
+repeated 12-line pattern across 15 query-wrapper tools.
+
+**Full decorator code:**
 
 ```python
+import functools
+
+
 def _query_tool(
     method: str,
     *,
     doc: str = "",
 ) -> Callable[..., Callable[..., str]]:
+    """Decorator: wrap a param-builder as a query-based MCP tool.
+
+    The decorated function returns a params dict (or None for no params).
+    The decorator handles: running check, client acquisition, reconnect,
+    response error handling, and JSON formatting.
+    """
+
     def decorator(fn: Callable[..., dict[str, Any] | None]) -> Callable[..., str]:
         @mcp.tool()
         @functools.wraps(fn)
@@ -734,23 +1132,120 @@ def _query_tool(
     return decorator
 ```
 
-**Tools to migrate** (each becomes 3-10 lines):
+**Tools to migrate.** Each becomes 3-10 lines. All 15 query-wrapper
+tools in their after form:
 
-1. `get_display_info`
-2. `get_window_settings`
-3. `get_theme`
-4. `list_clients`
-5. `list_menus`
-6. `list_recent_events`
-7. `list_errors`
-8. `inspect_scene`
-9. `list_scenes`
-10. `screenshot`
-11. `set_theme`
-12. `set_window_settings`
-13. `set_frame_state`
-14. `ping` (if it follows the pattern)
-15. `clear` (if it follows the pattern)
+```python
+@_query_tool("get_display_info")
+def get_display_info() -> None:
+    """Return display server metadata: backend, resolution, FPS, PID, uptime."""
+
+
+@_query_tool("get_window_settings")
+def get_window_settings() -> None:
+    """Return current window settings (decorated, opacity, font_scale)."""
+
+
+@_query_tool("get_theme")
+def get_theme() -> None:
+    """Return the current theme name and available themes."""
+
+
+@_query_tool("list_clients")
+def list_clients() -> None:
+    """Return connected client info (fd, name, connect time)."""
+
+
+@_query_tool("list_menus")
+def list_menus() -> None:
+    """Return registered menus and agent menus."""
+
+
+@_query_tool("list_recent_events")
+def list_recent_events(count: int = 50) -> dict[str, Any] | None:
+    """Return the last N interaction events from the display."""
+    return {"count": count}
+
+
+@_query_tool("list_errors")
+def list_errors(count: int = 50) -> dict[str, Any] | None:
+    """Return the last N errors from the display."""
+    return {"count": count}
+
+
+@_query_tool("inspect_scene")
+def inspect_scene(scene_id: str) -> dict[str, Any] | None:
+    """Return the element tree for a scene."""
+    return {"scene_id": scene_id}
+
+
+@_query_tool("list_scenes")
+def list_scenes() -> None:
+    """Return all scene IDs and their frame assignments."""
+
+
+@_query_tool("screenshot")
+def screenshot() -> None:
+    """Capture a screenshot and return the base64-encoded PNG."""
+
+
+@_query_tool("set_theme")
+def set_theme(theme: str) -> dict[str, Any] | None:
+    """Set the display theme by name."""
+    return {"theme": theme}
+
+
+@_query_tool("set_window_settings")
+def set_window_settings(
+    decorated: bool | None = None,
+    opacity: float | None = None,
+    font_scale: float | None = None,
+) -> dict[str, Any] | None:
+    """Set window settings. All parameters are optional."""
+    params: dict[str, Any] = {}
+    if decorated is not None:
+        params["decorated"] = decorated
+    if opacity is not None:
+        if not 0.3 <= opacity <= 1.0:
+            raise ValueError("opacity must be between 0.3 and 1.0")
+        params["opacity"] = opacity
+    if font_scale is not None:
+        if not 0.5 <= font_scale <= 3.0:
+            raise ValueError("font_scale must be between 0.5 and 3.0")
+        params["font_scale"] = font_scale
+    return params
+
+
+@_query_tool("set_frame_state")
+def set_frame_state(
+    frame_id: str,
+    minimized: bool | None = None,
+    layout: str | None = None,
+) -> dict[str, Any] | None:
+    """Set frame state (minimized, layout)."""
+    params: dict[str, Any] = {"frame_id": frame_id}
+    if minimized is not None:
+        params["minimized"] = minimized
+    if layout is not None:
+        params["layout"] = layout
+    return params
+
+
+@_query_tool("ping")
+def ping() -> None:
+    """Ping the display server."""
+
+
+@_query_tool("clear")
+def clear() -> None:
+    """Clear all scenes from the display."""
+```
+
+**`set_window_settings` edge case.** The `ValueError` raises for
+invalid `opacity` or `font_scale` values happen inside the decorated
+function, before the query call. The decorator's `fn(**kwargs)` call
+propagates the exception to the MCP layer, which returns it as an
+error response. This is correct behavior.
 
 **FastMCP compatibility check.** After migrating one tool, call
 `mcp.list_tools()` and verify the schema is correct. If the decorated
@@ -768,13 +1263,35 @@ removed).
 ### Step 3.2: Add `ToolState` class (optional)
 
 **What to do.** Extract the 5 module-level variables into a `ToolState`
-class:
+class.
 
-- `_client: DisplayClient | None`
-- `_client_lock: threading.RLock`
-- `_session_key: ContextVar[str]`
-- `_session_menus: dict[str, list[str]]`
-- `_apps_registered_for: int | None`
+**Class design:**
+
+- **Responsibility:** Own the module-level mutable state: the cached
+  `DisplayClient`, the client lock, per-session menu tracking, and
+  app registration tracking.
+- **Compositions:**
+  - `DisplayClient` (lazily created, cached)
+- **Collaborations:**
+  - MCP tool functions -- all tools call `state.get_client()` instead
+    of module-level `_get_client()`
+  - `_lifespan` -- calls `state.get_client()` for eager connect
+  - `run_mcp_session` -- calls `state.cleanup_session(key)`
+- **Key method signatures:**
+
+  ```python
+  def get_client(self) -> DisplayClient: ...
+  def with_reconnect(self, fn: Callable[[], T]) -> T: ...
+  def cleanup_session(self, session_key: str) -> None: ...
+  def setup_apps(self, client: DisplayClient) -> None: ...
+  ```
+
+- **State (moves from module level):**
+  - `_client: DisplayClient | None`
+  - `_client_lock: threading.RLock`
+  - `_session_key: ContextVar[str]`
+  - `_session_menus: dict[str, list[str]]`
+  - `_apps_registered_for: int | None`
 
 **ContextVar subtlety.** `ContextVar` is tied to asyncio task context.
 It must remain at module scope or be accessed via the class as a class
@@ -800,7 +1317,7 @@ with Phase 2.
 ### Step 4.1: Deprecate `inspect_scene`, `list_scenes`, `screenshot`
 
 **What to do.** The three methods become thin wrappers around
-`query()`:
+`query()`. The deprecated wrapper pattern:
 
 ```python
 def inspect_scene(self, scene_id: str) -> IntrospectResponse | None:
@@ -821,6 +1338,12 @@ def inspect_scene(self, scene_id: str) -> IntrospectResponse | None:
 ```
 
 Same pattern for `list_scenes` and `screenshot`.
+
+**Simplified `_dispatch_or_buffer`.** After deprecation, the three
+`isinstance` checks for `IntrospectResponse`, `ListScenesResponse`,
+and `ScreenshotResponse` in `_dispatch_or_buffer` can be removed. The
+method shrinks by ~15 lines. The deprecated methods still work because
+they call `query()`, which uses `_query_queue`.
 
 **Characterization tests.** The existing `tests/test_display_client.py`
 covers these methods. Verify all tests pass after migration.
@@ -857,17 +1380,127 @@ function sets (`_launchd_install` / `_systemd_install`, etc.) become
 polymorphic classes. Adding a third platform is a single new class,
 not a modification to existing `install()` / `uninstall()`.
 
-**New classes:**
+**Class design: `ServiceBackend` (ABC):**
 
-- `ServiceBackend` (ABC): `install`, `uninstall`, `is_active`,
-  `config_path`.
-- `LaunchdBackend(ServiceBackend)`: moves `_launchd_plist_content`,
-  `_launchd_install`, `_launchd_uninstall`, `_launchd_status`.
-- `SystemdBackend(ServiceBackend)`: moves `_systemd_unit_content`,
-  `_systemd_install`, `_systemd_uninstall`, `_systemd_status`,
-  `_systemd_escape`.
-- `ServiceManager`: `_resolve_backend`, `install`, `uninstall`,
-  `restart` (moved from `__main__.py._restart_hub`).
+- **Responsibility:** Platform-specific daemon lifecycle strategy.
+  Install, uninstall, and check status of the luxd service via the
+  platform's service manager.
+- **Compositions:** None.
+- **Collaborations:** `subprocess` (launchctl / systemctl),
+  `pathlib` (file I/O).
+
+```python
+from abc import ABC, abstractmethod
+from pathlib import Path
+
+
+class ServiceBackend(ABC):
+    """Platform-specific daemon lifecycle strategy."""
+
+    @abstractmethod
+    def install(self, exec_args: list[str]) -> None:
+        """Write the service config and load the daemon."""
+
+    @abstractmethod
+    def uninstall(self) -> None:
+        """Stop the daemon and remove the service config."""
+
+    @abstractmethod
+    def is_active(self) -> bool:
+        """Whether the service is currently running."""
+
+    @abstractmethod
+    def config_path(self) -> Path:
+        """Path to the service config file."""
+```
+
+**Class design: `LaunchdBackend`:**
+
+- **Responsibility:** macOS launchd implementation.
+- **State:** `_plist_dir`, `_plist_path` (constants).
+- **Collaborations:** `subprocess` (launchctl), `pathlib` (file I/O).
+
+```python
+class LaunchdBackend(ServiceBackend):
+    """macOS launchd implementation."""
+
+    def __init__(self) -> None:
+        self._plist_dir = Path.home() / "Library" / "LaunchAgents"
+        self._plist_path = self._plist_dir / "com.punt-labs.lux.plist"
+
+    def install(self, exec_args: list[str]) -> None: ...
+    def uninstall(self) -> None: ...
+    def is_active(self) -> bool: ...
+    def config_path(self) -> Path:
+        return self._plist_path
+```
+
+**Class design: `SystemdBackend`:**
+
+- **Responsibility:** Linux systemd user unit implementation.
+- **State:** `_unit_dir`, `_unit_path` (constants).
+- **Collaborations:** `subprocess` (systemctl), `pathlib` (file I/O).
+
+```python
+class SystemdBackend(ServiceBackend):
+    """Linux systemd user unit implementation."""
+
+    def __init__(self) -> None:
+        self._unit_dir = Path.home() / ".config" / "systemd" / "user"
+        self._unit_path = self._unit_dir / "lux.service"
+
+    def install(self, exec_args: list[str]) -> None: ...
+    def uninstall(self) -> None: ...
+    def is_active(self) -> bool: ...
+    def config_path(self) -> Path:
+        return self._unit_path
+```
+
+**Class design: `ServiceManager`:**
+
+- **Responsibility:** Coordinate daemon lifecycle across platforms.
+  Resolve the platform backend and delegate install / uninstall /
+  restart / status operations.
+- **State:** `_backend` (the resolved `ServiceBackend`).
+- **Collaborations:** `ServiceBackend` (strategy), `_luxd_exec_args`
+  (binary resolution).
+
+```python
+class ServiceManager:
+    """Coordinate daemon lifecycle across platforms."""
+
+    def __init__(self) -> None:
+        self._backend = self._resolve_backend()
+
+    @staticmethod
+    def _resolve_backend() -> ServiceBackend:
+        system = platform.system()
+        if system == "Darwin":
+            return LaunchdBackend()
+        if system == "Linux":
+            return SystemdBackend()
+        msg = f"Unsupported platform: {system}"
+        raise SystemExit(msg)
+
+    def install(self) -> str:
+        args = _luxd_exec_args()
+        self._backend.install(args)
+        running = self._backend.is_active()
+        # ... build status message
+
+    def uninstall(self) -> str:
+        self._backend.uninstall()
+        return f"luxd uninstalled. Removed {self._backend.config_path()}."
+
+    def restart(self) -> str:
+        """Send SIGTERM and wait for the service manager to respawn.
+        Moved from __main__.py._restart_hub."""
+        ...
+
+    @property
+    def is_active(self) -> bool:
+        return self._backend.is_active()
+```
 
 **Shared helpers that stay module-level:**
 
@@ -876,7 +1509,32 @@ not a modification to existing `install()` / `uninstall()`.
   `_resolve_backend`.
 - `_has_linger` -- Linux-specific, moves to `SystemdBackend`.
 
-**Backward compat:**
+**Before** (public API):
+
+```python
+def install() -> str:
+    plat = detect_platform()
+    args = _luxd_exec_args()
+    if plat == "macos":
+        _launchd_install()
+        running = _launchd_status()
+    else:
+        _systemd_install()
+        running = _systemd_status()
+    # ... build message
+
+def uninstall() -> str:
+    plat = detect_platform()
+    if plat == "macos":
+        _launchd_uninstall()
+        path = _LAUNCHD_PLIST
+    else:
+        _systemd_uninstall()
+        path = _SYSTEMD_UNIT
+    return f"luxd uninstalled. Removed {path}."
+```
+
+**After:**
 
 ```python
 _manager = ServiceManager()
@@ -887,6 +1545,11 @@ def install() -> str:
 def uninstall() -> str:
     return _manager.uninstall()
 ```
+
+The public API functions remain as module-level wrappers for backward
+compatibility. The class provides testability: inject a
+`MockBackend(ServiceBackend)` that does not call `launchctl` or
+`systemctl`.
 
 **Characterization tests** (in `tests/test_service.py`):
 
@@ -904,6 +1567,74 @@ def uninstall() -> str:
 
 **What to do.** Encapsulate `_active_sessions: set[str]` and the
 Starlette app factory into `SessionHub`.
+
+**Class design:**
+
+- **Responsibility:** WebSocket session multiplexer for luxd. Track
+  connected MCP sessions and provide the Starlette ASGI app that
+  serves them.
+- **State:**
+  - `_active_sessions: set[str]` -- session keys of connected clients
+  - `_app: Starlette` -- the ASGI application
+- **Collaborations:**
+  - `tools.run_mcp_session` -- delegates MCP protocol handling
+  - `uvicorn` -- HTTP/WebSocket server
+
+```python
+class SessionHub:
+    """WebSocket session multiplexer for luxd."""
+
+    def __init__(self) -> None:
+        self._active_sessions: set[str] = set()
+        self._app = self._build_app()
+
+    def _build_app(self) -> Starlette:
+        """Build the Starlette ASGI application with routes and middleware."""
+        ...
+
+    async def _health_route(self, request: Request) -> JSONResponse:
+        return JSONResponse({
+            "status": "ok",
+            "sessions": len(self._active_sessions),
+        })
+
+    async def _mcp_websocket_route(self, websocket: WebSocket) -> None:
+        """MCP JSON-RPC over WebSocket for mcp-proxy."""
+        ...
+        self._active_sessions.add(session_key)
+        try:
+            ...
+        finally:
+            self._active_sessions.discard(session_key)
+
+    @property
+    def session_count(self) -> int:
+        return len(self._active_sessions)
+
+    def serve(self, host: str = "127.0.0.1", port: int = 8430) -> None:
+        """Start the hub. Blocks until shutdown."""
+        ...
+```
+
+**Before** (module-level state):
+
+```python
+_active_sessions: set[str] = set()
+
+async def _health_route(request: Request) -> JSONResponse:
+    return JSONResponse({"status": "ok", "sessions": len(_active_sessions)})
+```
+
+**After:**
+
+```python
+hub = SessionHub()
+
+async def _health_route(request: Request) -> JSONResponse:
+    return hub._health_route(request)
+
+# Or more cleanly, build_app() references hub methods directly.
+```
 
 **Methods that move:**
 
@@ -930,13 +1661,52 @@ Starlette app factory into `SessionHub`.
 
 ### Step 5.3: `__main__.py` -- extract `DoctorChecker`, hub sub-app
 
-**Two sub-steps:**
+**Three sub-steps:**
 
 **5.3a: Extract `DoctorChecker` to `src/punt_lux/doctor.py`.**
 
-New class with methods: `check_python_version`, `check_imgui_bundle`,
-`check_fonts`, `check_display_server`, `check_plugin`, `run_all`,
-`print_report`. Properties: `results`, `passed`, `failed`.
+**Class design:**
+
+- **Responsibility:** Run health checks against the Lux installation
+  and report results. Single responsibility: collect and report
+  diagnostic checks -- font availability, Python version,
+  imgui-bundle, display server, Claude plugin.
+- **State:** `_socket_path`, `_results: list[CheckResult]`.
+- **Collaborations:** `paths.py` (display running), `shutil`
+  (claude CLI).
+
+```python
+@dataclass
+class CheckResult:
+    """One diagnostic check result."""
+    symbol: str  # _OK, _FAIL, _OPTIONAL
+    message: str
+    required: bool = True
+
+
+class DoctorChecker:
+    """Run installation health checks and collect results."""
+
+    def __init__(self, socket_path: Path | None = None) -> None:
+        self._socket_path = socket_path
+        self._results: list[CheckResult] = []
+
+    def check_python_version(self) -> None: ...
+    def check_imgui_bundle(self) -> None: ...
+    def check_fonts(self) -> None: ...
+    def check_display_server(self) -> None: ...
+    def check_plugin(self) -> None: ...
+    def run_all(self) -> None: ...
+
+    @property
+    def results(self) -> list[CheckResult]: ...
+
+    @property
+    def passed(self) -> int: ...
+
+    @property
+    def failed(self) -> int: ...
+```
 
 Move from `__main__.py`:
 
@@ -948,7 +1718,41 @@ Move from `__main__.py`:
 - `_OK`, `_FAIL`, `_OPTIONAL` constants
 - `_PLUGIN_ID` constant
 
-`CheckResult` dataclass: `symbol`, `message`, `required`.
+**Before** (`__main__.py`, excerpt):
+
+```python
+@app.command()
+def doctor(socket: str | None = ...) -> None:
+    passed = 0
+    failed = 0
+    lines: list[str] = []
+
+    def _check(symbol, message, *, required=True):
+        nonlocal passed, failed
+        lines.append(f"{symbol} {message}")
+        # ... counting logic
+
+    # 100 lines of inline checks including font probing
+    _check_fonts(_check)
+    _check_plugin(_check)
+    # ... print results
+```
+
+**After:**
+
+```python
+@app.command()
+def doctor(socket: str | None = ...) -> None:
+    from punt_lux.doctor import DoctorChecker
+
+    checker = DoctorChecker(socket_path=Path(socket) if socket else None)
+    checker.run_all()
+    checker.print_report()
+    if checker.failed > 0:
+        raise typer.Exit(code=1)
+```
+
+The command body drops from 65 lines to 7.
 
 **5.3b: Create hub Typer sub-app.**
 
@@ -995,7 +1799,47 @@ lifecycle management. It becomes `ServiceManager.restart()`.
 through 6 of 8 functions; making it a constructor argument eliminates
 the parameter threading.
 
-**New class:** `DisplayPaths`.
+**Class design:**
+
+- **Responsibility:** Path resolution and lifecycle for a display
+  server instance. Given a socket path, derive all related paths (pid
+  file, log file) and manage the process lifecycle (is_running,
+  cleanup, ensure, write_pid, remove_pid).
+- **State:** `socket_path` (the identity of the display instance).
+- **Collaborations:** `subprocess` (spawning display), `os` (process
+  checks).
+- **Constructor signature:**
+
+  ```python
+  def __init__(self, socket_path: Path | None = None) -> None:
+      self._socket_path = socket_path or self._default_path()
+  ```
+
+- **Key method signatures:**
+
+  ```python
+  @staticmethod
+  def _default_path() -> Path:
+      """Resolution: $LUX_SOCKET > $XDG_RUNTIME_DIR > /tmp."""
+      ...
+
+  @property
+  def socket_path(self) -> Path: ...
+
+  @property
+  def pid_path(self) -> Path:
+      return self._socket_path.with_suffix(".sock.pid")
+
+  @property
+  def log_path(self) -> Path:
+      return self._socket_path.with_suffix(".sock.log")
+
+  def is_running(self) -> bool: ...
+  def cleanup_stale(self) -> None: ...
+  def ensure(self, timeout: float = 5.0) -> Path: ...
+  def write_pid(self) -> None: ...
+  def remove_pid(self) -> None: ...
+  ```
 
 **Methods (from module-level functions):**
 
@@ -1012,6 +1856,27 @@ the parameter threading.
 `hub_pid_path`, `hub_port_path`, `hub_log_dir`, `read_hub_port`,
 `is_hub_running`. These are stateless pure functions derived from
 constants. No class needed.
+
+**Before** (threading socket_path everywhere):
+
+```python
+path = default_socket_path()
+if is_display_running(path):
+    pid = pid_file_path(path).read_text().strip()
+    log = log_file_path(path)
+```
+
+**After:**
+
+```python
+display = DisplayPaths()
+if display.is_running():
+    pid = display.pid_path.read_text().strip()
+    log = display.log_path
+```
+
+The parameter threading is eliminated. The socket path is set once
+in the constructor and derived paths are properties.
 
 **Backward compat:**
 
@@ -1032,7 +1897,40 @@ the characterization test suite. Verify it passes unchanged.
 
 ### Step 5.5: `config.py` -- `ConfigManager` class
 
-**New class:** `ConfigManager`.
+**Class design:**
+
+- **Responsibility:** Read and write `.punt-labs/lux.md` YAML
+  frontmatter config. Own the config file path and provide typed
+  read/write access to its YAML frontmatter fields.
+- **State:** `_config_path` (resolved once, cached).
+- **Collaborations:** `pathlib` (file I/O), `re` (frontmatter
+  parsing).
+- **Constructor signature:**
+
+  ```python
+  def __init__(self, config_path: Path | None = None) -> None:
+      self._config_path = config_path or resolve_config_path()
+  ```
+
+- **Key method signatures:**
+
+  ```python
+  @property
+  def path(self) -> Path:
+      return self._config_path
+
+  def read(self) -> LuxConfig:
+      """Read all config fields. Returns defaults when file is missing."""
+      ...
+
+  def read_field(self, field: str) -> str | None:
+      """Read a single YAML frontmatter field."""
+      ...
+
+  def write_field(self, key: str, value: str) -> None:
+      """Write a single field, preserving the file structure."""
+      ...
+  ```
 
 **Methods (from module-level functions):**
 
@@ -1046,6 +1944,24 @@ the characterization test suite. Verify it passes unchanged.
 
 `LuxConfig` stays as-is (frozen data snapshot, correct use of
 dataclass).
+
+**Before:**
+
+```python
+cfg = read_config(resolve_config_path())
+write_field("display", "y", resolve_config_path())
+```
+
+**After:**
+
+```python
+config = ConfigManager()
+cfg = config.read()
+config.write_field("display", "y")
+```
+
+The path is resolved once in the constructor. No repeated
+`resolve_config_path()` calls.
 
 **Backward compat:**
 
@@ -1067,7 +1983,40 @@ the characterization test. Verify it passes.
 
 ### Step 5.6: `remote.py` -- `ProxyConfigFile` class
 
-**New class:** `ProxyConfigFile`.
+**Class design:**
+
+- **Responsibility:** Atomic read/write/delete for the mcp-proxy TOML
+  config file. Manage the `[lux]` section in the mcp-proxy config
+  file with atomic writes and TOML serialization.
+- **State:** `_path` (the config file path).
+- **Collaborations:** `tomllib` (reading), `pathlib` / `os` (atomic
+  write).
+- **Constructor signature:**
+
+  ```python
+  def __init__(self, path: Path | None = None) -> None:
+      self._path = path or (Path.home() / ".punt-labs" / "mcp-proxy" / "lux.toml")
+  ```
+
+- **Key method signatures:**
+
+  ```python
+  @property
+  def path(self) -> Path:
+      return self._path
+
+  def read(self) -> dict[str, Any]:
+      """Return parsed TOML config, or {} if file does not exist."""
+      ...
+
+  def write(self, url: str) -> None:
+      """Write [lux] section, preserving other sections."""
+      ...
+
+  def delete(self) -> bool:
+      """Remove [lux] section. Return False if nothing to remove."""
+      ...
+  ```
 
 **Methods (from module-level functions):**
 
@@ -1079,8 +2028,24 @@ the characterization test. Verify it passes.
   or static)
 - `_toml_escape` -> `ProxyConfigFile._toml_escape` (static)
 
-Constructor: `path: Path | None = None`, defaults to
-`MCP_PROXY_CONFIG_PATH`.
+**Before:**
+
+```python
+from punt_lux.remote import MCP_PROXY_CONFIG_PATH, write_proxy_config
+
+write_proxy_config(url)
+print(f"Wrote {MCP_PROXY_CONFIG_PATH}")
+```
+
+**After:**
+
+```python
+from punt_lux.remote import ProxyConfigFile
+
+proxy = ProxyConfigFile()
+proxy.write(url)
+print(f"Wrote {proxy.path}")
+```
 
 **Backward compat:**
 
@@ -1106,7 +2071,44 @@ the characterization test. Verify it passes.
 
 ### Step 5.7: `apps/beads.py` -- `BeadsBrowser` class
 
-**New class:** `BeadsBrowser`.
+**Class design:**
+
+- **Responsibility:** Beads issue browser -- load, transform, and
+  display issues. Provide the beads issue board as a self-contained
+  display application.
+- **State:** None persistent (stateless -- each call fetches fresh
+  data).
+- **Collaborations:** `subprocess` (`bd` CLI), `protocol` (Element
+  types), `DisplayClient` (rendering).
+
+```python
+class BeadsBrowser:
+    """Beads issue browser -- load, transform, and display issues."""
+
+    FIELD_DEFAULTS: ClassVar[dict[str, Any]] = {
+        "title": "",
+        "status": "open",
+        ...
+    }
+
+    def load(self, *, all_issues: bool = False) -> list[dict[str, Any]]:
+        """Fetch, default-fill, filter, and sort issues via bd CLI."""
+        ...
+
+    def build_payload(self, issues: list[dict[str, Any]]) -> dict[str, Any]:
+        """Build the table element dict from issue data."""
+        ...
+
+    def build_elements(self, issues: list[dict[str, Any]]) -> list[Element]:
+        """Build display elements from issue data."""
+        ...
+
+    def render(self, client: DisplayClient) -> None:
+        """Send the beads issue board to the display."""
+        issues = self.load()
+        elements = self.build_elements(issues)
+        client.show_async(...)
+```
 
 **Methods (from module-level functions):**
 
@@ -1115,6 +2117,26 @@ the characterization test. Verify it passes.
 - `build_beads_elements` -> `BeadsBrowser.build_elements`
 - `render_beads_board` -> `BeadsBrowser.render`
 - `_FIELD_DEFAULTS` -> `BeadsBrowser.FIELD_DEFAULTS` (ClassVar)
+
+**Before** (menu callback in tools.py):
+
+```python
+def _on_beads_browser(_msg: InteractionMessage) -> None:
+    if _client is None:
+        return
+    threading.Thread(target=render_beads_board, args=(_client,), daemon=True).start()
+```
+
+**After:**
+
+```python
+_beads_browser = BeadsBrowser()
+
+def _on_beads_browser(_msg: InteractionMessage) -> None:
+    if _client is None:
+        return
+    threading.Thread(target=_beads_browser.render, args=(_client,), daemon=True).start()
+```
 
 **Backward compat:**
 
@@ -1150,7 +2172,9 @@ namespace.
 ### `show.py`
 
 One Typer command delegating to `beads.py` and `DisplayClient`. No
-state, no shared logic. The module is the namespace.
+state, no shared logic between commands (there is only one
+command), and Typer provides the registration mechanism. The module is
+the namespace.
 
 ### `__init__.py`
 
@@ -1221,6 +2245,43 @@ DisplayServer (coordinator)
 
 All upward edges are Callable parameters, never imports.
 No extracted class imports DisplayServer.
+```
+
+---
+
+## Event flow after extraction
+
+The event system is the primary cross-cutting concern. Getting it
+wrong creates circular dependencies. Here is the explicit flow:
+
+1. **Emit**: ElementRenderer and MenuManager receive an
+   `emit_event: Callable[[InteractionMessage], None]` callback.
+   When a user clicks a button or changes a slider, the renderer
+   calls `emit_event(msg)`.
+
+2. **Stamp**: DisplayServer's callback implementation stamps
+   `scene_id` on the event (if not already set) and appends it to
+   `_event_queue`.
+
+3. **Record**: DisplayServer also calls
+   `query_dispatcher.record_event(msg)` to populate the ring buffer
+   for `list_recent_events`.
+
+4. **Flush**: `_flush_events()` runs once per frame. It iterates
+   `_event_queue`, routes each event to the owning client's socket
+   via `socket_server.send_to_client(fd, msg)`. Menu-click events
+   are routed to the client that registered the menu item.
+
+No class imports another class. All upward communication is callbacks.
+Dependency flow is strictly:
+
+```text
+DisplayServer
+  -> SceneManager
+  -> SocketServer
+  -> ElementRenderer -> (callback) -> DisplayServer
+  -> MenuManager     -> (callback) -> DisplayServer
+  -> QueryDispatcher -> (reads ring buffer, no callback needed)
 ```
 
 ---
