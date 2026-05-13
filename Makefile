@@ -1,4 +1,4 @@
-.PHONY: help test lint type check format build install clean depot fuzz prob clean-tex font-test
+.PHONY: help test lint type check check-oo report format build install clean depot fuzz prob clean-tex font-test
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -15,7 +15,19 @@ type: ## Type check with mypy and pyright
 	uv run --extra display mypy src/ tests/
 	npx pyright src/ tests/
 
-check: lint type test ## Run all quality gates
+check: check-oo lint type test ## Run all quality gates
+
+check-oo: ## OO structure score (tools/oo_score.py)
+	uv run --extra display python tools/oo_score.py src/punt_lux/
+
+report: ## Full diagnostics (OO score + all checks, no fail-fast)
+	-uv run --extra display python tools/oo_score.py src/punt_lux/ --threshold
+	-uv run --extra display mypy src/ tests/
+	-uv run --extra display ruff format --check .
+	-uv run --extra display ruff check --preview --select PLR6301,PLR0913,UP035,UP040,UP007,N,I,SIM,C1901,S101 .
+	-npx pyright src/ tests/
+	-uv run --extra display pytest
+	@echo "Report complete."
 
 format: ## Auto-format code
 	uv run ruff check --fix .
