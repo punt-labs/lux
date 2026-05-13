@@ -729,8 +729,6 @@ def set_window_settings(
         decorated: Show window title bar and borders.
         fps_idle: Target FPS when idle (1-120).
     """
-    if not is_display_running(default_socket_path()):
-        return "not running"
     params: dict[str, Any] = {}
     if opacity is not None:
         params["opacity"] = opacity
@@ -742,6 +740,8 @@ def set_window_settings(
         params["fps_idle"] = fps_idle
     if not params:
         return "error: no settings provided"
+    if not is_display_running(default_socket_path()):
+        return "not running"
 
     def _call() -> str:
         client = _get_client()
