@@ -348,6 +348,11 @@ def show(
     Returns ``"ack:<scene_id>"`` on success or ``"timeout"`` if the
     display doesn't respond.
     """
+    if frame_id is None:
+        frame_id = scene_id
+    if frame_title is None:
+        frame_title = title or scene_id
+
     typed_elements = [element_from_dict(e) for e in elements]
     size_tuple: tuple[int, int] | None = None
     if frame_size is not None:
@@ -476,6 +481,8 @@ def show_dashboard(
     table_columns: list[str] | None = None,
     table_rows: list[list[Any]] | None = None,
     title: str | None = None,
+    frame_id: str | None = None,
+    frame_title: str | None = None,
 ) -> str:
     """Display a dashboard with metric cards, charts, and a data table.
 
@@ -586,7 +593,13 @@ def show_dashboard(
         if i < len(sections) - 1:
             elements.append({"kind": "separator"})
 
-    return show(scene_id, elements, title=title)
+    return show(
+        scene_id,
+        elements,
+        title=title,
+        frame_id=frame_id,
+        frame_title=frame_title,
+    )
 
 
 @mcp.tool()
