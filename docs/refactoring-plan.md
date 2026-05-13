@@ -7,8 +7,9 @@ at every step. An agent executing this plan needs no other document.
 
 Every step is a behavior-preserving transformation. `make check` passes
 after every step. One class extraction per step -- never two at once.
-Characterization tests are written BEFORE extraction, not after. Old
-module-level functions become thin wrappers for backward compatibility.
+Characterization tests are written BEFORE extraction, not after. When
+a function moves into a class, all callers are updated in the same PR
+-- no backward-compatibility wrappers (per PL-PP-1).
 
 ---
 
@@ -27,11 +28,10 @@ These hold throughout the entire refactoring. Violations are bugs.
    and all tests green. No exceptions. OO scores must improve or
    stay the same — never regress.
 
-3. **Backward compatibility via wrappers.** When a module-level function
-   moves into a class, the old function stays as a thin wrapper that
-   delegates to the class. Wrappers are deprecated with
-   `warnings.warn(..., DeprecationWarning, stacklevel=2)` and removed
-   in a future release.
+3. **No backward-compatibility wrappers (PL-PP-1).** When a function
+   moves into a class, all callers are updated to use the new
+   class/module directly in the same PR. No shim functions, no
+   deprecated wrappers, no re-exports of dead symbols.
 
 4. **One extraction per PR.** Each step in this plan is a separate PR.
    Do not batch extractions.
@@ -40,6 +40,12 @@ These hold throughout the entire refactoring. Violations are bugs.
    out of a module, write tests that exercise the behavior through the
    existing interface. These tests must pass both before AND after the
    extraction. This is how you prove the extraction preserved behavior.
+
+6. **`from __future__ import annotations` in every new file.** Every
+   new Python file created during this refactoring must include
+   `from __future__ import annotations` as its first import. This is
+   enforced by `make check-oo` (`future_annotations` metric). Missing
+   it in a single file fails the entire aggregate (uses `min()`).
 
 ---
 
@@ -137,6 +143,22 @@ without an underscore prefix.
 use public attrs (`self.state`, `self.dt`, `self.frame`,
 `self.width`, `self.height`, `self.source`). Prefix with underscore
 and add `@property` accessors where external read access is needed.
+
+**`RenderContext.__slots__` three-way dependency.** `RenderContext`
+declares `__slots__` with the current public names (`"dt"`, `"frame"`,
+`"height"`, `"state"`, `"width"`). This step (P.4) renames those
+attributes to `_dt`, `_frame`, etc. Step P.5 converts `__init__` to
+`__new__`. The `__slots__` tuple must be updated to match the new
+private names in the same PR as P.4. All three changes --
+`__slots__` update, attribute rename, `@property` addition -- must
+land together. If any is done independently, the others break.
+
+Additionally, `RenderContext` attributes are part of the user-facing
+API -- user-defined `render(ctx)` functions access `ctx.state`,
+`ctx.dt`, etc. directly. The `@property` accessors must include
+setters (not just getters) to preserve assignment compatibility.
+Without setters, any user code that assigns to these attributes
+(e.g., `ctx.state = {}`) would break.
 
 **protocol.py (1 violation):** `FrameReader` has one public attr.
 Prefix with underscore.
@@ -320,11 +342,49 @@ or `__init_subclass__` -- is unavoidable for deserialization.
 **Files modified:** `src/punt_lux/protocol/__init__.py` (imports added,
 element code removed).
 
-**Backward compat:** `protocol/__init__.py` re-exports all names.
-External imports unchanged.
+**Import preservation:** `protocol/__init__.py` re-exports all names
+from `elements.py`. All external imports (`from punt_lux.protocol
+import TextElement`) continue to resolve. This is not a
+backward-compat shim -- it is the package's public API surface via
+`__init__.py`.
 
 **Verification:** `make check`. `tests/test_protocol.py` passes
 unchanged.
+
+### Step 1.2b: Add round-trip tests for every message type
+
+**Prerequisite for Step 1.3.** The `message_from_dict` replacement in
+Step 1.3 changes the code path for deserialization. Before replacing
+the 30-branch if/elif chain with a registry lookup, every branch must
+have a round-trip test (serialize then deserialize) to catch
+registration typos that would silently drop a message type.
+
+**What to do.** In `tests/test_protocol.py`, add a parametrized test:
+
+```python
+@pytest.mark.parametrize("msg", [
+    SceneMessage(scene_id="s1", elements=[]),
+    UpdateMessage(scene_id="s1", patches=[]),
+    ClearMessage(),
+    PingMessage(ts=1234567890.0),
+    PongMessage(ts=1234567890.0),
+    AckMessage(scene_id="s1"),
+    ReadyMessage(),
+    ConnectMessage(name="test"),
+    # ... every message type
+])
+def test_message_round_trip(msg: Message) -> None:
+    d = message_to_dict(msg)
+    recovered = message_from_dict(d)
+    assert type(recovered) is type(msg)
+```
+
+This test must pass before Step 1.3 begins. It then serves as the
+characterization test for the registry replacement.
+
+**Files modified:** `tests/test_protocol.py`.
+
+**Verification:** `make check`.
 
 ### Step 1.3: Extract message dataclasses to `protocol/messages.py`
 
@@ -445,7 +505,9 @@ plus the if/elif chain is gone.
 
 **Files modified:** `src/punt_lux/protocol/__init__.py`.
 
-**Backward compat:** `protocol/__init__.py` re-exports all names.
+**Import preservation:** `protocol/__init__.py` re-exports all names
+from `messages.py`. Same rationale as Step 1.2 -- this is the
+package's public API surface, not a backward-compat shim.
 
 **Verification:** `make check`.
 
@@ -486,11 +548,14 @@ ImGui dependency).
 - **Constructor signature:**
 
   ```python
-  def __init__(
-      self,
+  def __new__(
+      cls,
       emit_event: EmitEventFn,
       on_scene_replaced: OnSceneReplacedFn,
-  ) -> None:
+  ) -> Self:
+      self = super().__new__(cls)
+      # ... attribute assignments ...
+      return self
   ```
 
   - `emit_event: EmitEventFn` -- callback for events emitted during
@@ -521,7 +586,7 @@ ImGui dependency).
   longer accurate when it lives in `scene_manager.py`. This is a
   first-class domain object, not a private implementation detail.
 
-**State that moves from `DisplayServer.__init__`:**
+**State that moves from `DisplayServer.__new__`:**
 
 - `_scenes: dict[str, SceneMessage]`
 - `_scene_order: list[str]`
@@ -600,8 +665,8 @@ instantiate `SceneManager` directly. They must still pass.
 **Files modified after extraction:**
 
 - `src/punt_lux/display.py` -- DisplayServer delegates to
-  `self._scene_manager`. Thin wrapper methods for backward compat
-  where needed internally.
+  `self._scene_manager`. All internal callers updated to use
+  SceneManager methods directly. No wrapper methods.
 - `src/punt_lux/scene_manager.py` -- new file.
 
 **Verification:** `make check`. `make metrics` -- `display.py`
@@ -628,12 +693,15 @@ ABC score decreases.
 - **Constructor signature:**
 
   ```python
-  def __init__(
-      self,
+  def __new__(
+      cls,
       on_message: Callable[[socket.socket, Message], None],
       on_client_disconnected: OnClientDisconnectedFn,
       on_error: Callable[[str, str, str], None],
-  ) -> None:
+  ) -> Self:
+      self = super().__new__(cls)
+      # ... attribute assignments ...
+      return self
   ```
 
   - `on_message` -- callback for each deserialized message.
@@ -716,12 +784,15 @@ is pure Python and highly testable).
 - **Constructor signature:**
 
   ```python
-  def __init__(
-      self,
+  def __new__(
+      cls,
       widget_state: WidgetState,
-      imgui: Any,
+      imgui: Any,  # type: ignore[misc] -- imgui module
       emit_event: EmitEventFn,
-  ) -> None:
+  ) -> Self:
+      self = super().__new__(cls)
+      # ... attribute assignments ...
+      return self
   ```
 
   - `widget_state` -- mutable reference, swapped by DisplayServer
@@ -787,13 +858,26 @@ pure Python and can be tested without ImGui.
 
 These test the pure filter logic and do not require ImGui.
 
-**Backward compat:** The module-level functions stay in `display.py`
-as thin wrappers that delegate to a module-level `TableRenderer`
-instance. This preserves any internal callers.
+**Decompose `_render_table` after extraction.** The moved method has
+cyclomatic complexity 20 -- well above the CC=10 target. After moving
+it to `TableRenderer.render`, decompose it into smaller methods:
+
+- `_render_header` -- column headers, sort indicators.
+- `_render_body` -- row iteration, cell rendering.
+- `_render_footer` -- status bar, row count.
+- `_apply_filters_and_paginate` -- filter pipeline, page slicing.
+
+Target: every method on `TableRenderer` at or below CC=10. Run
+`make check-oo` and verify `max_complexity <= 10` for
+`table_renderer.py`.
+
+**Caller updates:** All callers of the module-level functions in
+`display.py` (internal references within `DisplayServer`) are updated
+to use `self._table_renderer` directly. No wrapper functions.
 
 **Files modified:**
 
-- `src/punt_lux/display.py` -- module-level functions become wrappers.
+- `src/punt_lux/display.py` -- module-level functions removed,
   `DisplayServer._render_table` delegates to `self._table_renderer`.
 - `src/punt_lux/table_renderer.py` -- new file.
 
@@ -801,6 +885,10 @@ instance. This preserves any internal callers.
 score decreases.
 
 ### Step 2.4: Extract `QueryDispatcher`
+
+**Ordering dependency:** QueryDispatcher takes a `SceneManager`
+instance in its constructor. Step 2.1 (SceneManager extraction) must
+be completed before this step. Do not parallelize Steps 2.1 and 2.4.
 
 **Priority:** 4 (pure dispatch, no ImGui dependency, fully
 unit-testable).
@@ -815,15 +903,15 @@ unit-testable).
   unit-testable.
 - **Compositions:** None.
 - **Collaborations:**
-  - `DisplayServer` -- registers handlers in `__init__`, receives
+  - `DisplayServer` -- registers handlers in `__new__`, receives
     query messages from socket layer
   - `SceneManager` -- many queries inspect scene state
   - `MenuManager` -- `list_menus`, `list_clients` query menu state
 - **Constructor signature:**
 
   ```python
-  def __init__(
-      self,
+  def __new__(
+      cls,
       scene_manager: SceneManager,
       # Read accessors for client and menu state (lambdas or protocol
       # objects, not references to DisplayServer):
@@ -831,7 +919,10 @@ unit-testable).
       get_client_connect_times: Callable[[], dict[int, float]],
       get_menu_registrations: Callable[[], dict[int, list[dict[str, Any]]]],
       get_agent_menus: Callable[[], list[dict[str, Any]]],
-  ) -> None:
+  ) -> Self:
+      self = super().__new__(cls)
+      # ... attribute assignments ...
+      return self
   ```
 
 - **Key method signatures:**
@@ -948,12 +1039,15 @@ self._query_dispatcher.register_handler("get_window_settings", self._query_get_w
 - **Constructor signature (three dependencies):**
 
   ```python
-  def __init__(
-      self,
+  def __new__(
+      cls,
       widget_state: WidgetState,
       texture_cache: TextureCache,
       emit_event: EmitEventFn,
-  ) -> None:
+  ) -> Self:
+      self = super().__new__(cls)
+      # ... attribute assignments ...
+      return self
   ```
 
   - `widget_state: WidgetState` -- mutable reference, swapped by
@@ -1011,6 +1105,21 @@ These are rendering utilities that belong with the renderer.
 `self._table_renderer`. If not, `_render_table` moves wholesale and
 `TableRenderer` extraction happens later as a sub-extraction.
 
+**Decompose high-complexity render methods after extraction.** After
+moving all renderers, decompose any `_render_*` method that exceeds
+CC=10. Specifically:
+
+- `_render_plot` (CC=13): extract `_setup_axes` (axis labels, limits,
+  grid), `_render_series` (per-series line/bar/scatter dispatch).
+- `_render_paged_group` (CC=12): extract `_render_page_navigation`
+  (prev/next buttons, page indicator).
+- `_render_modal` (CC=12): extract `_render_modal_buttons` (OK,
+  Cancel, custom button handling).
+- `_flush_events` stays on DisplayServer but must also be decomposed
+  if CC>10 after extraction.
+
+Target: every method on `ElementRenderer` at or below CC=10.
+
 **Characterization tests.** ElementRenderer requires ImGui. The
 existing tests in `test_display_state.py` that exercise event emission
 from render methods are the characterization tests. No new pure-logic
@@ -1023,8 +1132,9 @@ passes after extraction.
   `self._element_renderer` and delegates `_render_element`.
 - `src/punt_lux/element_renderer.py` -- new file.
 
-**Verification:** `make check`. `make metrics` -- `display.py` ABC
-score drops substantially (~1,200 lines removed).
+**Verification:** `make check`. `make check-oo` -- verify
+`max_complexity <= 10` for `element_renderer.py`. `make metrics` --
+`display.py` ABC score drops substantially (~1,200 lines removed).
 
 ### Step 2.6: Extract `MenuManager`
 
@@ -1048,8 +1158,8 @@ event emission pattern).
 - **Constructor signature:**
 
   ```python
-  def __init__(
-      self,
+  def __new__(
+      cls,
       emit_event: EmitEventFn,
       on_theme_selected: Callable[[str], None],
       on_decorated_toggled: Callable[[bool], None],
@@ -1061,7 +1171,10 @@ event emission pattern).
       get_decorated: Callable[[], bool],
       get_opacity: Callable[[], float],
       get_font_scale: Callable[[], float],
-  ) -> None:
+  ) -> Self:
+      self = super().__new__(cls)
+      # ... attribute assignments ...
+      return self
   ```
 
   MenuManager receives callbacks for user selections (e.g., "user
@@ -1135,10 +1248,14 @@ sanitization are the characterization tests. Write additional tests for
 ### Phase 2 verification gate
 
 After all six extractions, DisplayServer should be ~600 lines with
-~25 methods. Run `make metrics` and verify:
+~25 methods. Run `make metrics` and `make check-oo` and verify:
 
 - `display.py` ABC magnitude < 400 (down from ~1,795).
 - No new module exceeds ABC magnitude 500.
+- `make check-oo` shows `max_complexity <= 10` across all files.
+  Every `_render_*` method that was decomposed during Steps 2.3 and
+  2.5 must be at or below CC=10. If any method still exceeds 10,
+  apply Extract Method before proceeding to Phase 3.
 - `make coverage` shows the new modules have comparable coverage to
   the old monolith.
 
@@ -1374,61 +1491,34 @@ testability: a `ToolState` instance can be injected with a mock
 
 ---
 
-## Phase 4: `display_client.py` migration (2 steps)
+## Phase 4: `display_client.py` migration (1 step)
 
 Independent of the `display.py` decomposition. Can run in parallel
 with Phase 2.
 
-### Step 4.1: Deprecate `inspect_scene`, `list_scenes`, `screenshot`
+### Step 4.1: Remove `inspect_scene`, `list_scenes`, `screenshot` and their queues
 
-**What to do.** The three methods become thin wrappers around
-`query()`. The deprecated wrapper pattern:
+**What to do (PL-PP-1: no deprecation wrappers).** Remove the three
+methods and their dedicated queues in a single PR. Update all callers
+to use `query()` directly.
 
-```python
-def inspect_scene(self, scene_id: str) -> IntrospectResponse | None:
-    """Deprecated: use query('inspect_scene', {'scene_id': scene_id})."""
-    warnings.warn(
-        "inspect_scene() is deprecated, use query('inspect_scene', ...)",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    resp = self.query("inspect_scene", {"scene_id": scene_id})
-    if resp is None:
-        return None
-    # Adapt QueryResponse to IntrospectResponse for backward compat
-    return IntrospectResponse(
-        scene_id=scene_id,
-        elements=resp.result.get("elements", []),
-    )
-```
-
-Same pattern for `list_scenes` and `screenshot`.
-
-**Simplified `_dispatch_or_buffer`.** After deprecation, the three
-`isinstance` checks for `IntrospectResponse`, `ListScenesResponse`,
-and `ScreenshotResponse` in `_dispatch_or_buffer` can be removed. The
-method shrinks by ~15 lines. The deprecated methods still work because
-they call `query()`, which uses `_query_queue`.
+1. Remove methods: `inspect_scene`, `list_scenes`, `screenshot`.
+2. Remove queues: `_introspect_queue`, `_list_scenes_queue`,
+   `_screenshot_queue`.
+3. Simplify `_dispatch_or_buffer` (remove 3 `isinstance` checks for
+   `IntrospectResponse`, `ListScenesResponse`, `ScreenshotResponse`).
+   The method shrinks by ~15 lines.
+4. Simplify `close()` (remove 3 `_drain_queue` calls).
+5. Update all callers (in `tools.py` and tests) to use
+   `client.query("inspect_scene", {"scene_id": scene_id})` etc.
 
 **Characterization tests.** The existing `tests/test_display_client.py`
-covers these methods. Verify all tests pass after migration.
-
-**Files modified:** `src/punt_lux/display_client.py`.
-
-**Verification:** `make check`.
-
-### Step 4.2: Remove deprecated methods and 3 queues
-
-**What to do.** In a subsequent release (after deprecation period):
-
-1. Remove `inspect_scene`, `list_scenes`, `screenshot` methods.
-2. Remove `_introspect_queue`, `_list_scenes_queue`,
-   `_screenshot_queue`.
-3. Simplify `_dispatch_or_buffer` (remove 3 `isinstance` checks).
-4. Simplify `close()` (remove 3 `_drain_queue` calls).
+covers these methods. Update the tests to use `query()` before
+removing the methods. Verify all tests pass after the migration.
 
 **Files modified:** `src/punt_lux/display_client.py` (~100 lines
-removed, 3 queues eliminated).
+removed, 3 queues eliminated), `src/punt_lux/tools.py` (caller
+updates), `tests/test_display_client.py` (caller updates).
 
 **Verification:** `make check`.
 
@@ -1489,9 +1579,11 @@ class ServiceBackend(ABC):
 class LaunchdBackend(ServiceBackend):
     """macOS launchd implementation."""
 
-    def __init__(self) -> None:
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
         self._plist_dir = Path.home() / "Library" / "LaunchAgents"
         self._plist_path = self._plist_dir / "com.punt-labs.lux.plist"
+        return self
 
     def install(self, exec_args: list[str]) -> None: ...
     def uninstall(self) -> None: ...
@@ -1510,9 +1602,11 @@ class LaunchdBackend(ServiceBackend):
 class SystemdBackend(ServiceBackend):
     """Linux systemd user unit implementation."""
 
-    def __init__(self) -> None:
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
         self._unit_dir = Path.home() / ".config" / "systemd" / "user"
         self._unit_path = self._unit_dir / "lux.service"
+        return self
 
     def install(self, exec_args: list[str]) -> None: ...
     def uninstall(self) -> None: ...
@@ -1534,8 +1628,10 @@ class SystemdBackend(ServiceBackend):
 class ServiceManager:
     """Coordinate daemon lifecycle across platforms."""
 
-    def __init__(self) -> None:
-        self._backend = self._resolve_backend()
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._backend = cls._resolve_backend()
+        return self
 
     @staticmethod
     def _resolve_backend() -> ServiceBackend:
@@ -1602,19 +1698,14 @@ def uninstall() -> str:
 **After:**
 
 ```python
-_manager = ServiceManager()
-
-def install() -> str:
-    return _manager.install()
-
-def uninstall() -> str:
-    return _manager.uninstall()
+manager = ServiceManager()
+result = manager.install()
 ```
 
-The public API functions remain as module-level wrappers for backward
-compatibility. The class provides testability: inject a
-`MockBackend(ServiceBackend)` that does not call `launchctl` or
-`systemctl`.
+All callers of `install()` and `uninstall()` are updated to use
+`ServiceManager` directly. No module-level wrapper functions. The
+class provides testability: inject a `MockBackend(ServiceBackend)`
+that does not call `launchctl` or `systemctl`.
 
 **Characterization tests** (in `tests/test_service.py`):
 
@@ -1649,9 +1740,11 @@ Starlette app factory into `SessionHub`.
 class SessionHub:
     """WebSocket session multiplexer for luxd."""
 
-    def __init__(self) -> None:
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
         self._active_sessions: set[str] = set()
         self._app = self._build_app()
+        return self
 
     def _build_app(self) -> Starlette:
         """Build the Starlette ASGI application with routes and middleware."""
@@ -1694,11 +1787,7 @@ async def _health_route(request: Request) -> JSONResponse:
 
 ```python
 hub = SessionHub()
-
-async def _health_route(request: Request) -> JSONResponse:
-    return hub._health_route(request)
-
-# Or more cleanly, build_app() references hub methods directly.
+# build_app() references hub methods directly -- no wrapper functions.
 ```
 
 **Methods that move:**
@@ -1752,9 +1841,11 @@ class CheckResult:
 class DoctorChecker:
     """Run installation health checks and collect results."""
 
-    def __init__(self, socket_path: Path | None = None) -> None:
+    def __new__(cls, socket_path: Path | None = None) -> Self:
+        self = super().__new__(cls)
         self._socket_path = socket_path
         self._results: list[CheckResult] = []
+        return self
 
     def check_python_version(self) -> None: ...
     def check_imgui_bundle(self) -> None: ...
@@ -1831,10 +1922,13 @@ Move: `hub-install` -> `hub install`, `hub-uninstall` -> `hub uninstall`,
 `setup-proxy` -> `hub setup-proxy`.
 
 **CLI change:** `lux hub-install` becomes `lux hub install`. This is a
-breaking CLI change. Add backward-compat aliases if needed:
+breaking CLI change. Add hidden aliases for the old hyphenated names
+to avoid breaking hook scripts that invoke the CLI directly. These are
+CLI migration aids (not PL-PP-1 code shims) and are removed in the
+next minor release:
 
 ```python
-# Backward compat: old hyphenated commands
+# Transitional CLI aliases -- remove in next minor release
 @app.command("hub-install", hidden=True)
 def hub_install_compat() -> None:
     hub_install()
@@ -1876,8 +1970,10 @@ the parameter threading.
 - **Constructor signature:**
 
   ```python
-  def __init__(self, socket_path: Path | None = None) -> None:
-      self._socket_path = socket_path or self._default_path()
+  def __new__(cls, socket_path: Path | None = None) -> Self:
+      self = super().__new__(cls)
+      self._socket_path = socket_path or cls._default_path()
+      return self
   ```
 
 - **Key method signatures:**
@@ -1943,18 +2039,13 @@ if display.is_running():
 The parameter threading is eliminated. The socket path is set once
 in the constructor and derived paths are properties.
 
-**Backward compat:**
-
-```python
-def default_socket_path() -> Path:
-    return DisplayPaths().socket_path
-
-def is_display_running(socket_path: Path) -> bool:
-    return DisplayPaths(socket_path).is_running()
-```
+**Caller updates:** All callers of `default_socket_path()`,
+`is_display_running()`, `pid_file_path()`, etc. are updated to use
+`DisplayPaths` directly. No module-level wrapper functions.
 
 **Characterization tests:** The existing `tests/test_paths.py` is
-the characterization test suite. Verify it passes unchanged.
+the characterization test suite. Update tests to use `DisplayPaths`
+directly. Verify all tests pass.
 
 **Files modified:** `src/punt_lux/paths.py`.
 
@@ -1973,8 +2064,10 @@ the characterization test suite. Verify it passes unchanged.
 - **Constructor signature:**
 
   ```python
-  def __init__(self, config_path: Path | None = None) -> None:
+  def __new__(cls, config_path: Path | None = None) -> Self:
+      self = super().__new__(cls)
       self._config_path = config_path or resolve_config_path()
+      return self
   ```
 
 - **Key method signatures:**
@@ -2028,19 +2121,13 @@ config.write_field("display", "y")
 The path is resolved once in the constructor. No repeated
 `resolve_config_path()` calls.
 
-**Backward compat:**
-
-```python
-_default_manager = ConfigManager()
-
-def read_config(config_path: Path | None = None) -> LuxConfig:
-    if config_path is not None:
-        return ConfigManager(config_path).read()
-    return _default_manager.read()
-```
+**Caller updates:** All callers of `read_config()`, `read_field()`,
+and `write_field()` are updated to use `ConfigManager` directly. No
+module-level wrapper functions.
 
 **Characterization tests:** The existing `tests/test_config.py` is
-the characterization test. Verify it passes.
+the characterization test. Update tests to use `ConfigManager`
+directly. Verify all tests pass.
 
 **Files modified:** `src/punt_lux/config.py`.
 
@@ -2059,8 +2146,10 @@ the characterization test. Verify it passes.
 - **Constructor signature:**
 
   ```python
-  def __init__(self, path: Path | None = None) -> None:
+  def __new__(cls, path: Path | None = None) -> Self:
+      self = super().__new__(cls)
       self._path = path or (Path.home() / ".punt-labs" / "mcp-proxy" / "lux.toml")
+      return self
   ```
 
 - **Key method signatures:**
@@ -2112,23 +2201,13 @@ proxy.write(url)
 print(f"Wrote {proxy.path}")
 ```
 
-**Backward compat:**
-
-```python
-_default_proxy = ProxyConfigFile()
-
-def read_proxy_config() -> dict[str, Any]:
-    return _default_proxy.read()
-
-def write_proxy_config(url: str) -> None:
-    _default_proxy.write(url)
-
-def delete_proxy_config() -> bool:
-    return _default_proxy.delete()
-```
+**Caller updates:** All callers of `read_proxy_config()`,
+`write_proxy_config()`, and `delete_proxy_config()` are updated to
+use `ProxyConfigFile` directly. No module-level wrapper functions.
 
 **Characterization tests:** The existing `tests/test_remote.py` is
-the characterization test. Verify it passes.
+the characterization test. Update tests to use `ProxyConfigFile`
+directly. Verify all tests pass.
 
 **Files modified:** `src/punt_lux/remote.py`.
 
@@ -2203,19 +2282,14 @@ def _on_beads_browser(_msg: InteractionMessage) -> None:
     threading.Thread(target=_beads_browser.render, args=(_client,), daemon=True).start()
 ```
 
-**Backward compat:**
-
-```python
-_browser = BeadsBrowser()
-load_beads = _browser.load
-build_beads_payload = _browser.build_payload
-build_beads_elements = _browser.build_elements
-render_beads_board = _browser.render
-```
+**Caller updates:** All callers of `load_beads()`,
+`build_beads_payload()`, `build_beads_elements()`, and
+`render_beads_board()` are updated to use `BeadsBrowser` directly.
+No module-level wrapper functions or attribute aliases.
 
 **Characterization tests:** The existing `tests/test_show.py` is the
-characterization test (it exercises the beads pipeline). Verify it
-passes.
+characterization test (it exercises the beads pipeline). Update tests
+to use `BeadsBrowser` directly. Verify all tests pass.
 
 **Files modified:** `src/punt_lux/apps/beads.py`.
 
@@ -2232,19 +2306,85 @@ These modules have no class and the design report explains why.
 Each function is invoked in a separate OS process by the Claude Code
 hook protocol. No persistent state across invocations. A
 `HookDispatcher` class would encapsulate nothing. The module is the
-namespace.
+namespace. 4 functions, 0 classes -- minimal impact on the average.
 
 ### `show.py`
 
 One Typer command delegating to `beads.py` and `DisplayClient`. No
 state, no shared logic between commands (there is only one
 command), and Typer provides the registration mechanism. The module is
-the namespace.
+the namespace. 1 function, 0 classes -- minimal impact on the average.
 
 ### `__init__.py`
 
 Package export surface. After module splits, imports are updated but
 the structure is correct.
+
+---
+
+## Known metric gaps and framework constraints
+
+### `method_ratio` and `class_to_func_ratio` for `tools.py` and `__main__.py`
+
+These two files have ~54 combined top-level functions and 0-1 classes.
+They drag the aggregate `method_ratio` and `class_to_func_ratio`
+averages below their targets. This is not a design failure -- it is a
+framework constraint:
+
+- **`tools.py`:** Functions are registered via `@mcp.tool()`.
+  FastMCP requires top-level functions, not methods. The `_query_tool`
+  decorator (Step 3.1) reduces boilerplate but does not change the
+  function count -- the 15 query tools remain as decorated top-level
+  functions that FastMCP introspects. `ToolState` (Step 3.2, optional)
+  adds 1 class, improving `class_to_func_ratio` from 0.0 to ~0.03 for
+  this file.
+
+- **`__main__.py`:** Commands are registered via `@app.command()`.
+  Typer requires top-level functions. After extracting `DoctorChecker`
+  (Step 5.3a) and creating the hub sub-app (Step 5.3b), ~15 Typer
+  commands remain as top-level functions with 0 classes at module level.
+
+**Expected post-refactoring values:**
+
+| Metric | Current | After plan | Target | Pass? |
+|--------|---------|-----------|--------|-------|
+| method_ratio | 0.35 | ~0.62 | >= 0.80 | NO |
+| class_to_func_ratio | 0.31 | ~0.52 | >= 0.5 | MARGINAL |
+
+**Why these will not fully pass.** With ~25 files, the ~6 files at or
+near 0.0 (`tools.py`, `__main__.py`, `hooks.py`, `show.py`, and
+package `__init__.py` files) drag the averages down despite the ~19
+extraction files being near 1.0. The `method_ratio` target of 0.80
+is unreachable without wrapping Typer and FastMCP functions in classes,
+which would contradict the frameworks' designs.
+
+**This is a known accepted gap.** The metric aggregation does not
+distinguish justified function-only modules (framework constraints)
+from unjustified procedural code. The refactoring addresses every
+module where classes are the right answer. The remaining function-only
+modules are function-only because their frameworks require it.
+
+### `module_size` for `element_renderer.py`
+
+The plan projects `element_renderer.py` at ~1,200 lines. This exceeds
+the 300-line target by 4x. The file contains 24 parallel render
+methods (one per element kind) that share a single responsibility:
+render protocol elements as ImGui widgets. Each method averages ~50
+lines.
+
+**This is a known accepted exception.** The only way to meet the
+300-line target is to split into per-kind files (e.g.,
+`renderers/text.py`, `renderers/table.py`). That creates 24 files
+with ~50 lines each, each containing one method -- this is worse
+design, not better. The Visitor pattern keeps all renderers together
+because they share the dispatch table, the widget state reference,
+and the emit_event callback. Splitting them would require threading
+these dependencies through 24 separate modules.
+
+The `module_size` metric will report `element_renderer.py` as FAIL
+in `make check-oo`. This is accepted. The metric exists to catch god
+modules with mixed responsibilities; `element_renderer.py` has one
+responsibility expressed across many parallel methods.
 
 ---
 
@@ -2356,6 +2496,11 @@ DisplayServer
 1. **One PR per step.** Each step in this plan maps to one PR. Steps
    within a phase are ordered. Steps across phases can sometimes be
    parallelized (Phase 3 and Phase 4 are independent of Phase 2).
+   **Intra-Phase-2 ordering constraint:** Step 2.4 (QueryDispatcher)
+   depends on Step 2.1 (SceneManager) -- QueryDispatcher takes a
+   `SceneManager` instance in its constructor. Steps 2.2, 2.3, 2.5,
+   and 2.6 can proceed independently of each other once 2.1 is done,
+   but 2.4 must wait for 2.1.
 
 2. **Characterization tests first.** Before each extraction, write the
    specified tests against the current code. Merge the tests. Then do
