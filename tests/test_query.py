@@ -379,3 +379,86 @@ class TestClientQuery:
             stop_event.set()
             _cleanup(short_dir, server_conn)
             t.join(timeout=5)
+
+
+# ---------------------------------------------------------------------------
+# Tier 1 display-domain MCP tool tests
+# ---------------------------------------------------------------------------
+
+
+class TestTier1DisplayTools:
+    """Test Tier 1 display-domain MCP tools."""
+
+    def test_get_display_info_not_running(self) -> None:
+        from unittest.mock import patch
+
+        from punt_lux.tools import get_display_info
+
+        with patch("punt_lux.tools.is_display_running", return_value=False):
+            assert get_display_info() == "not running"
+
+    def test_get_window_settings_not_running(self) -> None:
+        from unittest.mock import patch
+
+        from punt_lux.tools import get_window_settings
+
+        with patch("punt_lux.tools.is_display_running", return_value=False):
+            assert get_window_settings() == "not running"
+
+    def test_get_theme_not_running(self) -> None:
+        from unittest.mock import patch
+
+        from punt_lux.tools import get_theme
+
+        with patch("punt_lux.tools.is_display_running", return_value=False):
+            assert get_theme() == "not running"
+
+
+# ---------------------------------------------------------------------------
+# Tier 1 client/menu-domain MCP tool tests
+# ---------------------------------------------------------------------------
+
+
+class TestTier1ClientMenuTools:
+    """Test Tier 1 client and menu domain MCP tools."""
+
+    def test_list_clients_not_running(self) -> None:
+        from unittest.mock import patch
+
+        from punt_lux.tools import list_clients
+
+        with patch("punt_lux.tools.is_display_running", return_value=False):
+            assert list_clients() == "not running"
+
+    def test_list_menus_not_running(self) -> None:
+        from unittest.mock import patch
+
+        from punt_lux.tools import list_menus
+
+        with patch("punt_lux.tools.is_display_running", return_value=False):
+            assert list_menus() == "not running"
+
+
+# ---------------------------------------------------------------------------
+# Tier 1 event/error-domain MCP tool tests
+# ---------------------------------------------------------------------------
+
+
+class TestTier1EventErrorTools:
+    """Test Tier 1 event and error introspection MCP tools."""
+
+    def test_list_recent_events_not_running(self) -> None:
+        from unittest.mock import patch
+
+        from punt_lux.tools import list_recent_events
+
+        with patch("punt_lux.tools.is_display_running", return_value=False):
+            assert list_recent_events() == "not running"
+
+    def test_list_errors_not_running(self) -> None:
+        from unittest.mock import patch
+
+        from punt_lux.tools import list_errors
+
+        with patch("punt_lux.tools.is_display_running", return_value=False):
+            assert list_errors() == "not running"
