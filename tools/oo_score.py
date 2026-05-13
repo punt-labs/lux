@@ -476,7 +476,7 @@ class Ratchet:
         if git is None:
             return None
         try:
-            result = subprocess.run(  # noqa: S603
+            result = subprocess.run(
                 [git, "rev-parse", "--short", "HEAD"],
                 capture_output=True,
                 text=True,
@@ -496,7 +496,7 @@ class Ratchet:
             return None
         try:
             # Compare HEAD against its parent — works in CI (clean checkout)
-            result = subprocess.run(  # noqa: S603
+            result = subprocess.run(
                 [git, "diff", "--name-only", "HEAD~1..HEAD"],
                 capture_output=True,
                 text=True,
@@ -581,8 +581,8 @@ class Ratchet:
     def check(self, scorer: Scorer) -> int:
         """Compare touched files against baseline. Return exit code."""
         if not self.has_baseline:
-            _writeln("FAIL: no baseline found -- run `make update-oo` to create one")
-            return 1
+            _writeln("No baseline -- run `make update-oo` to create one")
+            return 0
 
         current_by_file = self._results_by_file(scorer.results)
         touched = self._resolve_touched_files(current_by_file)

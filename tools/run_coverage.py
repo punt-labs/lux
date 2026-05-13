@@ -24,9 +24,9 @@ def run_coverage() -> None:
     """Run tests with coverage and generate reports."""
     cov = _resolve_coverage()
 
-    subprocess.run([cov, "erase"], check=True)  # noqa: S603
+    subprocess.run([cov, "erase"], check=True)
 
-    result = subprocess.run(  # noqa: S603
+    result = subprocess.run(
         [
             cov,
             "run",
@@ -45,8 +45,8 @@ def run_coverage() -> None:
         print(f"Tests exited with code {result.returncode}", file=sys.stderr)
         sys.exit(result.returncode)
 
-    subprocess.run([cov, "report", "-m"], check=True)  # noqa: S603
-    subprocess.run([cov, "html"], check=True)  # noqa: S603
+    subprocess.run([cov, "report", "-m"], check=True)
+    subprocess.run([cov, "html"], check=True)
 
     print("\nHTML coverage report: htmlcov/index.html")
 

@@ -57,7 +57,7 @@ def main() -> None:
     SOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     print("Starting dev display server...")
-    proc = subprocess.Popen(  # noqa: S603
+    proc = subprocess.Popen(
         [
             sys.executable,
             "-m",

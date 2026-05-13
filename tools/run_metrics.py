@@ -42,7 +42,7 @@ def run_metrics() -> None:
         if verbose:
             cmd.append("--verbose=true")
 
-        result = subprocess.run(  # noqa: S603
+        result = subprocess.run(
             cmd,
             check=True,
             text=True,
