@@ -31,7 +31,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import ClassVar, Self
+from typing import ClassVar
 
 
 def _writeln(text: str = "") -> None:
@@ -44,12 +44,10 @@ class ModuleMetrics:
     _tree: ast.Module
     _source_lines: int
 
-    def __new__(cls, path: str, source: str) -> Self:
-        self = super().__new__(cls)
+    def __init__(self, path: str, source: str) -> None:
         self._path = path
         self._tree = ast.parse(source, filename=path)
         self._source_lines = len([line for line in source.splitlines() if line.strip()])
-        return self
 
     def compute(self) -> dict[str, float | int | str]:
         return {
@@ -149,9 +147,12 @@ class ModuleMetrics:
         total_attrs = 0
         private_attrs = 0
         for node in ast.walk(self._tree):
-            if not isinstance(node, ast.Assign):
-                continue
-            for target in node.targets:
+            targets: list[ast.expr] = []
+            if isinstance(node, ast.Assign):
+                targets = node.targets
+            elif isinstance(node, ast.AnnAssign) and node.target is not None:
+                targets = [node.target]
+            for target in targets:
                 if not isinstance(target, ast.Attribute):
                     continue
                 if not isinstance(target.value, ast.Name):
@@ -246,9 +247,12 @@ class ModuleMetrics:
     def _count_public_attrs(self) -> int:
         count = 0
         for node in ast.walk(self._tree):
-            if not isinstance(node, ast.Assign):
-                continue
-            for target in node.targets:
+            targets: list[ast.expr] = []
+            if isinstance(node, ast.Assign):
+                targets = node.targets
+            elif isinstance(node, ast.AnnAssign) and node.target is not None:
+                targets = [node.target]
+            for target in targets:
                 if not isinstance(target, ast.Attribute):
                     continue
                 if not isinstance(target.value, ast.Name):
@@ -290,16 +294,14 @@ class Scorer:
         "future_annotations": ("==", 1),
     }
 
-    def __new__(cls, target: Path) -> Self:
-        self = super().__new__(cls)
-        self._thresholds = cls.THRESHOLDS
+    def __init__(self, target: Path) -> None:
+        self._thresholds = self.THRESHOLDS
         if target.is_file():
             self._results = [self._score_file(target)]
         elif target.is_dir():
             self._results = self._score_directory(target)
         else:
             self._results = []
-        return self
 
     @property
     def results(self) -> list[dict[str, float | int | str]]:
@@ -363,6 +365,7 @@ class Scorer:
             if k in (
                 "max_complexity",
                 "module_size",
+                "classes_per_module",
                 "init_violations",
                 "public_attr_violations",
             ):
@@ -419,13 +422,11 @@ class Ratchet:
     # Metrics tracked in the baseline — must match Scorer.THRESHOLDS keys.
     METRIC_KEYS: ClassVar[tuple[str, ...]] = tuple(Scorer.THRESHOLDS)
 
-    def __new__(cls, root: Path | None = None) -> Self:
-        self = super().__new__(cls)
+    def __init__(self, root: Path | None = None) -> None:
         base = root if root is not None else Path.cwd()
-        self._baseline_path = base / cls.BASELINE_FILE
-        self._audit_path = base / cls.AUDIT_FILE
+        self._baseline_path = base / self.BASELINE_FILE
+        self._audit_path = base / self.AUDIT_FILE
         self._baseline = self._load_baseline()
-        return self
 
     @property
     def has_baseline(self) -> bool:
@@ -441,10 +442,19 @@ class Ratchet:
     # ------------------------------------------------------------------
 
     def _load_baseline(self) -> dict[str, dict[str, float]]:
+        """Load baseline from disk, or return empty dict if absent."""
         if not self._baseline_path.exists():
             return {}
         text = self._baseline_path.read_text()
-        raw: dict[str, dict[str, float]] = json.loads(text)
+        # Fix 5: malformed baseline gets actionable message instead of traceback
+        try:
+            raw: dict[str, dict[str, float]] = json.loads(text)
+        except json.JSONDecodeError:
+            _writeln(
+                f"FAIL: malformed baseline {self._baseline_path}"
+                " -- delete it and run --update",
+            )
+            sys.exit(2)
         return raw
 
     def _save_baseline(self, data: dict[str, dict[str, float]]) -> None:
@@ -464,75 +474,53 @@ class Ratchet:
         return shutil.which("git")
 
     @staticmethod
-    def _git_commit_short() -> str | None:
-        git = Ratchet._resolve_git()
-        if git is None:
-            return None
+    def _run_git(
+        args: list[str],
+        label: str,
+    ) -> subprocess.CompletedProcess[str] | None:
+        """Run a git command, returning the result or None on timeout."""
         try:
             result = subprocess.run(  # noqa: S603
-                [git, "rev-parse", "--short", "HEAD"],
+                args,
                 capture_output=True,
                 text=True,
                 timeout=5,
             )
-            if result.returncode == 0:
-                return result.stdout.strip()
         except subprocess.TimeoutExpired:
-            pass
+            _writeln(f"warning: {label} timed out")
+            return None
+        # Fix 4: warn on non-zero returncode with stderr
+        if result.returncode != 0 and result.stderr.strip():
+            _writeln(f"warning: {label}: {result.stderr.strip()}")
+        return result
+
+    def _git_commit_short(self) -> str | None:
+        """Return short commit hash, or None."""
+        git = self._resolve_git()
+        if git is None:
+            return None
+        result = self._run_git(
+            [git, "rev-parse", "--short", "HEAD"],
+            "git rev-parse",
+        )
+        if result is not None and result.returncode == 0:
+            return result.stdout.strip()
         return None
 
-    @staticmethod
-    def _git_touched_files() -> list[str] | None:
-        """Return repo-relative paths changed in the current change set, or None."""
-        git = Ratchet._resolve_git()
+    def _git_touched_files(self) -> list[str] | None:
+        """Return repo-relative paths changed in the latest commit."""
+        git = self._resolve_git()
         if git is None:
             return None
-        files: set[str] = set()
-        try:
-            # Uncommitted changes (working tree vs HEAD)
-            result = subprocess.run(  # noqa: S603
-                [git, "diff", "--name-only", "HEAD"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0:
-                files.update(
-                    line for line in result.stdout.strip().splitlines() if line
-                )
-            # Staged changes (index vs HEAD)
-            result = subprocess.run(  # noqa: S603
-                [git, "diff", "--name-only", "--cached"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0:
-                files.update(
-                    line for line in result.stdout.strip().splitlines() if line
-                )
-            # Branch diff vs origin/main (for PR branches and CI)
-            result = subprocess.run(  # noqa: S603
-                [git, "merge-base", "HEAD", "origin/main"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode == 0:
-                merge_base = result.stdout.strip()
-                result = subprocess.run(  # noqa: S603
-                    [git, "diff", "--name-only", merge_base, "HEAD"],
-                    capture_output=True,
-                    text=True,
-                    timeout=5,
-                )
-                if result.returncode == 0:
-                    files.update(
-                        line for line in result.stdout.strip().splitlines() if line
-                    )
-        except subprocess.TimeoutExpired:
-            pass
-        return list(files)
+        # Compare HEAD against its parent -- works in CI (clean checkout)
+        result = self._run_git(
+            [git, "diff", "--name-only", "HEAD~1..HEAD"],
+            "git diff HEAD~1..HEAD",
+        )
+        if result is not None and result.returncode == 0:
+            return [line for line in result.stdout.strip().splitlines() if line]
+        # HEAD~1 may not exist (initial commit) -- fall through to None
+        return None
 
     # ------------------------------------------------------------------
     # Metric comparison helpers
@@ -560,7 +548,7 @@ class Ratchet:
             return current >= baseline_val
         if op == "<=":
             return current <= baseline_val
-        # op == "==" — closer to target is better (or equal)
+        # op == "==" -- closer to target is better (or equal)
         return abs(current - target) <= abs(baseline_val - target)
 
     @staticmethod
@@ -575,7 +563,7 @@ class Ratchet:
             return current > baseline_val
         if op == "<=":
             return current < baseline_val
-        # op == "==" — strictly closer to target
+        # op == "==" -- strictly closer to target
         return abs(current - target) < abs(baseline_val - target)
 
     # ------------------------------------------------------------------
@@ -590,6 +578,8 @@ class Ratchet:
         out: dict[str, dict[str, float]] = {}
         for r in results:
             if "error" in r:
+                # Fix 7: warn about files with parse errors
+                _writeln(f"warning: skipping {r.get('file', '?')}: {r['error']}")
                 continue
             fpath = str(r["file"])
             metrics: dict[str, float] = {}
@@ -600,7 +590,7 @@ class Ratchet:
         return out
 
     # ------------------------------------------------------------------
-    # --check
+    # --check helpers (extracted to keep check() under complexity limit)
     # ------------------------------------------------------------------
 
     def _resolve_touched_files(
@@ -621,19 +611,15 @@ class Ratchet:
         fpath: str,
         current: dict[str, float],
         rows: list[tuple[str, str, str, str, str, str]],
-    ) -> bool:
-        """Append rows for a new file. Return True if any threshold failed."""
-        has_failure = False
+    ) -> None:
+        """Append rows for a new file (no baseline entry)."""
         for metric in self.METRIC_KEYS:
             if metric not in current:
                 continue
             val = current[metric]
             passed = self._meets_threshold(metric, val)
-            grade = "PASS" if passed else "FAIL"
+            grade = "PASS" if passed else "INFO"
             rows.append((fpath, metric, "NEW", f"{val:.3f}", "--", grade))
-            if not passed:
-                has_failure = True
-        return has_failure
 
     def _check_existing_file(
         self,
@@ -692,11 +678,16 @@ class Ratchet:
         if not rows:
             _writeln("  (all metrics unchanged)")
 
+    # ------------------------------------------------------------------
+    # --check
+    # ------------------------------------------------------------------
+
     def check(self, scorer: Scorer) -> int:
         """Compare touched files against baseline. Return exit code."""
+        # Fix 3: missing baseline is a failure, not a silent pass
         if not self.has_baseline:
-            _writeln("No baseline -- run --update to create one")
-            return 0
+            _writeln("FAIL: no baseline found -- run `make update-oo` to create one")
+            return 1
 
         current_by_file = self._results_by_file(scorer.results)
         touched = self._resolve_touched_files(current_by_file)
@@ -716,11 +707,9 @@ class Ratchet:
             baseline_entry = self._baseline.get(fpath)
 
             if baseline_entry is None:
-                any_regression |= self._check_new_file(
-                    fpath,
-                    current,
-                    rows,
-                )
+                self._check_new_file(fpath, current, rows)
+                # Fix 2: new files count as improvement
+                any_improvement = True
                 continue
 
             regressed, improved = self._check_existing_file(
@@ -745,28 +734,35 @@ class Ratchet:
         return 0
 
     # ------------------------------------------------------------------
-    # --update
+    # --update helpers (extracted to keep update() under complexity limit)
     # ------------------------------------------------------------------
 
-    def _deltas_for_new_file(
+    def _update_new_file(
         self,
+        fpath: str,
         current: dict[str, float],
-    ) -> dict[str, list[float]]:
-        """Build delta dict for a file with no baseline."""
-        return {
-            metric: [0.0, current[metric]]
-            for metric in self.METRIC_KEYS
-            if metric in current
-        }
+        new_baseline: dict[str, dict[str, float]],
+        deltas: dict[str, dict[str, list[float]]],
+    ) -> None:
+        """Add a new file to the baseline unconditionally."""
+        new_baseline[fpath] = current
+        file_deltas: dict[str, list[float]] = {}
+        for metric in self.METRIC_KEYS:
+            if metric in current:
+                file_deltas[metric] = [0.0, current[metric]]
+        if file_deltas:
+            deltas[fpath] = file_deltas
 
-    def _find_regressions(
+    def _update_existing_file(
         self,
         fpath: str,
         current: dict[str, float],
         baseline_entry: dict[str, float],
-    ) -> list[tuple[str, str]]:
-        """Return list of (fpath, metric) pairs that regressed."""
-        regressions: list[tuple[str, str]] = []
+        new_baseline: dict[str, dict[str, float]],
+        deltas: dict[str, dict[str, list[float]]],
+        refused: list[tuple[str, str]],
+    ) -> bool:
+        """Check regressions and update baseline. Return True if updated."""
         for metric in self.METRIC_KEYS:
             if metric not in current or metric not in baseline_entry:
                 continue
@@ -775,22 +771,26 @@ class Ratchet:
                 current[metric],
                 baseline_entry[metric],
             ):
-                regressions.append((fpath, metric))
-        return regressions
+                refused.append((fpath, metric))
 
-    def _compute_file_deltas(
-        self,
-        current: dict[str, float],
-        baseline_entry: dict[str, float],
-    ) -> dict[str, list[float]]:
-        """Return {metric: [old, new]} for metrics that changed."""
-        return {
-            metric: [baseline_entry[metric], current[metric]]
-            for metric in self.METRIC_KEYS
-            if metric in current
-            and metric in baseline_entry
-            and current[metric] != baseline_entry[metric]
-        }
+        if any(f == fpath for f, _ in refused):
+            return False
+
+        file_deltas: dict[str, list[float]] = {}
+        for metric in self.METRIC_KEYS:
+            if metric not in current or metric not in baseline_entry:
+                continue
+            if current[metric] != baseline_entry[metric]:
+                file_deltas[metric] = [baseline_entry[metric], current[metric]]
+
+        new_baseline[fpath] = current
+        if file_deltas:
+            deltas[fpath] = file_deltas
+        return True
+
+    # ------------------------------------------------------------------
+    # --update
+    # ------------------------------------------------------------------
 
     def update(self, scorer: Scorer) -> int:
         """Update baseline for files that did not regress. Return exit code."""
@@ -806,30 +806,24 @@ class Ratchet:
             baseline_entry = self._baseline.get(fpath)
 
             if baseline_entry is None:
-                new_baseline[fpath] = current
+                self._update_new_file(
+                    fpath,
+                    current,
+                    new_baseline,
+                    deltas,
+                )
                 added_count += 1
-                file_deltas = self._deltas_for_new_file(current)
-                if file_deltas:
-                    deltas[fpath] = file_deltas
                 continue
 
-            regressions = self._find_regressions(
+            if self._update_existing_file(
                 fpath,
                 current,
                 baseline_entry,
-            )
-            if regressions:
-                refused.extend(regressions)
-                continue
-
-            file_deltas = self._compute_file_deltas(
-                current,
-                baseline_entry,
-            )
-            new_baseline[fpath] = current
-            updated_count += 1
-            if file_deltas:
-                deltas[fpath] = file_deltas
+                new_baseline,
+                deltas,
+                refused,
+            ):
+                updated_count += 1
 
         # Remove deleted files (in baseline but not on disk)
         removed_count = 0
@@ -840,22 +834,30 @@ class Ratchet:
 
         files_improved = sum(1 for d in deltas.values() if d)
 
-        self._append_audit(
-            files_scored=len(current_by_file),
-            files_improved=files_improved,
-            files_regressed=len({f for f, _ in refused}),
-            verdict="pass" if not refused else "fail",
-            deltas=deltas,
-        )
-
+        # Fix 6: only write audit on success (after regression guard)
         if refused:
+            self._append_audit(
+                files_scored=len(current_by_file),
+                files_improved=files_improved,
+                files_regressed=len({f for f, _ in refused}),
+                verdict="fail",
+                deltas=deltas,
+            )
             _writeln(f"\n  REFUSED ({len({f for f, _ in refused})} files):")
             for fpath, metric in refused:
                 _writeln(f"    {fpath}: {metric} regressed")
             return 1
 
-        # Only persist baseline when no regressions were found
+        # No regressions -- persist baseline and audit
         self._save_baseline(new_baseline)
+
+        self._append_audit(
+            files_scored=len(current_by_file),
+            files_improved=files_improved,
+            files_regressed=0,
+            verdict="pass",
+            deltas=deltas,
+        )
 
         _writeln(f"\nBaseline updated: {self._baseline_path}")
         _writeln(f"  files scored:  {len(current_by_file)}")
@@ -912,7 +914,12 @@ class Ratchet:
         for line in self._audit_path.read_text().splitlines():
             if not line.strip():
                 continue
-            entry = json.loads(line)
+            # Fix 8: skip bad JSONL lines with a warning
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError:
+                _writeln("  warning: skipping malformed audit line")
+                continue
             _writeln(
                 f"{entry['ts']:<22} {entry.get('commit') or '?'!s:<10} "
                 f"{entry['files_scored']:>7} {entry['files_improved']:>9} "

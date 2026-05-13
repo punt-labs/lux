@@ -43,6 +43,7 @@ def run_coverage() -> None:
 
     if result.returncode not in (0, 5):
         print(f"Tests exited with code {result.returncode}", file=sys.stderr)
+        sys.exit(result.returncode)
 
     subprocess.run([cov, "report", "-m"], check=True)  # noqa: S603
     subprocess.run([cov, "html"], check=True)  # noqa: S603

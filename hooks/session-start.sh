@@ -39,6 +39,7 @@ fi
 # ── Allow MCP tools and Skill() permissions in user settings ─────────
 if command -v jq &>/dev/null && [[ -f "$SETTINGS" ]]; then
   TMPFILE="$(mktemp)"
+  trap 'rm -f "$TMPFILE"' EXIT
   NEEDS_UPDATE=false
 
   # MCP tool glob
