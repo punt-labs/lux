@@ -1,10 +1,11 @@
 # Lux Refactoring Plan
 
-This document is the working plan for decomposing `src/punt_lux/` from
-10K LOC across 17 files with 5 real classes into a well-factored
-package where every class has one responsibility. It combines the
-class-responsibility report (v3), the peer review, and codebase
-inspection into step-by-step instructions.
+**Related documents:**
+
+- [`class-responsibility-report.md`](class-responsibility-report.md) — OO design analysis. Defines every class (existing and proposed), its single responsibility, compositions, collaborations, and the functions/methods that move into it. The design source of truth.
+- [`class-responsibility-review.md`](class-responsibility-review.md) — Peer review of the design report by `rej` (Ralph Johnson). Verdict: GO with modifications. This plan incorporates those modifications.
+
+**This document** is the executable refactoring plan. It combines the report's class designs with the review's feedback into step-by-step instructions that preserve behavior at every step.
 
 Every step is a behavior-preserving transformation. `make check` passes
 after every step. One class extraction per step -- never two at once.
