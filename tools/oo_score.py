@@ -483,11 +483,13 @@ class Ratchet:
 
     @staticmethod
     def _git_touched_files() -> list[str] | None:
-        """Return repo-relative paths changed vs HEAD, or None if git unavailable."""
+        """Return repo-relative paths changed in the current change set, or None."""
         git = Ratchet._resolve_git()
         if git is None:
             return None
+        files: set[str] = set()
         try:
+            # Uncommitted changes (working tree vs HEAD)
             result = subprocess.run(  # noqa: S603
                 [git, "diff", "--name-only", "HEAD"],
                 capture_output=True,
@@ -495,10 +497,42 @@ class Ratchet:
                 timeout=5,
             )
             if result.returncode == 0:
-                return [line for line in result.stdout.strip().splitlines() if line]
+                files.update(
+                    line for line in result.stdout.strip().splitlines() if line
+                )
+            # Staged changes (index vs HEAD)
+            result = subprocess.run(  # noqa: S603
+                [git, "diff", "--name-only", "--cached"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                files.update(
+                    line for line in result.stdout.strip().splitlines() if line
+                )
+            # Branch diff vs origin/main (for PR branches and CI)
+            result = subprocess.run(  # noqa: S603
+                [git, "merge-base", "HEAD", "origin/main"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                merge_base = result.stdout.strip()
+                result = subprocess.run(  # noqa: S603
+                    [git, "diff", "--name-only", merge_base, "HEAD"],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                if result.returncode == 0:
+                    files.update(
+                        line for line in result.stdout.strip().splitlines() if line
+                    )
         except subprocess.TimeoutExpired:
             pass
-        return None
+        return list(files) if files else None
 
     # ------------------------------------------------------------------
     # Metric comparison helpers
@@ -804,7 +838,6 @@ class Ratchet:
                 del new_baseline[fpath]
                 removed_count += 1
 
-        self._save_baseline(new_baseline)
         files_improved = sum(1 for d in deltas.values() if d)
 
         self._append_audit(
@@ -815,17 +848,20 @@ class Ratchet:
             deltas=deltas,
         )
 
-        _writeln(f"\nBaseline updated: {self._baseline_path}")
-        _writeln(f"  files scored:  {len(current_by_file)}")
-        _writeln(f"  files added:   {added_count}")
-        _writeln(f"  files updated: {updated_count}")
-        _writeln(f"  files removed: {removed_count}")
-
         if refused:
             _writeln(f"\n  REFUSED ({len({f for f, _ in refused})} files):")
             for fpath, metric in refused:
                 _writeln(f"    {fpath}: {metric} regressed")
             return 1
+
+        # Only persist baseline when no regressions were found
+        self._save_baseline(new_baseline)
+
+        _writeln(f"\nBaseline updated: {self._baseline_path}")
+        _writeln(f"  files scored:  {len(current_by_file)}")
+        _writeln(f"  files added:   {added_count}")
+        _writeln(f"  files updated: {updated_count}")
+        _writeln(f"  files removed: {removed_count}")
 
         return 0
 
