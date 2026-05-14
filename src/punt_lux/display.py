@@ -17,8 +17,6 @@ import logging
 import platform
 import socket
 import time
-from collections import deque
-from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
@@ -49,7 +47,6 @@ from punt_lux.protocol import (
     PingMessage,
     PongMessage,
     QueryRequest,
-    QueryResponse,
     RadioElement,
     RegisterMenuMessage,
     SceneMessage,
@@ -62,8 +59,8 @@ from punt_lux.protocol import (
     UnknownMessage,
     UpdateMessage,
     WindowElement,
-    element_to_dict,
 )
+from punt_lux.query_dispatcher import QueryDispatcher
 from punt_lux.scene_manager import Frame, SceneManager
 from punt_lux.socket_server import SocketServer
 from punt_lux.table_renderer import TableRenderer
@@ -150,70 +147,6 @@ class TextureCache:
 # ---------------------------------------------------------------------------
 # Color conversion helpers
 # ---------------------------------------------------------------------------
-
-
-def _parse_color(
-    color: str | list[int] | tuple[int, ...] | Any,
-) -> tuple[int, int, int, int]:
-    """Parse a color value to (r, g, b, a) ints 0-255.
-
-    Accepts hex strings (``"#RRGGBB"``, ``"#RRGGBBAA"``) or RGBA
-    lists/tuples (``[r, g, b]``, ``[r, g, b, a]``, or longer —
-    extra components beyond the fourth are ignored).
-    """
-    if isinstance(color, (list, tuple)):
-        try:
-            if len(color) >= 4:
-                return (int(color[0]), int(color[1]), int(color[2]), int(color[3]))
-            if len(color) == 3:
-                return (int(color[0]), int(color[1]), int(color[2]), 255)
-        except (TypeError, ValueError):
-            pass
-        logger.warning("Invalid RGBA color %r; using fallback white", color)
-        return (255, 255, 255, 255)
-    if not isinstance(color, str):
-        logger.warning("Invalid color type %r; using fallback white", type(color))
-        return (255, 255, 255, 255)
-    h = color.lstrip("#")
-    try:
-        if len(h) == 6:
-            r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-            return (r, g, b, 255)
-        if len(h) == 8:
-            r, g, b, a = (
-                int(h[0:2], 16),
-                int(h[2:4], 16),
-                int(h[4:6], 16),
-                int(h[6:8], 16),
-            )
-            return (r, g, b, a)
-    except ValueError:
-        logger.warning("Invalid hex color %r; using fallback white", color)
-    return (255, 255, 255, 255)
-
-
-def _color_to_hex(r: float, g: float, b: float) -> str:
-    """Convert float RGB (0-1) to hex string."""
-    ri = int(max(0.0, min(1.0, r)) * 255)
-    gi = int(max(0.0, min(1.0, g)) * 255)
-    bi = int(max(0.0, min(1.0, b)) * 255)
-    return f"#{ri:02X}{gi:02X}{bi:02X}"
-
-
-def _to_imgui_color(
-    color: str | list[int] | tuple[int, ...] | Any,
-) -> int:
-    """Convert a color value to ImGui packed color (ImU32).
-
-    Accepts hex strings or RGBA lists/tuples.
-    """
-    from imgui_bundle import ImVec4, imgui
-
-    r, g, b, a = _parse_color(color)
-    result: int = imgui.get_color_u32(
-        ImVec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0)
-    )
-    return result
 
 
 def _draw_flame_shape(
@@ -317,9 +250,7 @@ class DisplayServer:
     _start_time: float
     _current_theme: str
     _current_scene_id: str | None
-    _query_handlers: dict[str, Callable[..., dict[str, Any]]]
-    _recent_events: deque[dict[str, Any]]
-    _recent_errors: deque[dict[str, Any]]
+    _query_dispatcher: QueryDispatcher
 
     def __new__(
         cls,
@@ -329,13 +260,22 @@ class DisplayServer:
     ) -> Self:
         self = super().__new__(cls)
         self._socket_path = Path(socket_path or str(default_socket_path()))
+        self._scene_manager = SceneManager(
+            on_scene_replaced=self._drain_stale_events,
+        )
+        # QueryDispatcher must be created before SocketServer so that
+        # the on_error callback is available.
+        self._query_dispatcher = QueryDispatcher(
+            scene_manager=self._scene_manager,
+            get_client_names=lambda: self._socket_server.client_names,
+            get_client_connect_times=lambda: self._socket_server.client_connect_times,
+            get_menu_registrations=lambda: self._menu_registrations,
+            get_agent_menus=lambda: self._agent_menus,
+        )
         self._socket_server = SocketServer(
             on_message=self._handle_message,
             on_client_disconnected=self._on_client_disconnected,
-            on_error=self._record_error,
-        )
-        self._scene_manager = SceneManager(
-            on_scene_replaced=self._drain_stale_events,
+            on_error=self._query_dispatcher.record_error,
         )
         self._event_queue = []
         self._textures = TextureCache()
@@ -361,30 +301,35 @@ class DisplayServer:
         self._current_theme = "imgui_colors_dark"
         self._current_scene_id = None
 
-        # Generic query dispatcher — one handler per method name.
-        self._query_handlers = {}
-        self._query_handlers["inspect_scene"] = self._query_inspect_scene
-        self._query_handlers["list_scenes"] = self._query_list_scenes
-        self._query_handlers["screenshot"] = self._query_screenshot
-        self._query_handlers["get_display_info"] = self._query_get_display_info
-        self._query_handlers["get_window_settings"] = self._query_get_window_settings
-        self._query_handlers["get_theme"] = self._query_get_theme
-        self._query_handlers["list_clients"] = self._query_list_clients
-        self._query_handlers["list_menus"] = self._query_list_menus
-        self._query_handlers["list_recent_events"] = self._query_list_recent_events
-        self._query_handlers["list_errors"] = self._query_list_errors
-        self._query_handlers["set_window_settings"] = self._query_set_window_settings
-        self._query_handlers["set_frame_state"] = self._query_set_frame_state
-        self._query_handlers["set_theme"] = self._query_set_theme
-
-        # Ring buffers for event/error introspection.
-        self._recent_events = deque(maxlen=200)
-        self._recent_errors = deque(maxlen=100)
+        # Register display-specific query handlers that need ImGui state.
+        qd = self._query_dispatcher
+        qd.register_handler("screenshot", self._query_screenshot)
+        qd.register_handler("get_display_info", self._query_get_display_info)
+        qd.register_handler("get_window_settings", self._query_get_window_settings)
+        qd.register_handler("get_theme", self._query_get_theme)
+        qd.register_handler("set_window_settings", self._query_set_window_settings)
+        qd.register_handler("set_frame_state", self._query_set_frame_state)
+        qd.register_handler("set_theme", self._query_set_theme)
         return self
 
     @property
     def socket_path(self) -> Path:
         return self._socket_path
+
+    @property
+    def query_dispatcher(self) -> QueryDispatcher:
+        """Return the query dispatcher for external handler registration."""
+        return self._query_dispatcher
+
+    @property
+    def scene_manager(self) -> SceneManager:
+        """Return the scene manager for external inspection."""
+        return self._scene_manager
+
+    @property
+    def socket_server(self) -> SocketServer:
+        """Return the socket server for external inspection."""
+        return self._socket_server
 
     def _drain_stale_events(self, stale_ids: list[str]) -> None:
         """Remove queued events for elements that no longer exist."""
@@ -615,7 +560,7 @@ class DisplayServer:
             resp = ScreenshotResponse(path=path)
         except Exception as exc:
             logger.exception("Screenshot capture failed")
-            self._record_error("error", str(exc), "screenshot")
+            self._query_dispatcher.record_error("error", str(exc), "screenshot")
             resp = ScreenshotResponse(error=str(exc))
         self._socket_server.send_to_client(sock, resp)
 
@@ -840,6 +785,84 @@ class DisplayServer:
         """
         name = raw.removesuffix("-mcp")
         return name.replace("-", " ").title()
+
+    @staticmethod
+    def _color_to_hex(r: float, g: float, b: float) -> str:
+        """Convert float RGB (0-1) to hex string."""
+        ri = int(max(0.0, min(1.0, r)) * 255)
+        gi = int(max(0.0, min(1.0, g)) * 255)
+        bi = int(max(0.0, min(1.0, b)) * 255)
+        return f"#{ri:02X}{gi:02X}{bi:02X}"
+
+    @staticmethod
+    def _parse_color(
+        color: str | list[int] | tuple[int, ...] | Any,
+    ) -> tuple[int, int, int, int]:
+        """Parse a color value to (r, g, b, a) ints 0-255.
+
+        Accepts hex strings (``"#RRGGBB"``, ``"#RRGGBBAA"``) or RGBA
+        lists/tuples (``[r, g, b]``, ``[r, g, b, a]``, or longer --
+        extra components beyond the fourth are ignored).
+        """
+        if isinstance(color, (list, tuple)):
+            try:
+                if len(color) >= 4:
+                    return (
+                        int(color[0]),
+                        int(color[1]),
+                        int(color[2]),
+                        int(color[3]),
+                    )
+                if len(color) == 3:
+                    return (
+                        int(color[0]),
+                        int(color[1]),
+                        int(color[2]),
+                        255,
+                    )
+            except (TypeError, ValueError):
+                pass
+            logger.warning("Invalid RGBA color %r; using fallback white", color)
+            return (255, 255, 255, 255)
+        if not isinstance(color, str):
+            logger.warning(
+                "Invalid color type %r; using fallback white",
+                type(color),
+            )
+            return (255, 255, 255, 255)
+        h = color.lstrip("#")
+        try:
+            if len(h) == 6:
+                r, g, b = (
+                    int(h[0:2], 16),
+                    int(h[2:4], 16),
+                    int(h[4:6], 16),
+                )
+                return (r, g, b, 255)
+            if len(h) == 8:
+                r, g, b, a = (
+                    int(h[0:2], 16),
+                    int(h[2:4], 16),
+                    int(h[4:6], 16),
+                    int(h[6:8], 16),
+                )
+                return (r, g, b, a)
+        except ValueError:
+            logger.warning("Invalid hex color %r; using fallback white", color)
+        return (255, 255, 255, 255)
+
+    @staticmethod
+    def _to_imgui_color(
+        color: str | list[int] | tuple[int, ...] | Any,
+    ) -> int:
+        """Convert a color value to ImGui packed color (ImU32)."""
+        from imgui_bundle import ImVec4, imgui
+
+        r, g, b, a = DisplayServer._parse_color(color)
+        result: int = imgui.get_color_u32(
+            ImVec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0)
+        )
+        return result
 
     def _render_world_panel_apps(self, imgui: Any) -> bool:
         """Render Applications submenu in the World panel."""
@@ -1198,93 +1221,35 @@ class DisplayServer:
 
     def _handle_introspect(self, sock: socket.socket, msg: IntrospectRequest) -> None:
         """Return the element tree for a scene to the requesting client."""
-        try:
-            data = self._query_inspect_scene(scene_id=msg.scene_id)
+        qr = self._query_dispatcher.handle_query(
+            "inspect_scene", {"scene_id": msg.scene_id}
+        )
+        if qr.error is not None:
             resp = IntrospectResponse(
                 scene_id=msg.scene_id,
-                elements=data["elements"],
+                error=qr.error,
             )
-        except LookupError:
+        else:
             resp = IntrospectResponse(
                 scene_id=msg.scene_id,
-                error=f"Scene '{msg.scene_id}' not found",
+                elements=qr.result["elements"],
             )
         self._socket_server.send_to_client(sock, resp)
 
     def _handle_list_scenes(self, sock: socket.socket, _msg: ListScenesRequest) -> None:
         """Return the list of active scenes and frames."""
-        data = self._query_list_scenes()
-        resp = ListScenesResponse(scenes=data["scenes"], frames=data["frames"])
+        qr = self._query_dispatcher.handle_query("list_scenes", None)
+        resp = ListScenesResponse(
+            scenes=qr.result["scenes"], frames=qr.result["frames"]
+        )
         self._socket_server.send_to_client(sock, resp)
 
     # -- generic query dispatcher ------------------------------------------
 
     def _handle_query(self, sock: socket.socket, msg: QueryRequest) -> None:
         """Dispatch a generic QueryRequest to the registered handler."""
-        handler = self._query_handlers.get(msg.method)
-        if handler is None:
-            resp = QueryResponse(
-                method=msg.method, error=f"Unknown method: {msg.method}"
-            )
-        else:
-            try:
-                result = handler(**(msg.params or {}))
-                resp = QueryResponse(method=msg.method, result=result)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Query handler %s failed: %s", msg.method, exc)
-                self._record_error("error", str(exc), f"query:{msg.method}")
-                resp = QueryResponse(method=msg.method, error=str(exc))
+        resp = self._query_dispatcher.handle_query(msg.method, msg.params)
         self._socket_server.send_to_client(sock, resp)
-
-    def _query_inspect_scene(
-        self, scene_id: str = "", **_kwargs: Any
-    ) -> dict[str, Any]:
-        """Query handler for inspect_scene."""
-        scene = self._scene_manager.resolve_scene(scene_id)
-        if scene is None:
-            msg = f"Scene '{scene_id}' not found"
-            raise LookupError(msg)
-        return {
-            "scene_id": scene_id,
-            "elements": [element_to_dict(e) for e in scene.elements],
-        }
-
-    def _query_list_scenes(self, **_kwargs: Any) -> dict[str, Any]:
-        """Query handler for list_scenes."""
-        sm = self._scene_manager
-        scenes: list[dict[str, Any]] = []
-        for sid, scene in sm.scenes.items():
-            scenes.append(
-                {
-                    "scene_id": sid,
-                    "element_count": len(scene.elements),
-                    "frame_id": sm.scene_to_frame.get(sid),
-                    "owner_fd": sm.scene_to_owner.get(sid),
-                }
-            )
-        for fid, frame in sm.frames.items():
-            for sid, scene in frame.scenes.items():
-                scenes.append(
-                    {
-                        "scene_id": sid,
-                        "element_count": len(scene.elements),
-                        "frame_id": fid,
-                        "owner_fd": sm.scene_to_owner.get(sid),
-                    }
-                )
-        frames: list[dict[str, Any]] = []
-        for fid, frame in sm.frames.items():
-            frame_scenes = [s for s, f in sm.scene_to_frame.items() if f == fid]
-            frames.append(
-                {
-                    "frame_id": fid,
-                    "title": frame.title,
-                    "scene_count": len(frame_scenes),
-                    "scene_ids": frame_scenes,
-                    "layout": frame.layout,
-                }
-            )
-        return {"scenes": scenes, "frames": frames}
 
     def _query_screenshot(self, **_kwargs: Any) -> dict[str, Any]:
         """Query handler for screenshot.
@@ -1333,68 +1298,11 @@ class DisplayServer:
             "available": [str(t) for t in self._themes],
         }
 
-    def _query_list_clients(self, **_kwargs: Any) -> dict[str, Any]:
-        """Return list of connected clients."""
-        now = time.time()
-        clients = []
-        for fd, name in self._socket_server.client_names.items():
-            connected_at = self._socket_server.client_connect_times.get(fd, now)
-            menu_count = len(self._menu_registrations.get(fd, []))
-            clients.append(
-                {
-                    "connection_id": fd,
-                    "name": name,
-                    "connected_seconds": round(now - connected_at, 1),
-                    "menu_item_count": menu_count,
-                }
-            )
-        return {"clients": clients}
-
-    def _query_list_menus(self, **_kwargs: Any) -> dict[str, Any]:
-        """Return all registered menus and their items."""
-        menus: list[dict[str, Any]] = [
-            {
-                "id": item.get("id", ""),
-                "label": item.get("label", ""),
-                "shortcut": item.get("shortcut"),
-                "owner_fd": fd,
-                "owner_name": self._socket_server.client_names.get(fd, f"fd={fd}"),
-            }
-            for fd, items in self._menu_registrations.items()
-            for item in items
-        ]
-        return {"menu_items": menus, "total": len(menus)}
-
     def _emit_event(self, event: InteractionMessage) -> None:
         """Stamp scene_id and append to the event queue."""
         if event.scene_id is None:
             event.scene_id = self._current_scene_id
         self._event_queue.append(event)
-
-    def _record_error(self, severity: str, message: str, context: str = "") -> None:
-        """Record an error in the ring buffer for introspection."""
-        self._recent_errors.append(
-            {
-                "timestamp": time.time(),
-                "severity": severity,
-                "message": message,
-                "context": context,
-            }
-        )
-
-    def _query_list_recent_events(
-        self, count: int = 50, **_kwargs: Any
-    ) -> dict[str, Any]:
-        """Return the last N interaction events."""
-        count = min(count, 200)
-        events = list(self._recent_events)[-count:]
-        return {"events": events, "total_buffered": len(self._recent_events)}
-
-    def _query_list_errors(self, count: int = 20, **_kwargs: Any) -> dict[str, Any]:
-        """Return the last N display-side errors."""
-        count = min(count, 100)
-        errors = list(self._recent_errors)[-count:]
-        return {"errors": errors, "total_buffered": len(self._recent_errors)}
 
     # -- Tier 3 write handlers ------------------------------------------------
 
@@ -2588,7 +2496,7 @@ class DisplayServer:
         use_alpha: bool = cp.alpha
         use_picker: bool = cp.picker
 
-        r, g, b, a = _parse_color(hex_str)
+        r, g, b, a = self._parse_color(hex_str)
         initial = ImVec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0)
         current = self._widget_state.ensure(eid, initial)
 
@@ -2612,7 +2520,7 @@ class DisplayServer:
                 a_ = int(max(0.0, min(1.0, nc[3])) * 255)
                 hex_val = f"#{r_:02X}{g_:02X}{b_:02X}{a_:02X}"
             else:
-                hex_val = _color_to_hex(new_color[0], new_color[1], new_color[2])
+                hex_val = self._color_to_hex(new_color[0], new_color[1], new_color[2])
             self._emit_event(
                 InteractionMessage(
                     element_id=eid,
@@ -2904,7 +2812,7 @@ class DisplayServer:
         try:
             from imgui_bundle import imspinner
 
-            r, g, b, _a = _parse_color(color_hex)
+            r, g, b, _a = self._parse_color(color_hex)
             from imgui_bundle import ImVec4
 
             color = ImVec4(r / 255.0, g / 255.0, b / 255.0, 1.0)
@@ -3016,7 +2924,8 @@ class DisplayServer:
         draw_list.push_clip_rect(canvas_min, canvas_max, True)  # noqa: FBT003
 
         if bg_color is not None:
-            draw_list.add_rect_filled(canvas_min, canvas_max, _to_imgui_color(bg_color))
+            bg_u32 = self._to_imgui_color(bg_color)
+            draw_list.add_rect_filled(canvas_min, canvas_max, bg_u32)
 
         ox, oy = canvas_pos.x, canvas_pos.y
         for cmd in commands:
@@ -3039,7 +2948,7 @@ class DisplayServer:
         from imgui_bundle import ImVec2
 
         cmd_type = cmd.get("cmd", "")
-        color = _to_imgui_color(cmd.get("color", "#FFFFFF"))
+        color = self._to_imgui_color(cmd.get("color", "#FFFFFF"))
         thickness: float = cmd.get("thickness", 1.0)
 
         if cmd_type == "line":
@@ -3196,7 +3105,7 @@ class DisplayServer:
     def _record_queued_events(self) -> None:
         """Copy queued events into the introspection ring buffer."""
         for event in self._event_queue:
-            self._recent_events.append(
+            self._query_dispatcher.record_event(
                 {
                     "element_id": event.element_id,
                     "action": event.action,
