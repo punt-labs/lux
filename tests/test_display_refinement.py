@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from punt_lux.display import DisplayServer, WidgetState
+from punt_lux.display import DisplayServer
 from punt_lux.protocol import (
     ButtonElement,
     ClearMessage,
@@ -28,6 +28,7 @@ from punt_lux.protocol import (
     UpdateMessage,
     encode_message,
 )
+from punt_lux.widget_state import WidgetState
 
 from .display_abstraction import (
     abstract,
@@ -69,11 +70,11 @@ def _register_client(server: DisplayServer, sock: MagicMock) -> None:
 
 def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
     """Inject a scene into the multi-scene state."""
-    server._scenes[scene.id] = scene
-    if scene.id not in server._scene_order:
-        server._scene_order.append(scene.id)
-    server._scene_widget_state[scene.id] = WidgetState()
-    server._active_tab = scene.id
+    server._scene_manager._scenes[scene.id] = scene
+    if scene.id not in server._scene_manager._scene_order:
+        server._scene_manager._scene_order.append(scene.id)
+    server._scene_manager._scene_widget_state[scene.id] = WidgetState()
+    server._scene_manager._active_tab = scene.id
 
 
 def _set_scene(server: DisplayServer, scene_id: str = "s1") -> None:
@@ -247,7 +248,7 @@ class TestRefinementRemoveElement:
             scene_id="s1",
             patches=[Patch(id="t1", remove=True)],
         )
-        server._apply_update(msg)
+        server._scene_manager.apply_update(msg)
 
         abs_after = abstract_remove_element(abs_before, "t1")
         assert abstract(server) == abs_after
@@ -261,7 +262,7 @@ class TestRefinementRemoveElement:
             scene_id="s1",
             patches=[Patch(id="b1", remove=True)],
         )
-        server._apply_update(msg)
+        server._scene_manager.apply_update(msg)
 
         abs_after = abstract_remove_element(abs_before, "b1")
         assert abstract(server) == abs_after
@@ -281,7 +282,7 @@ class TestRefinementRemoveElement:
             scene_id="s1",
             patches=[Patch(id="t1", remove=True)],
         )
-        server._apply_update(msg)
+        server._scene_manager.apply_update(msg)
 
         abs_after = abstract_remove_element(abs_before, "t1")
         assert abstract(server) == abs_after
@@ -410,10 +411,10 @@ class TestRefinementShutdown:
             client.close()
         server._clients.clear()
         server._readers.clear()
-        server._scenes.clear()
-        server._scene_order.clear()
-        server._active_tab = None
-        server._scene_widget_state.clear()
+        server._scene_manager._scenes.clear()
+        server._scene_manager._scene_order.clear()
+        server._scene_manager._active_tab = None
+        server._scene_manager._scene_widget_state.clear()
         server._event_queue.clear()
         server._server_sock = None
 
@@ -426,10 +427,10 @@ class TestRefinementShutdown:
 
         server._clients.clear()
         server._readers.clear()
-        server._scenes.clear()
-        server._scene_order.clear()
-        server._active_tab = None
-        server._scene_widget_state.clear()
+        server._scene_manager._scenes.clear()
+        server._scene_manager._scene_order.clear()
+        server._scene_manager._active_tab = None
+        server._scene_manager._scene_widget_state.clear()
         server._event_queue.clear()
         server._server_sock = None
 
@@ -575,7 +576,7 @@ class TestRefinementComposed:
         )
 
         # Remove t1
-        server._apply_update(
+        server._scene_manager.apply_update(
             UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
         )
         abs_state = abstract_remove_element(abs_state, "t1")

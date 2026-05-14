@@ -108,9 +108,9 @@ def abstract(server: DisplayServer) -> AbstractState:
     reader_fds = frozenset(server._readers.keys())
 
     # Scene decomposition — abstraction maps multi-scene to "active tab" view
-    has_scene = len(server._scenes) > 0
-    active_id = server._active_tab
-    scene = server._scenes.get(active_id) if active_id else None
+    has_scene = len(server._scene_manager._scenes) > 0
+    active_id = server._scene_manager._active_tab
+    scene = server._scene_manager._scenes.get(active_id) if active_id else None
     scene_id = scene.id if scene is not None else ""
     elem_ids = (
         frozenset(e.id for e in scene.elements if e.id is not None)

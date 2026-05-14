@@ -17,7 +17,7 @@ from __future__ import annotations
 from typing import Literal
 from unittest.mock import MagicMock
 
-from punt_lux.display import _ORPHAN_FD, DisplayServer, WidgetState
+from punt_lux.display import _ORPHAN_FD, DisplayServer
 from punt_lux.protocol import (
     ButtonElement,
     ClearMessage,
@@ -33,6 +33,7 @@ from punt_lux.protocol import (
     UpdateMessage,
     encode_message,
 )
+from punt_lux.widget_state import WidgetState
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -63,18 +64,18 @@ def _scene_with(
 
 
 def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
-    server._scenes[scene.id] = scene
-    if scene.id not in server._scene_order:
-        server._scene_order.append(scene.id)
-    server._scene_widget_state[scene.id] = WidgetState()
-    server._active_tab = scene.id
+    server._scene_manager._scenes[scene.id] = scene
+    if scene.id not in server._scene_manager._scene_order:
+        server._scene_manager._scene_order.append(scene.id)
+    server._scene_manager._scene_widget_state[scene.id] = WidgetState()
+    server._scene_manager._active_tab = scene.id
 
 
 def _clear_all_scenes(server: DisplayServer) -> None:
-    server._scenes.clear()
-    server._scene_order.clear()
-    server._active_tab = None
-    server._scene_widget_state.clear()
+    server._scene_manager._scenes.clear()
+    server._scene_manager._scene_order.clear()
+    server._scene_manager._active_tab = None
+    server._scene_manager._scene_widget_state.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +187,7 @@ class TestDisconnectClientPartitions:
             InteractionMessage(element_id="t1", action="click", ts=1.0)
         )
         server._remove_client(sock)
-        assert len(server._scenes) > 0
+        assert len(server._scene_manager._scenes) > 0
         assert len(server._event_queue) == 1
 
     def test_disconnect_4_rejected_not_connected(self):
@@ -216,9 +217,9 @@ class TestReceiveScenePartitions:
         sock = _sock()
         scene = _scene_with("s1", TextElement(id="t1", content="Hi"))
         server._handle_message(sock, scene)
-        assert len(server._scenes) > 0
-        assert server._active_tab == "s1"
-        assert len(server._scenes["s1"].elements) == 1
+        assert len(server._scene_manager._scenes) > 0
+        assert server._scene_manager._active_tab == "s1"
+        assert len(server._scene_manager._scenes["s1"].elements) == 1
 
     def test_scene_2_boundary_max_elements(self):
         """P2: Receive scene with maxElements(3) elements."""
@@ -231,8 +232,8 @@ class TestReceiveScenePartitions:
             SeparatorElement(id="sep1"),
         )
         server._handle_message(sock, scene)
-        assert len(server._scenes) > 0
-        assert len(server._scenes["s1"].elements) == 3
+        assert len(server._scene_manager._scenes) > 0
+        assert len(server._scene_manager._scenes["s1"].elements) == 3
 
     def test_scene_3_new_id_preserves_events(self):
         """P3: New scene (different ID) preserves existing events."""
@@ -247,8 +248,8 @@ class TestReceiveScenePartitions:
 
         new_scene = _scene_with("s2", TextElement(id="t2", content="New"))
         server._handle_message(sock, new_scene)
-        assert len(server._scenes) > 0
-        assert server._active_tab == "s2"
+        assert len(server._scene_manager._scenes) > 0
+        assert server._scene_manager._active_tab == "s2"
         assert len(server._event_queue) == 1  # events from s1 persist
 
     def test_scene_4_empty_scene(self):
@@ -257,8 +258,8 @@ class TestReceiveScenePartitions:
         sock = _sock()
         scene = SceneMessage(id="s1", elements=[])
         server._handle_message(sock, scene)
-        assert len(server._scenes) > 0
-        assert len(server._scenes["s1"].elements) == 0
+        assert len(server._scene_manager._scenes) > 0
+        assert len(server._scene_manager._scenes["s1"].elements) == 0
 
     def test_scene_5_all_element_kinds(self):
         """P5: Scene with all 4 element kinds (text, button, separator, image).
@@ -274,8 +275,8 @@ class TestReceiveScenePartitions:
             SeparatorElement(id="sep1"),
         )
         server._handle_message(sock, scene)
-        assert len(server._scenes) > 0
-        kinds = {e.kind for e in server._scenes["s1"].elements}
+        assert len(server._scene_manager._scenes) > 0
+        kinds = {e.kind for e in server._scene_manager._scenes["s1"].elements}
         assert kinds == {"text", "button", "separator"}
 
     def test_scene_6_idempotent_same_scene_id(self):
@@ -286,8 +287,8 @@ class TestReceiveScenePartitions:
         server._handle_message(sock, scene1)
         scene2 = _scene_with("s1", TextElement(id="t1", content="V2"))
         server._handle_message(sock, scene2)
-        assert len(server._scenes) > 0
-        elem = server._scenes["s1"].elements[0]
+        assert len(server._scene_manager._scenes) > 0
+        elem = server._scene_manager._scenes["s1"].elements[0]
         assert isinstance(elem, TextElement)
         assert elem.content == "V2"
 
@@ -308,14 +309,14 @@ class TestClearScenePartitions:
             sock, _scene_with("s1", TextElement(id="t1", content="A"))
         )
         server._handle_message(sock, ClearMessage())
-        assert len(server._scenes) == 0
+        assert len(server._scene_manager._scenes) == 0
 
     def test_clear_2_idempotent_no_scene(self):
         """P2: Clear when no scene exists (idempotent)."""
         server = _server()
         sock = _sock()
         server._handle_message(sock, ClearMessage())
-        assert len(server._scenes) == 0
+        assert len(server._scene_manager._scenes) == 0
 
     def test_clear_3_clears_event_queue(self):
         """P3: Clear also drains the event queue (I7 preservation)."""
@@ -353,20 +354,20 @@ class TestRemoveElementPartitions:
                 TextElement(id="t2", content="B"),
             ),
         )
-        server._apply_update(
+        server._scene_manager.apply_update(
             UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
         )
-        ids = [e.id for e in server._scenes["s1"].elements]
+        ids = [e.id for e in server._scene_manager._scenes["s1"].elements]
         assert ids == ["t2"]
 
     def test_remove_2_boundary_last_element(self):
         """P2: Remove last element -> empty element list."""
         server = _server()
         _inject_scene(server, _scene_with("s1", TextElement(id="t1", content="Only")))
-        server._apply_update(
+        server._scene_manager.apply_update(
             UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
         )
-        assert len(server._scenes["s1"].elements) == 0
+        assert len(server._scene_manager._scenes["s1"].elements) == 0
 
     def test_remove_3_rejected_element_in_event_queue(self):
         """REJECTED ¬P3: targetId in eventQueue.
@@ -384,39 +385,39 @@ class TestRemoveElementPartitions:
         server._event_queue.append(
             InteractionMessage(element_id="b1", action="click", ts=1.0)
         )
-        server._apply_update(
+        server._scene_manager.apply_update(
             UpdateMessage(scene_id="s1", patches=[Patch(id="b1", remove=True)])
         )
         # Element removed but event still in queue — spec boundary
-        ids = [e.id for e in server._scenes["s1"].elements]
+        ids = [e.id for e in server._scene_manager._scenes["s1"].elements]
         assert "b1" not in ids
         assert len(server._event_queue) == 1  # event orphaned
 
     def test_remove_4_rejected_no_scene(self):
         """REJECTED ¬P1: No scene -> update is no-op."""
         server = _server()
-        server._apply_update(
+        server._scene_manager.apply_update(
             UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
         )
-        assert len(server._scenes) == 0
+        assert len(server._scene_manager._scenes) == 0
 
     def test_remove_5_rejected_element_not_found(self):
         """REJECTED ¬P2: targetId not in elemIds -> patch skipped."""
         server = _server()
         _inject_scene(server, _scene_with("s1", TextElement(id="t1", content="A")))
-        server._apply_update(
+        server._scene_manager.apply_update(
             UpdateMessage(scene_id="s1", patches=[Patch(id="nonexistent", remove=True)])
         )
-        assert len(server._scenes["s1"].elements) == 1
+        assert len(server._scene_manager._scenes["s1"].elements) == 1
 
     def test_remove_6_rejected_wrong_scene_id(self):
         """REJECTED: Update targets wrong scene_id -> no-op."""
         server = _server()
         _inject_scene(server, _scene_with("s1", TextElement(id="t1", content="A")))
-        server._apply_update(
+        server._scene_manager.apply_update(
             UpdateMessage(scene_id="wrong", patches=[Patch(id="t1", remove=True)])
         )
-        assert len(server._scenes["s1"].elements) == 1
+        assert len(server._scene_manager._scenes["s1"].elements) == 1
 
 
 # ---------------------------------------------------------------------------
@@ -492,7 +493,7 @@ class TestButtonClickPartitions:
         """REJECTED ¬P1: No scene -> no button to click.
         Concrete code: _render_scene shows "waiting" text, no buttons."""
         server = _server()
-        assert len(server._scenes) == 0
+        assert len(server._scene_manager._scenes) == 0
         # No buttons rendered, so no events can be queued
         assert len(server._event_queue) == 0
 
@@ -708,7 +709,7 @@ class TestShutdownPartitions:
 
         assert len(server._clients) == 0
         assert len(server._readers) == 0
-        assert len(server._scenes) == 0
+        assert len(server._scene_manager._scenes) == 0
         assert len(server._event_queue) == 0
         assert server._server_sock is None
 
@@ -722,7 +723,7 @@ class TestShutdownPartitions:
         server._server_sock = None
 
         assert len(server._clients) == 0
-        assert len(server._scenes) == 0
+        assert len(server._scene_manager._scenes) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -755,11 +756,10 @@ class TestInvariantPartitions:
             SeparatorElement(id="sep1"),
         )
         server._handle_message(sock, scene)
-        assert len(server._scenes) > 0
-        elem_ids = {e.id for e in server._scenes["s1"].elements if e.id}
-        elem_with_kind = {
-            e.id for e in server._scenes["s1"].elements if e.id and hasattr(e, "kind")
-        }
+        assert len(server._scene_manager._scenes) > 0
+        elems = server._scene_manager._scenes["s1"].elements
+        elem_ids = {e.id for e in elems if e.id}
+        elem_with_kind = {e.id for e in elems if e.id and hasattr(e, "kind")}
         assert elem_ids <= elem_with_kind
 
     def test_inv_i7_events_reference_scene_elements(self):
@@ -770,11 +770,12 @@ class TestInvariantPartitions:
         sock = _sock()
         scene = _scene_with("s1", ButtonElement(id="b1", label="X"))
         server._handle_message(sock, scene)
-        assert len(server._scenes) > 0
+        assert len(server._scene_manager._scenes) > 0
         server._event_queue.append(
             InteractionMessage(element_id="b1", action="b1", ts=1.0)
         )
-        scene_elem_ids = {e.id for e in server._scenes["s1"].elements if e.id}
+        s1_elems = server._scene_manager._scenes["s1"].elements
+        scene_elem_ids = {e.id for e in s1_elems if e.id}
         event_elem_ids = {e.element_id for e in server._event_queue}
         assert event_elem_ids <= scene_elem_ids
 
@@ -832,16 +833,16 @@ class TestCreateFramePartitions:
         msg = _framed_scene("s1", "frame-beads", TextElement(id="t1", content="A"))
         server._handle_message(sock, msg)
 
-        assert "frame-beads" in server._frames
-        frame = server._frames["frame-beads"]
+        assert "frame-beads" in server._scene_manager._frames
+        frame = server._scene_manager._frames["frame-beads"]
         assert frame.owner_fds == {10}
         assert frame.title == "frame-beads"
         assert "s1" in frame.scenes
         assert frame.scene_order == ["s1"]
         assert frame.active_tab == "s1"
-        assert server._scene_to_frame["s1"] == "frame-beads"
+        assert server._scene_manager._scene_to_frame["s1"] == "frame-beads"
         # Scene should NOT be in the unframed scene list
-        assert "s1" not in server._scenes
+        assert "s1" not in server._scene_manager._scenes
 
     def test_create_frame_with_title(self):
         """Frame title comes from frame_title field."""
@@ -856,7 +857,7 @@ class TestCreateFramePartitions:
         )
         server._handle_message(sock, msg)
 
-        assert server._frames["frame-beads"].title == "Beads Explorer"
+        assert server._scene_manager._frames["frame-beads"].title == "Beads Explorer"
 
     def test_add_scene_to_existing_frame(self):
         """Second scene added to same frame creates a tab."""
@@ -870,12 +871,12 @@ class TestCreateFramePartitions:
             sock, _framed_scene("s2", "f1", TextElement(id="t2", content="B"))
         )
 
-        frame = server._frames["f1"]
+        frame = server._scene_manager._frames["f1"]
         assert len(frame.scenes) == 2
         assert frame.scene_order == ["s1", "s2"]
         assert frame.active_tab == "s2"
-        assert server._scene_to_frame["s1"] == "f1"
-        assert server._scene_to_frame["s2"] == "f1"
+        assert server._scene_manager._scene_to_frame["s1"] == "f1"
+        assert server._scene_manager._scene_to_frame["s2"] == "f1"
 
     def test_replace_scene_in_frame(self):
         """Replacing a scene in a frame drains stale events."""
@@ -895,7 +896,7 @@ class TestCreateFramePartitions:
         )
 
         assert len(server._event_queue) == 0
-        assert server._frames["f1"].scenes["s1"].elements[0].id == "t1"
+        assert server._scene_manager._frames["f1"].scenes["s1"].elements[0].id == "t1"
 
 
 class TestFrameCascadePartitions:
@@ -912,9 +913,9 @@ class TestFrameCascadePartitions:
         server._handle_framed_scene(sock, _framed_scene("s2", "f2"))
         server._handle_framed_scene(sock, _framed_scene("s3", "f3"))
 
-        assert server._frames["f1"].cascade_index == 0
-        assert server._frames["f2"].cascade_index == 1
-        assert server._frames["f3"].cascade_index == 2
+        assert server._scene_manager._frames["f1"].cascade_index == 0
+        assert server._scene_manager._frames["f2"].cascade_index == 1
+        assert server._scene_manager._frames["f3"].cascade_index == 2
 
     def test_cascade_index_reuses_after_close(self):
         """Closing a frame frees its index for reuse by the next frame."""
@@ -929,7 +930,7 @@ class TestFrameCascadePartitions:
 
         # After closing f1 (index 0), f2 keeps index 1, so f3 gets index 0
         server._handle_framed_scene(sock, _framed_scene("s3", "f3"))
-        assert server._frames["f3"].cascade_index == 0
+        assert server._scene_manager._frames["f3"].cascade_index == 0
 
 
 class TestConnectMessagePartitions:
@@ -998,11 +999,11 @@ class TestCloseFramePartitions:
 
         server._close_frame("f1")
 
-        assert "f1" not in server._frames
-        assert "s1" not in server._scene_to_frame
-        assert "s2" not in server._scene_to_frame
-        assert "s1" not in server._scene_widget_state
-        assert "s2" not in server._scene_widget_state
+        assert "f1" not in server._scene_manager._frames
+        assert "s1" not in server._scene_manager._scene_to_frame
+        assert "s2" not in server._scene_manager._scene_to_frame
+        assert "s1" not in server._scene_manager._scene_widget_state
+        assert "s2" not in server._scene_manager._scene_widget_state
         # Close event sent directly to owner socket
         calls = sock.sendall.call_args_list
         # Last sendall should contain frame_close interaction
@@ -1036,12 +1037,12 @@ class TestDisconnectFrameCleanupPartitions:
         server._remove_client(s1)
 
         # Frame persists — s1 transferred to remaining client (fd=20)
-        assert "f1" in server._frames
-        frame = server._frames["f1"]
+        assert "f1" in server._scene_manager._frames
+        frame = server._scene_manager._frames["f1"]
         assert "s1" in frame.scenes
         assert "s2" in frame.scenes
         assert frame.owner_fds == {20}
-        assert server._scene_to_owner["s1"] == 20
+        assert server._scene_manager._scene_to_owner["s1"] == 20
 
     def test_disconnect_sole_owner_removes_frame(self):
         """Disconnecting the only client orphans the frame, not removes it."""
@@ -1054,8 +1055,8 @@ class TestDisconnectFrameCleanupPartitions:
 
         server._remove_client(sock)
 
-        assert "f1" in server._frames
-        assert server._scene_to_owner["s1"] == _ORPHAN_FD
+        assert "f1" in server._scene_manager._frames
+        assert server._scene_manager._scene_to_owner["s1"] == _ORPHAN_FD
 
     def test_disconnect_preserves_other_frames(self):
         """Disconnecting a client orphans its frame; other frames unaffected."""
@@ -1073,9 +1074,9 @@ class TestDisconnectFrameCleanupPartitions:
 
         server._remove_client(s1)
 
-        assert "f1" in server._frames
-        assert "f2" in server._frames
-        assert server._frames["f2"].owner_fds == {20}
+        assert "f1" in server._scene_manager._frames
+        assert "f2" in server._scene_manager._frames
+        assert server._scene_manager._frames["f2"].owner_fds == {20}
 
     def test_disconnect_with_no_frames_is_clean(self):
         """Disconnecting a client with no frames is clean."""
@@ -1085,7 +1086,7 @@ class TestDisconnectFrameCleanupPartitions:
 
         server._remove_client(sock)
 
-        assert len(server._frames) == 0
+        assert len(server._scene_manager._frames) == 0
 
     def test_ephemeral_client_scene_persists(self):
         """One client sends a framed scene and disconnects — scene persists."""
@@ -1098,10 +1099,10 @@ class TestDisconnectFrameCleanupPartitions:
 
         server._remove_client(sock)
 
-        assert "f1" in server._frames
-        frame = server._frames["f1"]
+        assert "f1" in server._scene_manager._frames
+        frame = server._scene_manager._frames["f1"]
         assert "s1" in frame.scenes
-        assert server._scene_to_owner["s1"] == _ORPHAN_FD
+        assert server._scene_manager._scene_to_owner["s1"] == _ORPHAN_FD
 
     def test_orphaned_frame_closeable_by_user(self):
         """An orphaned frame can be closed via _close_frame()."""
@@ -1112,11 +1113,11 @@ class TestDisconnectFrameCleanupPartitions:
             sock, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
         server._remove_client(sock)
-        assert "f1" in server._frames
+        assert "f1" in server._scene_manager._frames
 
         server._close_frame("f1")
 
-        assert "f1" not in server._frames
+        assert "f1" not in server._scene_manager._frames
 
     def test_new_client_adopts_orphaned_frame(self):
         """After a frame is orphaned, a new client can adopt it."""
@@ -1127,7 +1128,7 @@ class TestDisconnectFrameCleanupPartitions:
             s1, _framed_scene("s1", "f1", TextElement(id="t1", content="A"))
         )
         server._remove_client(s1)
-        assert "f1" in server._frames
+        assert "f1" in server._scene_manager._frames
 
         s2 = _sock(fd=20)
         _register(server, s2)
@@ -1135,7 +1136,7 @@ class TestDisconnectFrameCleanupPartitions:
             s2, _framed_scene("s2", "f1", TextElement(id="t2", content="B"))
         )
 
-        frame = server._frames["f1"]
+        frame = server._scene_manager._frames["f1"]
         assert 20 in frame.owner_fds
 
     def test_ownership_transfers_on_disconnect(self):
@@ -1154,8 +1155,8 @@ class TestDisconnectFrameCleanupPartitions:
 
         server._remove_client(s1)
 
-        assert server._scene_to_owner["s1"] == 20
-        assert server._scene_to_owner["s2"] == 20
+        assert server._scene_manager._scene_to_owner["s1"] == 20
+        assert server._scene_manager._scene_to_owner["s2"] == 20
 
 
 class TestFrameOwnershipPartitions:
@@ -1176,7 +1177,7 @@ class TestFrameOwnershipPartitions:
             s2, _framed_scene("s2", "f1", TextElement(id="t2", content="B"))
         )
 
-        frame = server._frames["f1"]
+        frame = server._scene_manager._frames["f1"]
         assert len(frame.scenes) == 2
         assert "s1" in frame.scenes
         assert "s2" in frame.scenes
@@ -1196,8 +1197,8 @@ class TestFrameOwnershipPartitions:
             s2, _framed_scene("s2", "f1", TextElement(id="t2", content="B"))
         )
 
-        assert server._scene_to_owner["s1"] == 10
-        assert server._scene_to_owner["s2"] == 20
+        assert server._scene_manager._scene_to_owner["s1"] == 10
+        assert server._scene_manager._scene_to_owner["s2"] == 20
 
 
 class TestFrameUpdatePartitions:
@@ -1213,14 +1214,14 @@ class TestFrameUpdatePartitions:
             _framed_scene("s1", "f1", TextElement(id="t1", content="Old")),
         )
 
-        server._apply_update(
+        server._scene_manager.apply_update(
             UpdateMessage(
                 scene_id="s1",
                 patches=[Patch(id="t1", set={"content": "New"})],
             )
         )
 
-        scene = server._frames["f1"].scenes["s1"]
+        scene = server._scene_manager._frames["f1"].scenes["s1"]
         el = scene.elements[0]
         assert isinstance(el, TextElement)
         assert el.content == "New"
@@ -1259,7 +1260,7 @@ class TestFrameAutoFocusPartitions:
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        assert server._focus_frame_id == "f1"
+        assert server._scene_manager._focus_frame_id == "f1"
 
     def test_scene_restores_minimized_frame(self):
         """Receiving a framed scene un-minimizes the frame."""
@@ -1267,9 +1268,9 @@ class TestFrameAutoFocusPartitions:
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._frames["f1"].minimized = True
+        server._scene_manager._frames["f1"].minimized = True
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        assert not server._frames["f1"].minimized
+        assert not server._scene_manager._frames["f1"].minimized
 
     def test_update_does_not_focus_framed_scene(self):
         """UpdateMessage on a framed scene does not steal focus."""
@@ -1280,14 +1281,14 @@ class TestFrameAutoFocusPartitions:
             sock,
             _framed_scene("s1", "f1", TextElement(id="t1", content="Old")),
         )
-        server._focus_frame_id = None  # reset after initial scene
-        server._apply_update(
+        server._scene_manager._focus_frame_id = None  # reset after initial scene
+        server._scene_manager.apply_update(
             UpdateMessage(
                 scene_id="s1",
                 patches=[Patch(id="t1", set={"content": "New"})],
             )
         )
-        assert server._focus_frame_id is None
+        assert server._scene_manager._focus_frame_id is None
 
     def test_update_does_not_restore_minimized_framed_scene(self):
         """UpdateMessage on a framed scene leaves minimized state unchanged."""
@@ -1298,14 +1299,14 @@ class TestFrameAutoFocusPartitions:
             sock,
             _framed_scene("s1", "f1", TextElement(id="t1", content="Old")),
         )
-        server._frames["f1"].minimized = True
-        server._apply_update(
+        server._scene_manager._frames["f1"].minimized = True
+        server._scene_manager.apply_update(
             UpdateMessage(
                 scene_id="s1",
                 patches=[Patch(id="t1", set={"content": "New"})],
             )
         )
-        assert server._frames["f1"].minimized
+        assert server._scene_manager._frames["f1"].minimized
 
     def test_close_frame_clears_focus(self):
         """Closing a frame clears _focus_frame_id if it matches."""
@@ -1313,9 +1314,9 @@ class TestFrameAutoFocusPartitions:
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        assert server._focus_frame_id == "f1"
+        assert server._scene_manager._focus_frame_id == "f1"
         server._close_frame("f1")
-        assert server._focus_frame_id is None
+        assert server._scene_manager._focus_frame_id is None
 
     def test_close_other_frame_preserves_focus(self):
         """Closing a different frame does not clear _focus_frame_id."""
@@ -1324,9 +1325,9 @@ class TestFrameAutoFocusPartitions:
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._handle_message(sock, _framed_scene("s2", "f2"))
-        assert server._focus_frame_id == "f2"
+        assert server._scene_manager._focus_frame_id == "f2"
         server._close_frame("f1")
-        assert server._focus_frame_id == "f2"
+        assert server._scene_manager._focus_frame_id == "f2"
 
     def test_update_non_framed_scene_no_focus(self):
         """UpdateMessage on a non-framed scene does not set focus."""
@@ -1341,14 +1342,14 @@ class TestFrameAutoFocusPartitions:
                 title="Test",
             ),
         )
-        server._focus_frame_id = None
-        server._apply_update(
+        server._scene_manager._focus_frame_id = None
+        server._scene_manager.apply_update(
             UpdateMessage(
                 scene_id="s1",
                 patches=[Patch(id="t1", set={"content": "New"})],
             )
         )
-        assert server._focus_frame_id is None
+        assert server._scene_manager._focus_frame_id is None
 
 
 class TestFrameSizeAndFlagsPartitions:
@@ -1362,7 +1363,7 @@ class TestFrameSizeAndFlagsPartitions:
         server._handle_framed_scene(
             sock, _framed_scene("s1", "f1", frame_size=(400, 200))
         )
-        assert server._frames["f1"].initial_size == (400, 200)
+        assert server._scene_manager._frames["f1"].initial_size == (400, 200)
 
     def test_frame_size_none_by_default(self):
         """Frames without frame_size have initial_size=None."""
@@ -1370,7 +1371,7 @@ class TestFrameSizeAndFlagsPartitions:
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_framed_scene(sock, _framed_scene("s1", "f1"))
-        assert server._frames["f1"].initial_size is None
+        assert server._scene_manager._frames["f1"].initial_size is None
 
     def test_frame_flags_stored(self):
         """frame_flags from SceneMessage are stored on the _Frame."""
@@ -1379,7 +1380,7 @@ class TestFrameSizeAndFlagsPartitions:
         _register(server, sock)
         flags = {"no_resize": True, "auto_resize": False}
         server._handle_framed_scene(sock, _framed_scene("s1", "f1", frame_flags=flags))
-        assert server._frames["f1"].flags == flags
+        assert server._scene_manager._frames["f1"].flags == flags
 
     def test_frame_flags_none_by_default(self):
         """Frames without frame_flags have flags=None."""
@@ -1387,7 +1388,7 @@ class TestFrameSizeAndFlagsPartitions:
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_framed_scene(sock, _framed_scene("s1", "f1"))
-        assert server._frames["f1"].flags is None
+        assert server._scene_manager._frames["f1"].flags is None
 
     def test_frame_size_only_set_on_creation(self):
         """Subsequent scenes to the same frame don't overwrite initial_size."""
@@ -1401,7 +1402,7 @@ class TestFrameSizeAndFlagsPartitions:
             sock, _framed_scene("s2", "f1", frame_size=(800, 600))
         )
         # initial_size is set at frame creation time, not updated
-        assert server._frames["f1"].initial_size == (400, 200)
+        assert server._scene_manager._frames["f1"].initial_size == (400, 200)
 
     def test_frame_flags_update_on_subsequent_scene(self):
         """Subsequent scenes to the same frame update flags."""
@@ -1411,12 +1412,12 @@ class TestFrameSizeAndFlagsPartitions:
         server._handle_framed_scene(
             sock, _framed_scene("s1", "f1", frame_flags={"no_resize": True})
         )
-        assert server._frames["f1"].flags == {"no_resize": True}
+        assert server._scene_manager._frames["f1"].flags == {"no_resize": True}
         server._handle_framed_scene(
             sock,
             _framed_scene("s2", "f1", frame_flags={"auto_resize": True}),
         )
-        assert server._frames["f1"].flags == {"auto_resize": True}
+        assert server._scene_manager._frames["f1"].flags == {"auto_resize": True}
 
     def test_frame_flags_unchanged_when_not_provided(self):
         """Subsequent scenes without frame_flags preserve existing flags."""
@@ -1427,7 +1428,7 @@ class TestFrameSizeAndFlagsPartitions:
             sock, _framed_scene("s1", "f1", frame_flags={"no_resize": True})
         )
         server._handle_framed_scene(sock, _framed_scene("s2", "f1"))
-        assert server._frames["f1"].flags == {"no_resize": True}
+        assert server._scene_manager._frames["f1"].flags == {"no_resize": True}
 
 
 class TestFrameLayoutPartitions:
@@ -1439,7 +1440,7 @@ class TestFrameLayoutPartitions:
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_framed_scene(sock, _framed_scene("s1", "f1"))
-        assert server._frames["f1"].layout == "tab"
+        assert server._scene_manager._frames["f1"].layout == "tab"
 
     def test_stack_layout_on_creation(self):
         """frame_layout='stack' sets layout on frame creation."""
@@ -1449,7 +1450,7 @@ class TestFrameLayoutPartitions:
         server._handle_framed_scene(
             sock, _framed_scene("s1", "f1", frame_layout="stack")
         )
-        assert server._frames["f1"].layout == "stack"
+        assert server._scene_manager._frames["f1"].layout == "stack"
 
     def test_layout_updated_by_subsequent_scene(self):
         """Subsequent scene with frame_layout updates the frame layout."""
@@ -1460,7 +1461,7 @@ class TestFrameLayoutPartitions:
         server._handle_framed_scene(
             sock, _framed_scene("s2", "f1", frame_layout="stack")
         )
-        assert server._frames["f1"].layout == "stack"
+        assert server._scene_manager._frames["f1"].layout == "stack"
 
     def test_layout_unchanged_when_not_provided(self):
         """Subsequent scene without frame_layout preserves existing layout."""
@@ -1471,7 +1472,7 @@ class TestFrameLayoutPartitions:
             sock, _framed_scene("s1", "f1", frame_layout="stack")
         )
         server._handle_framed_scene(sock, _framed_scene("s2", "f1"))
-        assert server._frames["f1"].layout == "stack"
+        assert server._scene_manager._frames["f1"].layout == "stack"
 
     def test_frame_layout_in_protocol_round_trip(self):
         """frame_layout survives serialization and deserialization."""
@@ -1606,7 +1607,7 @@ class TestFrameMinimizeDockPartitions:
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        assert not server._frames["f1"].minimized
+        assert not server._scene_manager._frames["f1"].minimized
 
     def test_scene_receipt_restores_and_focuses(self):
         """Receiving a scene for a minimized frame restores and focuses it."""
@@ -1614,12 +1615,12 @@ class TestFrameMinimizeDockPartitions:
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._frames["f1"].minimized = True
-        server._focus_frame_id = None
+        server._scene_manager._frames["f1"].minimized = True
+        server._scene_manager._focus_frame_id = None
         # New scene for the same frame triggers restore + focus.
         server._handle_message(sock, _framed_scene("s2", "f1"))
-        assert not server._frames["f1"].minimized
-        assert server._focus_frame_id == "f1"
+        assert not server._scene_manager._frames["f1"].minimized
+        assert server._scene_manager._focus_frame_id == "f1"
 
     def test_fit_all_restores_minimized_frames(self):
         """_apply_fit_all() restores all minimized frames."""
@@ -1628,13 +1629,13 @@ class TestFrameMinimizeDockPartitions:
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._handle_message(sock, _framed_scene("s2", "f2"))
-        server._frames["f1"].minimized = True
-        server._frames["f2"].minimized = True
+        server._scene_manager._frames["f1"].minimized = True
+        server._scene_manager._frames["f2"].minimized = True
         server._fit_all_frames = True
         result = server._apply_fit_all()
         assert result is True
-        assert not server._frames["f1"].minimized
-        assert not server._frames["f2"].minimized
+        assert not server._scene_manager._frames["f1"].minimized
+        assert not server._scene_manager._frames["f2"].minimized
 
     def test_fit_all_noop_when_not_requested(self):
         """_apply_fit_all() returns False when no fit was requested."""
@@ -1647,9 +1648,9 @@ class TestFrameMinimizeDockPartitions:
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._frames["f1"].minimized = True
+        server._scene_manager._frames["f1"].minimized = True
         server._handle_message(sock, _framed_scene("s2", "f1"))
-        assert not server._frames["f1"].minimized
+        assert not server._scene_manager._frames["f1"].minimized
 
     def test_close_frame_removes_minimized_frame(self):
         """Closing a minimized frame removes it entirely."""
@@ -1657,6 +1658,6 @@ class TestFrameMinimizeDockPartitions:
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        server._frames["f1"].minimized = True
+        server._scene_manager._frames["f1"].minimized = True
         server._close_frame("f1")
-        assert "f1" not in server._frames
+        assert "f1" not in server._scene_manager._frames
