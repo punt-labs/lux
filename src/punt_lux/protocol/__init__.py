@@ -46,6 +46,7 @@ from punt_lux.protocol.elements import (
     element_to_dict,
 )
 from punt_lux.protocol.messages import (
+    PROTOCOL_VERSION,
     AckMessage,
     ClearMessage,
     ClientMessage,
@@ -147,7 +148,6 @@ __all__ = [
 # Constants
 # ---------------------------------------------------------------------------
 
-PROTOCOL_VERSION = "0.1"
 MAX_MESSAGE_SIZE = 16 * 1024 * 1024  # 16 MiB
 HEADER_SIZE = 4
 HEADER_FORMAT = "!I"  # big-endian uint32

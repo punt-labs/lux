@@ -521,7 +521,14 @@ class Ratchet:
             return set()
         try:
             result = subprocess.run(
-                [git, "diff", "-M", "--diff-filter=R", "--name-only", "HEAD~1..HEAD"],
+                [
+                    git,
+                    "diff",
+                    "-M100%",
+                    "--diff-filter=R",
+                    "--name-only",
+                    "HEAD~1..HEAD",
+                ],
                 capture_output=True,
                 text=True,
                 timeout=5,
