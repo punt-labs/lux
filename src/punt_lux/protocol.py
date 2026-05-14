@@ -12,7 +12,7 @@ import json
 import socket
 import struct
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import InitVar, dataclass, field
 from typing import Any, Literal, Self, cast
 
 # ---------------------------------------------------------------------------
@@ -307,20 +307,28 @@ class TableFilter:
     """
 
     type: Literal["search", "combo"]
-    column: int | list[int]  # column index(es) to filter on
+    column_spec: InitVar[int | list[int]]
     hint: str = ""  # placeholder text (search only)
     items: list[str] | None = None  # dropdown items (combo only)
     label: str = ""  # optional label for the control
+    _column: list[int] = field(init=False)
 
-    def __post_init__(self) -> None:
-        if isinstance(self.column, int):
-            self.column = [self.column]
-        if not self.column:
+    def __post_init__(self, column_spec: int | list[int]) -> None:
+        if isinstance(column_spec, int):
+            self._column = [column_spec]
+        else:
+            self._column = list(column_spec)
+        if not self._column:
             msg = "TableFilter requires non-empty 'column'"
             raise ValueError(msg)
         if self.type == "combo" and not self.items:
             msg = "TableFilter type='combo' requires non-empty 'items'"
             raise ValueError(msg)
+
+    @property
+    def column(self) -> list[int]:
+        """Column index(es) this filter operates on (read-only)."""
+        return self._column
 
 
 @dataclass
@@ -1004,7 +1012,7 @@ def _table_filter_from_dict(d: dict[str, Any]) -> TableFilter:
         raise ValueError(msg)
     return TableFilter(
         type=ftype,
-        column=d["column"],
+        column_spec=d["column"],
         hint=d.get("hint", ""),
         items=d.get("items"),
         label=d.get("label", ""),

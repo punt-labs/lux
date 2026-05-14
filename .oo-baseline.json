@@ -143,12 +143,12 @@
     "future_annotations": 1.0
   },
   "src/punt_lux/protocol.py": {
-    "method_ratio": 0.11,
+    "method_ratio": 0.12,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.95,
     "max_complexity": 30.0,
-    "avg_complexity": 2.49,
-    "module_size": 1506.0,
+    "avg_complexity": 2.48,
+    "module_size": 1513.0,
     "classes_per_module": 49.0,
     "class_to_func_ratio": 0.402,
     "init_violations": 0.0,
