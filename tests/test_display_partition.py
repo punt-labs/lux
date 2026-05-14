@@ -17,7 +17,8 @@ from __future__ import annotations
 from typing import Literal
 from unittest.mock import MagicMock
 
-from punt_lux.display import _ORPHAN_FD, DisplayServer
+from punt_lux.display import DisplayServer
+from punt_lux.display.server import _ORPHAN_FD
 from punt_lux.protocol import (
     ButtonElement,
     ClearMessage,

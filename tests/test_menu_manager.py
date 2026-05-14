@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from punt_lux.menu_manager import MenuManager
+from punt_lux.display.menu_manager import MenuManager
 from punt_lux.protocol import InteractionMessage
 
 

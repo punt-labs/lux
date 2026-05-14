@@ -6,8 +6,8 @@ Listens on a Unix domain socket for protocol messages and renders scenes
 using imgui-bundle. Socket I/O is polled every frame via ``select()`` with
 zero timeout — no threads, no asyncio.
 
-This module imports numpy and Pillow at module level but defers ImGui and
-OpenGL imports to method bodies. It can be imported by unit tests (for state
+This module imports Pillow at module level but defers ImGui and OpenGL
+imports to method bodies. It can be imported by unit tests (for state
 machine testing) but ``run()`` requires a GPU-capable environment.
 """
 
@@ -20,11 +20,13 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, ClassVar, Self
 
-import numpy as np
 from PIL import Image
 
-from punt_lux.element_renderer import ElementRenderer
-from punt_lux.menu_manager import MenuManager
+from punt_lux.display.element_renderer import ElementRenderer
+from punt_lux.display.idle_screen import render_idle
+from punt_lux.display.menu_manager import MenuManager
+from punt_lux.display.table_renderer import TableRenderer
+from punt_lux.display.texture_cache import TextureCache
 from punt_lux.paths import (
     default_socket_path,
     remove_pid_file,
@@ -61,7 +63,6 @@ from punt_lux.protocol import (
 from punt_lux.query_dispatcher import QueryDispatcher
 from punt_lux.scene_manager import Frame, SceneManager
 from punt_lux.socket_server import SocketServer
-from punt_lux.table_renderer import TableRenderer
 from punt_lux.widget_state import WidgetState
 
 if TYPE_CHECKING:
@@ -73,74 +74,6 @@ logger = logging.getLogger(__name__)
 # client remains in the frame.  The scene persists until the user closes the
 # frame or a new client adopts it.
 _ORPHAN_FD = -1
-
-# ---------------------------------------------------------------------------
-# Texture cache
-# ---------------------------------------------------------------------------
-
-
-class TextureCache:
-    """Maps file paths to OpenGL texture IDs. Uploads on first access."""
-
-    _textures: dict[str, int]
-
-    def __new__(cls) -> Self:
-        self = super().__new__(cls)
-        self._textures = {}
-        return self
-
-    def get_or_load(self, path: str) -> int | None:
-        """Return a texture ID for *path*, uploading if needed."""
-        if path in self._textures:
-            return self._textures[path]
-        if not Path(path).is_file():
-            logger.warning("Image file not found: %s", path)
-            return None
-        tex_id = self._create_texture(path)
-        if tex_id is not None:
-            self._textures[path] = tex_id
-        return tex_id
-
-    def cleanup(self) -> None:
-        """Delete all OpenGL textures."""
-        import OpenGL.GL as GL
-
-        for tex_id in self._textures.values():
-            GL.glDeleteTextures(1, [tex_id])
-        self._textures.clear()
-
-    @staticmethod
-    def _create_texture(path: str) -> int | None:
-        """Load an image file and upload it as an OpenGL texture."""
-        import OpenGL.GL as GL
-
-        try:
-            img = Image.open(path).convert("RGBA")
-        except Exception:
-            logger.exception("Failed to load image: %s", path)
-            return None
-
-        data = np.array(img, dtype=np.uint8)
-        h, w = data.shape[:2]
-
-        tex_id: int = GL.glGenTextures(1)
-        GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
-        GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
-        GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
-        GL.glTexImage2D(
-            GL.GL_TEXTURE_2D,
-            0,
-            GL.GL_RGBA,
-            w,
-            h,
-            0,
-            GL.GL_RGBA,
-            GL.GL_UNSIGNED_BYTE,
-            data,
-        )
-        GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
-        return int(tex_id)
-
 
 # ---------------------------------------------------------------------------
 # Display server
@@ -982,7 +915,7 @@ class DisplayServer:
 
         # Always render the ambient flame as a background element.
         # Content renders on top of it.
-        self._render_idle(imgui)
+        render_idle(imgui)
 
         # World menu: background click to toggle, floating panel.
         self._menu_manager.check_world_menu_background_click(imgui)
@@ -1403,202 +1336,6 @@ class DisplayServer:
             imgui.separator_text(scene.title)
         for elem in scene.elements:
             self._element_renderer.render_element(elem)
-
-    @staticmethod
-    def _draw_flame_shape(
-        draw: Any,
-        imgui: Any,
-        base_x: float,
-        base_y: float,
-        tip_x: float,
-        tip_y: float,
-        width: float,
-        height: float,
-        *,
-        r: float,
-        g: float,
-        b: float,
-        alpha: float,
-    ) -> None:
-        """Draw a flame shape: rounded bulb at base tapering to a pointed tip."""
-        from imgui_bundle import ImVec2
-
-        color = imgui.get_color_u32((r, g, b, alpha))
-        half_w = width
-
-        bl = ImVec2(base_x - half_w, base_y)
-        br = ImVec2(base_x + half_w, base_y)
-        tip = ImVec2(tip_x, tip_y)
-
-        kappa = 0.5522847498
-        arc_cp = half_w * kappa
-
-        draw.path_clear()
-        draw.path_line_to(br)
-
-        base_bottom = ImVec2(base_x, base_y + half_w * 0.5)
-        draw.path_bezier_cubic_curve_to(
-            ImVec2(br.x, base_y + arc_cp * 0.5),
-            ImVec2(base_x + arc_cp, base_bottom.y),
-            base_bottom,
-        )
-        draw.path_bezier_cubic_curve_to(
-            ImVec2(base_x - arc_cp, base_bottom.y),
-            ImVec2(bl.x, base_y + arc_cp * 0.5),
-            bl,
-        )
-        draw.path_bezier_cubic_curve_to(
-            ImVec2(base_x - half_w * 1.3, base_y - height * 0.35),
-            ImVec2(tip_x - width * 0.08, tip_y + height * 0.25),
-            tip,
-        )
-        draw.path_bezier_cubic_curve_to(
-            ImVec2(tip_x + width * 0.08, tip_y + height * 0.25),
-            ImVec2(base_x + half_w * 1.3, base_y - height * 0.35),
-            br,
-        )
-        draw.path_fill_convex(color)
-
-    @staticmethod
-    def _render_idle(imgui: Any) -> None:
-        """Render an ambient idle screen with radial light rays and flame.
-
-        Always called -- the flame persists as a background element
-        whether content is present or not.  Frames and scenes render
-        on top since they are separate ImGui windows.
-        """
-        import math
-
-        from imgui_bundle import ImVec2, ImVec4
-
-        t = time.time()
-        region = imgui.get_content_region_avail()
-        origin = imgui.get_cursor_screen_pos()
-        draw = imgui.get_window_draw_list()
-
-        # Detect light vs dark theme from window background luminance
-        bg = imgui.get_style_color_vec4(imgui.Col_.window_bg)
-        bg_lum = bg.x * 0.299 + bg.y * 0.587 + bg.z * 0.114
-        is_light = bg_lum > 0.5
-
-        # -- radial light rays from center --
-        cx = origin.x + region.x * 0.5
-        cy = origin.y + region.y * 0.5
-        max_radius = math.sqrt(region.x**2 + region.y**2) * 0.5
-        num_rays = 48
-        # Rays rotate very slowly with pauses
-        rot_phase = math.sin(t * 0.15)
-        rotation = rot_phase * rot_phase * rot_phase * 0.3  # radians, +/-0.3
-        # Breathing modulates ray alpha
-        breath_raw = math.sin(t * 0.8)
-        ray_breath = max(breath_raw, 0.0) ** 0.6
-        for i in range(num_rays):
-            angle = (i / num_rays) * math.tau + rotation
-            # Vary ray length and alpha for organic feel
-            length_var = 0.6 + 0.4 * math.sin(angle * 3.0 + t * 0.2)
-            ray_len = max_radius * length_var
-            # Inner point (near flame, start offset to not overdraw flame)
-            inner_r = 25.0
-            ix = cx + math.cos(angle) * inner_r
-            iy = cy + math.sin(angle) * inner_r
-            # Outer point
-            ox = cx + math.cos(angle) * ray_len
-            oy = cy + math.sin(angle) * ray_len
-            ray_alpha = (0.015 + 0.01 * ray_breath) * length_var
-            # Dark theme: warm white rays; light theme: darker, more opaque rays
-            if is_light:
-                ray_col = imgui.get_color_u32(ImVec4(0.7, 0.4, 0.1, ray_alpha * 8.0))
-            else:
-                ray_col = imgui.get_color_u32(ImVec4(1.0, 0.7, 0.3, ray_alpha))
-            draw.add_line(ImVec2(ix, iy), ImVec2(ox, oy), ray_col, 1.0)
-
-        # -- centered flame (cx, cy already set above) --
-        breath = ray_breath  # reuse breathing from rays
-
-        # Flame sway: gentle tip movement with pauses
-        sway_phase = math.sin(t * 0.6)
-        sway = sway_phase * sway_phase * sway_phase * 3.0  # +/-3px, pauses at center
-        # Secondary faster flicker for organic feel
-        flicker = math.sin(t * 2.3) * 0.8 + math.sin(t * 3.7) * 0.4
-
-        flame_h = 26.0 + 4.0 * breath  # flame height breathes
-        flame_w = 10.0 + 1.5 * breath  # flame width breathes
-
-        # Flame base center (bottom of flame)
-        base_y = cy + 8.0
-        tip_y = base_y - flame_h
-        tip_x = cx + sway
-
-        # -- outer glow (warm orange, very transparent) --
-        glow_r = flame_w + 6.0
-        glow_alpha = 0.06 + 0.03 * breath
-        for i in range(3):
-            r = glow_r + i * 4.0
-            a = glow_alpha * (1.0 - i * 0.3)
-            glow_col = imgui.get_color_u32(ImVec4(1.0, 0.6, 0.2, a))
-            draw.add_circle_filled(ImVec2(cx, base_y - flame_h * 0.4), r, glow_col)
-
-        # -- outer flame (deep orange) --
-        DisplayServer._draw_flame_shape(
-            draw,
-            imgui,
-            cx,
-            base_y,
-            tip_x,
-            tip_y,
-            flame_w,
-            flame_h,
-            r=1.0,
-            g=0.45,
-            b=0.1,
-            alpha=0.35 + 0.1 * breath,
-        )
-
-        # -- middle flame (bright orange-yellow) --
-        mid_w = flame_w * 0.65
-        mid_h = flame_h * 0.75
-        mid_tip_y = base_y - mid_h
-        DisplayServer._draw_flame_shape(
-            draw,
-            imgui,
-            cx,
-            base_y,
-            tip_x + flicker * 0.5,
-            mid_tip_y,
-            mid_w,
-            mid_h,
-            r=1.0,
-            g=0.7,
-            b=0.15,
-            alpha=0.45 + 0.1 * breath,
-        )
-
-        # -- inner core (bright yellow-white) --
-        core_w = flame_w * 0.3
-        core_h = flame_h * 0.45
-        core_tip_y = base_y - core_h
-        DisplayServer._draw_flame_shape(
-            draw,
-            imgui,
-            cx,
-            base_y + 2,
-            tip_x + flicker * 0.3,
-            core_tip_y + 2,
-            core_w,
-            core_h,
-            r=1.0,
-            g=0.95,
-            b=0.7,
-            alpha=0.55 + 0.15 * breath,
-        )
-
-        # "Ready" label below the flame -- uses theme text color at low alpha
-        label_y = base_y + 10.0
-        text = "Lux"
-        text_size = imgui.calc_text_size(text)
-        tc = imgui.get_style_color_vec4(imgui.Col_.text)
-        text_color = imgui.get_color_u32(ImVec4(tc.x, tc.y, tc.z, 0.35))
-        draw.add_text(ImVec2(cx - text_size.x * 0.5, label_y), text_color, text)
 
     # Element rendering delegated to ElementRenderer -- see element_renderer.py.
 

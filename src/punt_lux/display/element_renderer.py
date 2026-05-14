@@ -11,6 +11,8 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
 import numpy as np
 
+from punt_lux.display.table_renderer import TableRenderer
+from punt_lux.display.texture_cache import TextureCache
 from punt_lux.protocol import (
     CollapsingHeaderElement,
     GroupElement,
@@ -18,11 +20,9 @@ from punt_lux.protocol import (
     TabBarElement,
     WindowElement,
 )
-from punt_lux.table_renderer import TableRenderer
 from punt_lux.widget_state import WidgetState
 
 if TYPE_CHECKING:
-    from punt_lux.display import TextureCache
     from punt_lux.protocol import Element
     from punt_lux.types import EmitEventFn
 
