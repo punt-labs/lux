@@ -62,7 +62,7 @@ depot: build ## Build and copy wheel to local depot
 	@echo "depot: $$(ls dist/*.whl | xargs -n1 basename) -> $(DEPOT)/"
 
 metrics: ## Run ABC complexity metrics on src/
-	python tools/run_metrics.py
+	uv run --extra display python tools/run_metrics.py
 
 coverage: ## Run tests with coverage report
 	uv run --extra display python tools/run_coverage.py
