@@ -10,7 +10,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Self
 
-from punt_lux.paths import cleanup_stale_socket
+from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     HEADER_SIZE,
     MAX_MESSAGE_SIZE,
@@ -89,7 +89,7 @@ class SocketServer:
 
     def setup(self, socket_path: Path) -> None:
         """Bind and listen on the given Unix socket path."""
-        cleanup_stale_socket(socket_path)
+        DisplayPaths(socket_path).cleanup_stale()
         socket_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         socket_path.parent.chmod(0o700)
         if socket_path.exists():

@@ -11,7 +11,7 @@ from typing import Any
 
 from punt_lux.apps.beads import render_beads_board
 from punt_lux.display_client import DisplayClient
-from punt_lux.paths import default_socket_path, is_display_running
+from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import InteractionMessage
 from punt_lux.tools.server import mcp
 
@@ -107,7 +107,7 @@ def _query_tool(  # pyright: ignore[reportUnusedFunction]  # used in tools.py
         @mcp.tool()
         @functools.wraps(fn)
         def wrapper(**kwargs: Any) -> str:
-            if not is_display_running(default_socket_path()):
+            if not DisplayPaths().is_running():
                 return "not running"
             params = fn(**kwargs) or {}
 

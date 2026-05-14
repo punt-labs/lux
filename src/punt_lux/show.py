@@ -34,12 +34,12 @@ def beads(
 ) -> None:
     """Display the beads issue board in the Lux window."""
     from punt_lux.display_client import DisplayClient
-    from punt_lux.paths import default_socket_path
+    from punt_lux.paths import DisplayPaths
 
     issues = load_beads(all_issues=all_issues)
 
     project = Path.cwd().name or "unknown"
-    sock_path = Path(socket) if socket else default_socket_path()
+    sock_path = DisplayPaths(Path(socket) if socket else None).socket_path
     elements = build_beads_elements(issues)
 
     with DisplayClient(sock_path, name="lux-beads") as client:

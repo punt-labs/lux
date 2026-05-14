@@ -10,6 +10,7 @@ from unittest.mock import patch
 from typer.testing import CliRunner
 
 from punt_lux.__main__ import app
+from punt_lux.paths import DisplayPaths
 
 runner = CliRunner()
 
@@ -46,9 +47,10 @@ class TestStatus:
         assert str(os.getpid()) in result.output
 
     def test_status_default_socket(self) -> None:
-        """Without --socket, uses default_socket_path()."""
-        with patch(
-            "punt_lux.paths.default_socket_path",
+        """Without --socket, uses DisplayPaths default path."""
+        with patch.object(
+            DisplayPaths,
+            "_default_path",
             return_value=Path("/nonexistent/display.sock"),
         ):
             result = runner.invoke(app, ["status"])
