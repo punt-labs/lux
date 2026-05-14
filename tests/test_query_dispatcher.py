@@ -6,7 +6,7 @@ from typing import Any
 
 from punt_lux.protocol import QueryResponse
 from punt_lux.query_dispatcher import QueryDispatcher
-from punt_lux.scene_manager import SceneManager
+from punt_lux.scene import SceneManager
 
 
 def _make_dispatcher() -> QueryDispatcher:

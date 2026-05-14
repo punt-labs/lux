@@ -16,8 +16,7 @@ from punt_lux.protocol import (
     UpdateMessage,
     WindowElement,
 )
-from punt_lux.scene_manager import SceneManager
-from punt_lux.widget_state import WidgetState
+from punt_lux.scene import SceneManager, WidgetState
 
 
 def _make_scene(

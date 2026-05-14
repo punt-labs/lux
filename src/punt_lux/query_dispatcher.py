@@ -9,7 +9,7 @@ from collections.abc import Callable
 from typing import Any, Self
 
 from punt_lux.protocol import QueryResponse, element_to_dict
-from punt_lux.scene_manager import SceneManager
+from punt_lux.scene import SceneManager
 
 logger = logging.getLogger(__name__)
 

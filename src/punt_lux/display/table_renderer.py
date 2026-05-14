@@ -7,7 +7,7 @@ import time
 from typing import TYPE_CHECKING, Any, Self
 
 from punt_lux.protocol import InteractionMessage, TableDetail, TableElement, TableFilter
-from punt_lux.widget_state import WidgetState
+from punt_lux.scene import WidgetState
 
 if TYPE_CHECKING:
     from punt_lux.types import EmitEventFn

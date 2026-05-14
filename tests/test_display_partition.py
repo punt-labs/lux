@@ -34,7 +34,7 @@ from punt_lux.protocol import (
     UpdateMessage,
     encode_message,
 )
-from punt_lux.widget_state import WidgetState
+from punt_lux.scene import WidgetState
 
 # ---------------------------------------------------------------------------
 # Helpers
