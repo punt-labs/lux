@@ -40,10 +40,6 @@ from punt_lux.protocol import (
     ConnectMessage,
     FrameReader,
     InteractionMessage,
-    IntrospectRequest,
-    IntrospectResponse,
-    ListScenesRequest,
-    ListScenesResponse,
     MenuMessage,
     PingMessage,
     PongMessage,
@@ -52,8 +48,6 @@ from punt_lux.protocol import (
     ReadyMessage,
     RegisterMenuMessage,
     SceneMessage,
-    ScreenshotRequest,
-    ScreenshotResponse,
     ThemeMessage,
     UpdateMessage,
     encode_message,
@@ -106,9 +100,6 @@ class DisplayClient:
     _listener_stop: threading.Event
     _ack_queue: queue.SimpleQueue[AckMessage]
     _pong_queue: queue.SimpleQueue[PongMessage]
-    _introspect_queue: queue.SimpleQueue[IntrospectResponse]
-    _list_scenes_queue: queue.SimpleQueue[ListScenesResponse]
-    _screenshot_queue: queue.SimpleQueue[ScreenshotResponse]
     _query_queue: queue.SimpleQueue[QueryResponse]
 
     def __new__(
@@ -138,9 +129,6 @@ class DisplayClient:
         self._listener_stop = threading.Event()
         self._ack_queue = queue.SimpleQueue()
         self._pong_queue = queue.SimpleQueue()
-        self._introspect_queue = queue.SimpleQueue()
-        self._list_scenes_queue = queue.SimpleQueue()
-        self._screenshot_queue = queue.SimpleQueue()
         self._query_queue = queue.SimpleQueue()
         return self
 
@@ -254,9 +242,6 @@ class DisplayClient:
             _drain_queue(self._pending)
             _drain_queue(self._ack_queue)
             _drain_queue(self._pong_queue)
-            _drain_queue(self._introspect_queue)
-            _drain_queue(self._list_scenes_queue)
-            _drain_queue(self._screenshot_queue)
             _drain_queue(self._query_queue)
 
     # -- callback registration ---------------------------------------------
@@ -375,15 +360,6 @@ class DisplayClient:
             return
         if isinstance(msg, PongMessage):
             self._pong_queue.put(msg)
-            return
-        if isinstance(msg, IntrospectResponse):
-            self._introspect_queue.put(msg)
-            return
-        if isinstance(msg, ListScenesResponse):
-            self._list_scenes_queue.put(msg)
-            return
-        if isinstance(msg, ScreenshotResponse):
-            self._screenshot_queue.put(msg)
             return
         if isinstance(msg, QueryResponse):
             self._query_queue.put(msg)
@@ -552,72 +528,6 @@ class DisplayClient:
             if received is None:
                 return None
             if isinstance(received, PongMessage):
-                return received
-            self._pending.put(received)
-
-    def inspect_scene(self, scene_id: str) -> IntrospectResponse | None:
-        """Request the element tree for a scene from the display server."""
-        self._send(IntrospectRequest(scene_id=scene_id))
-        deadline = time.monotonic() + self._recv_timeout
-        if self.listener_active:
-            remaining = deadline - time.monotonic()
-            try:
-                return self._introspect_queue.get(timeout=max(remaining, 0))
-            except queue.Empty:
-                return None
-        sock = self._require_connected()
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return None
-            received = recv_message(sock, timeout=remaining)
-            if received is None:
-                return None
-            if isinstance(received, IntrospectResponse):
-                return received
-            self._pending.put(received)
-
-    def list_scenes(self) -> ListScenesResponse | None:
-        """Request the list of active scenes and frames."""
-        self._send(ListScenesRequest())
-        deadline = time.monotonic() + self._recv_timeout
-        if self.listener_active:
-            remaining = deadline - time.monotonic()
-            try:
-                return self._list_scenes_queue.get(timeout=max(remaining, 0))
-            except queue.Empty:
-                return None
-        sock = self._require_connected()
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return None
-            received = recv_message(sock, timeout=remaining)
-            if received is None:
-                return None
-            if isinstance(received, ListScenesResponse):
-                return received
-            self._pending.put(received)
-
-    def screenshot(self) -> ScreenshotResponse | None:
-        """Request a screenshot from the display server."""
-        self._send(ScreenshotRequest())
-        deadline = time.monotonic() + self._recv_timeout
-        if self.listener_active:
-            remaining = deadline - time.monotonic()
-            try:
-                return self._screenshot_queue.get(timeout=max(remaining, 0))
-            except queue.Empty:
-                return None
-        sock = self._require_connected()
-        while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                return None
-            received = recv_message(sock, timeout=remaining)
-            if received is None:
-                return None
-            if isinstance(received, ScreenshotResponse):
                 return received
             self._pending.put(received)
 

@@ -855,15 +855,12 @@ def inspect_scene(scene_id: str) -> str:
 
     def _call() -> str:
         client = _get_client()
-        response = client.inspect_scene(scene_id)
+        response = client.query("inspect_scene", {"scene_id": scene_id})
         if response is None:
             return "timeout"
         if response.error:
             return f"error: {response.error}"
-        return json.dumps(
-            {"scene_id": response.scene_id, "elements": response.elements},
-            indent=2,
-        )
+        return json.dumps(response.result, indent=2)
 
     return _with_reconnect(_call)
 
@@ -882,13 +879,10 @@ def list_scenes() -> str:
 
     def _call() -> str:
         client = _get_client()
-        response = client.list_scenes()
+        response = client.query("list_scenes")
         if response is None:
             return "timeout"
-        return json.dumps(
-            {"scenes": response.scenes, "frames": response.frames},
-            indent=2,
-        )
+        return json.dumps(response.result, indent=2)
 
     return _with_reconnect(_call)
 
@@ -906,12 +900,12 @@ def screenshot() -> str:
 
     def _call() -> str:
         client = _get_client()
-        response = client.screenshot()
+        response = client.query("screenshot")
         if response is None:
             return "timeout"
         if response.error:
             return f"error: {response.error}"
-        return response.path
+        return str(response.result.get("path", ""))
 
     return _with_reconnect(_call)
 
