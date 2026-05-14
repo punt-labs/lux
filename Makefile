@@ -1,4 +1,4 @@
-.PHONY: help test lint type check check-oo update-oo report format build install clean depot fuzz prob clean-tex font-test
+.PHONY: help test lint type check check-oo update-oo check-coupling update-coupling report format build install clean depot fuzz prob clean-tex font-test
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -23,6 +23,12 @@ check-oo: ## OO ratchet — must improve over baseline, never regress
 
 update-oo: ## Update OO baseline after improvements (stage .oo-baseline.json and .oo-audit.jsonl)
 	uv run --extra display python tools/oo_score.py src/punt_lux/ --update
+
+check-coupling: ## Coupling metrics (informational, not in check chain)
+	uv run --extra display python tools/oo_coupling.py src/punt_lux/ --check
+
+update-coupling: ## Update coupling baseline
+	uv run --extra display python tools/oo_coupling.py src/punt_lux/ --update
 
 report: ## Full diagnostics (OO score + all checks, no fail-fast)
 	-uv run --extra display python tools/oo_score.py src/punt_lux/ --threshold
