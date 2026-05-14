@@ -251,7 +251,9 @@ class SceneManager:
         if old_frame_id is not None and old_frame_id != frame.frame_id:
             old_frame = self._frames.get(old_frame_id)
             if old_frame is not None:
-                self.dismiss_framed_scene(old_frame, msg.id)
+                frame_empty = self.dismiss_framed_scene(old_frame, msg.id)
+                if frame_empty:
+                    self.close_frame(old_frame.frame_id)
         elif msg.id in self._scenes:
             self.dismiss_scene(msg.id)
         is_new = msg.id not in frame.scenes
@@ -332,10 +334,12 @@ class SceneManager:
         self,
         frame: Frame,
         scene_id: str,
-        *,
-        notify: bool = True,  # noqa: ARG002
-    ) -> None:
-        """Remove a single scene from a frame."""
+    ) -> bool:
+        """Remove a single scene from a frame.
+
+        Return True if the frame is now empty (caller should close it
+        with notifications).
+        """
         dismissed = frame.scenes.pop(scene_id, None)
         if dismissed is not None:
             dismissed_ids: set[str] = set()
@@ -349,8 +353,7 @@ class SceneManager:
         self._scene_to_owner.pop(scene_id, None)
         if frame.active_tab == scene_id:
             frame.active_tab = frame.scene_order[0] if frame.scene_order else None
-        if not frame.scenes:
-            self.close_frame(frame.frame_id)
+        return not frame.scenes
 
     def close_frame(self, frame_id: str) -> list[str]:
         """Remove a frame and all its scenes.

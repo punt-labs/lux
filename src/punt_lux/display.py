@@ -1239,9 +1239,12 @@ class DisplayServer:
     def _handle_list_scenes(self, sock: socket.socket, _msg: ListScenesRequest) -> None:
         """Return the list of active scenes and frames."""
         qr = self._query_dispatcher.handle_query("list_scenes", None)
-        resp = ListScenesResponse(
-            scenes=qr.result["scenes"], frames=qr.result["frames"]
-        )
+        if qr.error is not None:
+            resp = ListScenesResponse(scenes=[], frames=[])
+        else:
+            resp = ListScenesResponse(
+                scenes=qr.result["scenes"], frames=qr.result["frames"]
+            )
         self._socket_server.send_to_client(sock, resp)
 
     # -- generic query dispatcher ------------------------------------------
@@ -1880,7 +1883,9 @@ class DisplayServer:
                     closed_tabs.append(scene_id)
             imgui.end_tab_bar()
             for sid in closed_tabs:
-                self._scene_manager.dismiss_framed_scene(frame, sid)
+                frame_empty = self._scene_manager.dismiss_framed_scene(frame, sid)
+                if frame_empty:
+                    self._close_frame(frame.frame_id)
 
     def _render_frame_stack(self, frame: Frame, imgui: Any) -> None:
         """Render multi-scene frame as vertically stacked collapsing headers.
