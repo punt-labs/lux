@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     )
     from mcp.shared.message import SessionMessage
 
-from punt_lux.config import read_config, resolve_config_path
+from punt_lux.config import ConfigManager
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +49,11 @@ async def _lifespan(_server: FastMCP) -> AsyncGenerator[None]:
     """
     from punt_lux.tools.connection import _get_client
 
-    config_path = resolve_config_path()
+    config_mgr = ConfigManager()
     try:
-        cfg = read_config(config_path)
+        cfg = config_mgr.read()
     except (OSError, ValueError) as exc:
-        logger.warning("Failed to read display config (%s): %s", config_path, exc)
+        logger.warning("Failed to read display config (%s): %s", config_mgr.path, exc)
         yield
         return
 

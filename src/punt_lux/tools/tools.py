@@ -7,8 +7,8 @@ import logging
 import time
 from typing import Any
 
-from punt_lux.config import read_config, resolve_config_path, write_field
-from punt_lux.paths import default_socket_path, is_display_running
+from punt_lux.config import ConfigManager
+from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     InteractionMessage,
     Patch,
@@ -473,7 +473,7 @@ def set_theme(theme: str) -> str:
 
     Example: set_theme("imgui_colors_light") for dashboards and data views.
     """
-    if not is_display_running(default_socket_path()):
+    if not DisplayPaths().is_running():
         return "not running"
 
     def _call() -> str:
@@ -514,7 +514,7 @@ def set_window_settings(
         params["fps_idle"] = fps_idle
     if not params:
         return "error: no settings provided"
-    if not is_display_running(default_socket_path()):
+    if not DisplayPaths().is_running():
         return "not running"
 
     def _call() -> str:
@@ -553,7 +553,7 @@ def clear() -> str:
 
     No-op if the display server is not running.
     """
-    if not is_display_running(default_socket_path()):
+    if not DisplayPaths().is_running():
         return "cleared"
 
     def _call() -> str:
@@ -567,7 +567,7 @@ def clear() -> str:
 @mcp.tool()
 def ping() -> str:
     """Ping the display server. Returns round-trip time, "timeout", or "not running"."""
-    if not is_display_running(default_socket_path()):
+    if not DisplayPaths().is_running():
         return "not running"
 
     def _call() -> str:
@@ -591,7 +591,7 @@ def inspect_scene(scene_id: str) -> str:
     the display server has for a given scene_id. Returns "not running"
     if the display server is not available.
     """
-    if not is_display_running(default_socket_path()):
+    if not DisplayPaths().is_running():
         return "not running"
 
     def _call() -> str:
@@ -615,7 +615,7 @@ def list_scenes() -> str:
     display is currently showing. Returns "not running" if the display
     server is not available.
     """
-    if not is_display_running(default_socket_path()):
+    if not DisplayPaths().is_running():
         return "not running"
 
     def _call() -> str:
@@ -636,7 +636,7 @@ def screenshot() -> str:
     The agent can read this image to see exactly what is rendered.
     Returns "not running" if the display server is not available.
     """
-    if not is_display_running(default_socket_path()):
+    if not DisplayPaths().is_running():
         return "not running"
 
     def _call() -> str:
@@ -701,8 +701,7 @@ def display_mode() -> str:
     for consumer plugins. Lux itself always accepts show() calls
     regardless of mode.
     """
-    config_path = resolve_config_path()
-    cfg = read_config(config_path)
+    cfg = ConfigManager().read()
     label = "on" if cfg.display == "y" else "off"
     return f"display:{label}"
 
@@ -718,8 +717,8 @@ def set_display_mode(mode: str) -> str:
         msg = f"Invalid mode '{mode}'. Use 'y' or 'n'."
         raise ValueError(msg)
 
-    config_path = resolve_config_path()
-    write_field("display", mode, config_path)
+    config_mgr = ConfigManager()
+    config_mgr.write_field("display", mode)
     if mode == "y":
         try:
             _get_client()

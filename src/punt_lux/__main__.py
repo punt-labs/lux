@@ -77,7 +77,7 @@ def display(
     import logging
     from pathlib import Path
 
-    from punt_lux.paths import default_socket_path, log_file_path
+    from punt_lux.paths import DisplayPaths
 
     try:
         from punt_lux.display import DisplayServer
@@ -91,8 +91,8 @@ def display(
             raise typer.Exit(code=1) from None
         raise
 
-    sock_path = Path(socket) if socket else default_socket_path()
-    log_path = log_file_path(sock_path)
+    dp = DisplayPaths(Path(socket) if socket else None)
+    log_path = dp.log_path
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
     logging.basicConfig(
@@ -117,18 +117,18 @@ def serve() -> None:
 @app.command()
 def enable() -> None:
     """Enable visual output for this project."""
-    from punt_lux.config import resolve_config_path, write_field
+    from punt_lux.config import ConfigManager
 
-    write_field("display", "y", resolve_config_path())
+    ConfigManager().write_field("display", "y")
     print("Lux display enabled.")
 
 
 @app.command()
 def disable() -> None:
     """Disable visual output for this project."""
-    from punt_lux.config import resolve_config_path, write_field
+    from punt_lux.config import ConfigManager
 
-    write_field("display", "n", resolve_config_path())
+    ConfigManager().write_field("display", "n")
     print("Lux display disabled.")
 
 
@@ -178,10 +178,11 @@ def ping(
     import time
     from pathlib import Path
 
-    from punt_lux.paths import default_socket_path, is_display_running
+    from punt_lux.paths import DisplayPaths
 
-    path = Path(socket) if socket else default_socket_path()
-    if not is_display_running(path):
+    dp = DisplayPaths(Path(socket) if socket else None)
+    path = dp.socket_path
+    if not dp.is_running():
         print("Display not running")
         raise typer.Exit(code=1)
 
@@ -212,14 +213,15 @@ def status(
     """Check whether the display server is running."""
     from pathlib import Path
 
-    from punt_lux.paths import default_socket_path, is_display_running, pid_file_path
+    from punt_lux.paths import DisplayPaths
 
-    path = Path(socket) if socket else default_socket_path()
-    running = is_display_running(path)
+    dp = DisplayPaths(Path(socket) if socket else None)
+    path = dp.socket_path
+    running = dp.is_running()
 
     if running:
         try:
-            pid = int(pid_file_path(path).read_text().strip())
+            pid = int(dp.pid_path.read_text().strip())
             print(f"Display running (pid {pid}) at {path}")
         except (OSError, ValueError):
             print(f"Display running at {path} (pid unknown)")
@@ -332,7 +334,7 @@ def doctor(
     """Check installation health."""
     from pathlib import Path
 
-    from punt_lux.paths import default_socket_path, is_display_running
+    from punt_lux.paths import DisplayPaths
 
     passed = 0
     failed = 0
@@ -374,8 +376,9 @@ def doctor(
     _check_fonts(_check)
 
     # Display server
-    path = Path(socket) if socket else default_socket_path()
-    if is_display_running(path):
+    dp = DisplayPaths(Path(socket) if socket else None)
+    path = dp.socket_path
+    if dp.is_running():
         _check(_OK, f"Display server running at {path}")
     else:
         _check(_OPTIONAL, f"Display server not running at {path}", required=False)
