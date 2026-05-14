@@ -28,20 +28,6 @@ ALLOWED_CONFIG_KEYS: frozenset[str] = frozenset({"display"})
 _FIELD_RE = re.compile(r'^([a-z_]+):\s*"?([^"\n]*)"?\s*$', re.MULTILINE)
 
 
-def _extract_frontmatter(text: str) -> str:
-    """Extract YAML frontmatter block from text.
-
-    Returns the text between the first ``---`` and the next ``---``,
-    or empty string if no valid frontmatter is found.
-    """
-    if not text.startswith("---"):
-        return ""
-    end = text.find("\n---", 3)
-    if end == -1:
-        return ""
-    return text[3:end]
-
-
 @functools.lru_cache(maxsize=1)
 def resolve_config_path() -> Path:
     """Resolve .punt-labs/lux.md at the main repo root (worktree-safe).
@@ -94,12 +80,26 @@ class ConfigManager:
         """Return the resolved config file path."""
         return self._config_path
 
+    @staticmethod
+    def _extract_frontmatter(text: str) -> str:
+        """Extract YAML frontmatter block from text.
+
+        Returns the text between the first ``---`` and the next ``---``,
+        or empty string if no valid frontmatter is found.
+        """
+        if not text.startswith("---"):
+            return ""
+        end = text.find("\n---", 3)
+        if end == -1:
+            return ""
+        return text[3:end]
+
     def read(self) -> LuxConfig:
         """Read all config fields. Return defaults when file is missing."""
         fields: dict[str, str] = {}
         if self._config_path.exists():
             text = self._config_path.read_text(encoding="utf-8")
-            frontmatter = _extract_frontmatter(text)
+            frontmatter = self._extract_frontmatter(text)
             for match in _FIELD_RE.finditer(frontmatter):
                 key = match.group(1)
                 val = match.group(2).strip()
@@ -111,23 +111,6 @@ class ConfigManager:
             display = "n"
 
         return LuxConfig(display=display)
-
-    def read_field(self, field: str) -> str | None:
-        """Read a single YAML frontmatter field. Return None if absent."""
-        if not self._config_path.exists():
-            return None
-        text = self._config_path.read_text(encoding="utf-8")
-        frontmatter = _extract_frontmatter(text)
-        if not frontmatter:
-            return None
-        pattern = re.compile(
-            rf"^{re.escape(field)}:\s*\"?([^\"\n]*)\"?\s*$",
-            re.MULTILINE,
-        )
-        match = pattern.search(frontmatter)
-        if match and match.group(1).strip():
-            return match.group(1).strip()
-        return None
 
     def write_field(self, key: str, value: str) -> None:
         """Write a single YAML frontmatter field to the config file.

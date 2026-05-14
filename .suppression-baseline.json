@@ -1,0 +1,72 @@
+{
+  "total": 110,
+  "by_category": {
+    "noqa": 37,
+    "type_ignore": 7,
+    "pylint_disable": 2,
+    "pyright_ignore": 11,
+    "per_file_ignores": 53
+  },
+  "by_file": {
+    "src/punt_lux/__main__.py": {
+      "noqa": 6,
+      "pyright_ignore": 2
+    },
+    "src/punt_lux/_backends.py": {
+      "pylint_disable": 2
+    },
+    "src/punt_lux/apps/beads.py": {
+      "noqa": 1,
+      "type_ignore": 1
+    },
+    "src/punt_lux/display/element_renderer.py": {
+      "noqa": 2
+    },
+    "src/punt_lux/display/menu_manager.py": {
+      "noqa": 13
+    },
+    "src/punt_lux/display/server.py": {
+      "noqa": 3,
+      "type_ignore": 2,
+      "pyright_ignore": 2
+    },
+    "src/punt_lux/hub.py": {
+      "noqa": 1,
+      "type_ignore": 1
+    },
+    "src/punt_lux/paths.py": {
+      "noqa": 2
+    },
+    "src/punt_lux/protocol/elements.py": {
+      "type_ignore": 1
+    },
+    "src/punt_lux/protocol/messages.py": {
+      "noqa": 1,
+      "type_ignore": 1,
+      "pyright_ignore": 1
+    },
+    "src/punt_lux/query_dispatcher.py": {
+      "noqa": 1
+    },
+    "src/punt_lux/remote.py": {
+      "pyright_ignore": 5
+    },
+    "src/punt_lux/scene/manager.py": {
+      "noqa": 1
+    },
+    "src/punt_lux/socket_server.py": {
+      "noqa": 2
+    },
+    "src/punt_lux/tools/connection.py": {
+      "pyright_ignore": 1
+    },
+    "src/punt_lux/tools/server.py": {
+      "noqa": 2
+    },
+    "src/punt_lux/tools/tools.py": {
+      "noqa": 2,
+      "type_ignore": 1
+    }
+  },
+  "updated_at": "2026-05-14T21:40:43Z"
+}

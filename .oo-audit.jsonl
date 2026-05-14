@@ -43,3 +43,6 @@
 {"ts":"2026-05-14T21:02:16Z","commit":"a2f93e1","files_scored":36,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/config.py":{"method_ratio":[0.5,0.714],"avg_params":[1.1,0.71],"max_complexity":[8.0,7.0],"avg_complexity":[4.6,3.71],"module_size":[239.0,151.0],"class_to_func_ratio":[0.286,0.5]}}}
 {"ts":"2026-05-14T21:14:30Z","commit":"83c15a4","files_scored":36,"files_improved":0,"files_regressed":2,"verdict":"fail","deltas":{}}
 {"ts":"2026-05-14T21:15:45Z","commit":"83c15a4","files_scored":36,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-05-14T21:41:48Z","commit":"d10b3bd","files_scored":36,"files_improved":3,"files_regressed":1,"verdict":"fail","deltas":{"src/punt_lux/config.py":{"method_ratio":[0.714,0.833],"avg_params":[0.71,0.67],"avg_complexity":[3.71,3.5],"module_size":[151.0,136.0],"class_to_func_ratio":[0.5,0.667]},"src/punt_lux/display/menu_manager.py":{"avg_params":[1.41,1.34],"module_size":[513.0,507.0]},"src/punt_lux/display/server.py":{"module_size":[1214.0,1212.0]}}}
+{"ts":"2026-05-14T21:42:02Z","commit":"d10b3bd","files_scored":36,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
+{"ts":"2026-05-14T21:42:24Z","commit":"d10b3bd","files_scored":36,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{}}

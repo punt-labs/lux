@@ -11,15 +11,14 @@ from pathlib import Path
 
 import typer
 
-from punt_lux.apps.beads import build_beads_elements, build_beads_payload, load_beads
+from punt_lux.apps.beads import BeadsBrowser
 
 show_app = typer.Typer(
     help="Show pre-built scenes in the Lux display.",
     no_args_is_help=True,
 )
 
-# Re-export for backwards compatibility with any external callers.
-__all__ = ["build_beads_elements", "build_beads_payload", "load_beads", "show_app"]
+__all__ = ["show_app"]
 
 
 # ---------------------------------------------------------------------------
@@ -36,11 +35,12 @@ def beads(
     from punt_lux.display_client import DisplayClient
     from punt_lux.paths import DisplayPaths
 
-    issues = load_beads(all_issues=all_issues)
+    browser = BeadsBrowser()
+    issues = browser.load(all_issues=all_issues)
 
     project = Path.cwd().name or "unknown"
     sock_path = DisplayPaths(Path(socket) if socket else None).socket_path
-    elements = build_beads_elements(issues)
+    elements = browser.build_elements(issues)
 
     with DisplayClient(sock_path, name="lux-beads") as client:
         ack = client.show(

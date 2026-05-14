@@ -23,39 +23,6 @@ def mgr(config_path: Path) -> ConfigManager:
 
 
 # ---------------------------------------------------------------------------
-# ConfigManager.read_field
-# ---------------------------------------------------------------------------
-
-
-class TestReadField:
-    def test_missing_file(self, mgr: ConfigManager) -> None:
-        assert mgr.read_field("display") is None
-
-    def test_reads_quoted_value(self, config_path: Path, mgr: ConfigManager) -> None:
-        config_path.parent.mkdir(parents=True)
-        config_path.write_text('---\ndisplay: "y"\n---\n')
-        assert mgr.read_field("display") == "y"
-
-    def test_reads_unquoted_value(self, config_path: Path, mgr: ConfigManager) -> None:
-        config_path.parent.mkdir(parents=True)
-        config_path.write_text("---\ndisplay: n\n---\n")
-        assert mgr.read_field("display") == "n"
-
-    def test_absent_field(self, config_path: Path, mgr: ConfigManager) -> None:
-        config_path.parent.mkdir(parents=True)
-        config_path.write_text("---\n---\n")
-        assert mgr.read_field("display") is None
-
-    def test_ignores_body_content(self, config_path: Path, mgr: ConfigManager) -> None:
-        """Fields in markdown body must not be read as config."""
-        config_path.parent.mkdir(parents=True)
-        config_path.write_text(
-            '---\ndisplay: "n"\n---\n\nSome markdown with display: y in it.\n'
-        )
-        assert mgr.read_field("display") == "n"
-
-
-# ---------------------------------------------------------------------------
 # ConfigManager.read
 # ---------------------------------------------------------------------------
 
@@ -105,13 +72,13 @@ class TestWriteField:
         config_path.parent.mkdir(parents=True)
         config_path.write_text('---\ndisplay: "n"\n---\n')
         mgr.write_field("display", "y")
-        assert mgr.read_field("display") == "y"
+        assert mgr.read().display == "y"
 
     def test_inserts_new_field(self, config_path: Path, mgr: ConfigManager) -> None:
         config_path.parent.mkdir(parents=True)
         config_path.write_text("---\n---\n")
         mgr.write_field("display", "y")
-        assert mgr.read_field("display") == "y"
+        assert mgr.read().display == "y"
 
     def test_rejects_unknown_key(self, mgr: ConfigManager) -> None:
         with pytest.raises(ValueError, match="Unknown config key"):
@@ -125,7 +92,7 @@ class TestWriteField:
         text = config_path.read_text()
         assert "# Notes" in text
         assert "Some text." in text
-        assert mgr.read_field("display") == "y"
+        assert mgr.read().display == "y"
 
     def test_trailing_newline(self, config_path: Path, mgr: ConfigManager) -> None:
         """Written file must end with a newline (POSIX)."""

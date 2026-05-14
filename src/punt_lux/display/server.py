@@ -128,7 +128,6 @@ class DisplayServer:
             on_opacity_changed=self._on_opacity_changed,
             on_font_scale_changed=self._on_font_scale_changed,
             get_themes=lambda: self._themes,
-            get_current_theme=lambda: self._current_theme,
             get_decorated=lambda: self._decorated,
             get_opacity=lambda: self._opacity,
             get_font_scale=lambda: self._font_scale,
@@ -136,7 +135,6 @@ class DisplayServer:
             get_client_names=lambda: self._socket_server.client_names,
             on_clear_all=self._clear_all,
             on_fit_all=self._request_fit_all,
-            has_scenes=lambda: bool(self._scene_manager.scenes),
         )
         # QueryDispatcher must be created before SocketServer so that
         # the on_error callback is available.

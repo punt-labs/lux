@@ -27,7 +27,6 @@ class MenuManager:
     _on_opacity_changed: Callable[[float], None]
     _on_font_scale_changed: Callable[[float], None]
     _get_themes: Callable[[], list[Any]]
-    _get_current_theme: Callable[[], str]
     _get_decorated: Callable[[], bool]
     _get_opacity: Callable[[], float]
     _get_font_scale: Callable[[], float]
@@ -35,7 +34,6 @@ class MenuManager:
     _get_client_names: Callable[[], dict[int, str]]
     _on_clear_all: Callable[[], None]
     _on_fit_all: Callable[[], None]
-    _has_scenes: Callable[[], bool]
 
     _agent_menus: list[dict[str, Any]]
     _menu_registrations: dict[int, list[dict[str, Any]]]
@@ -53,7 +51,6 @@ class MenuManager:
         on_opacity_changed: Callable[[float], None],
         on_font_scale_changed: Callable[[float], None],
         get_themes: Callable[[], list[Any]],
-        get_current_theme: Callable[[], str],
         get_decorated: Callable[[], bool],
         get_opacity: Callable[[], float],
         get_font_scale: Callable[[], float],
@@ -61,7 +58,6 @@ class MenuManager:
         get_client_names: Callable[[], dict[int, str]],
         on_clear_all: Callable[[], None],
         on_fit_all: Callable[[], None],
-        has_scenes: Callable[[], bool],
     ) -> Self:
         self = super().__new__(cls)
         self._emit_event = emit_event
@@ -70,7 +66,6 @@ class MenuManager:
         self._on_opacity_changed = on_opacity_changed
         self._on_font_scale_changed = on_font_scale_changed
         self._get_themes = get_themes
-        self._get_current_theme = get_current_theme
         self._get_decorated = get_decorated
         self._get_opacity = get_opacity
         self._get_font_scale = get_font_scale
@@ -78,7 +73,6 @@ class MenuManager:
         self._get_client_names = get_client_names
         self._on_clear_all = on_clear_all
         self._on_fit_all = on_fit_all
-        self._has_scenes = has_scenes
         self._agent_menus = []
         self._menu_registrations = {}
         self._menu_owners = {}
