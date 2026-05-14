@@ -987,10 +987,10 @@ class TestSerialization:
             columns=["ID", "Title", "Status"],
             rows=[["1", "Fix bug", "open"], ["2", "Add feature", "closed"]],
             filters=[
-                TableFilter(type="search", column=[0, 1], hint="Search..."),
+                TableFilter(type="search", column_spec=[0, 1], hint="Search..."),
                 TableFilter(
                     type="combo",
-                    column=2,
+                    column_spec=2,
                     items=["All", "open", "closed"],
                 ),
             ],
@@ -1049,10 +1049,10 @@ class TestSerialization:
 
     def test_table_filter_combo_requires_items(self):
         with pytest.raises(ValueError, match="requires non-empty 'items'"):
-            TableFilter(type="combo", column=0)
+            TableFilter(type="combo", column_spec=0)
 
     def test_table_filter_normalizes_column(self):
-        f = TableFilter(type="search", column=3)
+        f = TableFilter(type="search", column_spec=3)
         assert f.column == [3]
 
     def test_table_detail_validates_parallel_arrays(self):
