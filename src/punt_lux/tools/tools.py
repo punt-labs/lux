@@ -1,291 +1,32 @@
-"""Lux MCP server — expose display tools to AI agents.
-
-Provides FastMCP tools: ``show``, ``show_table``, ``show_dashboard``,
-``update``, ``clear``, ``ping``, and ``recv``.
-Uses :class:`DisplayClient` under the hood with lazy connection on first call.
-
-Run via stdio transport::
-
-    lux serve
-"""
+"""All 29 MCP tool definitions for the Lux display surface."""
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
-import functools
 import json
 import logging
-import threading
 import time
-from collections.abc import AsyncGenerator, Callable
-from contextvars import ContextVar
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-from fastmcp import FastMCP
-
-if TYPE_CHECKING:
-    from anyio.streams.memory import (
-        MemoryObjectReceiveStream,
-        MemoryObjectSendStream,
-    )
-    from mcp.shared.message import SessionMessage
-
-from punt_lux.apps.beads import render_beads_board
 from punt_lux.config import read_config, resolve_config_path, write_field
-from punt_lux.display_client import DisplayClient
 from punt_lux.paths import default_socket_path, is_display_running
 from punt_lux.protocol import (
     InteractionMessage,
     Patch,
     element_from_dict,
 )
-
-logger = logging.getLogger(__name__)
-
-
-async def _retry_eager_connect() -> None:
-    """Background retries for eager display connect."""
-    for delay in (2.0, 5.0, 10.0):
-        await asyncio.sleep(delay)
-        try:
-            await asyncio.to_thread(_get_client)
-            logger.info("Eager connect retry succeeded")
-            return
-        except Exception:  # noqa: BLE001
-            logger.debug("Eager connect retry failed", exc_info=True)
-
-
-@contextlib.asynccontextmanager
-async def _lifespan(_server: FastMCP) -> AsyncGenerator[None]:
-    """Eager-connect to the display server when display=y.
-
-    Runs ``_get_client()`` in a thread so the blocking socket connect
-    and potential ``ensure_display()`` auto-spawn don't stall the
-    async event loop.
-    """
-    config_path = resolve_config_path()
-    try:
-        cfg = read_config(config_path)
-    except (OSError, ValueError) as exc:
-        logger.warning("Failed to read display config (%s): %s", config_path, exc)
-        yield
-        return
-
-    retry_task: asyncio.Task[None] | None = None
-    if cfg.display == "y":
-        try:
-            logger.info("display=y, eagerly connecting to display server")
-            await asyncio.to_thread(_get_client)
-        except Exception:  # noqa: BLE001 — best-effort startup
-            logger.warning(
-                "Eager connect failed; scheduling retries",
-                exc_info=True,
-            )
-            retry_task = asyncio.create_task(_retry_eager_connect())
-    try:
-        yield
-    finally:
-        if retry_task is not None and not retry_task.done():
-            retry_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await retry_task
-
-
-mcp = FastMCP(
-    "lux",
-    instructions=(
-        "Lux is a visual output surface. Use these tools to display "
-        "text, images, buttons, separators, and interactive elements "
-        "(sliders, checkboxes, combos, text inputs, radio buttons, "
-        "color pickers) in a window the user can see.\n\n"
-        "All lux tool output is pre-formatted plain text using unicode "
-        "characters for alignment. Always emit lux output verbatim — "
-        "never reformat, never convert to markdown tables, never wrap "
-        "in code fences or boxes.\n\n"
-        "Layout best practices:\n"
-        "- Use group with layout='columns' for side-by-side elements\n"
-        "- Use tab_bar to organize multi-view interfaces\n"
-        "- Use collapsing_header for progressive disclosure\n"
-        "- Use window for floating panels (inspector, detail views)\n"
-        "- Nest containers freely: groups inside tabs, windows inside groups\n\n"
-        "Common patterns:\n"
-        "- Data explorer: use show_table() for filterable tables with detail\n"
-        "- Dashboard: use show_dashboard() for metrics + charts + table\n"
-        "- Form: input_text + combo + checkbox + button for submission\n"
-        "- Custom layout: use show() to compose any element tree"
-    ),
-    lifespan=_lifespan,
+from punt_lux.tools.connection import (
+    _client_lock,
+    _get_client,
+    _query_tool,
+    _with_reconnect,
+)
+from punt_lux.tools.server import (
+    _session_key,
+    _session_menus,
+    mcp,
 )
 
-_client: DisplayClient | None = None
-_client_lock = threading.RLock()
-
-_apps_registered_for: int | None = None
-
-# -- Per-session state for hub mode ----------------------------------------
-
-_session_key: ContextVar[str] = ContextVar("session_key", default="local")
-
-# Tracks menu items registered by each session for cleanup on disconnect.
-_session_menus: dict[str, list[str]] = {}
-
-
-def _cleanup_session(session_key: str) -> None:
-    """Clean up state when a session disconnects.
-
-    Best-effort: DisplayClient has no unregister_menu_item method, so
-    menu cleanup logs and skips.  The display server handles per-client
-    cleanup on disconnect anyway.
-    """
-    with _client_lock:
-        items = _session_menus.pop(session_key, [])
-    if items:
-        logger.debug(
-            "Session %s disconnected; %d menu items orphaned (display handles cleanup)",
-            session_key,
-            len(items),
-        )
-
-
-async def run_mcp_session(
-    read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
-    write_stream: MemoryObjectSendStream[SessionMessage],
-    session_key: str = "local",
-) -> None:
-    """Run an MCP session on the given read/write streams.
-
-    Called by hub.py for each WebSocket connection.
-    Sets ``_session_key`` ContextVar for per-session state isolation.
-    """
-    token = _session_key.set(session_key)
-    try:
-        # FastMCP private API — verify on fastmcp upgrades.
-        # _lifespan_manager() must be entered before server.run() so the
-        # lifespan context (eager display connect, retry tasks) is available.
-        server = getattr(mcp, "_mcp_server", None)
-        lifespan_mgr = getattr(mcp, "_lifespan_manager", None)
-        if server is None or lifespan_mgr is None:
-            msg = (
-                "FastMCP._mcp_server or _lifespan_manager not found. "
-                "This private API may have changed; check fastmcp version."
-            )
-            raise RuntimeError(msg)
-        async with lifespan_mgr():
-            await server.run(
-                read_stream,
-                write_stream,
-                server.create_initialization_options(),
-            )
-    finally:
-        _session_key.reset(token)
-        _cleanup_session(session_key)
-
-
-def _on_beads_browser(_msg: InteractionMessage) -> None:
-    """Callback: open the Beads Browser in a frame.
-
-    Runs in a daemon thread to avoid blocking the listener thread
-    (render_beads_board calls subprocess.run with a 10s timeout).
-    """
-    if _client is None:
-        logger.warning("_on_beads_browser: client is None, ignoring menu click")
-        return
-    threading.Thread(target=render_beads_board, args=(_client,), daemon=True).start()
-
-
-def _setup_apps(client: DisplayClient) -> None:
-    """Register built-in app menu items and callbacks.
-
-    Idempotent per client identity — safe to call on every
-    ``_get_client()`` invocation.
-    """
-    global _apps_registered_for
-    if _apps_registered_for == id(client):
-        return
-    client.declare_menu_item({"id": "app-beads", "label": "Beads Browser"})
-    client.on_event("app-beads", "menu", _on_beads_browser)
-    _apps_registered_for = id(client)
-
-
-def _get_client() -> DisplayClient:
-    """Return a connected DisplayClient, creating or reconnecting as needed.
-
-    Thread-safe: holds ``_client_lock`` to prevent duplicate creation
-    when called concurrently from the lifespan thread and MCP tool threads.
-    """
-    global _client
-    with _client_lock:
-        if _client is None:
-            _client = DisplayClient(name="lux-mcp")
-        _setup_apps(_client)
-        if not _client.is_connected:
-            _client.connect()
-        if not _client.listener_active:
-            _client.start_listener()
-        return _client
-
-
-def _with_reconnect[T](fn: Callable[[], T]) -> T:
-    """Run *fn* with one automatic reconnect on socket failure.
-
-    If the display server restarts, the cached socket dies silently —
-    ``is_connected`` still returns True because the socket object exists.
-    This wrapper catches ``OSError`` (covers broken pipe, connection
-    reset, bad file descriptor, etc.), closes the stale socket,
-    reconnects the same client instance (preserving accumulated state
-    like registered menu items), and retries *fn* exactly once.
-
-    Holds ``_client_lock`` during the close/reconnect sequence to
-    prevent races with ``_get_client()`` in other threads.
-    """
-    global _client
-    try:
-        return fn()
-    except OSError as exc:
-        logger.info("Connection lost (%s), reconnecting to display", type(exc).__name__)
-        with _client_lock:
-            if _client is not None:
-                _client.close()
-                try:
-                    _client.connect()
-                except (OSError, RuntimeError) as reconnect_exc:
-                    msg = f"Reconnect failed after connection loss: {reconnect_exc}"
-                    raise RuntimeError(msg) from exc
-            return fn()
-
-
-def _query_tool(
-    method: str,
-    *,
-    doc: str = "",
-) -> Callable[..., Callable[..., str]]:
-    """Wrap a param-builder as a query-based MCP tool."""
-
-    def decorator(fn: Callable[..., dict[str, Any] | None]) -> Callable[..., str]:
-        @mcp.tool()
-        @functools.wraps(fn)
-        def wrapper(**kwargs: Any) -> str:
-            if not is_display_running(default_socket_path()):
-                return "not running"
-            params = fn(**kwargs) or {}
-
-            def _call() -> str:
-                client = _get_client()
-                response = client.query(method, params)
-                if response is None:
-                    return "timeout"
-                if response.error:
-                    return f"error: {response.error}"
-                return json.dumps(response.result, indent=2)
-
-            return _with_reconnect(_call)
-
-        if doc:
-            wrapper.__doc__ = doc
-        return wrapper
-
-    return decorator
+logger = logging.getLogger(__name__)
 
 
 @mcp.tool()

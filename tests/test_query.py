@@ -394,7 +394,7 @@ class TestTier1DisplayTools:
 
         from punt_lux.tools import get_display_info
 
-        with patch("punt_lux.tools.is_display_running", return_value=False):
+        with patch("punt_lux.tools.connection.is_display_running", return_value=False):
             assert get_display_info() == "not running"
 
     def test_get_window_settings_not_running(self) -> None:
@@ -402,7 +402,7 @@ class TestTier1DisplayTools:
 
         from punt_lux.tools import get_window_settings
 
-        with patch("punt_lux.tools.is_display_running", return_value=False):
+        with patch("punt_lux.tools.connection.is_display_running", return_value=False):
             assert get_window_settings() == "not running"
 
     def test_get_theme_not_running(self) -> None:
@@ -410,7 +410,7 @@ class TestTier1DisplayTools:
 
         from punt_lux.tools import get_theme
 
-        with patch("punt_lux.tools.is_display_running", return_value=False):
+        with patch("punt_lux.tools.connection.is_display_running", return_value=False):
             assert get_theme() == "not running"
 
 
@@ -427,7 +427,7 @@ class TestTier1ClientMenuTools:
 
         from punt_lux.tools import list_clients
 
-        with patch("punt_lux.tools.is_display_running", return_value=False):
+        with patch("punt_lux.tools.connection.is_display_running", return_value=False):
             assert list_clients() == "not running"
 
     def test_list_menus_not_running(self) -> None:
@@ -435,7 +435,7 @@ class TestTier1ClientMenuTools:
 
         from punt_lux.tools import list_menus
 
-        with patch("punt_lux.tools.is_display_running", return_value=False):
+        with patch("punt_lux.tools.connection.is_display_running", return_value=False):
             assert list_menus() == "not running"
 
 
@@ -452,7 +452,7 @@ class TestTier1EventErrorTools:
 
         from punt_lux.tools import list_recent_events
 
-        with patch("punt_lux.tools.is_display_running", return_value=False):
+        with patch("punt_lux.tools.connection.is_display_running", return_value=False):
             assert list_recent_events() == "not running"
 
     def test_list_errors_not_running(self) -> None:
@@ -460,7 +460,7 @@ class TestTier1EventErrorTools:
 
         from punt_lux.tools import list_errors
 
-        with patch("punt_lux.tools.is_display_running", return_value=False):
+        with patch("punt_lux.tools.connection.is_display_running", return_value=False):
             assert list_errors() == "not running"
 
 
@@ -477,7 +477,7 @@ class TestTier3WriteTools:
 
         from punt_lux.tools import set_window_settings
 
-        with patch("punt_lux.tools.is_display_running", return_value=False):
+        with patch("punt_lux.tools.tools.is_display_running", return_value=False):
             assert set_window_settings(opacity=0.5) == "not running"
 
     def test_set_window_settings_no_params(self) -> None:
@@ -490,7 +490,7 @@ class TestTier3WriteTools:
 
         from punt_lux.tools import set_frame_state
 
-        with patch("punt_lux.tools.is_display_running", return_value=False):
+        with patch("punt_lux.tools.connection.is_display_running", return_value=False):
             assert set_frame_state(frame_id="test") == "not running"
 
     def test_set_theme_not_running(self) -> None:
@@ -498,5 +498,5 @@ class TestTier3WriteTools:
 
         from punt_lux.tools import set_theme
 
-        with patch("punt_lux.tools.is_display_running", return_value=False):
+        with patch("punt_lux.tools.tools.is_display_running", return_value=False):
             assert set_theme("dark") == "not running"

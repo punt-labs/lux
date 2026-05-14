@@ -120,6 +120,8 @@ ignore = [
 "src/punt_lux/cli.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/show.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/hub.py" = ["PLC0415"]
+"src/punt_lux/tools/server.py" = ["PLC0415"]
+"src/punt_lux/tools/__init__.py" = ["PLC0415"]
 "src/punt_lux/service.py" = ["S603", "S607", "PLC0415"]
 "src/punt_lux/_backends.py" = ["S603", "S607", "PLC0415"]
 
@@ -183,6 +185,10 @@ venvPath = "."
 venv = ".venv"
 include = ["src", "tests"]
 reportMissingTypeStubs = false
+
+[[tool.pyright.executionEnvironments]]
+root = "src/punt_lux/tools"
+reportPrivateUsage = false
 
 [[tool.pyright.executionEnvironments]]
 root = "tests"
