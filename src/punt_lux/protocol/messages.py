@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal, cast
+from typing import Any, Literal, Self, cast
 
 from punt_lux.protocol.elements import (
     Element,
@@ -17,7 +17,6 @@ from punt_lux.protocol.elements import (
 )
 
 __all__ = [
-    "_MESSAGE_SERIALIZERS",
     "AckMessage",
     "ClearMessage",
     "ClientMessage",
@@ -297,7 +296,111 @@ DisplayMessage = (
 Message = ClientMessage | DisplayMessage | UnknownMessage
 
 # ---------------------------------------------------------------------------
-# Serialization
+# Codec type aliases
+# ---------------------------------------------------------------------------
+
+_Serializer = Callable[..., dict[str, Any]]
+_Deserializer = Callable[[dict[str, Any]], Any]
+
+_CodecEntry = tuple[type, _Serializer, _Deserializer]
+
+# ---------------------------------------------------------------------------
+# MessageRegistry — dispatch table mapping type strings to codec pairs
+# ---------------------------------------------------------------------------
+
+
+class MessageRegistry:
+    """Dispatch table mapping type strings to codec pairs.
+
+    Instance-based so tests can create isolated registries without
+    polluting the module-level default.  The production registry is
+    a module-level instance populated at import time.
+    """
+
+    _codecs: dict[str, _CodecEntry]
+    _serializers: dict[type, _Serializer]
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._codecs = {}
+        self._serializers = {}
+        return self
+
+    def register(
+        self,
+        type_str: str,
+        cls: type,
+        to_fn: _Serializer,
+        from_fn: _Deserializer,
+    ) -> None:
+        """Register a message type's codec pair."""
+        if type_str in self._codecs:
+            msg = f"Duplicate message registration: {type_str!r}"
+            raise ValueError(msg)
+        if cls in self._serializers:
+            msg = f"Duplicate class registration: {cls.__name__}"
+            raise ValueError(msg)
+        self._codecs[type_str] = (cls, to_fn, from_fn)
+        self._serializers[cls] = to_fn
+
+    def to_dict(self, msg: Message) -> dict[str, Any]:
+        """Serialize a Message to a JSON-compatible dict."""
+        serializer = self._serializers.get(type(msg))
+        if serializer is not None:
+            return serializer(msg)
+        err = f"Unknown message type: {type(msg)}"
+        raise TypeError(err)
+
+    def from_dict(self, d: dict[str, Any]) -> Message:
+        """Deserialize a JSON dict to the appropriate Message."""
+        msg_type = d.get("type", "")
+        if not isinstance(msg_type, str) or not msg_type:
+            err = "Message missing or invalid 'type' field"
+            raise ValueError(err)
+        codec = self._codecs.get(msg_type)
+        if codec is not None:
+            _, _, from_fn = codec
+            return cast("Message", from_fn(d))
+        return UnknownMessage(raw_type=msg_type, data=d)
+
+    @property
+    def registered_types(self) -> frozenset[str]:
+        """Return the set of registered type strings."""
+        return frozenset(self._codecs)
+
+    @property
+    def serializers(self) -> dict[type, _Serializer]:
+        """Return the serializer mapping (read-only copy)."""
+        return dict(self._serializers)
+
+
+# ---------------------------------------------------------------------------
+# Helper functions
+# ---------------------------------------------------------------------------
+
+
+def _ts_dict(msg_type: str, ts: float | None) -> dict[str, Any]:
+    d: dict[str, Any] = {"type": msg_type}
+    if ts is not None:
+        d["ts"] = ts
+    return d
+
+
+def _parse_frame_size(raw: object) -> tuple[int, int] | None:
+    """Validate and convert a frame_size value to a 2-tuple or None."""
+    if not isinstance(raw, (list, tuple)):
+        return None
+    seq = cast("list[int]", raw)
+    if len(seq) != 2:
+        return None
+    try:
+        return (int(seq[0]), int(seq[1]))
+    except (TypeError, ValueError):
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Codec functions — serializers
 # ---------------------------------------------------------------------------
 
 
@@ -340,263 +443,323 @@ def _interaction_to_dict(msg: InteractionMessage) -> dict[str, Any]:
     return d
 
 
-def _ts_dict(msg_type: str, ts: float | None) -> dict[str, Any]:
-    d: dict[str, Any] = {"type": msg_type}
-    if ts is not None:
-        d["ts"] = ts
+def _ready_to_dict(m: ReadyMessage) -> dict[str, Any]:
+    d: dict[str, Any] = {"type": m.type, "version": m.version}
+    if m.capabilities:
+        d["capabilities"] = m.capabilities
     return d
 
 
-_MessageSerializer = Callable[..., dict[str, Any]]
-_MESSAGE_SERIALIZERS: dict[type, _MessageSerializer] = {}
+def _ack_to_dict(m: AckMessage) -> dict[str, Any]:
+    d: dict[str, Any] = {"type": m.type, "scene_id": m.scene_id}
+    if m.ts is not None:
+        d["ts"] = m.ts
+    if m.error is not None:
+        d["error"] = m.error
+    return d
+
+
+def _pong_to_dict(m: PongMessage) -> dict[str, Any]:
+    d = _ts_dict(m.type, m.ts)
+    if m.display_ts is not None:
+        d["display_ts"] = m.display_ts
+    return d
+
+
+def _register_menu_to_dict(m: RegisterMenuMessage) -> dict[str, Any]:
+    return {"type": m.type, "items": m.items}
+
+
+def _introspect_response_to_dict(m: IntrospectResponse) -> dict[str, Any]:
+    d: dict[str, Any] = {
+        "type": m.type,
+        "scene_id": m.scene_id,
+        "elements": m.elements,
+    }
+    if m.error is not None:
+        d["error"] = m.error
+    return d
+
+
+def _screenshot_response_to_dict(m: ScreenshotResponse) -> dict[str, Any]:
+    d: dict[str, Any] = {"type": m.type, "path": m.path}
+    if m.error is not None:
+        d["error"] = m.error
+    return d
+
+
+def _query_request_to_dict(m: QueryRequest) -> dict[str, Any]:
+    d: dict[str, Any] = {"type": m.type, "method": m.method}
+    if m.params:
+        d["params"] = m.params
+    return d
+
+
+def _query_response_to_dict(m: QueryResponse) -> dict[str, Any]:
+    d: dict[str, Any] = {"type": m.type, "method": m.method, "result": m.result}
+    if m.error is not None:
+        d["error"] = m.error
+    return d
+
+
+def _connect_to_dict(m: ConnectMessage) -> dict[str, Any]:
+    return {"type": m.type, "name": m.name}
+
+
+def _clear_to_dict(m: ClearMessage) -> dict[str, Any]:
+    return {"type": m.type}
+
+
+def _ping_to_dict(m: PingMessage) -> dict[str, Any]:
+    return _ts_dict(m.type, m.ts)
+
+
+def _menu_to_dict(m: MenuMessage) -> dict[str, Any]:
+    return {"type": m.type, "menus": m.menus}
+
+
+def _theme_to_dict(m: ThemeMessage) -> dict[str, Any]:
+    return {"type": m.type, "theme": m.theme}
+
+
+def _introspect_request_to_dict(m: IntrospectRequest) -> dict[str, Any]:
+    return {"type": m.type, "scene_id": m.scene_id}
+
+
+def _list_scenes_request_to_dict(m: ListScenesRequest) -> dict[str, Any]:
+    return {"type": m.type}
+
+
+def _list_scenes_response_to_dict(m: ListScenesResponse) -> dict[str, Any]:
+    return {"type": m.type, "scenes": m.scenes, "frames": m.frames}
+
+
+def _screenshot_request_to_dict(m: ScreenshotRequest) -> dict[str, Any]:
+    return {"type": m.type}
+
+
+def _unknown_to_dict(m: UnknownMessage) -> dict[str, Any]:
+    d = dict(m.data)
+    d["type"] = m.raw_type
+    return d
+
+
+# ---------------------------------------------------------------------------
+# Codec functions — deserializers
+# ---------------------------------------------------------------------------
+
+
+def _scene_from_dict(d: dict[str, Any]) -> SceneMessage:
+    elements = [element_from_dict(e) for e in d.get("elements", [])]
+    raw_frame_size = d.get("frame_size")
+    frame_size = _parse_frame_size(raw_frame_size) if raw_frame_size else None
+    raw_flags = d.get("frame_flags")
+    frame_flags: dict[str, bool] | None = (
+        cast("dict[str, bool]", raw_flags) if isinstance(raw_flags, dict) else None
+    )
+    raw_layout = d.get("frame_layout")
+    frame_layout: Literal["tab", "stack"] | None = None
+    if isinstance(raw_layout, str) and raw_layout in ("tab", "stack"):
+        frame_layout = cast("Literal['tab', 'stack']", raw_layout)  # pyright: ignore[reportUnnecessaryCast]
+    return SceneMessage(
+        id=d["id"],
+        elements=elements,
+        layout=d.get("layout", "single"),
+        title=d.get("title"),
+        frame_id=d.get("frame_id"),
+        frame_title=d.get("frame_title"),
+        frame_size=frame_size,
+        frame_flags=frame_flags,
+        frame_layout=frame_layout,
+    )
+
+
+def _update_from_dict(d: dict[str, Any]) -> UpdateMessage:
+    patches = [_patch_from_dict(p) for p in d.get("patches", [])]
+    return UpdateMessage(scene_id=d["scene_id"], patches=patches)
+
+
+def _interaction_from_dict(d: dict[str, Any]) -> InteractionMessage:
+    return InteractionMessage(
+        element_id=d["element_id"],
+        action=d["action"],
+        ts=d.get("ts"),
+        value=d.get("value"),
+        scene_id=d.get("scene_id"),
+    )
+
+
+def _connect_from_dict(d: dict[str, Any]) -> ConnectMessage:
+    name = d.get("name")
+    if not isinstance(name, str) or not name.strip():
+        err = "ConnectMessage missing or invalid 'name' field"
+        raise ValueError(err)
+    return ConnectMessage(name=name)
+
+
+def _register_menu_from_dict(d: dict[str, Any]) -> RegisterMenuMessage:
+    raw = d.get("items")
+    raw_items = cast("list[Any]", raw) if isinstance(raw, list) else []  # type: ignore[redundant-cast]
+    return RegisterMenuMessage(items=[e for e in raw_items if isinstance(e, dict)])
+
+
+def _introspect_response_from_dict(d: dict[str, Any]) -> IntrospectResponse:
+    return IntrospectResponse(
+        scene_id=d["scene_id"],
+        elements=d.get("elements", []),
+        error=d.get("error"),
+    )
+
+
+def _screenshot_response_from_dict(d: dict[str, Any]) -> ScreenshotResponse:
+    return ScreenshotResponse(
+        path=d.get("path", ""),
+        error=d.get("error"),
+    )
+
+
+def _ready_from_dict(d: dict[str, Any]) -> ReadyMessage:
+    return ReadyMessage(
+        version=d.get("version", PROTOCOL_VERSION),
+        capabilities=d.get("capabilities", []),
+    )
+
+
+def _ack_from_dict(d: dict[str, Any]) -> AckMessage:
+    return AckMessage(scene_id=d["scene_id"], ts=d.get("ts"), error=d.get("error"))
+
+
+def _pong_from_dict(d: dict[str, Any]) -> PongMessage:
+    return PongMessage(ts=d.get("ts"), display_ts=d.get("display_ts"))
+
+
+def _query_request_from_dict(d: dict[str, Any]) -> QueryRequest:
+    return QueryRequest(method=d["method"], params=d.get("params", {}))
+
+
+def _query_response_from_dict(d: dict[str, Any]) -> QueryResponse:
+    return QueryResponse(
+        method=d["method"],
+        result=d.get("result", {}),
+        error=d.get("error"),
+    )
+
+
+def _clear_from_dict(_d: dict[str, Any]) -> ClearMessage:
+    return ClearMessage()
+
+
+def _ping_from_dict(d: dict[str, Any]) -> PingMessage:
+    return PingMessage(ts=d.get("ts"))
+
+
+def _menu_from_dict(d: dict[str, Any]) -> MenuMessage:
+    return MenuMessage(menus=d.get("menus", []))
+
+
+def _theme_from_dict(d: dict[str, Any]) -> ThemeMessage:
+    return ThemeMessage(theme=d["theme"])
+
+
+def _introspect_request_from_dict(d: dict[str, Any]) -> IntrospectRequest:
+    return IntrospectRequest(scene_id=d["scene_id"])
+
+
+def _list_scenes_request_from_dict(_d: dict[str, Any]) -> ListScenesRequest:
+    return ListScenesRequest()
+
+
+def _list_scenes_response_from_dict(d: dict[str, Any]) -> ListScenesResponse:
+    return ListScenesResponse(scenes=d.get("scenes", []), frames=d.get("frames", []))
+
+
+def _screenshot_request_from_dict(_d: dict[str, Any]) -> ScreenshotRequest:
+    return ScreenshotRequest()
+
+
+def _unknown_from_dict(d: dict[str, Any]) -> UnknownMessage:
+    return UnknownMessage(raw_type=d.get("type", "unknown"), data=d)
+
+
+# ---------------------------------------------------------------------------
+# Default registry — populated at import time
+# ---------------------------------------------------------------------------
+
+_registry = MessageRegistry()
+
+_registry.register("scene", SceneMessage, _scene_to_dict, _scene_from_dict)
+_registry.register("update", UpdateMessage, _update_to_dict, _update_from_dict)
+_registry.register(
+    "interaction", InteractionMessage, _interaction_to_dict, _interaction_from_dict
+)
+_registry.register("connect", ConnectMessage, _connect_to_dict, _connect_from_dict)
+_registry.register(
+    "register_menu",
+    RegisterMenuMessage,
+    _register_menu_to_dict,
+    _register_menu_from_dict,
+)
+_registry.register(
+    "introspect_response",
+    IntrospectResponse,
+    _introspect_response_to_dict,
+    _introspect_response_from_dict,
+)
+_registry.register(
+    "screenshot_response",
+    ScreenshotResponse,
+    _screenshot_response_to_dict,
+    _screenshot_response_from_dict,
+)
+_registry.register(
+    "query_request", QueryRequest, _query_request_to_dict, _query_request_from_dict
+)
+_registry.register(
+    "query_response", QueryResponse, _query_response_to_dict, _query_response_from_dict
+)
+_registry.register("ready", ReadyMessage, _ready_to_dict, _ready_from_dict)
+_registry.register("ack", AckMessage, _ack_to_dict, _ack_from_dict)
+_registry.register("pong", PongMessage, _pong_to_dict, _pong_from_dict)
+_registry.register("clear", ClearMessage, _clear_to_dict, _clear_from_dict)
+_registry.register("ping", PingMessage, _ping_to_dict, _ping_from_dict)
+_registry.register("menu", MenuMessage, _menu_to_dict, _menu_from_dict)
+_registry.register("theme", ThemeMessage, _theme_to_dict, _theme_from_dict)
+_registry.register(
+    "introspect_request",
+    IntrospectRequest,
+    _introspect_request_to_dict,
+    _introspect_request_from_dict,
+)
+_registry.register(
+    "list_scenes_request",
+    ListScenesRequest,
+    _list_scenes_request_to_dict,
+    _list_scenes_request_from_dict,
+)
+_registry.register(
+    "list_scenes_response",
+    ListScenesResponse,
+    _list_scenes_response_to_dict,
+    _list_scenes_response_from_dict,
+)
+_registry.register(
+    "screenshot_request",
+    ScreenshotRequest,
+    _screenshot_request_to_dict,
+    _screenshot_request_from_dict,
+)
+_registry.register("unknown", UnknownMessage, _unknown_to_dict, _unknown_from_dict)
+
+# ---------------------------------------------------------------------------
+# Public API (unchanged signatures)
+# ---------------------------------------------------------------------------
 
 
 def message_to_dict(msg: Message) -> dict[str, Any]:
     """Serialize a Message dataclass to a JSON-compatible dict."""
-    serializer = _MESSAGE_SERIALIZERS.get(type(msg))
-    if serializer is not None:
-        result: dict[str, Any] = serializer(msg)
-        return result
-    msg_str = f"Unknown message type: {type(msg)}"
-    raise TypeError(msg_str)
+    return _registry.to_dict(msg)
 
 
-def _register_serializers() -> None:  # noqa: C901
-    _MESSAGE_SERIALIZERS[SceneMessage] = _scene_to_dict
-    _MESSAGE_SERIALIZERS[UpdateMessage] = _update_to_dict
-    _MESSAGE_SERIALIZERS[InteractionMessage] = _interaction_to_dict
-
-    def _clear(m: ClearMessage) -> dict[str, Any]:
-        return {"type": m.type}
-
-    def _ping(m: PingMessage) -> dict[str, Any]:
-        return _ts_dict(m.type, m.ts)
-
-    _MESSAGE_SERIALIZERS[ClearMessage] = _clear
-    _MESSAGE_SERIALIZERS[PingMessage] = _ping
-
-    def _menu(m: MenuMessage) -> dict[str, Any]:
-        return {"type": m.type, "menus": m.menus}
-
-    _MESSAGE_SERIALIZERS[MenuMessage] = _menu
-
-    def _theme(m: ThemeMessage) -> dict[str, Any]:
-        return {"type": m.type, "theme": m.theme}
-
-    _MESSAGE_SERIALIZERS[ThemeMessage] = _theme
-
-    def _register_menu(m: RegisterMenuMessage) -> dict[str, Any]:
-        return {"type": m.type, "items": m.items}
-
-    _MESSAGE_SERIALIZERS[RegisterMenuMessage] = _register_menu
-
-    def _ready(m: ReadyMessage) -> dict[str, Any]:
-        d: dict[str, Any] = {"type": m.type, "version": m.version}
-        if m.capabilities:
-            d["capabilities"] = m.capabilities
-        return d
-
-    _MESSAGE_SERIALIZERS[ReadyMessage] = _ready
-
-    def _ack(m: AckMessage) -> dict[str, Any]:
-        d: dict[str, Any] = {"type": m.type, "scene_id": m.scene_id}
-        if m.ts is not None:
-            d["ts"] = m.ts
-        if m.error is not None:
-            d["error"] = m.error
-        return d
-
-    _MESSAGE_SERIALIZERS[AckMessage] = _ack
-
-    def _pong(m: PongMessage) -> dict[str, Any]:
-        d = _ts_dict(m.type, m.ts)
-        if m.display_ts is not None:
-            d["display_ts"] = m.display_ts
-        return d
-
-    _MESSAGE_SERIALIZERS[PongMessage] = _pong
-
-    def _introspect_req(m: IntrospectRequest) -> dict[str, Any]:
-        return {"type": m.type, "scene_id": m.scene_id}
-
-    _MESSAGE_SERIALIZERS[IntrospectRequest] = _introspect_req
-
-    def _introspect_resp(m: IntrospectResponse) -> dict[str, Any]:
-        d: dict[str, Any] = {
-            "type": m.type,
-            "scene_id": m.scene_id,
-            "elements": m.elements,
-        }
-        if m.error is not None:
-            d["error"] = m.error
-        return d
-
-    _MESSAGE_SERIALIZERS[IntrospectResponse] = _introspect_resp
-
-    def _connect(m: ConnectMessage) -> dict[str, Any]:
-        return {"type": m.type, "name": m.name}
-
-    _MESSAGE_SERIALIZERS[ConnectMessage] = _connect
-
-    def _list_scenes_req(m: ListScenesRequest) -> dict[str, Any]:
-        return {"type": m.type}
-
-    _MESSAGE_SERIALIZERS[ListScenesRequest] = _list_scenes_req
-
-    def _list_scenes_resp(m: ListScenesResponse) -> dict[str, Any]:
-        return {"type": m.type, "scenes": m.scenes, "frames": m.frames}
-
-    _MESSAGE_SERIALIZERS[ListScenesResponse] = _list_scenes_resp
-
-    def _screenshot_req(m: ScreenshotRequest) -> dict[str, Any]:
-        return {"type": m.type}
-
-    _MESSAGE_SERIALIZERS[ScreenshotRequest] = _screenshot_req
-
-    def _screenshot_resp(m: ScreenshotResponse) -> dict[str, Any]:
-        d: dict[str, Any] = {"type": m.type, "path": m.path}
-        if m.error is not None:
-            d["error"] = m.error
-        return d
-
-    _MESSAGE_SERIALIZERS[ScreenshotResponse] = _screenshot_resp
-
-    def _query_req(m: QueryRequest) -> dict[str, Any]:
-        d: dict[str, Any] = {"type": m.type, "method": m.method}
-        if m.params:
-            d["params"] = m.params
-        return d
-
-    _MESSAGE_SERIALIZERS[QueryRequest] = _query_req
-
-    def _query_resp(m: QueryResponse) -> dict[str, Any]:
-        d: dict[str, Any] = {"type": m.type, "method": m.method, "result": m.result}
-        if m.error is not None:
-            d["error"] = m.error
-        return d
-
-    _MESSAGE_SERIALIZERS[QueryResponse] = _query_resp
-
-    def _unknown(m: UnknownMessage) -> dict[str, Any]:
-        d = dict(m.data)
-        d["type"] = m.raw_type
-        return d
-
-    _MESSAGE_SERIALIZERS[UnknownMessage] = _unknown
-
-
-_register_serializers()
-
-
-def _parse_frame_size(raw: object) -> tuple[int, int] | None:
-    """Validate and convert a frame_size value to a 2-tuple or None."""
-    if not isinstance(raw, (list, tuple)):
-        return None
-    seq = cast("list[int]", raw)
-    if len(seq) != 2:
-        return None
-    try:
-        return (int(seq[0]), int(seq[1]))
-    except (TypeError, ValueError):
-        return None
-
-
-def message_from_dict(d: dict[str, Any]) -> Message:  # noqa: C901
+def message_from_dict(d: dict[str, Any]) -> Message:
     """Deserialize a JSON dict to the appropriate Message dataclass."""
-    msg_type = d.get("type", "")
-
-    if msg_type == "scene":
-        elements = [element_from_dict(e) for e in d.get("elements", [])]
-        return SceneMessage(
-            id=d["id"],
-            elements=elements,
-            layout=d.get("layout", "single"),
-            title=d.get("title"),
-            frame_id=d.get("frame_id"),
-            frame_title=d.get("frame_title"),
-            frame_size=_parse_frame_size(d.get("frame_size")),
-            frame_flags=(
-                d["frame_flags"] if isinstance(d.get("frame_flags"), dict) else None
-            ),
-            frame_layout=(
-                d["frame_layout"]
-                if isinstance(d.get("frame_layout"), str)
-                and d["frame_layout"] in ("tab", "stack")
-                else None
-            ),
-        )
-    if msg_type == "update":
-        patches = [_patch_from_dict(p) for p in d.get("patches", [])]
-        return UpdateMessage(scene_id=d["scene_id"], patches=patches)
-    if msg_type == "clear":
-        return ClearMessage()
-    if msg_type == "menu":
-        return MenuMessage(menus=d.get("menus", []))
-    if msg_type == "theme":
-        return ThemeMessage(theme=d["theme"])
-    if msg_type == "register_menu":
-        raw = d.get("items")
-        raw_items = cast("list[Any]", raw) if isinstance(raw, list) else []  # type: ignore[redundant-cast]
-        return RegisterMenuMessage(items=[e for e in raw_items if isinstance(e, dict)])
-    if msg_type == "ping":
-        return PingMessage(ts=d.get("ts"))
-    if msg_type == "introspect_request":
-        return IntrospectRequest(scene_id=d["scene_id"])
-    if msg_type == "introspect_response":
-        return IntrospectResponse(
-            scene_id=d["scene_id"],
-            elements=d.get("elements", []),
-            error=d.get("error"),
-        )
-    if msg_type == "list_scenes_request":
-        return ListScenesRequest()
-    if msg_type == "list_scenes_response":
-        return ListScenesResponse(
-            scenes=d.get("scenes", []),
-            frames=d.get("frames", []),
-        )
-    if msg_type == "screenshot_request":
-        return ScreenshotRequest()
-    if msg_type == "screenshot_response":
-        return ScreenshotResponse(
-            path=d.get("path", ""),
-            error=d.get("error"),
-        )
-    if msg_type == "ready":
-        return ReadyMessage(
-            version=d.get("version", PROTOCOL_VERSION),
-            capabilities=d.get("capabilities", []),
-        )
-    if msg_type == "ack":
-        return AckMessage(scene_id=d["scene_id"], ts=d.get("ts"), error=d.get("error"))
-    if msg_type == "interaction":
-        return InteractionMessage(
-            element_id=d["element_id"],
-            action=d["action"],
-            ts=d.get("ts"),
-            value=d.get("value"),
-            scene_id=d.get("scene_id"),
-        )
-    if msg_type == "pong":
-        return PongMessage(ts=d.get("ts"), display_ts=d.get("display_ts"))
-
-    if msg_type == "connect":
-        name = d.get("name")
-        if not isinstance(name, str) or not name.strip():
-            err = "ConnectMessage missing or invalid 'name' field"
-            raise ValueError(err)
-        return ConnectMessage(name=name)
-    if msg_type == "query_request":
-        return QueryRequest(method=d["method"], params=d.get("params", {}))
-    if msg_type == "query_response":
-        return QueryResponse(
-            method=d["method"],
-            result=d.get("result", {}),
-            error=d.get("error"),
-        )
-
-    if not isinstance(msg_type, str) or not msg_type:
-        err = "Message missing or invalid 'type' field"
-        raise ValueError(err)
-
-    return UnknownMessage(raw_type=msg_type, data=d)
+    return _registry.from_dict(d)

@@ -1826,3 +1826,100 @@ class TestScreenshot:
         assert resp.path == ""
         assert resp.error is None
         assert resp.type == "screenshot_response"
+
+
+# ---------------------------------------------------------------------------
+# MessageRegistry
+# ---------------------------------------------------------------------------
+
+
+class TestMessageRegistry:
+    """Tests for the MessageRegistry class introduced by the codec refactor."""
+
+    def test_isolated_registry_roundtrip(self) -> None:
+        """Create a fresh registry, register one type, round-trip it."""
+        from punt_lux.protocol.messages import MessageRegistry
+
+        def _ping_ser(m: PingMessage) -> dict[str, Any]:
+            return {"type": "ping", "ts": m.ts}
+
+        def _ping_de(d: dict[str, Any]) -> PingMessage:
+            return PingMessage(ts=d.get("ts"))
+
+        reg = MessageRegistry()
+        reg.register("ping", PingMessage, _ping_ser, _ping_de)
+        d = reg.to_dict(PingMessage(ts=1.0))
+        restored = reg.from_dict(d)
+        assert isinstance(restored, PingMessage)
+        assert restored.ts == 1.0
+
+    def test_duplicate_registration_raises(self) -> None:
+        """Registering the same type string twice is a ValueError."""
+        from punt_lux.protocol.messages import MessageRegistry
+
+        def _ser(m: PingMessage) -> dict[str, Any]:
+            return {}
+
+        def _de(d: dict[str, Any]) -> PingMessage:
+            return PingMessage()
+
+        reg = MessageRegistry()
+        reg.register("ping", PingMessage, _ser, _de)
+        with pytest.raises(ValueError, match="Duplicate"):
+            reg.register("ping", PingMessage, _ser, _de)
+
+    def test_unknown_type_returns_unknown_message(self) -> None:
+        """Unregistered type strings produce UnknownMessage."""
+        from punt_lux.protocol.messages import MessageRegistry
+
+        reg = MessageRegistry()
+        msg = reg.from_dict({"type": "future_type", "x": 1})
+        assert isinstance(msg, UnknownMessage)
+        assert msg.raw_type == "future_type"
+
+    def test_missing_type_field_raises(self) -> None:
+        """Missing or invalid 'type' field raises ValueError."""
+        from punt_lux.protocol.messages import MessageRegistry
+
+        reg = MessageRegistry()
+        with pytest.raises(ValueError, match="missing or invalid"):
+            reg.from_dict({"data": 42})
+
+    def test_unhashable_type_raises_valueerror(self) -> None:
+        """Unhashable type values (list, dict) raise ValueError, not TypeError."""
+        from punt_lux.protocol.messages import MessageRegistry
+
+        reg = MessageRegistry()
+        with pytest.raises(ValueError, match="missing or invalid"):
+            reg.from_dict({"type": ["scene"]})
+        with pytest.raises(ValueError, match="missing or invalid"):
+            reg.from_dict({"type": {"nested": "dict"}})
+
+    def test_registry_completeness(self) -> None:
+        """Every non-unknown message type is registered on the default registry."""
+        from punt_lux.protocol.messages import _registry
+
+        expected_types = {
+            "scene",
+            "update",
+            "clear",
+            "ping",
+            "introspect_request",
+            "introspect_response",
+            "list_scenes_request",
+            "list_scenes_response",
+            "screenshot_request",
+            "screenshot_response",
+            "menu",
+            "theme",
+            "register_menu",
+            "connect",
+            "query_request",
+            "query_response",
+            "ready",
+            "ack",
+            "interaction",
+            "pong",
+            "unknown",
+        }
+        assert _registry.registered_types == expected_types

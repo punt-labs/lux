@@ -33,3 +33,4 @@
 {"ts":"2026-05-14T15:37:36Z","commit":"d0f89d9","files_scored":28,"files_improved":0,"files_regressed":2,"verdict":"fail","deltas":{}}
 {"ts":"2026-05-14T15:39:49Z","commit":"d0f89d9","files_scored":28,"files_improved":0,"files_regressed":2,"verdict":"fail","deltas":{}}
 {"ts":"2026-05-14T15:40:33Z","commit":"d0f89d9","files_scored":28,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{}}
+{"ts":"2026-05-14T17:17:20Z","commit":"39acc00","files_scored":28,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
