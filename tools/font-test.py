@@ -12,20 +12,16 @@ import subprocess
 import sys
 import time
 
-from punt_lux.paths import (
-    cleanup_stale_socket,
-    default_socket_path,
-    is_display_running,
-    pid_file_path,
-)
+from punt_lux.paths import DisplayPaths
 
-SOCK_PATH = default_socket_path()
-PID_PATH = pid_file_path(SOCK_PATH)
+dp = DisplayPaths()
+SOCK_PATH = dp.socket_path
+PID_PATH = dp.pid_path
 
 
 def _kill_existing() -> None:
     """Kill existing display server if running, with SIGKILL escalation."""
-    if not (is_display_running(SOCK_PATH) and SOCK_PATH.is_socket()):
+    if not (dp.is_running() and SOCK_PATH.is_socket()):
         return
 
     try:
@@ -37,13 +33,13 @@ def _kill_existing() -> None:
     os.kill(pid, signal.SIGTERM)
 
     for _ in range(20):
-        if not is_display_running(SOCK_PATH):
+        if not dp.is_running():
             return
         time.sleep(0.25)
 
     os.kill(pid, signal.SIGKILL)
     for _ in range(20):
-        if not is_display_running(SOCK_PATH):
+        if not dp.is_running():
             return
         time.sleep(0.1)
 
@@ -53,7 +49,7 @@ def _kill_existing() -> None:
 
 def main() -> None:
     _kill_existing()
-    cleanup_stale_socket(SOCK_PATH)
+    dp.cleanup_stale()
     SOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
 
     print("Starting dev display server...")

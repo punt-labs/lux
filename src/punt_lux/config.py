@@ -72,7 +72,7 @@ def resolve_config_path() -> Path:
     return DEFAULT_CONFIG_PATH
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class LuxConfig:
     """Snapshot of all config fields from .punt-labs/lux.md."""
 
