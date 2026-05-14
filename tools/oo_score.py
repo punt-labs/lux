@@ -509,6 +509,36 @@ class Ratchet:
             pass
         return None
 
+    @staticmethod
+    def _git_renamed_files() -> set[str]:
+        """Return new-path side of pure renames in the latest commit.
+
+        Pure renames have no content changes — they should not require
+        OO metric improvement in the ratchet.
+        """
+        git = Ratchet._resolve_git()
+        if git is None:
+            return set()
+        try:
+            result = subprocess.run(
+                [
+                    git,
+                    "diff",
+                    "-M100%",
+                    "--diff-filter=R",
+                    "--name-only",
+                    "HEAD~1..HEAD",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                return {line for line in result.stdout.strip().splitlines() if line}
+        except subprocess.TimeoutExpired:
+            pass
+        return set()
+
     # ------------------------------------------------------------------
     # Metric comparison helpers
     # ------------------------------------------------------------------
@@ -619,7 +649,11 @@ class Ratchet:
         self,
         current_by_file: dict[str, dict[str, float]],
     ) -> set[str]:
-        """Determine which scored Python files were touched in the latest commit."""
+        """Determine which scored Python files were touched in the latest commit.
+
+        Pure renames (no content change) are excluded — they are valid
+        refactoring steps that should not require metric improvement.
+        """
         git_touched = self._git_touched_files()
         scored_files = set(current_by_file)
 
@@ -628,6 +662,10 @@ class Ratchet:
         else:
             # Git unavailable — compare all scored files against baseline
             touched = scored_files
+
+        # Exclude pure renames — no content changed, nothing to improve
+        renamed = self._git_renamed_files()
+        touched -= renamed
 
         return {f for f in touched if f.endswith(".py")}
 
@@ -715,7 +753,8 @@ class Ratchet:
             )
 
         if not rows:
-            _writeln("  (all metrics unchanged)")
+            _writeln("  (all metrics unchanged -- baseline is current)")
+            return 0
 
         if any_regression:
             _writeln("\nFAIL: regression detected")

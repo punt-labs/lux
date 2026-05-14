@@ -142,15 +142,41 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol.py": {
-    "method_ratio": 0.12,
+  "src/punt_lux/protocol/__init__.py": {
+    "method_ratio": 0.455,
     "encapsulation_ratio": 1.0,
-    "avg_params": 0.95,
+    "avg_params": 0.91,
+    "max_complexity": 5.0,
+    "avg_complexity": 2.55,
+    "module_size": 256.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 0.143,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
+  "src/punt_lux/protocol/elements.py": {
+    "method_ratio": 0.078,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 0.94,
+    "max_complexity": 8.0,
+    "avg_complexity": 2.2,
+    "module_size": 1013.0,
+    "classes_per_module": 27.0,
+    "class_to_func_ratio": 0.314,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
+  "src/punt_lux/protocol/messages.py": {
+    "method_ratio": 0.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 1.0,
     "max_complexity": 30.0,
-    "avg_complexity": 2.48,
-    "module_size": 1513.0,
-    "classes_per_module": 49.0,
-    "class_to_func_ratio": 0.402,
+    "avg_complexity": 3.12,
+    "module_size": 464.0,
+    "classes_per_module": 21.0,
+    "class_to_func_ratio": 0.724,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
     "future_annotations": 1.0

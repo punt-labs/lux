@@ -35,6 +35,8 @@ from punt_lux.protocol import (
     PlotElement,
     PongMessage,
     ProgressElement,
+    QueryRequest,
+    QueryResponse,
     RadioElement,
     ReadyMessage,
     RegisterMenuMessage,
@@ -634,19 +636,97 @@ class TestSerialization:
         assert len(restored.patches) == 2
         assert restored.patches[1].remove is True
 
-    def test_all_message_types_roundtrip(self):
-        messages: list[Message] = [
-            ClearMessage(),
-            PingMessage(ts=1.0),
-            ReadyMessage(capabilities=["implot"]),
-            AckMessage(scene_id="s1", ts=2.0),
-            InteractionMessage(element_id="b1", action="click"),
-            PongMessage(ts=1.0, display_ts=2.0),
-        ]
-        for msg in messages:
-            d = message_to_dict(msg)
-            restored = message_from_dict(d)
-            assert type(restored) is type(msg)
+    @pytest.mark.parametrize(
+        "msg",
+        [
+            pytest.param(
+                SceneMessage(
+                    id="s1",
+                    elements=[TextElement(id="t1", content="hello")],
+                    layout="rows",
+                    title="Test",
+                ),
+                id="SceneMessage",
+            ),
+            pytest.param(
+                UpdateMessage(
+                    scene_id="s1",
+                    patches=[Patch(id="t1", set={"content": "new"})],
+                ),
+                id="UpdateMessage",
+            ),
+            pytest.param(ClearMessage(), id="ClearMessage"),
+            pytest.param(PingMessage(ts=1.0), id="PingMessage"),
+            pytest.param(IntrospectRequest(scene_id="s1"), id="IntrospectRequest"),
+            pytest.param(
+                IntrospectResponse(
+                    scene_id="s1",
+                    elements=[{"kind": "text", "id": "t1", "content": "hi"}],
+                ),
+                id="IntrospectResponse",
+            ),
+            pytest.param(ListScenesRequest(), id="ListScenesRequest"),
+            pytest.param(
+                ListScenesResponse(
+                    scenes=[{"scene_id": "s1", "element_count": 1}],
+                    frames=[{"frame_id": "f1", "title": "Main"}],
+                ),
+                id="ListScenesResponse",
+            ),
+            pytest.param(ScreenshotRequest(), id="ScreenshotRequest"),
+            pytest.param(
+                ScreenshotResponse(path="/tmp/shot.png"),
+                id="ScreenshotResponse",
+            ),
+            pytest.param(
+                MenuMessage(
+                    menus=[{"label": "Tools", "items": [{"label": "Run", "id": "r"}]}]
+                ),
+                id="MenuMessage",
+            ),
+            pytest.param(ThemeMessage(theme="imgui_colors_dark"), id="ThemeMessage"),
+            pytest.param(
+                RegisterMenuMessage(items=[{"label": "Deploy", "id": "deploy"}]),
+                id="RegisterMenuMessage",
+            ),
+            pytest.param(ConnectMessage(name="quarry"), id="ConnectMessage"),
+            pytest.param(
+                QueryRequest(method="get_theme", params={"key": "bg"}),
+                id="QueryRequest",
+            ),
+            pytest.param(
+                ReadyMessage(version="0.1", capabilities=["implot"]),
+                id="ReadyMessage",
+            ),
+            pytest.param(
+                AckMessage(scene_id="s1", ts=2.0, error=None),
+                id="AckMessage",
+            ),
+            pytest.param(
+                InteractionMessage(
+                    element_id="b1", action="click", value=42, scene_id="s1"
+                ),
+                id="InteractionMessage",
+            ),
+            pytest.param(PongMessage(ts=1.0, display_ts=2.0), id="PongMessage"),
+            pytest.param(
+                QueryResponse(
+                    method="get_theme",
+                    result={"theme": "dark"},
+                    error=None,
+                ),
+                id="QueryResponse",
+            ),
+            pytest.param(
+                UnknownMessage(raw_type="future_v2_msg", data={"x": 1, "y": "hello"}),
+                id="UnknownMessage",
+            ),
+        ],
+    )
+    def test_all_message_types_roundtrip(self, msg: Message) -> None:
+        d = message_to_dict(msg)
+        restored = message_from_dict(d)
+        assert type(restored) is type(msg)
 
     def test_unknown_message_type_returns_passthrough(self):
         msg = message_from_dict({"type": "bogus", "data": 42})
