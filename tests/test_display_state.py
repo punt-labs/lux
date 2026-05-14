@@ -62,6 +62,40 @@ def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
 
 
 # -----------------------------------------------------------------------
+# P.1: _emit_event stamps scene_id and appends to queue (not recursion)
+# -----------------------------------------------------------------------
+
+
+class TestEmitEvent:
+    def test_stamps_scene_id_and_appends(self) -> None:
+        """_emit_event must stamp None scene_id and append to _event_queue."""
+        server = _make_server()
+        server._current_scene_id = "s1"
+
+        event = InteractionMessage(element_id="b1", action="click", ts=1.0)
+        assert event.scene_id is None
+
+        server._emit_event(event)
+
+        assert len(server._event_queue) == 1
+        assert server._event_queue[0] is event
+        assert event.scene_id == "s1"
+
+    def test_preserves_existing_scene_id(self) -> None:
+        """_emit_event must not overwrite a pre-set scene_id."""
+        server = _make_server()
+        server._current_scene_id = "s1"
+
+        event = InteractionMessage(
+            element_id="b1", action="click", ts=1.0, scene_id="s2"
+        )
+        server._emit_event(event)
+
+        assert len(server._event_queue) == 1
+        assert event.scene_id == "s2"
+
+
+# -----------------------------------------------------------------------
 # Fix 1: Scene replacement and clear must drain the event queue
 # -----------------------------------------------------------------------
 

@@ -13,7 +13,7 @@ import socket
 import struct
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal, cast
+from typing import Any, Literal, Self, cast
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -1801,8 +1801,12 @@ class FrameReader:
     ``drain()`` for decoded messages. Handles partial reads gracefully.
     """
 
-    def __init__(self) -> None:
+    _buf: bytearray
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
         self._buf = bytearray()
+        return self
 
     @property
     def buffer_size(self) -> int:

@@ -31,7 +31,7 @@ import threading
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Self
 
 from punt_lux.paths import default_socket_path, ensure_display
 from punt_lux.protocol import (
@@ -91,44 +91,58 @@ class DisplayClient:
         Default timeout in seconds for :meth:`recv`.
     """
 
-    def __init__(
-        self,
+    _socket_path: Path | None
+    _name: str | None
+    _auto_spawn: bool
+    _connect_timeout: float
+    _recv_timeout: float
+    _sock: socket.socket | None
+    _ready: ReadyMessage | None
+    _pending: queue.SimpleQueue[Message]
+    _registered_menu_items: list[dict[str, Any]]
+    _lock: threading.Lock
+    _callbacks: dict[tuple[str, str], Callable[[InteractionMessage], None]]
+    _listener_thread: threading.Thread | None
+    _listener_stop: threading.Event
+    _ack_queue: queue.SimpleQueue[AckMessage]
+    _pong_queue: queue.SimpleQueue[PongMessage]
+    _introspect_queue: queue.SimpleQueue[IntrospectResponse]
+    _list_scenes_queue: queue.SimpleQueue[ListScenesResponse]
+    _screenshot_queue: queue.SimpleQueue[ScreenshotResponse]
+    _query_queue: queue.SimpleQueue[QueryResponse]
+
+    def __new__(
+        cls,
         socket_path: str | Path | None = None,
         *,
         name: str | None = None,
         auto_spawn: bool = True,
         connect_timeout: float = 5.0,
         recv_timeout: float = 5.0,
-    ) -> None:
+    ) -> Self:
+        self = super().__new__(cls)
         self._socket_path = Path(socket_path) if socket_path else None
         self._name = name
         self._auto_spawn = auto_spawn
         self._connect_timeout = connect_timeout
         self._recv_timeout = recv_timeout
-        self._sock: socket.socket | None = None
-        self._ready: ReadyMessage | None = None
-        self._pending: queue.SimpleQueue[Message] = queue.SimpleQueue()
-        self._registered_menu_items: list[dict[str, Any]] = []
+        self._sock = None
+        self._ready = None
+        self._pending = queue.SimpleQueue()
+        self._registered_menu_items = []
 
         # Push-based event handling state
         self._lock = threading.Lock()
-        self._callbacks: dict[
-            tuple[str, str], Callable[[InteractionMessage], None]
-        ] = {}
-        self._listener_thread: threading.Thread | None = None
+        self._callbacks = {}
+        self._listener_thread = None
         self._listener_stop = threading.Event()
-        self._ack_queue: queue.SimpleQueue[AckMessage] = queue.SimpleQueue()
-        self._pong_queue: queue.SimpleQueue[PongMessage] = queue.SimpleQueue()
-        self._introspect_queue: queue.SimpleQueue[IntrospectResponse] = (
-            queue.SimpleQueue()
-        )
-        self._list_scenes_queue: queue.SimpleQueue[ListScenesResponse] = (
-            queue.SimpleQueue()
-        )
-        self._screenshot_queue: queue.SimpleQueue[ScreenshotResponse] = (
-            queue.SimpleQueue()
-        )
-        self._query_queue: queue.SimpleQueue[QueryResponse] = queue.SimpleQueue()
+        self._ack_queue = queue.SimpleQueue()
+        self._pong_queue = queue.SimpleQueue()
+        self._introspect_queue = queue.SimpleQueue()
+        self._list_scenes_queue = queue.SimpleQueue()
+        self._screenshot_queue = queue.SimpleQueue()
+        self._query_queue = queue.SimpleQueue()
+        return self
 
     # -- context manager ---------------------------------------------------
 

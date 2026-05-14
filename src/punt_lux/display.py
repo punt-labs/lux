@@ -23,7 +23,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, Self, cast
 
 import numpy as np
 from PIL import Image
@@ -92,8 +92,12 @@ _ORPHAN_FD = -1
 class TextureCache:
     """Maps file paths to OpenGL texture IDs. Uploads on first access."""
 
-    def __init__(self) -> None:
-        self._textures: dict[str, int] = {}
+    _textures: dict[str, int]
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._textures = {}
+        return self
 
     def get_or_load(self, path: str) -> int | None:
         """Return a texture ID for *path*, uploading if needed."""
@@ -156,8 +160,12 @@ def _create_texture(path: str) -> int | None:
 class WidgetState:
     """Key-value store for interactive widget state across ImGui frames."""
 
-    def __init__(self) -> None:
-        self._state: dict[str, Any] = {}
+    _state: dict[str, Any]
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._state = {}
+        return self
 
     def get(self, element_id: str, default: Any = None) -> Any:
         return self._state.get(element_id, default)
@@ -879,50 +887,90 @@ class _Frame:
 class DisplayServer:
     """ImGui display server with non-blocking Unix socket IPC."""
 
-    def __init__(
-        self,
+    _socket_path: Path
+    _server_sock: socket.socket | None
+    _clients: list[socket.socket]
+    _readers: dict[int, FrameReader]
+    _fd_to_client: dict[int, socket.socket]
+    _client_names: dict[int, str]
+    _client_connect_times: dict[int, float]
+    _scenes: dict[str, SceneMessage]
+    _scene_order: list[str]
+    _active_tab: str | None
+    _frames: dict[str, _Frame]
+    _focus_frame_id: str | None
+    _scene_to_frame: dict[str, str]
+    _scene_to_owner: dict[str, int]
+    _scene_widget_state: dict[str, WidgetState]
+    _event_queue: list[InteractionMessage]
+    _textures: TextureCache
+    _widget_state: WidgetState
+    _dirty_windows: set[str]
+    _agent_menus: list[dict[str, Any]]
+    _menu_registrations: dict[int, list[dict[str, Any]]]
+    _menu_owners: dict[str, int]
+    _themes: list[Any]
+    _decorated: bool
+    _opacity: float
+    _font_scale: float
+    _fit_all_frames: bool
+    _world_menu_open: bool
+    _world_menu_pinned: bool
+    _world_menu_spawn_pos: tuple[float, float] | None
+    _screenshot_pending: socket.socket | None
+    _test_auto_click: bool
+    _start_time: float
+    _current_theme: str
+    _current_scene_id: str | None
+    _query_handlers: dict[str, Callable[..., dict[str, Any]]]
+    _recent_events: deque[dict[str, Any]]
+    _recent_errors: deque[dict[str, Any]]
+
+    def __new__(
+        cls,
         socket_path: str | None = None,
         *,
         test_auto_click: bool = False,
-    ) -> None:
+    ) -> Self:
+        self = super().__new__(cls)
         self._socket_path = Path(socket_path or str(default_socket_path()))
-        self._server_sock: socket.socket | None = None
-        self._clients: list[socket.socket] = []
-        self._readers: dict[int, FrameReader] = {}  # fd -> reader
-        self._fd_to_client: dict[int, socket.socket] = {}  # fd -> socket (O(1) lookup)
-        self._client_names: dict[int, str] = {}  # fd -> display name
-        self._client_connect_times: dict[int, float] = {}  # fd -> connect timestamp
-        self._scenes: dict[str, SceneMessage] = {}  # ordered by insertion
-        self._scene_order: list[str] = []  # explicit tab order
-        self._active_tab: str | None = None  # currently selected tab
-        self._frames: dict[str, _Frame] = {}  # frame_id → frame
-        self._focus_frame_id: str | None = None  # auto-focus on next render
-        self._scene_to_frame: dict[str, str] = {}  # scene_id → frame_id
-        self._scene_to_owner: dict[str, int] = {}  # scene_id → contributing fd
-        self._scene_widget_state: dict[str, WidgetState] = {}  # per-scene
-        self._event_queue: list[InteractionMessage] = []
+        self._server_sock = None
+        self._clients = []
+        self._readers = {}  # fd -> reader
+        self._fd_to_client = {}  # fd -> socket (O(1) lookup)
+        self._client_names = {}  # fd -> display name
+        self._client_connect_times = {}  # fd -> connect timestamp
+        self._scenes = {}  # ordered by insertion
+        self._scene_order = []  # explicit tab order
+        self._active_tab = None  # currently selected tab
+        self._frames = {}  # frame_id -> frame
+        self._focus_frame_id = None  # auto-focus on next render
+        self._scene_to_frame = {}  # scene_id -> frame_id
+        self._scene_to_owner = {}  # scene_id -> contributing fd
+        self._scene_widget_state = {}  # per-scene
+        self._event_queue = []
         self._textures = TextureCache()
         self._widget_state = WidgetState()  # active scene's state (swapped)
-        self._dirty_windows: set[str] = set()
-        self._agent_menus: list[dict[str, Any]] = []
-        self._menu_registrations: dict[int, list[dict[str, Any]]] = {}  # fd → items
-        self._menu_owners: dict[str, int] = {}  # item_id → fd
-        self._themes: list[Any] = []
-        self._decorated: bool = True
-        self._opacity: float = 1.0
-        self._font_scale: float = 1.1
-        self._fit_all_frames: bool = False
-        self._world_menu_open: bool = False
-        self._world_menu_pinned: bool = False
-        self._world_menu_spawn_pos: tuple[float, float] | None = None
-        self._screenshot_pending: socket.socket | None = None
+        self._dirty_windows = set()
+        self._agent_menus = []
+        self._menu_registrations = {}  # fd -> items
+        self._menu_owners = {}  # item_id -> fd
+        self._themes = []
+        self._decorated = True
+        self._opacity = 1.0
+        self._font_scale = 1.1
+        self._fit_all_frames = False
+        self._world_menu_open = False
+        self._world_menu_pinned = False
+        self._world_menu_spawn_pos = None
+        self._screenshot_pending = None
         self._test_auto_click = test_auto_click
-        self._start_time: float = time.time()
-        self._current_theme: str = "imgui_colors_dark"
-        self._current_scene_id: str | None = None
+        self._start_time = time.time()
+        self._current_theme = "imgui_colors_dark"
+        self._current_scene_id = None
 
         # Generic query dispatcher — one handler per method name.
-        self._query_handlers: dict[str, Callable[..., dict[str, Any]]] = {}
+        self._query_handlers = {}
         self._query_handlers["inspect_scene"] = self._query_inspect_scene
         self._query_handlers["list_scenes"] = self._query_list_scenes
         self._query_handlers["screenshot"] = self._query_screenshot
@@ -938,8 +986,9 @@ class DisplayServer:
         self._query_handlers["set_theme"] = self._query_set_theme
 
         # Ring buffers for event/error introspection.
-        self._recent_events: deque[dict[str, Any]] = deque(maxlen=200)
-        self._recent_errors: deque[dict[str, Any]] = deque(maxlen=100)
+        self._recent_events = deque(maxlen=200)
+        self._recent_errors = deque(maxlen=100)
+        return self
 
     @property
     def socket_path(self) -> Path:
@@ -2025,7 +2074,7 @@ class DisplayServer:
         """Stamp scene_id and append to the event queue."""
         if event.scene_id is None:
             event.scene_id = self._current_scene_id
-        self._emit_event(event)
+        self._event_queue.append(event)
 
     def _record_error(self, severity: str, message: str, context: str = "") -> None:
         """Record an error in the ring buffer for introspection."""
