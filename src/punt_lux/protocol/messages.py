@@ -29,7 +29,6 @@ __all__ = [
     "ListScenesResponse",
     "MenuMessage",
     "Message",
-    "MessageRegistry",
     "PingMessage",
     "PongMessage",
     "QueryRequest",
@@ -338,6 +337,9 @@ class MessageRegistry:
         if type_str in self._codecs:
             msg = f"Duplicate message registration: {type_str!r}"
             raise ValueError(msg)
+        if cls in self._serializers:
+            msg = f"Duplicate class registration: {cls.__name__}"
+            raise ValueError(msg)
         self._codecs[type_str] = (cls, to_fn, from_fn)
         self._serializers[cls] = to_fn
 
@@ -352,13 +354,13 @@ class MessageRegistry:
     def from_dict(self, d: dict[str, Any]) -> Message:
         """Deserialize a JSON dict to the appropriate Message."""
         msg_type = d.get("type", "")
+        if not isinstance(msg_type, str) or not msg_type:
+            err = "Message missing or invalid 'type' field"
+            raise ValueError(err)
         codec = self._codecs.get(msg_type)
         if codec is not None:
             _, _, from_fn = codec
             return cast("Message", from_fn(d))
-        if not isinstance(msg_type, str) or not msg_type:
-            err = "Message missing or invalid 'type' field"
-            raise ValueError(err)
         return UnknownMessage(raw_type=msg_type, data=d)
 
     @property
@@ -747,9 +749,6 @@ _registry.register(
     _screenshot_request_from_dict,
 )
 _registry.register("unknown", UnknownMessage, _unknown_to_dict, _unknown_from_dict)
-
-# Legacy alias — populated from the registry for any external consumer
-_MESSAGE_SERIALIZERS: dict[type, _Serializer] = dict(_registry.serializers)
 
 # ---------------------------------------------------------------------------
 # Public API (unchanged signatures)

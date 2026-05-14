@@ -1885,6 +1885,16 @@ class TestMessageRegistry:
         with pytest.raises(ValueError, match="missing or invalid"):
             reg.from_dict({"data": 42})
 
+    def test_unhashable_type_raises_valueerror(self) -> None:
+        """Unhashable type values (list, dict) raise ValueError, not TypeError."""
+        from punt_lux.protocol.messages import MessageRegistry
+
+        reg = MessageRegistry()
+        with pytest.raises(ValueError, match="missing or invalid"):
+            reg.from_dict({"type": ["scene"]})
+        with pytest.raises(ValueError, match="missing or invalid"):
+            reg.from_dict({"type": {"nested": "dict"}})
+
     def test_registry_completeness(self) -> None:
         """Every non-unknown message type is registered on the default registry."""
         from punt_lux.protocol.messages import _registry
