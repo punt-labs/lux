@@ -186,17 +186,17 @@ class TestEventQueueOnSceneChange:
 
         server._handle_message(sock, MenuMessage(menus=menus))
 
-        assert server._agent_menus == menus
+        assert server._menu_manager.agent_menus == menus
 
     def test_menu_message_replaces_previous_menus(self) -> None:
         server = _make_server()
         sock = _mock_sock()
-        server._agent_menus = [{"label": "Old", "items": []}]
+        server._menu_manager.agent_menus = [{"label": "Old", "items": []}]
 
         new_menus = [{"label": "New", "items": [{"label": "Go", "id": "go"}]}]
         server._handle_message(sock, MenuMessage(menus=new_menus))
 
-        assert server._agent_menus == new_menus
+        assert server._menu_manager.agent_menus == new_menus
 
 
 # -----------------------------------------------------------------------
@@ -473,7 +473,7 @@ class TestFlushEvents:
         server._socket_server.clients.extend([owner, other])
         server._socket_server._fd_to_client[10] = owner
         server._socket_server._fd_to_client[20] = other
-        server._menu_owners["tool_a"] = 10
+        server._menu_manager.menu_owners["tool_a"] = 10
         server._event_queue.append(
             InteractionMessage(
                 element_id="tool_a",
@@ -513,7 +513,7 @@ class TestFlushEvents:
         server._socket_server.clients.extend([sock1, sock2])
         server._socket_server._fd_to_client[10] = sock1
         server._socket_server._fd_to_client[20] = sock2
-        server._menu_owners["button_x"] = 10
+        server._menu_manager.menu_owners["button_x"] = 10
         server._event_queue.append(
             InteractionMessage(element_id="button_x", action="click", ts=1.0)
         )
@@ -531,7 +531,7 @@ class TestFlushEvents:
         server._socket_server.clients.extend([sock1, sock2])
         server._socket_server._fd_to_client[10] = sock1
         server._socket_server._fd_to_client[20] = sock2
-        server._menu_owners["tool_a"] = 10
+        server._menu_manager.menu_owners["tool_a"] = 10
         server._event_queue.append(
             InteractionMessage(
                 element_id="tool_a",
@@ -552,7 +552,7 @@ class TestFlushEvents:
         other = _mock_sock_fd(20)
         server._socket_server.clients.append(other)
         server._socket_server._fd_to_client[20] = other
-        server._menu_owners["tool_a"] = 10  # fd 10 not in _fd_to_client
+        server._menu_manager.menu_owners["tool_a"] = 10  # fd 10 not in _fd_to_client
         server._event_queue.append(
             InteractionMessage(
                 element_id="tool_a",
@@ -1001,9 +1001,9 @@ class TestRegisterMenu:
 
         server._handle_message(sock, RegisterMenuMessage(items=items))
 
-        assert server._menu_registrations[10] == items
-        assert server._menu_owners["run"] == 10
-        assert server._menu_owners["test"] == 10
+        assert server._menu_manager.menu_registrations[10] == items
+        assert server._menu_manager.menu_owners["run"] == 10
+        assert server._menu_manager.menu_owners["test"] == 10
 
     def test_disconnect_cleans_up(self) -> None:
         """Disconnecting a client removes its menu registrations and ownership."""
@@ -1018,13 +1018,13 @@ class TestRegisterMenu:
         items = [{"label": "Run", "id": "run"}]
         server._handle_message(sock, RegisterMenuMessage(items=items))
 
-        assert 10 in server._menu_registrations
-        assert "run" in server._menu_owners
+        assert 10 in server._menu_manager.menu_registrations
+        assert "run" in server._menu_manager.menu_owners
 
         server._socket_server.remove_client(sock)
 
-        assert 10 not in server._menu_registrations
-        assert "run" not in server._menu_owners
+        assert 10 not in server._menu_manager.menu_registrations
+        assert "run" not in server._menu_manager.menu_owners
 
     def test_re_register_replaces_old_items(self) -> None:
         """Same client re-registering replaces old items."""
@@ -1034,12 +1034,12 @@ class TestRegisterMenu:
         new_items = [{"label": "New", "id": "new_item"}]
 
         server._handle_message(sock, RegisterMenuMessage(items=old_items))
-        assert server._menu_owners.get("old_item") == 10
+        assert server._menu_manager.menu_owners.get("old_item") == 10
 
         server._handle_message(sock, RegisterMenuMessage(items=new_items))
-        assert server._menu_registrations[10] == new_items
-        assert "old_item" not in server._menu_owners
-        assert server._menu_owners["new_item"] == 10
+        assert server._menu_manager.menu_registrations[10] == new_items
+        assert "old_item" not in server._menu_manager.menu_owners
+        assert server._menu_manager.menu_owners["new_item"] == 10
 
     def test_id_uniqueness_rejects_second_client(self) -> None:
         """Two different clients registering the same item ID: second is rejected."""
@@ -1054,10 +1054,10 @@ class TestRegisterMenu:
         server._handle_message(sock_b, RegisterMenuMessage(items=items_b))
 
         # Client A's registration stands
-        assert server._menu_registrations[10] == items_a
-        assert server._menu_owners["run"] == 10
+        assert server._menu_manager.menu_registrations[10] == items_a
+        assert server._menu_manager.menu_owners["run"] == 10
         # Client B's registration was rejected
-        assert 20 not in server._menu_registrations
+        assert 20 not in server._menu_manager.menu_registrations
 
     def test_clear_does_not_clear_menu_registrations(self) -> None:
         """ClearMessage clears scenes but not menu registrations."""
@@ -1068,8 +1068,8 @@ class TestRegisterMenu:
         server._handle_message(sock, RegisterMenuMessage(items=items))
         server._handle_message(sock, ClearMessage())
 
-        assert server._menu_registrations[10] == items
-        assert server._menu_owners["run"] == 10
+        assert server._menu_manager.menu_registrations[10] == items
+        assert server._menu_manager.menu_owners["run"] == 10
 
     def test_non_dict_items_filtered(self) -> None:
         """Non-dict entries in items list are silently filtered."""
@@ -1082,9 +1082,9 @@ class TestRegisterMenu:
             {"label": "Also Good", "id": "also_good"},
         ]
         server._handle_message(sock, RegisterMenuMessage(items=items))
-        assert len(server._menu_registrations[10]) == 2
-        assert server._menu_owners["good"] == 10
-        assert server._menu_owners["also_good"] == 10
+        assert len(server._menu_manager.menu_registrations[10]) == 2
+        assert server._menu_manager.menu_owners["good"] == 10
+        assert server._menu_manager.menu_owners["also_good"] == 10
 
     def test_non_string_id_filtered(self) -> None:
         """Items with non-string IDs are silently filtered."""
@@ -1096,8 +1096,8 @@ class TestRegisterMenu:
             {"label": "List ID", "id": ["a"]},
         ]
         server._handle_message(sock, RegisterMenuMessage(items=items))
-        assert len(server._menu_registrations[10]) == 1
-        assert server._menu_owners["good"] == 10
+        assert len(server._menu_manager.menu_registrations[10]) == 1
+        assert server._menu_manager.menu_owners["good"] == 10
 
     def test_duplicate_ids_within_registration_deduped(self) -> None:
         """Duplicate IDs within a single registration keep first."""
@@ -1108,8 +1108,8 @@ class TestRegisterMenu:
             {"label": "Second", "id": "dup"},
         ]
         server._handle_message(sock, RegisterMenuMessage(items=items))
-        assert len(server._menu_registrations[10]) == 1
-        assert server._menu_registrations[10][0]["label"] == "First"
+        assert len(server._menu_manager.menu_registrations[10]) == 1
+        assert server._menu_manager.menu_registrations[10][0]["label"] == "First"
 
     def test_empty_items_clears_registration(self) -> None:
         """Registering empty items removes client from _menu_registrations."""
@@ -1117,8 +1117,8 @@ class TestRegisterMenu:
         sock = _mock_sock_fd(10)
         items = [{"label": "Run", "id": "run"}]
         server._handle_message(sock, RegisterMenuMessage(items=items))
-        assert 10 in server._menu_registrations
+        assert 10 in server._menu_manager.menu_registrations
 
         server._handle_message(sock, RegisterMenuMessage(items=[]))
-        assert 10 not in server._menu_registrations
-        assert "run" not in server._menu_owners
+        assert 10 not in server._menu_manager.menu_registrations
+        assert "run" not in server._menu_manager.menu_owners

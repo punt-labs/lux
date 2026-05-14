@@ -24,6 +24,7 @@ import numpy as np
 from PIL import Image
 
 from punt_lux.element_renderer import ElementRenderer
+from punt_lux.menu_manager import MenuManager
 from punt_lux.paths import (
     default_socket_path,
     remove_pid_file,
@@ -156,17 +157,12 @@ class DisplayServer:
     _textures: TextureCache
     _table_renderer: TableRenderer
     _widget_state: WidgetState
-    _agent_menus: list[dict[str, Any]]
-    _menu_registrations: dict[int, list[dict[str, Any]]]
-    _menu_owners: dict[str, int]
+    _menu_manager: MenuManager
     _themes: list[Any]
     _decorated: bool
     _opacity: float
     _font_scale: float
     _fit_all_frames: bool
-    _world_menu_open: bool
-    _world_menu_pinned: bool
-    _world_menu_spawn_pos: tuple[float, float] | None
     _screenshot_pending: socket.socket | None
     _test_auto_click: bool
     _start_time: float
@@ -186,14 +182,39 @@ class DisplayServer:
         self._scene_manager = SceneManager(
             on_scene_replaced=self._drain_stale_events,
         )
+        self._themes = []
+        self._decorated = True
+        self._opacity = 1.0
+        self._font_scale = 1.1
+        self._fit_all_frames = False
+        self._current_theme = "imgui_colors_dark"
+        # MenuManager must be created before QueryDispatcher so that
+        # its properties are available for the lambda callbacks.
+        self._menu_manager = MenuManager(
+            emit_event=self._emit_event,
+            on_theme_selected=self._apply_theme,
+            on_decorated_toggled=self._on_decorated_toggled,
+            on_opacity_changed=self._on_opacity_changed,
+            on_font_scale_changed=self._on_font_scale_changed,
+            get_themes=lambda: self._themes,
+            get_current_theme=lambda: self._current_theme,
+            get_decorated=lambda: self._decorated,
+            get_opacity=lambda: self._opacity,
+            get_font_scale=lambda: self._font_scale,
+            get_frames=lambda: self._scene_manager.frames,
+            get_client_names=lambda: self._socket_server.client_names,
+            on_clear_all=self._clear_all,
+            on_fit_all=self._request_fit_all,
+            has_scenes=lambda: bool(self._scene_manager.scenes),
+        )
         # QueryDispatcher must be created before SocketServer so that
         # the on_error callback is available.
         self._query_dispatcher = QueryDispatcher(
             scene_manager=self._scene_manager,
             get_client_names=lambda: self._socket_server.client_names,
             get_client_connect_times=lambda: self._socket_server.client_connect_times,
-            get_menu_registrations=lambda: self._menu_registrations,
-            get_agent_menus=lambda: self._agent_menus,
+            get_menu_registrations=lambda: self._menu_manager.menu_registrations,
+            get_agent_menus=lambda: self._menu_manager.agent_menus,
         )
         self._socket_server = SocketServer(
             on_message=self._handle_message,
@@ -207,21 +228,9 @@ class DisplayServer:
             widget_state=self._widget_state,
             emit_event=self._emit_event,
         )
-        self._agent_menus = []
-        self._menu_registrations = {}  # fd -> items
-        self._menu_owners = {}  # item_id -> fd
-        self._themes = []
-        self._decorated = True
-        self._opacity = 1.0
-        self._font_scale = 1.1
-        self._fit_all_frames = False
-        self._world_menu_open = False
-        self._world_menu_pinned = False
-        self._world_menu_spawn_pos = None
         self._screenshot_pending = None
         self._test_auto_click = test_auto_click
         self._start_time = time.time()
-        self._current_theme = "imgui_colors_dark"
         self._current_scene_id = None
         self._element_renderer = ElementRenderer(
             widget_state=self._widget_state,
@@ -313,7 +322,7 @@ class DisplayServer:
             if math:
                 merge.append(math)
         else:
-            # Linux — DejaVu has good symbol coverage; Noto as fallback
+            # Linux -- DejaVu has good symbol coverage; Noto as fallback
             primary = _first_existing(
                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
                 "/usr/share/fonts/TTF/DejaVuSans.ttf",
@@ -352,7 +361,7 @@ class DisplayServer:
         primary, merge_fonts = self._find_fonts()
         if primary is None:
             logger.error(
-                "No Unicode font found — using ImGui default (Latin-only). "
+                "No Unicode font found -- using ImGui default (Latin-only). "
                 "Unicode symbols will not render correctly."
             )
             return
@@ -372,7 +381,7 @@ class DisplayServer:
     # -- public entry point ------------------------------------------------
 
     def run(self) -> None:
-        """Start the display server (blocking — ImGui owns the main loop)."""
+        """Start the display server (blocking -- ImGui owns the main loop)."""
         # Set process name (visible in ps, top, Activity Monitor)
         try:
             import setproctitle  # pyright: ignore[reportMissingImports]
@@ -406,7 +415,7 @@ class DisplayServer:
         # Set markdown regular_size to match the system font visually.
         # imgui_md loads Roboto (bundled) which renders larger than system
         # fonts at the same nominal px.  Do NOT also set with_markdown=True
-        # — InitializeMarkdown has a static guard that silently drops the
+        # -- InitializeMarkdown has a static guard that silently drops the
         # second call, so the custom options would be ignored.
         try:
             from imgui_bundle import imgui_md
@@ -455,7 +464,7 @@ class DisplayServer:
         self._flush_events()
 
     def _on_after_swap(self) -> None:
-        """Called after GL buffer swap — GL_FRONT has rendered content."""
+        """Called after GL buffer swap -- GL_FRONT has rendered content."""
         if self._screenshot_pending is not None:
             sock = self._screenshot_pending
             self._screenshot_pending = None
@@ -502,16 +511,37 @@ class DisplayServer:
             resp = ScreenshotResponse(error=str(exc))
         self._socket_server.send_to_client(sock, resp)
 
-    def _clear_menus(self) -> None:
-        """Remove all menu registrations and ownership records."""
-        self._menu_registrations.clear()
-        self._menu_owners.clear()
+    def _on_decorated_toggled(self, decorated: bool) -> None:  # noqa: FBT001
+        """Callback for MenuManager: toggle window decoration."""
+        self._decorated = decorated
+        self._set_glfw_decorated(decorated=decorated)
+
+    def _on_opacity_changed(self, opacity: float) -> None:
+        """Callback for MenuManager: change window opacity."""
+        self._opacity = opacity
+        self._set_glfw_opacity(opacity=opacity)
+
+    def _on_font_scale_changed(self, scale: float) -> None:
+        """Callback for MenuManager: change font scale."""
+        self._font_scale = scale
+
+    def _clear_all(self) -> None:
+        """Callback for MenuManager: clear all frames and scenes."""
+        for fid in list(self._scene_manager.frames):
+            self._close_frame(fid)
+        self._scene_manager.clear_all()
+        self._event_queue.clear()
+        self._widget_state = WidgetState()
+
+    def _request_fit_all(self) -> None:
+        """Callback for MenuManager: request fit-all layout."""
+        self._fit_all_frames = True
 
     def _on_exit(self) -> None:
         """Called before the window closes."""
         self._textures.cleanup()
         self._socket_server.shutdown()
-        self._clear_menus()
+        self._menu_manager.clear_menus()
         self._socket_path.unlink(missing_ok=True)
         remove_pid_file(self._socket_path)
         logger.info("Display server stopped")
@@ -519,17 +549,7 @@ class DisplayServer:
     # -- menu bar ----------------------------------------------------------
 
     def _show_menus(self) -> None:
-        from imgui_bundle import imgui
-
-        try:
-            self._show_lux_menu(imgui)
-            self._show_apps_menu(imgui)
-            self._show_window_menu(imgui)
-            self._show_help_menu(imgui)
-            for menu in self._agent_menus:
-                self._show_agent_menu(imgui, menu)
-        except Exception:
-            logger.exception("Error rendering menus")
+        self._menu_manager.show_menus()
 
     def _apply_theme(self, theme_name: str) -> None:
         """Apply a theme by snake_case name (e.g. 'imgui_colors_light')."""
@@ -541,209 +561,6 @@ class DisplayServer:
                 self._current_theme = theme_name
                 return
         logger.warning("Unknown theme %r", theme_name)
-
-    def _show_window_menu(self, imgui: Any) -> None:
-        from imgui_bundle import hello_imgui
-
-        if not imgui.begin_menu("Windows"):
-            return
-        try:
-            self._show_window_frame_items(imgui)
-            imgui.separator()
-            self._show_window_chrome_items(imgui, hello_imgui)
-        finally:
-            imgui.end_menu()
-
-    def _show_window_frame_items(self, imgui: Any) -> bool:
-        """Render frame management items. Returns True if any item clicked."""
-        clicked = False
-        frames = self._scene_manager.frames
-        has_frames = bool(frames)
-        has_visible = has_frames and any(not f.minimized for f in frames.values())
-        has_minimized = has_frames and any(f.minimized for f in frames.values())
-
-        if imgui.menu_item("Collapse All", "", False, has_visible)[0]:  # noqa: FBT003
-            for f in frames.values():
-                f.minimized = True
-            clicked = True
-        if imgui.menu_item("Expand All", "", False, has_minimized)[0]:  # noqa: FBT003
-            for f in frames.values():
-                f.minimized = False
-            clicked = True
-        if imgui.menu_item("Fit All", "", False, has_frames)[0]:  # noqa: FBT003
-            self._fit_all_frames = True
-            clicked = True
-        return clicked
-
-    def _show_window_chrome_items(self, imgui: Any, hello_imgui: Any) -> bool:
-        """Render window chrome items. Returns True if any item clicked."""
-        clicked = False
-        if imgui.menu_item("Clear All", "", False)[0]:  # noqa: FBT003
-            # Close frames first (sends close notifications to clients)
-            for fid in list(self._scene_manager.frames):
-                self._close_frame(fid)
-            self._scene_manager.clear_all()
-            self._event_queue.clear()
-            self._widget_state = WidgetState()
-            clicked = True
-        if imgui.menu_item("Reset Size", "", False)[0]:  # noqa: FBT003
-            hello_imgui.change_window_size((1200, 800))
-            clicked = True
-        return clicked
-
-    def _show_help_menu(self, imgui: Any) -> None:
-        if not imgui.begin_menu("Help"):
-            return
-        try:
-            self._show_help_items(imgui)
-        finally:
-            imgui.end_menu()
-
-    def _show_help_items(self, imgui: Any) -> bool:
-        """Render help items. Returns True if any item clicked."""
-        from punt_lux import __version__
-
-        imgui.menu_item(
-            f"Lux v{__version__}",
-            "",
-            False,  # noqa: FBT003
-            False,  # noqa: FBT003
-        )
-        return False  # version label is not clickable
-
-    def _check_world_menu_background_click(self, imgui: Any) -> None:
-        """Toggle World panel on left-click on the main window background.
-
-        Uses ``is_window_hovered()`` (no flags) which checks whether the
-        *current* window (the main/root window at this point in the render
-        loop) is hovered.  When a frame or the World panel is on top,
-        the main window is not considered hovered, so clicks on frames
-        are ignored.
-
-        The dock bar renders later in the frame (its ``invisible_button``
-        items and ``##dock_bar`` window haven't been emitted yet), so the
-        hover checks above can't exclude it.  An explicit dock bar rect
-        check handles this case.
-        """
-        if not imgui.is_mouse_clicked(imgui.MouseButton_.left):
-            return
-        if imgui.is_any_item_hovered():
-            return
-        # Current window = main window.  False when a frame covers the spot.
-        if not imgui.is_window_hovered():
-            return
-        # Dock bar renders later in the frame, so its items/window aren't
-        # yet in ImGui's hover state.  Reject clicks in its region.
-        if any(f.minimized for f in self._scene_manager.frames.values()):
-            viewport = imgui.get_main_viewport()
-            mouse = imgui.get_mouse_pos()
-            bar_top = viewport.pos.y + viewport.size.y - self._DOCK_BAR_HEIGHT
-            if mouse.y >= bar_top:
-                return
-        self._world_menu_open = not self._world_menu_open
-        if self._world_menu_open:
-            pos = imgui.get_mouse_pos()
-            self._world_menu_spawn_pos = (pos.x, pos.y)
-
-    def _render_world_panel(self, imgui: Any) -> None:
-        """Render the detached World menu as a floating window."""
-        if not self._world_menu_open:
-            return
-
-        flags = (
-            imgui.WindowFlags_.no_collapse.value
-            | imgui.WindowFlags_.always_auto_resize.value
-        )
-        imgui.set_next_window_size((220, 0), imgui.Cond_.first_use_ever.value)
-        if self._world_menu_spawn_pos is not None:
-            imgui.set_next_window_pos(
-                self._world_menu_spawn_pos, imgui.Cond_.always.value
-            )
-            self._world_menu_spawn_pos = None
-
-        still_open = True
-        _, still_open = imgui.begin("World###world_panel", still_open, flags)
-        if not still_open:
-            self._world_menu_open = False
-            self._world_menu_pinned = False
-            imgui.end()
-            return
-
-        # Pin dot — filled ● when pinned, hollow ○ when unpinned.
-        pin_dot = "\u25cf" if self._world_menu_pinned else "\u25cb"
-        if imgui.small_button(f"{pin_dot}##pin"):
-            self._world_menu_pinned = not self._world_menu_pinned
-        imgui.separator()
-
-        clicked_any = self._render_world_panel_sections(imgui)
-
-        imgui.end()
-
-        # Auto-close on click when unpinned.
-        if clicked_any and not self._world_menu_pinned:
-            self._world_menu_open = False
-
-    def _render_world_panel_sections(self, imgui: Any) -> bool:
-        """Render all World panel sections. Returns True if any item clicked."""
-        from imgui_bundle import hello_imgui
-
-        clicked_any = False
-
-        if imgui.begin_menu("Lux##world"):
-            try:
-                clicked_any = self._show_lux_items(imgui) or clicked_any
-            finally:
-                imgui.end_menu()
-
-        # Applications submenu: agent-registered menu items grouped by client.
-        if self._menu_registrations:
-            clicked_any = self._render_world_panel_apps(imgui) or clicked_any
-
-        if imgui.begin_menu("Windows##world"):
-            try:
-                clicked_any = self._show_window_frame_items(imgui) or clicked_any
-                imgui.separator()
-                chrome_clicked = self._show_window_chrome_items(imgui, hello_imgui)
-                clicked_any = chrome_clicked or clicked_any
-            finally:
-                imgui.end_menu()
-        if imgui.begin_menu("Help##world"):
-            try:
-                clicked_any = self._show_help_items(imgui) or clicked_any
-            finally:
-                imgui.end_menu()
-        return clicked_any
-
-    @staticmethod
-    def _display_name(raw: str) -> str:
-        """Derive a display name from a client name.
-
-        Strips common suffixes like "-mcp" and title-cases the result.
-        ``"lux-mcp"`` → ``"Lux"``, ``"vox-mcp"`` → ``"Vox"``.
-        """
-        name = raw.removesuffix("-mcp")
-        return name.replace("-", " ").title()
-
-    def _render_world_panel_apps(self, imgui: Any) -> bool:
-        """Render Applications submenu in the World panel."""
-        if not imgui.begin_menu("Applications##world"):
-            return False
-        clicked = False
-        try:
-            for name, fd, items in self._sorted_app_clients():
-                if imgui.begin_menu(f"{name}##{fd}"):
-                    try:
-                        items_sorted = sorted(items, key=lambda i: i.get("label") or "")
-                        for item in items_sorted:
-                            rendered = self._render_registered_item(
-                                imgui, item, "Applications"
-                            )
-                            clicked = clicked or rendered
-                    finally:
-                        imgui.end_menu()
-        finally:
-            imgui.end_menu()
-        return clicked
 
     @staticmethod
     def _set_glfw_decorated(*, decorated: bool) -> None:
@@ -788,188 +605,6 @@ class DisplayServer:
         glfw_lib.glfwSetWindowOpacity.argtypes = [ctypes.c_void_p, ctypes.c_float]
         glfw_lib.glfwSetWindowOpacity(ctypes.c_void_p(window_addr), opacity)
 
-    def _show_lux_menu(self, imgui: Any) -> None:
-        if not imgui.begin_menu("Lux"):
-            return
-        try:
-            self._show_lux_items(imgui)
-        finally:
-            imgui.end_menu()
-
-    def _show_apps_menu(self, imgui: Any) -> None:
-        """Render the Applications menu in the menu bar."""
-        if not self._menu_registrations:
-            return
-        if not imgui.begin_menu("Applications"):
-            return
-        try:
-            for name, fd, items in self._sorted_app_clients():
-                if imgui.begin_menu(f"{name}##{fd}"):
-                    try:
-                        items_sorted = sorted(items, key=lambda i: i.get("label") or "")
-                        for item in items_sorted:
-                            self._render_registered_item(imgui, item, "Applications")
-                    finally:
-                        imgui.end_menu()
-        finally:
-            imgui.end_menu()
-
-    def _sorted_app_clients(
-        self,
-    ) -> list[tuple[str, int, list[dict[str, Any]]]]:
-        """Return registered clients sorted by display name."""
-        clients: list[tuple[str, int, list[dict[str, Any]]]] = []
-        for fd, items in self._menu_registrations.items():
-            if items:
-                raw = self._socket_server.client_names.get(fd, f"Client {fd}")
-                clients.append((self._display_name(raw), fd, items))
-        clients.sort(key=lambda c: c[0].lower())
-        return clients
-
-    def _render_registered_item(
-        self,
-        imgui: Any,
-        item: dict[str, Any],
-        menu_name: str,
-    ) -> bool:
-        """Render a single registered menu item. Returns True if clicked."""
-        label = item.get("label")
-        if not isinstance(label, str):
-            return False
-        if label == "---":
-            imgui.separator()
-            return False
-        enabled = item.get("enabled", True)
-        clicked, _ = imgui.menu_item(
-            label,
-            item.get("shortcut", ""),
-            False,  # noqa: FBT003
-            enabled,
-        )
-        if clicked and isinstance(item.get("id"), str):
-            self._emit_event(
-                InteractionMessage(
-                    element_id=item["id"],
-                    action="menu",
-                    ts=time.time(),
-                    value={
-                        "menu": menu_name,
-                        "item": label,
-                    },
-                )
-            )
-        return bool(clicked)
-
-    def _show_lux_items(self, imgui: Any) -> bool:
-        """Render Lux menu items. Returns True if any item clicked."""
-        from imgui_bundle import hello_imgui
-
-        clicked = False
-
-        # Settings submenu: theme, chrome, opacity.
-        if imgui.begin_menu("Settings"):
-            try:
-                clicked = self._show_settings_items(imgui) or clicked
-            finally:
-                imgui.end_menu()
-
-        imgui.separator()
-
-        if imgui.menu_item("Increase Font", "", False)[0]:  # noqa: FBT003
-            self._font_scale = min(round(self._font_scale + 0.1, 1), 3.0)
-            clicked = True
-        if imgui.menu_item("Decrease Font", "", False)[0]:  # noqa: FBT003
-            self._font_scale = max(round(self._font_scale - 0.1, 1), 0.5)
-            clicked = True
-
-        imgui.separator()
-
-        if imgui.menu_item("Quit", "Cmd+Q", False)[0]:  # noqa: FBT003
-            hello_imgui.get_runner_params().app_shall_exit = True
-            clicked = True
-        return clicked
-
-    def _show_settings_items(self, imgui: Any) -> bool:
-        """Render Settings submenu contents. Returns True if any item clicked."""
-        from imgui_bundle import hello_imgui
-
-        clicked = False
-
-        # Theme picker.
-        if imgui.begin_menu("Theme"):
-            try:
-                for theme in self._themes:
-                    name = theme.name.replace("_", " ").title()
-                    if imgui.menu_item(name, "", False)[0]:  # noqa: FBT003
-                        hello_imgui.apply_theme(theme)
-                        self._current_theme = str(theme.name)
-                        clicked = True
-            finally:
-                imgui.end_menu()
-
-        imgui.separator()
-
-        # Window chrome toggles.
-        params = hello_imgui.get_runner_params()
-        wp = params.app_window_params
-        top_toggled, wp.top_most = imgui.menu_item("Always on Top", "", wp.top_most)
-        if top_toggled:
-            clicked = True
-
-        toggled, _ = imgui.menu_item("Borderless", "", not self._decorated)
-        if toggled:
-            self._decorated = not self._decorated
-            self._set_glfw_decorated(decorated=self._decorated)
-            clicked = True
-
-        imgui.separator()
-
-        # Opacity presets.
-        if imgui.begin_menu("Opacity"):
-            try:
-                for pct in (25, 50, 75, 100):
-                    val = pct / 100.0
-                    current = abs(self._opacity - val) < 0.05
-                    if imgui.menu_item(f"{pct}%", "", current)[0]:
-                        self._opacity = val
-                        self._set_glfw_opacity(opacity=val)
-                        clicked = True
-            finally:
-                imgui.end_menu()
-        return clicked
-
-    def _show_agent_menu(self, imgui: Any, menu: dict[str, Any]) -> None:
-        if imgui.begin_menu(menu.get("label", "Custom")):
-            try:
-                for item in menu.get("items", []):
-                    label = item.get("label")
-                    if not isinstance(label, str):
-                        continue
-                    if label == "---":
-                        imgui.separator()
-                        continue
-                    enabled = item.get("enabled", True)
-                    clicked, _ = imgui.menu_item(
-                        label,
-                        item.get("shortcut", ""),
-                        False,  # noqa: FBT003
-                        enabled,
-                    )
-                    if clicked and isinstance(item.get("id"), str):
-                        self._emit_event(
-                            InteractionMessage(
-                                element_id=item["id"],
-                                action="menu",
-                                ts=time.time(),
-                                value={
-                                    "menu": menu.get("label", "Custom"),
-                                    "item": label,
-                                },
-                            )
-                        )
-            finally:
-                imgui.end_menu()
-
     # -- socket callbacks ---------------------------------------------------
 
     def _on_client_disconnected(self, fd: int) -> None:
@@ -978,11 +613,10 @@ class DisplayServer:
         Called by SocketServer after socket-level state is already cleaned up.
         Handles menu registration cleanup and scene ownership transfer.
         """
-        self._menu_registrations.pop(fd, None)
-        self._menu_owners = {k: v for k, v in self._menu_owners.items() if v != fd}
+        self._menu_manager.on_client_disconnected(fd)
         # Transfer ownership of this client's scenes to another client
         # in the same frame, or mark them as orphans if no other client
-        # remains.  Scenes persist — they are never dismissed on disconnect.
+        # remains.  Scenes persist -- they are never dismissed on disconnect.
         sm = self._scene_manager
         for f in list(sm.frames.values()):
             f.owner_fds.discard(fd)
@@ -1014,7 +648,7 @@ class DisplayServer:
         elif isinstance(msg, RegisterMenuMessage):
             self._handle_register_menu(sock, msg)
         elif isinstance(msg, MenuMessage):
-            self._agent_menus = msg.menus
+            self._menu_manager.agent_menus = msg.menus
         elif isinstance(msg, ThemeMessage):
             self._apply_theme(msg.theme)
         elif isinstance(msg, ConnectMessage):
@@ -1033,44 +667,11 @@ class DisplayServer:
         elif isinstance(msg, UnknownMessage):
             logger.debug("Ignoring unknown message type %r", msg.raw_type)
 
-    def _sanitize_menu_items(
-        self, fd: int, items: list[Any]
-    ) -> list[dict[str, Any]] | None:
-        """Validate and deduplicate menu items for registration.
-
-        Returns sanitized items, or None if registration should be rejected
-        (item ID owned by a different client).
-        """
-        seen_ids: set[str] = set()
-        sanitized: list[dict[str, Any]] = []
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            item_id = item.get("id")
-            if item_id is not None and not isinstance(item_id, str):
-                continue
-            if item_id is not None:
-                if item_id in seen_ids:
-                    continue
-                owner_fd = self._menu_owners.get(item_id)
-                if owner_fd is not None and owner_fd != fd:
-                    logger.warning(
-                        "Menu item %r already owned by fd %d, "
-                        "rejecting registration from fd %d",
-                        item_id,
-                        owner_fd,
-                        fd,
-                    )
-                    return None
-                seen_ids.add(item_id)
-            sanitized.append(item)
-        return sanitized
-
     def _handle_connect(self, sock: socket.socket, msg: ConnectMessage) -> None:
         """Record a client's display name (idempotent)."""
         name = msg.name.strip()
         if not name:
-            logger.warning("ConnectMessage with empty name — ignored")
+            logger.warning("ConnectMessage with empty name -- ignored")
             return
         try:
             fd = sock.fileno()
@@ -1249,21 +850,7 @@ class DisplayServer:
             fd = sock.fileno()
         except OSError:
             return
-        sanitized = self._sanitize_menu_items(fd, msg.items)
-        if sanitized is None:
-            return  # rejected — ID collision
-        # Remove old ownership entries for this fd
-        self._menu_owners = {k: v for k, v in self._menu_owners.items() if v != fd}
-        # Store new items (empty list clears this client's items)
-        if sanitized:
-            self._menu_registrations[fd] = sanitized
-        else:
-            self._menu_registrations.pop(fd, None)
-        # Update ownership
-        for item in sanitized:
-            item_id = item.get("id")
-            if item_id is not None:
-                self._menu_owners[item_id] = fd
+        self._menu_manager.handle_register_menu(fd, msg.items)
 
     def _handle_scene(self, sock: socket.socket, msg: SceneMessage) -> None:
         if msg.frame_id is not None:
@@ -1398,8 +985,8 @@ class DisplayServer:
         self._render_idle(imgui)
 
         # World menu: background click to toggle, floating panel.
-        self._check_world_menu_background_click(imgui)
-        self._render_world_panel(imgui)
+        self._menu_manager.check_world_menu_background_click(imgui)
+        self._menu_manager.render_world_panel(imgui)
 
         # Render framed scenes (DES-022 workspace model)
         self._render_frames(imgui)
@@ -1490,7 +1077,7 @@ class DisplayServer:
     ) -> dict[str, tuple[float, float, float, float]]:
         """Compute tiled positions for frames that fill the content region.
 
-        Returns a dict of frame_id → (x, y, w, h).  Frames are arranged
+        Returns a dict of frame_id -> (x, y, w, h).  Frames are arranged
         in a grid with roughly equal-sized cells.
         """
         import math
@@ -1557,7 +1144,7 @@ class DisplayServer:
             imgui.end()
             return "closed", hovered
         if not expanded:
-            # Collapse triangle clicked — minimize to dock bar.
+            # Collapse triangle clicked -- minimize to dock bar.
             # Skip when docked: ImGui reports expanded=False during
             # docking transitions.
             if not imgui.is_window_docked():
@@ -1651,7 +1238,7 @@ class DisplayServer:
             1.0,
         )
 
-        # Pill layout — use raw mouse hit-testing instead of an invisible
+        # Pill layout -- use raw mouse hit-testing instead of an invisible
         # ImGui window.  The dock bar renders on the foreground draw list
         # which has no window in the z-order, so invisible_button widgets
         # inside a helper window never receive clicks reliably.
@@ -1779,7 +1366,7 @@ class DisplayServer:
 
         When *notify* is True, a ``frame_close`` event is sent to all
         contributing clients (``owner_fds``).  Used for user-initiated
-        close and tab close.  When False, no events are emitted — used
+        close and tab close.  When False, no events are emitted -- used
         during disconnect cleanup where the departing client's fd is
         already removed and surviving clients should not be notified.
         """
@@ -1875,7 +1462,7 @@ class DisplayServer:
     def _render_idle(imgui: Any) -> None:
         """Render an ambient idle screen with radial light rays and flame.
 
-        Always called — the flame persists as a background element
+        Always called -- the flame persists as a background element
         whether content is present or not.  Frames and scenes render
         on top since they are separate ImGui windows.
         """
@@ -1900,7 +1487,7 @@ class DisplayServer:
         num_rays = 48
         # Rays rotate very slowly with pauses
         rot_phase = math.sin(t * 0.15)
-        rotation = rot_phase * rot_phase * rot_phase * 0.3  # radians, ±0.3
+        rotation = rot_phase * rot_phase * rot_phase * 0.3  # radians, +/-0.3
         # Breathing modulates ray alpha
         breath_raw = math.sin(t * 0.8)
         ray_breath = max(breath_raw, 0.0) ** 0.6
@@ -1929,7 +1516,7 @@ class DisplayServer:
 
         # Flame sway: gentle tip movement with pauses
         sway_phase = math.sin(t * 0.6)
-        sway = sway_phase * sway_phase * sway_phase * 3.0  # ±3px, pauses at center
+        sway = sway_phase * sway_phase * sway_phase * 3.0  # +/-3px, pauses at center
         # Secondary faster flicker for organic feel
         flicker = math.sin(t * 2.3) * 0.8 + math.sin(t * 3.7) * 0.4
 
@@ -2004,7 +1591,7 @@ class DisplayServer:
             alpha=0.55 + 0.15 * breath,
         )
 
-        # "Ready" label below the flame — uses theme text color at low alpha
+        # "Ready" label below the flame -- uses theme text color at low alpha
         label_y = base_y + 10.0
         text = "Lux"
         text_size = imgui.calc_text_size(text)
@@ -2012,7 +1599,7 @@ class DisplayServer:
         text_color = imgui.get_color_u32(ImVec4(tc.x, tc.y, tc.z, 0.35))
         draw.add_text(ImVec2(cx - text_size.x * 0.5, label_y), text_color, text)
 
-    # Element rendering delegated to ElementRenderer — see element_renderer.py.
+    # Element rendering delegated to ElementRenderer -- see element_renderer.py.
 
     # -- event flushing ----------------------------------------------------
 
@@ -2037,7 +1624,9 @@ class DisplayServer:
                 and event.value.get("menu") == "World"
             )
             owner_fd = (
-                self._menu_owners.get(event.element_id) if is_world_menu else None
+                self._menu_manager.menu_owners.get(event.element_id)
+                if is_world_menu
+                else None
             )
             if owner_fd is None and event.scene_id:
                 owner_fd = self._scene_manager.scene_to_owner.get(event.scene_id)
