@@ -39,14 +39,14 @@
     "future_annotations": 1.0
   },
   "src/punt_lux/apps/beads.py": {
-    "method_ratio": 0.0,
+    "method_ratio": 0.6,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
-    "max_complexity": 11.0,
-    "avg_complexity": 4.5,
-    "module_size": 191.0,
-    "classes_per_module": 0.0,
-    "class_to_func_ratio": 0.0,
+    "max_complexity": 7.0,
+    "avg_complexity": 2.5,
+    "module_size": 185.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 0.2,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
@@ -130,14 +130,14 @@
     "future_annotations": 1.0
   },
   "src/punt_lux/hub.py": {
-    "method_ratio": 0.6,
+    "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.0,
+    "avg_params": 1.11,
     "max_complexity": 5.0,
-    "avg_complexity": 1.64,
-    "module_size": 242.0,
-    "classes_per_module": 1.0,
-    "class_to_func_ratio": 0.2,
+    "avg_complexity": 2.0,
+    "module_size": 171.0,
+    "classes_per_module": 0.0,
+    "class_to_func_ratio": 0.0,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
@@ -156,14 +156,14 @@
     "future_annotations": 1.0
   },
   "src/punt_lux/paths.py": {
-    "method_ratio": 0.0,
+    "method_ratio": 0.417,
     "encapsulation_ratio": 1.0,
-    "avg_params": 0.57,
+    "avg_params": 0.42,
     "max_complexity": 6.0,
     "avg_complexity": 2.5,
-    "module_size": 131.0,
-    "classes_per_module": 0.0,
-    "class_to_func_ratio": 0.0,
+    "module_size": 239.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 0.067,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
