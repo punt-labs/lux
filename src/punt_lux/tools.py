@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import json
 import logging
 import threading
@@ -252,6 +253,39 @@ def _with_reconnect[T](fn: Callable[[], T]) -> T:
                     msg = f"Reconnect failed after connection loss: {reconnect_exc}"
                     raise RuntimeError(msg) from exc
             return fn()
+
+
+def _query_tool(
+    method: str,
+    *,
+    doc: str = "",
+) -> Callable[..., Callable[..., str]]:
+    """Wrap a param-builder as a query-based MCP tool."""
+
+    def decorator(fn: Callable[..., dict[str, Any] | None]) -> Callable[..., str]:
+        @mcp.tool()
+        @functools.wraps(fn)
+        def wrapper(**kwargs: Any) -> str:
+            if not is_display_running(default_socket_path()):
+                return "not running"
+            params = fn(**kwargs) or {}
+
+            def _call() -> str:
+                client = _get_client()
+                response = client.query(method, params)
+                if response is None:
+                    return "timeout"
+                if response.error:
+                    return f"error: {response.error}"
+                return json.dumps(response.result, indent=2)
+
+            return _with_reconnect(_call)
+
+        if doc:
+            wrapper.__doc__ = doc
+        return wrapper
+
+    return decorator
 
 
 @mcp.tool()
@@ -754,33 +788,22 @@ def set_window_settings(
     return _with_reconnect(_call)
 
 
-@mcp.tool()
+@_query_tool(
+    "set_frame_state",
+    doc="Modify a frame's state (minimize/expand).\n\n"
+    "Args:\n"
+    "    frame_id: Target frame identifier.\n"
+    "    minimized: True to minimize, False to expand.",
+)
 def set_frame_state(
     frame_id: str,
     minimized: bool | None = None,  # noqa: FBT001
-) -> str:
-    """Modify a frame's state (minimize/expand).
-
-    Args:
-        frame_id: Target frame identifier.
-        minimized: True to minimize, False to expand.
-    """
-    if not is_display_running(default_socket_path()):
-        return "not running"
+) -> dict[str, Any] | None:
+    """Modify a frame's state (minimize/expand)."""
     params: dict[str, Any] = {"frame_id": frame_id}
     if minimized is not None:
         params["minimized"] = minimized
-
-    def _call() -> str:
-        client = _get_client()
-        response = client.query("set_frame_state", params)
-        if response is None:
-            return "timeout"
-        if response.error:
-            return f"error: {response.error}"
-        return json.dumps(response.result, indent=2)
-
-    return _with_reconnect(_call)
+    return params
 
 
 @mcp.tool()
@@ -893,94 +916,46 @@ def screenshot() -> str:
     return _with_reconnect(_call)
 
 
-@mcp.tool()
-def get_display_info() -> str:
-    """Return display server metadata: backend, resolution, FPS, PID, uptime."""
-    if not is_display_running(default_socket_path()):
-        return "not running"
-
-    def _call() -> str:
-        client = _get_client()
-        response = client.query("get_display_info")
-        if response is None:
-            return "timeout"
-        if response.error:
-            return f"error: {response.error}"
-        return json.dumps(response.result, indent=2)
-
-    return _with_reconnect(_call)
+@_query_tool(
+    "get_display_info",
+    doc="Return display server metadata: backend, resolution, FPS, PID, uptime.",
+)
+def get_display_info() -> dict[str, Any] | None:
+    """Return display server metadata."""
+    return None
 
 
-@mcp.tool()
-def get_window_settings() -> str:
-    """Return current window settings: font scale, idle FPS."""
-    if not is_display_running(default_socket_path()):
-        return "not running"
-
-    def _call() -> str:
-        client = _get_client()
-        response = client.query("get_window_settings")
-        if response is None:
-            return "timeout"
-        if response.error:
-            return f"error: {response.error}"
-        return json.dumps(response.result, indent=2)
-
-    return _with_reconnect(_call)
+@_query_tool(
+    "get_window_settings",
+    doc="Return current window settings: font scale, idle FPS.",
+)
+def get_window_settings() -> dict[str, Any] | None:
+    """Return current window settings."""
+    return None
 
 
-@mcp.tool()
-def get_theme() -> str:
+@_query_tool("get_theme", doc="Return current theme and available themes.")
+def get_theme() -> dict[str, Any] | None:
     """Return current theme and available themes."""
-    if not is_display_running(default_socket_path()):
-        return "not running"
-
-    def _call() -> str:
-        client = _get_client()
-        response = client.query("get_theme")
-        if response is None:
-            return "timeout"
-        if response.error:
-            return f"error: {response.error}"
-        return json.dumps(response.result, indent=2)
-
-    return _with_reconnect(_call)
+    return None
 
 
-@mcp.tool()
-def list_clients() -> str:
+@_query_tool(
+    "list_clients",
+    doc="List all clients connected to the display server.",
+)
+def list_clients() -> dict[str, Any] | None:
     """List all clients connected to the display server."""
-    if not is_display_running(default_socket_path()):
-        return "not running"
-
-    def _call() -> str:
-        client = _get_client()
-        response = client.query("list_clients")
-        if response is None:
-            return "timeout"
-        if response.error:
-            return f"error: {response.error}"
-        return json.dumps(response.result, indent=2)
-
-    return _with_reconnect(_call)
+    return None
 
 
-@mcp.tool()
-def list_menus() -> str:
+@_query_tool(
+    "list_menus",
+    doc="List all registered menus and their items.",
+)
+def list_menus() -> dict[str, Any] | None:
     """List all registered menus and their items."""
-    if not is_display_running(default_socket_path()):
-        return "not running"
-
-    def _call() -> str:
-        client = _get_client()
-        response = client.query("list_menus")
-        if response is None:
-            return "timeout"
-        if response.error:
-            return f"error: {response.error}"
-        return json.dumps(response.result, indent=2)
-
-    return _with_reconnect(_call)
+    return None
 
 
 @mcp.tool()
@@ -1023,48 +998,26 @@ def set_display_mode(mode: str) -> str:
     return f"display:{label}"
 
 
-@mcp.tool()
-def list_recent_events(count: int = 50) -> str:
-    """Return the last N interaction events from the display.
-
-    Events include button clicks, slider changes, combo selections,
-    and other user interactions. Default 50, max 200.
-    """
-    if not is_display_running(default_socket_path()):
-        return "not running"
-
-    def _call() -> str:
-        client = _get_client()
-        response = client.query("list_recent_events", {"count": count})
-        if response is None:
-            return "timeout"
-        if response.error:
-            return f"error: {response.error}"
-        return json.dumps(response.result, indent=2)
-
-    return _with_reconnect(_call)
+@_query_tool(
+    "list_recent_events",
+    doc="Return the last N interaction events from the display.\n\n"
+    "Events include button clicks, slider changes, combo selections,\n"
+    "and other user interactions. Default 50, max 200.",
+)
+def list_recent_events(count: int = 50) -> dict[str, Any] | None:
+    """Return the last N interaction events."""
+    return {"count": count}
 
 
-@mcp.tool()
-def list_errors(count: int = 20) -> str:
-    """Return the last N display-side errors and warnings.
-
-    Each entry includes timestamp, severity, message, and context.
-    Default 20, max 100.
-    """
-    if not is_display_running(default_socket_path()):
-        return "not running"
-
-    def _call() -> str:
-        client = _get_client()
-        response = client.query("list_errors", {"count": count})
-        if response is None:
-            return "timeout"
-        if response.error:
-            return f"error: {response.error}"
-        return json.dumps(response.result, indent=2)
-
-    return _with_reconnect(_call)
+@_query_tool(
+    "list_errors",
+    doc="Return the last N display-side errors and warnings.\n\n"
+    "Each entry includes timestamp, severity, message, and context.\n"
+    "Default 20, max 100.",
+)
+def list_errors(count: int = 20) -> dict[str, Any] | None:
+    """Return the last N display-side errors."""
+    return {"count": count}
 
 
 @mcp.tool()
