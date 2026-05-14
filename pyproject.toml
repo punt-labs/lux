@@ -119,6 +119,7 @@ ignore = [
 "src/punt_lux/show.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/hub.py" = ["PLC0415"]
 "src/punt_lux/service.py" = ["S603", "S607", "PLC0415"]
+"src/punt_lux/_backends.py" = ["S603", "S607", "PLC0415"]
 
 [tool.ruff.format]
 quote-style = "double"

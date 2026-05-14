@@ -29,3 +29,7 @@
 {"ts":"2026-05-14T15:26:39Z","commit":"81bae4b","files_scored":27,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-05-14T15:28:45Z","commit":"cd72d5d","files_scored":27,"files_improved":2,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/apps/beads.py":{"method_ratio":[0.0,0.6],"max_complexity":[11.0,7.0],"avg_complexity":[4.5,2.5],"module_size":[191.0,185.0],"class_to_func_ratio":[0.0,0.2]},"src/punt_lux/display_client.py":{"module_size":[541.0,540.0]}}}
 {"ts":"2026-05-14T15:30:52Z","commit":"cd72d5d","files_scored":27,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-05-14T15:31:52Z","commit":"d0f89d9","files_scored":28,"files_improved":1,"files_regressed":3,"verdict":"fail","deltas":{"src/punt_lux/display.py":{"module_size":[1446.0,1445.0]}}}
+{"ts":"2026-05-14T15:37:36Z","commit":"d0f89d9","files_scored":28,"files_improved":0,"files_regressed":2,"verdict":"fail","deltas":{}}
+{"ts":"2026-05-14T15:39:49Z","commit":"d0f89d9","files_scored":28,"files_improved":0,"files_regressed":2,"verdict":"fail","deltas":{}}
+{"ts":"2026-05-14T15:40:33Z","commit":"d0f89d9","files_scored":28,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{}}

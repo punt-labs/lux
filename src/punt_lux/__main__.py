@@ -396,17 +396,17 @@ def doctor(
 @app.command("hub-install")
 def hub_install() -> None:
     """Register luxd as a system service (launchd/systemd)."""
-    from punt_lux.service import install as service_install
+    from punt_lux.service import ServiceManager
 
-    print(service_install())
+    print(ServiceManager().install())
 
 
 @app.command("hub-uninstall")
 def hub_uninstall() -> None:
     """Remove luxd system service."""
-    from punt_lux.service import uninstall as service_uninstall
+    from punt_lux.service import ServiceManager
 
-    print(service_uninstall())
+    print(ServiceManager().uninstall())
 
 
 def _restart_hub() -> None:

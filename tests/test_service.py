@@ -8,12 +8,8 @@ from unittest.mock import patch
 
 import pytest
 
-from punt_lux.service import (
-    _launchd_plist_content,
-    _luxd_exec_args,
-    _systemd_unit_content,
-    detect_platform,
-)
+from punt_lux._backends import LaunchdBackend, SystemdBackend
+from punt_lux.service import ServiceManager, detect_platform
 
 
 class TestDetectPlatform:
@@ -41,7 +37,7 @@ class TestLuxdExecArgs:
             patch("punt_lux.service.Path.home", return_value=fake_home),
             pytest.raises(RuntimeError, match="Cannot find luxd binary"),
         ):
-            _luxd_exec_args()
+            ServiceManager._luxd_exec_args()
 
     def test_resolves_binary(self, tmp_path: Path):
         fake_home = tmp_path / "home"
@@ -52,7 +48,7 @@ class TestLuxdExecArgs:
         luxd.chmod(0o755)
 
         with patch("punt_lux.service.Path.home", return_value=fake_home):
-            args = _luxd_exec_args()
+            args = ServiceManager._luxd_exec_args()
 
         assert args[0].endswith("luxd")
         assert "--port" in args
@@ -68,8 +64,10 @@ class TestLaunchdPlistContent:
         luxd.touch()
         luxd.chmod(0o755)
 
-        with patch("punt_lux.service.Path.home", return_value=fake_home):
-            content = _launchd_plist_content()
+        with patch("punt_lux._backends.Path.home", return_value=fake_home):
+            backend = LaunchdBackend()
+            exec_args = [str(luxd), "--port", "8430"]
+            content = backend._plist_content(exec_args)
 
         assert '<?xml version="1.0"' in content
         assert "<plist" in content
@@ -87,8 +85,10 @@ class TestLaunchdPlistContent:
         luxd.touch()
         luxd.chmod(0o755)
 
-        with patch("punt_lux.service.Path.home", return_value=fake_home):
-            content = _launchd_plist_content()
+        with patch("punt_lux._backends.Path.home", return_value=fake_home):
+            backend = LaunchdBackend()
+            exec_args = [str(luxd), "--port", "8430"]
+            content = backend._plist_content(exec_args)
 
         assert "ProgramArguments" in content
         assert "--port" in content
@@ -104,8 +104,10 @@ class TestSystemdUnitContent:
         luxd.touch()
         luxd.chmod(0o755)
 
-        with patch("punt_lux.service.Path.home", return_value=fake_home):
-            content = _systemd_unit_content()
+        with patch("punt_lux._backends.Path.home", return_value=fake_home):
+            backend = SystemdBackend()
+            exec_args = [str(luxd), "--port", "8430"]
+            content = backend._unit_content(exec_args)
 
         assert "[Unit]" in content
         assert "[Service]" in content
@@ -123,9 +125,23 @@ class TestSystemdUnitContent:
         luxd.touch()
         luxd.chmod(0o755)
 
-        with patch("punt_lux.service.Path.home", return_value=fake_home):
-            content = _systemd_unit_content()
+        with patch("punt_lux._backends.Path.home", return_value=fake_home):
+            backend = SystemdBackend()
+            exec_args = [str(luxd), "--port", "8430"]
+            content = backend._unit_content(exec_args)
 
         assert "ExecStart=" in content
         assert "luxd" in content
         assert "--port" in content
+
+
+class TestServiceManager:
+    def test_resolves_macos_backend(self):
+        with patch("punt_lux.service.detect_platform", return_value="macos"):
+            mgr = ServiceManager()
+        assert isinstance(mgr._backend, LaunchdBackend)
+
+    def test_resolves_linux_backend(self):
+        with patch("punt_lux.service.detect_platform", return_value="linux"):
+            mgr = ServiceManager()
+        assert isinstance(mgr._backend, SystemdBackend)
