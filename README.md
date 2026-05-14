@@ -112,21 +112,38 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 
 ## MCP Tools
 
-Agents interact with Lux through 11 MCP tools exposed by `lux serve`:
+Agents interact with Lux through **24 MCP tools** exposed by `lux serve`:
 
 | Tool | What it does |
 |------|-------------|
+| **Scene management** | |
 | `show(scene_id, elements)` | Replace the display with a new element tree. Supports `frame_id`, `frame_size`, `frame_flags` for windowed frames |
 | `show_table(scene_id, columns, rows)` | Display a filterable data table with optional detail panel |
 | `show_dashboard(scene_id, ...)` | Display a dashboard with metric cards, charts, and a table |
 | `update(scene_id, patches)` | Patch elements by ID (set fields or remove) |
-| `set_menu(menus)` | Add custom menus to the menu bar |
-| `register_tool(id, label)` | Register a World menu item routed only to the calling server via `recv()` |
-| `set_theme(theme)` | Switch display theme (11 themes available) |
-| `display_mode(mode)` | Get or set display mode (`y`/`n`) --- advisory signal for consumer plugins |
 | `clear()` | Remove all content from the display |
+| **Communication** | |
 | `ping()` | Round-trip latency check |
 | `recv(timeout)` | Read the next interaction event (clicks, row selections, menu clicks) |
+| `set_menu(menus)` | Add custom menus to the menu bar |
+| `register_tool(id, label)` | Register a World menu item routed only to the calling server via `recv()` |
+| `set_theme(theme)` | Switch display theme |
+| **Configuration** | |
+| `display_mode()` | Read current display mode (`y`/`n`) --- advisory signal for consumer plugins |
+| `set_display_mode(mode)` | Set display mode |
+| `set_window_settings(...)` | Configure opacity, font scale, decoration, idle FPS |
+| `set_frame_state(frame_id, ...)` | Minimize or restore a frame |
+| **Introspection** | |
+| `inspect_scene(scene_id)` | Return element tree for a scene |
+| `list_scenes()` | List all active scenes with metadata |
+| `screenshot()` | Capture display as base64 PNG |
+| `get_display_info()` | Display dimensions, frame count, client count |
+| `get_window_settings()` | Current window configuration |
+| `get_theme()` | Current theme name |
+| `list_clients()` | Connected clients with names and scene counts |
+| `list_menus()` | Registered menu items |
+| `list_recent_events(count)` | Recent interaction events |
+| `list_errors(count)` | Recent error log entries |
 
 ## What It Looks Like
 
