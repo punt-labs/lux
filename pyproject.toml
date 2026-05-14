@@ -102,7 +102,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tools/*" = ["T20", "S603", "S607"]
+"tools/*" = ["T20", "S603", "S607", "C901", "PERF403"]
 "tests/*" = ["S101", "S105", "S106", "S108", "S603", "T20", "SLF001", "ARG", "FBT", "PLC0415", "A002"]
 "demos/*" = ["T20", "S311", "C901"]
 "scripts/*" = ["T20", "S108", "S603", "S607", "PLC0415"]
@@ -112,6 +112,8 @@ ignore = [
 "src/punt_lux/config.py" = ["S607"]
 "src/punt_lux/hooks.py" = ["S607"]
 "src/punt_lux/display.py" = ["PLC0415"]
+"src/punt_lux/menu_manager.py" = ["PLC0415"]
+"src/punt_lux/element_renderer.py" = ["PLC0415"]
 "src/punt_lux/table_renderer.py" = ["PLC0415"]
 "src/punt_lux/cli.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/show.py" = ["T20", "FBT", "PLC0415"]
