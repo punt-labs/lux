@@ -1939,6 +1939,7 @@ class DisplayServer:
         ws = sm.widget_state_for(scene_id)
         if ws is not None:
             self._widget_state = ws
+            self._table_renderer.widget_state = ws
         scene = sm.scenes[scene_id]
         if scene.title and len(sm.scenes) == 1:
             from imgui_bundle import imgui

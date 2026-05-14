@@ -8,7 +8,6 @@ from typing import Any, Literal, Self
 from punt_lux.protocol import (
     CheckboxElement,
     CollapsingHeaderElement,
-    ColorPickerElement,
     ComboElement,
     Element,
     GroupElement,
@@ -102,8 +101,8 @@ def _widget_value(elem: Element) -> Any:
         return elem.selected
     if isinstance(elem, (ComboElement, RadioElement)):
         return elem.selected
-    if isinstance(elem, ColorPickerElement):
-        return elem.value
+    # ColorPickerElement: renderer initializes widget state with ImVec4 via
+    # ensure(). Returning the raw hex string here would corrupt that state.
     return None
 
 
