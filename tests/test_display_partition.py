@@ -1548,8 +1548,8 @@ class TestWorldMenuPartitions:
 
         # Client name is used for namespace
         assert server._socket_server._client_names[10] == "Vox"
-        assert 10 in server._menu_registrations
-        assert server._menu_registrations[10] == items
+        assert 10 in server._menu_manager.menu_registrations
+        assert server._menu_manager.menu_registrations[10] == items
 
     def test_unnamed_client_fallback(self):
         """Client without ConnectMessage gets 'Client {fd}' fallback."""
@@ -1576,8 +1576,8 @@ class TestWorldMenuPartitions:
 
         server._socket_server.remove_client(sock)
 
-        assert 10 not in server._menu_registrations
-        assert "search" not in server._menu_owners
+        assert 10 not in server._menu_manager.menu_registrations
+        assert "search" not in server._menu_manager.menu_owners
 
     def test_menu_owner_bookkeeping(self):
         """Menu owner map tracks which client owns each menu item."""
@@ -1595,8 +1595,8 @@ class TestWorldMenuPartitions:
             s2, RegisterMenuMessage(items=[{"label": "Speak", "id": "speak"}])
         )
 
-        assert server._menu_owners["board"] == 10
-        assert server._menu_owners["speak"] == 20
+        assert server._menu_manager.menu_owners["board"] == 10
+        assert server._menu_manager.menu_owners["speak"] == 20
 
 
 class TestFrameMinimizeDockPartitions:
