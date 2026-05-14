@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     import pytest
 
 from punt_lux.__main__ import app
-from punt_lux.show import build_beads_elements, build_beads_payload, load_beads
+from punt_lux.apps.beads import BeadsBrowser
 
 runner = CliRunner()
 
@@ -85,7 +85,7 @@ class TestLoadBeads:
             "punt_lux.apps.beads.subprocess.run",
             return_value=_mock_bd_result(active),
         ):
-            result = load_beads()
+            result = BeadsBrowser().load()
         assert len(result) == 2
         assert all(i["status"] in {"open", "in_progress"} for i in result)
 
@@ -94,7 +94,7 @@ class TestLoadBeads:
             "punt_lux.apps.beads.subprocess.run",
             return_value=_mock_bd_result(_ISSUES),
         ):
-            result = load_beads(all_issues=True)
+            result = BeadsBrowser().load(all_issues=True)
         assert len(result) == 3
 
     def test_sorted_in_progress_first_then_priority(self) -> None:
@@ -102,7 +102,7 @@ class TestLoadBeads:
             "punt_lux.apps.beads.subprocess.run",
             return_value=_mock_bd_result(_ISSUES),
         ):
-            result = load_beads(all_issues=True)
+            result = BeadsBrowser().load(all_issues=True)
         assert result[0]["id"] == "beads-002"  # in_progress floats to top
         assert result[1]["id"] == "beads-001"  # P1, open
 
@@ -111,7 +111,7 @@ class TestLoadBeads:
             "punt_lux.apps.beads.subprocess.run",
             return_value=_mock_bd_result([], returncode=1),
         ):
-            assert load_beads() == []
+            assert BeadsBrowser().load() == []
 
     def test_defaults_applied(self) -> None:
         minimal = [{"id": "beads-100"}]
@@ -119,7 +119,7 @@ class TestLoadBeads:
             "punt_lux.apps.beads.subprocess.run",
             return_value=_mock_bd_result(minimal),
         ):
-            result = load_beads()
+            result = BeadsBrowser().load()
         assert result[0]["status"] == "open"
         assert result[0]["priority"] == 4
         assert result[0]["issue_type"] == "task"
@@ -132,7 +132,7 @@ class TestLoadBeads:
             stderr="",
         )
         with patch("punt_lux.apps.beads.subprocess.run", return_value=cp):
-            assert load_beads() == []
+            assert BeadsBrowser().load() == []
 
     def test_invalid_json_returns_empty(self) -> None:
         cp = subprocess.CompletedProcess(
@@ -142,14 +142,14 @@ class TestLoadBeads:
             stderr="",
         )
         with patch("punt_lux.apps.beads.subprocess.run", return_value=cp):
-            assert load_beads() == []
+            assert BeadsBrowser().load() == []
 
     def test_passes_all_flag_to_bd(self) -> None:
         with patch(
             "punt_lux.apps.beads.subprocess.run",
             return_value=_mock_bd_result(_ISSUES),
         ) as mock_run:
-            load_beads(all_issues=True)
+            BeadsBrowser().load(all_issues=True)
         args = mock_run.call_args[0][0]
         assert "--all" in args
 
@@ -158,7 +158,7 @@ class TestLoadBeads:
             "punt_lux.apps.beads.subprocess.run",
             return_value=_mock_bd_result(_ISSUES),
         ) as mock_run:
-            load_beads()
+            BeadsBrowser().load()
         args = mock_run.call_args[0][0]
         assert "--status=open,in_progress" in args
 
@@ -167,7 +167,7 @@ class TestLoadBeads:
             "punt_lux.apps.beads.subprocess.run",
             side_effect=FileNotFoundError("bd not found"),
         ):
-            assert load_beads() == []
+            assert BeadsBrowser().load() == []
 
 
 # ---------------------------------------------------------------------------
@@ -178,38 +178,38 @@ class TestLoadBeads:
 class TestBuildBeadsPayload:
     def test_columns(self) -> None:
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
-        payload = build_beads_payload(active)
+        payload = BeadsBrowser().build_payload(active)
         assert payload["columns"] == ["ID", "Title", "Status", "P", "Type"]
 
     def test_rows_match_issues(self) -> None:
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
-        payload = build_beads_payload(active)
+        payload = BeadsBrowser().build_payload(active)
         assert len(payload["rows"]) == 2
         assert payload["rows"][0][0] == "beads-001"
         assert payload["rows"][0][3] == "P1"
 
     def test_detail_truncates_dates(self) -> None:
         active = [_ISSUES[0]]
-        payload = build_beads_payload(active)
+        payload = BeadsBrowser().build_payload(active)
         detail_row = payload["detail"]["rows"][0]
         assert detail_row[5] == "2026-03-01"  # created_at truncated
         assert detail_row[6] == "2026-03-09"  # updated_at truncated
 
     def test_empty_description_shows_placeholder(self) -> None:
         active = [_ISSUES[1]]  # description is ""
-        payload = build_beads_payload(active)
+        payload = BeadsBrowser().build_payload(active)
         assert payload["detail"]["body"][0] == "No description."
 
     def test_filters_include_unique_values(self) -> None:
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
-        payload = build_beads_payload(active)
+        payload = BeadsBrowser().build_payload(active)
         status_filter = payload["filters"][1]
         assert status_filter["items"][0] == "All"
         assert "in_progress" in status_filter["items"]
         assert "open" in status_filter["items"]
 
     def test_empty_issues(self) -> None:
-        payload = build_beads_payload([])
+        payload = BeadsBrowser().build_payload([])
         assert payload["rows"] == []
         assert payload["detail"]["rows"] == []
 
@@ -221,14 +221,14 @@ class TestBuildBeadsPayload:
 
 class TestBuildBeadsElements:
     def test_empty_issues_returns_placeholder(self) -> None:
-        elements = build_beads_elements([])
+        elements = BeadsBrowser().build_elements([])
         assert len(elements) == 1
         assert elements[0].kind == "text"
         assert "No active issues" in elements[0].content
 
     def test_nonempty_issues_returns_table(self) -> None:
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
-        elements = build_beads_elements(active)
+        elements = BeadsBrowser().build_elements(active)
         assert len(elements) == 1
         assert elements[0].kind == "table"
         assert elements[0].id == "table"

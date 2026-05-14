@@ -21,7 +21,6 @@ def _make_manager(**overrides: Any) -> MenuManager:
         "on_opacity_changed": lambda _f: None,  # pyright: ignore[reportUnknownLambdaType]
         "on_font_scale_changed": lambda _f: None,  # pyright: ignore[reportUnknownLambdaType]
         "get_themes": list,
-        "get_current_theme": lambda: "dark",
         "get_decorated": lambda: True,
         "get_opacity": lambda: 1.0,
         "get_font_scale": lambda: 1.0,
@@ -29,7 +28,6 @@ def _make_manager(**overrides: Any) -> MenuManager:
         "get_client_names": dict,
         "on_clear_all": lambda: None,
         "on_fit_all": lambda: None,
-        "has_scenes": lambda: False,
     }
     defaults.update(overrides)
     return MenuManager(**defaults)

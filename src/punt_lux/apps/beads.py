@@ -193,30 +193,3 @@ class BeadsBrowser:
             frame_id=frame_id,
             frame_title=f"Beads: {project}",
         )
-
-
-# ---------------------------------------------------------------------------
-# Module-level convenience API — typed wrappers for backward compatibility.
-# ---------------------------------------------------------------------------
-
-_browser = BeadsBrowser()
-
-
-def load_beads(*, all_issues: bool = False) -> list[dict[str, Any]]:
-    """Fetch and sort beads issues via ``bd list --json``."""
-    return _browser.load(all_issues=all_issues)
-
-
-def build_beads_payload(issues: list[dict[str, Any]]) -> dict[str, Any]:
-    """Build a table element dict from issue data."""
-    return _browser.build_payload(issues)
-
-
-def build_beads_elements(issues: list[dict[str, Any]]) -> list[Element]:
-    """Build display elements from issue data."""
-    return _browser.build_elements(issues)
-
-
-def render_beads_board(client: DisplayClient) -> None:
-    """Send the beads table to a DisplayClient."""
-    _browser.render(client)

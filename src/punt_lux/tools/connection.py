@@ -9,7 +9,7 @@ import threading
 from collections.abc import Callable
 from typing import Any
 
-from punt_lux.apps.beads import render_beads_board
+from punt_lux.apps.beads import BeadsBrowser
 from punt_lux.display_client import DisplayClient
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import InteractionMessage
@@ -32,7 +32,7 @@ def _on_beads_browser(_msg: InteractionMessage) -> None:
     if _client is None:
         logger.warning("_on_beads_browser: client is None, ignoring menu click")
         return
-    threading.Thread(target=render_beads_board, args=(_client,), daemon=True).start()
+    threading.Thread(target=BeadsBrowser().render, args=(_client,), daemon=True).start()
 
 
 def _setup_apps(client: DisplayClient) -> None:
