@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 from typing import Any, cast
 
-from punt_lux.config import read_config, resolve_config_path
+from punt_lux.config import ConfigManager
 
 # Any bd subcommand should trigger a beads board refresh — the board
 # should be visible whenever you're interacting with beads.
@@ -28,7 +28,7 @@ _BD_CMD_RE = re.compile(
 
 def handle_session_start() -> dict[str, object]:
     """SessionStart — read display mode and return context."""
-    cfg = read_config(resolve_config_path())
+    cfg = ConfigManager().read()
 
     if cfg.display == "y":
         msg = "Lux display mode: on. Visual output will be rendered when appropriate."
@@ -91,7 +91,7 @@ def handle_post_bash(data: dict[str, object]) -> None:
         return
 
     # Gate: display must be enabled
-    cfg = read_config(resolve_config_path())
+    cfg = ConfigManager().read()
     if cfg.display != "y":
         return
 

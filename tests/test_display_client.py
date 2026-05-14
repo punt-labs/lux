@@ -488,9 +488,11 @@ class TestErrorHandling:
 
 
 class TestAutoSpawn:
-    def test_auto_spawn_calls_ensure_display(self, tmp_path: Path) -> None:
-        """With auto_spawn=True, connect() calls ensure_display()."""
+    def test_auto_spawn_calls_ensure(self, tmp_path: Path) -> None:
+        """With auto_spawn=True, connect() calls DisplayPaths.ensure()."""
         import tempfile
+
+        from punt_lux.paths import DisplayPaths
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
         sock_path = Path(short_dir) / "d.sock"
@@ -506,12 +508,12 @@ class TestAutoSpawn:
         ready_event.wait(timeout=5)
 
         try:
-            with patch(
-                "punt_lux.display_client.ensure_display", return_value=sock_path
+            with patch.object(
+                DisplayPaths, "ensure", return_value=sock_path
             ) as mock_ensure:
                 client = DisplayClient(sock_path, auto_spawn=True, connect_timeout=2.0)
                 client.connect()
-                mock_ensure.assert_called_once_with(sock_path, timeout=2.0)
+                mock_ensure.assert_called_once_with(timeout=2.0)
                 client.close()
         finally:
             if server_conn:

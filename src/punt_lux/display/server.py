@@ -27,11 +27,7 @@ from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.menu_manager import MenuManager
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
-from punt_lux.paths import (
-    default_socket_path,
-    remove_pid_file,
-    write_pid_file,
-)
+from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
     CheckboxElement,
@@ -101,6 +97,7 @@ class DisplayServer:
     _current_theme: str
     _current_scene_id: str | None
     _query_dispatcher: QueryDispatcher
+    _display_paths: DisplayPaths
     _element_renderer: ElementRenderer
 
     def __new__(
@@ -110,7 +107,9 @@ class DisplayServer:
         test_auto_click: bool = False,
     ) -> Self:
         self = super().__new__(cls)
-        self._socket_path = Path(socket_path or str(default_socket_path()))
+        paths = DisplayPaths(Path(socket_path) if socket_path else None)
+        self._socket_path = paths.socket_path
+        self._display_paths = paths
         self._scene_manager = SceneManager(
             on_scene_replaced=self._drain_stale_events,
         )
@@ -372,7 +371,7 @@ class DisplayServer:
 
         self._themes = list(hello_imgui.ImGuiTheme_)
         self._socket_server.setup(self._socket_path)
-        write_pid_file(self._socket_path)
+        self._display_paths.write_pid()
 
         # macOS: hide from Dock after GLFW init (which overrides earlier calls)
         if platform.system() == "Darwin":
@@ -475,7 +474,7 @@ class DisplayServer:
         self._socket_server.shutdown()
         self._menu_manager.clear_menus()
         self._socket_path.unlink(missing_ok=True)
-        remove_pid_file(self._socket_path)
+        self._display_paths.remove_pid()
         logger.info("Display server stopped")
 
     # -- menu bar ----------------------------------------------------------

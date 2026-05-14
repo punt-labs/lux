@@ -33,7 +33,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self
 
-from punt_lux.paths import default_socket_path, ensure_display
+from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
     ClearMessage,
@@ -174,10 +174,11 @@ class DisplayClient:
         if self._sock is not None:
             return
 
-        path = self._socket_path or default_socket_path()
+        dp = DisplayPaths(self._socket_path)
+        path = dp.socket_path
 
         if self._auto_spawn:
-            path = ensure_display(path, timeout=self._connect_timeout)
+            path = dp.ensure(timeout=self._connect_timeout)
 
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         try:
