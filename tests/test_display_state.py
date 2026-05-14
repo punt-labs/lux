@@ -26,7 +26,7 @@ from punt_lux.protocol import (
     UpdateMessage,
     WindowElement,
 )
-from punt_lux.widget_state import WidgetState
+from punt_lux.scene import WidgetState
 
 
 def _make_server() -> DisplayServer:

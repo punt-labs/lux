@@ -61,9 +61,8 @@ from punt_lux.protocol import (
     UpdateMessage,
 )
 from punt_lux.query_dispatcher import QueryDispatcher
-from punt_lux.scene_manager import Frame, SceneManager
+from punt_lux.scene import Frame, SceneManager, WidgetState
 from punt_lux.socket_server import SocketServer
-from punt_lux.widget_state import WidgetState
 
 if TYPE_CHECKING:
     from punt_lux.protocol import Message

@@ -11,7 +11,7 @@ from punt_lux.display.table_renderer import (
     _table_column_weights,
 )
 from punt_lux.protocol import TableFilter
-from punt_lux.widget_state import WidgetState
+from punt_lux.scene import WidgetState
 
 
 @pytest.fixture()

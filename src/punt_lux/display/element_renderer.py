@@ -20,7 +20,7 @@ from punt_lux.protocol import (
     TabBarElement,
     WindowElement,
 )
-from punt_lux.widget_state import WidgetState
+from punt_lux.scene import WidgetState
 
 if TYPE_CHECKING:
     from punt_lux.protocol import Element
