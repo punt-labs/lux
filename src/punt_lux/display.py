@@ -1357,6 +1357,7 @@ class DisplayServer:
             self._widget_state = ws
             self._table_renderer.widget_state = ws
             self._element_renderer.widget_state = ws
+        self._element_renderer.current_scene_id = scene_id
         scene = frame.scenes[scene_id]
         for elem in scene.elements:
             self._element_renderer.render_element(elem)
