@@ -102,10 +102,11 @@ def abstract(server: DisplayServer) -> AbstractState:
     be verified manually against the Z spec.
     """
     # clients -> set of file descriptors
-    client_fds = frozenset(s.fileno() for s in server._clients)
+    ss = server._socket_server
+    client_fds = frozenset(s.fileno() for s in ss.clients)
 
     # readers -> keys of the readers dict (should equal client_fds)
-    reader_fds = frozenset(server._readers.keys())
+    reader_fds = frozenset(ss._readers.keys())
 
     # Scene decomposition — abstraction maps multi-scene to "active tab" view
     has_scene = len(server._scene_manager._scenes) > 0
@@ -127,7 +128,7 @@ def abstract(server: DisplayServer) -> AbstractState:
     event_queue = frozenset(e.element_id for e in server._event_queue)
 
     # Listening -> server socket exists
-    listening = server._server_sock is not None
+    listening = ss.server_sock is not None
 
     return AbstractState(
         clients=client_fds,

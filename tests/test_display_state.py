@@ -211,36 +211,36 @@ class TestPollClientsSkipsRemoved:
         sock = _mock_sock()
 
         # Manually register the client
-        server._clients.append(sock)
+        server._socket_server.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
-        server._readers[sock.fileno()] = FrameReader()
+        server._socket_server._readers[sock.fileno()] = FrameReader()
 
         # After _remove_client, sock should not be in _clients
-        server._remove_client(sock)
-        assert sock not in server._clients
-        assert sock.fileno() not in server._readers
+        server._socket_server.remove_client(sock)
+        assert sock not in server._socket_server.clients
+        assert sock.fileno() not in server._socket_server._readers
 
         # _read_from_client on a removed socket should be a no-op
         # (reader lookup returns None)
-        server._read_from_client(sock)
+        server._socket_server._read_from_client(sock)
         sock.recv.assert_not_called()
 
     def test_double_remove_is_idempotent(self) -> None:
         """Calling _remove_client twice must not crash."""
         server = _make_server()
         sock = _mock_sock()
-        server._clients.append(sock)
+        server._socket_server.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
-        server._readers[sock.fileno()] = FrameReader()
+        server._socket_server._readers[sock.fileno()] = FrameReader()
 
-        server._remove_client(sock)
-        assert sock not in server._clients
+        server._socket_server.remove_client(sock)
+        assert sock not in server._socket_server.clients
 
         # Second call is a no-op, not a crash
-        server._remove_client(sock)
-        assert sock not in server._clients
+        server._socket_server.remove_client(sock)
+        assert sock not in server._socket_server.clients
 
 
 # -----------------------------------------------------------------------
@@ -360,11 +360,11 @@ class TestMalformedMessageDisconnects:
         """A client sending invalid JSON should be disconnected, not crash."""
         server = _make_server()
         sock = _mock_sock()
-        server._clients.append(sock)
+        server._socket_server.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
         reader = FrameReader()
-        server._readers[sock.fileno()] = reader
+        server._socket_server._readers[sock.fileno()] = reader
 
         # Feed a frame with invalid JSON (valid length prefix, bad payload)
         import struct
@@ -373,10 +373,10 @@ class TestMalformedMessageDisconnects:
         frame = struct.pack("!I", len(bad_payload)) + bad_payload
         sock.recv.return_value = frame
 
-        server._read_from_client(sock)
+        server._socket_server._read_from_client(sock)
 
         # Client should be disconnected, not crash
-        assert sock not in server._clients
+        assert sock not in server._socket_server.clients
 
     def test_unknown_message_type_keeps_client_connected(self) -> None:
         """A client sending an unknown message type should NOT be disconnected.
@@ -390,19 +390,19 @@ class TestMalformedMessageDisconnects:
 
         server = _make_server()
         sock = _mock_sock()
-        server._clients.append(sock)
+        server._socket_server.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
         reader = FrameReader()
-        server._readers[sock.fileno()] = reader
+        server._socket_server._readers[sock.fileno()] = reader
 
         payload = json.dumps({"type": "bogus"}).encode("utf-8")
         frame = struct.pack("!I", len(payload)) + payload
         sock.recv.return_value = frame
 
-        server._read_from_client(sock)
+        server._socket_server._read_from_client(sock)
 
-        assert sock in server._clients
+        assert sock in server._socket_server.clients
 
     def test_known_type_missing_fields_disconnects_client(self) -> None:
         """A known message type missing required fields raises KeyError.
@@ -415,27 +415,27 @@ class TestMalformedMessageDisconnects:
 
         server = _make_server()
         sock = _mock_sock()
-        server._clients.append(sock)
+        server._socket_server.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
         reader = FrameReader()
-        server._readers[sock.fileno()] = reader
+        server._socket_server._readers[sock.fileno()] = reader
 
         # "scene" is a known type, but missing required "id" and "elements"
         payload = json.dumps({"type": "scene"}).encode("utf-8")
         frame = struct.pack("!I", len(payload)) + payload
         sock.recv.return_value = frame
 
-        server._read_from_client(sock)
+        server._socket_server._read_from_client(sock)
 
-        assert sock not in server._clients
+        assert sock not in server._socket_server.clients
 
 
 class TestFlushEvents:
     def test_flush_clears_queue(self) -> None:
         server = _make_server()
         sock = _mock_sock()
-        server._clients.append(sock)
+        server._socket_server.clients.append(sock)
         server._event_queue.append(
             InteractionMessage(element_id="b1", action="click", ts=1.0)
         )
@@ -458,7 +458,7 @@ class TestFlushEvents:
     def test_flush_noop_when_no_events(self) -> None:
         server = _make_server()
         sock = _mock_sock()
-        server._clients.append(sock)
+        server._socket_server.clients.append(sock)
 
         server._flush_events()
 
@@ -469,9 +469,9 @@ class TestFlushEvents:
         server = _make_server()
         owner = _mock_sock_fd(10)
         other = _mock_sock_fd(20)
-        server._clients.extend([owner, other])
-        server._fd_to_client[10] = owner
-        server._fd_to_client[20] = other
+        server._socket_server.clients.extend([owner, other])
+        server._socket_server._fd_to_client[10] = owner
+        server._socket_server._fd_to_client[20] = other
         server._menu_owners["tool_a"] = 10
         server._event_queue.append(
             InteractionMessage(
@@ -492,9 +492,9 @@ class TestFlushEvents:
         server = _make_server()
         sock1 = _mock_sock_fd(10)
         sock2 = _mock_sock_fd(20)
-        server._clients.extend([sock1, sock2])
-        server._fd_to_client[10] = sock1
-        server._fd_to_client[20] = sock2
+        server._socket_server.clients.extend([sock1, sock2])
+        server._socket_server._fd_to_client[10] = sock1
+        server._socket_server._fd_to_client[20] = sock2
         server._event_queue.append(
             InteractionMessage(element_id="button_x", action="click", ts=1.0)
         )
@@ -509,9 +509,9 @@ class TestFlushEvents:
         server = _make_server()
         sock1 = _mock_sock_fd(10)
         sock2 = _mock_sock_fd(20)
-        server._clients.extend([sock1, sock2])
-        server._fd_to_client[10] = sock1
-        server._fd_to_client[20] = sock2
+        server._socket_server.clients.extend([sock1, sock2])
+        server._socket_server._fd_to_client[10] = sock1
+        server._socket_server._fd_to_client[20] = sock2
         server._menu_owners["button_x"] = 10
         server._event_queue.append(
             InteractionMessage(element_id="button_x", action="click", ts=1.0)
@@ -527,9 +527,9 @@ class TestFlushEvents:
         server = _make_server()
         sock1 = _mock_sock_fd(10)
         sock2 = _mock_sock_fd(20)
-        server._clients.extend([sock1, sock2])
-        server._fd_to_client[10] = sock1
-        server._fd_to_client[20] = sock2
+        server._socket_server.clients.extend([sock1, sock2])
+        server._socket_server._fd_to_client[10] = sock1
+        server._socket_server._fd_to_client[20] = sock2
         server._menu_owners["tool_a"] = 10
         server._event_queue.append(
             InteractionMessage(
@@ -549,8 +549,8 @@ class TestFlushEvents:
         """If owner fd is in _menu_owners but not in _fd_to_client, event is dropped."""
         server = _make_server()
         other = _mock_sock_fd(20)
-        server._clients.append(other)
-        server._fd_to_client[20] = other
+        server._socket_server.clients.append(other)
+        server._socket_server._fd_to_client[20] = other
         server._menu_owners["tool_a"] = 10  # fd 10 not in _fd_to_client
         server._event_queue.append(
             InteractionMessage(
@@ -1007,11 +1007,11 @@ class TestRegisterMenu:
         """Disconnecting a client removes its menu registrations and ownership."""
         server = _make_server()
         sock = _mock_sock_fd(10)
-        server._clients.append(sock)
+        server._socket_server.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
-        server._readers[10] = FrameReader()
-        server._fd_to_client[10] = sock
+        server._socket_server._readers[10] = FrameReader()
+        server._socket_server._fd_to_client[10] = sock
 
         items = [{"label": "Run", "id": "run"}]
         server._handle_message(sock, RegisterMenuMessage(items=items))
@@ -1019,7 +1019,7 @@ class TestRegisterMenu:
         assert 10 in server._menu_registrations
         assert "run" in server._menu_owners
 
-        server._remove_client(sock)
+        server._socket_server.remove_client(sock)
 
         assert 10 not in server._menu_registrations
         assert "run" not in server._menu_owners

@@ -13,10 +13,8 @@ machine testing) but ``run()`` requires a GPU-capable environment.
 
 from __future__ import annotations
 
-import contextlib
 import logging
 import platform
-import select
 import socket
 import time
 from collections import deque
@@ -28,14 +26,11 @@ import numpy as np
 from PIL import Image
 
 from punt_lux.paths import (
-    cleanup_stale_socket,
     default_socket_path,
     remove_pid_file,
     write_pid_file,
 )
 from punt_lux.protocol import (
-    HEADER_SIZE,
-    MAX_MESSAGE_SIZE,
     AckMessage,
     CheckboxElement,
     ClearMessage,
@@ -43,7 +38,6 @@ from punt_lux.protocol import (
     ColorPickerElement,
     ComboElement,
     ConnectMessage,
-    FrameReader,
     GroupElement,
     InputTextElement,
     InteractionMessage,
@@ -57,7 +51,6 @@ from punt_lux.protocol import (
     QueryRequest,
     QueryResponse,
     RadioElement,
-    ReadyMessage,
     RegisterMenuMessage,
     SceneMessage,
     ScreenshotRequest,
@@ -70,9 +63,9 @@ from punt_lux.protocol import (
     UpdateMessage,
     WindowElement,
     element_to_dict,
-    encode_message,
 )
 from punt_lux.scene_manager import Frame, SceneManager
+from punt_lux.socket_server import SocketServer
 from punt_lux.widget_state import WidgetState
 
 if TYPE_CHECKING:
@@ -107,7 +100,7 @@ class TextureCache:
         if not Path(path).is_file():
             logger.warning("Image file not found: %s", path)
             return None
-        tex_id = _create_texture(path)
+        tex_id = self._create_texture(path)
         if tex_id is not None:
             self._textures[path] = tex_id
         return tex_id
@@ -120,37 +113,37 @@ class TextureCache:
             GL.glDeleteTextures(1, [tex_id])
         self._textures.clear()
 
+    @staticmethod
+    def _create_texture(path: str) -> int | None:
+        """Load an image file and upload it as an OpenGL texture."""
+        import OpenGL.GL as GL
 
-def _create_texture(path: str) -> int | None:
-    """Load an image file and upload it as an OpenGL texture."""
-    import OpenGL.GL as GL
+        try:
+            img = Image.open(path).convert("RGBA")
+        except Exception:
+            logger.exception("Failed to load image: %s", path)
+            return None
 
-    try:
-        img = Image.open(path).convert("RGBA")
-    except Exception:
-        logger.exception("Failed to load image: %s", path)
-        return None
+        data = np.array(img, dtype=np.uint8)
+        h, w = data.shape[:2]
 
-    data = np.array(img, dtype=np.uint8)
-    h, w = data.shape[:2]
-
-    tex_id: int = GL.glGenTextures(1)
-    GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
-    GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
-    GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
-    GL.glTexImage2D(
-        GL.GL_TEXTURE_2D,
-        0,
-        GL.GL_RGBA,
-        w,
-        h,
-        0,
-        GL.GL_RGBA,
-        GL.GL_UNSIGNED_BYTE,
-        data,
-    )
-    GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
-    return int(tex_id)
+        tex_id: int = GL.glGenTextures(1)
+        GL.glBindTexture(GL.GL_TEXTURE_2D, tex_id)
+        GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MIN_FILTER, GL.GL_LINEAR)
+        GL.glTexParameteri(GL.GL_TEXTURE_2D, GL.GL_TEXTURE_MAG_FILTER, GL.GL_LINEAR)
+        GL.glTexImage2D(
+            GL.GL_TEXTURE_2D,
+            0,
+            GL.GL_RGBA,
+            w,
+            h,
+            0,
+            GL.GL_RGBA,
+            GL.GL_UNSIGNED_BYTE,
+            data,
+        )
+        GL.glBindTexture(GL.GL_TEXTURE_2D, 0)
+        return int(tex_id)
 
 
 # ---------------------------------------------------------------------------
@@ -766,12 +759,7 @@ class DisplayServer:
     """ImGui display server with non-blocking Unix socket IPC."""
 
     _socket_path: Path
-    _server_sock: socket.socket | None
-    _clients: list[socket.socket]
-    _readers: dict[int, FrameReader]
-    _fd_to_client: dict[int, socket.socket]
-    _client_names: dict[int, str]
-    _client_connect_times: dict[int, float]
+    _socket_server: SocketServer
     _scene_manager: SceneManager
     _event_queue: list[InteractionMessage]
     _textures: TextureCache
@@ -804,12 +792,11 @@ class DisplayServer:
     ) -> Self:
         self = super().__new__(cls)
         self._socket_path = Path(socket_path or str(default_socket_path()))
-        self._server_sock = None
-        self._clients = []
-        self._readers = {}  # fd -> reader
-        self._fd_to_client = {}  # fd -> socket (O(1) lookup)
-        self._client_names = {}  # fd -> display name
-        self._client_connect_times = {}  # fd -> connect timestamp
+        self._socket_server = SocketServer(
+            on_message=self._handle_message,
+            on_client_disconnected=self._on_client_disconnected,
+            on_error=self._record_error,
+        )
         self._scene_manager = SceneManager(
             on_scene_replaced=self._drain_stale_events,
         )
@@ -1019,7 +1006,7 @@ class DisplayServer:
         io.config_flags |= imgui.ConfigFlags_.docking_enable.value
 
         self._themes = list(hello_imgui.ImGuiTheme_)
-        self._setup_socket()
+        self._socket_server.setup(self._socket_path)
         write_pid_file(self._socket_path)
 
         # macOS: hide from Dock after GLFW init (which overrides earlier calls)
@@ -1038,8 +1025,8 @@ class DisplayServer:
 
     def _on_frame(self) -> None:
         """Called every frame by ImGui."""
-        self._accept_connections()
-        self._poll_clients()
+        self._socket_server.accept_connections()
+        self._socket_server.poll_clients()
         self._render_scene()
         self._flush_events()
 
@@ -1089,21 +1076,18 @@ class DisplayServer:
             logger.exception("Screenshot capture failed")
             self._record_error("error", str(exc), "screenshot")
             resp = ScreenshotResponse(error=str(exc))
-        self._send_to_client(sock, resp)
+        self._socket_server.send_to_client(sock, resp)
+
+    def _clear_menus(self) -> None:
+        """Remove all menu registrations and ownership records."""
+        self._menu_registrations.clear()
+        self._menu_owners.clear()
 
     def _on_exit(self) -> None:
         """Called before the window closes."""
         self._textures.cleanup()
-        for client in self._clients:
-            client.close()
-        self._clients.clear()
-        self._readers.clear()
-        self._fd_to_client.clear()
-        self._menu_registrations.clear()
-        self._menu_owners.clear()
-        if self._server_sock is not None:
-            self._server_sock.close()
-            self._server_sock = None
+        self._socket_server.shutdown()
+        self._clear_menus()
         self._socket_path.unlink(missing_ok=True)
         remove_pid_file(self._socket_path)
         logger.info("Display server stopped")
@@ -1413,7 +1397,7 @@ class DisplayServer:
         clients: list[tuple[str, int, list[dict[str, Any]]]] = []
         for fd, items in self._menu_registrations.items():
             if items:
-                raw = self._client_names.get(fd, f"Client {fd}")
+                raw = self._socket_server.client_names.get(fd, f"Client {fd}")
                 clients.append((self._display_name(raw), fd, items))
         clients.sort(key=lambda c: c[0].lower())
         return clients
@@ -1562,125 +1546,31 @@ class DisplayServer:
             finally:
                 imgui.end_menu()
 
-    # -- socket lifecycle --------------------------------------------------
+    # -- socket callbacks ---------------------------------------------------
 
-    def _setup_socket(self) -> None:
-        cleanup_stale_socket(self._socket_path)
-        self._socket_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        self._socket_path.parent.chmod(0o700)
-        if self._socket_path.exists():
-            if self._socket_path.is_socket():
-                self._socket_path.unlink()
-            else:
-                msg = f"Path exists and is not a socket: {self._socket_path}"
-                raise RuntimeError(msg)
-        self._server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._server_sock.bind(str(self._socket_path))
-        self._server_sock.listen(5)
-        self._server_sock.setblocking(False)  # noqa: FBT003
+    def _on_client_disconnected(self, fd: int) -> None:
+        """Handle domain-specific cleanup when a client disconnects.
 
-    def _accept_connections(self) -> None:
-        if self._server_sock is None:
-            return
-        readable, _, _ = select.select([self._server_sock], [], [], 0)
-        if readable:
-            try:
-                conn, _ = self._server_sock.accept()
-            except (BlockingIOError, OSError):
-                return
-            conn.setblocking(False)  # noqa: FBT003
-            fd = conn.fileno()
-            self._clients.append(conn)
-            self._readers[fd] = FrameReader()
-            self._fd_to_client[fd] = conn
-            logger.debug("Client connected (total: %d)", len(self._clients))
-            self._send_to_client(conn, ReadyMessage())
-
-    def _poll_clients(self) -> None:
-        if not self._clients:
-            return
-        readable, _, errored = select.select(self._clients, [], self._clients, 0)
-        for sock in errored:
-            self._remove_client(sock)
-        for sock in readable:
-            if sock in self._clients:
-                self._read_from_client(sock)
-
-    def _read_from_client(self, sock: socket.socket) -> None:
-        reader = self._readers.get(sock.fileno())
-        if reader is None:
-            return
-        try:
-            data = sock.recv(65536)
-            if not data:
-                self._remove_client(sock)
-                return
-            reader.feed(data)
-            if reader.buffer_size > MAX_MESSAGE_SIZE + HEADER_SIZE:
-                logger.warning("Buffer overflow from fd %d", sock.fileno())
-                self._remove_client(sock)
-                return
-            # Deserialize all complete frames — KeyError/TypeError/ValueError
-            # here means malformed wire data, not a handler bug.
-            try:
-                messages = reader.drain_typed()
-            except (ValueError, KeyError, TypeError) as exc:
-                fd = sock.fileno()
-                logger.warning("Malformed message from fd %d", fd)
-                self._record_error("error", str(exc), "message_parse")
-                self._remove_client(sock)
-                return
-            for msg in messages:
-                logger.debug(
-                    "Received %s from fd=%s", type(msg).__name__, sock.fileno()
-                )
-                self._handle_message(sock, msg)
-                if sock not in self._clients:
-                    return  # removed during handle (e.g. send failed)
-        except (ConnectionError, OSError) as exc:
-            self._record_error("warning", str(exc), "client_connection")
-            self._remove_client(sock)
-
-    def _remove_client(self, sock: socket.socket) -> None:
-        if sock not in self._clients:
-            return  # already removed — make idempotent
-        self._clients.remove(sock)
-        try:
-            fd = sock.fileno()
-        except OSError:
-            fd = None
-            logger.warning("Client socket fd unavailable — skipping cleanup")
-        if fd is not None:
-            self._readers.pop(fd, None)
-            self._fd_to_client.pop(fd, None)
-            self._client_names.pop(fd, None)
-            self._client_connect_times.pop(fd, None)
-            self._menu_registrations.pop(fd, None)
-            self._menu_owners = {k: v for k, v in self._menu_owners.items() if v != fd}
-            # Transfer ownership of this client's scenes to another client
-            # in the same frame, or mark them as orphans if no other client
-            # remains.  Scenes persist — they are never dismissed on disconnect.
-            sm = self._scene_manager
-            for f in list(sm.frames.values()):
-                f.owner_fds.discard(fd)
-                owned_scenes = [
-                    sid for sid in f.scene_order if sm.scene_to_owner.get(sid) == fd
-                ]
-                for sid in owned_scenes:
-                    remaining = f.owner_fds
-                    if remaining:
-                        sm.scene_to_owner[sid] = next(iter(remaining))
-                    else:
-                        sm.scene_to_owner[sid] = _ORPHAN_FD
-        with contextlib.suppress(OSError):
-            sock.close()
-        logger.debug("Client disconnected (remaining: %d)", len(self._clients))
-
-    def _send_to_client(self, sock: socket.socket, msg: Message) -> None:
-        try:
-            sock.sendall(encode_message(msg))
-        except (ConnectionError, OSError):
-            self._remove_client(sock)
+        Called by SocketServer after socket-level state is already cleaned up.
+        Handles menu registration cleanup and scene ownership transfer.
+        """
+        self._menu_registrations.pop(fd, None)
+        self._menu_owners = {k: v for k, v in self._menu_owners.items() if v != fd}
+        # Transfer ownership of this client's scenes to another client
+        # in the same frame, or mark them as orphans if no other client
+        # remains.  Scenes persist — they are never dismissed on disconnect.
+        sm = self._scene_manager
+        for f in list(sm.frames.values()):
+            f.owner_fds.discard(fd)
+            owned_scenes = [
+                sid for sid in f.scene_order if sm.scene_to_owner.get(sid) == fd
+            ]
+            for sid in owned_scenes:
+                remaining = f.owner_fds
+                if remaining:
+                    sm.scene_to_owner[sid] = next(iter(remaining))
+                else:
+                    sm.scene_to_owner[sid] = _ORPHAN_FD
 
     # -- message handling --------------------------------------------------
 
@@ -1689,7 +1579,7 @@ class DisplayServer:
             self._handle_scene(sock, msg)
         elif isinstance(msg, UpdateMessage):
             self._scene_manager.apply_update(msg)
-            self._send_to_client(
+            self._socket_server.send_to_client(
                 sock,
                 AckMessage(scene_id=msg.scene_id, ts=time.time()),
             )
@@ -1706,7 +1596,8 @@ class DisplayServer:
         elif isinstance(msg, ConnectMessage):
             self._handle_connect(sock, msg)
         elif isinstance(msg, PingMessage):
-            self._send_to_client(sock, PongMessage(ts=msg.ts, display_ts=time.time()))
+            pong = PongMessage(ts=msg.ts, display_ts=time.time())
+            self._socket_server.send_to_client(sock, pong)
         elif isinstance(msg, IntrospectRequest):
             self._handle_introspect(sock, msg)
         elif isinstance(msg, ListScenesRequest):
@@ -1761,8 +1652,7 @@ class DisplayServer:
             fd = sock.fileno()
         except OSError:
             return
-        self._client_names[fd] = name
-        self._client_connect_times[fd] = time.time()
+        self._socket_server.register_client_name(fd, name, time.time())
         logger.info("Client fd=%d identified as %r", fd, name)
 
     def _handle_introspect(self, sock: socket.socket, msg: IntrospectRequest) -> None:
@@ -1778,13 +1668,13 @@ class DisplayServer:
                 scene_id=msg.scene_id,
                 error=f"Scene '{msg.scene_id}' not found",
             )
-        self._send_to_client(sock, resp)
+        self._socket_server.send_to_client(sock, resp)
 
     def _handle_list_scenes(self, sock: socket.socket, _msg: ListScenesRequest) -> None:
         """Return the list of active scenes and frames."""
         data = self._query_list_scenes()
         resp = ListScenesResponse(scenes=data["scenes"], frames=data["frames"])
-        self._send_to_client(sock, resp)
+        self._socket_server.send_to_client(sock, resp)
 
     # -- generic query dispatcher ------------------------------------------
 
@@ -1803,7 +1693,7 @@ class DisplayServer:
                 logger.warning("Query handler %s failed: %s", msg.method, exc)
                 self._record_error("error", str(exc), f"query:{msg.method}")
                 resp = QueryResponse(method=msg.method, error=str(exc))
-        self._send_to_client(sock, resp)
+        self._socket_server.send_to_client(sock, resp)
 
     def _query_inspect_scene(
         self, scene_id: str = "", **_kwargs: Any
@@ -1906,8 +1796,8 @@ class DisplayServer:
         """Return list of connected clients."""
         now = time.time()
         clients = []
-        for fd, name in self._client_names.items():
-            connected_at = self._client_connect_times.get(fd, now)
+        for fd, name in self._socket_server.client_names.items():
+            connected_at = self._socket_server.client_connect_times.get(fd, now)
             menu_count = len(self._menu_registrations.get(fd, []))
             clients.append(
                 {
@@ -1927,7 +1817,7 @@ class DisplayServer:
                 "label": item.get("label", ""),
                 "shortcut": item.get("shortcut"),
                 "owner_fd": fd,
-                "owner_name": self._client_names.get(fd, f"fd={fd}"),
+                "owner_name": self._socket_server.client_names.get(fd, f"fd={fd}"),
             }
             for fd, items in self._menu_registrations.items()
             for item in items
@@ -2032,7 +1922,7 @@ class DisplayServer:
 
     def client_name(self, fd: int) -> str | None:
         """Return the display name for a connected client, or ``None``."""
-        return self._client_names.get(fd)
+        return self._socket_server.client_names.get(fd)
 
     def _handle_register_menu(
         self, sock: socket.socket, msg: RegisterMenuMessage
@@ -2072,7 +1962,8 @@ class DisplayServer:
         except OSError:
             return
         self._scene_manager.handle_scene(msg, fd)
-        self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
+        ack = AckMessage(scene_id=msg.id, ts=time.time())
+        self._socket_server.send_to_client(sock, ack)
         if self._test_auto_click:
             self._auto_click_buttons(msg)
 
@@ -2083,7 +1974,8 @@ class DisplayServer:
         except OSError:
             return
         self._scene_manager.handle_framed_scene(msg, fd)
-        self._send_to_client(sock, AckMessage(scene_id=msg.id, ts=time.time()))
+        ack = AckMessage(scene_id=msg.id, ts=time.time())
+        self._socket_server.send_to_client(sock, ack)
         if self._test_auto_click:
             self._auto_click_buttons(msg)
 
@@ -2586,9 +2478,9 @@ class DisplayServer:
                 ts=time.time(),
             )
             for ofd in owner_fds:
-                owner_sock = self._fd_to_client.get(ofd)
+                owner_sock = self._socket_server.fd_to_client.get(ofd)
                 if owner_sock is not None:
-                    self._send_to_client(owner_sock, close_event)
+                    self._socket_server.send_to_client(owner_sock, close_event)
 
     def _render_scene_tab(self, scene_id: str) -> None:
         """Render a single scene's elements with its own widget state."""
@@ -3883,10 +3775,8 @@ class DisplayServer:
 
     # -- event flushing ----------------------------------------------------
 
-    def _flush_events(self) -> None:
-        if not self._event_queue:
-            return
-        # Record events in the introspection ring buffer before dispatch.
+    def _record_queued_events(self) -> None:
+        """Copy queued events into the introspection ring buffer."""
         for event in self._event_queue:
             self._recent_events.append(
                 {
@@ -3896,23 +3786,32 @@ class DisplayServer:
                     "timestamp": event.ts if event.ts is not None else time.time(),
                 }
             )
-        if self._clients:
-            for event in self._event_queue:
-                is_world_menu = (
-                    event.action == "menu"
-                    and isinstance(event.value, dict)
-                    and event.value.get("menu") == "World"
-                )
-                owner_fd = (
-                    self._menu_owners.get(event.element_id) if is_world_menu else None
-                )
-                if owner_fd is None and event.scene_id:
-                    owner_fd = self._scene_manager.scene_to_owner.get(event.scene_id)
-                if owner_fd is not None:
-                    target = self._fd_to_client.get(owner_fd)
-                    if target is not None:
-                        self._send_to_client(target, event)
-                else:
-                    for client in list(self._clients):
-                        self._send_to_client(client, event)
+
+    def _dispatch_queued_events(self) -> None:
+        """Send queued events to the owning client or broadcast."""
+        for event in self._event_queue:
+            is_world_menu = (
+                event.action == "menu"
+                and isinstance(event.value, dict)
+                and event.value.get("menu") == "World"
+            )
+            owner_fd = (
+                self._menu_owners.get(event.element_id) if is_world_menu else None
+            )
+            if owner_fd is None and event.scene_id:
+                owner_fd = self._scene_manager.scene_to_owner.get(event.scene_id)
+            if owner_fd is not None:
+                target = self._socket_server.fd_to_client.get(owner_fd)
+                if target is not None:
+                    self._socket_server.send_to_client(target, event)
+            else:
+                for client in list(self._socket_server.clients):
+                    self._socket_server.send_to_client(client, event)
+
+    def _flush_events(self) -> None:
+        if not self._event_queue:
+            return
+        self._record_queued_events()
+        if self._socket_server.clients:
+            self._dispatch_queued_events()
         self._event_queue.clear()

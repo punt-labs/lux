@@ -78,14 +78,14 @@
     "future_annotations": 1.0
   },
   "src/punt_lux/display.py": {
-    "method_ratio": 0.854,
+    "method_ratio": 0.87,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.7,
+    "avg_params": 1.73,
     "max_complexity": 20.0,
-    "avg_complexity": 4.92,
-    "module_size": 3726.0,
-    "classes_per_module": 4.0,
-    "class_to_func_ratio": 0.148,
+    "avg_complexity": 4.68,
+    "module_size": 3323.0,
+    "classes_per_module": 2.0,
+    "class_to_func_ratio": 0.1,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
@@ -208,12 +208,12 @@
     "future_annotations": 1.0
   },
   "src/punt_lux/scene_manager.py": {
-    "method_ratio": 0.778,
+    "method_ratio": 0.857,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.39,
+    "avg_params": 0.96,
     "max_complexity": 11.0,
-    "avg_complexity": 5.56,
-    "module_size": 368.0,
+    "avg_complexity": 3.93,
+    "module_size": 400.0,
     "classes_per_module": 2.0,
     "class_to_func_ratio": 0.333,
     "init_violations": 0.0,
@@ -242,6 +242,19 @@
     "module_size": 42.0,
     "classes_per_module": 0.0,
     "class_to_func_ratio": 0.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
+  "src/punt_lux/socket_server.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 0.79,
+    "max_complexity": 8.0,
+    "avg_complexity": 2.57,
+    "module_size": 193.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
