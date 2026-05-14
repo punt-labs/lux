@@ -529,10 +529,11 @@ def setup_proxy(
     ),
 ) -> None:
     """Write mcp-proxy config for luxd."""
-    from punt_lux.remote import MCP_PROXY_CONFIG_PATH, write_proxy_config
+    from punt_lux.remote import ProxyConfigFile
 
-    write_proxy_config(url)
-    print(f"Wrote {MCP_PROXY_CONFIG_PATH}")
+    cfg = ProxyConfigFile()
+    cfg.write(url)
+    print(f"Wrote {cfg.path}")
 
 
 @app.command()
