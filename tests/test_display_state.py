@@ -10,7 +10,7 @@ from typing import Any
 from unittest.mock import MagicMock
 
 from punt_lux.display import DisplayServer
-from punt_lux.element_renderer import ElementRenderer
+from punt_lux.display.element_renderer import ElementRenderer
 from punt_lux.protocol import (
     ButtonElement,
     ClearMessage,

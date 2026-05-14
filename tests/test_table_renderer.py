@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from punt_lux.protocol import TableFilter
-from punt_lux.table_renderer import (
+from punt_lux.display.table_renderer import (
     IndexedRow,
     _filter_indexed_rows,
     _get_filter_snapshot,
     _table_column_weights,
 )
+from punt_lux.protocol import TableFilter
 from punt_lux.widget_state import WidgetState
 
 

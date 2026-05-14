@@ -4,7 +4,7 @@ Maps concrete DisplayServer state to abstract Z specification state,
 and provides pure-function implementations of each Z operation schema.
 
 Z Specification: docs/display-server.tex
-Implementation: src/punt_lux/display.py
+Implementation: src/punt_lux/display/server.py
 
 Abstract state (from Z spec):
     clients      : P FD

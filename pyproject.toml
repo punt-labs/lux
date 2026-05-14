@@ -111,10 +111,12 @@ ignore = [
 "src/punt_lux/runtime.py" = ["S102", "BLE001"]
 "src/punt_lux/config.py" = ["S607"]
 "src/punt_lux/hooks.py" = ["S607"]
-"src/punt_lux/display.py" = ["PLC0415"]
-"src/punt_lux/menu_manager.py" = ["PLC0415"]
-"src/punt_lux/element_renderer.py" = ["PLC0415"]
-"src/punt_lux/table_renderer.py" = ["PLC0415"]
+"src/punt_lux/display/server.py" = ["PLC0415"]
+"src/punt_lux/display/menu_manager.py" = ["PLC0415"]
+"src/punt_lux/display/element_renderer.py" = ["PLC0415"]
+"src/punt_lux/display/table_renderer.py" = ["PLC0415"]
+"src/punt_lux/display/texture_cache.py" = ["PLC0415"]
+"src/punt_lux/display/idle_screen.py" = ["PLC0415"]
 "src/punt_lux/cli.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/show.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/hub.py" = ["PLC0415"]
@@ -170,7 +172,7 @@ module = [
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
-module = "punt_lux.display"
+module = ["punt_lux.display", "punt_lux.display.*"]
 warn_unused_ignores = false
 ignore_missing_imports = true
 
