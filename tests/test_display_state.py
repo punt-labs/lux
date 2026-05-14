@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import MagicMock
 
-from punt_lux.display import DisplayServer, WidgetState, _parse_color
+from punt_lux.display import DisplayServer
 from punt_lux.protocol import (
     ButtonElement,
     ClearMessage,
@@ -25,6 +25,7 @@ from punt_lux.protocol import (
     UpdateMessage,
     WindowElement,
 )
+from punt_lux.widget_state import WidgetState
 
 
 def _make_server() -> DisplayServer:
@@ -54,11 +55,12 @@ def _mock_sock() -> MagicMock:
 
 def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
     """Directly inject a scene into multi-scene state (bypasses message handling)."""
-    server._scenes[scene.id] = scene
-    if scene.id not in server._scene_order:
-        server._scene_order.append(scene.id)
-    server._scene_widget_state[scene.id] = WidgetState()
-    server._active_tab = scene.id
+    sm = server._scene_manager
+    sm._scenes[scene.id] = scene
+    if scene.id not in sm._scene_order:
+        sm._scene_order.append(scene.id)
+    sm._scene_widget_state[scene.id] = WidgetState()
+    sm._active_tab = scene.id
 
 
 # -----------------------------------------------------------------------
@@ -117,7 +119,7 @@ class TestEventQueueOnSceneChange:
         server._handle_message(sock, new_scene)
 
         assert len(server._event_queue) == 1
-        assert "s2" in server._scenes
+        assert "s2" in server._scene_manager._scenes
 
     def test_same_scene_id_drains_stale_events(self) -> None:
         server = _make_server()
@@ -160,7 +162,7 @@ class TestEventQueueOnSceneChange:
         server._handle_message(sock, ClearMessage())
 
         assert len(server._event_queue) == 0
-        assert len(server._scenes) == 0
+        assert len(server._scene_manager._scenes) == 0
 
     def test_ping_does_not_clear_events(self) -> None:
         server = _make_server()
@@ -209,36 +211,36 @@ class TestPollClientsSkipsRemoved:
         sock = _mock_sock()
 
         # Manually register the client
-        server._clients.append(sock)
+        server._socket_server.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
-        server._readers[sock.fileno()] = FrameReader()
+        server._socket_server._readers[sock.fileno()] = FrameReader()
 
         # After _remove_client, sock should not be in _clients
-        server._remove_client(sock)
-        assert sock not in server._clients
-        assert sock.fileno() not in server._readers
+        server._socket_server.remove_client(sock)
+        assert sock not in server._socket_server.clients
+        assert sock.fileno() not in server._socket_server._readers
 
         # _read_from_client on a removed socket should be a no-op
         # (reader lookup returns None)
-        server._read_from_client(sock)
+        server._socket_server._read_from_client(sock)
         sock.recv.assert_not_called()
 
     def test_double_remove_is_idempotent(self) -> None:
         """Calling _remove_client twice must not crash."""
         server = _make_server()
         sock = _mock_sock()
-        server._clients.append(sock)
+        server._socket_server.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
-        server._readers[sock.fileno()] = FrameReader()
+        server._socket_server._readers[sock.fileno()] = FrameReader()
 
-        server._remove_client(sock)
-        assert sock not in server._clients
+        server._socket_server.remove_client(sock)
+        assert sock not in server._socket_server.clients
 
         # Second call is a no-op, not a crash
-        server._remove_client(sock)
-        assert sock not in server._clients
+        server._socket_server.remove_client(sock)
+        assert sock not in server._socket_server.clients
 
 
 # -----------------------------------------------------------------------
@@ -262,10 +264,10 @@ class TestApplyUpdateProtectsIdentity:
             scene_id="s1",
             patches=[Patch(id="t1", set={"id": "t2"})],
         )
-        server._apply_update(msg)
+        server._scene_manager.apply_update(msg)
 
         # ID must not have changed
-        ids = [e.id for e in server._scenes["s1"].elements]
+        ids = [e.id for e in server._scene_manager._scenes["s1"].elements]
         assert ids == ["t1", "t2"]
 
     def test_patch_cannot_change_element_kind(self) -> None:
@@ -281,9 +283,9 @@ class TestApplyUpdateProtectsIdentity:
             scene_id="s1",
             patches=[Patch(id="t1", set={"kind": "button"})],
         )
-        server._apply_update(msg)
+        server._scene_manager.apply_update(msg)
 
-        assert server._scenes["s1"].elements[0].kind == "text"
+        assert server._scene_manager._scenes["s1"].elements[0].kind == "text"
 
     def test_patch_can_change_content(self) -> None:
         server = _make_server()
@@ -298,9 +300,9 @@ class TestApplyUpdateProtectsIdentity:
             scene_id="s1",
             patches=[Patch(id="t1", set={"content": "Updated"})],
         )
-        server._apply_update(msg)
+        server._scene_manager.apply_update(msg)
 
-        elem = server._scenes["s1"].elements[0]
+        elem = server._scene_manager._scenes["s1"].elements[0]
         assert isinstance(elem, TextElement)
         assert elem.content == "Updated"
 
@@ -318,10 +320,10 @@ class TestApplyUpdateProtectsIdentity:
             scene_id="s1",
             patches=[Patch(id="t1", remove=True)],
         )
-        server._apply_update(msg)
+        server._scene_manager.apply_update(msg)
 
-        assert len(server._scenes["s1"].elements) == 1
-        assert server._scenes["s1"].elements[0].id == "t2"
+        assert len(server._scene_manager._scenes["s1"].elements) == 1
+        assert server._scene_manager._scenes["s1"].elements[0].id == "t2"
 
     def test_update_wrong_scene_id_is_noop(self) -> None:
         server = _make_server()
@@ -336,9 +338,9 @@ class TestApplyUpdateProtectsIdentity:
             scene_id="wrong-id",
             patches=[Patch(id="t1", set={"content": "Changed"})],
         )
-        server._apply_update(msg)
+        server._scene_manager.apply_update(msg)
 
-        elem = server._scenes["s1"].elements[0]
+        elem = server._scene_manager._scenes["s1"].elements[0]
         assert isinstance(elem, TextElement)
         assert elem.content == "Hello"
 
@@ -358,11 +360,11 @@ class TestMalformedMessageDisconnects:
         """A client sending invalid JSON should be disconnected, not crash."""
         server = _make_server()
         sock = _mock_sock()
-        server._clients.append(sock)
+        server._socket_server.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
         reader = FrameReader()
-        server._readers[sock.fileno()] = reader
+        server._socket_server._readers[sock.fileno()] = reader
 
         # Feed a frame with invalid JSON (valid length prefix, bad payload)
         import struct
@@ -371,10 +373,10 @@ class TestMalformedMessageDisconnects:
         frame = struct.pack("!I", len(bad_payload)) + bad_payload
         sock.recv.return_value = frame
 
-        server._read_from_client(sock)
+        server._socket_server._read_from_client(sock)
 
         # Client should be disconnected, not crash
-        assert sock not in server._clients
+        assert sock not in server._socket_server.clients
 
     def test_unknown_message_type_keeps_client_connected(self) -> None:
         """A client sending an unknown message type should NOT be disconnected.
@@ -388,19 +390,19 @@ class TestMalformedMessageDisconnects:
 
         server = _make_server()
         sock = _mock_sock()
-        server._clients.append(sock)
+        server._socket_server.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
         reader = FrameReader()
-        server._readers[sock.fileno()] = reader
+        server._socket_server._readers[sock.fileno()] = reader
 
         payload = json.dumps({"type": "bogus"}).encode("utf-8")
         frame = struct.pack("!I", len(payload)) + payload
         sock.recv.return_value = frame
 
-        server._read_from_client(sock)
+        server._socket_server._read_from_client(sock)
 
-        assert sock in server._clients
+        assert sock in server._socket_server.clients
 
     def test_known_type_missing_fields_disconnects_client(self) -> None:
         """A known message type missing required fields raises KeyError.
@@ -413,27 +415,27 @@ class TestMalformedMessageDisconnects:
 
         server = _make_server()
         sock = _mock_sock()
-        server._clients.append(sock)
+        server._socket_server.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
         reader = FrameReader()
-        server._readers[sock.fileno()] = reader
+        server._socket_server._readers[sock.fileno()] = reader
 
         # "scene" is a known type, but missing required "id" and "elements"
         payload = json.dumps({"type": "scene"}).encode("utf-8")
         frame = struct.pack("!I", len(payload)) + payload
         sock.recv.return_value = frame
 
-        server._read_from_client(sock)
+        server._socket_server._read_from_client(sock)
 
-        assert sock not in server._clients
+        assert sock not in server._socket_server.clients
 
 
 class TestFlushEvents:
     def test_flush_clears_queue(self) -> None:
         server = _make_server()
         sock = _mock_sock()
-        server._clients.append(sock)
+        server._socket_server.clients.append(sock)
         server._event_queue.append(
             InteractionMessage(element_id="b1", action="click", ts=1.0)
         )
@@ -456,7 +458,7 @@ class TestFlushEvents:
     def test_flush_noop_when_no_events(self) -> None:
         server = _make_server()
         sock = _mock_sock()
-        server._clients.append(sock)
+        server._socket_server.clients.append(sock)
 
         server._flush_events()
 
@@ -467,9 +469,9 @@ class TestFlushEvents:
         server = _make_server()
         owner = _mock_sock_fd(10)
         other = _mock_sock_fd(20)
-        server._clients.extend([owner, other])
-        server._fd_to_client[10] = owner
-        server._fd_to_client[20] = other
+        server._socket_server.clients.extend([owner, other])
+        server._socket_server._fd_to_client[10] = owner
+        server._socket_server._fd_to_client[20] = other
         server._menu_owners["tool_a"] = 10
         server._event_queue.append(
             InteractionMessage(
@@ -490,9 +492,9 @@ class TestFlushEvents:
         server = _make_server()
         sock1 = _mock_sock_fd(10)
         sock2 = _mock_sock_fd(20)
-        server._clients.extend([sock1, sock2])
-        server._fd_to_client[10] = sock1
-        server._fd_to_client[20] = sock2
+        server._socket_server.clients.extend([sock1, sock2])
+        server._socket_server._fd_to_client[10] = sock1
+        server._socket_server._fd_to_client[20] = sock2
         server._event_queue.append(
             InteractionMessage(element_id="button_x", action="click", ts=1.0)
         )
@@ -507,9 +509,9 @@ class TestFlushEvents:
         server = _make_server()
         sock1 = _mock_sock_fd(10)
         sock2 = _mock_sock_fd(20)
-        server._clients.extend([sock1, sock2])
-        server._fd_to_client[10] = sock1
-        server._fd_to_client[20] = sock2
+        server._socket_server.clients.extend([sock1, sock2])
+        server._socket_server._fd_to_client[10] = sock1
+        server._socket_server._fd_to_client[20] = sock2
         server._menu_owners["button_x"] = 10
         server._event_queue.append(
             InteractionMessage(element_id="button_x", action="click", ts=1.0)
@@ -525,9 +527,9 @@ class TestFlushEvents:
         server = _make_server()
         sock1 = _mock_sock_fd(10)
         sock2 = _mock_sock_fd(20)
-        server._clients.extend([sock1, sock2])
-        server._fd_to_client[10] = sock1
-        server._fd_to_client[20] = sock2
+        server._socket_server.clients.extend([sock1, sock2])
+        server._socket_server._fd_to_client[10] = sock1
+        server._socket_server._fd_to_client[20] = sock2
         server._menu_owners["tool_a"] = 10
         server._event_queue.append(
             InteractionMessage(
@@ -547,8 +549,8 @@ class TestFlushEvents:
         """If owner fd is in _menu_owners but not in _fd_to_client, event is dropped."""
         server = _make_server()
         other = _mock_sock_fd(20)
-        server._clients.append(other)
-        server._fd_to_client[20] = other
+        server._socket_server.clients.append(other)
+        server._socket_server._fd_to_client[20] = other
         server._menu_owners["tool_a"] = 10  # fd 10 not in _fd_to_client
         server._event_queue.append(
             InteractionMessage(
@@ -579,9 +581,9 @@ class TestMultiScene:
         server._handle_message(sock, _make_scene(scene_id="s1"))
         server._handle_message(sock, _make_scene(scene_id="s2"))
 
-        assert "s1" in server._scenes
-        assert "s2" in server._scenes
-        assert server._scene_order == ["s1", "s2"]
+        assert "s1" in server._scene_manager._scenes
+        assert "s2" in server._scene_manager._scenes
+        assert server._scene_manager._scene_order == ["s1", "s2"]
 
     def test_same_scene_id_replaces_content(self) -> None:
         """Re-sending the same scene_id replaces content, no new tab."""
@@ -603,9 +605,9 @@ class TestMultiScene:
             ),
         )
 
-        assert len(server._scenes) == 1
-        assert server._scene_order == ["s1"]
-        elem = server._scenes["s1"].elements[0]
+        assert len(server._scene_manager._scenes) == 1
+        assert server._scene_manager._scene_order == ["s1"]
+        elem = server._scene_manager._scenes["s1"].elements[0]
         assert isinstance(elem, TextElement)
         assert elem.content == "New"
 
@@ -630,7 +632,7 @@ class TestMultiScene:
         )
 
         # Update s2 only
-        server._apply_update(
+        server._scene_manager.apply_update(
             UpdateMessage(
                 scene_id="s2",
                 patches=[Patch(id="t2", set={"content": "Updated"})],
@@ -638,11 +640,11 @@ class TestMultiScene:
         )
 
         # s1 untouched
-        s1_elem = server._scenes["s1"].elements[0]
+        s1_elem = server._scene_manager._scenes["s1"].elements[0]
         assert isinstance(s1_elem, TextElement)
         assert s1_elem.content == "S1"
         # s2 updated
-        s2_elem = server._scenes["s2"].elements[0]
+        s2_elem = server._scene_manager._scenes["s2"].elements[0]
         assert isinstance(s2_elem, TextElement)
         assert s2_elem.content == "Updated"
 
@@ -660,14 +662,14 @@ class TestMultiScene:
         )
 
         # Update for non-existent scene — no error
-        server._apply_update(
+        server._scene_manager.apply_update(
             UpdateMessage(
                 scene_id="gone",
                 patches=[Patch(id="t1", set={"content": "Nope"})],
             )
         )
 
-        elem = server._scenes["s1"].elements[0]
+        elem = server._scene_manager._scenes["s1"].elements[0]
         assert isinstance(elem, TextElement)
         assert elem.content == "Hello"
 
@@ -680,10 +682,10 @@ class TestMultiScene:
         server._handle_message(sock, _make_scene(scene_id="s2"))
         server._handle_message(sock, ClearMessage())
 
-        assert len(server._scenes) == 0
-        assert server._scene_order == []
-        assert server._active_tab is None
-        assert len(server._scene_widget_state) == 0
+        assert len(server._scene_manager._scenes) == 0
+        assert server._scene_manager._scene_order == []
+        assert server._scene_manager._active_tab is None
+        assert len(server._scene_manager._scene_widget_state) == 0
 
     def test_scene_order_preserved(self) -> None:
         """Scenes appear in insertion order."""
@@ -693,7 +695,7 @@ class TestMultiScene:
         for sid in ["s1", "s2", "s3"]:
             server._handle_message(sock, _make_scene(scene_id=sid))
 
-        assert server._scene_order == ["s1", "s2", "s3"]
+        assert server._scene_manager._scene_order == ["s1", "s2", "s3"]
 
     def test_widget_state_isolated_per_scene(self) -> None:
         """Each scene gets its own WidgetState instance."""
@@ -703,8 +705,8 @@ class TestMultiScene:
         server._handle_message(sock, _make_scene(scene_id="s1"))
         server._handle_message(sock, _make_scene(scene_id="s2"))
 
-        ws1 = server._scene_widget_state["s1"]
-        ws2 = server._scene_widget_state["s2"]
+        ws1 = server._scene_manager._scene_widget_state["s1"]
+        ws2 = server._scene_manager._scene_widget_state["s2"]
 
         ws1.set("slider1", 42)
         assert ws2.get("slider1") is None
@@ -717,12 +719,12 @@ class TestMultiScene:
         server._handle_message(sock, _make_scene(scene_id="s1"))
         server._handle_message(sock, _make_scene(scene_id="s2"))
 
-        server._dismiss_scene("s1")
+        server._scene_manager.dismiss_scene("s1")
 
-        assert "s1" not in server._scenes
-        assert server._scene_order == ["s2"]
-        assert "s1" not in server._scene_widget_state
-        assert server._active_tab == "s2"
+        assert "s1" not in server._scene_manager._scenes
+        assert server._scene_manager._scene_order == ["s2"]
+        assert "s1" not in server._scene_manager._scene_widget_state
+        assert server._scene_manager._active_tab == "s2"
 
     def test_dismiss_middle_tab_selects_next_neighbor(self) -> None:
         """Dismissing the middle tab selects the next tab (browser behavior)."""
@@ -733,11 +735,11 @@ class TestMultiScene:
             server._handle_message(sock, _make_scene(scene_id=sid))
 
         # Active is s3 (latest). Switch to s2 to test middle dismiss.
-        server._active_tab = "s2"
-        server._dismiss_scene("s2")
+        server._scene_manager._active_tab = "s2"
+        server._scene_manager.dismiss_scene("s2")
 
-        assert server._scene_order == ["s1", "s3"]
-        assert server._active_tab == "s3"  # next neighbor, not first
+        assert server._scene_manager._scene_order == ["s1", "s3"]
+        assert server._scene_manager._active_tab == "s3"  # next neighbor, not first
 
     def test_dismiss_last_tab_selects_previous(self) -> None:
         """Dismissing the rightmost tab selects the one before it."""
@@ -747,11 +749,11 @@ class TestMultiScene:
         for sid in ["s1", "s2", "s3"]:
             server._handle_message(sock, _make_scene(scene_id=sid))
 
-        server._active_tab = "s3"
-        server._dismiss_scene("s3")
+        server._scene_manager._active_tab = "s3"
+        server._scene_manager.dismiss_scene("s3")
 
-        assert server._scene_order == ["s1", "s2"]
-        assert server._active_tab == "s2"  # previous, not first
+        assert server._scene_manager._scene_order == ["s1", "s2"]
+        assert server._scene_manager._active_tab == "s2"  # previous, not first
 
     def test_dismiss_first_tab_selects_next(self) -> None:
         """Dismissing the first tab selects the second tab."""
@@ -761,11 +763,11 @@ class TestMultiScene:
         for sid in ["s1", "s2", "s3"]:
             server._handle_message(sock, _make_scene(scene_id=sid))
 
-        server._active_tab = "s1"
-        server._dismiss_scene("s1")
+        server._scene_manager._active_tab = "s1"
+        server._scene_manager.dismiss_scene("s1")
 
-        assert server._scene_order == ["s2", "s3"]
-        assert server._active_tab == "s2"
+        assert server._scene_manager._scene_order == ["s2", "s3"]
+        assert server._scene_manager._active_tab == "s2"
 
     def test_active_tab_set_to_newest_scene(self) -> None:
         """Each new scene becomes the active tab."""
@@ -773,10 +775,10 @@ class TestMultiScene:
         sock = _mock_sock()
 
         server._handle_message(sock, _make_scene(scene_id="s1"))
-        assert server._active_tab == "s1"
+        assert server._scene_manager._active_tab == "s1"
 
         server._handle_message(sock, _make_scene(scene_id="s2"))
-        assert server._active_tab == "s2"
+        assert server._scene_manager._active_tab == "s2"
 
     def test_same_scene_id_does_not_dirty_windows(self) -> None:
         """Re-sending a scene with the same ID should not force window positions."""
@@ -786,14 +788,14 @@ class TestMultiScene:
         scene = SceneMessage(id="s1", elements=[win])
 
         server._handle_message(sock, scene)
-        assert "w1" in server._dirty_windows
+        assert "w1" in server._scene_manager._dirty_windows
 
         # Consume the dirty flag (simulates first render)
-        server._dirty_windows.clear()
+        server._scene_manager._dirty_windows.clear()
 
         # Same scene ID again — windows should NOT be re-dirtied
         server._handle_message(sock, scene)
-        assert "w1" not in server._dirty_windows
+        assert "w1" not in server._scene_manager._dirty_windows
 
     def test_new_scene_id_dirties_windows(self) -> None:
         """A new scene ID should mark windows dirty for initial positioning."""
@@ -802,10 +804,10 @@ class TestMultiScene:
         win = WindowElement(id="w1", title="Panel", x=10, y=10)
 
         server._handle_message(sock, SceneMessage(id="s1", elements=[win]))
-        server._dirty_windows.clear()
+        server._scene_manager._dirty_windows.clear()
 
         server._handle_message(sock, SceneMessage(id="s2", elements=[win]))
-        assert "w1" in server._dirty_windows
+        assert "w1" in server._scene_manager._dirty_windows
 
     def test_dismiss_drains_events_for_dismissed_scene(self) -> None:
         """Dismissing a scene removes its unique events from the queue."""
@@ -841,7 +843,7 @@ class TestMultiScene:
         assert len(server._event_queue) == 2
 
         # Dismiss s1 — its events should be drained
-        server._dismiss_scene("s1")
+        server._scene_manager.dismiss_scene("s1")
 
         assert len(server._event_queue) == 0
 
@@ -874,7 +876,7 @@ class TestMultiScene:
         )
 
         # Dismiss s1 — only s1's events drained
-        server._dismiss_scene("s1")
+        server._scene_manager.dismiss_scene("s1")
 
         assert len(server._event_queue) == 1
         assert server._event_queue[0].element_id == "btn_s2"
@@ -914,7 +916,7 @@ class TestMultiScene:
         )
 
         # Dismiss s1 — shared_btn survives in s2, s1_only does not
-        server._dismiss_scene("s1")
+        server._scene_manager.dismiss_scene("s1")
 
         assert len(server._event_queue) == 1
         assert server._event_queue[0].element_id == "shared_btn"
@@ -927,49 +929,49 @@ class TestMultiScene:
 
 class TestParseColor:
     def test_hex_rgb(self) -> None:
-        assert _parse_color("#FF8000") == (255, 128, 0, 255)
+        assert DisplayServer._parse_color("#FF8000") == (255, 128, 0, 255)
 
     def test_hex_rgba(self) -> None:
-        assert _parse_color("#FF800080") == (255, 128, 0, 128)
+        assert DisplayServer._parse_color("#FF800080") == (255, 128, 0, 128)
 
     def test_hex_no_hash(self) -> None:
-        assert _parse_color("FF8000") == (255, 128, 0, 255)
+        assert DisplayServer._parse_color("FF8000") == (255, 128, 0, 255)
 
     def test_list_rgb(self) -> None:
-        assert _parse_color([70, 130, 230]) == (70, 130, 230, 255)
+        assert DisplayServer._parse_color([70, 130, 230]) == (70, 130, 230, 255)
 
     def test_list_rgba(self) -> None:
-        assert _parse_color([70, 130, 230, 128]) == (70, 130, 230, 128)
+        assert DisplayServer._parse_color([70, 130, 230, 128]) == (70, 130, 230, 128)
 
     def test_tuple_rgba(self) -> None:
-        assert _parse_color((200, 80, 60, 255)) == (200, 80, 60, 255)
+        assert DisplayServer._parse_color((200, 80, 60, 255)) == (200, 80, 60, 255)
 
     def test_list_extra_components_ignored(self) -> None:
-        assert _parse_color([10, 20, 30, 40, 50, 60]) == (10, 20, 30, 40)
+        assert DisplayServer._parse_color([10, 20, 30, 40, 50, 60]) == (10, 20, 30, 40)
 
     def test_list_too_short_fallback(self) -> None:
-        assert _parse_color([10, 20]) == (255, 255, 255, 255)
+        assert DisplayServer._parse_color([10, 20]) == (255, 255, 255, 255)
 
     def test_empty_list_fallback(self) -> None:
-        assert _parse_color([]) == (255, 255, 255, 255)
+        assert DisplayServer._parse_color([]) == (255, 255, 255, 255)
 
     def test_list_non_numeric_fallback(self) -> None:
-        assert _parse_color(["x", "y", "z"]) == (255, 255, 255, 255)
+        assert DisplayServer._parse_color(["x", "y", "z"]) == (255, 255, 255, 255)
 
     def test_list_none_elements_fallback(self) -> None:
-        assert _parse_color([None, None, None]) == (255, 255, 255, 255)
+        assert DisplayServer._parse_color([None, None, None]) == (255, 255, 255, 255)
 
     def test_invalid_hex_fallback(self) -> None:
-        assert _parse_color("#ZZZZZZ") == (255, 255, 255, 255)
+        assert DisplayServer._parse_color("#ZZZZZZ") == (255, 255, 255, 255)
 
     def test_float_list_truncated_to_int(self) -> None:
-        assert _parse_color([70.9, 130.1, 230.5]) == (70, 130, 230, 255)
+        assert DisplayServer._parse_color([70.9, 130.1, 230.5]) == (70, 130, 230, 255)
 
     def test_none_fallback(self) -> None:
-        assert _parse_color(None) == (255, 255, 255, 255)
+        assert DisplayServer._parse_color(None) == (255, 255, 255, 255)
 
     def test_int_fallback(self) -> None:
-        assert _parse_color(42) == (255, 255, 255, 255)
+        assert DisplayServer._parse_color(42) == (255, 255, 255, 255)
 
 
 # -----------------------------------------------------------------------
@@ -1005,11 +1007,11 @@ class TestRegisterMenu:
         """Disconnecting a client removes its menu registrations and ownership."""
         server = _make_server()
         sock = _mock_sock_fd(10)
-        server._clients.append(sock)
+        server._socket_server.clients.append(sock)
         from punt_lux.protocol import FrameReader
 
-        server._readers[10] = FrameReader()
-        server._fd_to_client[10] = sock
+        server._socket_server._readers[10] = FrameReader()
+        server._socket_server._fd_to_client[10] = sock
 
         items = [{"label": "Run", "id": "run"}]
         server._handle_message(sock, RegisterMenuMessage(items=items))
@@ -1017,7 +1019,7 @@ class TestRegisterMenu:
         assert 10 in server._menu_registrations
         assert "run" in server._menu_owners
 
-        server._remove_client(sock)
+        server._socket_server.remove_client(sock)
 
         assert 10 not in server._menu_registrations
         assert "run" not in server._menu_owners

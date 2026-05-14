@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from punt_lux.display import DisplayServer, WidgetState
+from punt_lux.display import DisplayServer
 from punt_lux.protocol import (
     ButtonElement,
     ClearMessage,
@@ -28,6 +28,7 @@ from punt_lux.protocol import (
     UpdateMessage,
     encode_message,
 )
+from punt_lux.widget_state import WidgetState
 
 from .display_abstraction import (
     abstract,
@@ -63,17 +64,17 @@ def _mock_sock(fd: int = 42) -> MagicMock:
 
 def _register_client(server: DisplayServer, sock: MagicMock) -> None:
     """Manually register a mock client (bypasses socket accept)."""
-    server._clients.append(sock)
-    server._readers[sock.fileno()] = FrameReader()
+    server._socket_server.clients.append(sock)
+    server._socket_server._readers[sock.fileno()] = FrameReader()
 
 
 def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
     """Inject a scene into the multi-scene state."""
-    server._scenes[scene.id] = scene
-    if scene.id not in server._scene_order:
-        server._scene_order.append(scene.id)
-    server._scene_widget_state[scene.id] = WidgetState()
-    server._active_tab = scene.id
+    server._scene_manager._scenes[scene.id] = scene
+    if scene.id not in server._scene_manager._scene_order:
+        server._scene_manager._scene_order.append(scene.id)
+    server._scene_manager._scene_widget_state[scene.id] = WidgetState()
+    server._scene_manager._active_tab = scene.id
 
 
 def _set_scene(server: DisplayServer, scene_id: str = "s1") -> None:
@@ -247,7 +248,7 @@ class TestRefinementRemoveElement:
             scene_id="s1",
             patches=[Patch(id="t1", remove=True)],
         )
-        server._apply_update(msg)
+        server._scene_manager.apply_update(msg)
 
         abs_after = abstract_remove_element(abs_before, "t1")
         assert abstract(server) == abs_after
@@ -261,7 +262,7 @@ class TestRefinementRemoveElement:
             scene_id="s1",
             patches=[Patch(id="b1", remove=True)],
         )
-        server._apply_update(msg)
+        server._scene_manager.apply_update(msg)
 
         abs_after = abstract_remove_element(abs_before, "b1")
         assert abstract(server) == abs_after
@@ -281,7 +282,7 @@ class TestRefinementRemoveElement:
             scene_id="s1",
             patches=[Patch(id="t1", remove=True)],
         )
-        server._apply_update(msg)
+        server._scene_manager.apply_update(msg)
 
         abs_after = abstract_remove_element(abs_before, "t1")
         assert abstract(server) == abs_after
@@ -301,7 +302,7 @@ class TestRefinementDisconnectClient:
         _register_client(server, sock)
         abs_before = abstract(server)
 
-        server._remove_client(sock)
+        server._socket_server.remove_client(sock)
 
         abs_after = abstract_disconnect_client(abs_before, 10)
         assert abstract(server) == abs_after
@@ -314,7 +315,7 @@ class TestRefinementDisconnectClient:
         _register_client(server, sock2)
         abs_before = abstract(server)
 
-        server._remove_client(sock1)
+        server._socket_server.remove_client(sock1)
 
         abs_after = abstract_disconnect_client(abs_before, 10)
         assert abstract(server) == abs_after
@@ -326,7 +327,7 @@ class TestRefinementDisconnectClient:
         _set_scene(server)
         abs_before = abstract(server)
 
-        server._remove_client(sock)
+        server._socket_server.remove_client(sock)
 
         abs_after = abstract_disconnect_client(abs_before, 10)
         assert abstract(server) == abs_after
@@ -406,16 +407,16 @@ class TestRefinementShutdown:
         abs_before = abstract(server)
 
         # Concrete shutdown (partial — socket/file cleanup skipped)
-        for client in list(server._clients):
+        for client in list(server._socket_server.clients):
             client.close()
-        server._clients.clear()
-        server._readers.clear()
-        server._scenes.clear()
-        server._scene_order.clear()
-        server._active_tab = None
-        server._scene_widget_state.clear()
+        server._socket_server.clients.clear()
+        server._socket_server._readers.clear()
+        server._scene_manager._scenes.clear()
+        server._scene_manager._scene_order.clear()
+        server._scene_manager._active_tab = None
+        server._scene_manager._scene_widget_state.clear()
         server._event_queue.clear()
-        server._server_sock = None
+        server._socket_server._server_sock = None
 
         abs_after = abstract_shutdown(abs_before)
         assert abstract(server) == abs_after
@@ -424,14 +425,14 @@ class TestRefinementShutdown:
         server = _make_server()
         abs_before = abstract(server)
 
-        server._clients.clear()
-        server._readers.clear()
-        server._scenes.clear()
-        server._scene_order.clear()
-        server._active_tab = None
-        server._scene_widget_state.clear()
+        server._socket_server.clients.clear()
+        server._socket_server._readers.clear()
+        server._scene_manager._scenes.clear()
+        server._scene_manager._scene_order.clear()
+        server._scene_manager._active_tab = None
+        server._scene_manager._scene_widget_state.clear()
         server._event_queue.clear()
-        server._server_sock = None
+        server._socket_server._server_sock = None
 
         abs_after = abstract_shutdown(abs_before)
         assert abstract(server) == abs_after
@@ -575,7 +576,7 @@ class TestRefinementComposed:
         )
 
         # Remove t1
-        server._apply_update(
+        server._scene_manager.apply_update(
             UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
         )
         abs_state = abstract_remove_element(abs_state, "t1")
@@ -598,6 +599,6 @@ class TestRefinementComposed:
 
         sock = _mock_sock(fd=99)
         _register_client(server, sock)
-        server._remove_client(sock)
+        server._socket_server.remove_client(sock)
 
         assert abstract(server) == abs_state
