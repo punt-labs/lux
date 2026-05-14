@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Architecture spec updated to v0.18.0** — `docs/architecture.tex` brought
+  current: 24 element kinds, 24 MCP tools, frame architecture section,
+  introspection protocol, 662 tests across 21 files. Was stale at v0.7.0.
+- **README MCP tool table expanded** — from 11 tools to full 24-tool surface
+  with categorized sections (scene management, communication, configuration,
+  introspection). Fixed `display_mode` documented as read-write (now read-only
+  with separate `set_display_mode`).
+
+### Added
+
+- **Concept papers from PR #109** — self-extending display vision
+  (`concept-self-extending-display.md`), extension architecture
+  (`concept-extension-architecture.tex`), and Working Backwards PR/FAQ
+  (`concept-prfaq.tex`). Preserved as concept-stage exploration, not versioned
+  roadmap. Cross-referenced and self-consistent.
+- **Sub-agent write permissions** — `.claude/settings.json` now allows Edit/Write
+  for `src/`, `tests/`, `docs/`, `tools/`, `.tmp/` so background sub-agents can
+  modify code without interactive approval.
+
 ## [0.18.0] - 2026-05-12
 
 ### Changed

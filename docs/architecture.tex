@@ -39,7 +39,7 @@
 
 \title{Lux: Technical Architecture Specification}
 \author{Visual Output Surface for AI Agents}
-\date{March 2026 --- v0.7.0}
+\date{May 2026 --- v0.18.0}
 \hypersetup{
   pdftitle={Lux: Technical Architecture Specification},
   pdfauthor={Punt Labs},
@@ -104,22 +104,32 @@ Display     & \modpath{display.py}   & ImGui render loop, socket IPC,
               scene state, widget state, element renderers, event flush \\
 Client      & \modpath{client.py}    & \texttt{LuxClient} context manager;
               connects, sends, receives, buffers pending messages \\
-MCP Server  & \modpath{server.py}    & FastMCP tools (\tool{show},
-              \tool{update}, \tool{clear}, \tool{ping}, \tool{recv},
-              convenience wrappers); auto-reconnect \\
+Display Client & \modpath{display\_client.py} & High-level client with
+              typed methods for show, update, introspect, screenshot \\
+MCP Tools   & \modpath{tools.py}     & FastMCP tools (24 tools: show,
+              update, clear, ping, recv, introspection, configuration);
+              auto-reconnect \\
+Hub         & \modpath{hub.py}       & WebSocket session hub; multiplexes
+              MCP sessions, routes scene updates to display \\
+Show        & \modpath{show.py}      & CLI subcommands for pre-built
+              scenes (beads board) \\
+Apps/Beads  & \modpath{apps/beads.py} & Beads issue browser; loads
+              \texttt{.beads/issues.jsonl}, renders filterable table \\
 Paths       & \modpath{paths.py}     & Socket discovery, PID lifecycle,
               auto-spawn \\
-Consent     & \modpath{consent.py}   & ImGui modal for render function
-              approval \\
 Runtime     & \modpath{runtime.py}   & \texttt{CodeExecutor}; compiles
               and runs render functions per-frame \\
-AST Check   & \modpath{ast\_check.py} & AST visitor for suspicious imports
-              and builtins (UX signal, not security boundary) \\
 Config      & \modpath{config.py}    & \texttt{.lux/config.md} YAML
               frontmatter; display mode toggle \\
 Hooks       & \modpath{hooks.py}     & Claude Code lifecycle hook handlers \\
+Service     & \modpath{service.py}   & Daemon lifecycle management
+              (start, stop, status) \\
+Remote      & \modpath{remote.py}    & mcp-proxy configuration and
+              WebSocket transport setup \\
 CLI         & \modpath{\_\_main\_\_.py} & Typer CLI: display, serve, enable,
-              disable, status, doctor, install, uninstall \\
+              disable, status, doctor, install, uninstall, hub-install,
+              hub-uninstall, hub-status, ensure-hub, setup-proxy, show,
+              ping, version \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -148,7 +158,8 @@ Three primary data paths connect agents to the display:
 \begin{enumerate}
   \item User interacts with widget (click, slider drag, text input).
   \item Display generates \msg{InteractionMessage} with
-    \field{element\_id}, \field{action}, and \field{value}.
+    \field{element\_id}, \field{action}, \field{value}, and
+    optional \field{scene\_id}.
   \item Message buffered in \texttt{\_event\_queue}.
   \item Each frame, \texttt{\_flush\_events()} broadcasts all queued
     messages to all connected clients, then clears the queue.
@@ -206,9 +217,26 @@ disconnection.
 \msg{PingMessage}   & Heartbeat.  Field: \field{ts}. \\
 \msg{MenuMessage}   & Set agent-provided menu entries. \\
 \msg{ThemeMessage}   & Apply theme by name. \\
+\msg{ConnectMessage} & Client identity handshake.  Field: \field{name}. \\
+\msg{RegisterMenuMessage} & Register per-client menu items.
+  Field: \field{items[]}. \\
+\msg{IntrospectRequest} & Request scene element tree.
+  Field: \field{scene\_id}. \\
+\msg{ListScenesRequest} & Request list of all active scenes. \\
+\msg{ScreenshotRequest} & Request display screenshot. \\
+\msg{QueryRequest} & Generic introspection query.
+  Field: \field{query\_type}. \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+\textbf{SceneMessage frame fields} (since v0.9.0): \msg{SceneMessage}
+includes optional fields \field{frame\_id}, \field{frame\_title},
+\field{frame\_size} (initial \texttt{[width, height]}),
+\field{frame\_flags} (dict of ImGui window flags such as
+\texttt{no\_resize}, \texttt{no\_collapse}, \texttt{no\_title\_bar},
+\texttt{no\_background}, \texttt{no\_scrollbar}, \texttt{auto\_resize}),
+and \field{frame\_layout} (\texttt{"tab"} or \texttt{"stack"}).
 
 \subsubsection{Display $\to$ Client}
 
@@ -222,16 +250,23 @@ disconnection.
 \msg{AckMessage}         & Acknowledges scene or update; \field{scene\_id},
   \field{ts}, optional \field{error}. \\
 \msg{InteractionMessage} & User interaction; \field{element\_id},
-  \field{action}, \field{value}, \field{ts}. \\
-\msg{WindowMessage}      & Window lifecycle (resized, closed, focused). \\
+  \field{action}, \field{value}, \field{ts}, optional
+  \field{scene\_id}. \\
 \msg{PongMessage}        & Ping response; round-trip latency probe. \\
+\msg{IntrospectResponse} & Scene element tree response. \\
+\msg{ListScenesResponse} & List of active scene summaries. \\
+\msg{ScreenshotResponse} & Base64-encoded display screenshot. \\
+\msg{QueryResponse}      & Generic introspection response. \\
 \bottomrule
 \end{tabular}
 \end{center}
 
+Unknown message types are deserialized as \msg{UnknownMessage} for
+forward compatibility rather than disconnecting the client.
+
 \subsection{Element Kinds}
 
-25 element kinds organized by category:
+24 element kinds organized by category:
 
 \begin{center}
 \begin{longtable}{llp{6cm}}
@@ -243,18 +278,23 @@ disconnection.
 \textbf{Category} & \textbf{Element} & \textbf{Notes} \\
 \midrule
 \endhead
-Text        & \elem{text}              & Content + style (heading, caption, success, error, code) \\
+Text        & \elem{text}              & Content + style (heading, caption, success, error, code);
+              optional \field{color} hex string \\
             & \elem{markdown}          & CommonMark rendering via imgui\_md \\
 \midrule
 Media       & \elem{image}             & File path or base64 data \\
 \midrule
-Interactive & \elem{button}            & Label, action, disabled flag \\
+Interactive & \elem{button}            & Label, action, disabled flag;
+              \field{arrow} (directional) and \field{small} variants \\
             & \elem{slider}            & Min/max/value, integer mode \\
             & \elem{checkbox}          & Boolean toggle \\
             & \elem{combo}             & Dropdown selection \\
             & \elem{input\_text}       & Single-line text input \\
             & \elem{radio}             & Radio button group \\
-            & \elem{color\_picker}     & RGB/RGBA hex picker \\
+            & \elem{input\_number}     & Numeric input with step buttons, min/max clamping,
+              integer mode \\
+            & \elem{color\_picker}     & RGB/RGBA hex picker;
+              \field{alpha} (RGBA) and \field{picker} (full widget) modes \\
 \midrule
 Data        & \elem{table}             & Columns, rows, built-in filters, detail panel, pagination \\
             & \elem{plot}              & ImPlot: line, scatter, bar series \\
@@ -262,12 +302,15 @@ Data        & \elem{table}             & Columns, rows, built-in filters, detail
             & \elem{spinner}           & Loading indicator \\
 \midrule
 Lists       & \elem{selectable}        & Click-to-select item \\
-            & \elem{tree}              & Recursive node hierarchy \\
+            & \elem{tree}              & Recursive node hierarchy;
+              \field{flat} flag for non-indented expansion \\
 \midrule
 Drawing     & \elem{draw}              & Canvas with draw commands \\
-            & \elem{render\_function}  & Agent-submitted Python (consent-gated) \\
 \midrule
-Layout      & \elem{group}             & Row or column layout \\
+Layout      & \elem{modal}             & Modal popup dialog; container with children,
+              emits \texttt{"closed"} event \\
+            & \elem{group}             & Row, column, or paged layout
+              (\field{pages} + \field{page\_source}) \\
             & \elem{tab\_bar}          & Tabbed container \\
             & \elem{collapsing\_header} & Expandable section \\
             & \elem{window}            & Movable, resizable floating panel \\
@@ -293,9 +336,12 @@ Each frame executes four phases in sequence:
     sockets with timeout~0.  Read available data into per-client
     \texttt{FrameReader}.  Dispatch complete messages to
     \texttt{\_handle\_message()}.  Remove errored sockets.
-  \item \textbf{Render scene.}  If no scenes: render idle screen
-    (flame animation).  If one scene: render directly (no tab bar
-    chrome).  If multiple scenes: render closable tab bar.
+  \item \textbf{Render scene.}  Enable docking via
+    \texttt{dock\_space\_over\_viewport}.  Render idle flame background.
+    Check for World menu background click.  Render World panel if open.
+    Render all workspace frames (see \S\ref{sec:frames}).  Render dock
+    bar for minimized frames.  Legacy fallback: if no frames, render
+    unframed scenes as tabs.
   \item \textbf{Flush events.}  Broadcast all buffered
     \msg{InteractionMessage}s to all connected clients, then clear
     the queue.
@@ -317,12 +363,30 @@ microseconds when idle.  ImGui handles frame pacing via GLFW vsync.
 \texttt{\_active\_tab}         & \texttt{str | None} --- currently selected tab. \\
 \texttt{\_scene\_widget\_state} & \texttt{dict[str, WidgetState]} --- per-scene
   slider/checkbox/combo/text state. \\
-\texttt{\_scene\_render\_fn\_state} & \texttt{dict[str, dict[str, \_RenderFnState]]}
-  --- per-scene render function lifecycle. \\
 \texttt{\_event\_queue}        & \texttt{list[InteractionMessage]} --- global,
   shared across all scenes. \\
 \texttt{\_dirty\_windows}      & \texttt{set[str]} --- window element IDs
   needing initial position set. \\
+\midrule
+\multicolumn{2}{l}{\textbf{Frame state (since v0.9.0)}} \\
+\midrule
+\texttt{\_frames}             & \texttt{dict[str, \_Frame]} --- all workspace
+  frames, keyed by \field{frame\_id}. \\
+\texttt{\_focus\_frame\_id}   & \texttt{str | None} --- frame to auto-focus
+  on next render. \\
+\texttt{\_scene\_to\_frame}   & \texttt{dict[str, str]} --- scene
+  $\to$ frame lookup. \\
+\texttt{\_scene\_to\_owner}   & \texttt{dict[str, int]} --- scene
+  $\to$ client fd ownership. \\
+\midrule
+\multicolumn{2}{l}{\textbf{Client identity (since v0.9.0)}} \\
+\midrule
+\texttt{\_client\_names}      & \texttt{dict[int, str]} --- client fd
+  $\to$ display name. \\
+\texttt{\_menu\_registrations} & \texttt{dict[int, list]} --- per-client
+  menu items. \\
+\texttt{\_menu\_owners}       & \texttt{dict[str, int]} --- menu item ID
+  $\to$ owner fd. \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -332,7 +396,7 @@ microseconds when idle.  ImGui handles frame pacing via GLFW vsync.
 \begin{description}[style=nextline]
   \item[New scene (\field{scene\_id} not in \texttt{\_scenes})]
     Appended to \texttt{\_scenes} and \texttt{\_scene\_order}.
-    Fresh \texttt{WidgetState} and render function state allocated.
+    Fresh \texttt{WidgetState} allocated.
     Becomes the active tab.  Window elements marked dirty.
     Existing events preserved.
 
@@ -349,23 +413,21 @@ microseconds when idle.  ImGui handles frame pacing via GLFW vsync.
     neighbor (next tab, or previous if rightmost was dismissed).
 
   \item[Clear (\msg{ClearMessage} or menu)]
-    All scenes, widget state, render function state, events,
+    All scenes, widget state, events,
     and dirty windows cleared.  Fresh instances allocated
     (not \texttt{.clear()} on aliased objects).
 \end{description}
 
 \subsubsection{Widget State Swap Pattern}
 
-The 20+ element renderers all read from \texttt{self.\_widget\_state}
-and \texttt{self.\_render\_fn\_state}.  Rather than threading a
-\field{scene\_id} parameter through every method, the display swaps
-the per-scene state dicts into these instance variables before
-rendering each tab:
+The 20+ element renderers all read from \texttt{self.\_widget\_state}.
+Rather than threading a \field{scene\_id} parameter through every
+method, the display swaps the per-scene state dict into this instance
+variable before rendering each tab:
 
 \begin{lstlisting}[language=Python]
 def _render_scene_tab(self, scene_id: str) -> None:
     self._widget_state = self._scene_widget_state[scene_id]
-    self._render_fn_state = self._scene_render_fn_state[scene_id]
     scene = self._scenes[scene_id]
     for elem in scene.elements:
         self._render_element(elem)
@@ -394,6 +456,85 @@ render loop:
   \item Detail panel renders a two-column metadata grid plus
     long-form body text for the selected row.
 \end{enumerate}
+
+% ===================================================================
+\section{Frame Architecture}\label{sec:frames}
+% ===================================================================
+
+Since v0.9.0, scenes can target named \emph{frames}---persistent ImGui
+windows that outlive client connections.  Frames are the primary unit
+of workspace organization.
+
+\subsection{\_Frame Dataclass}
+
+\begin{center}
+\begin{tabular}{lp{8cm}}
+\toprule
+\textbf{Field} & \textbf{Type and Purpose} \\
+\midrule
+\field{frame\_id}       & \texttt{str} --- Unique identifier. \\
+\field{title}           & \texttt{str} --- Window title bar text. \\
+\field{owner\_fds}      & \texttt{set[int]} --- File descriptors of contributing
+  clients. \\
+\field{scenes}          & \texttt{dict[str, SceneMessage]} --- All scenes in
+  this frame, keyed by \field{scene\_id}. \\
+\field{scene\_order}    & \texttt{list[str]} --- Tab ordering. \\
+\field{active\_tab}     & \texttt{str | None} --- Currently visible scene. \\
+\field{minimized}       & \texttt{bool} --- Docked to bottom bar. \\
+\field{cascade\_index}  & \texttt{int} --- Stagger offset for initial
+  positioning. \\
+\field{initial\_size}   & \texttt{tuple[int,int] | None} --- Width/height hint
+  (first use only). \\
+\field{flags}           & \texttt{dict[str,bool] | None} --- ImGui window flags
+  (\texttt{no\_resize}, \texttt{no\_collapse}, \texttt{no\_title\_bar},
+  \texttt{no\_background}, \texttt{no\_scrollbar}, \texttt{auto\_resize}). \\
+\field{layout}          & \texttt{"tab" | "stack"} --- Multi-scene composition
+  mode. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Frame Lifecycle}
+
+\begin{description}[style=nextline]
+  \item[Creation]
+    A frame is created on the first \msg{SceneMessage} with a
+    \field{frame\_id} not already in \texttt{\_frames}.  The client's
+    fd is added to \field{owner\_fds}.
+
+  \item[Shared ownership]
+    Multiple clients can contribute scenes to the same frame.  Each
+    client that sends a scene targeting the frame is added to
+    \field{owner\_fds}.
+
+  \item[Orphan model]
+    When a client disconnects, its scenes persist with an
+    \texttt{\_ORPHAN\_FD} sentinel in place of the real fd.  The
+    frame remains visible and interactive.  A new client connecting
+    with the same \field{frame\_id} adopts the orphaned scenes.
+
+  \item[Dismissal]
+    The close button removes the frame and all its scenes from state.
+    Widget state for all scenes in the frame is cleaned up.
+
+  \item[Focus management]
+    New frames are positioned using cascade staggering
+    (\field{cascade\_index} increments per frame).  Initial size is
+    applied on first render only.  \texttt{\_focus\_frame\_id} triggers
+    \texttt{SetNextWindowFocus} on the next render cycle.
+\end{description}
+
+\subsection{World Menu}
+
+Right-clicking the docking background opens the World menu panel,
+providing frame management operations: list all frames, restore
+minimized frames, close all frames, and access display settings.
+
+\subsection{Dock Bar}
+
+Minimized frames appear as clickable buttons in a bottom dock bar.
+Clicking a dock bar button restores the frame to its previous
+position and size.
 
 % ===================================================================
 \section{IPC and Process Management}
@@ -512,10 +653,6 @@ UI at 30\,FPS idle.
 \subsection{Known Limitations}
 
 \begin{enumerate}
-  \item \textbf{No event attribution.}  \msg{InteractionMessage}
-    carries \field{element\_id} but not \field{scene\_id}.  If two
-    scenes use the same element ID, events are ambiguous.
-    (Tracked: lux-308.)
   \item \textbf{No ImGui ID scoping.}  Widget IDs are derived from
     \field{element\_id} alone, not scoped by scene.  ImGui internal
     state (focus, open/closed) can bleed between tabs with colliding
@@ -548,8 +685,8 @@ Socket hijacking    & Another process connects to the socket and
   injects scenes or reads events. & Directory permissions (0700) on
   \texttt{/tmp/lux-\$USER/}. \\
 Malformed messages  & Client sends invalid JSON, unknown message type,
-  or oversize payload. & Disconnects client; no crash. Oversize
-  payloads rejected by FrameReader. \\
+  or oversize payload. & Unknown types deserialized as
+  \msg{UnknownMessage}; oversize payloads rejected by FrameReader. \\
 Render function     & Agent-submitted Python code executes arbitrary
   operations. & Consent dialog with AST warnings.  User must
   explicitly click Allow. \\
@@ -567,30 +704,27 @@ code.  The security model is \textbf{consent-based, not
 sandbox-based}:
 
 \begin{enumerate}
-  \item \textbf{AST scanning} (\modpath{ast\_check.py}): a
-    best-effort visitor flags suspicious imports (\texttt{os},
-    \texttt{subprocess}, \texttt{socket}, \texttt{ctypes},
-    \texttt{urllib}, etc.) and dangerous builtins (\texttt{eval},
-    \texttt{exec}, \texttt{open}, \texttt{\_\_import\_\_}).  This is
-    a \emph{UX signal}, not a security boundary.  It can be
-    trivially bypassed (e.g.,\\
-    \texttt{getattr(\_\_builtins\_\_, "eval")}).
+  \item \textbf{AST scanning}: a best-effort visitor flags
+    suspicious imports (\texttt{os}, \texttt{subprocess},
+    \texttt{socket}, \texttt{ctypes}, \texttt{urllib}, etc.) and
+    dangerous builtins (\texttt{eval}, \texttt{exec}, \texttt{open},
+    \texttt{\_\_import\_\_}).  This is a \emph{UX signal}, not a
+    security boundary.
 
-  \item \textbf{Consent dialog} (\modpath{consent.py}): an ImGui modal
-    displays the full source code with line numbers and any AST
-    warnings.  The user must click ``Allow'' to proceed.  Dismissing
-    the modal (Esc) is treated as ``Deny.''  Consent is per-element:
-    changing the source code resets consent.
+  \item \textbf{Consent dialog}: an ImGui modal displays the full
+    source code with line numbers and any AST warnings.  The user
+    must click ``Allow'' to proceed.  Dismissing the modal (Esc) is
+    treated as ``Deny.''  Consent is per-element: changing the source
+    code resets consent.
 
-  \item \textbf{Execution} (\modpath{runtime.py}):\\
-    \texttt{CodeExecutor} compiles the source and calls
-    \texttt{render(ctx)} each frame.  The
-    \texttt{RenderContext} provides a persistent state dict,
-    delta time, frame counter, canvas dimensions, and a
-    \texttt{send()} callback for emitting events.  Execution is
-    \textbf{not sandboxed}: the code runs in the display server's
-    process with full access to the Python runtime.  Runtime errors
-    are caught and displayed, not propagated.
+  \item \textbf{Execution}: \texttt{CodeExecutor} compiles the
+    source and calls \texttt{render(ctx)} each frame.  The
+    \texttt{RenderContext} provides a persistent state dict, delta
+    time, frame counter, canvas dimensions, and a \texttt{send()}
+    callback for emitting events.  Execution is \textbf{not sandboxed}:
+    the code runs in the display server's process with full access to
+    the Python runtime.  Runtime errors are caught and displayed, not
+    propagated.
 \end{enumerate}
 
 \textbf{Implication}: render functions should be treated as
@@ -604,7 +738,8 @@ isolation.
   \item \textbf{Malformed JSON}: client disconnected, not crashed.
     The display logs the error and removes the client from
     \texttt{\_clients}.
-  \item \textbf{Unknown message type}: client disconnected.
+  \item \textbf{Unknown message type}: deserialized as
+    \msg{UnknownMessage} for forward compatibility.
   \item \textbf{Oversize frame}: \texttt{FrameReader} checks
     \texttt{bufSize $\leq$ maxBufSize} and disconnects on violation.
   \item \textbf{Partial reads}: \texttt{FrameReader} accumulates
@@ -659,6 +794,8 @@ isolation.
 \section{MCP Tool Surface}
 % ===================================================================
 
+24 tools organized by function:
+
 \begin{center}
 \begin{longtable}{lp{8cm}}
 \toprule
@@ -669,30 +806,64 @@ isolation.
 \textbf{Tool} & \textbf{Signature and Purpose} \\
 \midrule
 \endhead
-\tool{show}           & \texttt{(scene\_id, elements, title?, layout?)}
-  --- Display a scene.  Comprehensive docstring lists all 25 element
-  kinds with examples. \\
+\multicolumn{2}{l}{\textbf{Scene management}} \\
+\midrule
+\tool{show}           & \texttt{(scene\_id, elements, title?, layout?,
+  frame\_id?, frame\_title?, frame\_size?, frame\_flags?)}
+  --- Display a scene.  Docstring lists all 24 element kinds. \\
 \tool{show\_table}    & \texttt{(scene\_id, columns, rows, filters?,
-  detail?, title?)} --- Convenience wrapper for filterable data tables
-  with search, combo filters, and detail panel. \\
+  detail?, title?)} --- Filterable data table with search, combo
+  filters, and detail panel. \\
 \tool{show\_dashboard} & \texttt{(scene\_id, metrics?, charts?,
   table\_columns?, table\_rows?, title?)} --- Metrics cards + charts +
   summary table. \\
-\tool{show\_diagram}  & \texttt{(scene\_id, layers, edges?, title?)}
-  --- Layered architecture diagram with auto-layout, routed edges,
-  and arrowheads. \\
 \tool{update}         & \texttt{(scene\_id, patches)} --- Incremental
   JSON patches targeting elements by ID. \\
 \tool{clear}          & \texttt{()} --- Clear all scenes. \\
+\midrule
+\multicolumn{2}{l}{\textbf{Communication}} \\
+\midrule
 \tool{ping}           & \texttt{()} --- Latency probe; returns
   \msg{PongMessage}. \\
 \tool{recv}           & \texttt{(timeout?)} --- Receive next event
   (interaction, window lifecycle). \\
 \tool{set\_menu}      & \texttt{(menus)} --- Set agent-provided menu
   bar entries. \\
+\tool{register\_tool} & \texttt{(name, description, schema)} --- Register
+  a custom tool in the display's tool palette. \\
 \tool{set\_theme}     & \texttt{(theme)} --- Apply display theme. \\
-\tool{display\_mode}  & \texttt{(mode?)} --- Get or set display mode
+\midrule
+\multicolumn{2}{l}{\textbf{Configuration}} \\
+\midrule
+\tool{display\_mode}  & \texttt{()} --- Read current display mode
   (y/n); advisory L3 signal for consumer plugins. \\
+\tool{set\_display\_mode} & \texttt{(mode)} --- Set display mode. \\
+\tool{set\_window\_settings} & \texttt{(opacity?, font\_scale?,
+  decorated?, fps\_idle?)} --- Configure display window appearance
+  and idle frame rate. \\
+\tool{set\_frame\_state} & \texttt{(frame\_id, minimized?)}
+  --- Control frame state (minimize/restore). \\
+\midrule
+\multicolumn{2}{l}{\textbf{Introspection}} \\
+\midrule
+\tool{inspect\_scene} & \texttt{(scene\_id)} --- Return element tree
+  for a scene. \\
+\tool{list\_scenes}   & \texttt{()} --- List all active scenes with
+  metadata. \\
+\tool{screenshot}     & \texttt{()} --- Capture display as base64
+  PNG. \\
+\tool{get\_display\_info} & \texttt{()} --- Display dimensions,
+  frame count, client count. \\
+\tool{get\_window\_settings} & \texttt{()} --- Current window
+  geometry. \\
+\tool{get\_theme}     & \texttt{()} --- Current theme name. \\
+\tool{list\_clients}  & \texttt{()} --- Connected clients with
+  names and scene counts. \\
+\tool{list\_menus}    & \texttt{()} --- Registered menu items. \\
+\tool{list\_recent\_events} & \texttt{(count?)} --- Recent
+  interaction events. \\
+\tool{list\_errors}   & \texttt{(count?)} --- Recent error log
+  entries. \\
 \bottomrule
 \end{longtable}
 \end{center}
@@ -737,23 +908,32 @@ update to model the full multi-scene state is pending.
 \toprule
 \textbf{Test File} & \textbf{Count} & \textbf{What It Tests} \\
 \midrule
-\texttt{test\_display\_state.py}      & 32  & State machine logic (no ImGui) \\
-\texttt{test\_display\_partition.py}   & 51  & TTF-derived partitions from Z spec \\
+\texttt{test\_protocol.py}            & 168 & Serialization, deserialization, framing \\
+\texttt{test\_display\_partition.py}   & 107 & TTF-derived partitions from Z spec \\
+\texttt{test\_tools.py}               & 83  & MCP tool behavior (mocked client) \\
+\texttt{test\_display\_state.py}       & 65  & State machine logic (no ImGui) \\
 \texttt{test\_display\_refinement.py}  & 28  & Abstraction function commutativity \\
-\texttt{test\_protocol.py}            & 97  & Serialization, deserialization, framing \\
-\texttt{test\_server.py}              & 60  & MCP tool behavior (mocked client) \\
-\texttt{test\_client.py}              & 15  & Client library (real sockets, threads) \\
-\texttt{test\_ast\_check.py}          & 41  & AST visitor coverage \\
-\texttt{test\_runtime.py}             & 23  & CodeExecutor lifecycle \\
-\texttt{test\_paths.py}               & 16  & Socket discovery, PID, auto-spawn \\
+\texttt{test\_display\_client.py}      & 26  & High-level client library \\
+\texttt{test\_query.py}               & 23  & Generic introspection queries \\
+\texttt{test\_show.py}                & 22  & CLI show subcommands \\
+\texttt{test\_runtime.py}             & 22  & CodeExecutor lifecycle \\
+\texttt{test\_hooks.py}               & 18  & Hook handler output \\
 \texttt{test\_config.py}              & 16  & Config read/write \\
-\texttt{test\_consent.py}             & 9   & Consent dialog state machine \\
-\texttt{test\_hooks.py}               & 4   & Hook handler output \\
-\texttt{test\_cli.py}                 & 9   & CLI command smoke tests \\
+\texttt{test\_paths.py}               & 16  & Socket discovery, PID, auto-spawn \\
+\texttt{test\_remote.py}              & 12  & mcp-proxy and remote transport \\
+\texttt{test\_cli.py}                 & 11  & CLI command smoke tests \\
+\texttt{test\_paths\_hub.py}          & 11  & Hub socket and PID paths \\
+\texttt{test\_service.py}             & 9   & Daemon lifecycle \\
 \texttt{test\_unit.py}                & 6   & Misc unit tests \\
+\texttt{test\_hub.py}                 & 6   & WebSocket session hub \\
 \texttt{test\_version.py}             & 2   & Version string consistency \\
 \midrule
-\textbf{Total}                        & 443 & \\
+\multicolumn{3}{l}{\textbf{Marker-gated (not in default \texttt{pytest} run)}} \\
+\midrule
+\texttt{test\_integration.py}         & 8   & Socket IPC, protocol framing (real sockets) \\
+\texttt{test\_e2e.py}                 & 3   & Full display server lifecycle (requires GPU) \\
+\midrule
+\textbf{Total}                        & 662 & (651 default + 11 marker-gated) \\
 \bottomrule
 \end{tabular}
 \end{center}
