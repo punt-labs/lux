@@ -17,13 +17,11 @@ from punt_lux.protocol import (
     GroupElement,
     InputTextElement,
     InteractionMessage,
-    IntrospectResponse,
-    ListScenesResponse,
     MarkdownElement,
     PlotElement,
     PongMessage,
     ProgressElement,
-    ScreenshotResponse,
+    QueryResponse,
     SelectableElement,
     SliderElement,
     SpinnerElement,
@@ -795,8 +793,9 @@ class TestInspectSceneTool:
         elements = [
             {"kind": "text", "id": "t1", "content": "hello"},
         ]
-        client.inspect_scene.return_value = IntrospectResponse(
-            scene_id="s1", elements=elements
+        client.query.return_value = QueryResponse(
+            method="inspect_scene",
+            result={"scene_id": "s1", "elements": elements},
         )
         mock_get.return_value = client
 
@@ -812,8 +811,9 @@ class TestInspectSceneTool:
     ) -> None:
         mock_path.return_value = "/fake/socket"
         client = _mock_client()
-        client.inspect_scene.return_value = IntrospectResponse(
-            scene_id="missing", error="Scene 'missing' not found"
+        client.query.return_value = QueryResponse(
+            method="inspect_scene",
+            error="Scene 'missing' not found",
         )
         mock_get.return_value = client
 
@@ -828,7 +828,7 @@ class TestInspectSceneTool:
     ) -> None:
         mock_path.return_value = "/fake/socket"
         client = _mock_client()
-        client.inspect_scene.return_value = None
+        client.query.return_value = None
         mock_get.return_value = client
 
         result = inspect_scene("s1")
@@ -862,8 +862,9 @@ class TestListScenesTool:
         frames = [
             {"frame_id": "f1", "title": "Main", "scene_count": 1, "scene_ids": ["s1"]},
         ]
-        client.list_scenes.return_value = ListScenesResponse(
-            scenes=scenes, frames=frames
+        client.query.return_value = QueryResponse(
+            method="list_scenes",
+            result={"scenes": scenes, "frames": frames},
         )
         mock_get.return_value = client
 
@@ -879,7 +880,7 @@ class TestListScenesTool:
     ) -> None:
         mock_path.return_value = "/fake/socket"
         client = _mock_client()
-        client.list_scenes.return_value = None
+        client.query.return_value = None
         mock_get.return_value = client
 
         result = list_scenes()
@@ -893,7 +894,10 @@ class TestListScenesTool:
     ) -> None:
         mock_path.return_value = "/fake/socket"
         client = _mock_client()
-        client.list_scenes.return_value = ListScenesResponse()
+        client.query.return_value = QueryResponse(
+            method="list_scenes",
+            result={"scenes": [], "frames": []},
+        )
         mock_get.return_value = client
 
         result = list_scenes()
@@ -922,8 +926,9 @@ class TestScreenshotTool:
     ) -> None:
         mock_path.return_value = "/fake/socket"
         client = _mock_client()
-        client.screenshot.return_value = ScreenshotResponse(
-            path="/tmp/lux-screenshot-abc.png"
+        client.query.return_value = QueryResponse(
+            method="screenshot",
+            result={"path": "/tmp/lux-screenshot-abc.png"},
         )
         mock_get.return_value = client
 
@@ -938,8 +943,9 @@ class TestScreenshotTool:
     ) -> None:
         mock_path.return_value = "/fake/socket"
         client = _mock_client()
-        client.screenshot.return_value = ScreenshotResponse(
-            error="OpenGL not available"
+        client.query.return_value = QueryResponse(
+            method="screenshot",
+            error="OpenGL not available",
         )
         mock_get.return_value = client
 
@@ -954,7 +960,7 @@ class TestScreenshotTool:
     ) -> None:
         mock_path.return_value = "/fake/socket"
         client = _mock_client()
-        client.screenshot.return_value = None
+        client.query.return_value = None
         mock_get.return_value = client
 
         result = screenshot()
