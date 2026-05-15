@@ -49,7 +49,7 @@ Each needs: design → peer review → implement → local review → PR.
 |------|------|-----|
 | Extract DoctorChecker | __main__.py (453 lines) | method_ratio 0.04 |
 | Assess hooks.py | hooks.py (105 lines) | method_ratio 0.0 — may not need class |
-| ToolState class | tools/connection.py | Encapsulate _client, _client_lock |
+| ToolState class | tools/connection.py | Encapsulate `_client`, `_client_lock` |
 | Remove client.py shim + LuxClient alias | client.py, __init__.py | PL-PP-1, trivial |
 
 ### Level 3: Class Decomposition (module_size blockers)
@@ -89,16 +89,16 @@ After every 3 PRs: `make report`, compare aggregates, assess design quality vs m
 
 ## How to Continue
 
-1. **Order**: package → module → class → method. Don't skip levels.
-2. **Delegate all code**: specialist agents (`rmh` for Python, `gvr` for protocol). COO writes specs and reviews.
-3. **Sequential agents only**: never run parallel agents on the same working tree.
-4. **Two-pass extraction**: for large files, create new file first, then wire callers in a second pass.
-5. **Migration order for module conversions**: add class alongside existing functions → update callers one by one → delete old functions. System must be importable after every file write (hooks run `make check`).
-6. **New files must meet OO standards**: no "pre-existing" excuse for moved code.
-7. **Local review mandatory**: code-reviewer + silent-failure-hunter before every PR push.
-8. **`make check` before every commit**: includes check-oo, check-suppressions, lint, type, test.
-9. **Design review for non-trivial conversions**: design mission → peer review → present to CEO → implement.
-10. **Reply to all biff messages**.
+1. __Order__: package → module → class → method. Don't skip levels.
+2. __Delegate all code__: specialist agents (`rmh` for Python, `gvr` for protocol). COO writes specs and reviews.
+3. __Sequential agents only__: never run parallel agents on the same working tree.
+4. __Two-pass extraction__: for large files, create new file first, then wire callers in a second pass.
+5. __Migration order for module conversions__: add class alongside existing functions → update callers one by one → delete old functions. System must be importable after every file write (hooks run `make check`).
+6. __New files must meet OO standards__: no "pre-existing" excuse for moved code.
+7. __Local review mandatory__: code-reviewer + silent-failure-hunter before every PR push.
+8. __`make check` before every commit__: includes check-oo, check-suppressions, lint, type, test.
+9. __Design review for non-trivial conversions__: design mission → peer review → present to CEO → implement.
+10. __Reply to all biff messages__.
 
 ## Key Tools
 
