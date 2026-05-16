@@ -418,14 +418,14 @@ class SceneManager:
         if valid:
             parent_list[idx] = elem = replace(elem, **valid)
         eid = getattr(elem, "id", None)
-        has_value_key = fields.keys() & {
+        has_value_key = valid.keys() & {
             "value",
             "selected",
             "items",
         }
         if eid is not None and ws is not None and has_value_key:
             ws.set(eid, _widget_value(elem))
-        has_pos_key = fields.keys() & {
+        has_pos_key = valid.keys() & {
             "x",
             "y",
             "width",
