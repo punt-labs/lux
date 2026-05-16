@@ -17,15 +17,15 @@ The design follows Smalltalk's Morphic model: every visible element is a composa
 
 *A Claude Code plugin displaying a project issue board --- the agent fetches live data from DoltDB via `bd list --json`, builds a filterable table with detail panel, and renders it in a single tool call. Filters and row selection run at 60fps with zero MCP round-trips.*
 
-![Beads issue board with filterable table and detail panel](docs/beads-board.png)
+![Beads issue board with filterable table and detail panel](docs/assets/beads-board.png)
 
 *The same list/detail pattern generalizes to any tabular data. Search, combo filters, pagination, and a detail panel --- all driven by a single `show_table()` call.*
 
-![Filterable data explorer with detail panel](docs/data-explorer-filtered.png)
+![Filterable data explorer with detail panel](docs/assets/data-explorer-filtered.png)
 
 *Dashboards compose metric cards, charts, and tables. `show_dashboard()` builds the layout from structured data --- no manual element positioning needed.*
 
-![Dashboard with metrics, charts, and data table](docs/dashboard.png)
+![Dashboard with metrics, charts, and data table](docs/assets/dashboard.png)
 
 ## Quick Start
 
@@ -247,7 +247,7 @@ Client code can also use `DisplayClient` directly as a Python library, bypassing
 
 ## Documentation
 
-[Architecture (PDF)](docs/architecture.pdf) |
+[Architecture (PDF)](docs/architecture/system.pdf) |
 [Design Log](DESIGN.md) |
 [Changelog](CHANGELOG.md) |
 [Contributing](CONTRIBUTING.md)
