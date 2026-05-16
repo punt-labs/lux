@@ -22,7 +22,7 @@ Transform the Lux codebase from a procedural monolith to a well-factored OO desi
 
 7 of 11 passing. 4 failing: method_ratio, max_complexity, module_size, classes_per_module.
 
-## What's been shipped (11 PRs)
+## What's been shipped (15 PRs)
 
 | PR | What | Key result |
 |----|------|-----------|
@@ -83,7 +83,7 @@ Each needs: Extract Method → verify CC ≤ 10 → local review → PR.
 | Decompose _render_table | table_renderer.py | 19 |
 | Decompose server.py CC=14 | display/server.py | 14 |
 | Decompose element_renderer CC=13 | element_renderer.py | 13 (3 methods) |
-| Decompose handle_framed_scene | scene/manager.py | 11 |
+| Decompose handle_framed_scene | scene/manager.py | 13 |
 
 ### Health Check
 
