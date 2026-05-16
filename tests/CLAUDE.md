@@ -66,10 +66,23 @@ Permanent skips are bugs.
 
 ## Visual testing
 
-`display.py` and the rendering layer have no automated tests — correctness
-is verified manually by running lux and looking at the output. This is the
-largest testing gap in the codebase. Decomposing `display/server.py` into
-smaller units is prerequisite to meaningful render tests; each extraction
-improves testability. Until then: when changing rendering code, run
-`make install` and exercise the affected element visually before
-committing.
+`display/server.py` and the rendering layer have no pixel-level automated
+tests. Correctness is verified two ways:
+
+**Introspection (partial, automatable).** The MCP tools `inspect_scene`,
+`list_scenes`, and `screenshot` let agents query what the display server
+has rendered — scene structure, element tree, and a PNG framebuffer
+capture. E2E tests in `test_e2e.py` use introspection to verify that
+scenes sent via the protocol appear correctly in the display's state.
+This catches protocol-to-renderer wiring bugs without a human in the loop,
+though it does not verify pixel-level rendering fidelity.
+
+`screenshot` capture is currently in progress (DES-028) — the correct
+capture timing in the ImGui render loop is unresolved. Once working, it
+enables screenshot-based regression tests as part of the e2e tier.
+
+**Manual verification (required for rendering fidelity).** When changing
+rendering code, run `make install` and exercise the affected element
+visually. The introspection API confirms the scene was received; a human
+eye confirms it looks right. Until `display/server.py` is decomposed into
+smaller testable units, there is no substitute for this step.
