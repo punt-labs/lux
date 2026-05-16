@@ -42,59 +42,69 @@ Transform the Lux codebase from a procedural monolith to a well-factored OO desi
 | #164 | Protocol dataclasses frozen=True+slots=True; hasattr/setattr → dataclasses.replace(); docs/ reorganized; DES-029, DES-030; tests/CLAUDE.md; make test-integration/test-e2e | Wire types correct; three-layer model documented |
 | #165 | luxd registered as launchd service; CLAUDE.md notes hub restart after install | Operational fix |
 
-## What's left (all tasks now tracked as beads — see bd list --label=repo:lux)
+## What's left
 
-New since PR #162: scene/manager.py CC=13 (worsened), hub.py/show.py/tools/* method_ratio 0.0.
-Three-layer type model work (DES-030) added: lux-ayeh (epic), lux-5rk7 (scene graph nodes), lux-6jw9 (typed patches).
-luxd three-process split: lux-fv1b (epic).
+All remaining work is tracked as beads (`bd list --label=repo:lux`). Tables below are the canonical reference.
 
-## What's left (ordered)
-
-### Level 2: Module OO Conversions (method_ratio blockers)
+### OO Level 2 — method_ratio blockers
 
 Each needs: design → peer review → implement → local review → PR.
 
-| Task | File | Why |
-|------|------|-----|
-| Extract DoctorChecker | __main__.py (453 lines) | method_ratio 0.04 |
-| Assess hooks.py | hooks.py (105 lines) | method_ratio 0.0 — may not need class |
-| ToolState class | tools/connection.py | Encapsulate `_client`, `_client_lock` |
-| Remove client.py shim + LuxClient alias | client.py, __init__.py | PL-PP-1, trivial |
+| Bead | Task | Files | Notes |
+|------|------|-------|-------|
+| lux-136o | Extract DoctorChecker class | `__main__.py` (457 lines, method_ratio 0.04) | Doctor subcommand logic → class with check methods |
+| lux-9k38 | Fix method_ratio 0.0 modules | `hooks.py`, `show.py`, `hub.py`, `tools/server.py`, `tools/connection.py` | All procedural — assess each, convert to class-based |
+| lux-3bp8 | Remove client.py shim | `client.py`, `__init__.py` | PL-PP-1 violation, trivial (chore) |
 
-### Level 3: Class Decomposition (module_size blockers)
+### OO Level 3 — module_size blockers
 
-Each needs: design review → implement → local review → PR.
+Each needs: design → two-pass implementation → local review → PR.
 
-| Task | File | Lines → target |
-|------|------|---------------|
-| Extract FrameRenderer | display/server.py | 1,212→~600 |
-| Split element_renderer into 3 | display/element_renderer.py | 999→3×300 |
-| Move module-level fns into class | display/table_renderer.py | method_ratio 0.6→1.0 |
-| Split elements.py by domain | protocol/elements.py | 27 classes→3 files |
-| ElementCodec registry | protocol/elements.py | Same pattern as MessageRegistry |
-| Assess display_client.py | display_client.py | avg_params=6.5 on one method |
+| Bead | Task | File | Size → Target |
+|------|------|------|--------------|
+| lux-gcgf | Extract FrameRenderer | `display/server.py` | 1,213 → ~600 |
+| lux-wzpq | Split into domain renderers | `display/element_renderer.py` | 999 → 3×300 |
+| lux-jyj2 | Promote fns into class | `display/table_renderer.py` | 540, method_ratio 0.61 → 1.0 |
+| lux-9i26 | Split by element domain | `protocol/elements.py` | 1,013, 27 classes → 4 files |
+| lux-n5ep | ElementCodec registry | `protocol/elements.py` | Blocked by lux-9i26 |
+| lux-r77f | Typed tool handler classes | `tools/tools.py` | 656, method_ratio 0.0 |
 
-### Level 4: Method Decomposition (max_complexity blockers)
+### OO Level 4 — max_complexity blockers
 
 Each needs: Extract Method → verify CC ≤ 10 → local review → PR.
 
-| Task | File | CC |
-|------|------|----|
-| Decompose _render_table | table_renderer.py | 19 |
-| Decompose server.py CC=14 | display/server.py | 14 |
-| Decompose element_renderer CC=13 | element_renderer.py | 13 (3 methods) |
-| Decompose handle_framed_scene | scene/manager.py | 13 |
+| Bead | Task | File | CC |
+|------|------|------|----|
+| lux-7bpg | Decompose _render_table | `display/table_renderer.py` | 19 |
+| lux-7bpg | Decompose _on_frame/_handle_message | `display/server.py` | 14 |
+| lux-7bpg | Decompose _render_element | `display/element_renderer.py` | 13 |
+| lux-7bpg | Decompose handle_framed_scene | `scene/manager.py` | 13 |
+
+### Architecture — three-layer type model (DES-030)
+
+| Bead | Task | Notes |
+|------|------|-------|
+| lux-q316 | Decision: DES-030 (PROPOSED) | Three-layer model: wire / scene graph / snapshot |
+| lux-ayeh | Epic: three-layer implementation | Blocked by lux-q316 |
+| lux-5rk7 | Scene graph nodes | Mutable per-element-kind classes with typed apply(); blocked by lux-ayeh |
+| lux-6jw9 | Typed patches per element kind | Wire format change; blocked by lux-5rk7 |
+
+### Architecture — luxd three-process split (DES-022)
+
+| Bead | Task | Notes |
+|------|------|-------|
+| lux-fv1b | Epic: hub daemon + service + mcp-proxy | hub.py WebSocket server, session isolation, plugin.json integration |
 
 ### Health Check
 
-After every 3 PRs: `make report`, compare aggregates, assess design quality vs metric grinding. Present to CEO.
+After every 3 PRs: `make report`, compare aggregates. Present to CEO before continuing.
 
 ## Design Documents
 
-- `.tmp/message-codec-design.md` — MessageRegistry design (implemented)
-- `.tmp/message-codec-review.md` — Peer review of above
-- `.tmp/module-architecture-design.md` — display/, scene/, tools/ packages (implemented)
-- `.tmp/module-architecture-review.md` — Peer review of above
+- `docs/oo-refactor/dynamic-access-design.md` — three-layer type model, dynamic access debt, path forward
+- `docs/architecture/x11-model.md` — X11 architecture, three-process model, update/refresh rate separation
+- `docs/architecture/luxd-impl.md` — luxd hub implementation spec (Phase 1 target)
+- `DESIGN.md` DES-029, DES-030 — ADRs for protocol frozen types and three-layer model
 
 ## How to Continue
 
