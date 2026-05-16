@@ -1,6 +1,7 @@
 .claude/
 !.claude/settings.json
 !.claude/hooks/
+!.claude/agents/
 .biff.local
 .worktrees/
 .mcp.json
@@ -36,4 +37,9 @@ docs/*.synctex.gz
 
 # Local uv overrides (depot find-links, etc.)
 uv.toml
+
+# Local envrc
 .envrc.local
+
+# Temporarily exclude quarry captures
+.punt-labs/quarry/captures/*.md
