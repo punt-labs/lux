@@ -224,7 +224,7 @@ evolve independently.
 
 ### The full data flow
 
-```
+```text
 Agent (any language)
   │  wire types (frozen, short-lived)
   │  WebSocket / MCP JSON-RPC
