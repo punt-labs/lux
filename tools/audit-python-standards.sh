@@ -102,15 +102,21 @@ else
     while IFS= read -r h; do _fail "$h"; done <<< "$hits"
 fi
 
-# ── PY-CC-6: @dataclass must have frozen=True ────────────────────────────────
-# Checks the decorator line; multi-line decorators still show frozen on that line.
+# ── PY-CC-6: @dataclass must have frozen=True, slots=True ────────────────────
 _section "PY-CC-6: @dataclass must use frozen=True, slots=True"
-bare=$(grep -rn "@dataclass" --include="*.py" "$SRC" 2>/dev/null \
+no_frozen=$(grep -rn "@dataclass" --include="*.py" "$SRC" 2>/dev/null \
     | grep -v "frozen=True" | grep -v "# noqa" || true)
-if [ -z "$bare" ]; then
-    _pass "All @dataclass decorators include frozen=True"
+no_slots=$(grep -rn "@dataclass" --include="*.py" "$SRC" 2>/dev/null \
+    | grep -v "slots=True" | grep -v "# noqa" || true)
+if [ -z "$no_frozen" ] && [ -z "$no_slots" ]; then
+    _pass "All @dataclass decorators have frozen=True, slots=True"
 else
-    while IFS= read -r h; do _fail "missing frozen=True: $h"; done <<< "$bare"
+    if [ -n "$no_frozen" ]; then
+        while IFS= read -r h; do _fail "missing frozen=True: $h"; done <<< "$no_frozen"
+    fi
+    if [ -n "$no_slots" ]; then
+        while IFS= read -r h; do _fail "missing slots=True: $h"; done <<< "$no_slots"
+    fi
 fi
 
 # ── PY-TS-13: py.typed marker ────────────────────────────────────────────────
