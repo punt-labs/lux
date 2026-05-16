@@ -100,6 +100,157 @@ should.
 
 ---
 
+## The Root Cause: Wire Types Used as Scene Graph Nodes
+
+The three sites above are symptoms of one structural problem: the
+protocol dataclasses serve two incompatible roles simultaneously.
+
+**Role 1 — Wire protocol.** `ShowMessage`, `TextElement`, `SliderElement`
+and the rest describe what an agent wants to render. They cross the
+WebSocket from the agent to `luxd`, are deserialized, applied to hub
+state, and discarded. Short-lived. Never stored. Immutable is correct
+here: a wire message is a command, not a persistent object.
+
+**Role 2 — Scene graph nodes.** The same objects are stored in
+`SceneManager._scenes` and updated incrementally by `apply_update`. They
+are retained for the lifetime of the scene. Mutable is correct here: the
+hub receives patches from agents and must apply them to existing state.
+
+These roles have opposite requirements. The `hasattr`/`setattr` patterns
+existed precisely because the code needed to mutate objects that were
+typed as if they were immutable value types. Adding `frozen=True` made
+the conflict explicit: now `apply_update` calls `dataclasses.replace()`
+to produce a new frozen instance from an old one and swaps it into the
+scene's `elements` list — while the `elements` list itself is mutable
+because it is stored in a frozen `SceneMessage`. The frozen/mutable
+boundary is incoherent: the message is frozen, the list inside it is
+mutable, the elements inside the list are frozen, lists inside those
+elements are mutable.
+
+`frozen=True` on the protocol types was the right move for the wire role
+and the wrong model for the scene graph role. The fix is not to
+un-freeze them. The fix is to separate the two roles into distinct types.
+
+## The Three-Layer Type Model
+
+Three distinct data roles require three distinct type layers.
+
+### Layer 1 — Wire types (what they are now, frozen is correct)
+
+Objects that cross the WebSocket boundary from agent to hub. Created by
+the agent, deserialized by the hub, used to drive a scene graph update,
+then discarded. These are commands, not state.
+
+`frozen=True, slots=True` is correct here. They are value objects in
+the strict sense: stateless, short-lived, compared by value, passed
+around without ownership concerns.
+
+```python
+# protocol/wire.py — already approximately correct
+@dataclass(frozen=True, slots=True)
+class ShowMessage:
+    scene_id: str
+    elements: tuple[WireElement, ...]
+    client_id: str
+    ts: float
+```
+
+The wire types define the JSON API surface. Any agent in any language
+that can serialize this JSON can drive the display. Their structure is
+determined by the protocol, not by the needs of the scene graph.
+
+### Layer 2 — Scene graph nodes (do not exist yet, mutable is correct)
+
+The hub's authoritative retained state. Updated incrementally by
+incoming wire commands. Owned exclusively by the hub. Never shared with
+the renderer directly.
+
+These should be mutable classes — one per element kind — with typed
+update methods:
+
+```python
+# scene/nodes.py
+class SliderNode:
+    id: str
+    value: float
+    min: float
+    max: float
+    label: str
+
+    def apply(self, patch: SliderPatch) -> None:
+        if patch.value is not None:
+            self.value = patch.value
+        if patch.label is not None:
+            self.label = patch.label
+```
+
+`frozen=True` is wrong here. These objects exist to be updated. Direct
+mutation is correct because the hub owns them exclusively — no concurrency
+concern exists within the hub's event loop. The typed `apply()` method
+replaces `dataclasses.replace(**dict[str, Any])`: the type system
+enforces which fields can be patched on which element kind at compile
+time, not at runtime via field-name filtering.
+
+### Layer 3 — Display snapshot (do not exist yet, frozen is correct again)
+
+What crosses the Unix socket IPC boundary from `luxd` to `lux-display`
+once per render frame. The hub builds a snapshot from the current scene
+graph state and pushes it to the renderer. The renderer consumes it and
+discards it.
+
+`frozen=True` is correct here for a different reason than Layer 1: the
+snapshot crosses a concurrency boundary. The renderer reads it during a
+frame while the hub may be computing the next one. An immutable snapshot
+eliminates the race without a lock.
+
+```python
+# scene/snapshot.py
+@dataclass(frozen=True, slots=True)
+class DisplaySnapshot:
+    scenes: tuple[SceneSnapshot, ...]
+    ts: float
+
+@dataclass(frozen=True, slots=True)
+class SceneSnapshot:
+    scene_id: str
+    elements: tuple[ElementSnapshot, ...]
+```
+
+The snapshot is derived from the scene graph, not stored in it. The hub
+calls `snapshot()` on the scene manager when it needs to push to the
+renderer — either on every patch or on a coalescing timer. The renderer
+receives it, renders it, and drops it. The scene graph continues to
+evolve independently.
+
+### The full data flow
+
+```
+Agent (any language)
+  │  wire types (frozen, short-lived)
+  │  WebSocket / MCP JSON-RPC
+  ▼
+luxd session hub
+  │  applies wire commands to scene graph
+  ▼
+Scene graph (mutable nodes, hub-owned)
+  │  snapshot() — produces immutable snapshot
+  ▼
+DisplaySnapshot (frozen, point-in-time)
+  │  Unix socket IPC
+  ▼
+lux-display ImGui renderer
+  │  renders snapshot, discards it
+  ▼
+Framebuffer (60 fps)
+```
+
+The three layers have independent lifetimes. Wire objects live for one
+request. Scene graph nodes live for the lifetime of a scene. Snapshots
+live for one render frame. Conflating any two of these lifetimes into
+one type produces the kind of contradiction visible in the current code.
+
+---
+
 ## Path Forward
 
 ### Typed patches per element kind
