@@ -4,7 +4,7 @@
 
 Transform the Lux codebase from a procedural monolith to a well-factored OO design with domain-aligned packages, proper encapsulation, and low coupling. Work order: package → module → class → method.
 
-## Current OO Scores (as of PR #162)
+## Current OO Scores (as of PR #165, 2026-05-16)
 
 | Metric | Value | Target | Status |
 |--------|-------|--------|--------|
@@ -38,8 +38,17 @@ Transform the Lux codebase from a procedural monolith to a well-factored OO desi
 | #160 | tools/ package + coupling tool | 3-way split + oo_coupling.py |
 | #161 | Foundation OO: ConfigManager, DisplayPaths, ProxyConfigFile | 3 procedural modules → classes |
 | #162 | Dead code removal + BeadsBrowser wrappers + suppression ratchet | 110 baseline |
+| #163 | OO resume document added at repo root | Context only |
+| #164 | Protocol dataclasses frozen=True+slots=True; hasattr/setattr → dataclasses.replace(); docs/ reorganized; DES-029, DES-030; tests/CLAUDE.md; make test-integration/test-e2e | Wire types correct; three-layer model documented |
+| #165 | luxd registered as launchd service; CLAUDE.md notes hub restart after install | Operational fix |
 
-## What's left (15 tasks, ordered)
+## What's left (all tasks now tracked as beads — see bd list --label=repo:lux)
+
+New since PR #162: scene/manager.py CC=13 (worsened), hub.py/show.py/tools/* method_ratio 0.0.
+Three-layer type model work (DES-030) added: lux-ayeh (epic), lux-5rk7 (scene graph nodes), lux-6jw9 (typed patches).
+luxd three-process split: lux-fv1b (epic).
+
+## What's left (ordered)
 
 ### Level 2: Module OO Conversions (method_ratio blockers)
 
