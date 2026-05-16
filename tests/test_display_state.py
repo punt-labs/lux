@@ -97,7 +97,7 @@ class TestEmitEvent:
         server._emit_event(event)
 
         assert len(server._event_queue) == 1
-        assert event.scene_id == "s2"
+        assert server._event_queue[0].scene_id == "s2"
 
 
 # -----------------------------------------------------------------------

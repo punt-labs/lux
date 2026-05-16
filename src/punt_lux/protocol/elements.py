@@ -334,18 +334,18 @@ class TableFilter:
 
     def __post_init__(self, column_spec: int | list[int]) -> None:
         col = [column_spec] if isinstance(column_spec, int) else list(column_spec)
-        object.__setattr__(self, "_column", col)
-        if not self._column:
+        if not col:
             msg = "TableFilter requires non-empty 'column'"
             raise ValueError(msg)
         if self.type == "combo" and not self.items:
             msg = "TableFilter type='combo' requires non-empty 'items'"
             raise ValueError(msg)
+        object.__setattr__(self, "_column", col)
 
     @property
     def column(self) -> list[int]:
         """Column index(es) this filter operates on (read-only)."""
-        return self._column
+        return list(self._column)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1215,6 +1215,8 @@ def element_from_dict(d: dict[str, Any]) -> Element:
         elem = deserializer(d)
         tooltip = d.get("tooltip")
         if tooltip is not None:
+            # Invariant: every Element subtype declares tooltip: str | None = None.
+            # New element types must include this field or element_from_dict will raise.
             elem = replace(elem, tooltip=tooltip)
         return elem
     msg = f"Unknown element kind: {kind!r}"

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import dataclasses
+import logging
 from dataclasses import replace
 from typing import Any, Self
 
@@ -83,6 +85,8 @@ def _widget_value(elem: Element) -> Any:
 # ---------------------------------------------------------------------------
 # SceneManager
 # ---------------------------------------------------------------------------
+
+_log = logging.getLogger(__name__)
 
 
 class SceneManager:
@@ -399,7 +403,18 @@ class SceneManager:
         """Apply a set-patch to an element and sync widget state."""
         parent_list, idx = location
         elem = parent_list[idx]
-        valid = {k: v for k, v in fields.items() if k not in ("id", "kind")}
+        known = {f.name for f in dataclasses.fields(elem)}
+        valid = {
+            k: v for k, v in fields.items() if k not in ("id", "kind") and k in known
+        }
+        unknown = fields.keys() - {"id", "kind"} - valid.keys()
+        if unknown:
+            _log.warning(
+                "patch for %s id=%r ignored unknown fields: %s",
+                type(elem).__name__,
+                getattr(elem, "id", None),
+                sorted(unknown),
+            )
         if valid:
             parent_list[idx] = elem = replace(elem, **valid)
         eid = getattr(elem, "id", None)
