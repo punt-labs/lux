@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import InitVar, dataclass, field
+from dataclasses import InitVar, dataclass, field, replace
 from typing import Any, Literal, cast
 
 __all__ = [
@@ -48,7 +48,7 @@ __all__ = [
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ImageElement:
     """An image to display."""
 
@@ -68,7 +68,7 @@ class ImageElement:
             raise ValueError(msg)
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class TextElement:
     """A text block."""
 
@@ -80,7 +80,7 @@ class TextElement:
     color: str | None = None  # hex color e.g. "#FF3333"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ButtonElement:
     """A clickable button.
 
@@ -99,7 +99,7 @@ class ButtonElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class SeparatorElement:
     """A visual divider."""
 
@@ -108,7 +108,7 @@ class SeparatorElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class SliderElement:
     """A numeric slider."""
 
@@ -123,7 +123,7 @@ class SliderElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class CheckboxElement:
     """A boolean checkbox."""
 
@@ -134,7 +134,7 @@ class CheckboxElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ComboElement:
     """A dropdown combo box."""
 
@@ -146,7 +146,7 @@ class ComboElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class InputTextElement:
     """A single-line text input."""
 
@@ -158,7 +158,7 @@ class InputTextElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class RadioElement:
     """A set of radio buttons."""
 
@@ -170,7 +170,7 @@ class RadioElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class InputNumberElement:
     """A numeric input field with optional step buttons and clamping."""
 
@@ -186,7 +186,7 @@ class InputNumberElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ColorPickerElement:
     """A color picker with optional alpha channel and full picker mode.
 
@@ -205,7 +205,7 @@ class ColorPickerElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class DrawElement:
     """A 2D canvas with draw commands (line, rect, circle, etc.)."""
 
@@ -220,7 +220,7 @@ class DrawElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GroupElement:
     """A layout container that arranges children in rows or columns.
 
@@ -241,7 +241,7 @@ class GroupElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class TabBarElement:
     """A tabbed container. Each tab has a label and child elements."""
 
@@ -251,7 +251,7 @@ class TabBarElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class CollapsingHeaderElement:
     """A collapsible section with a label and child elements."""
 
@@ -263,7 +263,7 @@ class CollapsingHeaderElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class WindowElement:
     """A movable, resizable sub-window inside the display."""
 
@@ -284,7 +284,7 @@ class WindowElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class SelectableElement:
     """A toggleable list item."""
 
@@ -295,7 +295,7 @@ class SelectableElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class TreeElement:
     """A collapsible tree with recursive nodes.
 
@@ -317,7 +317,7 @@ class TreeElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class TableFilter:
     """A built-in filter control rendered above a table.
 
@@ -333,24 +333,22 @@ class TableFilter:
     _column: list[int] = field(init=False)
 
     def __post_init__(self, column_spec: int | list[int]) -> None:
-        if isinstance(column_spec, int):
-            self._column = [column_spec]
-        else:
-            self._column = list(column_spec)
-        if not self._column:
+        col = [column_spec] if isinstance(column_spec, int) else list(column_spec)
+        if not col:
             msg = "TableFilter requires non-empty 'column'"
             raise ValueError(msg)
         if self.type == "combo" and not self.items:
             msg = "TableFilter type='combo' requires non-empty 'items'"
             raise ValueError(msg)
+        object.__setattr__(self, "_column", col)
 
     @property
     def column(self) -> list[int]:
         """Column index(es) this filter operates on (read-only)."""
-        return self._column
+        return list(self._column)
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class TableDetail:
     """Detail data for a built-in list/detail view.
 
@@ -375,7 +373,7 @@ class TableDetail:
             raise ValueError(msg)
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class TableElement:
     """A data table with columns and rows."""
 
@@ -405,7 +403,7 @@ class TableElement:
             raise ValueError(msg)
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class PlotElement:
     """A 2D plot with one or more data series (line, scatter, bar)."""
 
@@ -420,7 +418,7 @@ class PlotElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ProgressElement:
     """A progress bar."""
 
@@ -431,7 +429,7 @@ class ProgressElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class SpinnerElement:
     """An animated loading spinner."""
 
@@ -443,7 +441,7 @@ class SpinnerElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class MarkdownElement:
     """A block of rendered markdown text."""
 
@@ -453,7 +451,7 @@ class MarkdownElement:
     tooltip: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ModalElement:
     """A modal popup dialog that blocks interaction with background content.
 
@@ -502,7 +500,7 @@ Element = (
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class Patch:
     """A single element patch within an UpdateMessage."""
 
@@ -1216,8 +1214,10 @@ def element_from_dict(d: dict[str, Any]) -> Element:
     if deserializer is not None:
         elem = deserializer(d)
         tooltip = d.get("tooltip")
-        if tooltip is not None and hasattr(elem, "tooltip"):
-            elem.tooltip = tooltip
+        if tooltip is not None:
+            # Invariant: every Element subtype declares tooltip: str | None = None.
+            # New element types must include this field or element_from_dict will raise.
+            elem = replace(elem, tooltip=tooltip)
         return elem
     msg = f"Unknown element kind: {kind!r}"
     raise ValueError(msg)

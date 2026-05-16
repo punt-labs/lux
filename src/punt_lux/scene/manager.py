@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import dataclasses
+import logging
+from dataclasses import replace
 from typing import Any, Self
 
 from punt_lux.protocol import (
@@ -82,6 +85,8 @@ def _widget_value(elem: Element) -> Any:
 # ---------------------------------------------------------------------------
 # SceneManager
 # ---------------------------------------------------------------------------
+
+_log = logging.getLogger(__name__)
 
 
 class SceneManager:
@@ -273,7 +278,7 @@ class SceneManager:
                         ws.set(eid, None)
                         ws.clear_suffix(f"_{eid}")
             elif patch.set:
-                self._apply_patch_set(parent_list[idx], patch.set, ws)
+                self._apply_patch_set((parent_list, idx), patch.set, ws)
 
     def dismiss_scene(self, scene_id: str) -> None:
         """Remove an unframed scene and all its associated state."""
@@ -391,25 +396,36 @@ class SceneManager:
 
     def _apply_patch_set(
         self,
-        elem: Element,
+        location: tuple[list[Element], int],
         fields: dict[str, Any],
         ws: WidgetState | None = None,
     ) -> None:
         """Apply a set-patch to an element and sync widget state."""
-        for k, v in fields.items():
-            if k in ("id", "kind"):
-                continue
-            if hasattr(elem, k):
-                setattr(elem, k, v)
+        parent_list, idx = location
+        elem = parent_list[idx]
+        known = {f.name for f in dataclasses.fields(elem)}
+        valid = {
+            k: v for k, v in fields.items() if k not in ("id", "kind") and k in known
+        }
+        unknown = fields.keys() - {"id", "kind"} - valid.keys()
+        if unknown:
+            _log.warning(
+                "patch for %s id=%r ignored unknown fields: %s",
+                type(elem).__name__,
+                getattr(elem, "id", None),
+                sorted(unknown),
+            )
+        if valid:
+            parent_list[idx] = elem = replace(elem, **valid)
         eid = getattr(elem, "id", None)
-        has_value_key = fields.keys() & {
+        has_value_key = valid.keys() & {
             "value",
             "selected",
             "items",
         }
         if eid is not None and ws is not None and has_value_key:
             ws.set(eid, _widget_value(elem))
-        has_pos_key = fields.keys() & {
+        has_pos_key = valid.keys() & {
             "x",
             "y",
             "width",

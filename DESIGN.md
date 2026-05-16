@@ -1970,3 +1970,180 @@ Read `~/Coding/hello_imgui/` source:
 2. **Alternative: add a `before_swap` or `post_render` callback to hello_imgui** that fires between `RenderDrawData` and `SwapBuffers`. This would let us call `glReadPixels` at the right time without needing the C++ screenshot function.
 
 3. **Alternative: `CGWindowListCreateImage` from a background thread** with the result communicated back via queue. The hang on the render thread may be a main-thread-only Quartz restriction. This is the OS-level approach that works regardless of GL timing.
+
+---
+
+## DES-029: Protocol Dataclasses — `frozen=True, slots=True` on Wire Types
+
+**Date:** 2026-05-16
+**Status:** ACCEPTED
+
+### Problem
+
+All 48 `@dataclass` decorators in `protocol/elements.py` (27) and
+`protocol/messages.py` (21) were bare — no `frozen`, no `slots`. Protocol
+types are the JSON wire format between agents and `luxd`. Three call sites
+in the codebase mutated protocol instances directly via `hasattr`/`setattr`
+after construction, treating them as mutable state holders rather than
+messages. This made the types semantically incorrect for their actual role
+and prevented the type system from catching accidental mutation.
+
+### Decision
+
+All protocol element and message dataclasses use `@dataclass(frozen=True, slots=True)`.
+
+**`frozen=True`:** Prevents attribute reassignment after construction.
+Any code that mutates a protocol instance now raises `FrozenInstanceError`
+at the site of the bug rather than silently corrupting state.
+
+**`slots=True`:** Generates `__slots__` from declared fields. Prevents
+dynamic attribute injection (`obj.bogus = x` raises `AttributeError`).
+Reduces per-instance memory by eliminating `__dict__` (relevant at scale:
+one element instance per rendered widget per frame).
+
+### Mutation sites refactored
+
+Three call sites previously mutated protocol instances and were refactored
+to `dataclasses.replace()`:
+
+| Site | Before | After |
+|------|--------|-------|
+| `elements.py` tooltip stamping | `elem.tooltip = tooltip` | `replace(elem, tooltip=tooltip)` |
+| `scene/manager.py` field patching | `setattr(elem, k, v)` | `replace(elem, **valid)` |
+| `display/server.py` scene_id stamping | `event.scene_id = id` | `replace(event, scene_id=id)` |
+
+The `_apply_patch_set` refactor also adds field validation:
+`dataclasses.fields(elem)` is used to filter patch keys before calling
+`replace()`, so unknown field names log a warning and are dropped rather
+than raising `TypeError`.
+
+### `__post_init__` with `object.__setattr__`
+
+`TableFilter` uses `InitVar[int | list[int]]` to compute a derived
+`_column: list[int]` field. With `frozen=True`, `__post_init__` cannot
+assign directly. The correct pattern — and the one the dataclass machinery
+itself uses — is `object.__setattr__(self, "_column", col)`. Validation
+runs before this assignment so the instance is never partially initialized
+on error.
+
+### Alternatives rejected
+
+| Alternative | Why rejected |
+|-------------|-------------|
+| Keep mutable | Accidental mutation is undetectable; wire objects are commands, not state holders |
+| `frozen=True` without `slots=True` | No memory benefit; dynamic attribute injection still possible |
+| `NamedTuple` | No default field values; less ergonomic; dataclass ecosystem compatibility |
+| `TypedDict` | No methods; no `__post_init__`; loses the `replace()` API |
+
+### Consequence
+
+Adding `frozen=True` revealed that the protocol types were being used as
+both wire messages and scene graph nodes — two roles with opposite
+mutability requirements. See DES-030.
+
+---
+
+## DES-030: Three-Layer Type Model — Wire / Scene Graph / Snapshot
+
+**Date:** 2026-05-16
+**Status:** PROPOSED
+
+### Problem
+
+DES-029 making protocol types frozen exposed a structural contradiction:
+the same dataclass instances are used as wire messages (correct: immutable,
+short-lived) and as retained scene graph nodes (wrong: need to be mutable,
+long-lived). The `apply_update` path works around this by calling
+`dataclasses.replace()` to produce new frozen instances and swapping them
+into the scene's `elements` list — while the `elements` list itself is
+mutable because it is stored in a frozen `SceneMessage`. The
+frozen/mutable boundary is incoherent: the message is frozen, the list
+inside it is mutable, the elements inside the list are frozen, lists
+inside those elements are mutable.
+
+The `hasattr`/`setattr` patterns documented in
+`docs/oo-refactor/dynamic-access-design.md` are a further symptom: they
+exist because the code needs to apply untyped `dict[str, Any]` patches to
+objects that have no typed update interface.
+
+### Decision
+
+Three distinct data roles require three distinct type layers. The current
+codebase implements Layer 1. Layers 2 and 3 are the target architecture.
+
+**Layer 1 — Wire types** (current; `frozen=True, slots=True` correct)
+
+Protocol dataclasses in `protocol/`. Created by the agent, deserialized
+by `luxd`, applied to scene graph, discarded. Short-lived commands. The
+`frozen` constraint is correct because these are value objects in the
+strict sense: no ownership, compared by value, stateless after
+construction.
+
+**Layer 2 — Scene graph nodes** (target; mutable correct)
+
+Mutable classes in `scene/`, one per element kind, owned exclusively by
+`luxd`'s `SceneManager`. Updated incrementally by incoming wire commands.
+Each node exposes a typed `apply(patch: SliderPatch) -> None` method
+rather than accepting `dict[str, Any]`. No `hasattr`, no `setattr`, no
+`dataclasses.replace(**unknown_dict)` — the type system enforces which
+fields can be patched on which element kind.
+
+**Layer 3 — Display snapshot** (target; `frozen=True` correct for a different reason)
+
+Immutable `DisplaySnapshot` produced from the current scene graph state
+and pushed to `lux-display` over the Unix socket IPC. The renderer
+consumes it and discards it. `frozen=True` is correct here not because
+the data is conceptually immutable, but because the snapshot crosses a
+concurrency boundary: the renderer reads it during a frame while the hub
+may be computing the next one. An immutable snapshot eliminates the race
+without a lock.
+
+### Update rate vs. refresh rate
+
+`luxd` determines the update rate (agent-driven, bursty: it pushes a new
+snapshot when agents cause changes). `lux-display` owns the refresh rate
+(hardware-driven: 60 fps, 16 ms/frame). The snapshot is the decoupling
+mechanism. The renderer never waits for the hub; the hub never waits for
+the renderer to finish a frame.
+
+This separation is currently incomplete: the display and hub share one
+process and the socket poll runs inside the ImGui frame loop. The
+three-process split (DES-022 / `docs/architecture/x11-model.md`) makes
+the rate decoupling physical.
+
+### Typed patches per element kind
+
+The `UpdatePatch.set: dict[str, Any]` wire field is the correct level of
+flexibility for the wire protocol — agents send field subsets, the runtime
+applies them. The problem is that the application of these patches reaches
+all the way into the scene graph without a typed intermediary. The scene
+graph layer translates the wire patch into a typed call:
+
+```python
+# Wire layer decodes the dict into a typed patch object per element kind
+patch = SliderPatch(value=0.5, label="Speed")
+# Scene graph node applies it via a method — no dict, no reflection
+scene_manager.get_node("slider-1").apply(patch)
+```
+
+This is a protocol-level change requiring updates to `UpdateMessage` wire
+format, the agent SDK, and the scene graph layer simultaneously.
+
+### What this is not
+
+This ADR does not decide the implementation order or timeline. It records
+the design direction so that future changes to scene management,
+serialization, and the hub architecture are made with awareness of where
+they fit in the three-layer model. Any code that adds new mutation paths
+to frozen protocol types, or that adds new `hasattr`/`setattr`/`getattr`
+calls, is moving in the wrong direction.
+
+### Relationship to other decisions
+
+- DES-023 (dependency layering): the wire/scene graph split aligns with
+  the `[display]` extras boundary — wire types have no heavy deps, scene
+  graph nodes may.
+- DES-022 (workspace model): the hub-as-policy-layer owns the scene graph;
+  the display-as-renderer owns nothing but its framebuffer.
+- `docs/oo-refactor/dynamic-access-design.md`: detailed treatment of the
+  dynamic attribute access debt and the typed patch path forward.

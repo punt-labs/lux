@@ -12,7 +12,7 @@ Lux is a performant X11-esque multi-process display architecture constrained to 
 
 Why is Lux built as three independent processes? Where could it go?
 
-The companion document (`docs/architecture-luxd-impl.md`) covers
+The companion document (`docs/architecture/luxd-impl.md`) covers
 implementation: new files, modified files, scenario walk-throughs,
 migration plan. This document covers the architecture and its rationale.
 Read this first for the "why," then the implementation spec for the "how."
@@ -191,6 +191,48 @@ WebSocket (via `luxd`) or length-prefixed JSON over Unix socket
 and exits) or long-lived (a service that continuously updates a
 dashboard). `lux-display` and `luxd` are indifferent to client lifetime.
 Scenes persist after the client disconnects.
+
+## Update Rate vs. Refresh Rate
+
+`luxd` and `lux-display` operate on different clocks and must not be
+coupled to each other's rate.
+
+**`lux-display` owns the refresh rate.** ImGui drives a render loop at
+the monitor's vsync rate (60 fps on a standard display, 16 ms per
+frame). Each frame the renderer asks: what should I draw right now? It
+consumes whatever scene state is available and draws it. It does not
+wait for the hub. It does not block. If no new data arrived since the
+last frame, it draws the same scene again.
+
+**`luxd` determines the update rate.** When agents send patches, `luxd`
+updates its scene graph and pushes a new snapshot to `lux-display`. The
+rate is agent-driven and bursty: a user scrolling a table might generate
+30 patches per second; a dashboard refresh might generate one per minute.
+The hub decides when to push — coalescing multiple rapid patches into one
+snapshot is a hub policy, not a renderer concern.
+
+**The snapshot is the decoupling mechanism.** `luxd` writes the latest
+snapshot and `lux-display` reads it. They communicate through a single
+shared value: the last snapshot received over the Unix socket. The
+renderer never touches the hub's scene graph directly. The hub never
+waits for the renderer to finish a frame before pushing the next update.
+
+**Consequence for immutability.** The snapshot crossing the IPC boundary
+is the correct place for `frozen=True` — not because value-object
+semantics are inherently right for scene data, but because the snapshot
+crosses a concurrency boundary. The renderer reads it during a frame
+while the hub may be computing the next one. An immutable snapshot
+eliminates the race without a lock. The hub's internal scene graph, by
+contrast, is mutable state that the hub owns exclusively — `frozen=True`
+there would fight the hub's job of applying incremental patches.
+
+This separation is currently incomplete: the display and hub run in the
+same process, and the socket poll is driven by the ImGui frame loop
+(`select()` with zero timeout inside the render callback). Splitting into
+two processes — the target architecture in this document — makes the
+rate decoupling physically real: `luxd` runs on its own event loop,
+pushes snapshots when agents cause changes, and the display renders at
+its own pace.
 
 ## Cardinality
 
@@ -409,7 +451,7 @@ second framing is correct and the architecture must preserve it.
 
 ## Relationship to the MCP-Proxy Proposal
 
-The luxd implementation spec (`docs/architecture-luxd-impl.md`) is Phase 1 of
+The luxd implementation spec (`docs/architecture/luxd-impl.md`) is Phase 1 of
 implementing this architecture. It covers:
 
 - The session hub process (`hub.py`, `service.py`)

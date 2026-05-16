@@ -81,8 +81,10 @@ class TestEmitEvent:
         server._emit_event(event)
 
         assert len(server._event_queue) == 1
-        assert server._event_queue[0] is event
-        assert event.scene_id == "s1"
+        queued = server._event_queue[0]
+        assert queued.scene_id == "s1"
+        assert queued.element_id == event.element_id
+        assert queued.action == event.action
 
     def test_preserves_existing_scene_id(self) -> None:
         """_emit_event must not overwrite a pre-set scene_id."""
@@ -95,7 +97,7 @@ class TestEmitEvent:
         server._emit_event(event)
 
         assert len(server._event_queue) == 1
-        assert event.scene_id == "s2"
+        assert server._event_queue[0].scene_id == "s2"
 
 
 # -----------------------------------------------------------------------

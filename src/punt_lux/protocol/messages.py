@@ -56,7 +56,7 @@ PROTOCOL_VERSION = "0.1"
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class SceneMessage:
     """Replace the entire display contents."""
 
@@ -72,7 +72,7 @@ class SceneMessage:
     frame_layout: Literal["tab", "stack"] | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class UpdateMessage:
     """Incrementally patch the current scene."""
 
@@ -81,14 +81,14 @@ class UpdateMessage:
     type: Literal["update"] = "update"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ClearMessage:
     """Remove all content from the display."""
 
     type: Literal["clear"] = "clear"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class PingMessage:
     """Heartbeat / latency probe."""
 
@@ -96,7 +96,7 @@ class PingMessage:
     ts: float | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class IntrospectRequest:
     """Request the element tree for a scene."""
 
@@ -104,7 +104,7 @@ class IntrospectRequest:
     type: Literal["introspect_request"] = "introspect_request"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class IntrospectResponse:
     """Response with the scene's element tree."""
 
@@ -116,14 +116,14 @@ class IntrospectResponse:
     error: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ListScenesRequest:
     """Request the list of active scenes and frames."""
 
     type: Literal["list_scenes_request"] = "list_scenes_request"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ListScenesResponse:
     """Response with active scenes and frames."""
 
@@ -132,14 +132,14 @@ class ListScenesResponse:
     type: Literal["list_scenes_response"] = "list_scenes_response"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ScreenshotRequest:
     """Request a screenshot of the current display."""
 
     type: Literal["screenshot_request"] = "screenshot_request"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ScreenshotResponse:
     """Response with path to the captured screenshot."""
 
@@ -148,7 +148,7 @@ class ScreenshotResponse:
     error: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class MenuMessage:
     """Set custom menus in the menu bar (agent-extensible)."""
 
@@ -156,7 +156,7 @@ class MenuMessage:
     type: Literal["menu"] = "menu"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ThemeMessage:
     """Set the display theme."""
 
@@ -164,7 +164,7 @@ class ThemeMessage:
     type: Literal["theme"] = "theme"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class RegisterMenuMessage:
     """Register menu items owned by this client.
 
@@ -177,7 +177,7 @@ class RegisterMenuMessage:
     type: Literal["register_menu"] = "register_menu"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ConnectMessage:
     """Client identifies itself to the display server.
 
@@ -190,7 +190,7 @@ class ConnectMessage:
     type: Literal["connect"] = "connect"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class QueryRequest:
     """Generic introspection/control request."""
 
@@ -219,7 +219,7 @@ ClientMessage = (
 # ---------------------------------------------------------------------------
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ReadyMessage:
     """Display is initialized and ready to render."""
 
@@ -228,7 +228,7 @@ class ReadyMessage:
     capabilities: list[str] = field(default_factory=lambda: list[str]())
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class AckMessage:
     """Acknowledges a scene or update."""
 
@@ -238,7 +238,7 @@ class AckMessage:
     error: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class InteractionMessage:
     """User interacted with an element."""
 
@@ -250,7 +250,7 @@ class InteractionMessage:
     scene_id: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class PongMessage:
     """Response to a ping."""
 
@@ -259,7 +259,7 @@ class PongMessage:
     display_ts: float | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class QueryResponse:
     """Generic introspection/control response."""
 
@@ -269,7 +269,7 @@ class QueryResponse:
     error: str | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class UnknownMessage:
     """Passthrough for unrecognized message types.
 

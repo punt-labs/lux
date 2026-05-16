@@ -325,6 +325,36 @@ class TestApplyUpdate:
         assert elem.id == "t1"
         assert elem.kind == "text"
 
+    def test_patch_ignores_unknown_fields(self) -> None:
+        """Unknown field names in a patch are silently filtered; valid fields apply."""
+        mgr, _ = _make_manager()
+        scene = _make_scene(elements=[TextElement(id="t1", content="Hello")])
+        mgr.handle_scene(scene, owner_fd=10)
+
+        update = UpdateMessage(
+            scene_id="s1",
+            patches=[Patch(id="t1", set={"content": "Updated", "bogus_key": "x"})],
+        )
+        mgr.apply_update(update)
+
+        elem = mgr._scenes["s1"].elements[0]
+        assert elem.content == "Updated"  # type: ignore[union-attr]
+
+    def test_patch_all_unknown_fields_is_noop(self) -> None:
+        """A patch containing only unknown fields leaves the element unchanged."""
+        mgr, _ = _make_manager()
+        scene = _make_scene(elements=[TextElement(id="t1", content="Hello")])
+        mgr.handle_scene(scene, owner_fd=10)
+
+        update = UpdateMessage(
+            scene_id="s1",
+            patches=[Patch(id="t1", set={"nonexistent": "value"})],
+        )
+        mgr.apply_update(update)
+
+        elem = mgr._scenes["s1"].elements[0]
+        assert elem.content == "Hello"  # type: ignore[union-attr]
+
     def test_update_framed_scene(self) -> None:
         """Updates work for scenes inside frames."""
         mgr, _ = _make_manager()

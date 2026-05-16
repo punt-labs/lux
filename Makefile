@@ -1,10 +1,16 @@
-.PHONY: help test lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling report format build install clean depot fuzz prob clean-tex font-test
+.PHONY: help test test-integration test-e2e lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling report format build install clean depot fuzz prob prfaq clean-tex font-test
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
 
-test: ## Run tests (excludes slow integration tests)
+test: ## Run tests — tiers 1-2 (excludes integration and e2e)
 	uv run --extra display pytest
+
+test-integration: ## Run integration tests (tier 2, requires no display)
+	uv run --extra display pytest -m integration
+
+test-e2e: ## Run end-to-end tests (tier 3, requires display process running)
+	uv run --extra display pytest -m e2e
 
 lint: ## Lint and format check
 	uv run --extra display ruff check .
@@ -46,8 +52,8 @@ report: ## Full diagnostics (OO score + all checks, no fail-fast)
 	@echo "Report complete."
 
 format: ## Auto-format code
-	uv run ruff check --fix .
 	uv run ruff format .
+	uv run ruff check --fix .
 
 build: ## Build wheel and sdist
 	rm -rf dist/
@@ -100,9 +106,31 @@ prob: ## Animate and model-check a Z spec with ProB (usage: make prob SPEC=docs/
 	@echo "prob: $(SPEC) OK"
 
 # LaTeX intermediate files to remove after compilation
-LATEX_ARTIFACTS = docs/*.aux docs/*.log docs/*.out docs/*.bbl docs/*.bcf docs/*.blg \
+LATEX_ARTIFACTS = *.aux *.log *.out *.bbl *.bcf *.blg *.run.xml *.fls \
+                  *.fdb_latexmk *.synctex.gz *.toc \
+                  docs/*.aux docs/*.log docs/*.out docs/*.bbl docs/*.bcf docs/*.blg \
                   docs/*.run.xml docs/*.fls docs/*.fdb_latexmk docs/*.synctex.gz \
                   docs/*.toc docs/*.fuzz docs/*.mf docs/fuzz.sty
+
+TEX_FILES = prfaq.tex docs/architecture/system.tex
+
+prfaq: ## Compile .tex files to .pdf and clean intermediate artifacts
+	@for f in $(TEX_FILES); do \
+	  echo "Compiling $$f ..."; \
+	  dir=$$(dirname "$$f"); base=$$(basename "$$f" .tex); \
+	  pdflatex -interaction=nonstopmode -output-directory="$$dir" "$$f" > /dev/null 2>&1; \
+	  if [ -f "$$dir/$$base.bib" ] && command -v biber > /dev/null 2>&1; then \
+	    (cd "$$dir" && biber "$$base") > /dev/null 2>&1 || true; \
+	    pdflatex -interaction=nonstopmode -output-directory="$$dir" "$$f" > /dev/null 2>&1; \
+	  fi; \
+	  pdflatex -interaction=nonstopmode -output-directory="$$dir" "$$f" > /dev/null 2>&1; \
+	  if [ -f "$$dir/$$base.pdf" ]; then \
+	    echo "  $$dir/$$base.pdf"; \
+	  else \
+	    echo "Error: $$f failed to compile" >&2; exit 1; \
+	  fi; \
+	done
+	@rm -f $(LATEX_ARTIFACTS)
 
 font-test: ## Visual font coverage test (SMP + BMP double-struck letters)
 	uv run python tools/font-test.py
