@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, Self
 
 from punt_lux.protocol import (
@@ -273,7 +274,7 @@ class SceneManager:
                         ws.set(eid, None)
                         ws.clear_suffix(f"_{eid}")
             elif patch.set:
-                self._apply_patch_set(parent_list[idx], patch.set, ws)
+                self._apply_patch_set((parent_list, idx), patch.set, ws)
 
     def dismiss_scene(self, scene_id: str) -> None:
         """Remove an unframed scene and all its associated state."""
@@ -391,16 +392,16 @@ class SceneManager:
 
     def _apply_patch_set(
         self,
-        elem: Element,
+        location: tuple[list[Element], int],
         fields: dict[str, Any],
         ws: WidgetState | None = None,
     ) -> None:
         """Apply a set-patch to an element and sync widget state."""
-        for k, v in fields.items():
-            if k in ("id", "kind"):
-                continue
-            if hasattr(elem, k):
-                setattr(elem, k, v)
+        parent_list, idx = location
+        elem = parent_list[idx]
+        valid = {k: v for k, v in fields.items() if k not in ("id", "kind")}
+        if valid:
+            parent_list[idx] = elem = replace(elem, **valid)
         eid = getattr(elem, "id", None)
         has_value_key = fields.keys() & {
             "value",

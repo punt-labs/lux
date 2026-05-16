@@ -13,6 +13,7 @@ machine testing) but ``run()`` requires a GPU-capable environment.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import platform
 import socket
@@ -694,7 +695,7 @@ class DisplayServer:
     def _emit_event(self, event: InteractionMessage) -> None:
         """Stamp scene_id and append to the event queue."""
         if event.scene_id is None:
-            event.scene_id = self._current_scene_id
+            event = dataclasses.replace(event, scene_id=self._current_scene_id)
         self._event_queue.append(event)
 
     # -- Tier 3 write handlers ------------------------------------------------
