@@ -78,7 +78,13 @@ Workflow:
 3. After all checks pass, run `make update-oo` to write the new baseline.
 4. Stage `.oo-baseline.json` and `.oo-audit.jsonl` with your commit — they are committed files.
 
-Bootstrap (first time only): run `make update-oo` to create the initial baseline.
+Bootstrap (first time only): run `make update-oo` to create the initial baseline. After that, the ratchet is active.
+
+**Do not negotiate with the ratchet.** Do not edit `.oo-baseline.json` by hand. Do not suppress `check-oo`. Do not argue a regression is "acceptable." If the ratchet fails, improve the code until it passes. The ratchet is the quality standard's enforcement — working around it defeats the purpose.
+
+**Org standards override review tools.** Copilot, Bugbot, and Cursor are advisory. When a review suggestion conflicts with rules in `../.claude/rules/python-*.md`, the rules win. Read the rules before accepting a reviewer's suggestion. PY-CC-1 (`__new__` as constructor) is the most common conflict.
+
+**Verify outputs, not just metrics.** After writing a file, open it and read the content. `make check` passing does not mean the feature works — it means the code compiles and tests pass. Those are necessary but not sufficient.
 
 - `make check-oo` — OO ratchet against baseline.
 - `make update-oo` — update baseline and append to audit log after improvements.
@@ -135,7 +141,56 @@ Lux spans two domains that require distinct expertise: (1) **visual/UX** — ele
 
 ### Pipeline selection
 
-Use `standard` pipeline for new elements, protocol changes, or any work touching the JSON wire format. Use `quick` for bugfixes inside an existing element that don't change the protocol. Review-cycle fix rounds use bare `Agent()`, not missions. Treat the JSON protocol as the API surface — any change demands an evaluator distinct from the worker.
+Use `standard` pipeline (design → implement → test → review) for new elements, protocol changes, or any work touching the JSON wire format. Use `quick` (implement → review) only for documented bugfixes inside an existing element that don't change the protocol. Review-cycle fix rounds (Copilot/Bugbot findings) use bare `Agent()`, not missions. Treat the JSON protocol as the API surface — any change demands an evaluator distinct from the worker.
+
+## Session Queue
+
+When claiming a batch of beads to work through in a session, create corresponding `Task` entries via `TaskCreate` for the session subset. Beads are the durable cross-session source of truth; the task list is the session-visible workqueue you can monitor in real-time in the Claude Code UI.
+
+Workflow:
+
+1. Pick a realistic batch from `bd ready`.
+2. `bd update <id> --claim` for each bead in the batch.
+3. `TaskCreate` one entry per claimed bead with the bead ID in the title.
+4. Work through them in order. `bd close <id>` when done; mark the Task complete immediately after.
+5. Uncompleted tasks at session end carry over as open beads — no extra cleanup needed.
+
+Do not use `TaskCreate` for work that spans multiple sessions. Beads are the record; tasks are the display.
+
+## Development Loop
+
+Two nested loops govern all code changes. See `punt-kit/standards/pr-review.md` for the authoritative reference.
+
+### Inner loop — one mission
+
+Execute after every agent delegation that produces sizeable code changes. Do not start the next mission until this loop is complete — starting without local review is a procedural violation.
+
+1. **Delegate** to the right ethos specialist (see pairing table above). Do not use bare `Agent()` for implementation work.
+2. **`make check`** — must pass before proceeding. Zero exceptions.
+3. **`make install`** — builds wheel and installs it locally. `make check` passing is not installation.
+4. **`make test`** against the installed artifact — not from source. If no test covers the changed code, write one before marking this step complete.
+5. **Exercise manually** — before running, write expected output for each case. After running, compare actual to expected; differences are bugs. Cover: one invalid or malformed input, one case where a dependency is unavailable or returns an error, one boundary condition. Paste the actual output.
+6. **`/feature-dev:code-reviewer`** on the mission diff.
+7. **`/pr-review-toolkit:silent-failure-hunter`** on the mission diff.
+8. **Fix every finding.** To dismiss one: document (a) the exact finding, (b) the specific reason it does not apply, (c) the code reference. "Pre-existing", "by design", "intentional", and "expected" are not reasons.
+9. **Re-run both agents.** Exit the fix loop on the first round that produces no findings.
+10. **Commit.**
+
+### Outer loop — one PR (one rollback-coherent unit)
+
+After all missions for the feature complete and each has passed its inner loop:
+
+1. **`make check`** on the full accumulated diff.
+2. **Both local review agents** on the complete diff — cross-mission issues only appear at this level.
+3. **Fix all findings** using the same documentation standard.
+4. **Human IDE review** of the full diff — the only human review in the process. Resolve all findings before proceeding.
+5. **`make install`** then run the complete user-facing workflow end-to-end, including at least one path through a dependency. Paste actual output and verify the changed code was exercised.
+6. **Re-run agents** until clean.
+7. **Open PR.** A PR opened before step 6 is clean is a procedural violation.
+
+### PR boundaries
+
+Split by **rollback granularity**, not size. Ask: if this broke production, what reverts together? That is one PR. "The diff is large" and "separate concern" are prohibited split reasons. Independent rollback capability and sequential dependency are valid.
 
 ## Release
 
@@ -147,7 +202,32 @@ Release scripts: `scripts/release-plugin.sh` (swap `lux-dev` → `lux`), `script
 
 ## Key Documents
 
-- `DESIGN.md` — ADR log
+- `DESIGN.md` — ADR log. Read before proposing changes to settled architecture.
 - `prfaq.tex` → `prfaq.pdf` — product direction
-- `docs/architecture.tex` → `docs/architecture.pdf` — current system architecture
-- `docs/architecture-x11-model.md` — three-tier distributed architecture proposal
+- `docs/architecture/system.tex` → `docs/architecture/system.pdf` — current system architecture
+- `docs/architecture/x11-model.md` — three-tier architecture: X11 analogy, update/refresh rate separation
+- `docs/architecture/luxd-impl.md` — luxd hub implementation spec
+- `docs/oo-refactor/dynamic-access-design.md` — three-layer type model (wire / scene graph / snapshot)
+
+<!-- quarry:begin -->
+## Quarry
+
+Local semantic search is available via quarry. Use it to search indexed
+documents by meaning, ingest new content, and recall knowledge across sessions.
+
+- Before using WebSearch or WebFetch for research, run `/find` with the query
+  first. Quarry indexes this codebase, design docs, prior session transcripts,
+  and web pages from previous research. If quarry returns relevant results,
+  use them — do not re-research what has already been found.
+- Use grep for symbol lookups and value lookups; use quarry for "why", "how",
+  and "what did we decide about X" questions.
+- **Slash commands**: `/find`, `/ingest`, `/remember`, `/explain`, `/source`,
+  `/quarry`
+- **Research agent**: `researcher` — combines quarry local search with web
+  research. Use for deep investigation across local docs and the web.
+- **Auto-behaviors**: working directory is auto-indexed at session start;
+  URLs fetched via WebFetch are auto-ingested; transcripts are captured before
+  context compaction.
+- **Search tip**: natural language queries work best ("What were Q3 margins?"
+  outperforms "Q3 margins").
+<!-- quarry:end -->

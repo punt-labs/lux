@@ -12,7 +12,7 @@ Lux is a performant X11-esque multi-process display architecture constrained to 
 
 Why is Lux built as three independent processes? Where could it go?
 
-The companion document (`docs/architecture-luxd-impl.md`) covers
+The companion document (`docs/architecture/luxd-impl.md`) covers
 implementation: new files, modified files, scenario walk-throughs,
 migration plan. This document covers the architecture and its rationale.
 Read this first for the "why," then the implementation spec for the "how."
@@ -451,7 +451,7 @@ second framing is correct and the architecture must preserve it.
 
 ## Relationship to the MCP-Proxy Proposal
 
-The luxd implementation spec (`docs/architecture-luxd-impl.md`) is Phase 1 of
+The luxd implementation spec (`docs/architecture/luxd-impl.md`) is Phase 1 of
 implementing this architecture. It covers:
 
 - The session hub process (`hub.py`, `service.py`)
