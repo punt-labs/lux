@@ -167,7 +167,7 @@ Execute after every agent delegation that produces sizeable code changes. Do not
 
 1. **Delegate** to the right ethos specialist (see pairing table above). Do not use bare `Agent()` for implementation work.
 2. **`make check`** — must pass before proceeding. Zero exceptions.
-3. **`make install`** — builds wheel and installs it locally. `make check` passing is not installation.
+3. **`make install`** — builds wheel and installs it locally. `make check` passing is not installation. **After installing, restart `luxd`** — the running hub loads code at startup and will serve the old version until restarted. Tests that exercise MCP tools or the display pipeline are testing the old code if the hub is stale. Restart with `lux ensure-hub --restart` (if registered as a service) or kill and relaunch manually.
 4. **`make test`** against the installed artifact — not from source. If no test covers the changed code, write one before marking this step complete.
 5. **Exercise manually** — before running, write expected output for each case. After running, compare actual to expected; differences are bugs. Cover: one invalid or malformed input, one case where a dependency is unavailable or returns an error, one boundary condition. Paste the actual output.
 6. **`/feature-dev:code-reviewer`** on the mission diff.
@@ -184,7 +184,7 @@ After all missions for the feature complete and each has passed its inner loop:
 2. **Both local review agents** on the complete diff — cross-mission issues only appear at this level.
 3. **Fix all findings** using the same documentation standard.
 4. **Human IDE review** of the full diff — the only human review in the process. Resolve all findings before proceeding.
-5. **`make install`** then run the complete user-facing workflow end-to-end, including at least one path through a dependency. Paste actual output and verify the changed code was exercised.
+5. **`make install`** then restart `luxd` (`lux ensure-hub --restart`), then run the complete user-facing workflow end-to-end, including at least one path through a dependency. Paste actual output and verify the changed code was exercised.
 6. **Re-run agents** until clean.
 7. **Open PR.** A PR opened before step 6 is clean is a procedural violation.
 
