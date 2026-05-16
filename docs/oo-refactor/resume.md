@@ -13,7 +13,7 @@ Transform the Lux codebase from a procedural monolith to a well-factored OO desi
 | avg_params | 0.98 | ≤4.0 | PASS |
 | max_complexity | 19 | ≤10 | FAIL — table_renderer, server, element_renderer |
 | avg_complexity | 2.31 | ≤5.0 | PASS |
-| module_size | 1,212 | ≤300 | FAIL — server.py, element_renderer, elements.py |
+| module_size | 1,213 | ≤300 | FAIL — server.py, element_renderer, elements.py |
 | classes_per_module | 27 | ≤3 | FAIL — protocol/elements.py (27 dataclasses) |
 | class_to_func_ratio | 0.60 | ≥0.5 | PASS |
 | init_violations | 0 | ==0 | PASS |
@@ -53,7 +53,7 @@ Each needs: design → peer review → implement → local review → PR.
 | Bead | Task | Files | Notes |
 |------|------|-------|-------|
 | lux-136o | Extract DoctorChecker class | `__main__.py` (457 lines, method_ratio 0.04) | Doctor subcommand logic → class with check methods |
-| lux-9k38 | Fix method_ratio 0.0 modules | `hooks.py`, `show.py`, `hub.py`, `tools/server.py`, `tools/connection.py` | All procedural — assess each, convert to class-based |
+| lux-9k38 | Fix method_ratio 0.0 modules | `hooks.py`, `show.py`, `hub.py`, `tools/server.py`, `tools/connection.py`, `display/idle_screen.py` | All procedural — assess each, convert to class-based. idle_screen.py also has avg_params=6.5. |
 | lux-3bp8 | Remove client.py shim | `client.py`, `__init__.py` | PL-PP-1 violation, trivial (chore) |
 
 ### OO Level 3 — module_size blockers
@@ -65,9 +65,13 @@ Each needs: design → two-pass implementation → local review → PR.
 | lux-gcgf | Extract FrameRenderer | `display/server.py` | 1,213 → ~600 |
 | lux-wzpq | Split into domain renderers | `display/element_renderer.py` | 999 → 3×300 |
 | lux-jyj2 | Promote fns into class | `display/table_renderer.py` | 540, method_ratio 0.61 → 1.0 |
-| lux-9i26 | Split by element domain | `protocol/elements.py` | 1,013, 27 classes → 4 files |
+| lux-9i26 | Split by element domain | `protocol/elements.py` | 1,013, 27 classes → 4 files. Fixes module_size and method_ratio; classes_per_module (≤3) still requires most classes to be further decomposed — note as ongoing. |
+| lux-skc7 | Split by message domain | `protocol/messages.py` | 570, 22 classes. Mirrors lux-9i26. |
 | lux-n5ep | ElementCodec registry | `protocol/elements.py` | Blocked by lux-9i26 |
 | lux-r77f | Typed tool handler classes | `tools/tools.py` | 656, method_ratio 0.0 |
+| lux-5v5f | Assess and decompose | `display/menu_manager.py` | 507 |
+| lux-40xx | Assess: module_size + avg_params | `display_client.py` | 541 |
+| — | CC=13 work (lux-7bpg) also reduces | `scene/manager.py` | 395 — no separate bead; improves as CC work proceeds |
 
 ### OO Level 4 — max_complexity blockers
 
@@ -89,11 +93,11 @@ Each needs: Extract Method → verify CC ≤ 10 → local review → PR.
 | lux-5rk7 | Scene graph nodes | Mutable per-element-kind classes with typed apply(); blocked by lux-ayeh |
 | lux-6jw9 | Typed patches per element kind | Wire format change; blocked by lux-5rk7 |
 
-### Architecture — luxd three-process split (DES-022)
+### Architecture — luxd three-process split
 
 | Bead | Task | Notes |
 |------|------|-------|
-| lux-fv1b | Epic: hub daemon + service + mcp-proxy | hub.py WebSocket server, session isolation, plugin.json integration |
+| lux-fv1b | Epic: hub daemon + service + mcp-proxy | hub.py WebSocket server, session isolation, plugin.json integration. See `docs/architecture/x11-model.md` and `docs/architecture/luxd-impl.md`. |
 
 ### Health Check
 
