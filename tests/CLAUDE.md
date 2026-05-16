@@ -5,8 +5,8 @@
 | Tier | Marker | Runs in CI | Command | What it covers |
 |------|--------|------------|---------|----------------|
 | 1 — Unit | *(none)* | yes | `make test` | Protocol serialization, scene management, element builders, widget state, display client |
-| 2 — Integration | `@pytest.mark.integration` | yes | `uv run --extra display pytest -m integration` | Socket IPC, cross-component state, multi-element scenes |
-| 3 — E2E | `@pytest.mark.e2e` | no | `uv run --extra display pytest -m e2e` | CLI args, process lifecycle, wire protocol end-to-end |
+| 2 — Integration | `@pytest.mark.integration` | yes | `make test-integration` | Socket IPC, cross-component state, multi-element scenes |
+| 3 — E2E | `@pytest.mark.e2e` | no | `make test-e2e` | CLI args, process lifecycle, wire protocol end-to-end |
 | 4 — Visual | manual | no | run lux, look at it | ImGui rendering correctness — cannot be automated without a display |
 
 `make test` runs tiers 1 and 2. Tiers 3 and 4 are opt-in.
@@ -15,9 +15,10 @@
 
 ```bash
 make test                                           # tiers 1-2, standard gate
+make test-integration                               # tier 2 only
+make test-e2e                                       # tier 3 (requires display running)
 make coverage                                       # tiers 1-2 with HTML report in htmlcov/
 uv run --extra display pytest tests/test_foo.py -v  # single file, targeted
-uv run --extra display pytest -m integration        # integration tier only
 ```
 
 All targets use `--extra display` because the test suite imports display

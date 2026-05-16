@@ -1,10 +1,16 @@
-.PHONY: help test lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling report format build install clean depot fuzz prob prfaq clean-tex font-test
+.PHONY: help test test-integration test-e2e lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling report format build install clean depot fuzz prob prfaq clean-tex font-test
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
 
-test: ## Run tests (excludes slow integration tests)
+test: ## Run tests — tiers 1-2 (excludes integration and e2e)
 	uv run --extra display pytest
+
+test-integration: ## Run integration tests (tier 2, requires no display)
+	uv run --extra display pytest -m integration
+
+test-e2e: ## Run end-to-end tests (tier 3, requires display process running)
+	uv run --extra display pytest -m e2e
 
 lint: ## Lint and format check
 	uv run --extra display ruff check .
