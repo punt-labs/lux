@@ -14,7 +14,7 @@ Thank you for your interest in contributing to Lux. This guide covers what you n
 ```bash
 git clone https://github.com/punt-labs/lux.git
 cd lux
-uv sync --extra dev
+uv sync --extra display
 ```
 
 ### Verify your setup

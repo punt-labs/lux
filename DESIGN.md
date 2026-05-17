@@ -1698,6 +1698,8 @@ except ModuleNotFoundError as exc:
 
 CI workflows changed from `uv sync --frozen --extra dev` to `uv sync --frozen --extra dev --extra display`. The full test suite exercises display code, so CI must install all extras even though library consumers don't need them.
 
+> **Follow-on (2026-05-17):** `dev` was subsequently relocated from `[project.optional-dependencies]` to `[dependency-groups]` (PEP 735) — `dev` was never a real PyPI extra and shouldn't have been exposed as one. uv installs default dependency-groups automatically on `uv run`/`uv sync`, so the canonical CI invocation is now `uv sync --locked --extra display`. The display extra remains a `[project.optional-dependencies]` entry because it *is* a real consumer-facing extra (`pip install 'punt-lux[display]'`). `--locked` replaced `--frozen` to assert lockfile/manifest consistency rather than merely skip lockfile updates.
+
 ### Alternatives Considered
 
 **Separate repo (`punt-lux-client`).** Cleanest package name signal, but requires cross-repo coordination for protocol changes. Every protocol addition would need a release of `lux-client` before `lux` could use it. Rejected for coordination overhead.
