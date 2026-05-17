@@ -255,7 +255,7 @@ Client code can also use `DisplayClient` directly as a Python library, bypassing
 ## Development
 
 ```bash
-uv sync --extra dev            # Install dependencies
+uv sync --extra display       # Install dependencies (dev group installs by default)
 uv run ruff check .            # Lint
 uv run ruff format --check .   # Check formatting
 uv run mypy src/ tests/        # Type check (mypy)

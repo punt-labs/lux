@@ -1002,13 +1002,6 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
-dev = [
-    { name = "mypy" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
-    { name = "ruff" },
-]
 display = [
     { name = "imgui-bundle" },
     { name = "numpy" },
@@ -1019,28 +1012,41 @@ display = [
     { name = "setproctitle" },
 ]
 
+[package.dev-dependencies]
+dev = [
+    { name = "mypy" },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
+    { name = "ruff" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "fastmcp", specifier = ">=3.0.0,<4" },
     { name = "imgui-bundle", marker = "extra == 'display'", specifier = "==1.92.600" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.18.1" },
     { name = "numpy", marker = "extra == 'display'", specifier = ">=2.0.0" },
     { name = "pillow", marker = "extra == 'display'", specifier = ">=11.0.0" },
     { name = "pydantic", specifier = ">=2.0.0,<3" },
     { name = "pyobjc-framework-cocoa", marker = "sys_platform == 'darwin' and extra == 'display'", specifier = ">=10.0" },
     { name = "pyobjc-framework-quartz", marker = "sys_platform == 'darwin' and extra == 'display'", specifier = ">=10.0" },
     { name = "pyopengl", marker = "extra == 'display'", specifier = ">=3.1.0" },
-    { name = "pyright", marker = "extra == 'dev'", specifier = ">=1.1.400" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.4.2" },
-    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=6.0.0" },
     { name = "rich", specifier = ">=13.0.0,<14" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.13.0" },
     { name = "setproctitle", marker = "extra == 'display'", specifier = ">=1.3.0" },
     { name = "starlette", specifier = ">=0.46.0" },
     { name = "typer", specifier = ">=0.15.0,<1" },
     { name = "uvicorn", specifier = ">=0.34.0" },
 ]
-provides-extras = ["display", "dev"]
+provides-extras = ["display"]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "mypy", specifier = ">=1.18.1" },
+    { name = "pyright", specifier = ">=1.1.400" },
+    { name = "pytest", specifier = ">=8.4.2" },
+    { name = "pytest-cov", specifier = ">=6.0.0" },
+    { name = "ruff", specifier = ">=0.13.0" },
+]
 
 [[package]]
 name = "py-key-value-aio"

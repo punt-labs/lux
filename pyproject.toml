@@ -36,6 +36,16 @@ display = [
     "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
     "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
 ]
+
+# Dev tools live in PEP 735 dependency-groups (uv-native), not
+# project.optional-dependencies. Two reasons:
+#   1. `uv run` installs default groups automatically — no per-invocation
+#      `--group dev` or `--extra dev` flag is needed. The Makefile and CI can
+#      use `uv run --extra display <tool>` and the dev tools just work.
+#   2. Dev tools are not real extras of the published package. They have no
+#      business appearing in `pip install punt-lux[dev]`. Dependency-groups
+#      are not exposed via PyPI; they exist for the source checkout only.
+[dependency-groups]
 dev = [
     "ruff>=0.13.0",
     "mypy>=1.18.1",
