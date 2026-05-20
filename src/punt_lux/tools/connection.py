@@ -24,15 +24,25 @@ _apps_registered_for: int | None = None
 
 
 def _on_beads_browser(_msg: InteractionMessage) -> None:
-    """Callback: open the Beads Browser in a frame.
+    """Open the Beads Browser in a frame.
 
-    Runs in a daemon thread to avoid blocking the listener thread
-    (render_beads_board calls subprocess.run with a 10s timeout).
+    Runs in a daemon thread to avoid blocking the listener thread —
+    ``BeadsBrowser.render`` calls ``subprocess.run`` with a 60s timeout.
+    Exceptions inside the thread are logged here; without this guard
+    they would evaporate into Python's default thread excepthook.
     """
     if _client is None:
         logger.warning("_on_beads_browser: client is None, ignoring menu click")
         return
-    threading.Thread(target=BeadsBrowser().render, args=(_client,), daemon=True).start()
+    threading.Thread(target=_render_beads_safely, args=(_client,), daemon=True).start()
+
+
+def _render_beads_safely(client: DisplayClient) -> None:
+    """Render the beads board; log any exception instead of dying silently."""
+    try:
+        BeadsBrowser().render(client)
+    except Exception:
+        logger.exception("BeadsBrowser.render failed in background thread")
 
 
 def _setup_apps(client: DisplayClient) -> None:
