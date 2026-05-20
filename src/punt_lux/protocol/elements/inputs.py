@@ -6,6 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from punt_lux.protocol.elements.basics import _strip_none
+
 __all__ = [
     "ButtonElement",
     "CheckboxElement",
@@ -144,11 +146,6 @@ class SelectableElement:
     kind: Literal["selectable"] = "selectable"
     selected: bool = False
     tooltip: str | None = None
-
-
-def _strip_none(d: dict[str, Any]) -> dict[str, Any]:
-    """Remove keys whose value is None."""
-    return {k: v for k, v in d.items() if v is not None}
 
 
 def _button_to_dict(elem: ButtonElement) -> dict[str, Any]:

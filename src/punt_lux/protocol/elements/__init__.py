@@ -117,6 +117,11 @@ __all__ = [
     "element_from_dict",
     "element_to_dict",
 ]
+# The four underscore-prefixed names above are package-internal API:
+# used by protocol/messages.py and other internal codecs, not by external
+# callers. They remain in __all__ so pyright's reportPrivateUsage does not
+# fire on intentional cross-module imports within the protocol package.
+# The leading underscore signals "do not import from outside protocol/".
 
 
 Element = (
@@ -207,10 +212,3 @@ def element_from_dict(d: dict[str, Any]) -> Element:
 # elements (Group, Window, TabBar, …) call back into the dispatcher; layout.py
 # cannot import them eagerly because the aggregator depends on layout.py.
 layout.install_dispatchers(_element_to_dict, element_from_dict)
-
-
-# _element_to_dict, _patch_from_dict, _patch_to_dict, and _strip_none are
-# imported above with explicit ``as`` aliases so ruff knows they are
-# intentional re-exports.  They remain private (not in __all__) but stay
-# importable as ``from punt_lux.protocol.elements import _xxx`` for the
-# message codecs in protocol/messages.py.  See the phase-A design doc.
