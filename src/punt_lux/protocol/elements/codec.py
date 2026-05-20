@@ -33,9 +33,9 @@ class ElementCodec:
     module-level instance populated at import time from each family
     module's ``register_codecs`` callback.
 
-    Unknown ``kind`` strings raise ``ValueError`` on decode (elements
-    have no equivalent of ``UnknownMessage``); unknown classes raise
-    ``TypeError`` on encode.
+    A missing, empty, non-string, or unknown ``kind`` raises
+    ``ValueError`` on decode — elements have no equivalent of
+    ``UnknownMessage``.  Unknown classes raise ``TypeError`` on encode.
     """
 
     _codecs: dict[str, _CodecEntry]
