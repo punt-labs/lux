@@ -180,6 +180,24 @@ class TestLoadBeads:
         assert err is not None
         assert "timed out" in err
 
+    def test_non_dict_entries_dropped_with_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        cp = subprocess.CompletedProcess(
+            args=["bd", "ready", "--json"],
+            returncode=0,
+            stdout=json.dumps([{"id": "beads-001", "title": "ok"}, "garbage", 42]),
+            stderr="",
+        )
+        with (
+            caplog.at_level("WARNING", logger="punt_lux.apps._beads_payload"),
+            patch("punt_lux.apps._beads_payload.subprocess.run", return_value=cp),
+        ):
+            issues, err = BeadsBrowser().load()
+        assert err is None
+        assert len(issues) == 1
+        assert "dropped 2 non-dict entries" in caplog.text
+
     def test_passes_all_flag_to_bd(self) -> None:
         with patch(
             "punt_lux.apps._beads_payload.subprocess.run",
