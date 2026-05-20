@@ -246,7 +246,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements.py": {
+  "src/punt_lux/protocol/elements/__init__.py": {
     "method_ratio": 0.078,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.94,
