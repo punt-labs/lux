@@ -130,15 +130,12 @@ _RecurseToDict = Callable[[Any], dict[str, Any]]
 _RecurseFromDict = Callable[[dict[str, Any]], Any]
 
 
-@dataclass(slots=True)
-class _Dispatchers:
-    """Holder for the package-level recursion functions."""
-
-    to_dict: _RecurseToDict | None = None
-    from_dict: _RecurseFromDict | None = None
-
-
-_dispatchers = _Dispatchers()
+# Package-level recursion functions, installed by elements/__init__.py
+# after the package's top-level dispatchers (element_to_dict / element_from_dict)
+# are defined. Container codecs in this module must recurse via these, not
+# import directly — that would create a circular package import.
+_to_dict_fn: _RecurseToDict | None = None
+_from_dict_fn: _RecurseFromDict | None = None
 
 
 def install_dispatchers(
@@ -146,24 +143,24 @@ def install_dispatchers(
     from_dict: _RecurseFromDict,
 ) -> None:
     """Inject package-level dispatchers used by container codecs."""
-    _dispatchers.to_dict = to_dict
-    _dispatchers.from_dict = from_dict
+    # Install-once module state, set from elements/__init__.py
+    global _to_dict_fn, _from_dict_fn
+    _to_dict_fn = to_dict
+    _from_dict_fn = from_dict
 
 
 def _to_dict_dispatch() -> _RecurseToDict:
-    fn = _dispatchers.to_dict
-    if fn is None:
+    if _to_dict_fn is None:
         msg = "layout codecs used before dispatchers installed"
         raise RuntimeError(msg)
-    return fn
+    return _to_dict_fn
 
 
 def _from_dict_dispatch() -> _RecurseFromDict:
-    fn = _dispatchers.from_dict
-    if fn is None:
+    if _from_dict_fn is None:
         msg = "layout codecs used before dispatchers installed"
         raise RuntimeError(msg)
-    return fn
+    return _from_dict_fn
 
 
 def _group_to_dict(elem: GroupElement) -> dict[str, Any]:

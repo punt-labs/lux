@@ -1,6 +1,6 @@
 # Phase A — Protocol Package Split (Design)
 
-**Status:** PROPOSED, awaiting evaluator review (gvr).
+**Status:** APPROVED by gvr 2026-05-20. PR 1 (elements) implementing as PR #169; PR 2 (messages) follows under lux-skc7.
 **Mission:** `m-2026-05-16-001`. Worker: rmh. Evaluator: gvr.
 **Beads:** lux-9i26 (elements), lux-skc7 (messages). Blocks lux-n5ep (ElementCodec)
 and clears a partition obstacle for lux-ayeh / lux-5rk7 (three-layer model).
