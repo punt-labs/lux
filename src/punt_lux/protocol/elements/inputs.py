@@ -18,6 +18,7 @@ __all__ = [
     "RadioElement",
     "SelectableElement",
     "SliderElement",
+    "register_codecs",
 ]
 
 
@@ -353,26 +354,35 @@ def _selectable_from_dict(d: dict[str, Any]) -> SelectableElement:
     )
 
 
-SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
-    ButtonElement: _button_to_dict,
-    SliderElement: _slider_to_dict,
-    CheckboxElement: _checkbox_to_dict,
-    ComboElement: _combo_to_dict,
-    InputTextElement: _input_text_to_dict,
-    InputNumberElement: _input_number_to_dict,
-    RadioElement: _radio_to_dict,
-    ColorPickerElement: _color_picker_to_dict,
-    SelectableElement: _selectable_to_dict,
-}
+_Register = Callable[
+    [str, type, Callable[..., dict[str, Any]], Callable[[dict[str, Any]], Any]],
+    None,
+]
 
-DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Any]] = {
-    "button": _button_from_dict,
-    "slider": _slider_from_dict,
-    "checkbox": _checkbox_from_dict,
-    "combo": _combo_from_dict,
-    "input_text": _input_text_from_dict,
-    "input_number": _input_number_from_dict,
-    "radio": _radio_from_dict,
-    "color_picker": _color_picker_from_dict,
-    "selectable": _selectable_from_dict,
-}
+
+def register_codecs(register: _Register) -> None:
+    """Register this module's element codecs into an ElementCodec."""
+    register("button", ButtonElement, _button_to_dict, _button_from_dict)
+    register("slider", SliderElement, _slider_to_dict, _slider_from_dict)
+    register("checkbox", CheckboxElement, _checkbox_to_dict, _checkbox_from_dict)
+    register("combo", ComboElement, _combo_to_dict, _combo_from_dict)
+    register("input_text", InputTextElement, _input_text_to_dict, _input_text_from_dict)
+    register(
+        "input_number",
+        InputNumberElement,
+        _input_number_to_dict,
+        _input_number_from_dict,
+    )
+    register("radio", RadioElement, _radio_to_dict, _radio_from_dict)
+    register(
+        "color_picker",
+        ColorPickerElement,
+        _color_picker_to_dict,
+        _color_picker_from_dict,
+    )
+    register(
+        "selectable",
+        SelectableElement,
+        _selectable_to_dict,
+        _selectable_from_dict,
+    )

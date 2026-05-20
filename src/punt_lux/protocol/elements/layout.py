@@ -13,6 +13,7 @@ __all__ = [
     "TabBarElement",
     "TreeElement",
     "WindowElement",
+    "register_codecs",
 ]
 
 
@@ -346,20 +347,22 @@ def _modal_from_dict(d: dict[str, Any]) -> ModalElement:
     )
 
 
-SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
-    GroupElement: _group_to_dict,
-    TabBarElement: _tab_bar_to_dict,
-    CollapsingHeaderElement: _collapsing_header_to_dict,
-    WindowElement: _window_to_dict,
-    TreeElement: _tree_to_dict,
-    ModalElement: _modal_to_dict,
-}
+_Register = Callable[
+    [str, type, Callable[..., dict[str, Any]], Callable[[dict[str, Any]], Any]],
+    None,
+]
 
-DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Any]] = {
-    "group": _group_from_dict,
-    "tab_bar": _tab_bar_from_dict,
-    "collapsing_header": _collapsing_header_from_dict,
-    "window": _window_from_dict,
-    "tree": _tree_from_dict,
-    "modal": _modal_from_dict,
-}
+
+def register_codecs(register: _Register) -> None:
+    """Register this module's element codecs into an ElementCodec."""
+    register("group", GroupElement, _group_to_dict, _group_from_dict)
+    register("tab_bar", TabBarElement, _tab_bar_to_dict, _tab_bar_from_dict)
+    register(
+        "collapsing_header",
+        CollapsingHeaderElement,
+        _collapsing_header_to_dict,
+        _collapsing_header_from_dict,
+    )
+    register("window", WindowElement, _window_to_dict, _window_from_dict)
+    register("tree", TreeElement, _tree_to_dict, _tree_from_dict)
+    register("modal", ModalElement, _modal_to_dict, _modal_from_dict)

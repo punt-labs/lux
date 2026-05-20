@@ -22,7 +22,6 @@ the ``element_to_dict`` / ``element_from_dict`` dispatchers.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
@@ -42,14 +41,11 @@ from punt_lux.protocol.elements.basics import (
 )
 from punt_lux.protocol.elements.codec import ElementCodec
 from punt_lux.protocol.elements.graphics import (
-    DESERIALIZERS as _GRAPHICS_DESERIALIZERS,
-    SERIALIZERS as _GRAPHICS_SERIALIZERS,
     DrawElement,
     PlotElement,
+    register_codecs as _register_graphics,
 )
 from punt_lux.protocol.elements.inputs import (
-    DESERIALIZERS as _INPUTS_DESERIALIZERS,
-    SERIALIZERS as _INPUTS_SERIALIZERS,
     ButtonElement,
     CheckboxElement,
     ColorPickerElement,
@@ -59,16 +55,16 @@ from punt_lux.protocol.elements.inputs import (
     RadioElement,
     SelectableElement,
     SliderElement,
+    register_codecs as _register_inputs,
 )
 from punt_lux.protocol.elements.layout import (
-    DESERIALIZERS as _LAYOUT_DESERIALIZERS,
-    SERIALIZERS as _LAYOUT_SERIALIZERS,
     CollapsingHeaderElement,
     GroupElement,
     ModalElement,
     TabBarElement,
     TreeElement,
     WindowElement,
+    register_codecs as _register_layout,
 )
 
 # _patch_to_dict / _patch_from_dict are re-exported for protocol.messages.scene
@@ -79,11 +75,10 @@ from punt_lux.protocol.elements.patch import (
     _patch_to_dict as _patch_to_dict,
 )
 from punt_lux.protocol.elements.table import (
-    DESERIALIZERS as _TABLE_DESERIALIZERS,
-    SERIALIZERS as _TABLE_SERIALIZERS,
     TableDetail,
     TableElement,
     TableFilter,
+    register_codecs as _register_table,
 )
 
 __all__ = [
@@ -161,35 +156,11 @@ Element = (
 # isolation construct their own ElementCodec instance directly via the
 # codec sub-module.
 _codec = ElementCodec()
-
-
-def _register_legacy_family(
-    serializers: dict[type, Callable[..., dict[str, Any]]],
-    deserializers: dict[str, Callable[[dict[str, Any]], Any]],
-) -> None:
-    """Register a family that still exposes old-style SERIALIZERS/DESERIALIZERS.
-
-    Bridges per-family dispatch tables into ``_codec`` while the families
-    are migrated to ``register_codecs`` one at a time.  Removed once every
-    family exposes ``register_codecs``.
-    """
-    for cls, ser in serializers.items():
-        # Each Element subtype carries its wire ``kind`` as a Literal default.
-        # ``__dataclass_fields__`` is dynamic; reach via ``Any`` to avoid
-        # tripping mypy's ``type`` attribute check.
-        cls_any: Any = cls
-        kind = cls_any.__dataclass_fields__["kind"].default
-        if not isinstance(kind, str):
-            msg = f"{cls.__name__} has non-string kind default"
-            raise TypeError(msg)
-        _codec.register(kind, cls, ser, deserializers[kind])
-
-
 _register_basics(_codec.register)
-_register_legacy_family(_INPUTS_SERIALIZERS, _INPUTS_DESERIALIZERS)
-_register_legacy_family(_LAYOUT_SERIALIZERS, _LAYOUT_DESERIALIZERS)
-_register_legacy_family(_GRAPHICS_SERIALIZERS, _GRAPHICS_DESERIALIZERS)
-_register_legacy_family(_TABLE_SERIALIZERS, _TABLE_DESERIALIZERS)
+_register_inputs(_codec.register)
+_register_layout(_codec.register)
+_register_graphics(_codec.register)
+_register_table(_codec.register)
 
 
 def _element_to_dict(elem: Element) -> dict[str, Any]:

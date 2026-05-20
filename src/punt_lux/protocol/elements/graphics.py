@@ -9,6 +9,7 @@ from typing import Any, Literal
 __all__ = [
     "DrawElement",
     "PlotElement",
+    "register_codecs",
 ]
 
 
@@ -90,12 +91,13 @@ def _plot_from_dict(d: dict[str, Any]) -> PlotElement:
     )
 
 
-SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
-    DrawElement: _draw_to_dict,
-    PlotElement: _plot_to_dict,
-}
+_Register = Callable[
+    [str, type, Callable[..., dict[str, Any]], Callable[[dict[str, Any]], Any]],
+    None,
+]
 
-DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Any]] = {
-    "draw": _draw_from_dict,
-    "plot": _plot_from_dict,
-}
+
+def register_codecs(register: _Register) -> None:
+    """Register this module's element codecs into an ElementCodec."""
+    register("draw", DrawElement, _draw_to_dict, _draw_from_dict)
+    register("plot", PlotElement, _plot_to_dict, _plot_from_dict)

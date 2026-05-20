@@ -10,6 +10,7 @@ __all__ = [
     "TableDetail",
     "TableElement",
     "TableFilter",
+    "register_codecs",
 ]
 
 
@@ -169,10 +170,12 @@ def _table_from_dict(d: dict[str, Any]) -> TableElement:
     )
 
 
-SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
-    TableElement: _table_to_dict,
-}
+_Register = Callable[
+    [str, type, Callable[..., dict[str, Any]], Callable[[dict[str, Any]], Any]],
+    None,
+]
 
-DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Any]] = {
-    "table": _table_from_dict,
-}
+
+def register_codecs(register: _Register) -> None:
+    """Register this module's element codecs into an ElementCodec."""
+    register("table", TableElement, _table_to_dict, _table_from_dict)
