@@ -37,7 +37,7 @@
     "src/punt_lux/paths.py": {
       "noqa": 2
     },
-    "src/punt_lux/protocol/elements.py": {
+    "src/punt_lux/protocol/elements/layout.py": {
       "type_ignore": 1
     },
     "src/punt_lux/protocol/messages.py": {
@@ -68,5 +68,5 @@
       "type_ignore": 1
     }
   },
-  "updated_at": "2026-05-14T21:40:43Z"
+  "updated_at": "2026-05-20T18:32:19Z"
 }
