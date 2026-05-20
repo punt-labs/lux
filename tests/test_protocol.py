@@ -1988,6 +1988,18 @@ class TestElementCodec:
         with pytest.raises(ValueError, match="Unknown element kind"):
             codec.from_dict({"kind": "bogus", "id": "x"})
 
+    def test_missing_kind_raises_valueerror(self) -> None:
+        """Missing, empty, or non-string 'kind' raises ValueError on decode."""
+        from punt_lux.protocol.elements.codec import ElementCodec
+
+        codec = ElementCodec()
+        with pytest.raises(ValueError, match="kind"):
+            codec.from_dict({"id": "t1"})
+        with pytest.raises(ValueError, match="kind"):
+            codec.from_dict({"kind": "", "id": "t1"})
+        with pytest.raises(ValueError, match="kind"):
+            codec.from_dict({"kind": 123, "id": "t1"})
+
     def test_unknown_type_raises_typeerror(self) -> None:
         """Unregistered classes raise TypeError on encode."""
         from punt_lux.protocol.elements.codec import ElementCodec

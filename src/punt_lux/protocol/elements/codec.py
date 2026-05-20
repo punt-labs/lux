@@ -75,10 +75,16 @@ class ElementCodec:
     def from_dict(self, d: dict[str, Any]) -> Element:
         """Deserialize a dict to the appropriate Element.
 
-        Unknown ``kind`` strings raise ``ValueError`` — elements have no
-        forward-compatible unknown fallback (cf. ``UnknownMessage``).
+        A missing, empty, or non-string ``kind`` raises ``ValueError``;
+        an unrecognized ``kind`` raises ``ValueError`` — elements have
+        no forward-compatible unknown fallback (cf. ``UnknownMessage``).
+        Mirrors ``MessageRegistry.from_dict``'s contract for the wire
+        ``type`` field.
         """
-        kind = d.get("kind", "text")
+        kind = d.get("kind")
+        if not isinstance(kind, str) or not kind:
+            err = "Element missing or invalid 'kind' field"
+            raise ValueError(err)
         codec = self._codecs.get(kind)
         if codec is None:
             err = f"Unknown element kind: {kind!r}"

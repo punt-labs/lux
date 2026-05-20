@@ -76,9 +76,11 @@ class TestElementFromDict:
         elem = element_from_dict({"kind": "separator"})
         assert elem.kind == "separator"
 
-    def test_default_kind_is_text(self) -> None:
-        elem = element_from_dict({"id": "t1", "content": "Hi"})
-        assert elem.kind == "text"
+    def test_missing_kind_raises(self) -> None:
+        import pytest
+
+        with pytest.raises(ValueError, match="kind"):
+            element_from_dict({"id": "t1", "content": "Hi"})
 
     def test_text_defaults_content_to_empty(self) -> None:
         elem = element_from_dict({"kind": "text", "id": "t1"})
