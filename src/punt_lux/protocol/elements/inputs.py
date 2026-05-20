@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from punt_lux.protocol.elements.basics import _strip_none
+from punt_lux.protocol.elements.codec import Register
 
 __all__ = [
     "ButtonElement",
@@ -354,13 +354,7 @@ def _selectable_from_dict(d: dict[str, Any]) -> SelectableElement:
     )
 
 
-_Register = Callable[
-    [str, type, Callable[..., dict[str, Any]], Callable[[dict[str, Any]], Any]],
-    None,
-]
-
-
-def register_codecs(register: _Register) -> None:
+def register_codecs(register: Register) -> None:
     """Register this module's element codecs into an ElementCodec."""
     register("button", ButtonElement, _button_to_dict, _button_from_dict)
     register("slider", SliderElement, _slider_to_dict, _slider_from_dict)

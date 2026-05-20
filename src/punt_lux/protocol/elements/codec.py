@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ElementCodec",
+    "Register",
 ]
 
 
@@ -17,6 +18,11 @@ _Serializer = Callable[..., dict[str, Any]]
 _Deserializer = Callable[[dict[str, Any]], Any]
 
 _CodecEntry = tuple[type, _Serializer, _Deserializer]
+
+# The callback that family modules accept in ``register_codecs(register)``.
+# Exported so family modules can type their ``register`` parameter without
+# redeclaring the alias five times.
+Register = Callable[[str, type, _Serializer, _Deserializer], None]
 
 
 class ElementCodec:

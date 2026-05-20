@@ -6,6 +6,8 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, cast
 
+from punt_lux.protocol.elements.codec import Register
+
 __all__ = [
     "CollapsingHeaderElement",
     "GroupElement",
@@ -347,13 +349,7 @@ def _modal_from_dict(d: dict[str, Any]) -> ModalElement:
     )
 
 
-_Register = Callable[
-    [str, type, Callable[..., dict[str, Any]], Callable[[dict[str, Any]], Any]],
-    None,
-]
-
-
-def register_codecs(register: _Register) -> None:
+def register_codecs(register: Register) -> None:
     """Register this module's element codecs into an ElementCodec."""
     register("group", GroupElement, _group_to_dict, _group_from_dict)
     register("tab_bar", TabBarElement, _tab_bar_to_dict, _tab_bar_from_dict)

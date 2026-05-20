@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
+
+from punt_lux.protocol.elements.codec import Register
 
 __all__ = [
     "ImageElement",
@@ -211,13 +212,7 @@ def _markdown_from_dict(d: dict[str, Any]) -> MarkdownElement:
     )
 
 
-_Register = Callable[
-    [str, type, Callable[..., dict[str, Any]], Callable[[dict[str, Any]], Any]],
-    None,
-]
-
-
-def register_codecs(register: _Register) -> None:
+def register_codecs(register: Register) -> None:
     """Register this module's element codecs into an ElementCodec."""
     register("image", ImageElement, _image_to_dict, _image_from_dict)
     register("text", TextElement, _text_to_dict, _text_from_dict)
