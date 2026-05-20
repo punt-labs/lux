@@ -77,8 +77,6 @@ class TestElementFromDict:
         assert elem.kind == "separator"
 
     def test_missing_kind_raises(self) -> None:
-        import pytest
-
         with pytest.raises(ValueError, match="kind"):
             element_from_dict({"id": "t1", "content": "Hi"})
 
