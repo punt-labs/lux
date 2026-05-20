@@ -305,8 +305,8 @@
     "max_complexity": 8.0,
     "avg_complexity": 3.12,
     "module_size": 301.0,
-    "classes_per_module": 7.0,
-    "class_to_func_ratio": 0.304,
+    "classes_per_module": 6.0,
+    "class_to_func_ratio": 0.273,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
@@ -337,7 +337,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/messages.py": {
+  "src/punt_lux/protocol/messages/__init__.py": {
     "method_ratio": 0.115,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.02,
