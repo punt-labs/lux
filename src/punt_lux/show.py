@@ -21,11 +21,6 @@ show_app = typer.Typer(
 __all__ = ["show_app"]
 
 
-# ---------------------------------------------------------------------------
-# CLI command
-# ---------------------------------------------------------------------------
-
-
 @show_app.command("beads")
 def beads(
     socket: str | None = typer.Option(None, "--socket", "-s", help="Socket path"),
@@ -36,11 +31,11 @@ def beads(
     from punt_lux.paths import DisplayPaths
 
     browser = BeadsBrowser()
-    issues = browser.load(all_issues=all_issues)
+    issues, load_error = browser.load(all_issues=all_issues)
 
     project = Path.cwd().name or "unknown"
     sock_path = DisplayPaths(Path(socket) if socket else None).socket_path
-    elements = browser.build_elements(issues)
+    elements = browser.build_elements((issues, load_error))
 
     with DisplayClient(sock_path, name="lux-beads") as client:
         ack = client.show(
@@ -54,5 +49,5 @@ def beads(
     if ack is None:
         typer.echo("Timeout: display server did not respond.", err=True)
         raise typer.Exit(code=1)
-
-    typer.echo(f"Beads board displayed ({len(issues)} issues).")
+    note = f"bd error: {load_error}" if load_error else f"{len(issues)} issues"
+    typer.echo(f"Beads board displayed ({note}).")

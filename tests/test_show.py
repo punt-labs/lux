@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 from punt_lux.__main__ import app
 from punt_lux.apps.beads import BeadsBrowser
+from punt_lux.protocol import TextElement
 
 runner = CliRunner()
 
@@ -82,44 +83,50 @@ class TestLoadBeads:
         # bd does the filtering server-side; mock returns only active issues
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
         with patch(
-            "punt_lux.apps.beads.subprocess.run",
+            "punt_lux.apps._beads_payload.subprocess.run",
             return_value=_mock_bd_result(active),
         ):
-            result = BeadsBrowser().load()
+            result, _err = BeadsBrowser().load()
         assert len(result) == 2
         assert all(i["status"] in {"open", "in_progress"} for i in result)
 
     def test_all_flag_includes_closed(self) -> None:
         with patch(
-            "punt_lux.apps.beads.subprocess.run",
+            "punt_lux.apps._beads_payload.subprocess.run",
             return_value=_mock_bd_result(_ISSUES),
         ):
-            result = BeadsBrowser().load(all_issues=True)
+            result, _err = BeadsBrowser().load(all_issues=True)
         assert len(result) == 3
 
     def test_sorted_in_progress_first_then_priority(self) -> None:
         with patch(
-            "punt_lux.apps.beads.subprocess.run",
+            "punt_lux.apps._beads_payload.subprocess.run",
             return_value=_mock_bd_result(_ISSUES),
         ):
-            result = BeadsBrowser().load(all_issues=True)
+            result, _err = BeadsBrowser().load(all_issues=True)
         assert result[0]["id"] == "beads-002"  # in_progress floats to top
         assert result[1]["id"] == "beads-001"  # P1, open
 
     def test_subprocess_failure_returns_empty(self) -> None:
-        with patch(
-            "punt_lux.apps.beads.subprocess.run",
-            return_value=_mock_bd_result([], returncode=1),
-        ):
-            assert BeadsBrowser().load() == []
+        cp = subprocess.CompletedProcess(
+            args=["bd", "list", "--json"],
+            returncode=1,
+            stdout="",
+            stderr="db locked",
+        )
+        with patch("punt_lux.apps._beads_payload.subprocess.run", return_value=cp):
+            issues, err = BeadsBrowser().load()
+        assert issues == []
+        assert err is not None
+        assert "db locked" in err
 
     def test_defaults_applied(self) -> None:
         minimal = [{"id": "beads-100"}]
         with patch(
-            "punt_lux.apps.beads.subprocess.run",
+            "punt_lux.apps._beads_payload.subprocess.run",
             return_value=_mock_bd_result(minimal),
         ):
-            result = BeadsBrowser().load()
+            result, _err = BeadsBrowser().load()
         assert result[0]["status"] == "open"
         assert result[0]["priority"] == 4
         assert result[0]["issue_type"] == "task"
@@ -131,8 +138,11 @@ class TestLoadBeads:
             stdout="",
             stderr="",
         )
-        with patch("punt_lux.apps.beads.subprocess.run", return_value=cp):
-            assert BeadsBrowser().load() == []
+        with patch("punt_lux.apps._beads_payload.subprocess.run", return_value=cp):
+            issues, err = BeadsBrowser().load()
+        assert issues == []
+        assert err is not None
+        assert "no output" in err
 
     def test_invalid_json_returns_empty(self) -> None:
         cp = subprocess.CompletedProcess(
@@ -141,33 +151,97 @@ class TestLoadBeads:
             stdout="not-json",
             stderr="",
         )
-        with patch("punt_lux.apps.beads.subprocess.run", return_value=cp):
-            assert BeadsBrowser().load() == []
+        with patch("punt_lux.apps._beads_payload.subprocess.run", return_value=cp):
+            issues, err = BeadsBrowser().load()
+        assert issues == []
+        assert err is not None
+        assert "JSON" in err or "malformed" in err
+
+    def test_unexpected_json_shape_returns_error(self) -> None:
+        cp = subprocess.CompletedProcess(
+            args=["bd", "ready", "--json"],
+            returncode=0,
+            stdout=json.dumps({"issues": _ISSUES}),
+            stderr="",
+        )
+        with patch("punt_lux.apps._beads_payload.subprocess.run", return_value=cp):
+            issues, err = BeadsBrowser().load()
+        assert issues == []
+        assert err is not None
+        assert "unexpected JSON shape" in err
+
+    def test_subprocess_timeout_returns_error(self) -> None:
+        with patch(
+            "punt_lux.apps._beads_payload.subprocess.run",
+            side_effect=subprocess.TimeoutExpired(cmd="bd ready --json", timeout=60),
+        ):
+            issues, err = BeadsBrowser().load()
+        assert issues == []
+        assert err is not None
+        assert "timed out" in err
+
+    def test_non_dict_entries_dropped_with_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        cp = subprocess.CompletedProcess(
+            args=["bd", "ready", "--json"],
+            returncode=0,
+            stdout=json.dumps([{"id": "beads-001", "title": "ok"}, "garbage", 42]),
+            stderr="",
+        )
+        with (
+            caplog.at_level("WARNING", logger="punt_lux.apps._beads_payload"),
+            patch("punt_lux.apps._beads_payload.subprocess.run", return_value=cp),
+        ):
+            issues, err = BeadsBrowser().load()
+        assert err is None
+        assert len(issues) == 1
+        assert "dropped 2 non-dict entries" in caplog.text
 
     def test_passes_all_flag_to_bd(self) -> None:
         with patch(
-            "punt_lux.apps.beads.subprocess.run",
+            "punt_lux.apps._beads_payload.subprocess.run",
             return_value=_mock_bd_result(_ISSUES),
         ) as mock_run:
             BeadsBrowser().load(all_issues=True)
         args = mock_run.call_args[0][0]
         assert "--all" in args
 
-    def test_passes_status_filter_by_default(self) -> None:
+    def test_default_invokes_bd_ready(self) -> None:
         with patch(
-            "punt_lux.apps.beads.subprocess.run",
+            "punt_lux.apps._beads_payload.subprocess.run",
             return_value=_mock_bd_result(_ISSUES),
         ) as mock_run:
             BeadsBrowser().load()
         args = mock_run.call_args[0][0]
-        assert "--status=open,in_progress" in args
+        assert args == ["bd", "ready", "--json"]
+
+    def test_all_flag_invokes_bd_list_all(self) -> None:
+        with patch(
+            "punt_lux.apps._beads_payload.subprocess.run",
+            return_value=_mock_bd_result(_ISSUES),
+        ) as mock_run:
+            BeadsBrowser().load(all_issues=True)
+        args = mock_run.call_args[0][0]
+        assert args == ["bd", "list", "--json", "--all"]
+
+    def test_subprocess_timeout_is_60_seconds(self) -> None:
+        with patch(
+            "punt_lux.apps._beads_payload.subprocess.run",
+            return_value=_mock_bd_result(_ISSUES),
+        ) as mock_run:
+            BeadsBrowser().load()
+        assert mock_run.call_args.kwargs["timeout"] == 60
 
     def test_bd_not_found_returns_empty(self) -> None:
         with patch(
-            "punt_lux.apps.beads.subprocess.run",
+            "punt_lux.apps._beads_payload.subprocess.run",
             side_effect=FileNotFoundError("bd not found"),
         ):
-            assert BeadsBrowser().load() == []
+            issues, err = BeadsBrowser().load()
+        assert issues == []
+        assert err is not None
+        assert "not found" in err.lower() or "no such file" in err.lower()
 
 
 # ---------------------------------------------------------------------------
@@ -221,19 +295,41 @@ class TestBuildBeadsPayload:
 
 class TestBuildBeadsElements:
     def test_empty_issues_returns_placeholder(self) -> None:
-        elements = BeadsBrowser().build_elements([])
+        elements = BeadsBrowser().build_elements(([], None))
         assert len(elements) == 1
         assert elements[0].kind == "text"
         assert "No active issues" in elements[0].content
 
     def test_nonempty_issues_returns_table(self) -> None:
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
-        elements = BeadsBrowser().build_elements(active)
+        elements = BeadsBrowser().build_elements((active, None))
         assert len(elements) == 1
         assert elements[0].kind == "table"
         assert elements[0].id == "table"
         assert len(elements[0].rows) == 2
         assert elements[0].columns == ["ID", "Title", "Status", "P", "Type"]
+
+    def test_error_returns_visible_error_element(self) -> None:
+        """When bd fails, surface the reason instead of 'No active issues'."""
+        elements = BeadsBrowser().build_elements(
+            ([], "bd ready --json: timed out after 60s"),
+        )
+        assert len(elements) == 1
+        elem = elements[0]
+        assert isinstance(elem, TextElement)
+        assert elem.id == "bd-error"
+        assert "bd unavailable" in elem.content
+        assert "timed out" in elem.content
+        # Error element distinguishes itself visually (non-None color).
+        assert elem.color is not None
+
+    def test_error_overrides_empty_placeholder(self) -> None:
+        """Empty issues + error renders the error, not the empty placeholder."""
+        elements = BeadsBrowser().build_elements(([], "connection refused"))
+        elem = elements[0]
+        assert isinstance(elem, TextElement)
+        assert elem.id == "bd-error"
+        assert "No active issues" not in elem.content
 
 
 # ---------------------------------------------------------------------------
@@ -242,7 +338,7 @@ class TestBuildBeadsElements:
 
 
 class TestShowBeadsCLI:
-    def test_bd_failure_shows_empty_board(
+    def test_bd_failure_surfaces_error(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
@@ -257,7 +353,7 @@ class TestShowBeadsCLI:
         sock = str(tmp_path / "test.sock")
         with (
             patch(
-                "punt_lux.apps.beads.subprocess.run",
+                "punt_lux.apps._beads_payload.subprocess.run",
                 return_value=_mock_bd_result([], returncode=1),
             ),
             patch("punt_lux.display_client.DisplayClient", return_value=mock_client),
@@ -267,8 +363,17 @@ class TestShowBeadsCLI:
                 ["show", "beads", "--socket", sock],
             )
 
+        # When bd fails, the CLI reports the error rather than misleading "0 issues".
+        # The display still receives a frame with a visible error element.
         assert result.exit_code == 0
-        assert "0 issues" in result.output
+        assert "bd error" in result.output
+        # Verify the scene has the error element, not "No active issues".
+        sent_elements = (
+            mock_client.show.call_args.kwargs.get("elements")
+            or mock_client.show.call_args.args[1]
+        )
+        ids = [getattr(e, "id", None) for e in sent_elements]
+        assert "bd-error" in ids, f"expected bd-error element, got: {ids}"
 
     def test_show_beads_sends_to_display(
         self,
@@ -287,7 +392,7 @@ class TestShowBeadsCLI:
         sock = str(tmp_path / "test.sock")
         with (
             patch(
-                "punt_lux.apps.beads.subprocess.run",
+                "punt_lux.apps._beads_payload.subprocess.run",
                 return_value=_mock_bd_result(active),
             ),
             patch("punt_lux.display_client.DisplayClient", return_value=mock_client),
@@ -319,7 +424,7 @@ class TestShowBeadsCLI:
         sock = str(tmp_path / "test.sock")
         with (
             patch(
-                "punt_lux.apps.beads.subprocess.run",
+                "punt_lux.apps._beads_payload.subprocess.run",
                 return_value=_mock_bd_result(_ISSUES),
             ),
             patch("punt_lux.display_client.DisplayClient", return_value=mock_client),

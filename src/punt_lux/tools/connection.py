@@ -24,15 +24,18 @@ _apps_registered_for: int | None = None
 
 
 def _on_beads_browser(_msg: InteractionMessage) -> None:
-    """Callback: open the Beads Browser in a frame.
-
-    Runs in a daemon thread to avoid blocking the listener thread
-    (render_beads_board calls subprocess.run with a 10s timeout).
-    """
-    if _client is None:
+    """Open Beads Browser in a daemon thread; log render failures (60s timeout)."""
+    if (client := _client) is None:
         logger.warning("_on_beads_browser: client is None, ignoring menu click")
         return
-    threading.Thread(target=BeadsBrowser().render, args=(_client,), daemon=True).start()
+
+    def _render() -> None:
+        try:
+            BeadsBrowser().render(client)
+        except Exception:
+            logger.exception("BeadsBrowser.render failed in background thread")
+
+    threading.Thread(target=_render, daemon=True).start()
 
 
 def _setup_apps(client: DisplayClient) -> None:
@@ -68,17 +71,11 @@ def _get_client() -> DisplayClient:
 
 
 def _with_reconnect[T](fn: Callable[[], T]) -> T:
-    """Run *fn* with one automatic reconnect on socket failure.
+    """Run *fn* with one automatic reconnect on ``OSError``.
 
-    If the display server restarts, the cached socket dies silently —
-    ``is_connected`` still returns True because the socket object exists.
-    This wrapper catches ``OSError`` (covers broken pipe, connection
-    reset, bad file descriptor, etc.), closes the stale socket,
-    reconnects the same client instance (preserving accumulated state
-    like registered menu items), and retries *fn* exactly once.
-
-    Holds ``_client_lock`` during the close/reconnect sequence to
-    prevent races with ``_get_client()`` in other threads.
+    Catches socket failures (broken pipe, reset, bad fd), closes the stale
+    socket, reconnects the same client instance under ``_client_lock``, and
+    retries *fn* exactly once.
     """
     global _client
     try:
