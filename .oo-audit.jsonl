@@ -59,3 +59,4 @@
 {"ts":"2026-05-20T18:23:59Z","commit":"b7f9bbb","files_scored":42,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-05-20T18:41:02Z","commit":"e663af8","files_scored":42,"files_improved":1,"files_regressed":1,"verdict":"fail","deltas":{"src/punt_lux/protocol/messages/__init__.py":{"method_ratio":[0.0,0.115],"encapsulation_ratio":[0.0,1.0],"avg_params":[0.0,1.02],"max_complexity":[0.0,4.0],"avg_complexity":[0.0,1.6],"module_size":[0.0,570.0],"classes_per_module":[0.0,22.0],"class_to_func_ratio":[0.0,0.324],"init_violations":[0.0,0.0],"public_attr_violations":[0.0,0.0],"future_annotations":[0.0,1.0]}}}
 {"ts":"2026-05-20T18:41:14Z","commit":"e663af8","files_scored":42,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-05-20T18:49:01Z","commit":"826f007","files_scored":48,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
