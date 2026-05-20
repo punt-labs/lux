@@ -36,11 +36,11 @@ def beads(
     from punt_lux.paths import DisplayPaths
 
     browser = BeadsBrowser()
-    issues = browser.load(all_issues=all_issues)
+    issues, load_error = browser.load(all_issues=all_issues)
 
     project = Path.cwd().name or "unknown"
     sock_path = DisplayPaths(Path(socket) if socket else None).socket_path
-    elements = browser.build_elements(issues)
+    elements = browser.build_elements(issues, error=load_error)
 
     with DisplayClient(sock_path, name="lux-beads") as client:
         ack = client.show(
@@ -55,4 +55,7 @@ def beads(
         typer.echo("Timeout: display server did not respond.", err=True)
         raise typer.Exit(code=1)
 
-    typer.echo(f"Beads board displayed ({len(issues)} issues).")
+    if load_error is not None:
+        typer.echo(f"Beads board displayed (bd error: {load_error}).")
+    else:
+        typer.echo(f"Beads board displayed ({len(issues)} issues).")

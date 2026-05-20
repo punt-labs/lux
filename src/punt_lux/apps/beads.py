@@ -27,11 +27,19 @@ class BeadsBrowser:
         "updated_at": "",
     }
 
-    def load(self, *, all_issues: bool = False) -> list[dict[str, Any]]:
-        """Fetch, default-fill, filter, and sort beads issues via ``bd list --json``."""
-        stdout = self._run_bd(all_issues=all_issues)
+    def load(
+        self, *, all_issues: bool = False
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Fetch, default-fill, filter, and sort beads issues via ``bd``.
+
+        Returns (issues, error). On success, error is None and issues holds
+        the sorted issue list (possibly empty). On any failure (timeout,
+        non-zero exit, empty output, JSON parse error), issues is [] and
+        error is a short human-readable reason.
+        """
+        stdout, err = self._run_bd(all_issues=all_issues)
         if stdout is None:
-            return []
+            return [], err
 
         issues = self._parse_issues(stdout)
 
@@ -41,15 +49,21 @@ class BeadsBrowser:
         issues.sort(key=lambda i: i["priority"])
         issues.sort(key=lambda i: i["status"] != "in_progress")
 
-        return issues
+        return issues, None
 
-    def _run_bd(self, *, all_issues: bool) -> str | None:
-        """Invoke ``bd list --json`` and return stdout, or None on failure."""
-        cmd: list[str] = ["bd", "list", "--json"]
-        if all_issues:
-            cmd.append("--all")
-        else:
-            cmd.extend(["--status=open,in_progress"])
+    def _run_bd(self, *, all_issues: bool) -> tuple[str | None, str | None]:
+        """Invoke ``bd`` and return stdout, or None on failure.
+
+        Default path uses ``bd ready --json`` — the canonical work-queue
+        command (open + unblocked). ``--all`` switches to
+        ``bd list --json --all`` to include closed/blocked issues.
+        """
+        cmd: list[str] = (
+            ["bd", "list", "--json", "--all"]
+            if all_issues
+            else ["bd", "ready", "--json"]
+        )
+        cmd_str = " ".join(cmd)
 
         try:
             result = subprocess.run(  # noqa: S603
@@ -57,13 +71,18 @@ class BeadsBrowser:
                 capture_output=True,
                 text=True,
                 check=False,
-                timeout=10,
+                timeout=60,
             )
-        except (OSError, subprocess.TimeoutExpired):
-            return None
-        if result.returncode != 0 or not result.stdout.strip():
-            return None
-        return result.stdout
+        except subprocess.TimeoutExpired:
+            return None, f"{cmd_str}: timed out after 60s"
+        except OSError as exc:
+            return None, f"{cmd_str}: {exc}"
+        if result.returncode != 0:
+            err = result.stderr.strip()[:200] or f"exit {result.returncode}"
+            return None, f"{cmd_str}: {err}"
+        if not result.stdout.strip():
+            return None, f"{cmd_str}: no output"
+        return result.stdout, None
 
     def _parse_issues(self, stdout: str) -> list[dict[str, Any]]:
         """Parse JSON output and apply field defaults."""
@@ -161,8 +180,27 @@ class BeadsBrowser:
             "detail": detail,
         }
 
-    def build_elements(self, issues: list[dict[str, Any]]) -> list[Element]:
-        """Build display elements for a beads issue list."""
+    def build_elements(
+        self,
+        issues: list[dict[str, Any]],
+        *,
+        error: str | None = None,
+    ) -> list[Element]:
+        """Build display elements for a beads issue list.
+
+        When ``error`` is set, render a visible error element instead of
+        the "No active issues." placeholder — surfaces bd failures (timeout,
+        non-zero exit, parse error) so the user sees the reason instead of
+        a misleading empty frame.
+        """
+        if error is not None:
+            return [
+                TextElement(
+                    id="bd-error",
+                    content=f"bd unavailable — {error}",
+                    color="#FF5555",
+                )
+            ]
         if not issues:
             return [TextElement(id="empty", content="No active issues.")]
 
@@ -185,11 +223,11 @@ class BeadsBrowser:
         project = Path.cwd().name or "unknown"
         frame_id = f"beads-{project}"
 
-        issues = self.load()
+        issues, error = self.load()
 
         client.show_async(
             f"beads-{project}",
-            elements=self.build_elements(issues),
+            elements=self.build_elements(issues, error=error),
             frame_id=frame_id,
             frame_title=f"Beads: {project}",
         )
