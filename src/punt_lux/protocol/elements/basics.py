@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
+from punt_lux.protocol.elements.codec import Register
+
 __all__ = [
-    "DESERIALIZERS",
-    "SERIALIZERS",
     "ImageElement",
     "MarkdownElement",
     "ProgressElement",
@@ -16,6 +15,7 @@ __all__ = [
     "SpinnerElement",
     "TextElement",
     "_strip_none",
+    "register_codecs",
 ]
 
 
@@ -212,20 +212,11 @@ def _markdown_from_dict(d: dict[str, Any]) -> MarkdownElement:
     )
 
 
-SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
-    ImageElement: _image_to_dict,
-    TextElement: _text_to_dict,
-    SeparatorElement: _separator_to_dict,
-    ProgressElement: _progress_to_dict,
-    SpinnerElement: _spinner_to_dict,
-    MarkdownElement: _markdown_to_dict,
-}
-
-DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Any]] = {
-    "image": _image_from_dict,
-    "text": _text_from_dict,
-    "separator": _separator_from_dict,
-    "progress": _progress_from_dict,
-    "spinner": _spinner_from_dict,
-    "markdown": _markdown_from_dict,
-}
+def register_codecs(register: Register) -> None:
+    """Register this module's element codecs into an ElementCodec."""
+    register("image", ImageElement, _image_to_dict, _image_from_dict)
+    register("text", TextElement, _text_to_dict, _text_from_dict)
+    register("separator", SeparatorElement, _separator_to_dict, _separator_from_dict)
+    register("progress", ProgressElement, _progress_to_dict, _progress_from_dict)
+    register("spinner", SpinnerElement, _spinner_to_dict, _spinner_from_dict)
+    register("markdown", MarkdownElement, _markdown_to_dict, _markdown_from_dict)

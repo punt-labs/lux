@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal
+
+from punt_lux.protocol.elements.codec import Register
 
 __all__ = [
     "DrawElement",
     "PlotElement",
+    "register_codecs",
 ]
 
 
@@ -90,12 +92,7 @@ def _plot_from_dict(d: dict[str, Any]) -> PlotElement:
     )
 
 
-SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
-    DrawElement: _draw_to_dict,
-    PlotElement: _plot_to_dict,
-}
-
-DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Any]] = {
-    "draw": _draw_from_dict,
-    "plot": _plot_from_dict,
-}
+def register_codecs(register: Register) -> None:
+    """Register this module's element codecs into an ElementCodec."""
+    register("draw", DrawElement, _draw_to_dict, _draw_from_dict)
+    register("plot", PlotElement, _plot_to_dict, _plot_from_dict)

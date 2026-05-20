@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import InitVar, dataclass, field
 from typing import Any, Literal
+
+from punt_lux.protocol.elements.codec import Register
 
 __all__ = [
     "TableDetail",
     "TableElement",
     "TableFilter",
+    "register_codecs",
 ]
 
 
@@ -169,10 +171,6 @@ def _table_from_dict(d: dict[str, Any]) -> TableElement:
     )
 
 
-SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
-    TableElement: _table_to_dict,
-}
-
-DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Any]] = {
-    "table": _table_from_dict,
-}
+def register_codecs(register: Register) -> None:
+    """Register this module's element codecs into an ElementCodec."""
+    register("table", TableElement, _table_to_dict, _table_from_dict)

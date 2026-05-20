@@ -1923,3 +1923,102 @@ class TestMessageRegistry:
             "unknown",
         }
         assert _registry.registered_types == expected_types
+
+
+# ---------------------------------------------------------------------------
+# ElementCodec
+# ---------------------------------------------------------------------------
+
+
+class TestElementCodec:
+    """Tests for the ElementCodec class introduced by the codec refactor."""
+
+    def test_isolated_codec_roundtrip(self) -> None:
+        """Create a fresh codec, register one kind, round-trip it."""
+        from punt_lux.protocol.elements.codec import ElementCodec
+
+        def _text_ser(e: TextElement) -> dict[str, Any]:
+            return {"kind": "text", "id": e.id, "content": e.content}
+
+        def _text_de(d: dict[str, Any]) -> TextElement:
+            return TextElement(id=d["id"], content=d.get("content", ""))
+
+        codec = ElementCodec()
+        codec.register("text", TextElement, _text_ser, _text_de)
+        d = codec.to_dict(TextElement(id="t1", content="hello"))
+        restored = codec.from_dict(d)
+        assert isinstance(restored, TextElement)
+        assert restored.content == "hello"
+
+    def test_duplicate_kind_registration_raises(self) -> None:
+        """Registering the same kind string twice is a ValueError."""
+        from punt_lux.protocol.elements.codec import ElementCodec
+
+        def _ser(e: TextElement) -> dict[str, Any]:
+            return {}
+
+        def _de(d: dict[str, Any]) -> TextElement:
+            return TextElement(id="x", content="")
+
+        codec = ElementCodec()
+        codec.register("text", TextElement, _ser, _de)
+        with pytest.raises(ValueError, match="Duplicate element registration"):
+            codec.register("text", TextElement, _ser, _de)
+
+    def test_duplicate_class_registration_raises(self) -> None:
+        """Registering the same class under a second kind is a ValueError."""
+        from punt_lux.protocol.elements.codec import ElementCodec
+
+        def _ser(e: TextElement) -> dict[str, Any]:
+            return {}
+
+        def _de(d: dict[str, Any]) -> TextElement:
+            return TextElement(id="x", content="")
+
+        codec = ElementCodec()
+        codec.register("text", TextElement, _ser, _de)
+        with pytest.raises(ValueError, match="Duplicate class registration"):
+            codec.register("text_alias", TextElement, _ser, _de)
+
+    def test_unknown_kind_raises_valueerror(self) -> None:
+        """Unregistered kind strings raise ValueError on decode."""
+        from punt_lux.protocol.elements.codec import ElementCodec
+
+        codec = ElementCodec()
+        with pytest.raises(ValueError, match="Unknown element kind"):
+            codec.from_dict({"kind": "bogus", "id": "x"})
+
+    def test_missing_kind_raises_valueerror(self) -> None:
+        """Missing, empty, or non-string 'kind' raises ValueError on decode."""
+        from punt_lux.protocol.elements.codec import ElementCodec
+
+        codec = ElementCodec()
+        with pytest.raises(ValueError, match="kind"):
+            codec.from_dict({"id": "t1"})
+        with pytest.raises(ValueError, match="kind"):
+            codec.from_dict({"kind": "", "id": "t1"})
+        with pytest.raises(ValueError, match="kind"):
+            codec.from_dict({"kind": 123, "id": "t1"})
+
+    def test_unknown_type_raises_typeerror(self) -> None:
+        """Unregistered classes raise TypeError on encode."""
+        from punt_lux.protocol.elements.codec import ElementCodec
+
+        codec = ElementCodec()
+        with pytest.raises(TypeError, match="Unknown element type"):
+            codec.to_dict(TextElement(id="t1", content="x"))
+
+    def test_registered_kinds_property(self) -> None:
+        """The registered_kinds property reflects what has been registered."""
+        from punt_lux.protocol.elements.codec import ElementCodec
+
+        def _ser(e: TextElement) -> dict[str, Any]:
+            return {}
+
+        def _de(d: dict[str, Any]) -> TextElement:
+            return TextElement(id="x", content="")
+
+        codec = ElementCodec()
+        assert codec.registered_kinds == frozenset()
+        codec.register("text", TextElement, _ser, _de)
+        assert codec.registered_kinds == frozenset({"text"})

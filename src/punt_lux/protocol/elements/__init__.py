@@ -10,6 +10,11 @@ helpers:
 - ``table``: tabular data with filters and detail panels
 - ``patch``: single-element update payload
 
+The ``codec`` sub-module holds the ``ElementCodec`` class — the dispatch
+table that maps wire ``kind`` strings to (class, to_dict, from_dict)
+triples.  Tests can construct isolated codecs; the production codec is
+the module-level ``_codec`` instance populated at import time.
+
 This ``__init__`` is the package surface: it re-exports every public name,
 assembles the ``Element`` union from per-family contributions, and provides
 the ``element_to_dict`` / ``element_from_dict`` dispatchers.
@@ -17,7 +22,6 @@ the ``element_to_dict`` / ``element_from_dict`` dispatchers.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import replace
 from typing import Any
 
@@ -26,8 +30,6 @@ from punt_lux.protocol.elements import layout
 # _strip_none is re-exported for protocol.messages.scene; it lives in basics
 # because both basics codecs and the message codecs use it.
 from punt_lux.protocol.elements.basics import (
-    DESERIALIZERS as _BASICS_DESERIALIZERS,
-    SERIALIZERS as _BASICS_SERIALIZERS,
     ImageElement,
     MarkdownElement,
     ProgressElement,
@@ -35,16 +37,15 @@ from punt_lux.protocol.elements.basics import (
     SpinnerElement,
     TextElement,
     _strip_none as _strip_none,
+    register_codecs as _register_basics,
 )
+from punt_lux.protocol.elements.codec import ElementCodec
 from punt_lux.protocol.elements.graphics import (
-    DESERIALIZERS as _GRAPHICS_DESERIALIZERS,
-    SERIALIZERS as _GRAPHICS_SERIALIZERS,
     DrawElement,
     PlotElement,
+    register_codecs as _register_graphics,
 )
 from punt_lux.protocol.elements.inputs import (
-    DESERIALIZERS as _INPUTS_DESERIALIZERS,
-    SERIALIZERS as _INPUTS_SERIALIZERS,
     ButtonElement,
     CheckboxElement,
     ColorPickerElement,
@@ -54,16 +55,16 @@ from punt_lux.protocol.elements.inputs import (
     RadioElement,
     SelectableElement,
     SliderElement,
+    register_codecs as _register_inputs,
 )
 from punt_lux.protocol.elements.layout import (
-    DESERIALIZERS as _LAYOUT_DESERIALIZERS,
-    SERIALIZERS as _LAYOUT_SERIALIZERS,
     CollapsingHeaderElement,
     GroupElement,
     ModalElement,
     TabBarElement,
     TreeElement,
     WindowElement,
+    register_codecs as _register_layout,
 )
 
 # _patch_to_dict / _patch_from_dict are re-exported for protocol.messages.scene
@@ -74,11 +75,10 @@ from punt_lux.protocol.elements.patch import (
     _patch_to_dict as _patch_to_dict,
 )
 from punt_lux.protocol.elements.table import (
-    DESERIALIZERS as _TABLE_DESERIALIZERS,
-    SERIALIZERS as _TABLE_SERIALIZERS,
     TableDetail,
     TableElement,
     TableFilter,
+    register_codecs as _register_table,
 )
 
 __all__ = [
@@ -152,35 +152,24 @@ Element = (
 )
 
 
-_ELEMENT_SERIALIZERS: dict[type, Callable[..., dict[str, Any]]] = {
-    **_BASICS_SERIALIZERS,
-    **_INPUTS_SERIALIZERS,
-    **_LAYOUT_SERIALIZERS,
-    **_GRAPHICS_SERIALIZERS,
-    **_TABLE_SERIALIZERS,
-}
-
-
-_ELEMENT_DESERIALIZERS: dict[str, Callable[[dict[str, Any]], Element]] = {
-    **_BASICS_DESERIALIZERS,
-    **_INPUTS_DESERIALIZERS,
-    **_LAYOUT_DESERIALIZERS,
-    **_GRAPHICS_DESERIALIZERS,
-    **_TABLE_DESERIALIZERS,
-}
+# Module-level dispatch codec, populated at import time.  Tests that need
+# isolation construct their own ElementCodec instance directly via the
+# codec sub-module.
+_codec = ElementCodec()
+_register_basics(_codec.register)
+_register_inputs(_codec.register)
+_register_layout(_codec.register)
+_register_graphics(_codec.register)
+_register_table(_codec.register)
 
 
 def _element_to_dict(elem: Element) -> dict[str, Any]:
     """Serialize an Element dataclass to a JSON-compatible dict."""
-    serializer = _ELEMENT_SERIALIZERS.get(type(elem))
-    if serializer is not None:
-        result: dict[str, Any] = serializer(elem)
-        tooltip = getattr(elem, "tooltip", None)
-        if tooltip is not None:
-            result["tooltip"] = tooltip
-        return result
-    msg = f"Unknown element type: {type(elem)}"
-    raise TypeError(msg)
+    result = _codec.to_dict(elem)
+    tooltip = getattr(elem, "tooltip", None)
+    if tooltip is not None:
+        result["tooltip"] = tooltip
+    return result
 
 
 def element_to_dict(elem: Element) -> dict[str, Any]:
@@ -194,18 +183,13 @@ def element_from_dict(d: dict[str, Any]) -> Element:
     Accepts dicts matching this module's element schema or as supplied by
     MCP tool callers.  Missing ``content``/``label`` keys default to ``""``.
     """
-    kind = d.get("kind", "text")
-    deserializer = _ELEMENT_DESERIALIZERS.get(kind)
-    if deserializer is not None:
-        elem = deserializer(d)
-        tooltip = d.get("tooltip")
-        if tooltip is not None:
-            # Invariant: every Element subtype declares tooltip: str | None = None.
-            # New element types must include this field or element_from_dict will raise.
-            elem = replace(elem, tooltip=tooltip)
-        return elem
-    msg = f"Unknown element kind: {kind!r}"
-    raise ValueError(msg)
+    elem = _codec.from_dict(d)
+    tooltip = d.get("tooltip")
+    if tooltip is not None:
+        # Invariant: every Element subtype declares tooltip: str | None = None.
+        # New element types must include this field or element_from_dict will raise.
+        elem = replace(elem, tooltip=tooltip)
+    return elem
 
 
 # Inject the package-level recursion functions into layout codecs.  Container
