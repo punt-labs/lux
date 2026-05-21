@@ -3,7 +3,7 @@
 **Author:** Alan T (adt)
 **Date:** 2026-05-12
 **Status:** PROPOSED — target state. **Supersedes** `oo-refactoring-plan.md` Step 4.1 (which proposed removing `inspect_scene` / `list_scenes` / `screenshot`).
-**Current state:** the three legacy ops still exist as ad-hoc methods in `display_client.py`. The generic pattern in §1 below is not yet implemented.
+**Current state:** the generic pattern in §1 is **partly implemented**. `QueryRequest` / `QueryResponse` (in `protocol/messages/introspect.py`), `DisplayClient.query()`, and `DisplayServer._handle_query()` are live. Six of the fourteen planned operations are wired (`inspect_scene`, `list_scenes`, `screenshot` plus three via `@_query_tool`); the remaining eight are not yet implemented.
 
 ## Problem
 

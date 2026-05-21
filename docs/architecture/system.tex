@@ -138,15 +138,16 @@ Protocol      & \modpath{protocol/}              & Wire framing (4-byte
                 sub-packages below.
                 \\
 Elements      & \modpath{protocol/elements/}     & 24 element dataclasses
-                across six family modules (\texttt{basics},
+                across seven family modules (\texttt{basics},
                 \texttt{inputs}, \texttt{layout}, \texttt{graphics},
-                \texttt{table}, \texttt{plot\_element}), with the
-                \texttt{ElementCodec} dispatch table in
+                \texttt{table}, \texttt{patch}, \texttt{plot\_element}),
+                with the \texttt{ElementCodec} dispatch table in
                 \texttt{codec.py} (PR \#169, \#172).  Draw commands are
                 split into \texttt{draw\_wire.py},
                 \texttt{draw\_values.py}, \texttt{draw\_bounds.py},
-                \texttt{draw\_decoder.py}, and three command-family
-                modules (PR \#176, \#177).
+                \texttt{draw\_decoder.py}, and four command-family
+                modules (\texttt{draw\_commands\_line/\_shape/\_curve/\_text})
+                (PR \#176, \#177).
                 \\
 Messages      & \modpath{protocol/messages/}     & 21 message dataclasses
                 across five family modules (\texttt{lifecycle},
@@ -157,9 +158,9 @@ Messages      & \modpath{protocol/messages/}     & 21 message dataclasses
                 \\
 Display       & \modpath{display/}               & ImGui render loop,
                 element renderers, event flush.  Six modules:
-                \texttt{server.py} (1{,}370 lines --- the
+                \texttt{server.py} ($\sim$1{,}400 lines --- the
                 \texttt{DisplayServer} coordinator),
-                \texttt{element\_renderer.py} (1{,}130 lines ---
+                \texttt{element\_renderer.py} ($\sim$1{,}100 lines ---
                 per-kind dispatch with a 24-entry \texttt{\_RENDERERS}
                 table),
                 \texttt{table\_renderer.py} (628 lines),
@@ -200,9 +201,10 @@ Query dispatcher & \modpath{query\_dispatcher.py} & \texttt{QueryDispatcher}
                 \texttt{introspection-api.md} for the wire format and
                 handler template.
                 \\
-Client        & \modpath{client.py}              & \texttt{LuxClient}
-                context manager: blocking connect/send/recv on the
-                Unix socket.
+Client        & \modpath{client.py}              & Backward-compat
+                shim that re-exports \texttt{DisplayClient} under the
+                old name \texttt{LuxClient}.  Scheduled for removal
+                (\texttt{lux-3bp8}, per PL-PP-1: no compat aliases).
                 \\
 Display client & \modpath{display\_client.py}    & \texttt{DisplayClient}
                 --- high-level client with a background listener
@@ -1050,8 +1052,8 @@ isolation.
 \section{MCP Tool Surface}\label{sec:tools}
 % ===================================================================
 
-24 tools, registered in \modpath{tools/tools.py}.  17 are declared
-with \texttt{@mcp.tool()} directly; 7 are declared with the
+24 tools, registered in \modpath{tools/tools.py}.  16 are declared
+with \texttt{@mcp.tool()} directly; 8 are declared with the
 \texttt{@\_query\_tool(method=...)} wrapper that routes through the
 generic \msg{QueryRequest} envelope (see
 \texttt{introspection-api.md}).
@@ -1230,7 +1232,7 @@ The OO ratchet (\texttt{make check-oo}) enforces the local rule that
 every commit improves OO scores on touched files.  Aggregate scores
 as of v0.18.0: \texttt{method\_ratio} 0.68 (target $\geq$ 0.80),
 \texttt{max\_complexity} 19 (target $\leq$ 10),
-\texttt{module\_size} 1{,}370 max (target $\leq$ 300) ---
+\texttt{module\_size} $\sim$1{,}400 max (target $\leq$ 300) ---
 \texttt{display/server.py} is the largest remaining decomposition
 target.  See \texttt{docs/oo-refactor/resume.md} for the per-file
 breakdown.
