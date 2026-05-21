@@ -63,9 +63,29 @@ See `docs/architecture.tex` for the full current system description.
 
 ## Code Quality
 
+### OO Python is non-negotiable
+
+Default Python — procedural functions operating on dataclasses, `| None` everywhere, `str` fields with comments listing valid values — fails this project's quality bar. The rules in `../.claude/rules/python-*.md` exist precisely to fix that bias and they are NOT load-bearing unless the agent (or the COO writing a mission YAML) explicitly cites them. The user has had to repeat OO 101 across multiple sessions while agents shipped procedural code. Stop.
+
+**Five rules, cited verbatim in every mission YAML for protocol/data work:**
+
+1. **Classes own data AND behavior** (PY-OO-5). A dataclass with module-level `_<kind>_to_dict(m)` / `_<kind>_from_dict(d)` functions IS procedural code in dataclass clothing. The functions become `to_dict(self)` instance methods and `from_dict(cls, d)` `@classmethod`s. If you find yourself writing a function that takes a dataclass parameter, reads multiple fields, and returns a derivation — that function belongs ON the class.
+
+2. **Families share via Protocol, not base class.** Structural typing. `runtime_checkable` Protocol with `TYPE: ClassVar[str]`, `to_dict`, `from_dict`. Every wire class satisfies it implicitly. No abstract base. No `BaseElement`. Tests assert `isinstance(x, WireType)` for the family contract.
+
+3. **Composition over inheritance** (PY-IC-1). Shared shapes — e.g., `[x, y]` point pairs across draw commands — become small typed value classes (`Point2`) composed into containing classes, not parent state. Helpers like `_strip_none` are module-level utility functions called from instance methods, not methods of a base class.
+
+4. **No `str` with a comment listing valid values.** Replace with `Literal[...]`. `layout: str = "rows"  # "rows" | "columns" | "paged"` → `layout: Literal["rows", "columns", "paged"] = "rows"`. The comment was the type system giving up; Literal is the actual type. Every `str` field with a comment listing values is a violation. Audit and fix when touching the file.
+
+5. **Reduce `| None` types.** Each Optional is a place the type system gave up. Per-field, ask: is this really "absent", or is it a discriminated state? `color: str | None = None` (meaning "renderer default") → `color: str = "#FFFFFF"`. `error: str | None = None` on a response → discriminated `OkResponse` vs `ErrorResponse`. `path | data` validated one-or-the-other → discriminated `PathImage` vs `DataImage`. Genuinely-optional attributes (e.g., `tooltip`) stay.
+
+**Mission YAMLs for protocol/data work open with the rules in scope, citing IDs and showing one BEFORE/AFTER example.** Sub-agents inherit the training-data bias toward procedural Python unless the prompt is explicit; explicit means cite-and-show. Don't dispatch a sub-agent on protocol/data work without these in the YAML's first 20 lines.
+
+### Module-size constraints
+
 **`display.py` (4,200 lines) must be decomposed before new features are added to it.** Any PR that adds rendering logic to display.py without extracting existing code will be rejected. This is the single most important code quality constraint in this project — the file is too large to test effectively, too large to reason about, and every change to it risks regressions elsewhere in the renderer.
 
-**`protocol.py` serialization** — 73 module-level functions that should be methods on protocol dataclasses. Replace with method-based serialization when touching this file. The current layer is a parallel set of functions that duplicates the protocol type hierarchy — a textbook violation of the OO principle that data and behavior belong together.
+**`protocol.py` serialization** — 73 module-level functions that should be methods on protocol dataclasses. Replace with method-based serialization when touching this file. The current layer is a parallel set of functions that duplicates the protocol type hierarchy — a textbook violation of the OO principle that data and behavior belong together. Phase A (PRs #169, #170, #172) split the file but DID NOT fix the procedural codec pattern — same OO debt now spread across 11 family modules instead of 2. Tracked as lux-x4kb. When you touch any of those files, fix the codec while you're there; do not file a follow-up bead.
 
 **MCP tool boilerplate** — 29 MCP tools in `server.py` with identical boilerplate. This signals a missing abstraction. Extract the pattern into a decorator or registry.
 
