@@ -7,11 +7,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal, Self
 
-from punt_lux.protocol.elements.draw_command_kind import DrawCommandKind
+from punt_lux.protocol.elements.draw_command_kind import DrawCommandKind, WireDict
 from punt_lux.protocol.elements.draw_values import WHITE, Color, Point2
+from punt_lux.protocol.elements.draw_wire import WireContext
 
 __all__ = ["TextCmd"]
 
@@ -25,7 +27,7 @@ class TextCmd:
     color: Color = WHITE
     kind: Literal[DrawCommandKind.TEXT] = DrawCommandKind.TEXT
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> WireDict:
         """Serialize this command to its wire dict form."""
         return {
             "cmd": self.kind.value,
@@ -33,3 +35,14 @@ class TextCmd:
             "text": self.text,
             "color": self.color.to_wire(),
         }
+
+    @classmethod
+    def from_wire(cls, d: Mapping[str, object], *, ctx: WireContext) -> Self:
+        """Build a ``TextCmd`` from a wire dict."""
+        pos = Point2.from_wire(ctx.require_field(d, "pos"), ctx=ctx, field="pos")
+        text = ctx.require_string(ctx.require_field(d, "text"), "text")
+        return cls(
+            pos=pos,
+            text=text,
+            color=Color.from_wire_optional(d, ctx=ctx, field="color", default=WHITE),
+        )

@@ -10,7 +10,7 @@ from punt_lux.protocol.elements.draw_wire import WireContext
 
 @pytest.fixture
 def ctx() -> WireContext:
-    return WireContext(kind="line", index=0)
+    return WireContext.for_indexed("line", 0)
 
 
 class TestPoint2:

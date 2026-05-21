@@ -10,7 +10,7 @@ from punt_lux.protocol.elements.draw_wire import WireContext
 
 @pytest.fixture
 def ctx() -> WireContext:
-    return WireContext(kind="circle", index=0)
+    return WireContext.for_indexed("circle", 0)
 
 
 class TestRadius:
@@ -27,6 +27,10 @@ class TestRadius:
     def test_rejects_negative(self) -> None:
         with pytest.raises(ValueError, match="> 0"):
             Radius(-1)
+
+    def test_rejects_bool(self) -> None:
+        with pytest.raises(ValueError, match="> 0"):
+            Radius(True)
 
     def test_from_wire_round_trips(self, ctx: WireContext) -> None:
         r = Radius.from_wire(2.5, ctx=ctx, field="radius")
@@ -50,6 +54,12 @@ class TestRounding:
     def test_rejects_negative(self) -> None:
         with pytest.raises(ValueError, match=">= 0"):
             Rounding(-1)
+
+    def test_rejects_bool(self) -> None:
+        # True coerces to 1 silently through `int <= float` — must be rejected
+        # explicitly so to_wire() doesn't return True instead of a float.
+        with pytest.raises(ValueError, match=">= 0"):
+            Rounding(True)
 
     def test_from_wire_accepts_zero(self, ctx: WireContext) -> None:
         r = Rounding.from_wire(0, ctx=ctx, field="rounding")

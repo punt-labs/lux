@@ -10,10 +10,11 @@ classes can't see that constraint because it spans fields.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal, Self
 
-from punt_lux.protocol.elements.draw_command_kind import DrawCommandKind
+from punt_lux.protocol.elements.draw_command_kind import DrawCommandKind, WireDict
 from punt_lux.protocol.elements.draw_values import (
     DEFAULT_THICKNESS,
     WHITE,
@@ -21,6 +22,7 @@ from punt_lux.protocol.elements.draw_values import (
     Point2,
     Thickness,
 )
+from punt_lux.protocol.elements.draw_wire import WireContext
 
 __all__ = [
     "LineCmd",
@@ -38,7 +40,7 @@ class LineCmd:
     thickness: Thickness = DEFAULT_THICKNESS
     kind: Literal[DrawCommandKind.LINE] = DrawCommandKind.LINE
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> WireDict:
         """Serialize this command to its wire dict form."""
         return {
             "cmd": self.kind.value,
@@ -47,6 +49,18 @@ class LineCmd:
             "color": self.color.to_wire(),
             "thickness": self.thickness.to_wire(),
         }
+
+    @classmethod
+    def from_wire(cls, d: Mapping[str, object], *, ctx: WireContext) -> Self:
+        """Build a ``LineCmd`` from a wire dict."""
+        return cls(
+            p1=Point2.from_wire(ctx.require_field(d, "p1"), ctx=ctx, field="p1"),
+            p2=Point2.from_wire(ctx.require_field(d, "p2"), ctx=ctx, field="p2"),
+            color=Color.from_wire_optional(d, ctx=ctx, field="color", default=WHITE),
+            thickness=Thickness.from_wire_optional(
+                d, ctx=ctx, field="thickness", default=DEFAULT_THICKNESS
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -67,7 +81,7 @@ class PolylineCmd:
             )
             raise ValueError(msg)
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> WireDict:
         """Serialize this command to its wire dict form."""
         return {
             "cmd": self.kind.value,
@@ -76,3 +90,24 @@ class PolylineCmd:
             "thickness": self.thickness.to_wire(),
             "closed": self.closed,
         }
+
+    @classmethod
+    def from_wire(cls, d: Mapping[str, object], *, ctx: WireContext) -> Self:
+        """Build a ``PolylineCmd`` from a wire dict."""
+        raw_points = ctx.require_field(d, "points")
+        # require_sequence raises with a clear "must be a list or tuple"
+        # message — let it propagate. Wrapping it in a higher-level
+        # field_error would discard that information.
+        seq = ctx.require_sequence(raw_points, "points")
+        points = tuple(
+            Point2.from_wire(p, ctx=ctx, field=f"points[{i}]")
+            for i, p in enumerate(seq)
+        )
+        return cls(
+            points=points,
+            color=Color.from_wire_optional(d, ctx=ctx, field="color", default=WHITE),
+            thickness=Thickness.from_wire_optional(
+                d, ctx=ctx, field="thickness", default=DEFAULT_THICKNESS
+            ),
+            closed=ctx.optional_bool(d, "closed", default=False),
+        )

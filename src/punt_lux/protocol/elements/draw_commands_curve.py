@@ -7,10 +7,11 @@ control points. The class is a frozen, slotted dataclass composing four
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Literal, Self
 
-from punt_lux.protocol.elements.draw_command_kind import DrawCommandKind
+from punt_lux.protocol.elements.draw_command_kind import DrawCommandKind, WireDict
 from punt_lux.protocol.elements.draw_values import (
     DEFAULT_THICKNESS,
     WHITE,
@@ -18,6 +19,7 @@ from punt_lux.protocol.elements.draw_values import (
     Point2,
     Thickness,
 )
+from punt_lux.protocol.elements.draw_wire import WireContext
 
 __all__ = ["BezierCubicCmd"]
 
@@ -34,7 +36,7 @@ class BezierCubicCmd:
     thickness: Thickness = DEFAULT_THICKNESS
     kind: Literal[DrawCommandKind.BEZIER_CUBIC] = DrawCommandKind.BEZIER_CUBIC
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> WireDict:
         """Serialize this command to its wire dict form."""
         return {
             "cmd": self.kind.value,
@@ -45,3 +47,21 @@ class BezierCubicCmd:
             "color": self.color.to_wire(),
             "thickness": self.thickness.to_wire(),
         }
+
+    @classmethod
+    def from_wire(cls, d: Mapping[str, object], *, ctx: WireContext) -> Self:
+        """Build a ``BezierCubicCmd`` from a wire dict."""
+        pts = tuple(
+            Point2.from_wire(ctx.require_field(d, name), ctx=ctx, field=name)
+            for name in ("p1", "p2", "p3", "p4")
+        )
+        return cls(
+            p1=pts[0],
+            p2=pts[1],
+            p3=pts[2],
+            p4=pts[3],
+            color=Color.from_wire_optional(d, ctx=ctx, field="color", default=WHITE),
+            thickness=Thickness.from_wire_optional(
+                d, ctx=ctx, field="thickness", default=DEFAULT_THICKNESS
+            ),
+        )

@@ -6,22 +6,21 @@ renderer expects.  ``Thickness`` is the strictly-positive stroke width
 that line, rect, circle, triangle, polyline, and bezier commands share.
 
 Each is a frozen, slotted dataclass with a ``__post_init__`` that runs
-the construction-time invariant and a ``from_wire`` boundary
+the construction-time bound check and a ``from_wire`` boundary
 constructor.  The boundary constructor consumes a ``WireContext`` from
 ``draw_wire`` and reports any malformed input in the project's standard
-``draw command [i] (kind) field 'name' must be ...; got ...`` form.
+``draw command [i] (kind) field 'name' must be ...; got ...`` form.  The
+wire path validates types via the context; the direct constructor
+trusts its type annotation.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Final
+from typing import ClassVar, Final
 
-from punt_lux.protocol.elements.draw_wire import (
-    WireContext,
-    coerce_number,
-    object_sequence,
-)
+from punt_lux.protocol.elements.draw_wire import WireContext
 
 __all__ = [
     "DEFAULT_THICKNESS",
@@ -51,29 +50,38 @@ class Point2:
         ctx: WireContext,
         field: str,
     ) -> Point2:
-        """Build a ``Point2`` from a wire 2-element ``[x, y]`` sequence."""
-        seq = object_sequence(raw)
-        if seq is None or len(seq) != 2:
+        """Build a ``Point2`` from a wire 2-element ``[x, y]`` sequence.
+
+        Reports any malformed input as a ``[x, y] number pair`` error.
+        Inner primitive errors from ``WireContext.require_sequence`` and
+        ``require_number`` chain via ``__cause__`` for debugging.
+        """
+        try:
+            seq = ctx.require_sequence(raw, field)
+        except ValueError as exc:
+            raise ctx.field_error(field, "[x, y] number pair", raw) from exc
+        if len(seq) != 2:
             raise ctx.field_error(field, "[x, y] number pair", raw)
-        x = coerce_number(seq[0])
-        y = coerce_number(seq[1])
-        if x is None or y is None:
-            raise ctx.field_error(field, "[x, y] number pair", raw)
+        try:
+            x = ctx.require_number(seq[0], f"{field}[0]")
+            y = ctx.require_number(seq[1], f"{field}[1]")
+        except ValueError as exc:
+            raise ctx.field_error(field, "[x, y] number pair", raw) from exc
         return cls(x=x, y=y)
-
-
-_HEX_LENGTHS: Final = frozenset({7, 9})  # '#RRGGBB' or '#RRGGBBAA'
 
 
 @dataclass(frozen=True, slots=True)
 class Color:
     """Hex-encoded RGB(A) color: ``#RRGGBB`` or ``#RRGGBBAA``."""
 
+    # Valid hex-string lengths: 7 for #RRGGBB, 9 for #RRGGBBAA.
+    _VALID_LENGTHS: ClassVar[frozenset[int]] = frozenset({7, 9})
+
     value: str
 
     def __post_init__(self) -> None:
         v = self.value
-        if not v.startswith("#") or len(v) not in _HEX_LENGTHS:
+        if not v.startswith("#") or len(v) not in Color._VALID_LENGTHS:
             msg = f"Color must be hex string '#RRGGBB' or '#RRGGBBAA'; got {v!r}"
             raise ValueError(msg)
         try:
@@ -90,7 +98,12 @@ class Color:
         ctx: WireContext,
         field: str,
     ) -> Color:
-        """Build a ``Color`` from a wire value (a hex string)."""
+        """Build a ``Color`` from a wire value (a hex string).
+
+        Reports any malformed input (wrong type or invalid format) as a
+        ``hex color`` error — that's the domain-level expectation, more
+        informative for the user than the underlying "must be string".
+        """
         if not isinstance(raw, str):
             raise ctx.field_error(field, "hex color '#RRGGBB' or '#RRGGBBAA'", raw)
         try:
@@ -99,6 +112,20 @@ class Color:
             raise ctx.field_error(
                 field, "hex color '#RRGGBB' or '#RRGGBBAA'", raw
             ) from exc
+
+    @classmethod
+    def from_wire_optional(
+        cls,
+        d: Mapping[str, object],
+        *,
+        ctx: WireContext,
+        field: str,
+        default: Color,
+    ) -> Color:
+        """Decode ``d[field]`` to a ``Color``, or return ``default`` if absent."""
+        if field not in d:
+            return default
+        return cls.from_wire(d[field], ctx=ctx, field=field)
 
     def to_wire(self) -> str:
         """Return the canonical hex-string wire form."""
@@ -115,11 +142,13 @@ class Thickness:
     value: float
 
     def __post_init__(self) -> None:
-        coerced = coerce_number(self.value)
-        if coerced is None or coerced <= 0:
+        # bool is a subclass of int → coerces silently through the float
+        # annotation. Reject explicitly. Direct callers that need a Thickness
+        # must pass a real float; the wire path uses `from_wire` which goes
+        # through `WireContext.require_number` and always lands on float.
+        if isinstance(self.value, bool) or self.value <= 0:
             msg = f"Thickness must be a number > 0; got {self.value!r}"
             raise ValueError(msg)
-        object.__setattr__(self, "value", coerced)
 
     @classmethod
     def from_wire(
@@ -130,10 +159,24 @@ class Thickness:
         field: str,
     ) -> Thickness:
         """Build a ``Thickness`` from a wire value."""
-        coerced = coerce_number(raw)
-        if coerced is None or coerced <= 0:
+        n = ctx.require_number(raw, field)
+        if n <= 0:
             raise ctx.field_error(field, "a number > 0", raw)
-        return cls(coerced)
+        return cls(n)
+
+    @classmethod
+    def from_wire_optional(
+        cls,
+        d: Mapping[str, object],
+        *,
+        ctx: WireContext,
+        field: str,
+        default: Thickness,
+    ) -> Thickness:
+        """Decode ``d[field]`` to a ``Thickness``, or return ``default`` if absent."""
+        if field not in d:
+            return default
+        return cls.from_wire(d[field], ctx=ctx, field=field)
 
     def to_wire(self) -> float:
         """Return the float wire form."""

@@ -17,7 +17,20 @@ from typing import Any, Protocol, runtime_checkable
 __all__ = [
     "DrawCommand",
     "DrawCommandKind",
+    "WireDict",
 ]
+
+
+# PY-TS-14 justification: the JSON-serialised draw-command wire shape is a
+# tagged-union whose key set varies per command kind (a circle has "center"
+# and "radius"; a triangle has "p1"/"p2"/"p3"; a polyline carries a list of
+# coordinate lists).  Each individual command's *concrete* shape is fully
+# known via its typed dataclass — but the union at the Protocol level cannot
+# be tightened without restating every per-kind schema as a TypedDict alias
+# and reimporting it everywhere.  The `dict[str, Any]` here is the
+# wire-boundary type, narrowed back to typed values immediately by the
+# decoder; downstream code never touches this dict directly.
+type WireDict = dict[str, Any]
 
 
 class DrawCommandKind(StrEnum):
@@ -46,6 +59,6 @@ class DrawCommand(Protocol):
         """Wire-kind identifier for this command."""
         ...
 
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> WireDict:
         """Serialize this command to its wire dict form."""
         ...
