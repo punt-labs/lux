@@ -1,5 +1,7 @@
 # Design: Lux Domain Model — North Star
 
+**Author:** Claude Agento (claude)
+**Date:** 2026-05-21
 **Status:** NORTH STAR (target state; not yet implemented)
 **Companion:** `docs/architecture/x11-model.md` (process tiers)
 **Audience:** anyone modifying `protocol/`, `display/`, `hub/`, or planning OO work
@@ -107,8 +109,12 @@ update sequence in the model, not a primitive.
 
 ### Event
 
-What the domain emits after a successful Update. Adapters subscribe to events
-to drive renders, serialise to wire format, mirror to a peer, etc.
+What the domain emits in response to an Update — whether the Update
+succeeded or was refused. Subscribers (Ports) listen to events to drive
+renders, serialise to wire format, mirror to a peer, etc. Events
+partition into two kinds:
+
+**Success events** (the Update was applied):
 
 - `ElementAdded(scene_id, element_id, parent_id, owner_id, snapshot)`
 - `ElementRemoved(scene_id, element_id, owner_id)`
@@ -116,24 +122,56 @@ to drive renders, serialise to wire format, mirror to a peer, etc.
 - `ElementReparented(scene_id, element_id, old_parent_id, new_parent_id, position, owner_id)`
 - `ClientConnected(client_id)`
 - `ClientDisconnected(client_id)`
+
+**Failure events** (the Update was refused; no state change occurred):
+
 - `OwnershipError(scene_id, element_id, attempting_client_id, owning_client_id, attempted_update)`
+- `DuplicateIdError(scene_id, element_id, attempted_update)`
+- `CycleError(scene_id, element_id, proposed_parent_id, attempted_update)`
+- `PropertyTypeError(scene_id, element_id, field, expected_type, got_value, attempted_update)`
 
 Events are immutable, ordered, and replayable. A new subscriber can
-reconstruct a Scene by replaying the event log from the beginning.
+reconstruct a Scene by replaying the success-event log from the
+beginning; failure events are advisory, not part of state recovery.
 
-### RenderTarget
+### Interaction
 
-An adapter that consumes Events and produces visual output. Not part of the
-domain — a port.
+Input from a human at the display, routed through the domain to the
+client that owns the affected element. Concrete kinds:
+`ButtonClicked(element_id)`, `SliderMoved(element_id, value)`,
+`TextInputChanged(element_id, text)`, `ItemSelected(element_id, index)`,
+`TabSwitched(element_id, tab_index)`, `WindowClosed(element_id)`.
 
-- `ImGuiRenderer` — translates Events into ImGui draw calls and widget
-  invocations. Owns no domain state; reads the Scene snapshot at frame
-  time and walks the dirty subtree.
-- `JsonCodec` — translates Updates and Events to/from JSON for the
+An Interaction is **not** an Update and **not** an Event. It is a third
+shape: a signal originated by the renderer (the synthetic "input client")
+that the Display routes to the element's owning Client as a message. The
+Client's app code decides whether to respond by submitting an Update
+(e.g., a button click that toggles a flag). The renderer never mutates
+the tree directly in response to input.
+
+### Port
+
+An adapter at the boundary between the domain and an external concern.
+A Port is not part of the domain — it lives in `display/`, `hub/`,
+`transport/`, `test/`, etc., and is the one place that knows about
+ImGui, JSON, sockets, or any specific I/O. Ports come in two flavours:
+
+**Consumers** (subscribe to events; one-directional from domain → world):
+
+- `ImGuiRenderer` — translates success events into ImGui draw calls and
+  widget invocations. Owns no domain state; reads the Scene snapshot
+  at frame time and walks the dirty subtree. Also originates
+  `Interaction` signals from ImGui input.
+- `EventRecorder` — captures the event stream for replay / audit.
+- `TestRecorder` — captures events into a list for unit-test assertions.
+
+**Codecs** (bidirectional; translate between domain types and external
+formats):
+
+- `JsonCodec` — `Update` ⇄ JSON, `Event` ⇄ JSON, used by the
   hub↔display socket transport.
-- `TestRenderer` — captures Events into a list for unit-test assertions.
-- (future) `WebRenderer`, `SvgExporter`, `Recorder` — any new backend
-  is a new port.
+- (future) `BinaryCodec`, `OtlpCodec` — any wire format is a new
+  codec.
 
 ### Display
 
@@ -173,20 +211,26 @@ enforced before any adapter sees the result.
 
 A frequent confusion this model eliminates:
 
-- **Rendering updates** are domain-level. "This subtree changed" means the
-  ImGuiRenderer (or any other RenderTarget) should redraw it on the next
-  frame. The domain marks subtrees dirty in response to Updates; it does
-  not know about frames, 60fps, or pixels.
-- **Refresh** is the renderer's loop. ImGui runs at 60fps; on every frame
-  it walks the dirty subtree (or the whole tree, if performance permits)
-  and issues draw calls. The domain has no opinion about refresh rate.
+- **Rendering updates** are domain-level. "This subtree changed" means
+  the `ImGuiRenderer` (or any other consumer Port) should redraw it on
+  the next frame. The domain marks subtrees dirty in response to
+  Updates; it does not know about frames, 60fps, or pixels.
+- **Refresh** is the renderer's loop. ImGui runs at 60fps; on every
+  frame it walks the dirty subtree (or the whole tree, if performance
+  permits) and issues draw calls. The domain has no opinion about
+  refresh rate.
 
-The same applies to input. ImGui detects a click; the renderer translates
+The same applies to input. ImGui detects a click; the renderer maps
 the click coordinates to an Element identity and emits an `Interaction`
-event in domain terms — `ButtonClicked(element_id)`, `SliderMoved(element_id, value)`,
-etc. The Interaction goes back through the domain to whatever Client owns
-the Element. ImGui keyboard repeat rates and event coalescing live on the
-renderer side.
+signal (see the Vocabulary). The Display routes the Interaction to the
+Client that owns the Element. The Client's app code decides what to do
+— typically it submits an `Update` (`SetProperty`, `RemoveElement`,
+etc.) which then goes through the normal validation-and-emit cycle.
+
+Interactions are not Updates and not Events. They sit between the
+renderer and the domain: input on the way in, normal Updates and Events
+on the way back out. ImGui keyboard repeat rates and event coalescing
+live entirely on the renderer side.
 
 ## Ports — the adapter boundary
 
