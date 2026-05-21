@@ -1712,6 +1712,13 @@ CI workflows changed from `uv sync --frozen --extra dev` to `uv sync --frozen --
 
 Base install dropped from ~66 MB to ~2 MB. Vox and Z-Spec benefit automatically — both already gate punt-lux behind an optional `lux` extra in their own pyproject.toml. Pattern codified in punt-kit standards: [python.md § Dependency layering](https://github.com/punt-labs/punt-kit/blob/main/standards/python.md) and [distribution.md § EXTRAS pin](https://github.com/punt-labs/punt-kit/blob/main/standards/distribution.md).
 
+> **Follow-on (2026-05-21):** `pyobjc-framework-Cocoa` removed from the
+> `[display]` extra. It was added exclusively for the macOS Dock-hiding
+> call (`NSApplication.setActivationPolicy_(NSApplicationActivationPolicyAccessory)`),
+> which has been reversed — the display server now runs as a normal Dock
+> app per GLFW's default activation policy. `pyobjc-framework-Quartz`
+> remains, pre-staged for DES-028 (CG screenshot approach).
+
 ---
 
 ## DES-024: Table Row Select Event
