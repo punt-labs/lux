@@ -93,8 +93,12 @@ mutation is one of these:
   element with a new one of the same kind (preserves id and ownership).
 
 Every Update carries the originating `ClientId`. The domain validates that
-the client owns the target before applying. Unauthorised Updates raise
-`OwnershipError` and emit no events.
+the client owns the target before applying. Unauthorised Updates do not
+apply the requested mutation; instead the domain emits a single
+`OwnershipError` event (see the Event vocabulary below) so subscribers
+that need to react to refused mutations — error UIs, audit logs — see
+them. No `ElementAdded` / `ElementUpdated` / `ElementRemoved` event
+fires for a refused Update.
 
 Full-scene replacement (today's mode of operation) is a degenerate case:
 `RemoveElement(scene root) + AddElement(scene root, new tree)`. The wire
@@ -254,15 +258,20 @@ Concretely, this test should be writable:
 ```python
 def test_client_cannot_mutate_other_clients_elements() -> None:
     display = Display()
-    alice = display.connect_client(name="alice")
-    bob = display.connect_client(name="bob")
+    alice_id = display.connect_client(name="alice")
+    bob_id = display.connect_client(name="bob")
 
-    scene = display.add_scene("s1")
-    button = display.apply(alice, AddElement("s1", None, Button(id="b1", label="hi")))
-    assert isinstance(button, ElementAdded)
+    display.add_scene("s1")
+    result = display.apply(
+        alice_id,
+        AddElement("s1", parent_id=None, element=Button(id="b1", label="hi")),
+    )
+    assert isinstance(result, ElementAdded)
 
-    with pytest.raises(OwnershipError):
-        display.apply(bob, SetProperty("s1", "b1", "label", "evil"))
+    refused = display.apply(
+        bob_id, SetProperty("s1", "b1", "label", "evil")
+    )
+    assert isinstance(refused, OwnershipError)
 
     assert display.snapshot("s1").element("b1").label == "hi"
 ```
@@ -324,9 +333,11 @@ translated to a `RemoveAll + AddElement` sequence.
 
 ### Stage 5 — decompose the renderer
 
-`element_renderer.py` (4,200 lines) splits into per-kind renderers that
-each subscribe to Events for their kind. The renderer becomes a Visitor
-over the live tree rather than an imperative switch over a snapshot dict.
+`element_renderer.py` (today: one file, ~1,100 lines, dispatches every
+element kind through a single `_RENDERERS` table) splits into per-kind
+renderers that each subscribe to Events for their kind. The renderer
+becomes a Visitor over the live tree rather than an imperative switch
+over a snapshot dict.
 
 ### Stage 6 — split process boundary
 
