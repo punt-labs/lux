@@ -385,8 +385,9 @@ mcp-proxy --WS-->        luxd --TCP-->                   lux-display
 
 We are not building this now. The architecture does not prevent it.
 The Unix socket can be replaced with a TCP socket in `DisplayClient`
-and `display.py` without changing the protocol (same length-prefixed
-JSON, different transport). `luxd` would need a `--display-host` flag.
+and the `display/` package without changing the protocol (same
+length-prefixed JSON, different transport). `luxd` would need a
+`--display-host` flag.
 
 The constraint is latency: ImGui renders at 60fps, and the
 `luxd`-to-display leg carries element trees that can be tens of KB.

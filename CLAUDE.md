@@ -26,7 +26,7 @@ An agent calls an MCP tool (e.g., `show_table()`, `show_dashboard()`). The MCP s
 
 ### Key architectural boundary: protocol vs. rendering
 
-The **JSON protocol** (`protocol.py`) is the API surface. Agents describe what they want as a tree of typed elements — tables, text, plots, groups, buttons, sliders, etc. The **rendering layer** (`display.py`) consumes the protocol and paints ImGui widgets. Changes to the protocol are contract changes — every consumer (agents, tests, the display) depends on them. Changes to rendering are implementation — they affect only the display process.
+The **JSON protocol** (the `protocol/` package — `elements/`, `messages/`) is the API surface. Agents describe what they want as a tree of typed elements — tables, text, plots, groups, buttons, sliders, etc. The **rendering layer** (the `display/` package — `server.py`, `element_renderer.py`, `table_renderer.py`, `menu_manager.py`, `texture_cache.py`, `idle_screen.py`) consumes the protocol and paints ImGui widgets. Changes to the protocol are contract changes — every consumer (agents, tests, the display) depends on them. Changes to rendering are implementation — they affect only the display process.
 
 This separation means: protocol bugs break agents. Rendering bugs break the display. They overlap only when a new element kind is added (protocol + rendering in a single coordinated change).
 
@@ -38,20 +38,28 @@ This separation means: protocol bugs break agents. Rendering bugs break the disp
 
 This is a proposal (`docs/architecture-x11-model.md`). The current implementation has the display and hub in one process. The three-tier split is the target architecture for v1 completion.
 
-### Key modules
+### Key packages and modules
 
 | Module | Responsibility |
 |--------|---------------|
-| `display.py` | ImGui rendering — **4,200 lines, known debt, must decompose** |
-| `protocol.py` | JSON element types and serialization — **73 module-level functions, must migrate to methods** |
-| `scene.py` | Scene state management: create, update, composite |
-| `server.py` | FastMCP tool surface: `show`, `update`, `clear`, `show_table`, `show_dashboard`, etc. |
-| `client.py` | Unix socket client for display ↔ hub communication |
-| `applet.py` | Self-hosted display widget for embedding in other apps |
+| `display/server.py` | ImGui render loop and coordinator — **1,370 lines, still over the 300-line target; remaining debt from the original `display.py`** |
+| `display/element_renderer.py` | Per-element-kind ImGui dispatch — **1,130 lines, still over target** |
+| `display/table_renderer.py` | Table widget with filters, search, row selection |
+| `display/menu_manager.py` | Application menu bar |
+| `display/texture_cache.py` | Image texture upload + LRU |
+| `display/idle_screen.py` | Idle splash when no scene is active |
+| `protocol/elements/*.py` | JSON element types (24 kinds across 6 family modules: basics, inputs, layout, graphics, table, patch) |
+| `protocol/messages/*.py` | Wire message types (21 kinds across 5 modules: lifecycle, scene, interaction, menu, introspect) |
+| `protocol/elements/codec.py` | `ElementCodec` registry — per-kind dispatch table |
+| `scene/manager.py` | `SceneManager` — scene state, frame composition |
+| `tools/server.py` | FastMCP server — `show`, `update`, `clear`, `show_table`, `show_dashboard`, etc. |
+| `tools/tools.py` | Individual MCP tool definitions |
+| `display_client.py` | `DisplayClient` — Unix socket client for clients → display |
+| `apps/beads.py` | `BeadsBrowser` — beads issue browser app |
 
 24 element kinds covering ImGui's core primitives. Primary consumers: beads issue browser (`show_table()`), dashboards (`show_dashboard()`), architecture diagrams (`show_diagram()`).
 
-See `docs/architecture.tex` for the full current system description.
+See `docs/architecture/system.tex` for the comprehensive technical architecture; `docs/architecture/domain-model.md` for the OO north star.
 
 ### Vision
 
@@ -83,11 +91,11 @@ Default Python — procedural functions operating on dataclasses, `| None` every
 
 ### Module-size constraints
 
-**`display.py` (4,200 lines) must be decomposed before new features are added to it.** Any PR that adds rendering logic to display.py without extracting existing code will be rejected. This is the single most important code quality constraint in this project — the file is too large to test effectively, too large to reason about, and every change to it risks regressions elsewhere in the renderer.
+**`display/server.py` (1,370 lines) and `display/element_renderer.py` (1,130 lines) must be decomposed further** — both are over the 300-line target. Any PR that adds rendering logic to either without extracting existing code will be rejected. The original `display.py` was 4,208 lines; PR #158 split it into the `display/` package, but `server.py` and `element_renderer.py` carry the bulk of the original mass.
 
-**`protocol.py` serialization** — 73 module-level functions that should be methods on protocol dataclasses. Replace with method-based serialization when touching this file. The current layer is a parallel set of functions that duplicates the protocol type hierarchy — a textbook violation of the OO principle that data and behavior belong together. Phase A (PRs #169, #170, #172) split the file but DID NOT fix the procedural codec pattern — same OO debt now spread across 11 family modules instead of 2. Tracked as lux-x4kb. When you touch any of those files, fix the codec while you're there; do not file a follow-up bead.
+**Protocol codec functions** — every `protocol/elements/*.py` and `protocol/messages/*.py` module still uses module-level `_<kind>_to_dict` / `_<kind>_from_dict` functions instead of methods on the dataclasses. Phase A (PRs #169, #170, #172) split the file but DID NOT fix the procedural codec pattern — same OO debt now spread across 11 family modules instead of 2. The draw-command surface (PR #176) is the one corner that fixed it. When you touch any of those files, fix the codec while you're there; do not file a follow-up bead.
 
-**MCP tool boilerplate** — 29 MCP tools in `server.py` with identical boilerplate. This signals a missing abstraction. Extract the pattern into a decorator or registry.
+**MCP tool boilerplate** — 29 MCP tools in `tools/tools.py` (registered via `tools/server.py` and exposed by `tools/connection.py`) with identical boilerplate. This signals a missing abstraction. Extract the pattern into a decorator or registry — see `docs/architecture/introspection-api.md` for the proposed `QueryRequest` / `QueryResponse` envelope.
 
 **OO ratchet:** `make check-oo` (part of `make check`) compares current OO scores against `.oo-baseline.json`. It passes only if no metric regressed on touched files and at least one metric improved. It fails if any metric got worse or nothing improved.
 
@@ -109,7 +117,7 @@ Bootstrap (first time only): run `make update-oo` to create the initial baseline
 - `make check-oo` — OO ratchet against baseline.
 - `make update-oo` — update baseline and append to audit log after improvements.
 - `make report` — full diagnostics including per-file OO breakdown.
-- `make metrics` — ABC complexity analysis. `display.py` is at magnitude 1,795.
+- `make metrics` — ABC complexity analysis.
 - `make coverage` — test coverage HTML report.
 
 **Makefile note:** `make check` uses `uv run --extra display` for all targets. pyright runs via `npx pyright` (not `uv run pyright`) because the display extras pull native dependencies that confuse uv's pyright wrapper.
@@ -125,11 +133,11 @@ Bootstrap (first time only): run `make update-oo` to create the initial baseline
 
 ### What good testing means in this project
 
-Lux's biggest testing gap is the rendering layer. `display.py` is 4,200 lines with no automated visual regression tests — correctness is verified manually by looking at the display. This means:
+Lux's biggest testing gap is the rendering layer. `display/server.py` and `display/element_renderer.py` are large and have no automated visual regression tests — correctness is verified manually by looking at the display. This means:
 
 - **Protocol tests are the primary safety net.** Every element kind must have tests that verify serialization roundtrips (build → serialize → deserialize → compare). Protocol changes without tests are unshippable.
 - **Scene tests verify composition.** Multiple elements in a scene, tab switching, window management, detail panels — these must be tested at the scene level even though visual rendering is manual.
-- **Decomposing display.py is prerequisite for meaningful render tests.** Until the 4,200-line file is split into testable units, the rendering layer remains undertested. Every change to display.py that includes extraction improves the testability of the codebase.
+- **Further decomposing `display/server.py` and `display/element_renderer.py` is prerequisite for meaningful render tests.** Until each is split into testable units, the rendering layer remains undertested. Every change that includes extraction improves the testability of the codebase.
 
 ### Key relationships
 
@@ -140,7 +148,7 @@ Lux's biggest testing gap is the rendering layer. `display.py` is 4,200 lines wi
 
 Identity: `agent: claude` per `.punt-labs/ethos.yaml`. All code delegation uses ethos missions. Every non-trivial delegation has two phases: (1) **design mission** — describes problem, constraints, and invariants but does NOT prescribe a write set; (2) **implementation mission** — uses the write set produced by the design phase. The design mission's output IS the write set — the specialist decides what to create, split, or extract.
 
-The COO must not read implementation files before writing the design spec. "Add a handler to display.py at line 923" is a predetermined write set that prevents the specialist from making design decisions. "Add a query operation that returns display metadata — the codebase has a generic query infrastructure, the implementation must follow code quality standards" gives the specialist latitude to decompose and restructure. This is how `display.py` grew to 4,200 lines — write sets were predetermined to existing files instead of letting the specialist extract.
+The COO must not read implementation files before writing the design spec. "Add a handler to `display/server.py` at line 923" is a predetermined write set that prevents the specialist from making design decisions. "Add a query operation that returns display metadata — the codebase has a generic query infrastructure, the implementation must follow code quality standards" gives the specialist latitude to decompose and restructure. This is how the original `display.py` grew to 4,208 lines and `display/server.py` is still 1,370 — write sets were predetermined to existing files instead of letting the specialist extract.
 
 ### Why these pairings
 

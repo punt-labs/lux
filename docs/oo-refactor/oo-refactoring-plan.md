@@ -1,8 +1,26 @@
 # Lux Refactoring Plan
 
+> **Execution status (as of PR #178, 2026-05-21):** partially shipped.
+> Phase 1 (protocol split) is done via PRs #169 / #170 plus the
+> earlier package layout. Phase 2 (display.py decomposition) shipped
+> the class extractions but did **not** hit the size targets —
+> `display/server.py` is still 1,370 lines, `element_renderer.py` is
+> 1,130. Phase 3 (`_query_tool` decorator) shipped; the optional
+> `ToolState` class did not. **Phase 4's removal goal is SUPERSEDED**
+> by `docs/architecture/introspection-api.md` (2026-05-12), which
+> takes the opposite stance: keep the three ad-hoc query ops, generalise
+> them through a `QueryRequest` / `QueryResponse` envelope, and grow
+> the surface to 15+ operations. Implementation of the introspection-api
+> pattern is the active work item; nothing has shipped against it yet.
+> Phase 5 shipped 5 of 7 classes; `SessionHub` (Step 5.2) and
+> `DoctorChecker` (Step 5.3) are open.
+> Several file references in the plan body — `display.py`,
+> `protocol.py` — point at files that no longer exist as monoliths.
+> See `resume.md` for the current state and open items.
+
 **This document** is the executable refactoring plan. It combines the
 OO design analysis from `oo-class-design.md` with the peer review
-feedback from `oo-class-design-review.md` into step-by-step
+feedback from `archive/oo-class-design-review.md` into step-by-step
 instructions that preserve behavior at every step. An agent executing
 this plan needs no other document.
 
@@ -1493,6 +1511,15 @@ testability: a `ToolState` instance can be injected with a mock
 ---
 
 ## Phase 4: `display_client.py` migration (1 step)
+
+> **SUPERSEDED 2026-05-12 by `docs/architecture/introspection-api.md`.**
+> The plan below removed the three ad-hoc query ops to keep
+> `DisplayClient` small. The newer introspection-api design takes the
+> opposite stance: keep all three, generalise the pattern, and grow
+> the surface to 15+ operations through a single dispatcher and a
+> `QueryRequest` / `QueryResponse` envelope. Open work is now defined
+> by introspection-api.md, not by this step. Text retained for
+> historical context only.
 
 Independent of the `display.py` decomposition. Can run in parallel
 with Phase 2.

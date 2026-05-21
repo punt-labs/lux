@@ -9,7 +9,7 @@
 
 Three operational problems stem from one architectural root cause: Claude Code owns the MCP server process lifecycle via stdio, while the display server is a long-lived singleton. The coupling between a session-scoped process (`lux serve`) and a user-scoped process (`lux-display`) creates friction at every boundary.
 
-**Problem 1 -- Dev restarts.** A code change to `display.py` or `tools.py` requires killing the display, restarting Claude Code (which re-spawns `lux serve`), and re-enabling display mode. The agent cannot restart its own MCP server. In a typical iteration cycle this adds 30-60 seconds per change.
+**Problem 1 -- Dev restarts.** A code change to the `display/` package or `tools/` package requires killing the display, restarting Claude Code (which re-spawns `lux serve`), and re-enabling display mode. The agent cannot restart its own MCP server. In a typical iteration cycle this adds 30-60 seconds per change.
 
 **Problem 2 -- Session duplication.** Each Claude Code session spawns its own `lux serve` via stdio. Five sessions produce five MCP servers, five `DisplayClient` instances connecting to the same Unix socket, and five copies of menu registrations. The display server handles this (it accepts multiple clients), but the overhead is pure waste: five processes, five sets of retry loops, five eager-connect handshakes.
 
@@ -493,7 +493,7 @@ This matches current behavior exactly. `luxd` does not kill `lux-display` or clo
 
 **What stays running:** `lux-display` is not restarted. Scenes on screen persist. `luxd` reconnects to `lux-display` on restart.
 
-**What if the developer changed display.py instead?** They restart `lux-display`, not `luxd`: `lux-display --restart` (or kill `lux-display` and let `luxd`'s `ensure_display()` re-spawn it on next `show()`). `luxd` detects the broken Unix socket and reconnects via `_with_reconnect()`.
+**What if the developer changed the `display/` package instead?** They restart `lux-display`, not `luxd`: `lux-display --restart` (or kill `lux-display` and let `luxd`'s `ensure_display()` re-spawn it on next `show()`). `luxd` detects the broken Unix socket and reconnects via `_with_reconnect()`.
 
 ### Scenario 8: Display server crashes
 

@@ -98,15 +98,23 @@ I/O non-blocking each frame via \texttt{select()}.
 \toprule
 \textbf{Module} & \textbf{File} & \textbf{Responsibility} \\
 \midrule
-Protocol    & \modpath{protocol.py}  & Message types, element dataclasses,
-              wire format (framing, serialization, deserialization) \\
-Display     & \modpath{display.py}   & ImGui render loop, socket IPC,
-              scene state, widget state, element renderers, event flush \\
+Protocol    & \modpath{protocol/}    & Message types, element dataclasses,
+              wire format (framing, serialization, deserialization).
+              Split into \modpath{elements/} and \modpath{messages/}
+              family modules (PRs \#169, \#170). \\
+Display     & \modpath{display/}     & ImGui render loop, socket IPC,
+              scene state, widget state, element renderers, event flush.
+              Decomposed from the original \modpath{display.py}
+              (4,208 lines) into \modpath{server.py},
+              \modpath{element\_renderer.py},
+              \modpath{table\_renderer.py}, \modpath{menu\_manager.py},
+              \modpath{texture\_cache.py}, \modpath{idle\_screen.py}
+              (PR \#158). \\
 Client      & \modpath{client.py}    & \texttt{LuxClient} context manager;
               connects, sends, receives, buffers pending messages \\
 Display Client & \modpath{display\_client.py} & High-level client with
               typed methods for show, update, introspect, screenshot \\
-MCP Tools   & \modpath{tools.py}     & FastMCP tools (24 tools: show,
+MCP Tools   & \modpath{tools/}       & FastMCP tools (24 tools: show,
               update, clear, ping, recv, introspection, configuration);
               auto-reconnect \\
 Hub         & \modpath{hub.py}       & WebSocket session hub; multiplexes

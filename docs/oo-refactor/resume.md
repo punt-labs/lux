@@ -1,141 +1,156 @@
 # OO Refactoring Resume
 
+**As of:** PR #178 (2026-05-21)
+**Prior:** through PR #165 (2026-05-16)
+
 ## Goal
 
-Transform the Lux codebase from a procedural monolith to a well-factored OO design with domain-aligned packages, proper encapsulation, and low coupling. Work order: package → module → class → method.
+Transform Lux from a procedural monolith to a well-factored OO design with
+domain-aligned packages, proper encapsulation, and low coupling. Work order:
+package → module → class → method.
 
-## Current OO Scores (as of PR #165, 2026-05-16)
+Target state is named formally in `docs/architecture/domain-model.md`.
 
-| Metric | Value | Target | Status |
-|--------|-------|--------|--------|
-| method_ratio | 0.68 | ≥0.80 | FAIL — procedural modules remain |
-| encapsulation_ratio | 1.00 | ≥1.0 | PASS |
-| avg_params | 0.98 | ≤4.0 | PASS |
-| max_complexity | 19 | ≤10 | FAIL — table_renderer, server, element_renderer |
-| avg_complexity | 2.31 | ≤5.0 | PASS |
-| module_size | 1,213 | ≤300 | FAIL — server.py, element_renderer, elements.py |
-| classes_per_module | 27 | ≤3 | FAIL — protocol/elements.py (27 dataclasses) |
-| class_to_func_ratio | 0.60 | ≥0.5 | PASS |
-| init_violations | 0 | ==0 | PASS |
-| public_attr_violations | 0 | ==0 | PASS |
-| future_annotations | 1 | ==1 | PASS |
+## Current OO scores
 
-7 of 11 passing. 4 failing: method_ratio, max_complexity, module_size, classes_per_module.
+Aggregate of `python tools/oo_score.py src/punt_lux/`:
 
-## What's been shipped (15 PRs)
+| Metric | Target | PR #165 | Current | Status |
+|--------|--------|---------|---------|--------|
+| `method_ratio` | ≥ 0.80 | 0.68 | **0.636** | **FAIL — went backwards.** Phase A added module-level `_to_dict` / `_from_dict` codec functions; PY-OO-7 names this anti-pattern. |
+| `encapsulation_ratio` | == 1.0 | 1.00 | 1.00 | PASS |
+| `avg_params` | ≤ 4.0 | 0.98 | 0.99 | PASS |
+| `max_complexity` | ≤ 10 | 19 | **19** | **FAIL** — `table_renderer`, `server`, `element_renderer`. |
+| `avg_complexity` | ≤ 5.0 | 2.31 | 2.07 | PASS |
+| `module_size` | ≤ 300 | 1,213 | **1,203** | **FAIL** — `oo_score.py`'s metric is non-empty lines; the three biggest are `display/server.py` (1,203), `element_renderer.py` (~999), `__main__.py` (~488). Raw `wc -l` line counts for the same files are 1,370 / 1,130 / 576. |
+| `classes_per_module` | ≤ 3 | 27 | **9** | **FAIL** — improved by Phase A, still over. |
+| `class_to_func_ratio` | ≥ 0.5 | 0.60 | 0.62 | PASS |
+| `init_violations` | == 0 | 0 | 0 | PASS |
+| `public_attr_violations` | == 0 | 0 | 0 | PASS |
+| `future_annotations` | == 1 | 1 | 1 | PASS |
 
-| PR | What | Key result |
-|----|------|-----------|
-| #148 | Pre-flight: __new__, encapsulation, types.py | Fixed foundations |
-| #150 | Phase 1: protocol/ package | protocol.py → 3 files |
-| #151 | Phase 2a: 4 classes from display.py | SceneManager, SocketServer, TableRenderer, QueryDispatcher |
-| #152 | Phase 2b: ElementRenderer + MenuManager | display.py 4,257→1,647 |
-| #155 | Phases 3–4: _query_tool + display_client cleanup | -137 lines |
-| #156 | Phase 5 partial: ServiceManager, SessionHub, BeadsBrowser | service.py 347→94 |
-| #157 | MessageRegistry | max_complexity 30→4 |
-| #158 | display/ package | Rendering subsystem grouped |
-| #159 | scene/ package | Scene graph domain grouped |
-| #160 | tools/ package + coupling tool | 3-way split + oo_coupling.py |
-| #161 | Foundation OO: ConfigManager, DisplayPaths, ProxyConfigFile | 3 procedural modules → classes |
-| #162 | Dead code removal + BeadsBrowser wrappers + suppression ratchet | 110 baseline |
-| #163 | OO resume document added at repo root | Context only |
-| #164 | Protocol dataclasses frozen=True+slots=True; hasattr/setattr → dataclasses.replace(); docs/ reorganized; DES-029, DES-030; tests/CLAUDE.md; make test-integration/test-e2e | Wire types correct; three-layer model documented |
-| #165 | luxd registered as launchd service; CLAUDE.md notes hub restart after install | Operational fix |
+**7 of 11 passing.** Same four failing metrics as PR #165, with `method_ratio`
+actively worse and `classes_per_module` substantially improved.
 
-## What's left
+## What shipped since PR #165
 
-All remaining work is tracked as beads (`bd list --label=repo:lux`). Tables below are the canonical reference.
+| PR | Bead | Summary |
+|----|------|---------|
+| #166–#167 | — | OO resume updates |
+| #168 | — | Move dev deps to PEP 735 dependency-groups |
+| **#169** | lux-9i26 | **Phase A part 1: `protocol/elements/` split (27 dataclasses → 6 modules)** |
+| **#170** | lux-skc7 | **Phase A part 2: `protocol/messages/` split (22 dataclasses → 5 modules)** |
+| #171 | lux-ckad | `bd ready` surfaces failures (silent-default bug fix) |
+| **#172** | lux-n5ep | **`ElementCodec` registry consolidates per-kind dispatch** |
+| #173 | lux-z9nh | Stop hiding lux-display from macOS Dock |
+| #174 | — | CLAUDE.md OO rules non-negotiable |
+| #175 | — | Session housekeeping (gitignore, submodule, design doc) |
+| **#176** | lux-4n1b | **Typed `DrawCommand` decoder; remove silent `.get()` defaults from renderer** |
+| #177 | — | Rename `*Cmd` records to nouns (they aren't commands) |
+| **#178** | — | **`docs/architecture/domain-model.md` — north star** |
 
-### OO Level 2 — method_ratio blockers
+Three structural advances (#169, #170, #176) and one architectural foundation
+doc (#178). The OO ratchet enforced direction of travel on every PR; the
+absolute targets remain unmet.
 
-Each needs: design → peer review → implement → local review → PR.
+## Open work from `oo-refactoring-plan.md`
 
-| Bead | Task | Files | Notes |
-|------|------|-------|-------|
-| lux-136o | Extract DoctorChecker class | `__main__.py` (457 lines, method_ratio 0.04) | Doctor subcommand logic → class with check methods |
-| lux-9k38 | Fix method_ratio 0.0 modules | `hooks.py`, `show.py`, `hub.py`, `tools/server.py`, `tools/connection.py`, `display/idle_screen.py` | All procedural — assess each, convert to class-based. idle_screen.py also has avg_params=6.5. |
-| lux-3bp8 | Remove client.py shim | `client.py`, `__init__.py` | PL-PP-1 violation, trivial (chore) |
+| Step | Status | What's left |
+|------|--------|-------------|
+| **2.x** display.py decomposition | Partial | Classes extracted (TableRenderer, ElementRenderer, MenuManager, SceneManager, SocketServer, QueryDispatcher) but `display/server.py` is **still 1,370 lines** — Phase 2 was structural-split-only, not size-targeted. |
+| **3.x** tools.py refactor | Partial | `_query_tool` decorator in place. `ToolState` class not done (was optional). |
+| **4.1** Remove `inspect_scene` / `list_scenes` / `screenshot` and their queues | **Superseded** | `docs/architecture/introspection-api.md` (2026-05-12) reverses this — keep the three ops, generalise the pattern through a `QueryRequest` / `QueryResponse` envelope and a single dispatcher, grow to 15+ ops. Implementation of the introspection-api pattern is the live work item, not removal. |
+| **5.2** `SessionHub` class in `hub.py` | **Open** | `hub.py` is 5 module-level functions, zero classes. |
+| **5.3** `DoctorChecker` class in `__main__.py` | **Open** | `__main__.py` is 576 lines, 23 functions, zero classes. |
+| Size targets | **Open** | None of the three largest modules meets the ≤ 300 `module_size` target. `oo_score.py` reports 1,203 / ~999 / ~488 for `display/server.py` / `element_renderer.py` / `__main__.py`; raw `wc -l` is 1,370 / 1,130 / 576. |
+| `method_ratio` target | **Open** | Aggregate 0.636 vs target ≥ 0.80. Procedural codec functions in `protocol/elements/*.py` and `protocol/messages/*.py` are the largest contributor — same anti-pattern as the draw-command surface had before PR #176. |
+| `max_complexity` target | **Open** | 19 vs target ≤ 10. Concentrated in three render-path methods. |
 
-### OO Level 3 — module_size blockers
+## Open work from `oo-class-design.md`
 
-Each needs: design → two-pass implementation → local review → PR.
+`oo-class-design.md` prescribes 13 classes. 11 exist; 2 don't:
 
-| Bead | Task | File | Size → Target |
-|------|------|------|--------------|
-| lux-gcgf | Extract FrameRenderer | `display/server.py` | 1,213 → ~600 |
-| lux-wzpq | Split into domain renderers | `display/element_renderer.py` | 999 → 3×300 |
-| lux-jyj2 | Promote fns into class | `display/table_renderer.py` | 540, method_ratio 0.61 → 1.0 |
-| lux-9i26 | Split by element domain | `protocol/elements.py` | 1,013, 27 classes → 4 files. Fixes module_size and method_ratio; classes_per_module (≤3) still requires most classes to be further decomposed — note as ongoing. |
-| lux-skc7 | Split by message domain | `protocol/messages.py` | 570, 22 classes. Mirrors lux-9i26. |
-| lux-n5ep | ElementCodec registry | `protocol/elements.py` | Blocked by lux-9i26 |
-| lux-r77f | Typed tool handler classes | `tools/tools.py` | 656, method_ratio 0.0 |
-| lux-5v5f | Assess and decompose | `display/menu_manager.py` | 507 |
-| lux-40xx | Assess: module_size + avg_params | `display_client.py` | 541 |
-| — | CC=13 work (lux-7bpg) also reduces | `scene/manager.py` | 395 — no separate bead; improves as CC work proceeds |
+| Class | File | Status |
+|-------|------|--------|
+| `SessionHub` | `hub.py` | **Not created** — `hub.py` is module-level functions only |
+| `DoctorChecker` | `__main__.py` | **Not created** — `__main__.py` is module-level functions only |
 
-### OO Level 4 — max_complexity blockers
+## Open work from `domain-model.md`
 
-Each needs: Extract Method → verify CC ≤ 10 → local review → PR.
+| Stage | What it means | Status |
+|-------|---------------|--------|
+| 1 | Name the domain | **Done** — PR #178 |
+| 2 | Extract `Display`, `Client`, `Update`, `Event` | Not started |
+| 3 | Make Elements live (mutable, emit events on mutation) | Not started |
+| 4 | Semantic updates on the wire | Not started |
+| 5 | Decompose `element_renderer.py` | Not started |
+| 6 | Split process boundary (hub / display server) | Not started |
 
-| Bead | Task | File | CC |
-|------|------|------|----|
-| lux-7bpg | Decompose _render_table | `display/table_renderer.py` | 19 |
-| lux-7bpg | Decompose _on_frame/_handle_message | `display/server.py` | 14 |
-| lux-7bpg | Decompose _render_element | `display/element_renderer.py` | 13 |
-| lux-7bpg | Decompose handle_framed_scene | `scene/manager.py` | 13 |
+## Architecture references
 
-### Architecture — three-layer type model (DES-030)
+| Doc | What it answers |
+|-----|-----------------|
+| `docs/architecture/system.tex` | Comprehensive technical architecture (canonical) |
+| `docs/architecture/domain-model.md` | What the code holds — Composite tree, Client, Update, Event, Port |
+| `docs/architecture/x11-model.md` | Where the code runs — three-tier process model |
+| `docs/architecture/luxd-impl.md` | How the hub is built — MCP proxy spec |
+| `docs/architecture/introspection-api.md` | What introspection ops exist and how they dispatch |
+| `docs/oo-refactor/oo-class-design.md` | Class-by-class OO design (2 classes still open) |
+| `docs/oo-refactor/oo-refactoring-plan.md` | Executable refactoring plan (several steps open per above) |
 
-| Bead | Task | Notes |
-|------|------|-------|
-| lux-q316 | Decision: DES-030 (PROPOSED) | Three-layer model: wire / scene graph / snapshot |
-| lux-ayeh | Epic: three-layer implementation | Blocked by lux-q316 |
-| lux-5rk7 | Scene graph nodes | Mutable per-element-kind classes with typed apply(); blocked by lux-ayeh |
-| lux-6jw9 | Typed patches per element kind | Wire format change; blocked by lux-5rk7 |
+## Next priorities, ordered
 
-### Architecture — luxd three-process split
+1. **`element_renderer.py` decomposition** — biggest single OO debt with no
+   API change. Step toward `module_size` and `max_complexity` targets.
+2. **Domain-model Stage 2-3** — introduce `Display`, `Client`, `Update`,
+   `Event`. Largest architectural step; unlocks the rest of the north star.
+3. **Implement `introspection-api.md` generic pattern** — `QueryRequest` /
+   `QueryResponse` envelope + single `_handle_query` dispatcher in
+   `display/server.py`. Migrates the existing three ops (`inspect_scene`,
+   `list_scenes`, `screenshot`) to the pattern; opens the door to the other
+   12+ ops the doc inventories.
+4. **`hub.py` SessionHub** (Step 5.2) and **`__main__.py` DoctorChecker**
+   (Step 5.3) — finish the Phase 5 punch list.
+5. **`PlotElement.series`** — same anti-pattern as DrawElement had pre-#176;
+   small win, proves PY-EH-8 / PY-TS-14 / PY-OO-7 at a second case.
 
-| Bead | Task | Notes |
-|------|------|-------|
-| lux-fv1b | Epic: hub daemon + service + mcp-proxy | hub.py WebSocket server, session isolation, plugin.json integration. See `docs/architecture/x11-model.md` and `docs/architecture/luxd-impl.md`. |
+## Standards rules introduced this cycle
 
-### Health Check
+Three rules added in workspace PR
+[punt-labs/punt-labs#42](https://github.com/punt-labs/punt-labs/pull/42),
+still pending merge:
 
-After every 3 PRs: `make report`, compare aggregates. Present to CEO before continuing.
+- **PY-EH-8** — Raise, don't return `None`, on unrepresentable values.
+- **PY-TS-14** — Every `T | None`, `Any`, `dict[str, Any]` annotation requires
+  an inline justification comment.
+- **PY-OO-7** — Module-level helpers next to a class are missing methods.
 
-## Design Documents
+These describe the anti-patterns this cycle removed (silent-default
+rendering, untyped wire dicts, procedural helpers). They will gate future PRs
+in the same surfaces.
 
-- `docs/oo-refactor/dynamic-access-design.md` — three-layer type model, dynamic access debt, path forward
-- `docs/architecture/x11-model.md` — X11 architecture, three-process model, update/refresh rate separation
-- `docs/architecture/luxd-impl.md` — luxd hub implementation spec (Phase 1 target)
-- `DESIGN.md` DES-029, DES-030 — ADRs for protocol frozen types and three-layer model
+## How to continue
 
-## How to Continue
+1. **Order**: package → module → class → method. Don't skip levels.
+2. **Delegate all code**: specialist agents (`rmh` for Python, `gvr` for
+   evaluation). COO writes specs and reviews.
+3. **Sequential agents only**: never run parallel agents on the same
+   working tree.
+4. **Two-pass extraction**: for large files, create new file first, then
+   wire callers in a second pass.
+5. **New files must meet OO standards**: no "pre-existing" excuse for
+   moved code.
+6. **Local review mandatory**: `feature-dev:code-reviewer` and
+   `pr-review-toolkit:silent-failure-hunter` before every PR push.
+7. **`make check` before every commit**: includes `check-oo`,
+   `check-suppressions`, lint, type, test.
+8. **Cite the OO rules in mission YAML** for any protocol/data work:
+   PY-OO-1/2/5, PY-CC-5/6, PY-IC-1, PY-TS-6/8, PY-EH-1/8, PY-OO-7, PY-TS-14.
 
-1. __Order__: package → module → class → method. Don't skip levels.
-2. __Delegate all code__: specialist agents (`rmh` for Python, `gvr` for protocol). COO writes specs and reviews.
-3. __Sequential agents only__: never run parallel agents on the same working tree.
-4. __Two-pass extraction__: for large files, create new file first, then wire callers in a second pass.
-5. __Migration order for module conversions__: add class alongside existing functions → update callers one by one → delete old functions. System must be importable after every file write (hooks run `make check`).
-6. __New files must meet OO standards__: no "pre-existing" excuse for moved code.
-7. __Local review mandatory__: code-reviewer + silent-failure-hunter before every PR push.
-8. __`make check` before every commit__: includes check-oo, check-suppressions, lint, type, test.
-9. __Design review for non-trivial conversions__: design mission → peer review → present to CEO → implement.
-10. __Reply to all biff messages__.
-
-## Key Tools
+## Key tools
 
 - `make check` — single quality gate (OO + suppressions + lint + type + test)
 - `make check-coupling` — coupling metrics (informational)
 - `tools/oo_score.py` — OO metrics with ratchet (`--check`, `--update`, `--rebaseline`)
 - `tools/oo_coupling.py` — coupling + cohesion metrics
-- `tools/suppression_ratchet.py` — inline suppression count ratchet (110 baseline)
-
-## Lessons Learned
-
-- Parallel agents on shared working trees cause conflicts — always sequential
-- Hooks revert files when `make check` fails mid-edit — migration must keep system importable after every write
-- Sub-agents reliably create new files but often don't complete wiring — use two-pass extraction
-- "Pre-existing" is never an excuse — extracted code in new files must meet current OO standards
-- The OO ratchet has edge cases with renames and structural changes — use `--rebaseline` sparingly
-- Design reviews (design → peer review → present) catch real issues — don't skip for "small" changes
+- `tools/suppression_ratchet.py` — inline suppression count ratchet (108 current; 110 baseline)
