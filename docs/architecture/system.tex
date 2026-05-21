@@ -760,14 +760,10 @@ isolation.
 \subsection{macOS}
 
 \begin{itemize}
-  \item \textbf{Dock hiding.}  After GLFW initialization
-    (in \texttt{\_on\_post\_init()}), the display server sets\\
-    \texttt{NSApplicationActivationPolicyAccessory}\\
-    on the shared \texttt{NSApplication}.  GLFW's
-    \texttt{glfwInit()} sets the policy to Regular; the post-init
-    call overrides it.  The Dock icon briefly flashes at launch.
-    Requires \texttt{pyobjc-framework-Cocoa} (optional
-    \texttt{display} extra).
+  \item \textbf{Dock presence.}  The display server runs as a
+    normal macOS Dock app per GLFW's default activation policy
+    (Regular).  The Dock icon and Cmd-Tab entry are intentionally
+    visible to aid operational debugging.
   \item \textbf{Process name.}  \texttt{setproctitle("Lux")} makes
     the process identifiable in \texttt{ps} and \texttt{top}.  Does
     not affect Activity Monitor's binary name column.
