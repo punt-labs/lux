@@ -1,22 +1,13 @@
-.claude/settings.local.json
-.claude/projects/
-.claude/worktrees/
-.biff.local
-.worktrees/
-.mcp.json
-.punt-labs/lux.md
-.vox/
-.vscode/
-.idea/
-.coverage
+# Python
 __pycache__/
-*.ini
+.venv/
 
-# Spike/scratch files
-spikes/
-demos/
-.tmp/*
-!.tmp/.gitkeep
+# All local configs
+.*.local
+
+# Test Coverage
+.coverage
+/htmlcov/
 
 # LaTeX build artifacts
 docs/fuzz.sty
@@ -33,11 +24,33 @@ docs/*.out
 docs/*.pdf
 docs/*.synctex.gz
 
-# Local uv overrides (depot find-links, etc.)
+# IDEs
+.vscode/
+.idea/
+
+# Claude
+.claude/settings.local.json
+.claude/projects/
+.claude/worktrees/
+.claude/scheduled_tasks*
+.mcp.json
+.tmp/*
+!.tmp/.gitkeep
+.worktrees/
+
+# Ethos mission log
+.ethos/
+
+# Vox tool local data
+.vox/
+
+# Punt Labs toolchain ignores
+.punt-labs/quarry/captures/*.md
+.punt-labs/lux.md
+*.ini
 uv.toml
 
-# Local envrc
-.envrc.local
-
-# Temporarily exclude quarry captures
-.punt-labs/quarry/captures/*.md
+# Spike/scratch/demo trees — release tooling requires a clean working tree
+# (CLAUDE.md gotcha from v0.5.0: punt release fails if demos/ is dirty)
+spikes/
+demos/
