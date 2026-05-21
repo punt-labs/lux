@@ -3,7 +3,7 @@
 **Author:** Alan T (adt)
 **Date:** 2026-05-12
 **Status:** PROPOSED — target state. **Supersedes** `oo-refactoring-plan.md` Step 4.1 (which proposed removing `inspect_scene` / `list_scenes` / `screenshot`).
-**Current state:** the generic pattern in §1 is **partly implemented**. `QueryRequest` / `QueryResponse` (in `protocol/messages/introspect.py`), `DisplayClient.query()`, and `DisplayServer._handle_query()` are live. Six of the fourteen planned operations are wired (`inspect_scene`, `list_scenes`, `screenshot` plus three via `@_query_tool`); the remaining eight are not yet implemented.
+**Current state:** the generic pattern in §1 is **mostly implemented**. `QueryRequest` / `QueryResponse` (in `protocol/messages/introspect.py`), `DisplayClient.query()`, and the dispatcher's `register_handler` / `handle_query` are live. Twelve of the fourteen planned operations are wired and live: six built-in to `QueryDispatcher` (`inspect_scene`, `list_scenes`, `list_clients`, `list_menus`, `list_recent_events`, `list_errors`) plus six registered by `DisplayServer` at startup (`get_display_info`, `get_window_settings`, `get_theme`, `set_window_settings`, `set_frame_state`, `set_theme`). `screenshot` is also registered as a query handler, but the handler raises `RuntimeError` and routes callers to the dedicated `ScreenshotRequest` message path — effectively a stub. Two ops from the inventory below remain unimplemented.
 
 ## Problem
 

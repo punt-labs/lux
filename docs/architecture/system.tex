@@ -89,8 +89,11 @@ that this document references but does not duplicate:
     the three-process split.
   \item \texttt{introspection-api.md} --- the unified
     \msg{QueryRequest}/\msg{QueryResponse} envelope.  The generic
-    infrastructure is shipped; six of fourteen planned query methods
-    are live (Section \S\ref{sec:tools}).
+    infrastructure is shipped; twelve of fourteen planned query
+    methods are wired and live --- a thirteenth (\msg{screenshot}) is
+    registered but its handler raises and routes to a dedicated
+    \msg{ScreenshotRequest} message instead.  See Section
+    \S\ref{sec:tools}.
   \item \texttt{display-server.tex} --- Z specification of the
     display state machine, with refinement and partition tests
     (Section \S\ref{sec:formal}).
@@ -146,7 +149,10 @@ Elements      & \modpath{protocol/elements/}     & 24 element dataclasses
                 split into \texttt{draw\_wire.py},
                 \texttt{draw\_values.py}, \texttt{draw\_bounds.py},
                 \texttt{draw\_decoder.py}, and four command-family
-                modules (\texttt{draw\_commands\_line/\_shape/\_curve/\_text})
+                modules (\texttt{draw\_commands\_line.py},
+                \texttt{draw\_commands\_shape.py},
+                \texttt{draw\_commands\_curve.py},
+                \texttt{draw\_commands\_text.py})
                 (PR \#176, \#177).
                 \\
 Messages      & \modpath{protocol/messages/}     & 21 message dataclasses
@@ -163,18 +169,18 @@ Display       & \modpath{display/}               & ImGui render loop,
                 \texttt{element\_renderer.py} ($\sim$1{,}100 lines ---
                 per-kind dispatch with a 24-entry \texttt{\_RENDERERS}
                 table),
-                \texttt{table\_renderer.py} (628 lines),
-                \texttt{menu\_manager.py} (583 lines),
-                \texttt{idle\_screen.py} (204 lines),
-                \texttt{texture\_cache.py} (77 lines).  Extracted from
+                \texttt{table\_renderer.py} ($\sim$630 lines),
+                \texttt{menu\_manager.py} ($\sim$580 lines),
+                \texttt{idle\_screen.py} ($\sim$200 lines),
+                \texttt{texture\_cache.py} ($\sim$80 lines).  Extracted from
                 the original \texttt{display.py} (4{,}208 lines) via PR
                 \#158; \texttt{server.py} is the remaining decomposition
                 target.
                 \\
 Scene         & \modpath{scene/}                 & Scene graph state.
                 \texttt{manager.py} owns the \texttt{SceneManager}
-                state machine (443 lines).  \texttt{frame.py}
-                defines the \texttt{Frame} class (140 lines; class
+                state machine ($\sim$440 lines).  \texttt{frame.py}
+                defines the \texttt{Frame} class ($\sim$140 lines; class
                 renamed from \texttt{\_Frame} in PR \#159).
                 \texttt{widget\_state.py} defines
                 \texttt{WidgetState} (36 lines).
@@ -1143,15 +1149,23 @@ generic \msg{QueryRequest} envelope (see
 
 The introspection-api proposal targets fourteen query methods (see
 \texttt{introspection-api.md} Section 2 for the full inventory).
-Six are live today through \texttt{QueryDispatcher}:
+Twelve are wired and live; \texttt{screenshot} is registered but
+its handler raises and routes to the dedicated
+\msg{ScreenshotRequest} path; one op from the inventory remains
+unimplemented.
+
+Six are built into \texttt{QueryDispatcher} at construction time:
 \texttt{inspect\_scene}, \texttt{list\_scenes}, \texttt{list\_clients},
 \texttt{list\_menus}, \texttt{list\_recent\_events},
-\texttt{list\_errors}.  The remaining handlers
-(\texttt{screenshot}, \texttt{get\_display\_info},
+\texttt{list\_errors}.
+
+Seven more handlers are registered by \texttt{DisplayServer} at
+construction time because they touch ImGui state:
+\texttt{screenshot} (stub --- raises),
+\texttt{get\_display\_info},
 \texttt{get\_window\_settings}, \texttt{get\_theme},
 \texttt{set\_window\_settings}, \texttt{set\_frame\_state},
-\texttt{set\_theme}) are registered by \texttt{DisplayServer} at
-construction time because they touch ImGui state.
+\texttt{set\_theme}.
 
 % ===================================================================
 \section{Formal Model}\label{sec:formal}
