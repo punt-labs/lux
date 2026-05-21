@@ -1,8 +1,8 @@
-"""Closed-shape draw commands — ``RectCmd``, ``CircleCmd``, ``TriangleCmd``.
+"""Closed-shape draw commands — ``Rect``, ``Circle``, ``Triangle``.
 
 All three describe filled-or-outlined closed shapes. They compose
 ``Point2``, ``Color``, and ``Thickness`` from ``draw_values`` and (for
-``RectCmd``/``CircleCmd``) the bounded numeric value classes from
+``Rect``/``Circle``) the bounded numeric value classes from
 ``draw_bounds``. Each is a frozen, slotted dataclass whose ``kind`` is
 locked to a single ``Literal[DrawCommandKind.<KIND>]``.
 """
@@ -29,14 +29,14 @@ from punt_lux.protocol.elements.draw_values import (
 from punt_lux.protocol.elements.draw_wire import WireContext
 
 __all__ = [
-    "CircleCmd",
-    "RectCmd",
-    "TriangleCmd",
+    "Circle",
+    "Rect",
+    "Triangle",
 ]
 
 
 @dataclass(frozen=True, slots=True)
-class RectCmd:
+class Rect:
     """Axis-aligned rectangle from ``min`` (top-left) to ``max`` (bottom-right)."""
 
     min: Point2
@@ -61,7 +61,7 @@ class RectCmd:
 
     @classmethod
     def from_wire(cls, d: Mapping[str, object], *, ctx: WireContext) -> Self:
-        """Build a ``RectCmd`` from a wire dict."""
+        """Build a ``Rect`` from a wire dict."""
         return cls(
             min=Point2.from_wire(ctx.require_field(d, "min"), ctx=ctx, field="min"),
             max=Point2.from_wire(ctx.require_field(d, "max"), ctx=ctx, field="max"),
@@ -77,7 +77,7 @@ class RectCmd:
 
 
 @dataclass(frozen=True, slots=True)
-class CircleCmd:
+class Circle:
     """Circle with ``center`` and ``radius``."""
 
     center: Point2
@@ -100,7 +100,7 @@ class CircleCmd:
 
     @classmethod
     def from_wire(cls, d: Mapping[str, object], *, ctx: WireContext) -> Self:
-        """Build a ``CircleCmd`` from a wire dict."""
+        """Build a ``Circle`` from a wire dict."""
         return cls(
             center=Point2.from_wire(
                 ctx.require_field(d, "center"), ctx=ctx, field="center"
@@ -117,7 +117,7 @@ class CircleCmd:
 
 
 @dataclass(frozen=True, slots=True)
-class TriangleCmd:
+class Triangle:
     """Triangle through three points ``p1``, ``p2``, ``p3``."""
 
     p1: Point2
@@ -142,7 +142,7 @@ class TriangleCmd:
 
     @classmethod
     def from_wire(cls, d: Mapping[str, object], *, ctx: WireContext) -> Self:
-        """Build a ``TriangleCmd`` from a wire dict."""
+        """Build a ``Triangle`` from a wire dict."""
         return cls(
             p1=Point2.from_wire(ctx.require_field(d, "p1"), ctx=ctx, field="p1"),
             p2=Point2.from_wire(ctx.require_field(d, "p2"), ctx=ctx, field="p2"),

@@ -64,8 +64,8 @@ from punt_lux.protocol import (
     message_from_dict,
     message_to_dict,
 )
-from punt_lux.protocol.elements.draw_commands_line import LineCmd
-from punt_lux.protocol.elements.draw_commands_shape import RectCmd
+from punt_lux.protocol.elements.draw_commands_line import Line
+from punt_lux.protocol.elements.draw_commands_shape import Rect
 from punt_lux.protocol.elements.draw_values import Color, Point2
 
 # ---------------------------------------------------------------------------
@@ -146,7 +146,7 @@ class TestElements:
         assert e.value == "#FFFFFF"
 
     def test_draw_element(self):
-        line = LineCmd(p1=Point2(0, 0), p2=Point2(10, 10))
+        line = Line(p1=Point2(0, 0), p2=Point2(10, 10))
         e = DrawElement(id="d1", commands=(line,))
         assert e.kind == "draw"
         assert e.width == 400
@@ -874,7 +874,7 @@ class TestSerialization:
         assert elem.value == "#FF0000"
 
     def test_draw_roundtrip(self):
-        rect = RectCmd(min=Point2(10, 10), max=Point2(50, 50), color=Color("#FF0000"))
+        rect = Rect(min=Point2(10, 10), max=Point2(50, 50), color=Color("#FF0000"))
         e = DrawElement(
             id="d1", width=200, height=100, bg_color="#000000", commands=(rect,)
         )
@@ -887,7 +887,7 @@ class TestSerialization:
         assert elem.width == 200
         assert elem.bg_color == "#000000"
         assert len(elem.commands) == 1
-        assert isinstance(elem.commands[0], RectCmd)
+        assert isinstance(elem.commands[0], Rect)
         assert elem.commands[0].color == Color("#FF0000")
 
     def test_draw_bg_color_excluded_when_none(self):

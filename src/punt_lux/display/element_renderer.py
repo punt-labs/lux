@@ -21,14 +21,14 @@ from punt_lux.protocol import (
     WindowElement,
 )
 from punt_lux.protocol.elements.draw_command_kind import DrawCommand
-from punt_lux.protocol.elements.draw_commands_curve import BezierCubicCmd
-from punt_lux.protocol.elements.draw_commands_line import LineCmd, PolylineCmd
+from punt_lux.protocol.elements.draw_commands_curve import BezierCubic
+from punt_lux.protocol.elements.draw_commands_line import Line, Polyline
 from punt_lux.protocol.elements.draw_commands_shape import (
-    CircleCmd,
-    RectCmd,
-    TriangleCmd,
+    Circle,
+    Rect,
+    Triangle,
 )
-from punt_lux.protocol.elements.draw_commands_text import TextCmd
+from punt_lux.protocol.elements.draw_commands_text import TextGlyph
 from punt_lux.protocol.elements.graphics import DrawElement
 from punt_lux.scene import WidgetState
 
@@ -1025,29 +1025,29 @@ class ElementRenderer:
         oy: float,
     ) -> None:
         match cmd:
-            case LineCmd():
+            case Line():
                 self._draw_line(draw_list, cmd, ox, oy)
-            case RectCmd():
+            case Rect():
                 self._draw_rect(draw_list, cmd, ox, oy)
-            case CircleCmd():
+            case Circle():
                 self._draw_circle(draw_list, cmd, ox, oy)
-            case TriangleCmd():
+            case Triangle():
                 self._draw_triangle(draw_list, cmd, ox, oy)
-            case TextCmd():
+            case TextGlyph():
                 self._draw_text(draw_list, cmd, ox, oy)
-            case PolylineCmd():
+            case Polyline():
                 self._draw_polyline(draw_list, cmd, ox, oy)
-            case BezierCubicCmd():
+            case BezierCubic():
                 self._draw_bezier(draw_list, cmd, ox, oy)
             case _:
                 # Unreachable in normal use — DrawCommand is the closed union
-                # of the concrete *Cmd classes registered with the decoder.
-                # Raise so a new kind added without renderer support fails
-                # loud rather than silently rendering nothing.
+                # of the typed records registered with the decoder. Raise so a
+                # new kind added without renderer support fails loud rather
+                # than silently rendering nothing.
                 msg = f"unhandled draw command kind: {type(cmd).__name__}"
                 raise TypeError(msg)
 
-    def _draw_line(self, dl: Any, cmd: LineCmd, ox: float, oy: float) -> None:
+    def _draw_line(self, dl: Any, cmd: Line, ox: float, oy: float) -> None:
         from imgui_bundle import ImVec2
 
         color = self._to_imgui_color(cmd.color.value)
@@ -1058,7 +1058,7 @@ class ElementRenderer:
             cmd.thickness.value,
         )
 
-    def _draw_rect(self, dl: Any, cmd: RectCmd, ox: float, oy: float) -> None:
+    def _draw_rect(self, dl: Any, cmd: Rect, ox: float, oy: float) -> None:
         from imgui_bundle import ImVec2
 
         color = self._to_imgui_color(cmd.color.value)
@@ -1079,7 +1079,7 @@ class ElementRenderer:
                 cmd.thickness.value,
             )
 
-    def _draw_circle(self, dl: Any, cmd: CircleCmd, ox: float, oy: float) -> None:
+    def _draw_circle(self, dl: Any, cmd: Circle, ox: float, oy: float) -> None:
         from imgui_bundle import ImVec2
 
         color = self._to_imgui_color(cmd.color.value)
@@ -1089,7 +1089,7 @@ class ElementRenderer:
         else:
             dl.add_circle(center, cmd.radius.value, color, 0, cmd.thickness.value)
 
-    def _draw_triangle(self, dl: Any, cmd: TriangleCmd, ox: float, oy: float) -> None:
+    def _draw_triangle(self, dl: Any, cmd: Triangle, ox: float, oy: float) -> None:
         from imgui_bundle import ImVec2
 
         color = self._to_imgui_color(cmd.color.value)
@@ -1101,13 +1101,13 @@ class ElementRenderer:
         else:
             dl.add_triangle(p1, p2, p3, color, cmd.thickness.value)
 
-    def _draw_text(self, dl: Any, cmd: TextCmd, ox: float, oy: float) -> None:
+    def _draw_text(self, dl: Any, cmd: TextGlyph, ox: float, oy: float) -> None:
         from imgui_bundle import ImVec2
 
         color = self._to_imgui_color(cmd.color.value)
         dl.add_text(ImVec2(ox + cmd.pos.x, oy + cmd.pos.y), color, cmd.text)
 
-    def _draw_polyline(self, dl: Any, cmd: PolylineCmd, ox: float, oy: float) -> None:
+    def _draw_polyline(self, dl: Any, cmd: Polyline, ox: float, oy: float) -> None:
         from imgui_bundle import ImVec2
 
         im_draw_flags_closed = 1
@@ -1116,7 +1116,7 @@ class ElementRenderer:
         flags = im_draw_flags_closed if cmd.closed else 0
         dl.add_polyline(points, color, flags, cmd.thickness.value)
 
-    def _draw_bezier(self, dl: Any, cmd: BezierCubicCmd, ox: float, oy: float) -> None:
+    def _draw_bezier(self, dl: Any, cmd: BezierCubic, ox: float, oy: float) -> None:
         from imgui_bundle import ImVec2
 
         color = self._to_imgui_color(cmd.color.value)

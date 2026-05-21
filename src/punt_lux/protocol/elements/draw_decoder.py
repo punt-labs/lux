@@ -2,14 +2,14 @@
 
 The decoder holds a registry of one factory callable per
 ``DrawCommandKind``. Each factory is the ``from_wire`` classmethod of
-the corresponding ``*Cmd`` class — decoding lives on the class that
+the corresponding concrete ``DrawCommand`` class — decoding lives on the class that
 owns the data, not in a parallel module of free functions.
 
 ``decode`` validates the ``cmd`` field, looks up the factory, and
 delegates. The decoder is an instance, not a classmethod, so callers
 (and tests) can construct a fresh decoder with a narrower or stubbed
 registry. ``DrawCommandDecoder.default()`` returns a module-level
-singleton populated with every ``*Cmd.from_wire`` — that is the one
+singleton populated with every concrete ``DrawCommand.from_wire`` — that is the one
 ``DrawElement`` uses.
 
 Every public path requires an ``index`` (the position of the command
@@ -26,21 +26,21 @@ from punt_lux.protocol.elements.draw_command_kind import (
     DrawCommand,
     DrawCommandKind,
 )
-from punt_lux.protocol.elements.draw_commands_curve import BezierCubicCmd
-from punt_lux.protocol.elements.draw_commands_line import LineCmd, PolylineCmd
+from punt_lux.protocol.elements.draw_commands_curve import BezierCubic
+from punt_lux.protocol.elements.draw_commands_line import Line, Polyline
 from punt_lux.protocol.elements.draw_commands_shape import (
-    CircleCmd,
-    RectCmd,
-    TriangleCmd,
+    Circle,
+    Rect,
+    Triangle,
 )
-from punt_lux.protocol.elements.draw_commands_text import TextCmd
+from punt_lux.protocol.elements.draw_commands_text import TextGlyph
 from punt_lux.protocol.elements.draw_wire import WireContext
 
 __all__ = ["DrawCommandDecoder"]
 
 
 class _CommandFactory(Protocol):
-    """``*Cmd.from_wire`` classmethod signature — the one factory shape."""
+    """Signature of every ``from_wire`` classmethod the decoder dispatches to."""
 
     def __call__(self, d: Mapping[str, object], *, ctx: WireContext) -> DrawCommand: ...
 
@@ -48,8 +48,8 @@ class _CommandFactory(Protocol):
 class DrawCommandDecoder:
     """Instance-based decoder for draw-command wire dicts.
 
-    Each factory is a ``*Cmd.from_wire`` classmethod bound to a
-    ``DrawCommandKind``. Tests can construct a fresh decoder with one
+    Each factory is a concrete ``DrawCommand.from_wire`` classmethod bound
+    to a ``DrawCommandKind``. Tests can construct a fresh decoder with one
     stub factory to exercise edge cases without touching class state.
     """
 
@@ -115,13 +115,13 @@ class DrawCommandDecoder:
         return ValueError(msg)
 
 
-# Populated module-level singleton — every *Cmd.from_wire is registered
+# Populated module-level singleton — every concrete DrawCommand.from_wire is registered
 # eagerly at import time so a broken registration fails fast.
 _DEFAULT: Final = DrawCommandDecoder()
-_DEFAULT.register(DrawCommandKind.LINE, LineCmd.from_wire)
-_DEFAULT.register(DrawCommandKind.RECT, RectCmd.from_wire)
-_DEFAULT.register(DrawCommandKind.CIRCLE, CircleCmd.from_wire)
-_DEFAULT.register(DrawCommandKind.TRIANGLE, TriangleCmd.from_wire)
-_DEFAULT.register(DrawCommandKind.TEXT, TextCmd.from_wire)
-_DEFAULT.register(DrawCommandKind.POLYLINE, PolylineCmd.from_wire)
-_DEFAULT.register(DrawCommandKind.BEZIER_CUBIC, BezierCubicCmd.from_wire)
+_DEFAULT.register(DrawCommandKind.LINE, Line.from_wire)
+_DEFAULT.register(DrawCommandKind.RECT, Rect.from_wire)
+_DEFAULT.register(DrawCommandKind.CIRCLE, Circle.from_wire)
+_DEFAULT.register(DrawCommandKind.TRIANGLE, Triangle.from_wire)
+_DEFAULT.register(DrawCommandKind.TEXT, TextGlyph.from_wire)
+_DEFAULT.register(DrawCommandKind.POLYLINE, Polyline.from_wire)
+_DEFAULT.register(DrawCommandKind.BEZIER_CUBIC, BezierCubic.from_wire)

@@ -11,14 +11,14 @@ from punt_lux.protocol.elements.draw_command_kind import (
     DrawCommand,
     DrawCommandKind,
 )
-from punt_lux.protocol.elements.draw_commands_curve import BezierCubicCmd
-from punt_lux.protocol.elements.draw_commands_line import LineCmd, PolylineCmd
+from punt_lux.protocol.elements.draw_commands_curve import BezierCubic
+from punt_lux.protocol.elements.draw_commands_line import Line, Polyline
 from punt_lux.protocol.elements.draw_commands_shape import (
-    CircleCmd,
-    RectCmd,
-    TriangleCmd,
+    Circle,
+    Rect,
+    Triangle,
 )
-from punt_lux.protocol.elements.draw_commands_text import TextCmd
+from punt_lux.protocol.elements.draw_commands_text import TextGlyph
 from punt_lux.protocol.elements.draw_decoder import DrawCommandDecoder
 from punt_lux.protocol.elements.draw_values import Point2
 from punt_lux.protocol.elements.draw_wire import WireContext
@@ -41,7 +41,7 @@ class TestDefaultDecoderHappyPath:
             "thickness": 2,
         }
         cmd = _decode(wire)
-        assert isinstance(cmd, LineCmd)
+        assert isinstance(cmd, Line)
         assert cmd.p1.x == 0.0
         assert cmd.p2.x == 10.0
 
@@ -54,14 +54,14 @@ class TestDefaultDecoderHappyPath:
             "filled": True,
         }
         cmd = _decode(wire)
-        assert isinstance(cmd, RectCmd)
+        assert isinstance(cmd, Rect)
         assert cmd.rounding.value == 2.0
         assert cmd.filled is True
 
     def test_circle(self) -> None:
         wire = {"cmd": "circle", "center": [5, 5], "radius": 3}
         cmd = _decode(wire)
-        assert isinstance(cmd, CircleCmd)
+        assert isinstance(cmd, Circle)
         assert cmd.center.x == 5.0
         assert cmd.radius.value == 3.0
 
@@ -74,13 +74,13 @@ class TestDefaultDecoderHappyPath:
             "filled": True,
         }
         cmd = _decode(wire)
-        assert isinstance(cmd, TriangleCmd)
+        assert isinstance(cmd, Triangle)
         assert cmd.filled is True
 
     def test_text(self) -> None:
         wire = {"cmd": "text", "pos": [5, 5], "text": "hello"}
         cmd = _decode(wire)
-        assert isinstance(cmd, TextCmd)
+        assert isinstance(cmd, TextGlyph)
         assert cmd.text == "hello"
 
     def test_polyline(self) -> None:
@@ -90,7 +90,7 @@ class TestDefaultDecoderHappyPath:
             "closed": True,
         }
         cmd = _decode(wire)
-        assert isinstance(cmd, PolylineCmd)
+        assert isinstance(cmd, Polyline)
         assert len(cmd.points) == 3
         assert cmd.closed is True
 
@@ -103,7 +103,7 @@ class TestDefaultDecoderHappyPath:
             "p4": [3, 1],
         }
         cmd = _decode(wire)
-        assert isinstance(cmd, BezierCubicCmd)
+        assert isinstance(cmd, BezierCubic)
 
     def test_returns_value_satisfies_draw_command(self) -> None:
         cmd = _decode({"cmd": "circle", "center": [0, 0], "radius": 1})
@@ -170,7 +170,7 @@ class TestDecoderRegistry:
 
     def test_register_rejects_duplicate(self) -> None:
         decoder = DrawCommandDecoder()
-        sentinel = CircleCmd(center=Point2(0, 0), radius=Radius(1))
+        sentinel = Circle(center=Point2(0, 0), radius=Radius(1))
 
         def stub(d: Mapping[str, object], *, ctx: WireContext) -> DrawCommand:
             _ = d, ctx

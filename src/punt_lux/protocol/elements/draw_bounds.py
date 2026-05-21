@@ -7,7 +7,7 @@ decoder.
 
 They live in their own module so ``draw_values`` keeps the three classes
 every command references (``Point2``, ``Color``, ``Thickness``).  Radius
-and Rounding are referenced by ``CircleCmd`` and ``RectCmd`` respectively
+and Rounding are referenced by ``Circle`` and ``Rect`` respectively
 and never by line/triangle/text commands.
 """
 

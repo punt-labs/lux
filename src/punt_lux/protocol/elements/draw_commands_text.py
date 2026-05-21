@@ -1,6 +1,6 @@
-"""Text-family draw commands — ``TextCmd``.
+"""Text-family draw commands — ``TextGlyph``.
 
-``TextCmd`` renders a string at ``pos`` in ``color``. It composes
+``TextGlyph`` renders a string at ``pos`` in ``color``. It composes
 ``Point2`` and ``Color`` from ``draw_values``. There is no
 ``thickness`` field — text is glyph-rendered.
 """
@@ -15,11 +15,11 @@ from punt_lux.protocol.elements.draw_command_kind import DrawCommandKind, WireDi
 from punt_lux.protocol.elements.draw_values import WHITE, Color, Point2
 from punt_lux.protocol.elements.draw_wire import WireContext
 
-__all__ = ["TextCmd"]
+__all__ = ["TextGlyph"]
 
 
 @dataclass(frozen=True, slots=True)
-class TextCmd:
+class TextGlyph:
     """Text glyph at ``pos`` reading the string in ``text``."""
 
     pos: Point2
@@ -38,7 +38,7 @@ class TextCmd:
 
     @classmethod
     def from_wire(cls, d: Mapping[str, object], *, ctx: WireContext) -> Self:
-        """Build a ``TextCmd`` from a wire dict."""
+        """Build a ``TextGlyph`` from a wire dict."""
         pos = Point2.from_wire(ctx.require_field(d, "pos"), ctx=ctx, field="pos")
         text = ctx.require_string(ctx.require_field(d, "text"), "text")
         return cls(
