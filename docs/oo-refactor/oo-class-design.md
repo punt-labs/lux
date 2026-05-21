@@ -1,9 +1,21 @@
 # OO Class Design
 
+> **Execution status (as of PR #178, 2026-05-21):** partially shipped.
+> 11 of the 13 prescribed classes exist (`SceneManager`, `SocketServer`,
+> `TableRenderer`, `QueryDispatcher`, `ElementRenderer`, `MenuManager`,
+> `ServiceManager`, `DisplayPaths`, `ConfigManager`, `ProxyConfigFile`,
+> `BeadsBrowser`). Two are still open: `SessionHub` (in `hub.py`),
+> `DoctorChecker` (in `__main__.py`). The current-inventory section
+> below describes the pre-refactor state (`display.py` 4,208 lines,
+> `protocol.py` 1,886 lines); both files no longer exist as monoliths.
+> See `resume.md` for the current state.
+
 **Related documents:**
 
-- [`oo-class-design-review.md`](oo-class-design-review.md) — Peer review of this report. Verdict: GO with modifications.
-- [`oo-refactoring-plan.md`](oo-refactoring-plan.md) — Executable step-by-step plan that implements this design.
+- `archive/oo-class-design-review.md` — Peer review (`rej`). Verdict:
+  GO with modifications. Findings absorbed.
+- [`oo-refactoring-plan.md`](oo-refactoring-plan.md) — Executable
+  step-by-step plan derived from this design.
 
 **This document** is the OO design analysis: every class that exists, every class that should exist, what each one owns, what it collaborates with, and which existing functions/methods move into it.
 

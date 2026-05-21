@@ -2,7 +2,8 @@
 
 **Author:** Alan T (adt)
 **Date:** 2026-05-12
-**Status:** PROPOSED
+**Status:** PROPOSED — target state. **Supersedes** `oo-refactoring-plan.md` Step 4.1 (which proposed removing `inspect_scene` / `list_scenes` / `screenshot`).
+**Current state:** the three legacy ops still exist as ad-hoc methods in `display_client.py`. The generic pattern in §1 below is not yet implemented.
 
 ## Problem
 
@@ -32,13 +33,13 @@ Every introspection/control operation follows the same four-layer
 stack. No exceptions.
 
 ```text
-MCP tool (tools.py)
-  -> Client method (display_client.py / display_display_client.py)
-    -> Protocol message (protocol.py)
-      -> Display handler (display.py)
-        -> Protocol response (protocol.py)
+MCP tool (tools/tools.py)
+  -> Client method (display_client.py)
+    -> Protocol message (protocol/messages/introspect.py)
+      -> Display handler (display/server.py)
+        -> Protocol response (protocol/messages/introspect.py)
       <- Client response queue (display_client.py)
-    <- Formatted string (tools.py)
+    <- Formatted string (tools/tools.py)
 ```
 
 ### Naming convention
@@ -294,7 +295,7 @@ _QUERY_HANDLERS: dict[str, Callable] = {
 Example: adding `get_theme`. After the one-time generic
 infrastructure (PR 1), each new operation touches two files.
 
-**display.py** -- add handler, register it:
+**`display/server.py`** -- add handler, register it:
 
 ```python
 def _handle_get_theme(self, **_kwargs: Any) -> dict[str, Any]:
@@ -305,7 +306,7 @@ def _handle_get_theme(self, **_kwargs: Any) -> dict[str, Any]:
 self._query_handlers["get_theme"] = self._handle_get_theme
 ```
 
-**display.py** -- generic dispatcher (added once in PR 1):
+**`display/server.py`** -- generic dispatcher (added once in PR 1):
 
 ```python
 def _handle_query(self, sock: socket.socket, msg: QueryRequest) -> None:
@@ -351,19 +352,19 @@ def get_theme() -> str:
     return _with_reconnect(_call)
 ```
 
-**Tests** -- round-trip in test\_protocol.py, integration in
+**Tests** -- round-trip in test\_protocol/ package, integration in
 test\_tools.py (send `QueryRequest`, verify `QueryResponse` shape).
 
 ### Checklist for new operations
 
 After PR 1, each new operation requires:
 
-1. One handler method in `display.py`
+1. One handler method in `display/server.py`
 2. One line in `_query_handlers`
 3. One MCP tool function in `tools.py`
 4. One integration test
 
-No changes to protocol.py, display_client.py, or message serialization.
+No changes to protocol/ package, display_client.py, or message serialization.
 
 ## 6. Backward Compatibility
 
@@ -381,19 +382,19 @@ new query-based `set_theme` wraps the same logic but returns a
 `QueryResponse` with error reporting. After the query-based path
 ships, `tools.py`'s `set_theme` MCP tool switches to the query
 path (gets error reporting). The `ThemeMessage` path remains in
-`protocol.py` and `display.py` for direct clients that may use it,
+the `protocol/` package and `display/server.py` for direct clients that may use it,
 but `tools.py` no longer sends it.
 
 ## Implementation Order
 
 1. **Generic infrastructure** (one PR): `QueryRequest`/
-   `QueryResponse` in protocol.py, generic `_handle_query` in
-   display.py, `query()` method and `_query_queue` in display_client.py.
+   `QueryResponse` in protocol/ package, generic `_handle_query` in
+   display/server.py, `query()` method and `_query_queue` in display_client.py.
 2. **Tier 1 reads** (one PR): `get_display_info`,
    `get_window_settings`, `get_theme`, `list_clients`,
    `list_menus`, `list_errors`, `list_recent_events`.
    (`list_recent_events` requires a ring buffer for events in
-   display.py.)
+   display/server.py.)
 3. **Tier 3 writes** (one PR): `set_window_settings`,
    `set_frame_state`. (`set_theme` migrates to query path.)
 4. **Frame introspection** (one PR): `get_frame_state`. (Depends on
