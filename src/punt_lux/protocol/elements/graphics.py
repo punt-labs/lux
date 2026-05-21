@@ -1,98 +1,97 @@
-"""Graphics elements — 2D canvas (Draw) and chart (Plot)."""
+"""``DrawElement`` — 2D canvas with typed draw commands.
+
+``commands`` is a tuple of ``DrawCommand`` instances.  Wire decoding
+runs each command dict through ``DrawCommandDecoder.default()``, which
+raises ``ValueError`` on any malformed input — the renderer never sees
+a dict and cannot silently default.
+
+``PlotElement`` lives in the sibling ``plot_element`` module.  The
+``register_codecs`` callback here binds both element classes into the
+project-wide ``ElementCodec`` table.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any, Literal
+from dataclasses import dataclass
+from typing import Any, Literal, Self, cast
 
 from punt_lux.protocol.elements.codec import Register
+from punt_lux.protocol.elements.draw_command_kind import DrawCommand, WireDict
+from punt_lux.protocol.elements.draw_decoder import DrawCommandDecoder
+from punt_lux.protocol.elements.plot_element import PlotElement
 
-__all__ = [
-    "DrawElement",
-    "PlotElement",
-    "register_codecs",
-]
+__all__ = ["DrawElement", "PlotElement", "register_codecs"]
 
 
 @dataclass(frozen=True, slots=True)
 class DrawElement:
-    """A 2D canvas with draw commands (line, rect, circle, etc.)."""
+    """A 2D canvas with typed draw commands."""
 
     id: str
     kind: Literal["draw"] = "draw"
     width: int = 400
     height: int = 300
-    bg_color: str | None = None
-    commands: list[dict[str, Any]] = field(
-        default_factory=lambda: list[dict[str, Any]]()
-    )
-    tooltip: str | None = None
+    bg_color: str | None = None  # PY-TS-14: absent = "use renderer default"
+    commands: tuple[DrawCommand, ...] = ()
+    tooltip: str | None = None  # PY-TS-14: genuinely optional UI text
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize to the wire dict form."""
+        d: dict[str, Any] = {
+            "kind": self.kind,
+            "id": self.id,
+            "width": self.width,
+            "height": self.height,
+            "commands": [cmd.to_dict() for cmd in self.commands],
+        }
+        if self.bg_color is not None:
+            d["bg_color"] = self.bg_color
+        return d
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> Self:
+        """Build a ``DrawElement`` from a wire dict.
+
+        Decodes each command via ``DrawCommandDecoder.default()`` — any
+        malformed command raises ``ValueError`` here, before the
+        element reaches the renderer.
+        """
+        raw_commands = d.get("commands", ())
+        if not isinstance(raw_commands, list | tuple):
+            msg = (
+                f"DrawElement 'commands' must be a list or tuple; got {raw_commands!r}"
+            )
+            raise ValueError(msg)
+        raw_seq = cast("list[object] | tuple[object, ...]", raw_commands)
+        decoder = DrawCommandDecoder.default()
+        commands: tuple[DrawCommand, ...] = tuple(
+            decoder.decode(_require_wire_dict(c, i), i) for i, c in enumerate(raw_seq)
+        )
+        return cls(
+            id=d["id"],
+            width=d.get("width", 400),
+            height=d.get("height", 300),
+            bg_color=d.get("bg_color"),
+            commands=commands,
+        )
 
 
-@dataclass(frozen=True, slots=True)
-class PlotElement:
-    """A 2D plot with one or more data series (line, scatter, bar)."""
+def _require_wire_dict(raw: object, index: int) -> WireDict:
+    """Narrow a command-list entry to a wire dict; raise on mismatch.
 
-    id: str
-    kind: Literal["plot"] = "plot"
-    title: str = ""
-    x_label: str = ""
-    y_label: str = ""
-    width: float = -1  # -1 = auto-fill available width
-    height: float = 300
-    series: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
-    tooltip: str | None = None
-
-
-def _draw_to_dict(elem: DrawElement) -> dict[str, Any]:
-    d: dict[str, Any] = {
-        "kind": elem.kind,
-        "id": elem.id,
-        "width": elem.width,
-        "height": elem.height,
-        "commands": elem.commands,
-    }
-    if elem.bg_color is not None:
-        d["bg_color"] = elem.bg_color
-    return d
-
-
-def _plot_to_dict(elem: PlotElement) -> dict[str, Any]:
-    return {
-        "kind": elem.kind,
-        "id": elem.id,
-        "title": elem.title,
-        "x_label": elem.x_label,
-        "y_label": elem.y_label,
-        "width": elem.width,
-        "height": elem.height,
-        "series": elem.series,
-    }
-
-
-def _draw_from_dict(d: dict[str, Any]) -> DrawElement:
-    return DrawElement(
-        id=d["id"],
-        width=d.get("width", 400),
-        height=d.get("height", 300),
-        bg_color=d.get("bg_color"),
-        commands=d.get("commands", []),
-    )
-
-
-def _plot_from_dict(d: dict[str, Any]) -> PlotElement:
-    return PlotElement(
-        id=d["id"],
-        title=d.get("title", ""),
-        x_label=d.get("x_label", ""),
-        y_label=d.get("y_label", ""),
-        width=d.get("width", -1),
-        height=d.get("height", 300),
-        series=d.get("series", []),
-    )
+    Module-private — used only by ``DrawElement.from_dict``; runs at
+    the wire boundary before any instance exists.
+    """
+    if not isinstance(raw, dict):
+        msg = (
+            f"DrawElement command at index {index} must be a dict; "
+            f"got {type(raw).__name__}: {raw!r}"
+        )
+        raise ValueError(msg)
+    return cast("WireDict", raw)
 
 
 def register_codecs(register: Register) -> None:
-    """Register this module's element codecs into an ElementCodec."""
-    register("draw", DrawElement, _draw_to_dict, _draw_from_dict)
-    register("plot", PlotElement, _plot_to_dict, _plot_from_dict)
+    """Register the Draw and Plot codecs into an ``ElementCodec``."""
+    register("draw", DrawElement, DrawElement.to_dict, DrawElement.from_dict)
+    register("plot", PlotElement, PlotElement.to_dict, PlotElement.from_dict)

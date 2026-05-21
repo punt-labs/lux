@@ -20,6 +20,16 @@ from punt_lux.protocol import (
     TabBarElement,
     WindowElement,
 )
+from punt_lux.protocol.elements.draw_command_kind import DrawCommand
+from punt_lux.protocol.elements.draw_commands_curve import BezierCubicCmd
+from punt_lux.protocol.elements.draw_commands_line import LineCmd, PolylineCmd
+from punt_lux.protocol.elements.draw_commands_shape import (
+    CircleCmd,
+    RectCmd,
+    TriangleCmd,
+)
+from punt_lux.protocol.elements.draw_commands_text import TextCmd
+from punt_lux.protocol.elements.graphics import DrawElement
 from punt_lux.scene import WidgetState
 
 if TYPE_CHECKING:
@@ -980,193 +990,141 @@ class ElementRenderer:
     def _render_draw(self, elem: Element) -> None:
         from imgui_bundle import ImVec2, imgui
 
-        draw: Any = elem
-        eid: str = draw.id
-        width: int = draw.width
-        height: int = draw.height
-        bg_color: str | None = draw.bg_color
-        commands: list[dict[str, Any]] = draw.commands
+        if not isinstance(elem, DrawElement):
+            msg = f"_render_draw expected DrawElement; got {type(elem).__name__}"
+            raise TypeError(msg)
 
         canvas_pos = imgui.get_cursor_screen_pos()
         canvas_min = ImVec2(canvas_pos.x, canvas_pos.y)
-        canvas_max = ImVec2(canvas_pos.x + width, canvas_pos.y + height)
+        canvas_max = ImVec2(canvas_pos.x + elem.width, canvas_pos.y + elem.height)
         draw_list = imgui.get_window_draw_list()
 
         draw_list.push_clip_rect(canvas_min, canvas_max, True)  # noqa: FBT003
 
-        if bg_color is not None:
-            bg_u32 = self._to_imgui_color(bg_color)
+        if elem.bg_color is not None:
+            bg_u32 = self._to_imgui_color(elem.bg_color)
             draw_list.add_rect_filled(canvas_min, canvas_max, bg_u32)
 
         ox, oy = canvas_pos.x, canvas_pos.y
-        for cmd in commands:
-            try:
-                self._dispatch_draw_cmd(draw_list, cmd, ox, oy)
-            except (KeyError, IndexError, TypeError, ValueError):
-                logger.debug("Skipping malformed draw command: %s", cmd)
+        # Wire decoding ran in DrawCommandDecoder; the renderer cannot
+        # receive a malformed command. The previous try/except that swallowed
+        # KeyError/IndexError/TypeError/ValueError was masking the silent-
+        # default bug the typed decoder now prevents at the wire boundary.
+        for cmd in elem.commands:
+            self._dispatch_draw_cmd(draw_list, cmd, ox, oy)
 
         draw_list.pop_clip_rect()
-        imgui.dummy(ImVec2(width, height))
-        _ = eid  # used for future interaction tracking
+        imgui.dummy(ImVec2(elem.width, elem.height))
+        _ = elem.id  # used for future interaction tracking
 
     def _dispatch_draw_cmd(
         self,
         draw_list: Any,
-        cmd: dict[str, Any],
+        cmd: DrawCommand,
         ox: float,
         oy: float,
     ) -> None:
+        match cmd:
+            case LineCmd():
+                self._draw_line(draw_list, cmd, ox, oy)
+            case RectCmd():
+                self._draw_rect(draw_list, cmd, ox, oy)
+            case CircleCmd():
+                self._draw_circle(draw_list, cmd, ox, oy)
+            case TriangleCmd():
+                self._draw_triangle(draw_list, cmd, ox, oy)
+            case TextCmd():
+                self._draw_text(draw_list, cmd, ox, oy)
+            case PolylineCmd():
+                self._draw_polyline(draw_list, cmd, ox, oy)
+            case BezierCubicCmd():
+                self._draw_bezier(draw_list, cmd, ox, oy)
+            case _:
+                # Unreachable in normal use — DrawCommand is the closed union
+                # of the concrete *Cmd classes registered with the decoder.
+                # Raise so a new kind added without renderer support fails
+                # loud rather than silently rendering nothing.
+                msg = f"unhandled draw command kind: {type(cmd).__name__}"
+                raise TypeError(msg)
+
+    def _draw_line(self, dl: Any, cmd: LineCmd, ox: float, oy: float) -> None:
         from imgui_bundle import ImVec2
 
-        cmd_type = cmd.get("cmd", "")
-        color = self._to_imgui_color(cmd.get("color", "#FFFFFF"))
-        thickness: float = cmd.get("thickness", 1.0)
+        color = self._to_imgui_color(cmd.color.value)
+        dl.add_line(
+            ImVec2(ox + cmd.p1.x, oy + cmd.p1.y),
+            ImVec2(ox + cmd.p2.x, oy + cmd.p2.y),
+            color,
+            cmd.thickness.value,
+        )
 
-        if cmd_type == "line":
-            p1, p2 = cmd["p1"], cmd["p2"]
-            draw_list.add_line(
-                ImVec2(ox + p1[0], oy + p1[1]),
-                ImVec2(ox + p2[0], oy + p2[1]),
-                color,
-                thickness,
-            )
-        elif cmd_type == "rect":
-            self._draw_rect(draw_list, cmd, color, thickness, ox, oy)
-        elif cmd_type == "circle":
-            self._draw_circle(draw_list, cmd, color, thickness, ox, oy)
-        elif cmd_type == "triangle":
-            self._draw_triangle(draw_list, cmd, color, thickness, ox, oy)
-        elif cmd_type == "text":
-            pos = cmd.get("pos", [0, 0])
-            draw_list.add_text(
-                ImVec2(ox + pos[0], oy + pos[1]), color, cmd.get("text", "")
-            )
-        elif cmd_type == "polyline":
-            self._draw_polyline(draw_list, cmd, color, thickness, ox, oy)
-        elif cmd_type == "bezier_cubic":
-            self._draw_bezier(draw_list, cmd, color, thickness, ox, oy)
-
-    def _draw_rect(
-        self,
-        dl: Any,
-        cmd: dict[str, Any],
-        color: int,
-        thickness: float,
-        ox: float,
-        oy: float,
-    ) -> None:
+    def _draw_rect(self, dl: Any, cmd: RectCmd, ox: float, oy: float) -> None:
         from imgui_bundle import ImVec2
 
-        mn = cmd.get("min", [0, 0])
-        mx = cmd.get("max", [0, 0])
-        rounding: float = cmd.get("rounding", 0.0)
-        if cmd.get("filled", False):
+        color = self._to_imgui_color(cmd.color.value)
+        if cmd.filled:
             dl.add_rect_filled(
-                ImVec2(ox + mn[0], oy + mn[1]),
-                ImVec2(ox + mx[0], oy + mx[1]),
+                ImVec2(ox + cmd.min.x, oy + cmd.min.y),
+                ImVec2(ox + cmd.max.x, oy + cmd.max.y),
                 color,
-                rounding,
+                cmd.rounding.value,
             )
         else:
             dl.add_rect(
-                ImVec2(ox + mn[0], oy + mn[1]),
-                ImVec2(ox + mx[0], oy + mx[1]),
+                ImVec2(ox + cmd.min.x, oy + cmd.min.y),
+                ImVec2(ox + cmd.max.x, oy + cmd.max.y),
                 color,
-                rounding,
+                cmd.rounding.value,
                 0,
-                thickness,
+                cmd.thickness.value,
             )
 
-    def _draw_circle(
-        self,
-        dl: Any,
-        cmd: dict[str, Any],
-        color: int,
-        thickness: float,
-        ox: float,
-        oy: float,
-    ) -> None:
+    def _draw_circle(self, dl: Any, cmd: CircleCmd, ox: float, oy: float) -> None:
         from imgui_bundle import ImVec2
 
-        center = cmd.get("center", [0, 0])
-        radius: float = cmd.get("radius", 10)
-        if cmd.get("filled", False):
-            dl.add_circle_filled(ImVec2(ox + center[0], oy + center[1]), radius, color)
+        color = self._to_imgui_color(cmd.color.value)
+        center = ImVec2(ox + cmd.center.x, oy + cmd.center.y)
+        if cmd.filled:
+            dl.add_circle_filled(center, cmd.radius.value, color)
         else:
-            dl.add_circle(
-                ImVec2(ox + center[0], oy + center[1]),
-                radius,
-                color,
-                0,
-                thickness,
-            )
+            dl.add_circle(center, cmd.radius.value, color, 0, cmd.thickness.value)
 
-    def _draw_triangle(
-        self,
-        dl: Any,
-        cmd: dict[str, Any],
-        color: int,
-        thickness: float,
-        ox: float,
-        oy: float,
-    ) -> None:
+    def _draw_triangle(self, dl: Any, cmd: TriangleCmd, ox: float, oy: float) -> None:
         from imgui_bundle import ImVec2
 
-        p1 = cmd["p1"]
-        p2 = cmd["p2"]
-        p3 = cmd["p3"]
-        if cmd.get("filled", False):
-            dl.add_triangle_filled(
-                ImVec2(ox + p1[0], oy + p1[1]),
-                ImVec2(ox + p2[0], oy + p2[1]),
-                ImVec2(ox + p3[0], oy + p3[1]),
-                color,
-            )
+        color = self._to_imgui_color(cmd.color.value)
+        p1 = ImVec2(ox + cmd.p1.x, oy + cmd.p1.y)
+        p2 = ImVec2(ox + cmd.p2.x, oy + cmd.p2.y)
+        p3 = ImVec2(ox + cmd.p3.x, oy + cmd.p3.y)
+        if cmd.filled:
+            dl.add_triangle_filled(p1, p2, p3, color)
         else:
-            dl.add_triangle(
-                ImVec2(ox + p1[0], oy + p1[1]),
-                ImVec2(ox + p2[0], oy + p2[1]),
-                ImVec2(ox + p3[0], oy + p3[1]),
-                color,
-                thickness,
-            )
+            dl.add_triangle(p1, p2, p3, color, cmd.thickness.value)
 
-    def _draw_polyline(
-        self,
-        dl: Any,
-        cmd: dict[str, Any],
-        color: int,
-        thickness: float,
-        ox: float,
-        oy: float,
-    ) -> None:
+    def _draw_text(self, dl: Any, cmd: TextCmd, ox: float, oy: float) -> None:
+        from imgui_bundle import ImVec2
+
+        color = self._to_imgui_color(cmd.color.value)
+        dl.add_text(ImVec2(ox + cmd.pos.x, oy + cmd.pos.y), color, cmd.text)
+
+    def _draw_polyline(self, dl: Any, cmd: PolylineCmd, ox: float, oy: float) -> None:
         from imgui_bundle import ImVec2
 
         im_draw_flags_closed = 1
-        points_raw: list[list[float]] = cmd.get("points", [])
-        closed: bool = cmd.get("closed", False)
-        points = [ImVec2(ox + p[0], oy + p[1]) for p in points_raw]
-        if len(points) >= 2:
-            flags = im_draw_flags_closed if closed else 0
-            dl.add_polyline(points, color, flags, thickness)
+        color = self._to_imgui_color(cmd.color.value)
+        points = [ImVec2(ox + p.x, oy + p.y) for p in cmd.points]
+        flags = im_draw_flags_closed if cmd.closed else 0
+        dl.add_polyline(points, color, flags, cmd.thickness.value)
 
-    def _draw_bezier(
-        self,
-        dl: Any,
-        cmd: dict[str, Any],
-        color: int,
-        thickness: float,
-        ox: float,
-        oy: float,
-    ) -> None:
+    def _draw_bezier(self, dl: Any, cmd: BezierCubicCmd, ox: float, oy: float) -> None:
         from imgui_bundle import ImVec2
 
-        p1, p2, p3, p4 = cmd["p1"], cmd["p2"], cmd["p3"], cmd["p4"]
+        color = self._to_imgui_color(cmd.color.value)
         dl.add_bezier_cubic(
-            ImVec2(ox + p1[0], oy + p1[1]),
-            ImVec2(ox + p2[0], oy + p2[1]),
-            ImVec2(ox + p3[0], oy + p3[1]),
-            ImVec2(ox + p4[0], oy + p4[1]),
+            ImVec2(ox + cmd.p1.x, oy + cmd.p1.y),
+            ImVec2(ox + cmd.p2.x, oy + cmd.p2.y),
+            ImVec2(ox + cmd.p3.x, oy + cmd.p3.y),
+            ImVec2(ox + cmd.p4.x, oy + cmd.p4.y),
             color,
-            thickness,
+            cmd.thickness.value,
         )

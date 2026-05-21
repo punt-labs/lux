@@ -153,7 +153,7 @@ class TestElementFromDict:
         assert isinstance(elem, DrawElement)
         assert elem.width == 400
         assert elem.height == 300
-        assert elem.commands == []
+        assert elem.commands == ()
 
     def test_group_element(self) -> None:
         elem = element_from_dict(
