@@ -191,7 +191,7 @@ and/or produce domain Updates. Ports live in `display/`, `hub/`,
 `transport/`, etc. The domain in `protocol/` (or wherever we move it)
 never imports a port.
 
-```
+```text
 +------------------- Domain (protocol/) -------------------+
 |                                                          |
 |   Scene -> Element[Leaf|Container] -> properties         |
