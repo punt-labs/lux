@@ -38,6 +38,17 @@ class Point2:
     x: float
     y: float
 
+    def __post_init__(self) -> None:
+        # bool is a subclass of int → coerces silently. Reject so the field
+        # actually means what its annotation says.
+        if isinstance(self.x, bool) or isinstance(self.y, bool):
+            msg = f"Point2 coordinates must be numbers; got ({self.x!r}, {self.y!r})"
+            raise ValueError(msg)
+        # Normalise int inputs to float so to_list() always yields floats —
+        # the annotation says float and the wire form must too.
+        object.__setattr__(self, "x", float(self.x))
+        object.__setattr__(self, "y", float(self.y))
+
     def to_list(self) -> list[float]:
         """Serialize to the wire-form ``[x, y]`` list."""
         return [self.x, self.y]
@@ -143,12 +154,12 @@ class Thickness:
 
     def __post_init__(self) -> None:
         # bool is a subclass of int → coerces silently through the float
-        # annotation. Reject explicitly. Direct callers that need a Thickness
-        # must pass a real float; the wire path uses `from_wire` which goes
-        # through `WireContext.require_number` and always lands on float.
+        # annotation. Reject explicitly.
         if isinstance(self.value, bool) or self.value <= 0:
             msg = f"Thickness must be a number > 0; got {self.value!r}"
             raise ValueError(msg)
+        # Normalise int inputs to float so to_wire() always yields a float.
+        object.__setattr__(self, "value", float(self.value))
 
     @classmethod
     def from_wire(

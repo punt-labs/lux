@@ -33,12 +33,12 @@ class Radius:
     value: float
 
     def __post_init__(self) -> None:
-        # bool is a subclass of int → coerces silently. Reject. Direct callers
-        # must pass a real float; wire path always lands on float via
-        # WireContext.require_number.
+        # bool is a subclass of int → coerces silently. Reject explicitly.
         if isinstance(self.value, bool) or self.value <= 0:
             msg = f"Radius must be a number > 0; got {self.value!r}"
             raise ValueError(msg)
+        # Normalise int inputs to float so to_wire() always yields a float.
+        object.__setattr__(self, "value", float(self.value))
 
     @classmethod
     def from_wire(
@@ -66,12 +66,12 @@ class Rounding:
     value: float
 
     def __post_init__(self) -> None:
-        # bool is a subclass of int → coerces silently. Reject. Direct callers
-        # must pass a real float; wire path always lands on float via
-        # WireContext.require_number.
+        # bool is a subclass of int → coerces silently. Reject explicitly.
         if isinstance(self.value, bool) or self.value < 0:
             msg = f"Rounding must be a number >= 0; got {self.value!r}"
             raise ValueError(msg)
+        # Normalise int inputs to float so to_wire() always yields a float.
+        object.__setattr__(self, "value", float(self.value))
 
     @classmethod
     def from_wire(
