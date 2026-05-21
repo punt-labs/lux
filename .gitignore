@@ -34,13 +34,23 @@ docs/*.synctex.gz
 .claude/worktrees/
 .claude/scheduled_tasks*
 .mcp.json
-.tmp/
+.tmp/*
 !.tmp/.gitkeep
+.worktrees/
 
 # Ethos mission log
 .ethos/
+
+# Vox tool local data
+.vox/
 
 # Punt Labs toolchain ignores
 .punt-labs/quarry/captures/*.md
 .punt-labs/lux.md
 *.ini
+uv.toml
+
+# Spike/scratch/demo trees — release tooling requires a clean working tree
+# (CLAUDE.md gotcha from v0.5.0: punt release fails if demos/ is dirty)
+spikes/
+demos/
