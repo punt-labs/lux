@@ -695,26 +695,23 @@ def list_menus() -> dict[str, Any] | None:
 
 
 def _config_manager_for(repo: str | None) -> ConfigManager:
-    """Build a ConfigManager rooted at the caller's repo path.
+    """Build a ConfigManager for the caller's project (lux-r929).
 
-    When ``repo`` is provided, write to ``<repo>/.punt-labs/lux.md`` —
-    the caller's project root. When omitted, fall back to the
-    process-cwd resolver, which is wrong inside ``luxd`` (its cwd is
-    typically ``$HOME``) but preserves the historical behavior for the
-    CLI and hook paths that legitimately inherit the caller's cwd.
-
-    The ``/lux`` slash command and any other MCP caller that knows its
-    project root SHOULD pass ``repo``; see lux-r929 for the bug.
+    ``repo=None`` falls back to process-cwd (CLI/hook path; broken
+    inside luxd). Otherwise validate absolute, existing directory.
     """
-    if not repo:
+    if repo is None:
         return ConfigManager()
+    if repo == "":
+        msg = "repo must not be empty; pass None for process-cwd fallback"
+        raise ValueError(msg)
     path = Path(repo)
     if not path.is_absolute():
-        msg = f"repo must be an absolute path; got {repo!r}"
-        raise ValueError(msg)
+        raise ValueError(f"repo must be an absolute path; got {repo!r}")
     if not path.exists():
-        msg = f"repo path does not exist: {repo}"
-        raise ValueError(msg)
+        raise ValueError(f"repo path does not exist: {repo}")
+    if not path.is_dir():
+        raise ValueError(f"repo must be a directory; got {repo}")
     return ConfigManager(config_path=path / ".punt-labs" / "lux.md")
 
 
@@ -722,16 +719,8 @@ def _config_manager_for(repo: str | None) -> ConfigManager:
 def display_mode(repo: str | None = None) -> str:
     """Read the current display mode.
 
-    Returns "display:on" or "display:off". The display mode is an advisory signal
-    for consumer plugins. Lux itself always accepts show() calls
-    regardless of mode.
-
-    Args:
-        repo: Absolute path to the caller's project root. When passed, the
-            display mode is read from ``<repo>/.punt-labs/lux.md``. When
-            omitted, falls back to the MCP server process's cwd — which is
-            ``$HOME`` under launchd and almost never what the caller wants
-            (lux-r929).
+    Returns "display:on" or "display:off". Pass ``repo=<project cwd>``
+    so the config is read from the caller's project, not luxd's cwd.
     """
     cfg = _config_manager_for(repo).read()
     label = "on" if cfg.display == "y" else "off"
@@ -742,15 +731,9 @@ def display_mode(repo: str | None = None) -> str:
 def set_display_mode(mode: str, repo: str | None = None) -> str:
     """Set the display mode to "y" (on) or "n" (off).
 
-    When set to "y", eagerly connects to the display server.
-    The display mode is an advisory signal for consumer plugins.
-
-    Args:
-        mode: "y" or "n".
-        repo: Absolute path to the caller's project root. When passed, the
-            display mode is written to ``<repo>/.punt-labs/lux.md``. When
-            omitted, falls back to the MCP server process's cwd — which is
-            usually wrong (lux-r929).
+    Pass ``repo=<project cwd>`` so the config is written to the
+    caller's project, not luxd's cwd (see lux-r929). When ``y``,
+    eagerly connects to the display server.
     """
     if mode not in ("y", "n"):
         msg = f"Invalid mode '{mode}'. Use 'y' or 'n'."

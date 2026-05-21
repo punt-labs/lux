@@ -729,6 +729,22 @@ class TestDisplayModeRepoArg:
         with pytest.raises(ValueError, match="does not exist"):
             display_mode(repo=str(missing))
 
+    def test_repo_must_be_directory(self, tmp_path: Path) -> None:
+        """Passing a file path raises rather than silently failing later
+        with a cryptic 'directory not empty' or 'is a file' error from
+        write_field when it tries to mkdir <file>/.punt-labs."""
+        file_path = tmp_path / "regular-file"
+        file_path.write_text("not a directory")
+        with pytest.raises(ValueError, match="must be a directory"):
+            display_mode(repo=str(file_path))
+
+    def test_repo_empty_string_raises(self) -> None:
+        """An empty string is almost certainly a caller bug (e.g.,
+        ``repo=os.getenv('PROJECT_ROOT', '')`` with no env var set).
+        Fail loud rather than silently falling back to the lux-r929 path."""
+        with pytest.raises(ValueError, match="must not be empty"):
+            display_mode(repo="")
+
     def test_repo_none_falls_back_to_process_cwd(self) -> None:
         """When repo is omitted, behavior is the historical process-cwd path
         (the lux-r929 bug surface). Hooks and CLI rely on this fallback."""

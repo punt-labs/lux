@@ -16,10 +16,10 @@ Enable or disable visual output for this project.
 
 ## Implementation
 
-Parse `$ARGUMENTS`. Every call must pass `repo=<your current working
-directory>` so the display-mode config is written to the caller's
-project, not to `luxd`'s process cwd (which is `$HOME` under launchd —
-see lux-r929). Use the absolute path of the project you're operating in.
+Parse `$ARGUMENTS`. Every call must pass `repo="<cwd>"` (replacing
+`<cwd>` with the absolute path of your current working directory) so
+the display-mode config is written to the caller's project, not to
+`luxd`'s process cwd — which is `$HOME` under launchd (see lux-r929).
 
 ### `y`
 
