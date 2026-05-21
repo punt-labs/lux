@@ -4,8 +4,8 @@
 > Phase 1 (protocol split) is done via PRs #169 / #170 plus the
 > earlier package layout. Phase 2 (display.py decomposition) shipped
 > the class extractions but did **not** hit the size targets —
-> `display/server.py` is still 1,370 lines, `element_renderer.py` is
-> 1,130. Phase 3 (`_query_tool` decorator) shipped; the optional
+> `display/server.py` is still ~1,400 lines, `element_renderer.py` is
+> ~1,100. Phase 3 (`_query_tool` decorator) shipped; the optional
 > `ToolState` class did not. **Phase 4's removal goal is SUPERSEDED**
 > by `docs/architecture/introspection-api.md` (2026-05-12), which
 > takes the opposite stance: keep the three ad-hoc query ops, generalise

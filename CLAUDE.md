@@ -42,13 +42,13 @@ This is a proposal (`docs/architecture-x11-model.md`). The current implementatio
 
 | Module | Responsibility |
 |--------|---------------|
-| `display/server.py` | ImGui render loop and coordinator — **1,370 lines, still over the 300-line target; remaining debt from the original `display.py`** |
-| `display/element_renderer.py` | Per-element-kind ImGui dispatch — **1,130 lines, still over target** |
+| `display/server.py` | ImGui render loop and coordinator — **~1,400 lines, still over the 300-line target; remaining debt from the original `display.py`** |
+| `display/element_renderer.py` | Per-element-kind ImGui dispatch — **~1,100 lines, still over target** |
 | `display/table_renderer.py` | Table widget with filters, search, row selection |
 | `display/menu_manager.py` | Application menu bar |
-| `display/texture_cache.py` | Image texture upload + LRU |
+| `display/texture_cache.py` | Image texture upload (unbounded dict — no eviction policy yet; see `system.tex` §7 "No texture eviction") |
 | `display/idle_screen.py` | Idle splash when no scene is active |
-| `protocol/elements/*.py` | JSON element types (24 kinds across 6 family modules: basics, inputs, layout, graphics, table, patch) |
+| `protocol/elements/*.py` | JSON element types (24 kinds across 7 family modules: basics, inputs, layout, graphics, table, patch, plot_element) |
 | `protocol/messages/*.py` | Wire message types (21 kinds across 5 modules: lifecycle, scene, interaction, menu, introspect) |
 | `protocol/elements/codec.py` | `ElementCodec` registry — per-kind dispatch table |
 | `scene/manager.py` | `SceneManager` — scene state, frame composition |
@@ -91,7 +91,7 @@ Default Python — procedural functions operating on dataclasses, `| None` every
 
 ### Module-size constraints
 
-**`display/server.py` (1,370 lines) and `display/element_renderer.py` (1,130 lines) must be decomposed further** — both are over the 300-line target. Any PR that adds rendering logic to either without extracting existing code will be rejected. The original `display.py` was 4,208 lines; PR #158 split it into the `display/` package, but `server.py` and `element_renderer.py` carry the bulk of the original mass.
+**`display/server.py` (~1,400 lines) and `display/element_renderer.py` (~1,100 lines) must be decomposed further** — both are over the 300-line target. Any PR that adds rendering logic to either without extracting existing code will be rejected. The original `display.py` was 4,208 lines; PR #158 split it into the `display/` package, but `server.py` and `element_renderer.py` carry the bulk of the original mass.
 
 **Protocol codec functions** — every `protocol/elements/*.py` and `protocol/messages/*.py` module still uses module-level `_<kind>_to_dict` / `_<kind>_from_dict` functions instead of methods on the dataclasses. Phase A (PRs #169, #170, #172) split the file but DID NOT fix the procedural codec pattern — same OO debt now spread across 11 family modules instead of 2. The draw-command surface (PR #176) is the one corner that fixed it. When you touch any of those files, fix the codec while you're there; do not file a follow-up bead.
 
@@ -148,7 +148,7 @@ Lux's biggest testing gap is the rendering layer. `display/server.py` and `displ
 
 Identity: `agent: claude` per `.punt-labs/ethos.yaml`. All code delegation uses ethos missions. Every non-trivial delegation has two phases: (1) **design mission** — describes problem, constraints, and invariants but does NOT prescribe a write set; (2) **implementation mission** — uses the write set produced by the design phase. The design mission's output IS the write set — the specialist decides what to create, split, or extract.
 
-The COO must not read implementation files before writing the design spec. "Add a handler to `display/server.py` at line 923" is a predetermined write set that prevents the specialist from making design decisions. "Add a query operation that returns display metadata — the codebase has a generic query infrastructure, the implementation must follow code quality standards" gives the specialist latitude to decompose and restructure. This is how the original `display.py` grew to 4,208 lines and `display/server.py` is still 1,370 — write sets were predetermined to existing files instead of letting the specialist extract.
+The COO must not read implementation files before writing the design spec. "Add a handler to `display/server.py` at line 923" is a predetermined write set that prevents the specialist from making design decisions. "Add a query operation that returns display metadata — the codebase has a generic query infrastructure, the implementation must follow code quality standards" gives the specialist latitude to decompose and restructure. This is how the original `display.py` grew to 4,208 lines and `display/server.py` is still ~1,400 — write sets were predetermined to existing files instead of letting the specialist extract.
 
 ### Why these pairings
 

@@ -1,10 +1,10 @@
 %
-% architecture.tex
+% system.tex
 %
 % Lux Technical Architecture Specification
 % Written for principal engineers evaluating the system.
 %
-% Compile: pdflatex architecture.tex
+% Compile: pdflatex system.tex
 %
 
 \documentclass[a4paper,10pt]{article}
@@ -67,6 +67,38 @@ protocol on a Unix domain socket.  The display server is
 single-threaded: no threads, no asyncio, no locks.  It polls all
 I/O non-blocking each frame via \texttt{select()}.
 
+\subsection{Companion Documents}
+
+This document is the canonical, comprehensive description of the
+shipped system.  The sibling files in
+\texttt{docs/architecture/} are narrower slices and design proposals
+that this document references but does not duplicate:
+
+\begin{itemize}
+  \item \texttt{domain-model.md} --- north-star domain (Element,
+    Scene, Client, Update, Event, Port).  \emph{Target state}, not
+    yet implemented.  Section \S\ref{sec:domain-model-gap} flags
+    where the current procedural shape diverges from the OO target.
+  \item \texttt{x11-model.md} --- three-process target architecture
+    (mcp-proxy $\to$ \texttt{luxd} $\to$ \texttt{lux-display}).
+    \emph{Proposed}; the shipped code runs the display and hub in
+    one process.  Section \S\ref{sec:ipc} describes the current
+    single-process reality and the boundary that will become a
+    process split.
+  \item \texttt{luxd-impl.md} --- Phase 1 implementation spec for
+    the three-process split.
+  \item \texttt{introspection-api.md} --- the unified
+    \msg{QueryRequest}/\msg{QueryResponse} envelope.  The generic
+    infrastructure is shipped; twelve of fourteen planned query
+    methods are wired and live --- a thirteenth (\msg{screenshot}) is
+    registered but its handler raises and routes to a dedicated
+    \msg{ScreenshotRequest} message instead.  See Section
+    \S\ref{sec:tools}.
+  \item \texttt{display-server.tex} --- Z specification of the
+    display state machine, with refinement and partition tests
+    (Section \S\ref{sec:formal}).
+\end{itemize}
+
 \subsection{Design Principles}
 
 \begin{enumerate}[label=\textbf{P\arabic*}.]
@@ -93,51 +125,144 @@ I/O non-blocking each frame via \texttt{select()}.
 
 \subsection{Component Map}
 
+The Python package is laid out as five domain-aligned packages plus a
+small set of foundation modules at the package root.
+
 \begin{center}
 \begin{tabular}{llp{7cm}}
 \toprule
-\textbf{Module} & \textbf{File} & \textbf{Responsibility} \\
+\textbf{Module} & \textbf{File or package} & \textbf{Responsibility} \\
 \midrule
-Protocol    & \modpath{protocol/}    & Message types, element dataclasses,
-              wire format (framing, serialization, deserialization).
-              Split into \modpath{elements/} and \modpath{messages/}
-              family modules (PRs \#169, \#170). \\
-Display     & \modpath{display/}     & ImGui render loop, socket IPC,
-              scene state, widget state, element renderers, event flush.
-              Decomposed from the original \modpath{display.py}
-              (4,208 lines) into \modpath{server.py},
-              \modpath{element\_renderer.py},
-              \modpath{table\_renderer.py}, \modpath{menu\_manager.py},
-              \modpath{texture\_cache.py}, \modpath{idle\_screen.py}
-              (PR \#158). \\
-Client      & \modpath{client.py}    & \texttt{LuxClient} context manager;
-              connects, sends, receives, buffers pending messages \\
-Display Client & \modpath{display\_client.py} & High-level client with
-              typed methods for show, update, introspect, screenshot \\
-MCP Tools   & \modpath{tools/}       & FastMCP tools (24 tools: show,
-              update, clear, ping, recv, introspection, configuration);
-              auto-reconnect \\
-Hub         & \modpath{hub.py}       & WebSocket session hub; multiplexes
-              MCP sessions, routes scene updates to display \\
-Show        & \modpath{show.py}      & CLI subcommands for pre-built
-              scenes (beads board) \\
-Apps/Beads  & \modpath{apps/beads.py} & Beads issue browser; loads
-              \texttt{.beads/issues.jsonl}, renders filterable table \\
-Paths       & \modpath{paths.py}     & Socket discovery, PID lifecycle,
-              auto-spawn \\
-Runtime     & \modpath{runtime.py}   & \texttt{CodeExecutor}; compiles
-              and runs render functions per-frame \\
-Config      & \modpath{config.py}    & \texttt{.lux/config.md} YAML
-              frontmatter; display mode toggle \\
-Hooks       & \modpath{hooks.py}     & Claude Code lifecycle hook handlers \\
-Service     & \modpath{service.py}   & Daemon lifecycle management
-              (start, stop, status) \\
-Remote      & \modpath{remote.py}    & mcp-proxy configuration and
-              WebSocket transport setup \\
-CLI         & \modpath{\_\_main\_\_.py} & Typer CLI: display, serve, enable,
-              disable, status, doctor, install, uninstall, hub-install,
-              hub-uninstall, hub-status, ensure-hub, setup-proxy, show,
-              ping, version \\
+Protocol      & \modpath{protocol/}              & Wire framing (4-byte
+                length prefix, JSON payload), the \texttt{FrameReader}
+                streaming buffer, and the dispatch helpers
+                \texttt{message\_to\_dict} / \texttt{element\_to\_dict}.
+                Element and message dataclasses live in the two
+                sub-packages below.
+                \\
+Elements      & \modpath{protocol/elements/}     & 24 element dataclasses
+                across seven family modules (\texttt{basics},
+                \texttt{inputs}, \texttt{layout}, \texttt{graphics},
+                \texttt{table}, \texttt{patch}, \texttt{plot\_element}),
+                with the \texttt{ElementCodec} dispatch table in
+                \texttt{codec.py} (PR \#169, \#172).  Draw commands are
+                split into \texttt{draw\_wire.py},
+                \texttt{draw\_values.py}, \texttt{draw\_bounds.py},
+                \texttt{draw\_decoder.py}, and four command-family
+                modules (\texttt{draw\_commands\_line.py},
+                \texttt{draw\_commands\_shape.py},
+                \texttt{draw\_commands\_curve.py},
+                \texttt{draw\_commands\_text.py})
+                (PR \#176, \#177).
+                \\
+Messages      & \modpath{protocol/messages/}     & 21 message dataclasses
+                across five family modules (\texttt{lifecycle},
+                \texttt{scene}, \texttt{interaction}, \texttt{menu},
+                \texttt{introspect}), with the \texttt{MessageRegistry}
+                dispatch table in \texttt{registry.py} (PR \#157,
+                \#170).
+                \\
+Display       & \modpath{display/}               & ImGui render loop,
+                element renderers, event flush.  Six modules:
+                \texttt{server.py} ($\sim$1{,}400 lines --- the
+                \texttt{DisplayServer} coordinator),
+                \texttt{element\_renderer.py} ($\sim$1{,}100 lines ---
+                per-kind dispatch with a 24-entry \texttt{\_RENDERERS}
+                table),
+                \texttt{table\_renderer.py} ($\sim$630 lines),
+                \texttt{menu\_manager.py} ($\sim$580 lines),
+                \texttt{idle\_screen.py} ($\sim$200 lines),
+                \texttt{texture\_cache.py} ($\sim$80 lines).  Extracted from
+                the original \texttt{display.py} (4{,}208 lines) via PR
+                \#158; \texttt{server.py} is the remaining decomposition
+                target.
+                \\
+Scene         & \modpath{scene/}                 & Scene graph state.
+                \texttt{manager.py} owns the \texttt{SceneManager}
+                state machine ($\sim$440 lines).  \texttt{frame.py}
+                defines the \texttt{Frame} class ($\sim$140 lines; class
+                renamed from \texttt{\_Frame} in PR \#159).
+                \texttt{widget\_state.py} defines
+                \texttt{WidgetState} (36 lines).
+                \\
+Tools (MCP)   & \modpath{tools/}                 & FastMCP tool surface
+                (PR \#160).  \texttt{server.py} owns the
+                \texttt{FastMCP} instance and the session lifespan.
+                \texttt{connection.py} owns \texttt{\_get\_client} and
+                \texttt{\_with\_reconnect}.  \texttt{tools.py}
+                registers the 24 tool functions (Section
+                \S\ref{sec:tools}).
+                \\
+Socket server & \modpath{socket\_server.py}      & \texttt{SocketServer}
+                --- Unix-domain socket lifecycle, non-blocking
+                multiplexing of client connections, per-client
+                \texttt{FrameReader} buffers, send/recv to clients.
+                Extracted from the original display monolith.
+                \\
+Query dispatcher & \modpath{query\_dispatcher.py} & \texttt{QueryDispatcher}
+                --- routes \msg{QueryRequest} by \field{method} string
+                to registered handler methods.  Owns the ring buffers
+                for recent interaction events (max 200) and recent
+                error log entries (max 100).  See
+                \texttt{introspection-api.md} for the wire format and
+                handler template.
+                \\
+Client        & \modpath{client.py}              & Backward-compat
+                shim that re-exports \texttt{DisplayClient} under the
+                old name \texttt{LuxClient}.  Scheduled for removal
+                (\texttt{lux-3bp8}, per PL-PP-1: no compat aliases).
+                \\
+Display client & \modpath{display\_client.py}    & \texttt{DisplayClient}
+                --- high-level client with a background listener
+                thread, typed methods for \texttt{show},
+                \texttt{update}, \texttt{query}, \texttt{recv}, etc.
+                Used by MCP tools and by the \texttt{lux show beads}
+                subcommand.
+                \\
+Hub           & \modpath{hub.py}                 & WebSocket session
+                hub (\texttt{luxd}).  Starlette + uvicorn app that
+                multiplexes MCP sessions onto the display.  Today
+                runs in-process; the three-process split in
+                \texttt{x11-model.md} moves it to its own daemon.
+                \\
+Apps/Beads    & \modpath{apps/beads.py}          & Beads issue
+                browser; loads \texttt{.beads/issues.jsonl}, renders
+                a filterable table via the \texttt{table} element.
+                \\
+Show          & \modpath{show.py}                & \texttt{lux show}
+                subcommand for pre-built scenes (beads board).
+                \\
+Paths         & \modpath{paths.py}               & \texttt{DisplayPaths}
+                --- socket discovery, PID lifecycle, auto-spawn.
+                Module-level helpers cover hub paths (PR \#161).
+                \\
+Runtime       & \modpath{runtime.py}             & \texttt{CodeExecutor}
+                and \texttt{RenderContext} --- compile and run
+                agent-submitted render functions per-frame, gated by
+                consent.
+                \\
+Config        & \modpath{config.py}              & \texttt{ConfigManager}
+                reads \texttt{.lux/config.md} YAML frontmatter; display
+                mode toggle (\field{display=y|n}).
+                \\
+Hooks         & \modpath{hooks.py}               & Claude Code lifecycle
+                hook handlers (session start, post-bash).
+                \\
+Service       & \modpath{service.py}             & \texttt{ServiceManager}
+                --- launchd/systemd lifecycle for \texttt{luxd}.
+                \\
+Remote        & \modpath{remote.py}              & \texttt{ProxyConfigFile}
+                --- mcp-proxy WebSocket transport setup.
+                \\
+CLI           & \modpath{\_\_main\_\_.py}        & Typer app.  Subcommands:
+                \texttt{display}, \texttt{serve}, \texttt{enable},
+                \texttt{disable}, \texttt{version}, \texttt{ping},
+                \texttt{status}, \texttt{doctor},
+                \texttt{hub-install}, \texttt{hub-uninstall},
+                \texttt{ensure-hub}, \texttt{hub-status},
+                \texttt{setup-proxy}, \texttt{install},
+                \texttt{uninstall}.
+                \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -150,27 +275,38 @@ Three primary data paths connect agents to the display:
 
 \begin{enumerate}
   \item Agent calls MCP tool (e.g., \tool{show()}).
-  \item MCP server creates \texttt{LuxClient}, calls
+  \item MCP server obtains a \texttt{DisplayClient} via
+    \texttt{tools/connection.py::\_get\_client()}, calls
     \texttt{client.show(scene\_id, elements)}.
   \item Client serializes \msg{SceneMessage} as JSON, frames with
     4-byte big-endian length prefix, sends over Unix socket.
-  \item Display receives frame in \texttt{\_poll\_clients()},
-    deserializes, stores in \texttt{\_scenes} dict.
-  \item Display renders scene each frame via
-    \texttt{\_render\_scene()}.
-  \item Display sends \msg{AckMessage} back to client.
+  \item \texttt{SocketServer} (\modpath{socket\_server.py})
+    receives the frame in \texttt{poll\_clients()}, deserializes via
+    \texttt{FrameReader.drain\_typed()}, dispatches to
+    \texttt{DisplayServer.\_handle\_message()}.
+  \item \texttt{DisplayServer} delegates state updates to
+    \texttt{SceneManager.handle\_scene()} or
+    \texttt{handle\_framed\_scene()}.
+  \item \texttt{DisplayServer.\_render\_scene()} draws the active
+    scene each frame via \texttt{ElementRenderer}.
+  \item \texttt{DisplayServer} sends an \msg{AckMessage} back to the
+    client.
 \end{enumerate}
 
 \subsubsection{Event Path (User $\to$ Agent)}
 
 \begin{enumerate}
   \item User interacts with widget (click, slider drag, text input).
-  \item Display generates \msg{InteractionMessage} with
-    \field{element\_id}, \field{action}, \field{value}, and
-    optional \field{scene\_id}.
-  \item Message buffered in \texttt{\_event\_queue}.
+  \item \texttt{ElementRenderer} or \texttt{TableRenderer} emits an
+    \msg{InteractionMessage} with \field{element\_id},
+    \field{action}, \field{value}, and optional \field{scene\_id}
+    via the \texttt{emit\_event} callback.
+  \item Message buffered in \texttt{DisplayServer.\_event\_queue}
+    and pushed to the \texttt{QueryDispatcher}'s ring buffer for
+    later \tool{list\_recent\_events()} queries.
   \item Each frame, \texttt{\_flush\_events()} broadcasts all queued
-    messages to all connected clients, then clears the queue.
+    messages to all connected clients via
+    \texttt{SocketServer.send\_to\_client()}, then clears the queue.
   \item Agent calls \tool{recv()} to consume events.
 \end{enumerate}
 
@@ -178,14 +314,19 @@ Three primary data paths connect agents to the display:
 
 \begin{enumerate}
   \item Agent calls \tool{update(scene\_id, patches)}.
-  \item Display receives \msg{UpdateMessage}, calls
-    \texttt{\_apply\_update()}.
-  \item \texttt{\_find\_element()} locates target by ID via
-    depth-first search through the element tree.
+  \item \texttt{DisplayServer} receives \msg{UpdateMessage}, delegates
+    to \texttt{SceneManager.apply\_update()}.
+  \item \texttt{\_find\_element()} (module helper in
+    \texttt{scene/manager.py}) locates target by ID via depth-first
+    search through the element tree.
   \item Patch applied: \field{set} updates fields in-place,
-    \field{remove} deletes element and cleans up widget state.
+    \field{remove} deletes element and cleans up widget state via
+    \texttt{WidgetState.set(eid, None)} and
+    \texttt{clear\_suffix()}.
   \item Routes to correct scene by \field{scene\_id} (not limited
-    to active tab).
+    to active tab); \texttt{SceneManager.resolve\_scene()} looks
+    up either the unframed-scenes dict or the per-frame scene
+    dict.
 \end{enumerate}
 
 % ===================================================================
@@ -204,11 +345,18 @@ Every message is a length-prefixed JSON frame:
 \end{lstlisting}
 
 Maximum payload size: 16\,MiB ($2^{24}$ bytes).  The
-\texttt{FrameReader} accumulates partial reads into a byte buffer
-and yields complete frames.  Oversize frames trigger client
-disconnection.
+\texttt{FrameReader} (in \modpath{protocol/\_\_init\_\_.py}) accumulates
+partial reads into a byte buffer and yields complete frames via
+\texttt{drain()} (raw dicts) or \texttt{drain\_typed()} (Message
+dataclasses).  Oversize frames raise \texttt{ValueError}, which
+\texttt{SocketServer} converts to a client disconnect.
 
 \subsection{Message Types}
+
+The 21 message types are split across two unions in
+\modpath{protocol/messages/\_\_init\_\_.py}: \texttt{ClientMessage}
+(12 types) and \texttt{DisplayMessage} (8 types), plus
+\msg{UnknownMessage} for forward compatibility.
 
 \subsubsection{Client $\to$ Display}
 
@@ -218,22 +366,29 @@ disconnection.
 \textbf{Type} & \textbf{Purpose} \\
 \midrule
 \msg{SceneMessage}  & Replace or add scene.  Fields: \field{id},
-  \field{elements[]}, \field{title}, \field{layout}. \\
+  \field{elements[]}, \field{title}, \field{layout},
+  \field{frame\_id}, \field{frame\_title}, \field{frame\_size},
+  \field{frame\_flags}, \field{frame\_layout}. \\
 \msg{UpdateMessage} & Incremental patches.  Fields: \field{scene\_id},
   \field{patches[]} (each: \field{id}, \field{set}, \field{remove}). \\
 \msg{ClearMessage}  & Remove all scenes and reset state. \\
 \msg{PingMessage}   & Heartbeat.  Field: \field{ts}. \\
-\msg{MenuMessage}   & Set agent-provided menu entries. \\
-\msg{ThemeMessage}   & Apply theme by name. \\
 \msg{ConnectMessage} & Client identity handshake.  Field: \field{name}. \\
+\msg{MenuMessage}   & Set agent-provided menu entries. \\
+\msg{ThemeMessage}  & Apply theme by name. \\
 \msg{RegisterMenuMessage} & Register per-client menu items.
   Field: \field{items[]}. \\
-\msg{IntrospectRequest} & Request scene element tree.
+\msg{IntrospectRequest} & Request scene element tree (legacy
+  ad-hoc op; retained alongside \msg{QueryRequest} for
+  backward compatibility).
   Field: \field{scene\_id}. \\
-\msg{ListScenesRequest} & Request list of all active scenes. \\
-\msg{ScreenshotRequest} & Request display screenshot. \\
-\msg{QueryRequest} & Generic introspection query.
-  Field: \field{query\_type}. \\
+\msg{ListScenesRequest} & Request list of all active scenes (legacy
+  ad-hoc op). \\
+\msg{ScreenshotRequest} & Request display screenshot (legacy
+  ad-hoc op). \\
+\msg{QueryRequest}  & Generic introspection/control request.  Fields:
+  \field{method}, \field{params}.  The dispatcher routes by
+  \field{method} string --- see \texttt{introspection-api.md}. \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -262,9 +417,11 @@ and \field{frame\_layout} (\texttt{"tab"} or \texttt{"stack"}).
   \field{scene\_id}. \\
 \msg{PongMessage}        & Ping response; round-trip latency probe. \\
 \msg{IntrospectResponse} & Scene element tree response. \\
-\msg{ListScenesResponse} & List of active scene summaries. \\
-\msg{ScreenshotResponse} & Base64-encoded display screenshot. \\
-\msg{QueryResponse}      & Generic introspection response. \\
+\msg{ListScenesResponse} & List of active scene summaries plus
+  frame summaries (\field{scenes[]}, \field{frames[]}). \\
+\msg{ScreenshotResponse} & Path to captured PNG. \\
+\msg{QueryResponse}      & Generic introspection/control response.
+  Fields: \field{method}, \field{result}, optional \field{error}. \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -272,27 +429,40 @@ and \field{frame\_layout} (\texttt{"tab"} or \texttt{"stack"}).
 Unknown message types are deserialized as \msg{UnknownMessage} for
 forward compatibility rather than disconnecting the client.
 
+The dispatch table (\texttt{MessageRegistry} in
+\modpath{protocol/messages/registry.py}) is populated at import time by
+\texttt{register\_codecs} calls from each family module.  Tests can
+construct an isolated registry without touching the module-level
+default --- this replaces the original \texttt{if/elif} chain in
+\texttt{message\_from\_dict} (PR \#157).
+
 \subsection{Element Kinds}
 
-24 element kinds organized by category:
+24 element kinds organized by category, registered in
+\texttt{ElementCodec} via per-family \texttt{register\_codecs} calls.
+Each element is a frozen dataclass with \texttt{slots=True}.  The
+\texttt{Element} union is assembled in
+\modpath{protocol/elements/\_\_init\_\_.py}.
 
 \begin{center}
 \begin{longtable}{llp{6cm}}
 \toprule
-\textbf{Category} & \textbf{Element} & \textbf{Notes} \\
+\textbf{Family module} & \textbf{Element} & \textbf{Notes} \\
 \midrule
 \endfirsthead
 \toprule
-\textbf{Category} & \textbf{Element} & \textbf{Notes} \\
+\textbf{Family module} & \textbf{Element} & \textbf{Notes} \\
 \midrule
 \endhead
-Text        & \elem{text}              & Content + style (heading, caption, success, error, code);
+\texttt{basics}    & \elem{text}              & Content + style (heading, caption, success, error, code);
               optional \field{color} hex string \\
             & \elem{markdown}          & CommonMark rendering via imgui\_md \\
+            & \elem{image}             & File path or base64 data \\
+            & \elem{separator}         & Visual divider \\
+            & \elem{progress}          & Fraction bar with label \\
+            & \elem{spinner}           & Loading indicator \\
 \midrule
-Media       & \elem{image}             & File path or base64 data \\
-\midrule
-Interactive & \elem{button}            & Label, action, disabled flag;
+\texttt{inputs}    & \elem{button}            & Label, action, disabled flag;
               \field{arrow} (directional) and \field{small} variants \\
             & \elem{slider}            & Min/max/value, integer mode \\
             & \elem{checkbox}          & Boolean toggle \\
@@ -303,29 +473,67 @@ Interactive & \elem{button}            & Label, action, disabled flag;
               integer mode \\
             & \elem{color\_picker}     & RGB/RGBA hex picker;
               \field{alpha} (RGBA) and \field{picker} (full widget) modes \\
+            & \elem{selectable}        & Click-to-select item \\
 \midrule
-Data        & \elem{table}             & Columns, rows, built-in filters, detail panel, pagination \\
-            & \elem{plot}              & ImPlot: line, scatter, bar series \\
-            & \elem{progress}          & Fraction bar with label \\
-            & \elem{spinner}           & Loading indicator \\
-\midrule
-Lists       & \elem{selectable}        & Click-to-select item \\
-            & \elem{tree}              & Recursive node hierarchy;
-              \field{flat} flag for non-indented expansion \\
-\midrule
-Drawing     & \elem{draw}              & Canvas with draw commands \\
-\midrule
-Layout      & \elem{modal}             & Modal popup dialog; container with children,
-              emits \texttt{"closed"} event \\
-            & \elem{group}             & Row, column, or paged layout
+\texttt{layout}    & \elem{group}             & Row, column, or paged layout
               (\field{pages} + \field{page\_source}) \\
             & \elem{tab\_bar}          & Tabbed container \\
             & \elem{collapsing\_header} & Expandable section \\
             & \elem{window}            & Movable, resizable floating panel \\
-            & \elem{separator}         & Visual divider \\
+            & \elem{tree}              & Recursive node hierarchy;
+              \field{flat} flag for non-indented expansion \\
+            & \elem{modal}             & Modal popup dialog; container with children,
+              emits \texttt{"closed"} event \\
+\midrule
+\texttt{graphics}  & \elem{draw}              & Canvas with typed draw commands
+              (see \S\ref{sec:draw-commands}) \\
+            & \elem{plot}              & ImPlot: line, scatter, bar series \\
+\midrule
+\texttt{table}     & \elem{table}             & Columns, rows, built-in filters, detail panel, pagination \\
 \bottomrule
 \end{longtable}
 \end{center}
+
+\subsection{Draw Commands}\label{sec:draw-commands}
+
+The \elem{draw} element holds a tuple of typed \texttt{DrawCommand}
+records (PR \#176, \#177).  Each command is a frozen, slotted
+dataclass that satisfies the \texttt{DrawCommand} Protocol
+(\texttt{TYPE: ClassVar[str]}, \texttt{to\_wire(self) -> dict},
+\texttt{from\_wire(cls, d, *, ctx) -> Self}).
+
+\begin{center}
+\begin{tabular}{llp{6cm}}
+\toprule
+\textbf{Module} & \textbf{Record} & \textbf{Geometry} \\
+\midrule
+\texttt{draw\_commands\_line}   & \texttt{Line}        & Start, end, color, thickness. \\
+                                & \texttt{Polyline}    & Point list, color, thickness, closed flag. \\
+\midrule
+\texttt{draw\_commands\_shape}  & \texttt{Rect}        & Top-left, bottom-right, color, thickness, rounding, filled. \\
+                                & \texttt{Circle}      & Center, radius, color, thickness, filled. \\
+                                & \texttt{Triangle}    & Three points, color, thickness, filled. \\
+\midrule
+\texttt{draw\_commands\_curve}  & \texttt{BezierCubic} & Four control points, color, thickness. \\
+\midrule
+\texttt{draw\_commands\_text}   & \texttt{TextGlyph}   & Position, content, color. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Shared value classes live in \texttt{draw\_values.py} and
+\texttt{draw\_bounds.py}: \texttt{Point2} (validated $[x, y]$ pair),
+\texttt{Color} (\texttt{\#RRGGBB} / \texttt{\#RRGGBBAA} hex),
+\texttt{Thickness} (strictly positive stroke width), \texttt{Radius}
+(strictly positive), \texttt{Rounding} (non-negative).  The
+\texttt{WireContext} in \texttt{draw\_wire.py} carries the per-error
+prefix (\texttt{draw command [i] (kind)}) and the require-or-raise
+helpers (\texttt{require\_number}, \texttt{require\_sequence}, etc.).
+\texttt{DrawCommandDecoder} in \texttt{draw\_decoder.py} dispatches on
+the wire \texttt{cmd} string to the appropriate
+\texttt{from\_wire} classmethod; \texttt{DrawElement.commands} is
+typed \texttt{tuple[DrawCommand, ...]} and the renderer dispatches
+via a typed \texttt{match} statement.
 
 % ===================================================================
 \section{Display Server Internals}
@@ -333,52 +541,68 @@ Layout      & \elem{modal}             & Modal popup dialog; container with chil
 
 \subsection{Frame Cycle}
 
-The display server runs an ImGui render loop via \texttt{immapp.run()}.
-Each frame executes four phases in sequence:
+The display server runs an ImGui render loop via
+\texttt{hello\_imgui.run()}.  Each frame, the
+\texttt{DisplayServer.\_on\_frame()} callback executes four phases in
+sequence:
 
 \begin{enumerate}
-  \item \textbf{Accept connections.}  \texttt{select()} on server
-    socket with timeout~0.  Accept if readable.  Send
-    \msg{ReadyMessage} to new client.
-  \item \textbf{Poll clients.}  \texttt{select()} on all client
-    sockets with timeout~0.  Read available data into per-client
-    \texttt{FrameReader}.  Dispatch complete messages to
-    \texttt{\_handle\_message()}.  Remove errored sockets.
+  \item \textbf{Accept connections.}
+    \texttt{SocketServer.accept\_connections()} runs \texttt{select()}
+    on the server socket with timeout~0.  Accept if readable.  Send
+    \msg{ReadyMessage} to the new client.
+  \item \textbf{Poll clients.}
+    \texttt{SocketServer.poll\_clients()} runs \texttt{select()} on
+    all client sockets with timeout~0.  Read available data into the
+    per-client \texttt{FrameReader}.  Dispatch complete messages to
+    \texttt{DisplayServer.\_handle\_message()}, which routes by
+    \texttt{isinstance} to the per-message-type handler.  Remove
+    errored sockets via \texttt{remove\_client()}.
   \item \textbf{Render scene.}  Enable docking via
-    \texttt{dock\_space\_over\_viewport}.  Render idle flame background.
-    Check for World menu background click.  Render World panel if open.
-    Render all workspace frames (see \S\ref{sec:frames}).  Render dock
-    bar for minimized frames.  Legacy fallback: if no frames, render
+    \texttt{dock\_space\_over\_viewport}.  Render the idle flame
+    background (\texttt{idle\_screen.render\_idle()}).  Check for World
+    menu background click.  Render World panel if open.  Render all
+    workspace frames (see \S\ref{sec:frames}).  Render the dock bar for
+    minimized frames.  Legacy fallback: if no frames exist, render
     unframed scenes as tabs.
   \item \textbf{Flush events.}  Broadcast all buffered
-    \msg{InteractionMessage}s to all connected clients, then clear
-    the queue.
+    \msg{InteractionMessage}s via
+    \texttt{SocketServer.send\_to\_client()} to every connected
+    client, then clear the queue.  Each event is also recorded in
+    \texttt{QueryDispatcher.\_recent\_events} for later
+    \tool{list\_recent\_events()} queries.
 \end{enumerate}
 
 All four phases are non-blocking.  The frame completes in
-microseconds when idle.  ImGui handles frame pacing via GLFW vsync.
+microseconds when idle.  ImGui handles frame pacing via GLFW vsync;
+\texttt{hello\_imgui.fps\_idling.fps\_idle = 30.0} caps the idle
+frame rate.
 
 \subsection{Multi-Scene State}
+
+Scene state is owned by \texttt{SceneManager} in
+\modpath{scene/manager.py}, exposed to the rendering layer through
+read-only properties on \texttt{DisplayServer.scene\_manager}.
 
 \begin{center}
 \begin{tabular}{lp{8cm}}
 \toprule
 \textbf{Field} & \textbf{Type and Purpose} \\
 \midrule
-\texttt{\_scenes}              & \texttt{dict[str, SceneMessage]} --- ordered
-  by insertion; keyed by \field{scene\_id}. \\
-\texttt{\_scene\_order}        & \texttt{list[str]} --- explicit tab ordering. \\
-\texttt{\_active\_tab}         & \texttt{str | None} --- currently selected tab. \\
+\texttt{\_scenes}              & \texttt{dict[str, SceneMessage]} --- unframed
+  scenes; ordered by insertion; keyed by \field{scene\_id}. \\
+\texttt{\_scene\_order}        & \texttt{list[str]} --- explicit tab ordering for
+  unframed scenes. \\
+\texttt{\_active\_tab}         & \texttt{str | None} --- currently selected tab in
+  the unframed-scenes view. \\
 \texttt{\_scene\_widget\_state} & \texttt{dict[str, WidgetState]} --- per-scene
   slider/checkbox/combo/text state. \\
-\texttt{\_event\_queue}        & \texttt{list[InteractionMessage]} --- global,
-  shared across all scenes. \\
 \texttt{\_dirty\_windows}      & \texttt{set[str]} --- window element IDs
   needing initial position set. \\
 \midrule
-\multicolumn{2}{l}{\textbf{Frame state (since v0.9.0)}} \\
+\multicolumn{2}{l}{\textbf{Frame state}} \\
 \midrule
-\texttt{\_frames}             & \texttt{dict[str, \_Frame]} --- all workspace
+\texttt{\_frames}             & \texttt{dict[str, Frame]} --- all workspace
   frames, keyed by \field{frame\_id}. \\
 \texttt{\_focus\_frame\_id}   & \texttt{str | None} --- frame to auto-focus
   on next render. \\
@@ -387,14 +611,14 @@ microseconds when idle.  ImGui handles frame pacing via GLFW vsync.
 \texttt{\_scene\_to\_owner}   & \texttt{dict[str, int]} --- scene
   $\to$ client fd ownership. \\
 \midrule
-\multicolumn{2}{l}{\textbf{Client identity (since v0.9.0)}} \\
+\multicolumn{2}{l}{\textbf{Display-server state}} \\
 \midrule
-\texttt{\_client\_names}      & \texttt{dict[int, str]} --- client fd
-  $\to$ display name. \\
-\texttt{\_menu\_registrations} & \texttt{dict[int, list]} --- per-client
-  menu items. \\
-\texttt{\_menu\_owners}       & \texttt{dict[str, int]} --- menu item ID
-  $\to$ owner fd. \\
+\texttt{\_event\_queue}       & \texttt{list[InteractionMessage]} on
+  \texttt{DisplayServer}, drained each frame. \\
+\texttt{\_client\_names}      & On \texttt{SocketServer}, fd $\to$
+  display name from \msg{ConnectMessage}. \\
+\texttt{\_menu\_registrations} & On \texttt{MenuManager}, per-client
+  agent menu items. \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -404,16 +628,16 @@ microseconds when idle.  ImGui handles frame pacing via GLFW vsync.
 \begin{description}[style=nextline]
   \item[New scene (\field{scene\_id} not in \texttt{\_scenes})]
     Appended to \texttt{\_scenes} and \texttt{\_scene\_order}.
-    Fresh \texttt{WidgetState} allocated.
-    Becomes the active tab.  Window elements marked dirty.
-    Existing events preserved.
+    Fresh \texttt{WidgetState} allocated.  Becomes the active tab.
+    Window elements marked dirty.  Existing events preserved.
 
   \item[Replace-in-place (same \field{scene\_id})]
     Content replaced in \texttt{\_scenes}.  Widget state and render
     function state cleared for that scene.  Events for elements
     that existed in the old scene but not the new scene are drained
-    (using full subtree ID collection via \texttt{\_collect\_ids()}).
-    Events from other scenes are untouched.
+    via \texttt{on\_scene\_replaced} callback (using full subtree ID
+    collection through \texttt{\_collect\_ids()}).  Events from
+    other scenes are untouched.
 
   \item[Dismiss (tab close button)]
     Scene removed from all state dicts.  Window element IDs removed
@@ -421,24 +645,27 @@ microseconds when idle.  ImGui handles frame pacing via GLFW vsync.
     neighbor (next tab, or previous if rightmost was dismissed).
 
   \item[Clear (\msg{ClearMessage} or menu)]
-    All scenes, widget state, events,
-    and dirty windows cleared.  Fresh instances allocated
-    (not \texttt{.clear()} on aliased objects).
+    All scenes, widget state, events, and dirty windows cleared.
+    Fresh instances allocated (not \texttt{.clear()} on aliased
+    objects).
 \end{description}
 
 \subsubsection{Widget State Swap Pattern}
 
-The 20+ element renderers all read from \texttt{self.\_widget\_state}.
-Rather than threading a \field{scene\_id} parameter through every
-method, the display swaps the per-scene state dict into this instance
-variable before rendering each tab:
+The 24-element \texttt{ElementRenderer.\_RENDERERS} dispatch table
+all reads from \texttt{self.\_widget\_state}.  Rather than threading
+a \field{scene\_id} parameter through every method, the display
+swaps the per-scene state dict into this instance variable before
+rendering each tab:
 
 \begin{lstlisting}[language=Python]
 def _render_scene_tab(self, scene_id: str) -> None:
-    self._widget_state = self._scene_widget_state[scene_id]
-    scene = self._scenes[scene_id]
+    self._element_renderer.widget_state = \
+        self._scene_manager.scene_widget_state[scene_id]
+    self._element_renderer.current_scene_id = scene_id
+    scene = self._scene_manager.scenes[scene_id]
     for elem in scene.elements:
-        self._render_element(elem)
+        self._element_renderer.render_element(elem)
 \end{lstlisting}
 
 This is the same pattern ImGui itself uses: ``current context.''
@@ -447,7 +674,8 @@ Zero changes required in any renderer method.
 \subsection{Table Filtering}
 
 Tables support built-in filtering at frame rate with zero MCP
-round-trips.  The display server renders filter controls (search
+round-trips.  \texttt{TableRenderer} (in
+\modpath{display/table\_renderer.py}) renders filter controls (search
 input, combo dropdowns) above the table and applies filters in the
 render loop:
 
@@ -471,9 +699,11 @@ render loop:
 
 Since v0.9.0, scenes can target named \emph{frames}---persistent ImGui
 windows that outlive client connections.  Frames are the primary unit
-of workspace organization.
+of workspace organization.  The \texttt{Frame} class lives in
+\modpath{scene/frame.py}; \texttt{SceneManager} owns the
+\texttt{\_frames} dict and the scene-to-frame routing.
 
-\subsection{\_Frame Dataclass}
+\subsection{Frame Class}
 
 \begin{center}
 \begin{tabular}{lp{8cm}}
@@ -496,11 +726,16 @@ of workspace organization.
 \field{flags}           & \texttt{dict[str,bool] | None} --- ImGui window flags
   (\texttt{no\_resize}, \texttt{no\_collapse}, \texttt{no\_title\_bar},
   \texttt{no\_background}, \texttt{no\_scrollbar}, \texttt{auto\_resize}). \\
-\field{layout}          & \texttt{"tab" | "stack"} --- Multi-scene composition
-  mode. \\
+\field{layout}          & \texttt{Literal["tab", "stack"]} --- Multi-scene
+  composition mode. \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+Public read/write properties wrap each field (PR \#159 extracted
+\texttt{\_Frame} from the original \texttt{display.py} and renamed it
+\texttt{Frame}; constructor follows the PY-CC-1 \texttt{\_\_new\_\_}
+pattern).
 
 \subsection{Frame Lifecycle}
 
@@ -517,9 +752,10 @@ of workspace organization.
 
   \item[Orphan model]
     When a client disconnects, its scenes persist with an
-    \texttt{\_ORPHAN\_FD} sentinel in place of the real fd.  The
-    frame remains visible and interactive.  A new client connecting
-    with the same \field{frame\_id} adopts the orphaned scenes.
+    \texttt{\_ORPHAN\_FD} sentinel (\texttt{-1}) in place of the
+    real fd.  The frame remains visible and interactive.  A new
+    client connecting with the same \field{frame\_id} adopts the
+    orphaned scenes.
 
   \item[Dismissal]
     The close button removes the frame and all its scenes from state.
@@ -528,8 +764,8 @@ of workspace organization.
   \item[Focus management]
     New frames are positioned using cascade staggering
     (\field{cascade\_index} increments per frame).  Initial size is
-    applied on first render only.  \texttt{\_focus\_frame\_id} triggers
-    \texttt{SetNextWindowFocus} on the next render cycle.
+    applied on first render only.  \texttt{\_focus\_frame\_id}
+    triggers \texttt{SetNextWindowFocus} on the next render cycle.
 \end{description}
 
 \subsection{World Menu}
@@ -545,12 +781,20 @@ Clicking a dock bar button restores the frame to its previous
 position and size.
 
 % ===================================================================
-\section{IPC and Process Management}
+\section{IPC and Process Management}\label{sec:ipc}
 % ===================================================================
+
+The shipped system runs the display and the session hub in a single
+process.  The target architecture in \texttt{x11-model.md} splits this
+into three processes (mcp-proxy $\to$ \texttt{luxd}
+$\to$ \texttt{lux-display}); \texttt{luxd-impl.md} is the Phase 1
+implementation spec.  This section describes the current
+single-process reality.
 
 \subsection{Socket Discovery}
 
-Socket path resolution, in priority order:
+\texttt{DisplayPaths} in \modpath{paths.py} resolves the display
+socket path in priority order:
 
 \begin{enumerate}
   \item \texttt{\$LUX\_SOCKET} environment variable.
@@ -561,6 +805,11 @@ Socket path resolution, in priority order:
 The fallback path is chosen to stay within macOS's $\sim$104-character
 \texttt{AF\_UNIX} path limit.
 
+The hub socket and PID files are resolved by module-level helpers in
+the same file: \texttt{hub\_dir()}, \texttt{hub\_pid\_path()},
+\texttt{hub\_port\_path()}, \texttt{hub\_log\_dir()},
+\texttt{read\_hub\_port()}, \texttt{is\_hub\_running()}.
+
 \subsection{PID Lifecycle}
 
 \begin{itemize}
@@ -568,13 +817,14 @@ The fallback path is chosen to stay within macOS's $\sim$104-character
     startup.
   \item Clients verify liveness via \texttt{os.kill(pid, 0)} before
     connecting.
-  \item Stale socket cleanup: \texttt{cleanup\_stale\_socket()} removes
-    socket and PID file if the process is dead.
+  \item Stale socket cleanup: \texttt{DisplayPaths.cleanup\_stale()}
+    removes socket and PID file if the process is dead.
 \end{itemize}
 
 \subsection{Auto-Spawn}
 
-\texttt{ensure\_display()} spawns the display server if not running:
+\texttt{DisplayPaths.ensure\_display()} spawns the display server if
+not running:
 
 \begin{enumerate}
   \item Checks socket existence and PID liveness.
@@ -590,9 +840,10 @@ The fallback path is chosen to stay within macOS's $\sim$104-character
 \subsection{MCP Server Reconnect}
 
 The MCP server wraps every tool call in
-\texttt{\_with\_reconnect()}: if an \texttt{OSError} (broken pipe)
-occurs, the stale client is closed, a new connection is established,
-and the call is retried exactly once.  No retry loop.
+\texttt{tools/connection.py::\_with\_reconnect()}: if an
+\texttt{OSError} (broken pipe) occurs, the stale client is closed, a
+new connection is established, and the call is retried exactly once.
+No retry loop.
 
 % ===================================================================
 \section{Performance}
@@ -611,6 +862,8 @@ Socket poll timeout & 0              & Non-blocking \texttt{select()} \\
 Max message size    & 16\,MiB        & Hard limit in \texttt{FrameReader} \\
 Connection timeout  & 5.0\,s         & \texttt{ensure\_display()} and handshake \\
 Texture loading     & Lazy           & First render triggers PIL + OpenGL upload \\
+Event ring buffer   & 200 entries    & \texttt{QueryDispatcher.\_recent\_events} \\
+Error ring buffer   & 100 entries    & \texttt{QueryDispatcher.\_recent\_errors} \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -624,8 +877,9 @@ The frame-critical path is:
     in practice.
   \item \texttt{FrameReader.feed()} --- memcpy into buffer, yield
     frames.  $O(B)$ where $B$ is bytes received.
-  \item \texttt{\_render\_scene()} --- ImGui draw list calls.
-    $O(E)$ where $E$ is total element count across visible scene.
+  \item \texttt{DisplayServer.\_render\_scene()} --- ImGui draw list
+    calls via \texttt{ElementRenderer.render\_element()}.  $O(E)$
+    where $E$ is total element count across visible scene.
   \item \texttt{\_flush\_events()} --- send $K$ events to $N$
     clients.  $O(K \cdot N)$.
 \end{enumerate}
@@ -649,13 +903,15 @@ UI at 30\,FPS idle.
     held in memory.  No size limit beyond the 16\,MiB message cap.
     Each scene is a separate dict entry; dismissed scenes are
     garbage-collected.
-  \item \textbf{Texture cache.}  OpenGL texture IDs held until
-    \texttt{\_on\_exit()}.  No eviction policy.  Image-heavy scenes
-    accumulate GPU memory.
+  \item \textbf{Texture cache.}  OpenGL texture IDs held in
+    \texttt{TextureCache} until \texttt{\_on\_exit()}.  No eviction
+    policy.  Image-heavy scenes accumulate GPU memory.
   \item \textbf{Widget state.}  Per-scene \texttt{WidgetState} is a
     flat dict.  Cleared on scene replacement.  No growth concern.
   \item \textbf{Event queue.}  Flushed every frame.  Bounded by
     interaction rate ($<$100 events/frame in practice).
+  \item \textbf{Ring buffers.}  \texttt{deque(maxlen=200)} for events
+    and \texttt{deque(maxlen=100)} for errors; constant memory.
 \end{itemize}
 
 \subsection{Known Limitations}
@@ -682,7 +938,8 @@ UI at 30\,FPS idle.
 The primary trust boundary is the Unix socket.  The display server
 accepts connections from any process that can reach the socket file.
 In the default configuration (\texttt{/tmp/lux-\$USER/}), the socket
-is protected by filesystem permissions (user-only directory).
+is protected by filesystem permissions (user-only directory, mode
+\texttt{0700}).
 
 \begin{center}
 \begin{tabular}{lp{5cm}p{5cm}}
@@ -744,21 +1001,22 @@ isolation.
 
 \begin{itemize}
   \item \textbf{Malformed JSON}: client disconnected, not crashed.
-    The display logs the error and removes the client from
-    \texttt{\_clients}.
+    \texttt{SocketServer} logs the error via the \texttt{on\_error}
+    callback and removes the client.
   \item \textbf{Unknown message type}: deserialized as
     \msg{UnknownMessage} for forward compatibility.
   \item \textbf{Oversize frame}: \texttt{FrameReader} checks
-    \texttt{bufSize $\leq$ maxBufSize} and disconnects on violation.
+    \texttt{payload\_len} against \texttt{MAX\_MESSAGE\_SIZE} and
+    raises; \texttt{SocketServer} converts to disconnect.
   \item \textbf{Partial reads}: \texttt{FrameReader} accumulates
     bytes across frames; no assumption of complete messages per
     \texttt{recv()}.
-  \item \textbf{Identity fields protected}: \texttt{\_apply\_update()}
-    silently drops patches that attempt to change \field{id} or
-    \field{kind} on an element.
+  \item \textbf{Identity fields protected}:
+    \texttt{SceneManager.apply\_update()} silently drops patches
+    that attempt to change \field{id} or \field{kind} on an element.
   \item \textbf{Double-remove idempotent}:
-    \texttt{\_remove\_client()} is safe to call twice on the same
-    socket.
+    \texttt{SocketServer.remove\_client()} is safe to call twice on
+    the same socket.
 \end{itemize}
 
 % ===================================================================
@@ -776,7 +1034,9 @@ isolation.
     the process identifiable in \texttt{ps} and \texttt{top}.  Does
     not affect Activity Monitor's binary name column.
   \item \textbf{Font discovery.}  Prefers Arial Unicode or Helvetica;
-    merges Apple Symbols for mathematical/Z notation glyphs.
+    merges Apple Symbols for mathematical/Z notation glyphs and STIX
+    Two Math for Mathematical Alphanumeric Symbols
+    (U+1D400--1D7FF).
   \item \textbf{AF\_UNIX path limit.}  macOS limits Unix socket
     paths to $\sim$104 characters.\\
     \texttt{tempfile.mkdtemp(prefix="lux-")}
@@ -787,7 +1047,7 @@ isolation.
 
 \begin{itemize}
   \item \textbf{Font discovery.}  DejaVu Sans or Noto Sans; merges
-    Noto Sans Symbols2 for Unicode coverage.
+    Noto Sans Symbols2 and Noto Sans Math for Unicode coverage.
   \item \textbf{XDG compliance.}  Prefers
     \texttt{\$XDG\_RUNTIME\_DIR/lux/} for socket placement.
   \item \textbf{No Dock equivalent.}  Window managers use the X11
@@ -795,10 +1055,14 @@ isolation.
 \end{itemize}
 
 % ===================================================================
-\section{MCP Tool Surface}
+\section{MCP Tool Surface}\label{sec:tools}
 % ===================================================================
 
-24 tools organized by function:
+24 tools, registered in \modpath{tools/tools.py}.  16 are declared
+with \texttt{@mcp.tool()} directly; 8 are declared with the
+\texttt{@\_query\_tool(method=...)} wrapper that routes through the
+generic \msg{QueryRequest} envelope (see
+\texttt{introspection-api.md}).
 
 \begin{center}
 \begin{longtable}{lp{8cm}}
@@ -835,7 +1099,8 @@ isolation.
   bar entries. \\
 \tool{register\_tool} & \texttt{(name, description, schema)} --- Register
   a custom tool in the display's tool palette. \\
-\tool{set\_theme}     & \texttt{(theme)} --- Apply display theme. \\
+\tool{set\_theme}     & \texttt{(theme)} --- Apply display theme.
+  Routes through \msg{QueryRequest}. \\
 \midrule
 \multicolumn{2}{l}{\textbf{Configuration}} \\
 \midrule
@@ -848,37 +1113,67 @@ isolation.
 \tool{set\_frame\_state} & \texttt{(frame\_id, minimized?)}
   --- Control frame state (minimize/restore). \\
 \midrule
-\multicolumn{2}{l}{\textbf{Introspection}} \\
+\multicolumn{2}{l}{\textbf{Introspection (legacy ad-hoc messages)}} \\
 \midrule
-\tool{inspect\_scene} & \texttt{(scene\_id)} --- Return element tree
-  for a scene. \\
-\tool{list\_scenes}   & \texttt{()} --- List all active scenes with
-  metadata. \\
-\tool{screenshot}     & \texttt{()} --- Capture display as base64
-  PNG. \\
+\tool{inspect\_scene} & \texttt{(scene\_id)} --- Element tree for a
+  scene.  Implementation routes through the generic
+  \msg{QueryRequest} envelope; the \msg{IntrospectRequest} message
+  type remains in the protocol for backward compatibility. \\
+\tool{list\_scenes}   & \texttt{()} --- All active scenes plus
+  frame summaries.  Same dual-path treatment as
+  \tool{inspect\_scene}. \\
+\tool{screenshot}     & \texttt{()} --- Capture display as a PNG;
+  returns the file path. \\
+\midrule
+\multicolumn{2}{l}{\textbf{Introspection (generic query path)}} \\
+\midrule
 \tool{get\_display\_info} & \texttt{()} --- Display dimensions,
-  frame count, client count. \\
-\tool{get\_window\_settings} & \texttt{()} --- Current window
-  geometry. \\
-\tool{get\_theme}     & \texttt{()} --- Current theme name. \\
+  frame count, client count, FPS, uptime, PID. \\
+\tool{get\_window\_settings} & \texttt{()} --- Opacity, font scale,
+  decorated, idle FPS. \\
+\tool{get\_theme}     & \texttt{()} --- Current theme and available
+  themes. \\
 \tool{list\_clients}  & \texttt{()} --- Connected clients with
-  names and scene counts. \\
-\tool{list\_menus}    & \texttt{()} --- Registered menu items. \\
+  display names and connect times. \\
+\tool{list\_menus}    & \texttt{()} --- Registered menu items, per
+  client. \\
 \tool{list\_recent\_events} & \texttt{(count?)} --- Recent
-  interaction events. \\
+  interaction events.  Reads
+  \texttt{QueryDispatcher.\_recent\_events} (max 200). \\
 \tool{list\_errors}   & \texttt{(count?)} --- Recent error log
-  entries. \\
+  entries.  Reads \texttt{QueryDispatcher.\_recent\_errors} (max
+  100). \\
 \bottomrule
 \end{longtable}
 \end{center}
 
+The introspection-api proposal targets fourteen query methods (see
+\texttt{introspection-api.md} Section 2 for the full inventory).
+Twelve are wired and live; \texttt{screenshot} is registered but
+its handler raises and routes to the dedicated
+\msg{ScreenshotRequest} path; one op from the inventory remains
+unimplemented.
+
+Six are built into \texttt{QueryDispatcher} at construction time:
+\texttt{inspect\_scene}, \texttt{list\_scenes}, \texttt{list\_clients},
+\texttt{list\_menus}, \texttt{list\_recent\_events},
+\texttt{list\_errors}.
+
+Seven more handlers are registered by \texttt{DisplayServer} at
+construction time because they touch ImGui state:
+\texttt{screenshot} (stub --- raises),
+\texttt{get\_display\_info},
+\texttt{get\_window\_settings}, \texttt{get\_theme},
+\texttt{set\_window\_settings}, \texttt{set\_frame\_state},
+\texttt{set\_theme}.
+
 % ===================================================================
-\section{Formal Model}
+\section{Formal Model}\label{sec:formal}
 % ===================================================================
 
 The display server's state machine is formally specified in
-\texttt{docs/display-server.tex} using the Z notation (ISO 13568).
-The specification covers:
+\texttt{docs/architecture/display-server.tex} using the Z notation
+(ISO 13568).  The specification covers:
 
 \begin{itemize}
   \item Client connection/disconnection with FrameReader association.
@@ -904,46 +1199,117 @@ state to the active tab for backward compatibility.  A specification
 update to model the full multi-scene state is pending.
 
 % ===================================================================
+\section{Domain Model Gap}\label{sec:domain-model-gap}
+% ===================================================================
+
+The companion document \texttt{docs/architecture/domain-model.md}
+names the north-star OO domain --- Element, Scene, Client, Update,
+Event, Port --- with structural invariants (identity unique within a
+Scene; ownership immutable; clients mutate only what they own;
+acyclic tree; typed property updates; transactional disconnection).
+
+The shipped system implements a subset of those invariants in
+procedural form.  Specifically:
+
+\begin{itemize}
+  \item Elements are \texttt{frozen=True} dataclasses with public
+    fields.  The target makes them stateful objects with validated
+    mutators.
+  \item Updates are coarse: \msg{SceneMessage} replaces the whole
+    tree; \msg{UpdateMessage} carries a list of patches that the
+    \texttt{SceneManager} applies imperatively.  The target
+    decomposes into five typed semantic primitives
+    (\texttt{AddElement}, \texttt{RemoveElement},
+    \texttt{SetProperty}, \texttt{ReparentElement},
+    \texttt{ReplaceElement}).
+  \item Ownership is tracked in \texttt{SceneManager.\_scene\_to\_owner}
+    by client fd.  Cross-client mutations within the same scene are
+    not currently rejected.  The target enforces ownership at the
+    domain layer.
+  \item Events are limited to \msg{InteractionMessage} (input
+    callbacks).  The target emits success and failure events for
+    every domain mutation, replayable by Port subscribers.
+\end{itemize}
+
+The draw-command surface (PR \#176, \#177) is the first piece that
+moves toward the north star: typed value classes
+(\texttt{Point2}, \texttt{Color}, \texttt{Thickness},
+\texttt{Radius}, \texttt{Rounding}), decoder at the wire boundary,
+records that own their \texttt{to\_wire} / \texttt{from\_wire}.
+The protocol-codec split into family modules with
+\texttt{ElementCodec} and \texttt{MessageRegistry} (PR \#157,
+\#169, \#170, \#172) is the second.  The remaining work is tracked
+as bead \texttt{lux-x4kb}: per-kind codecs still live as
+module-level functions rather than methods on the dataclasses.
+
+The OO ratchet (\texttt{make check-oo}) enforces the local rule that
+every commit improves OO scores on touched files.  Aggregate scores
+as of v0.18.0: \texttt{method\_ratio} 0.68 (target $\geq$ 0.80),
+\texttt{max\_complexity} 19 (target $\leq$ 10),
+\texttt{module\_size} $\sim$1{,}400 max (target $\leq$ 300) ---
+\texttt{display/server.py} is the largest remaining decomposition
+target.  See \texttt{docs/oo-refactor/resume.md} for the per-file
+breakdown.
+
+% ===================================================================
 \section{Test Architecture}
 % ===================================================================
+
+The default \texttt{pytest} run collects 853 tests (out of 869
+collected; 16 marker-gated tests are deselected).  Counts below are
+from \texttt{pytest --collect-only}.
 
 \begin{center}
 \begin{tabular}{lrl}
 \toprule
 \textbf{Test File} & \textbf{Count} & \textbf{What It Tests} \\
 \midrule
-\texttt{test\_protocol.py}            & 168 & Serialization, deserialization, framing \\
-\texttt{test\_display\_partition.py}   & 107 & TTF-derived partitions from Z spec \\
+\texttt{test\_protocol.py}            & 202 & Serialization, deserialization, framing \\
+\texttt{test\_display\_partition.py}  & 107 & TTF-derived partitions from Z spec \\
 \texttt{test\_tools.py}               & 83  & MCP tool behavior (mocked client) \\
-\texttt{test\_display\_state.py}       & 65  & State machine logic (no ImGui) \\
-\texttt{test\_display\_refinement.py}  & 28  & Abstraction function commutativity \\
-\texttt{test\_display\_client.py}      & 26  & High-level client library \\
-\texttt{test\_query.py}               & 23  & Generic introspection queries \\
-\texttt{test\_show.py}                & 22  & CLI show subcommands \\
+\texttt{test\_display\_state.py}      & 67  & State machine logic (no ImGui) \\
+\texttt{test\_display\_refinement.py} & 28  & Abstraction function commutativity \\
+\texttt{test\_show.py}                & 29  & CLI \texttt{show} subcommand \\
+\texttt{test\_draw\_commands.py}      & 27  & Typed draw-command records \\
+\texttt{test\_display\_client.py}     & 26  & High-level client library \\
+\texttt{test\_draw\_decoder.py}       & 24  & Draw-command dispatch on wire \texttt{cmd} \\
+\texttt{test\_draw\_values.py}        & 24  & Point2/Color/Thickness validation \\
+\texttt{test\_query.py}               & 23  & Query envelope round-trips \\
+\texttt{test\_draw\_wire.py}          & 23  & WireContext require-helpers \\
+\texttt{test\_scene\_manager.py}      & 23  & SceneManager state transitions \\
 \texttt{test\_runtime.py}             & 22  & CodeExecutor lifecycle \\
+\texttt{test\_paths.py}               & 19  & Socket discovery, PID, auto-spawn \\
 \texttt{test\_hooks.py}               & 18  & Hook handler output \\
-\texttt{test\_config.py}              & 16  & Config read/write \\
-\texttt{test\_paths.py}               & 16  & Socket discovery, PID, auto-spawn \\
+\texttt{test\_draw\_bounds.py}        & 15  & Radius/Rounding bounds \\
+\texttt{test\_config.py}              & 12  & Config read/write \\
 \texttt{test\_remote.py}              & 12  & mcp-proxy and remote transport \\
 \texttt{test\_cli.py}                 & 11  & CLI command smoke tests \\
 \texttt{test\_paths\_hub.py}          & 11  & Hub socket and PID paths \\
-\texttt{test\_service.py}             & 9   & Daemon lifecycle \\
+\texttt{test\_service.py}             & 11  & Daemon lifecycle \\
 \texttt{test\_unit.py}                & 6   & Misc unit tests \\
 \texttt{test\_hub.py}                 & 6   & WebSocket session hub \\
+\texttt{test\_menu\_manager.py}       & 6   & MenuManager registration \\
+\texttt{test\_table\_renderer.py}     & 6   & Table renderer pure logic \\
+\texttt{test\_query\_dispatcher.py}   & 5   & QueryDispatcher routing \\
+\texttt{test\_socket\_server.py}      & 5   & SocketServer non-blocking IO \\
 \texttt{test\_version.py}             & 2   & Version string consistency \\
 \midrule
 \multicolumn{3}{l}{\textbf{Marker-gated (not in default \texttt{pytest} run)}} \\
 \midrule
 \texttt{test\_integration.py}         & 8   & Socket IPC, protocol framing (real sockets) \\
+\texttt{test\_query.py} (integration) & 5   & Query end-to-end with real socket \\
 \texttt{test\_e2e.py}                 & 3   & Full display server lifecycle (requires GPU) \\
 \midrule
-\textbf{Total}                        & 662 & (651 default + 11 marker-gated) \\
+\textbf{Total}                        & 869 & (853 default + 16 marker-gated) \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 Quality gates: \texttt{ruff} (lint + format), \texttt{mypy} (strict),
 \texttt{pyright} (strict), \texttt{pytest} (all markers except
-slow/integration/e2e).  Zero violations required.
+integration/e2e), \texttt{check-oo} (OO ratchet against
+\texttt{.oo-baseline.json}), \texttt{check-suppressions} (suppression
+ratchet).  Zero violations required.  See \texttt{Makefile} for the
+exact targets; \texttt{make check} is the composite gate.
 
 \end{document}
