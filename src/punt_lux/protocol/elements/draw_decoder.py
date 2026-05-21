@@ -2,14 +2,14 @@
 
 The decoder holds a registry of one factory callable per
 ``DrawCommandKind``. Each factory is the ``from_wire`` classmethod of
-the corresponding the concrete ``DrawCommand`` class — decoding lives on the class that
+the corresponding concrete ``DrawCommand`` class — decoding lives on the class that
 owns the data, not in a parallel module of free functions.
 
 ``decode`` validates the ``cmd`` field, looks up the factory, and
 delegates. The decoder is an instance, not a classmethod, so callers
 (and tests) can construct a fresh decoder with a narrower or stubbed
 registry. ``DrawCommandDecoder.default()`` returns a module-level
-singleton populated with every the concrete ``DrawCommand.from_wire`` — that is the one
+singleton populated with every concrete ``DrawCommand.from_wire`` — that is the one
 ``DrawElement`` uses.
 
 Every public path requires an ``index`` (the position of the command
@@ -48,8 +48,8 @@ class _CommandFactory(Protocol):
 class DrawCommandDecoder:
     """Instance-based decoder for draw-command wire dicts.
 
-    Each factory is a the concrete ``DrawCommand.from_wire`` classmethod bound to a
-    ``DrawCommandKind``. Tests can construct a fresh decoder with one
+    Each factory is a concrete ``DrawCommand.from_wire`` classmethod bound
+    to a ``DrawCommandKind``. Tests can construct a fresh decoder with one
     stub factory to exercise edge cases without touching class state.
     """
 
