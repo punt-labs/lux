@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -690,6 +691,70 @@ class TestSetDisplayModeTool:
     def test_set_display_mode_invalid(self) -> None:
         with pytest.raises(ValueError, match="Invalid mode"):
             set_display_mode("bogus")
+
+
+class TestDisplayModeRepoArg:
+    """Regression for lux-r929 — config resolves to the caller's repo."""
+
+    def test_set_then_read_roundtrip_in_repo(self, tmp_path: Path) -> None:
+        """set_display_mode(repo=X) writes to X/.punt-labs/lux.md;
+        display_mode(repo=X) reads it back. No MCP server cwd in the loop."""
+        with patch("punt_lux.tools.tools._get_client", return_value=_mock_client()):
+            assert set_display_mode("y", repo=str(tmp_path)) == "display:on"
+        assert (tmp_path / ".punt-labs" / "lux.md").exists()
+        assert display_mode(repo=str(tmp_path)) == "display:on"
+
+        with patch("punt_lux.tools.tools._get_client", return_value=_mock_client()):
+            assert set_display_mode("n", repo=str(tmp_path)) == "display:off"
+        assert display_mode(repo=str(tmp_path)) == "display:off"
+
+    def test_repo_paths_are_isolated(self, tmp_path: Path) -> None:
+        """Two different repo paths maintain independent display-mode state."""
+        repo_a = tmp_path / "a"
+        repo_b = tmp_path / "b"
+        repo_a.mkdir()
+        repo_b.mkdir()
+        with patch("punt_lux.tools.tools._get_client", return_value=_mock_client()):
+            set_display_mode("y", repo=str(repo_a))
+        set_display_mode("n", repo=str(repo_b))
+        assert display_mode(repo=str(repo_a)) == "display:on"
+        assert display_mode(repo=str(repo_b)) == "display:off"
+
+    def test_repo_must_be_absolute(self) -> None:
+        with pytest.raises(ValueError, match="absolute path"):
+            display_mode(repo="relative/path")
+
+    def test_repo_must_exist(self, tmp_path: Path) -> None:
+        missing = tmp_path / "does-not-exist"
+        with pytest.raises(ValueError, match="does not exist"):
+            display_mode(repo=str(missing))
+
+    def test_repo_must_be_directory(self, tmp_path: Path) -> None:
+        """Passing a file path raises rather than silently failing later
+        with a cryptic 'directory not empty' or 'is a file' error from
+        write_field when it tries to mkdir <file>/.punt-labs."""
+        file_path = tmp_path / "regular-file"
+        file_path.write_text("not a directory")
+        with pytest.raises(ValueError, match="must be a directory"):
+            display_mode(repo=str(file_path))
+
+    def test_repo_empty_string_raises(self) -> None:
+        """An empty string is almost certainly a caller bug (e.g.,
+        ``repo=os.getenv('PROJECT_ROOT', '')`` with no env var set).
+        Fail loud rather than silently falling back to the lux-r929 path."""
+        with pytest.raises(ValueError, match="must not be empty"):
+            display_mode(repo="")
+
+    def test_repo_none_falls_back_to_process_cwd(self) -> None:
+        """When repo is omitted, behavior is the historical process-cwd path
+        (the lux-r929 bug surface). Hooks and CLI rely on this fallback."""
+        cfg = MagicMock()
+        cfg.display = "y"
+        mock_cls = _mock_config_manager_cls(cfg)
+        with patch("punt_lux.tools.tools.ConfigManager", mock_cls):
+            assert display_mode() == "display:on"
+        # No config_path kwarg means the process-cwd resolver runs.
+        mock_cls.assert_called_once_with()
 
 
 class TestClearNoAutoSpawn:

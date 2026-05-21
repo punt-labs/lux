@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 from punt_lux.config import ConfigManager
@@ -693,31 +694,52 @@ def list_menus() -> dict[str, Any] | None:
     return None
 
 
+def _config_manager_for(repo: str | None) -> ConfigManager:
+    """Build a ConfigManager for the caller's project (lux-r929).
+
+    ``repo=None`` falls back to process-cwd (CLI/hook path; broken
+    inside luxd). Otherwise validate absolute, existing directory.
+    """
+    if repo is None:
+        return ConfigManager()
+    if repo == "":
+        msg = "repo must not be empty; pass None for process-cwd fallback"
+        raise ValueError(msg)
+    path = Path(repo)
+    if not path.is_absolute():
+        raise ValueError(f"repo must be an absolute path; got {repo!r}")
+    if not path.exists():
+        raise ValueError(f"repo path does not exist: {repo}")
+    if not path.is_dir():
+        raise ValueError(f"repo must be a directory; got {repo}")
+    return ConfigManager(config_path=path / ".punt-labs" / "lux.md")
+
+
 @mcp.tool()
-def display_mode() -> str:
+def display_mode(repo: str | None = None) -> str:
     """Read the current display mode.
 
-    Returns "display:on" or "display:off". The display mode is an advisory signal
-    for consumer plugins. Lux itself always accepts show() calls
-    regardless of mode.
+    Returns "display:on" or "display:off". Pass ``repo=<project cwd>``
+    so the config is read from the caller's project, not luxd's cwd.
     """
-    cfg = ConfigManager().read()
+    cfg = _config_manager_for(repo).read()
     label = "on" if cfg.display == "y" else "off"
     return f"display:{label}"
 
 
 @mcp.tool()
-def set_display_mode(mode: str) -> str:
+def set_display_mode(mode: str, repo: str | None = None) -> str:
     """Set the display mode to "y" (on) or "n" (off).
 
-    When set to "y", eagerly connects to the display server.
-    The display mode is an advisory signal for consumer plugins.
+    Pass ``repo=<project cwd>`` so the config is written to the
+    caller's project, not luxd's cwd (see lux-r929). When ``y``,
+    eagerly connects to the display server.
     """
     if mode not in ("y", "n"):
         msg = f"Invalid mode '{mode}'. Use 'y' or 'n'."
         raise ValueError(msg)
 
-    config_mgr = ConfigManager()
+    config_mgr = _config_manager_for(repo)
     config_mgr.write_field("display", mode)
     if mode == "y":
         try:
