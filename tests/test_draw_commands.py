@@ -13,14 +13,14 @@ from punt_lux.protocol.elements.draw_command_kind import (
     DrawCommand,
     DrawCommandKind,
 )
-from punt_lux.protocol.elements.draw_commands_curve import BezierCubicCmd
-from punt_lux.protocol.elements.draw_commands_line import LineCmd, PolylineCmd
+from punt_lux.protocol.elements.draw_commands_curve import BezierCubic
+from punt_lux.protocol.elements.draw_commands_line import Line, Polyline
 from punt_lux.protocol.elements.draw_commands_shape import (
-    CircleCmd,
-    RectCmd,
-    TriangleCmd,
+    Circle,
+    Rect,
+    Triangle,
 )
-from punt_lux.protocol.elements.draw_commands_text import TextCmd
+from punt_lux.protocol.elements.draw_commands_text import TextGlyph
 from punt_lux.protocol.elements.draw_values import (
     DEFAULT_THICKNESS,
     WHITE,
@@ -44,15 +44,15 @@ class TestDrawCommandKind:
         assert DrawCommandKind("circle") is DrawCommandKind.CIRCLE
 
 
-class TestLineCmd:
+class TestLine:
     def test_defaults(self) -> None:
-        cmd = LineCmd(p1=Point2(0, 0), p2=Point2(10, 10))
+        cmd = Line(p1=Point2(0, 0), p2=Point2(10, 10))
         assert cmd.kind is DrawCommandKind.LINE
         assert cmd.color is WHITE
         assert cmd.thickness is DEFAULT_THICKNESS
 
     def test_to_dict_shape(self) -> None:
-        cmd = LineCmd(p1=Point2(1, 2), p2=Point2(3, 4))
+        cmd = Line(p1=Point2(1, 2), p2=Point2(3, 4))
         assert cmd.to_dict() == {
             "cmd": "line",
             "p1": [1.0, 2.0],
@@ -62,19 +62,19 @@ class TestLineCmd:
         }
 
     def test_satisfies_draw_command_protocol(self) -> None:
-        cmd = LineCmd(p1=Point2(0, 0), p2=Point2(1, 1))
+        cmd = Line(p1=Point2(0, 0), p2=Point2(1, 1))
         assert isinstance(cmd, DrawCommand)
 
 
-class TestRectCmd:
+class TestRect:
     def test_defaults(self) -> None:
-        cmd = RectCmd(min=Point2(0, 0), max=Point2(10, 10))
+        cmd = Rect(min=Point2(0, 0), max=Point2(10, 10))
         assert cmd.kind is DrawCommandKind.RECT
         assert cmd.rounding is NO_ROUNDING
         assert cmd.filled is False
 
     def test_to_dict_shape(self) -> None:
-        cmd = RectCmd(
+        cmd = Rect(
             min=Point2(1, 2),
             max=Point2(3, 4),
             rounding=Rounding(2.0),
@@ -91,17 +91,17 @@ class TestRectCmd:
         }
 
     def test_satisfies_draw_command_protocol(self) -> None:
-        assert isinstance(RectCmd(min=Point2(0, 0), max=Point2(1, 1)), DrawCommand)
+        assert isinstance(Rect(min=Point2(0, 0), max=Point2(1, 1)), DrawCommand)
 
 
-class TestCircleCmd:
+class TestCircle:
     def test_defaults(self) -> None:
-        cmd = CircleCmd(center=Point2(5, 5), radius=Radius(2.5))
+        cmd = Circle(center=Point2(5, 5), radius=Radius(2.5))
         assert cmd.kind is DrawCommandKind.CIRCLE
         assert cmd.filled is False
 
     def test_to_dict_shape(self) -> None:
-        cmd = CircleCmd(center=Point2(5, 5), radius=Radius(3), filled=True)
+        cmd = Circle(center=Point2(5, 5), radius=Radius(3), filled=True)
         assert cmd.to_dict() == {
             "cmd": "circle",
             "center": [5.0, 5.0],
@@ -112,18 +112,18 @@ class TestCircleCmd:
         }
 
     def test_satisfies_draw_command_protocol(self) -> None:
-        cmd = CircleCmd(center=Point2(0, 0), radius=Radius(1))
+        cmd = Circle(center=Point2(0, 0), radius=Radius(1))
         assert isinstance(cmd, DrawCommand)
 
 
-class TestTriangleCmd:
+class TestTriangle:
     def test_defaults(self) -> None:
-        cmd = TriangleCmd(p1=Point2(0, 0), p2=Point2(1, 0), p3=Point2(0, 1))
+        cmd = Triangle(p1=Point2(0, 0), p2=Point2(1, 0), p3=Point2(0, 1))
         assert cmd.kind is DrawCommandKind.TRIANGLE
         assert cmd.filled is False
 
     def test_to_dict_shape(self) -> None:
-        cmd = TriangleCmd(
+        cmd = Triangle(
             p1=Point2(0, 0),
             p2=Point2(1, 0),
             p3=Point2(0, 1),
@@ -142,18 +142,18 @@ class TestTriangleCmd:
         }
 
     def test_satisfies_draw_command_protocol(self) -> None:
-        cmd = TriangleCmd(p1=Point2(0, 0), p2=Point2(1, 0), p3=Point2(0, 1))
+        cmd = Triangle(p1=Point2(0, 0), p2=Point2(1, 0), p3=Point2(0, 1))
         assert isinstance(cmd, DrawCommand)
 
 
-class TestTextCmd:
+class TestTextGlyph:
     def test_defaults(self) -> None:
-        cmd = TextCmd(pos=Point2(0, 0), text="hello")
+        cmd = TextGlyph(pos=Point2(0, 0), text="hello")
         assert cmd.kind is DrawCommandKind.TEXT
         assert cmd.color is WHITE
 
     def test_to_dict_shape(self) -> None:
-        cmd = TextCmd(pos=Point2(5, 10), text="hi", color=Color("#00FF00"))
+        cmd = TextGlyph(pos=Point2(5, 10), text="hi", color=Color("#00FF00"))
         assert cmd.to_dict() == {
             "cmd": "text",
             "pos": [5.0, 10.0],
@@ -164,29 +164,29 @@ class TestTextCmd:
     def test_allows_empty_text(self) -> None:
         # Text content is not the wire boundary's concern; empty is legal at
         # this layer. The validator is the place to reject if needed.
-        TextCmd(pos=Point2(0, 0), text="")
+        TextGlyph(pos=Point2(0, 0), text="")
 
     def test_satisfies_draw_command_protocol(self) -> None:
-        assert isinstance(TextCmd(pos=Point2(0, 0), text="x"), DrawCommand)
+        assert isinstance(TextGlyph(pos=Point2(0, 0), text="x"), DrawCommand)
 
 
-class TestPolylineCmd:
+class TestPolyline:
     def test_minimum_two_points(self) -> None:
-        cmd = PolylineCmd(points=(Point2(0, 0), Point2(1, 1)))
+        cmd = Polyline(points=(Point2(0, 0), Point2(1, 1)))
         assert cmd.kind is DrawCommandKind.POLYLINE
         assert cmd.closed is False
         assert len(cmd.points) == 2
 
     def test_rejects_zero_points(self) -> None:
         with pytest.raises(ValueError, match="at least 2 points"):
-            PolylineCmd(points=())
+            Polyline(points=())
 
     def test_rejects_single_point(self) -> None:
         with pytest.raises(ValueError, match="at least 2 points"):
-            PolylineCmd(points=(Point2(0, 0),))
+            Polyline(points=(Point2(0, 0),))
 
     def test_to_dict_shape(self) -> None:
-        cmd = PolylineCmd(
+        cmd = Polyline(
             points=(Point2(0, 0), Point2(1, 1), Point2(2, 0)),
             closed=True,
         )
@@ -199,13 +199,13 @@ class TestPolylineCmd:
         }
 
     def test_satisfies_draw_command_protocol(self) -> None:
-        cmd = PolylineCmd(points=(Point2(0, 0), Point2(1, 1)))
+        cmd = Polyline(points=(Point2(0, 0), Point2(1, 1)))
         assert isinstance(cmd, DrawCommand)
 
 
-class TestBezierCubicCmd:
+class TestBezierCubic:
     def test_defaults(self) -> None:
-        cmd = BezierCubicCmd(
+        cmd = BezierCubic(
             p1=Point2(0, 0),
             p2=Point2(1, 0),
             p3=Point2(2, 1),
@@ -215,7 +215,7 @@ class TestBezierCubicCmd:
         assert cmd.color is WHITE
 
     def test_to_dict_shape(self) -> None:
-        cmd = BezierCubicCmd(
+        cmd = BezierCubic(
             p1=Point2(0, 0),
             p2=Point2(1, 0),
             p3=Point2(2, 1),
@@ -232,7 +232,7 @@ class TestBezierCubicCmd:
         }
 
     def test_satisfies_draw_command_protocol(self) -> None:
-        cmd = BezierCubicCmd(
+        cmd = BezierCubic(
             p1=Point2(0, 0),
             p2=Point2(1, 0),
             p3=Point2(2, 1),
@@ -247,13 +247,13 @@ class TestDrawCommandProtocol:
     def test_every_concrete_command_is_a_draw_command(self) -> None:
         # one of each kind; verifies structural conformance across the family
         commands = [
-            LineCmd(p1=Point2(0, 0), p2=Point2(1, 1)),
-            RectCmd(min=Point2(0, 0), max=Point2(1, 1)),
-            CircleCmd(center=Point2(0, 0), radius=Radius(1)),
-            TriangleCmd(p1=Point2(0, 0), p2=Point2(1, 0), p3=Point2(0, 1)),
-            TextCmd(pos=Point2(0, 0), text="x"),
-            PolylineCmd(points=(Point2(0, 0), Point2(1, 1))),
-            BezierCubicCmd(
+            Line(p1=Point2(0, 0), p2=Point2(1, 1)),
+            Rect(min=Point2(0, 0), max=Point2(1, 1)),
+            Circle(center=Point2(0, 0), radius=Radius(1)),
+            Triangle(p1=Point2(0, 0), p2=Point2(1, 0), p3=Point2(0, 1)),
+            TextGlyph(pos=Point2(0, 0), text="x"),
+            Polyline(points=(Point2(0, 0), Point2(1, 1))),
+            BezierCubic(
                 p1=Point2(0, 0),
                 p2=Point2(1, 0),
                 p3=Point2(2, 1),

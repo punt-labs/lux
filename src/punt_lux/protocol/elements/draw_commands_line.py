@@ -1,9 +1,9 @@
-"""Line-family draw commands — ``LineCmd`` and ``PolylineCmd``.
+"""Line-family draw commands — ``Line`` and ``Polyline``.
 
-Both render as connected line segments. ``LineCmd`` is a single segment;
-``PolylineCmd`` is a sequence of ≥ 2 points, optionally closed. Both are
+Both render as connected line segments. ``Line`` is a single segment;
+``Polyline`` is a sequence of ≥ 2 points, optionally closed. Both are
 frozen, slotted dataclasses; both compose ``Point2``, ``Color``, and
-``Thickness`` from the value modules. ``PolylineCmd`` adds a
+``Thickness`` from the value modules. ``Polyline`` adds a
 ``__post_init__`` that enforces the ≥ 2 points invariant — the value
 classes can't see that constraint because it spans fields.
 """
@@ -25,13 +25,13 @@ from punt_lux.protocol.elements.draw_values import (
 from punt_lux.protocol.elements.draw_wire import WireContext
 
 __all__ = [
-    "LineCmd",
-    "PolylineCmd",
+    "Line",
+    "Polyline",
 ]
 
 
 @dataclass(frozen=True, slots=True)
-class LineCmd:
+class Line:
     """Straight line segment from ``p1`` to ``p2``."""
 
     p1: Point2
@@ -52,7 +52,7 @@ class LineCmd:
 
     @classmethod
     def from_wire(cls, d: Mapping[str, object], *, ctx: WireContext) -> Self:
-        """Build a ``LineCmd`` from a wire dict."""
+        """Build a ``Line`` from a wire dict."""
         return cls(
             p1=Point2.from_wire(ctx.require_field(d, "p1"), ctx=ctx, field="p1"),
             p2=Point2.from_wire(ctx.require_field(d, "p2"), ctx=ctx, field="p2"),
@@ -64,7 +64,7 @@ class LineCmd:
 
 
 @dataclass(frozen=True, slots=True)
-class PolylineCmd:
+class Polyline:
     """Connected line segments through ``points`` (≥ 2 points)."""
 
     points: tuple[Point2, ...]
@@ -76,7 +76,7 @@ class PolylineCmd:
     def __post_init__(self) -> None:
         if len(self.points) < 2:
             msg = (
-                "PolylineCmd field 'points' requires at least 2 points; "
+                "Polyline field 'points' requires at least 2 points; "
                 f"got {len(self.points)}"
             )
             raise ValueError(msg)
@@ -93,7 +93,7 @@ class PolylineCmd:
 
     @classmethod
     def from_wire(cls, d: Mapping[str, object], *, ctx: WireContext) -> Self:
-        """Build a ``PolylineCmd`` from a wire dict."""
+        """Build a ``Polyline`` from a wire dict."""
         raw_points = ctx.require_field(d, "points")
         # require_sequence raises with a clear "must be a list or tuple"
         # message — let it propagate. Wrapping it in a higher-level

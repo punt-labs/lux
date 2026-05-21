@@ -1,4 +1,4 @@
-"""Curve-family draw commands — ``BezierCubicCmd``.
+"""Curve-family draw commands — ``BezierCubic``.
 
 A cubic Bezier travels from ``p1`` to ``p4`` with ``p2`` and ``p3`` as
 control points. The class is a frozen, slotted dataclass composing four
@@ -21,11 +21,11 @@ from punt_lux.protocol.elements.draw_values import (
 )
 from punt_lux.protocol.elements.draw_wire import WireContext
 
-__all__ = ["BezierCubicCmd"]
+__all__ = ["BezierCubic"]
 
 
 @dataclass(frozen=True, slots=True)
-class BezierCubicCmd:
+class BezierCubic:
     """Cubic Bezier through ``p1``, ``p2`` (control), ``p3`` (control), ``p4``."""
 
     p1: Point2
@@ -50,7 +50,7 @@ class BezierCubicCmd:
 
     @classmethod
     def from_wire(cls, d: Mapping[str, object], *, ctx: WireContext) -> Self:
-        """Build a ``BezierCubicCmd`` from a wire dict."""
+        """Build a ``BezierCubic`` from a wire dict."""
         pts = tuple(
             Point2.from_wire(ctx.require_field(d, name), ctx=ctx, field=name)
             for name in ("p1", "p2", "p3", "p4")

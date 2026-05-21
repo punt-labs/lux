@@ -56,7 +56,7 @@ class WireContext:
     def for_indexed(cls, kind: str, index: int) -> Self:
         """Per-command context: the kind is resolved.
 
-        Used by every ``*Cmd.from_wire`` classmethod to format field
+        Used by every the concrete ``DrawCommand.from_wire`` classmethod to format field
         errors with the full ``draw command [i] (kind)`` prefix.
         """
         return cls(_prefix=f"draw command [{index}] ({kind})")
