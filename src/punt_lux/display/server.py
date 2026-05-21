@@ -372,18 +372,6 @@ class DisplayServer:
         self._socket_server.setup(self._socket_path)
         self._display_paths.write_pid()
 
-        # macOS: hide from Dock after GLFW init (which overrides earlier calls)
-        if platform.system() == "Darwin":
-            try:
-                import AppKit as _AppKit  # pyright: ignore[reportMissingImports,reportAttributeAccessIssue]
-
-                _ak: Any = _AppKit
-                _ak.NSApplication.sharedApplication().setActivationPolicy_(
-                    _ak.NSApplicationActivationPolicyAccessory
-                )
-            except Exception:  # noqa: BLE001
-                logger.debug("Could not hide Dock icon", exc_info=True)
-
         logger.info("Display server listening on %s", self._socket_path)
 
     def _on_frame(self) -> None:

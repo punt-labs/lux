@@ -176,7 +176,6 @@ module = [
     "OpenGL.*",
     "typer.*",
     "setproctitle.*",
-    "AppKit.*",
     "starlette.*",
     "uvicorn.*",
     "mcp.*",
