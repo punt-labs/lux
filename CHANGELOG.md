@@ -4,18 +4,22 @@
 
 ### Changed
 
-- **Display server no longer hides from macOS Dock / Cmd-Tab / menu bar** —
-  removed the `NSApplicationActivationPolicyAccessory` call in
-  `DisplayServer._on_post_init`. The `lux-display` process now appears as a
-  normal Dock app per GLFW's default activation policy, restoring standard
-  macOS app presence and making operational debugging easier.
-- **Architecture spec updated to v0.18.0** — `docs/architecture.tex` brought
-  current: 24 element kinds, 24 MCP tools, frame architecture section,
+- **Architecture spec updated to v0.18.0** — `docs/architecture/system.tex`
+  brought current: 24 element kinds, 24 MCP tools, frame architecture section,
   introspection protocol, 662 tests across 21 files. Was stale at v0.7.0.
 - **README MCP tool table expanded** — from 11 tools to full 24-tool surface
   with categorized sections (scene management, communication, configuration,
   introspection). Fixed `display_mode` documented as read-write (now read-only
   with separate `set_display_mode`).
+
+### Removed
+
+- **Dock-hiding behavior on macOS (macOS only)** — removed the
+  `NSApplicationActivationPolicyAccessory` call in
+  `DisplayServer._on_post_init`. The `lux-display` process now appears as a
+  normal Dock app per GLFW's default activation policy, restoring standard
+  macOS app presence and making operational debugging easier. Pairs with the
+  v0.7.0 "Dock hiding" Added entry. No effect on Linux.
 
 ### Added
 
