@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 from punt_lux.config import ConfigManager
@@ -693,31 +694,69 @@ def list_menus() -> dict[str, Any] | None:
     return None
 
 
+def _config_manager_for(repo: str | None) -> ConfigManager:
+    """Build a ConfigManager rooted at the caller's repo path.
+
+    When ``repo`` is provided, write to ``<repo>/.punt-labs/lux.md`` —
+    the caller's project root. When omitted, fall back to the
+    process-cwd resolver, which is wrong inside ``luxd`` (its cwd is
+    typically ``$HOME``) but preserves the historical behavior for the
+    CLI and hook paths that legitimately inherit the caller's cwd.
+
+    The ``/lux`` slash command and any other MCP caller that knows its
+    project root SHOULD pass ``repo``; see lux-r929 for the bug.
+    """
+    if not repo:
+        return ConfigManager()
+    path = Path(repo)
+    if not path.is_absolute():
+        msg = f"repo must be an absolute path; got {repo!r}"
+        raise ValueError(msg)
+    if not path.exists():
+        msg = f"repo path does not exist: {repo}"
+        raise ValueError(msg)
+    return ConfigManager(config_path=path / ".punt-labs" / "lux.md")
+
+
 @mcp.tool()
-def display_mode() -> str:
+def display_mode(repo: str | None = None) -> str:
     """Read the current display mode.
 
     Returns "display:on" or "display:off". The display mode is an advisory signal
     for consumer plugins. Lux itself always accepts show() calls
     regardless of mode.
+
+    Args:
+        repo: Absolute path to the caller's project root. When passed, the
+            display mode is read from ``<repo>/.punt-labs/lux.md``. When
+            omitted, falls back to the MCP server process's cwd — which is
+            ``$HOME`` under launchd and almost never what the caller wants
+            (lux-r929).
     """
-    cfg = ConfigManager().read()
+    cfg = _config_manager_for(repo).read()
     label = "on" if cfg.display == "y" else "off"
     return f"display:{label}"
 
 
 @mcp.tool()
-def set_display_mode(mode: str) -> str:
+def set_display_mode(mode: str, repo: str | None = None) -> str:
     """Set the display mode to "y" (on) or "n" (off).
 
     When set to "y", eagerly connects to the display server.
     The display mode is an advisory signal for consumer plugins.
+
+    Args:
+        mode: "y" or "n".
+        repo: Absolute path to the caller's project root. When passed, the
+            display mode is written to ``<repo>/.punt-labs/lux.md``. When
+            omitted, falls back to the MCP server process's cwd — which is
+            usually wrong (lux-r929).
     """
     if mode not in ("y", "n"):
         msg = f"Invalid mode '{mode}'. Use 'y' or 'n'."
         raise ValueError(msg)
 
-    config_mgr = ConfigManager()
+    config_mgr = _config_manager_for(repo)
     config_mgr.write_field("display", mode)
     if mode == "y":
         try:
