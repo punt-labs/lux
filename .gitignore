@@ -1,22 +1,13 @@
-.claude/settings.local.json
-.claude/projects/
-.claude/worktrees/
-.biff.local
-.worktrees/
-.mcp.json
-.punt-labs/lux.md
-.vox/
-.vscode/
-.idea/
-.coverage
+# Python
 __pycache__/
-*.ini
+.venv/
 
-# Spike/scratch files
-spikes/
-demos/
-.tmp/*
-!.tmp/.gitkeep
+# All local configs
+.*.local
+
+# Test Coverage
+.coverage
+/htmlcov/
 
 # LaTeX build artifacts
 docs/fuzz.sty
@@ -33,11 +24,23 @@ docs/*.out
 docs/*.pdf
 docs/*.synctex.gz
 
-# Local uv overrides (depot find-links, etc.)
-uv.toml
+# IDEs
+.vscode/
+.idea/
 
-# Local envrc
-.envrc.local
+# Claude
+.claude/settings.local.json
+.claude/projects/
+.claude/worktrees/
+.claude/scheduled_tasks*
+.mcp.json
+.tmp/
+!.tmp/.gitkeep
 
-# Temporarily exclude quarry captures
+# Ethos mission log
+.ethos/
+
+# Punt Labs toolchain ignores
 .punt-labs/quarry/captures/*.md
+.punt-labs/lux.md
+*.ini
