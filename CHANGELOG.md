@@ -4,6 +4,11 @@
 
 ### Changed
 
+- **Display server no longer hides from macOS Dock / Cmd-Tab / menu bar** —
+  removed the `NSApplicationActivationPolicyAccessory` call in
+  `DisplayServer._on_post_init`. The `lux-display` process now appears as a
+  normal Dock app per GLFW's default activation policy, restoring standard
+  macOS app presence and making operational debugging easier.
 - **Architecture spec updated to v0.18.0** — `docs/architecture.tex` brought
   current: 24 element kinds, 24 MCP tools, frame architecture section,
   introspection protocol, 662 tests across 21 files. Was stale at v0.7.0.
