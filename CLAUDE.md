@@ -95,7 +95,7 @@ Default Python — procedural functions operating on dataclasses, `| None` every
 
 **Protocol codec functions** — every `protocol/elements/*.py` and `protocol/messages/*.py` module still uses module-level `_<kind>_to_dict` / `_<kind>_from_dict` functions instead of methods on the dataclasses. Phase A (PRs #169, #170, #172) split the file but DID NOT fix the procedural codec pattern — same OO debt now spread across 11 family modules instead of 2. The draw-command surface (PR #176) is the one corner that fixed it. When you touch any of those files, fix the codec while you're there; do not file a follow-up bead.
 
-**MCP tool boilerplate** — 29 MCP tools in `server.py` with identical boilerplate. This signals a missing abstraction. Extract the pattern into a decorator or registry.
+**MCP tool boilerplate** — 29 MCP tools in `tools/tools.py` (registered via `tools/server.py` and exposed by `tools/connection.py`) with identical boilerplate. This signals a missing abstraction. Extract the pattern into a decorator or registry — see `docs/architecture/introspection-api.md` for the proposed `QueryRequest` / `QueryResponse` envelope.
 
 **OO ratchet:** `make check-oo` (part of `make check`) compares current OO scores against `.oo-baseline.json`. It passes only if no metric regressed on touched files and at least one metric improved. It fails if any metric got worse or nothing improved.
 

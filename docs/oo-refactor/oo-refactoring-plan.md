@@ -6,10 +6,14 @@
 > the class extractions but did **not** hit the size targets —
 > `display/server.py` is still 1,370 lines, `element_renderer.py` is
 > 1,130. Phase 3 (`_query_tool` decorator) shipped; the optional
-> `ToolState` class did not. Phase 4 (remove `inspect_scene`,
-> `list_scenes`, `screenshot` and their queues) is **not done** —
-> all three MCP tools still exist. Phase 5 shipped 5 of 7 classes;
-> `SessionHub` (Step 5.2) and `DoctorChecker` (Step 5.3) are open.
+> `ToolState` class did not. **Phase 4's removal goal is SUPERSEDED**
+> by `docs/architecture/introspection-api.md` (2026-05-12), which
+> takes the opposite stance: keep the three ad-hoc query ops, generalise
+> them through a `QueryRequest` / `QueryResponse` envelope, and grow
+> the surface to 15+ operations. Implementation of the introspection-api
+> pattern is the active work item; nothing has shipped against it yet.
+> Phase 5 shipped 5 of 7 classes; `SessionHub` (Step 5.2) and
+> `DoctorChecker` (Step 5.3) are open.
 > Several file references in the plan body — `display.py`,
 > `protocol.py` — point at files that no longer exist as monoliths.
 > See `resume.md` for the current state and open items.

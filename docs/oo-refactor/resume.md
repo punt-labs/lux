@@ -22,7 +22,7 @@ Aggregate of `python tools/oo_score.py src/punt_lux/`:
 | `avg_params` | ≤ 4.0 | 0.98 | 0.99 | PASS |
 | `max_complexity` | ≤ 10 | 19 | **19** | **FAIL** — `table_renderer`, `server`, `element_renderer`. |
 | `avg_complexity` | ≤ 5.0 | 2.31 | 2.07 | PASS |
-| `module_size` | ≤ 300 | 1,213 | **1,203** | **FAIL** — `display/server.py` (1,370), `element_renderer.py` (1,130), `__main__.py` (576). |
+| `module_size` | ≤ 300 | 1,213 | **1,203** | **FAIL** — `oo_score.py`'s metric is non-empty lines; the three biggest are `display/server.py` (1,203), `element_renderer.py` (~999), `__main__.py` (~488). Raw `wc -l` line counts for the same files are 1,370 / 1,130 / 576. |
 | `classes_per_module` | ≤ 3 | 27 | **9** | **FAIL** — improved by Phase A, still over. |
 | `class_to_func_ratio` | ≥ 0.5 | 0.60 | 0.62 | PASS |
 | `init_violations` | == 0 | 0 | 0 | PASS |
@@ -62,7 +62,7 @@ absolute targets remain unmet.
 | **4.1** Remove `inspect_scene` / `list_scenes` / `screenshot` and their queues | **Superseded** | `docs/architecture/introspection-api.md` (2026-05-12) reverses this — keep the three ops, generalise the pattern through a `QueryRequest` / `QueryResponse` envelope and a single dispatcher, grow to 15+ ops. Implementation of the introspection-api pattern is the live work item, not removal. |
 | **5.2** `SessionHub` class in `hub.py` | **Open** | `hub.py` is 5 module-level functions, zero classes. |
 | **5.3** `DoctorChecker` class in `__main__.py` | **Open** | `__main__.py` is 576 lines, 23 functions, zero classes. |
-| Size targets | **Open** | `display/server.py` (1,370), `element_renderer.py` (1,130), `__main__.py` (576) — none meet ≤ 300. |
+| Size targets | **Open** | None of the three largest modules meets the ≤ 300 `module_size` target. `oo_score.py` reports 1,203 / ~999 / ~488 for `display/server.py` / `element_renderer.py` / `__main__.py`; raw `wc -l` is 1,370 / 1,130 / 576. |
 | `method_ratio` target | **Open** | Aggregate 0.636 vs target ≥ 0.80. Procedural codec functions in `protocol/elements/*.py` and `protocol/messages/*.py` are the largest contributor — same anti-pattern as the draw-command surface had before PR #176. |
 | `max_complexity` target | **Open** | 19 vs target ≤ 10. Concentrated in three render-path methods. |
 

@@ -333,7 +333,7 @@ def query(self, method: str, params: dict[str, Any] | None = None) -> QueryRespo
 Add `_query_queue` to `__init__`, route `QueryResponse` in the
 listener. Both one-time changes.
 
-**tools.py** -- add MCP tool:
+**`tools/tools.py`** -- add MCP tool:
 
 ```python
 @mcp.tool()
@@ -352,8 +352,8 @@ def get_theme() -> str:
     return _with_reconnect(_call)
 ```
 
-**Tests** -- round-trip in test\_protocol/ package, integration in
-test\_tools.py (send `QueryRequest`, verify `QueryResponse` shape).
+**Tests** -- round-trip in `tests/test_protocol.py`, integration in
+`tests/test_tools.py` (send `QueryRequest`, verify `QueryResponse` shape).
 
 ### Checklist for new operations
 
@@ -361,7 +361,7 @@ After PR 1, each new operation requires:
 
 1. One handler method in `display/server.py`
 2. One line in `_query_handlers`
-3. One MCP tool function in `tools.py`
+3. One MCP tool function in `tools/tools.py`
 4. One integration test
 
 No changes to protocol/ package, display_client.py, or message serialization.
