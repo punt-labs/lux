@@ -28,7 +28,7 @@ def annotation_name(annotation: object) -> str:
 
 
 def annotation_runtime_types(annotation: object) -> tuple[type, ...]:
-    """Flatten an annotation into the runtime types ``isinstance()`` can check."""
+    """Flatten annotation to runtime types; raise on unsupported shapes (PY-EH-8)."""
     origin = get_origin(annotation)
     if origin is types.UnionType or origin is typing.Union:
         out: list[type] = []
@@ -43,9 +43,8 @@ def annotation_runtime_types(annotation: object) -> tuple[type, ...]:
         return (type(None),)
     if isinstance(annotation, type):
         return (annotation,)
-    # Unknown annotation shape — fall back to accepting anything to avoid
-    # false-positive PropertyTypeError. Type-checking is best-effort here.
-    return (object,)
+    msg = f"unsupported annotation shape for runtime type extraction: {annotation!r}"
+    raise TypeError(msg)
 
 
 def value_matches(value: object, valid_types: tuple[type, ...]) -> bool:
