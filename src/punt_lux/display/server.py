@@ -25,6 +25,7 @@ from PIL import Image
 
 from punt_lux.display.element_renderer import ElementRenderer
 from punt_lux.display.idle_screen import render_idle
+from punt_lux.display.macos import hide_from_dock_and_cmd_tab
 from punt_lux.display.menu_manager import MenuManager
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
@@ -70,10 +71,6 @@ logger = logging.getLogger(__name__)
 # client remains in the frame.  The scene persists until the user closes the
 # frame or a new client adopts it.
 _ORPHAN_FD = -1
-
-# ---------------------------------------------------------------------------
-# Display server
-# ---------------------------------------------------------------------------
 
 
 class DisplayServer:
@@ -367,6 +364,8 @@ class DisplayServer:
         # Ensure docking is enabled (drag-merge frames into tabs).
         io = imgui.get_io()
         io.config_flags |= imgui.ConfigFlags_.docking_enable.value
+
+        hide_from_dock_and_cmd_tab()
 
         self._themes = list(hello_imgui.ImGuiTheme_)
         self._socket_server.setup(self._socket_path)

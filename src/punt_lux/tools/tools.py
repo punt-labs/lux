@@ -694,17 +694,17 @@ def list_menus() -> dict[str, Any] | None:
     return None
 
 
-def _config_manager_for(repo: str | None) -> ConfigManager:
+def _config_manager_for(repo: str) -> ConfigManager:
     """Build a ConfigManager for the caller's project (lux-r929).
 
-    ``repo=None`` falls back to process-cwd (CLI/hook path; broken
-    inside luxd). Otherwise validate absolute, existing directory.
+    ``repo`` is required and must be an absolute path to an existing
+    directory. The MCP server runs inside luxd, whose cwd is wherever
+    launchd started it (typically ``$HOME``) — never the agent's
+    project. Every MCP caller of ``display_mode`` / ``set_display_mode``
+    must therefore say what project they mean.
     """
-    if repo is None:
-        return ConfigManager()
-    if repo == "":
-        msg = "repo must not be empty; pass None for process-cwd fallback"
-        raise ValueError(msg)
+    if not repo:
+        raise ValueError("repo is required and must be a non-empty string")
     path = Path(repo)
     if not path.is_absolute():
         raise ValueError(f"repo must be an absolute path; got {repo!r}")
@@ -716,11 +716,12 @@ def _config_manager_for(repo: str | None) -> ConfigManager:
 
 
 @mcp.tool()
-def display_mode(repo: str | None = None) -> str:
+def display_mode(repo: str) -> str:
     """Read the current display mode.
 
-    Returns "display:on" or "display:off". Pass ``repo=<project cwd>``
-    so the config is read from the caller's project, not luxd's cwd.
+    Returns "display:on" or "display:off". ``repo`` must be the
+    absolute path of the caller's project; the config is read from
+    ``<repo>/.punt-labs/lux.md`` (lux-r929).
     """
     cfg = _config_manager_for(repo).read()
     label = "on" if cfg.display == "y" else "off"
@@ -728,19 +729,18 @@ def display_mode(repo: str | None = None) -> str:
 
 
 @mcp.tool()
-def set_display_mode(mode: str, repo: str | None = None) -> str:
+def set_display_mode(mode: str, repo: str) -> str:
     """Set the display mode to "y" (on) or "n" (off).
 
-    Pass ``repo=<project cwd>`` so the config is written to the
-    caller's project, not luxd's cwd (see lux-r929). When ``y``,
-    eagerly connects to the display server.
+    ``repo`` must be the absolute path of the caller's project; the
+    config is written to ``<repo>/.punt-labs/lux.md`` (lux-r929).
+    When ``y``, eagerly connects to the display server.
     """
     if mode not in ("y", "n"):
         msg = f"Invalid mode '{mode}'. Use 'y' or 'n'."
         raise ValueError(msg)
 
-    config_mgr = _config_manager_for(repo)
-    config_mgr.write_field("display", mode)
+    _config_manager_for(repo).write_field("display", mode)
     if mode == "y":
         try:
             _get_client()

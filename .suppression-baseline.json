@@ -1,11 +1,11 @@
 {
-  "total": 110,
+  "total": 111,
   "by_category": {
-    "noqa": 37,
-    "type_ignore": 7,
+    "noqa": 36,
+    "type_ignore": 8,
     "pylint_disable": 2,
     "pyright_ignore": 11,
-    "per_file_ignores": 53
+    "per_file_ignores": 54
   },
   "by_file": {
     "src/punt_lux/__main__.py": {
@@ -15,20 +15,24 @@
     "src/punt_lux/_backends.py": {
       "pylint_disable": 2
     },
-    "src/punt_lux/apps/beads.py": {
+    "src/punt_lux/apps/_beads_payload.py": {
       "noqa": 1,
       "type_ignore": 1
     },
     "src/punt_lux/display/element_renderer.py": {
       "noqa": 2
     },
+    "src/punt_lux/display/macos.py": {
+      "type_ignore": 1,
+      "pyright_ignore": 1
+    },
     "src/punt_lux/display/menu_manager.py": {
       "noqa": 13
     },
     "src/punt_lux/display/server.py": {
-      "noqa": 3,
+      "noqa": 2,
       "type_ignore": 2,
-      "pyright_ignore": 2
+      "pyright_ignore": 1
     },
     "src/punt_lux/hub.py": {
       "noqa": 1,
@@ -40,9 +44,13 @@
     "src/punt_lux/protocol/elements/layout.py": {
       "type_ignore": 1
     },
-    "src/punt_lux/protocol/messages.py": {
-      "noqa": 1,
-      "type_ignore": 1,
+    "src/punt_lux/protocol/messages/lifecycle.py": {
+      "noqa": 1
+    },
+    "src/punt_lux/protocol/messages/menu.py": {
+      "type_ignore": 1
+    },
+    "src/punt_lux/protocol/messages/scene.py": {
       "pyright_ignore": 1
     },
     "src/punt_lux/query_dispatcher.py": {
@@ -68,5 +76,5 @@
       "type_ignore": 1
     }
   },
-  "updated_at": "2026-05-20T18:32:19Z"
+  "updated_at": "2026-05-22T06:30:49Z"
 }
