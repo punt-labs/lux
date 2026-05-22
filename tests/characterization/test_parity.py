@@ -86,3 +86,23 @@ def test_snapshot_has_no_absolute_paths(path: Path) -> None:
             f"{path.name} contains absolute path token {forbidden!r}; "
             "use REPO_ROOT_TOKEN and run `make snapshot-record`"
         )
+
+
+def test_every_tool_has_a_snapshot() -> None:
+    """Every MCP tool registered in punt_lux.tools must appear in the corpus.
+
+    The migration's safety net is only as good as its coverage. If a new
+    tool is added without a snapshot, this test fails — the corpus is the
+    contract for tool-level behavior across the migration.
+    """
+    from punt_lux import tools as tools_pkg
+
+    non_tool_exports = {"mcp", "run_mcp_session"}
+    registered = {name for name in tools_pkg.__all__ if name not in non_tool_exports}
+    covered = {Snapshot.from_file(p).tool for p in _snapshot_files()}
+    missing = sorted(registered - covered)
+    assert not missing, (
+        f"corpus missing snapshots for: {missing}. "
+        "Add a scenario in tests/characterization/build_corpus.py and run "
+        "`make snapshot-record`."
+    )
