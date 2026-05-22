@@ -58,10 +58,11 @@ class DomainPump:
 
     def route(self, msg: SceneMessage) -> None:
         """Route a SceneMessage through the domain Display if it qualifies."""
-        if not msg.elements:
-            return
         # Mixed-scene rule: any non-basics element disqualifies the whole
-        # scene from the new path.
+        # scene from the new path.  An EMPTY element list must still clear
+        # the scene — agents re-send empty scenes to clear the surface, and
+        # skipping the clear lets the domain Display retain stale elements
+        # while SceneManager drops them (Copilot CP-2).
         if any(not isinstance(elem, self._basics_kinds) for elem in msg.elements):
             return
         scene_id = SceneId(msg.id)
