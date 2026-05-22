@@ -2156,3 +2156,207 @@ calls, is moving in the wrong direction.
   the display-as-renderer owns nothing but its framebuffer.
 - `docs/oo-refactor/dynamic-access-design.md`: detailed treatment of the
   dynamic attribute access debt and the typed patch path forward.
+
+---
+
+## DES-031: Domain Model Across All Three Tiers — Not Just a JSON Renderer
+
+**Date:** 2026-05-22
+**Status:** ACCEPTED
+**Decided by:** the operator
+**Companion plan:** `docs/oo-refactor/migration-plan.md`
+
+### Problem
+
+DES-030 established the three-layer *type* model (wire / scene graph /
+snapshot). The remaining question is structural: across the three
+*process* tiers (Lux applications → Lux hub → Lux display), is the right
+shape:
+
+- **(a)** A well-factored procedural JSON renderer — small files, pure
+  per-kind render functions, no Domain class, no Update bus, no Event
+  vocabulary. The wire protocol and the 24 element kinds are the
+  contribution; everything else is plumbing.
+- **(b)** A live domain model with state + behavior together — Element
+  Composite tree, Client ownership, semantic Updates, Event log, a
+  `Display` class that mediates writes — realized identically in all
+  three tiers, with the IPC boundary being a serialization concern, not
+  a structural one.
+
+The migration-method review (recorded in `migration-plan.md`) surfaced
+this as a real architectural fork. Three architect agents reviewed the
+migration *path*; one of them (`rop`, Plan 9 simplicity school) went
+beyond scope and argued for (a) — that the domain model is "Smalltalk-image
+cosplay built on top of a JSON renderer that already works."
+
+The operator is the design authority and resolved the question
+explicitly: **(b).** This ADR records that decision and its rationale so
+the question doesn't get relitigated.
+
+### Decision
+
+Lux pursues the domain model across all three tiers, as specified in
+`docs/architecture/domain-model.md`. Live Elements with identity and
+ownership. Updates as five typed semantic primitives. Events emitted on
+every state change. A `Display` class that holds Scenes and Clients,
+applies Updates, validates invariants, emits Events. The same domain
+model lives in the hub (`hub_display`) and the display server
+(`wire_display`); the codec at the IPC boundary serializes Updates and
+Events between them.
+
+This decision applies to all three tiers — application, hub, display —
+not just to the hub.
+
+### Rationale (operator's reasoning, recorded verbatim in substance)
+
+**1. Testability is not a trivial concern for an event-driven GUI
+system.** A procedural codebase can be tested by writing many unit tests
+against many small functions. That is not equivalent to having a
+DOM-equivalent that can be observed fully. The latter lets a test
+construct a `Display`, apply a sequence of Updates, query the resulting
+tree via `snapshot()`, assert on element identities and ownership,
+verify event emission order, and exercise failure paths — all in one
+process, without ImGui, without sockets. A collection of render
+functions does not give us that. The single-runtime test from
+`domain-model.md` §"Testability" is the discriminating example:
+
+```python
+display = Display()
+alice_id = display.connect_client(name="alice")
+bob_id = display.connect_client(name="bob")
+display.apply(alice_id, AddElement("s1", parent_id=None,
+                                   element=Button(id="b1", label="hi")))
+refused = display.apply(bob_id,
+                        SetProperty("s1", "b1", "label", "evil"))
+assert isinstance(refused, OwnershipError)
+assert display.snapshot("s1").element("b1").label == "hi"
+```
+
+That test is unwriteable in a procedural design. The cost of writing
+many small function tests is real but is not interchangeable with the
+ability to assert behavioral invariants against a live, observable
+model.
+
+**2. ImGui is direct-mode for the *display* — but the hub and Lux-native
+applications are not.** It is true that `lux-display` consumes a scene
+description and re-issues ImGui calls every frame. That tier can in
+principle remain stateless and dumb. The hub (window manager) cannot:
+it owns scene composition over time, client ownership, menu registry,
+event routing — all of which are stateful concerns where behavior
+should travel with the data. Lux-native applications (the Beads Browser
+today, more in the future) are unambiguously stateful: they hold
+model state, react to events, mutate scenes incrementally. Treating all
+three tiers as "JSON in, ImGui out" is correct for the display but
+incorrect for the hub and wrong for applications. Forcing the design to
+the lowest-state tier impoverishes the upper two.
+
+**3. The same domain model in all tiers makes process boundaries an
+implementation detail, not a structural one.** If `Display`, `Update`,
+and `Event` are the contract, then objects and message-passing within
+one process are trivially equivalent to IPC calls across processes.
+The codec at the boundary serializes the same Updates and the same
+Events. This means single-process testing is equivalent to distributed
+testing. Single-process debugging is equivalent to distributed
+debugging. The same test that exercises the model in one process
+exercises the IPC path when the tiers are split — the only difference
+is the codec. This is a load-bearing property: without it, the
+multi-process architecture either grows a parallel test infrastructure
+or remains untested across the boundary. With it, every test we already
+write becomes a distributed test for free.
+
+**4. There is no way to reason about a system as a random collection of
+modules and functions.** A mental model of a system requires a
+simulation — a small set of nouns (Element, Scene, Client, Update,
+Event, Display) with verbs that act on them in known ways. The
+operator's experience across many systems is that procedural codebases
+without this structure don't scale to teams or to time. Newcomers
+can't build a working model; long-term maintainers grow tribal
+knowledge that doesn't survive turnover. The domain model is the
+simulation that makes the system thinkable.
+
+### Alternatives considered
+
+**Alternative A — Procedural well-factored renderer (rop's "Method Z").**
+Just split the big files. Extract per-kind render functions into one
+file per family. No `Display` class. No `Update` bus. No `Event`
+vocabulary. The wire protocol stays as-is; whole-scene replacement
+remains the primary mutation primitive.
+
+*Why rejected:* See rationale 1-4. Specifically, it gives up the
+single-runtime testability property (rationale 1), pins all three tiers
+to the lowest-state design (rationale 2), forces the IPC boundary to be
+a special case rather than a serialization concern (rationale 3), and
+yields a codebase that resists mental modeling (rationale 4). The
+efficiency gain — fewer PRs, less code — is real but pays for itself
+only if those four properties are not load-bearing. The operator's
+judgment is that they are.
+
+**Alternative B — Domain model in the hub only.** Hub gets `Display`,
+`Update`, `Event`. Display server stays a dumb renderer. Lux-native
+applications keep whatever shape they have.
+
+*Why rejected:* Breaks rationale 3. If only the hub has the domain
+model, the boundary to the display server is a special case (some other
+serialization format). Tests of the hub are not tests of the
+distributed system. Lux-native applications can't share the model.
+Half-measure.
+
+### Consequences
+
+**Positive:**
+
+- Tests written against `Display` in one process exercise the same
+  semantics that IPC-mediated multi-process deployments will exhibit.
+- Invariants (ownership, acyclic tree, typed properties) are enforced
+  in one place — the domain layer — and trusted everywhere else.
+- The mental model is small and stable: six nouns, six verbs, two
+  failure shapes.
+- Process split becomes mechanical (PR 7 in the migration plan) because
+  the codec is the only thing that differs across the boundary.
+
+**Negative:**
+
+- More code than a procedural design. The cost is paid in PRs 1-5 of
+  the migration plan.
+- Element types acquire methods they don't have today; the wire codec
+  is no longer a separate concern (it's a method on the class —
+  PY-OO-7).
+- The OO ratchet becomes harder to satisfy as the surface grows. The
+  discipline is non-negotiable; the migration plan handles it
+  family-by-family so each PR's ratchet check is bounded.
+
+### What this is not
+
+This ADR does not specify implementation order — that is the migration
+plan's job. It does not redefine the wire protocol — `domain-model.md`
+already specifies that. It does not commit to a single test framework
+— the test pyramid in the migration plan does that.
+
+### Authority
+
+The decision is the operator's. The reasoning is the operator's. This
+ADR records what was decided so that the question — *should this just
+be a procedural JSON renderer?* — does not get reopened by a future
+reviewer, agent, or specialist. If new evidence appears that the
+domain model is wrong, the path is to propose a new ADR that
+supersedes this one with citation of the evidence. The path is **not**
+to relitigate the architectural target inside a migration-method
+review.
+
+### Relationship to other decisions
+
+- DES-022 (workspace model): hub-as-policy-layer is realized by
+  `hub_display` holding the authoritative `Display` instance.
+- DES-029 (`frozen=True` wire types): wire layer remains immutable;
+  scene-graph nodes are mutable per DES-030; this ADR adds the
+  observation that Elements should carry behavior, not just data.
+- DES-030 (three-layer type model): orthogonal — DES-030 is about
+  *data shape* at each layer; DES-031 is about *behavior and
+  invariants* across the tiers.
+- `docs/architecture/domain-model.md`: the algebra this decision
+  commits to realizing.
+- `docs/architecture/x11-model.md`: the topology this decision
+  preserves; the codec at the IPC boundary is the only structural
+  difference between the tiers.
+- `docs/oo-refactor/migration-plan.md`: the executable path to
+  realize this decision.
