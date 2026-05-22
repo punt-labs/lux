@@ -1,12 +1,26 @@
-"""``WireContext`` — decode-time context for typed wire dicts.
+"""``WireContext`` — decode-time context for draw-command wire dicts.
 
-One context per dict; the prefix (``draw command [3] (circle)`` or
-``progress element``) is computed at construction and reused in every
-error message.  Methods validate primitive types and raise ``ValueError``
-on malformed input — no method returns ``None`` on bad input.
+Every draw command wire dict is decoded inside one ``WireContext``.  The
+context carries a single computed prefix string (e.g.
+``draw command [3] (circle)``) that every field error reuses.  Its methods
+validate primitive types — presence, ``bool``, ``str``, numeric, sequence
+— and raise the project-style ``ValueError`` on malformed input.  Every
+boundary path is total: a method either returns a typed value or raises.
+No method returns ``None`` on bad input.
 
-Factory classmethods: ``at_index`` (draw-decoder predispatch),
-``for_indexed`` (per-command), ``for_element`` (basics ``from_dict``).
+Construction is via factory classmethods, not by passing ``kind`` /
+``index`` separately:
+
+  * :meth:`WireContext.at_index` — predispatch context, used by the
+    decoder before the command kind is known.  The prefix is
+    ``draw command [{index}]``.
+  * :meth:`WireContext.for_indexed` — per-command context, once the
+    kind is resolved.  The prefix is
+    ``draw command [{index}] ({kind})``.
+
+There is no ``int | None`` anywhere in this module — the discriminated
+state of "predispatch" vs "per-command" is collapsed into the prefix
+at construction time.
 """
 
 from __future__ import annotations
@@ -46,11 +60,6 @@ class WireContext:
         errors with the full ``draw command [i] (kind)`` prefix.
         """
         return cls(_prefix=f"draw command [{index}] ({kind})")
-
-    @classmethod
-    def for_element(cls, kind: str) -> Self:
-        """Element-family context: prefix is ``{kind} element``."""
-        return cls(_prefix=f"{kind} element")
 
     @property
     def prefix(self) -> str:
@@ -99,41 +108,6 @@ class WireContext:
         if isinstance(raw, bool) or not isinstance(raw, int | float):
             raise self.field_error(field, "a number", raw)
         return float(raw)
-
-    def optional_string(
-        self, d: Mapping[str, object], field: str, *, default: str
-    ) -> str:
-        """Return ``d[field]`` as str, ``default`` if absent; raise on wrong type."""
-        if field not in d:
-            return default
-        return self.require_string(d[field], field)
-
-    def optional_number(
-        self, d: Mapping[str, object], field: str, *, default: float
-    ) -> float:
-        """Return ``d[field]`` as float, ``default`` if absent; raise on wrong type."""
-        if field not in d:
-            return default
-        return self.require_number(d[field], field)
-
-    def optional_int(
-        self, d: Mapping[str, object], field: str, *, default: int | None = None
-    ) -> int | None:
-        """Return ``d[field]`` as int, ``default`` if absent; raise on wrong type."""
-        if field not in d:
-            return default
-        raw = d[field]
-        if isinstance(raw, bool) or not isinstance(raw, int):
-            raise self.field_error(field, "an int", raw)
-        return raw
-
-    def optional_nullable_string(
-        self, d: Mapping[str, object], field: str
-    ) -> str | None:
-        """Return ``d[field]`` as str, ``None`` if absent; raise on wrong type."""
-        if field not in d:
-            return None
-        return self.require_string(d[field], field)
 
     def require_sequence(self, raw: object, field: str) -> tuple[object, ...]:
         """Return ``raw`` as a tuple of ``object`` if it's a list or tuple.

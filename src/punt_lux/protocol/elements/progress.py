@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Self
 
-from punt_lux.protocol.elements.draw_wire import WireContext
+from punt_lux.protocol.elements.element_wire import ElementWireContext
 
 __all__ = ["ProgressElement"]
 
@@ -33,13 +33,11 @@ class ProgressElement:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> Self:
-        ctx = WireContext.for_element("progress")
+        ctx = ElementWireContext.for_kind("progress")
+        # PY-EH-1: fraction is required + type-checked.  PY-TS-14 OK:
+        # label is genuinely optional UI text; absence => "no label".
         return cls(
-            id=ctx.require_string(ctx.require_field(d, "id"), "id"),
-            # PY-EH-1: type-check the float at the wire boundary; raises on
-            # missing key, str, bool, or None.
-            fraction=ctx.require_number(ctx.require_field(d, "fraction"), "fraction"),
-            # PY-TS-14 OK: label is genuinely optional UI text; absence means
-            # "no label". Present-but-non-str raises (PY-EH-1).
-            label=ctx.optional_string(d, "label", default=""),
+            id=ctx.require_str(d, "id"),
+            fraction=ctx.require_number(d, "fraction"),
+            label=ctx.optional_str(d, "label", default=""),
         )

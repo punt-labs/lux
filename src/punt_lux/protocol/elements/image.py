@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Self
 
-from punt_lux.protocol.elements.draw_wire import WireContext
+from punt_lux.protocol.elements.element_wire import ElementWireContext
 
 __all__ = ["ImageElement"]
 
@@ -43,18 +43,16 @@ class ImageElement:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> Self:
-        ctx = WireContext.for_element("image")
-        # PY-TS-14 OK: each str field below is documented absent => None
-        # (the renderer infers); present-but-non-str raises (PY-EH-1).
-        # The path/data invariant is enforced by __post_init__.
+        # PY-TS-14 OK: path/data/format/alt absent => None (renderer infers);
+        # width/height absent => natural pixel size.  PY-EH-1: each is
+        # type-checked.  path/data invariant is enforced by __post_init__.
+        ctx = ElementWireContext.for_kind("image")
         return cls(
-            id=ctx.require_string(ctx.require_field(d, "id"), "id"),
-            path=ctx.optional_nullable_string(d, "path"),
-            data=ctx.optional_nullable_string(d, "data"),
-            format=ctx.optional_nullable_string(d, "format"),
-            alt=ctx.optional_nullable_string(d, "alt"),
-            # PY-TS-14 OK: None => "use natural pixel size";
-            # PY-EH-1: type-check the int at the wire boundary.
+            id=ctx.require_str(d, "id"),
+            path=ctx.optional_nullable_str(d, "path"),
+            data=ctx.optional_nullable_str(d, "data"),
+            format=ctx.optional_nullable_str(d, "format"),
+            alt=ctx.optional_nullable_str(d, "alt"),
             width=ctx.optional_int(d, "width"),
             height=ctx.optional_int(d, "height"),
         )

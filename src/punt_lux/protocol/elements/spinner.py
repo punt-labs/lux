@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Self
 
-from punt_lux.protocol.elements.draw_wire import WireContext
+from punt_lux.protocol.elements.element_wire import ElementWireContext
 
 __all__ = ["SpinnerElement"]
 
@@ -35,16 +35,12 @@ class SpinnerElement:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> Self:
-        ctx = WireContext.for_element("spinner")
+        ctx = ElementWireContext.for_kind("spinner")
+        # PY-TS-14 OK: label="" => "no label"; radius=16.0 => default size;
+        # color="#3399FF" => brand default. PY-EH-1: each is type-checked.
         return cls(
-            id=ctx.require_string(ctx.require_field(d, "id"), "id"),
-            # PY-TS-14 OK: label is genuinely optional UI text; absence means
-            # "no label". Present-but-non-str raises (PY-EH-1).
-            label=ctx.optional_string(d, "label", default=""),
-            # PY-TS-14 OK: 16.0 is the spinner's default visual size;
-            # PY-EH-1: type-check the float at the wire boundary.
+            id=ctx.require_str(d, "id"),
+            label=ctx.optional_str(d, "label", default=""),
             radius=ctx.optional_number(d, "radius", default=16.0),
-            # PY-TS-14 OK: "#3399FF" is the brand default; absence means
-            # "use the Lux default colour". Present-but-non-str raises.
-            color=ctx.optional_string(d, "color", default="#3399FF"),
+            color=ctx.optional_str(d, "color", default="#3399FF"),
         )
