@@ -2232,7 +2232,7 @@ assert isinstance(refused, OwnershipError)
 assert display.snapshot("s1").element("b1").label == "hi"
 ```
 
-That test is unwriteable in a procedural design. The cost of writing
+That test is unwritable in a procedural design. The cost of writing
 many small function tests is real but is not interchangeable with the
 ability to assert behavioral invariants against a live, observable
 model.
