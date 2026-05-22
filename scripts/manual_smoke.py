@@ -407,10 +407,16 @@ class SmokeRunner:
                     frame_id=spec.frame_id,
                     frame_title=spec.title,
                 )
-            except (RuntimeError, OSError) as exc:
-                # Broken socket, dead listener, or any other transport-level
-                # failure from DisplayClient.  Keep trying later frames —
-                # the operator may still get partial coverage.
+            except (RuntimeError, OSError, TypeError, ValueError) as exc:
+                # Three failure modes routed to the same bucket:
+                # - RuntimeError / OSError: socket/transport problems
+                #   (broken socket, dead listener) from DisplayClient._send
+                # - TypeError / ValueError: encode-side problems from
+                #   protocol.encode_message when an element fails to
+                #   serialise (e.g. malformed wire shape)
+                # All three mean "this frame did not reach the renderer"
+                # from the operator's perspective — keep trying later
+                # frames so partial coverage on screen is still useful.
                 transport_errors.append((spec.frame_id, str(exc)))
                 print(
                     f"transport error for frame {spec.frame_id}: {exc}",
