@@ -614,6 +614,41 @@ class TestMultiScene:
         assert isinstance(elem, TextElement)
         assert elem.content == "New"
 
+    def test_resend_replaces_domain_display_state(self) -> None:
+        """Re-send of basics-only scene must replace, not duplicate, domain state.
+
+        Bug-A regression guard: ``Display.apply`` returns ``DuplicateIdError``
+        on a colliding AddElement.  Before the fix, the second SceneMessage
+        AddElement'd every element again and the errors were swallowed —
+        the domain snapshot froze on the first scene while SceneManager
+        kept updating.  After the fix, the domain Display reflects the
+        SECOND scene's content.
+        """
+        from punt_lux.domain.ids import ElementId, SceneId
+
+        server = _make_server()
+        sock = _mock_sock()
+
+        server._handle_message(
+            sock,
+            _make_scene(
+                scene_id="s1",
+                elements=[TextElement(id="t1", content="first")],
+            ),
+        )
+        server._handle_message(
+            sock,
+            _make_scene(
+                scene_id="s1",
+                elements=[TextElement(id="t1", content="second")],
+            ),
+        )
+
+        snap = server._domain_display.snapshot(SceneId("s1"))
+        stored = snap.element(ElementId("t1"))
+        assert isinstance(stored, TextElement)
+        assert stored.content == "second"
+
     def test_update_routes_to_correct_scene(self) -> None:
         """Update targets a specific scene by scene_id."""
         server = _make_server()

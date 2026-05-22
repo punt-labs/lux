@@ -19,10 +19,11 @@ import platform
 import socket
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
+from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from PIL import Image
 
+from punt_lux.display.domain_pump import DomainPump
 from punt_lux.display.element_renderer import ElementRenderer
 from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.macos import hide_from_dock_and_cmd_tab
@@ -30,9 +31,7 @@ from punt_lux.display.menu_manager import MenuManager
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.domain.display import Display
-from punt_lux.domain.element import Element as DomainElement
-from punt_lux.domain.ids import ClientId, SceneId
-from punt_lux.domain.update import AddElement
+from punt_lux.domain.ids import ClientId
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
@@ -103,6 +102,7 @@ class DisplayServer:
     _scene_manager: SceneManager
     _domain_display: Display
     _domain_client_id: ClientId
+    _domain_pump: DomainPump
     _event_queue: list[InteractionMessage]
     _textures: TextureCache
     _table_renderer: TableRenderer
@@ -143,6 +143,9 @@ class DisplayServer:
         # client that owns every wire-decoded element on this hub.
         self._domain_display = Display()
         self._domain_client_id = self._domain_display.connect_client(name="display-hub")
+        self._domain_pump = DomainPump(
+            self._domain_display, self._domain_client_id, _BASICS_KINDS
+        )
         self._themes = []
         self._decorated = True
         self._opacity = 1.0
@@ -830,31 +833,8 @@ class DisplayServer:
             self._auto_click_buttons(msg)
 
     def _route_to_domain_display(self, msg: SceneMessage) -> None:
-        """Mirror basics-only scenes through Display.apply (PR 1 dual-write).
-
-        Mixed scenes (containing any non-basics kind) stay on the
-        SceneManager path until their families migrate in subsequent PRs.
-        The split is decided per-scene at routing time.
-        """
-        if not msg.elements:
-            return
-        # Mixed-scene rule: any non-basics element disqualifies the whole
-        # scene from the new path.
-        if any(not isinstance(elem, _BASICS_KINDS) for elem in msg.elements):
-            return
-        scene_id = SceneId(msg.id)
-        self._domain_display.add_scene(scene_id)
-        for elem in msg.elements:
-            # cast: isinstance check above narrowed the element to a basics
-            # kind, every one of which satisfies the domain Element Protocol.
-            self._domain_display.apply(
-                self._domain_client_id,
-                AddElement(
-                    scene_id=scene_id,
-                    element=cast("DomainElement", elem),
-                    parent_id=None,
-                ),
-            )
+        """Mirror basics-only scenes through Display.apply (PR 1 dual-write)."""
+        self._domain_pump.route(msg)
 
     def _auto_click_buttons(self, msg: SceneMessage) -> None:
         """Enqueue synthetic interactions for testable elements (test mode)."""

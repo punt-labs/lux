@@ -14,7 +14,7 @@ import itertools
 import logging
 import typing
 from collections.abc import Callable
-from typing import Any, Self, cast
+from typing import Any, Self, assert_never, cast
 
 from punt_lux.domain._typing import (
     annotation_name,
@@ -164,14 +164,10 @@ class Display:
     def apply(self, client_id: ClientId, update: Update) -> Result:
         """Validate the Update, mutate state on success, emit and return."""
         if client_id not in self._clients:
-            # Treat unknown client as ownership failure — there is no
-            # element they could own.  Encoded as OwnershipError so the
-            # caller has one error vocabulary to handle.
-            attempted_target = self._update_target_id(update)
-            scene_target = update.scene_id
+            # Unknown client encoded as OwnershipError: one error vocabulary.
             return OwnershipError(
-                scene_id=scene_target,
-                element_id=attempted_target,
+                scene_id=update.scene_id,
+                element_id=self._update_target_id(update),
                 attempting_client_id=client_id,
                 owning_client_id=ClientId(""),
             )
@@ -180,6 +176,8 @@ class Display:
                 scene_id=update.scene_id,
                 element_id=self._update_target_id(update),
             )
+        # PY-EH-8: assert_never makes the type checker fail when a new Update
+        # kind lands without a branch instead of silently returning None.
         match update:
             case AddElement():
                 return self._apply_add(client_id, update)
@@ -187,6 +185,8 @@ class Display:
                 return self._apply_remove(client_id, update)
             case SetProperty():
                 return self._apply_set(client_id, update)
+            case _:
+                assert_never(update)
 
     # -- per-Update handlers ------------------------------------------------
 
@@ -229,8 +229,8 @@ class Display:
         if owner_check is not None:
             return owner_check
         elem = self._scenes[update.scene_id][update.element_id]
-        field_info = self._field_info(elem, update.field)
-        if field_info is None:
+        info = self._field_info(elem, update.field)
+        if info is None:
             return PropertyTypeError(
                 scene_id=update.scene_id,
                 element_id=update.element_id,
@@ -238,7 +238,7 @@ class Display:
                 expected_type="<field not declared>",
                 got_value=update.value,
             )
-        expected_name, valid_types = field_info
+        expected_name, valid_types = info
         if not value_matches(update.value, valid_types):
             return PropertyTypeError(
                 scene_id=update.scene_id,
@@ -284,18 +284,14 @@ class Display:
 
     @staticmethod
     def _field_info(elem: Element, field: str) -> tuple[str, tuple[type, ...]] | None:
-        """Return (declared-name, runtime-types) for a dataclass field, or None.
-
-        Returns None when the element is not a dataclass, the field is
-        absent, or the field is a ClassVar (e.g. ``kind`` discriminator).
-        """
-        try:
-            # cast: Element Protocol is structural, so mypy can't see that
-            # all wire element classes are dataclasses; the boundary admission
-            # lives here.  TypeError catches duck-typed non-dataclass elements.
-            field_names = {f.name for f in dataclasses.fields(cast("Any", elem))}
-        except TypeError:
+        """Return (declared-name, runtime-types) for a dataclass field, or None."""
+        # PY-EH-5: gate on is_dataclass rather than swallowing TypeError from
+        # dataclasses.fields(); cast to Any so the TypeGuard narrows from the
+        # widest type (Element is a Protocol).
+        elem_any = cast("Any", elem)
+        if not dataclasses.is_dataclass(elem_any):
             return None
+        field_names = {f.name for f in dataclasses.fields(elem_any)}
         if field not in field_names:
             return None
         hints = typing.get_type_hints(type(elem))
