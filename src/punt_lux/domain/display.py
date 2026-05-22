@@ -308,3 +308,5 @@ class Display:
                 return ElementId(update.element.id)
             case RemoveElement() | SetProperty():
                 return update.element_id
+            case _:
+                assert_never(update)
