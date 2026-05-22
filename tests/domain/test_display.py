@@ -63,6 +63,44 @@ class _Button:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class _Progress:
+    """Stand-in for ProgressElement — exercises the float-field type check."""
+
+    id: ElementId
+    fraction: float = 0.0
+    count: int = 0
+    kind: Literal["progress"] = "progress"
+    tooltip: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "id": str(self.id),
+            "kind": self.kind,
+            "fraction": self.fraction,
+            "count": self.count,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, object]) -> Self:
+        raw_fraction = d.get("fraction", 0.0)
+        raw_count = d.get("count", 0)
+        assert isinstance(raw_fraction, int | float)
+        assert isinstance(raw_count, int) and not isinstance(raw_count, bool)
+        return cls(
+            id=ElementId(str(d["id"])),
+            fraction=float(raw_fraction),
+            count=raw_count,
+        )
+
+
+def _progress(snap: SceneSnapshot, eid: ElementId) -> _Progress:
+    """Narrow ``snap.element(eid)`` to the concrete _Progress used by these tests."""
+    elem = snap.element(eid)
+    assert isinstance(elem, _Progress)
+    return elem
+
+
 # -- topology ---------------------------------------------------------------
 
 
@@ -246,6 +284,89 @@ def test_set_property_on_bool_field_accepts_bool() -> None:
         ),
     )
     assert isinstance(result, ElementUpdated)
+
+
+def test_set_property_on_float_field_accepts_int() -> None:
+    """Copilot CP-NEW5: JSON int literals must satisfy float-annotated fields.
+
+    ``json.loads('{"fraction": 1}')`` yields ``int`` 1, not ``float`` 1.0.  The
+    wire-boundary ``WireContext.require_number`` coerces both; ``Display._apply_set``
+    must match that semantics or a legitimate integer fraction is wrongly refused.
+    """
+    display = Display()
+    alice = display.connect_client(name="alice")
+    display.add_scene(SceneId("s1"))
+    display.apply(
+        alice,
+        AddElement(
+            scene_id=SceneId("s1"),
+            element=_Progress(id=ElementId("p1")),
+        ),
+    )
+    result = display.apply(
+        alice,
+        SetProperty(
+            scene_id=SceneId("s1"),
+            element_id=ElementId("p1"),
+            field="fraction",
+            value=1,  # integer literal — must satisfy fraction: float
+        ),
+    )
+    assert isinstance(result, ElementUpdated)
+    assert result.new_value == 1
+    assert _progress(display.snapshot(SceneId("s1")), ElementId("p1")).fraction == 1
+
+
+def test_set_property_on_int_field_refuses_float() -> None:
+    """The inverse asymmetry: float values do NOT satisfy an ``int`` annotation.
+
+    ``json.dumps(1.0)`` is ``"1.0"``, distinct from ``json.dumps(1)`` (``"1"``),
+    so a float literal arriving for an int-only field is a real type mismatch.
+    """
+    display = Display()
+    alice = display.connect_client(name="alice")
+    display.add_scene(SceneId("s1"))
+    display.apply(
+        alice,
+        AddElement(
+            scene_id=SceneId("s1"),
+            element=_Progress(id=ElementId("p1")),
+        ),
+    )
+    result = display.apply(
+        alice,
+        SetProperty(
+            scene_id=SceneId("s1"),
+            element_id=ElementId("p1"),
+            field="count",
+            value=1.0,  # float literal into an int field — refused
+        ),
+    )
+    assert isinstance(result, PropertyTypeError)
+
+
+def test_set_property_on_float_field_still_refuses_bool() -> None:
+    """``bool`` is a subclass of ``int`` but must not silently coerce to ``float``."""
+    display = Display()
+    alice = display.connect_client(name="alice")
+    display.add_scene(SceneId("s1"))
+    display.apply(
+        alice,
+        AddElement(
+            scene_id=SceneId("s1"),
+            element=_Progress(id=ElementId("p1")),
+        ),
+    )
+    result = display.apply(
+        alice,
+        SetProperty(
+            scene_id=SceneId("s1"),
+            element_id=ElementId("p1"),
+            field="fraction",
+            value=True,
+        ),
+    )
+    assert isinstance(result, PropertyTypeError)
 
 
 # -- Ownership (the domain-model.md template scenario) ----------------------

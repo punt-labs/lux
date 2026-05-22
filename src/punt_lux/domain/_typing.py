@@ -42,7 +42,8 @@ def annotation_runtime_types(annotation: object) -> tuple[type, ...]:
     if annotation is type(None):
         return (type(None),)
     if isinstance(annotation, type):
-        return (annotation,)
+        # JSON int → float parity (mirrors WireContext.require_number).
+        return (float, int) if annotation is float else (annotation,)
     msg = f"unsupported annotation shape for runtime type extraction: {annotation!r}"
     raise TypeError(msg)
 
@@ -58,13 +59,7 @@ def value_matches(value: object, valid_types: tuple[type, ...]) -> bool:
 
 
 def replace_field(elem: Element, field: str, value: object) -> Element:
-    """Return a copy of ``elem`` with one field swapped.
-
-    ``dataclasses.replace`` requires a TypeVar bound to a real dataclass;
-    ``Element`` is a Protocol so mypy refuses to narrow.  The cast to ``Any``
-    is the wire-boundary admission that the Protocol guarantee is "this is
-    a dataclass implementing Element" — the caller has already validated.
-    """
-    # cast to Any to satisfy dataclasses.replace's TypeVar — see docstring.
+    """Return a copy of ``elem`` with one field swapped (Protocol → Any cast)."""
+    # cast to Any: dataclasses.replace's TypeVar can't narrow from Element Protocol.
     replaced = dataclasses.replace(cast("Any", elem), **{field: value})
     return cast("Element", replaced)

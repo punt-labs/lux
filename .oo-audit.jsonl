@@ -121,3 +121,11 @@
 {"ts":"2026-05-22T22:29:16Z","commit":"186be61","files_scored":90,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-05-22T22:35:34Z","commit":"584dfb2","files_scored":90,"files_improved":0,"files_regressed":2,"verdict":"fail","deltas":{}}
 {"ts":"2026-05-22T22:35:40Z","commit":"584dfb2","files_scored":90,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-05-22T23:27:48Z","commit":"9332714","files_scored":90,"files_improved":2,"files_regressed":1,"verdict":"fail","deltas":{"src/punt_lux/display/domain_pump.py":{"method_ratio":[0.75,0.8],"avg_params":[2.25,2.2],"avg_complexity":[2.5,2.4]},"src/punt_lux/display/element_renderer.py":{"avg_complexity":[4.07,3.98],"module_size":[875.0,869.0]}}}
+{"ts":"2026-05-22T23:29:39Z","commit":"9332714","files_scored":90,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
+{"ts":"2026-05-22T23:32:10Z","commit":"9332714","files_scored":90,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
+{"ts":"2026-05-22T23:33:40Z","commit":"9332714","files_scored":90,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
+{"ts":"2026-05-22T23:35:56Z","commit":"9332714","files_scored":90,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/domain/_typing.py":{"module_size":[56.0,52.0]}}}
+{"ts":"2026-05-22T23:37:41Z","commit":"9332714","files_scored":90,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
+{"ts":"2026-05-22T23:40:16Z","commit":"9332714","files_scored":90,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
+{"ts":"2026-05-22T23:41:13Z","commit":"9332714","files_scored":90,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{}}
