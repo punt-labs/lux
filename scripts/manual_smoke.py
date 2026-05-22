@@ -18,6 +18,9 @@ Exit codes:
   dead listener, etc.)
 * ``3`` — both timeouts AND transport errors
 * ``4`` — PNG asset preparation failed before the display was contacted
+* ``5`` — element-kind coverage mismatch — the union of every frame's
+  kinds did not match the 24-kind expected set; a frame builder dropped
+  or duplicated an element kind
 
 The manifest is always printed (via a ``finally`` block) regardless of
 exit code, so the operator can still cross-reference whatever did land
@@ -74,13 +77,96 @@ from punt_lux.protocol.elements.draw_values import Color, Point2, Thickness
 
 @dataclass(frozen=True, slots=True)
 class FrameSpec:
-    """One frame in the smoke test — the scene plus its manifest entry."""
+    """One frame in the smoke test — the scene plus its manifest entry.
+
+    ``elements`` is the source of truth for what's on screen.  ``kinds``
+    is *not* stored — the manifest derives it by walking the elements via
+    :func:`_collect_kinds` so a stale hardcoded tuple can't lie about
+    what the frame actually contains.  ``look_for`` is narrative for the
+    operator and stays hardcoded.
+    """
 
     frame_id: str
     title: str
     elements: list[Element]
-    kinds: tuple[str, ...]
     look_for: str
+    warn_before_send: str | None = None  # PY-TS-14: absent = no operator warning
+
+
+# The 24 known element kinds covered by this smoke test.  Used for the
+# top-of-main sanity assertion — if a frame builder loses an element kind,
+# the assertion fires before the display is contacted.
+_EXPECTED_KINDS: Final = frozenset(
+    {
+        "button",
+        "checkbox",
+        "collapsing_header",
+        "color_picker",
+        "combo",
+        "draw",
+        "group",
+        "image",
+        "input_number",
+        "input_text",
+        "markdown",
+        "modal",
+        "plot",
+        "progress",
+        "radio",
+        "selectable",
+        "separator",
+        "slider",
+        "spinner",
+        "tab_bar",
+        "table",
+        "text",
+        "tree",
+        "window",
+    }
+)
+
+
+def _collect_kinds(elements: list[Element]) -> frozenset[str]:
+    """Walk every element (and its containers) and return the set of kinds.
+
+    Recurses into ``children`` (Group, CollapsingHeader, Window, Modal),
+    ``tabs[].children`` (TabBar), and ``nodes[].children`` (Tree).
+    ``DrawElement.commands`` are not separate elements — they're commands
+    of the ``draw`` kind and contribute only ``"draw"`` itself.
+    """
+    kinds: set[str] = set()
+    for elem in elements:
+        kinds.add(elem.kind)
+        if isinstance(
+            elem,
+            GroupElement | CollapsingHeaderElement | WindowElement | ModalElement,
+        ):
+            kinds |= _collect_kinds(elem.children)
+        elif isinstance(elem, TabBarElement):
+            for tab in elem.tabs:
+                # Wire boundary — TabBarElement.tabs holds raw dicts in the
+                # protocol; children inside each tab are Element instances.
+                tab_children = tab.get("children", [])
+                if isinstance(tab_children, list):
+                    kinds |= _collect_kinds(tab_children)
+        elif isinstance(elem, TreeElement):
+            kinds |= _collect_tree_node_kinds(elem.nodes)
+    return frozenset(kinds)
+
+
+def _collect_tree_node_kinds(nodes: list[dict[str, object]]) -> frozenset[str]:
+    """Walk Tree nodes recursively; Tree leaves carry no element kinds."""
+    kinds: set[str] = set()
+    for node in nodes:
+        children = node.get("children", [])
+        if isinstance(children, list):
+            # Tree node children are dicts in the same shape as the parent,
+            # not Element instances — recurse via this helper, not _collect_kinds.
+            typed_children: list[dict[str, object]] = [
+                c for c in children if isinstance(c, dict)
+            ]
+            kinds |= _collect_tree_node_kinds(typed_children)
+    return frozenset(kinds)
 
 
 # ---------------------------------------------------------------------------
@@ -183,14 +269,6 @@ def _build_basics_frame(image_path: Path) -> FrameSpec:
         frame_id="smoke-basics",
         title="Smoke 1 — Basics",
         elements=elements,
-        kinds=(
-            "text",
-            "separator",
-            "image",
-            "progress",
-            "spinner",
-            "markdown",
-        ),
         look_for=(
             "heading text, body paragraph, divider, 128px checker image, "
             "42% progress bar, spinning indicator, rendered markdown with "
@@ -254,17 +332,6 @@ def _build_inputs_frame() -> FrameSpec:
         frame_id="smoke-inputs",
         title="Smoke 2 — Inputs",
         elements=elements,
-        kinds=(
-            "button",
-            "slider",
-            "checkbox",
-            "combo",
-            "input_text",
-            "radio",
-            "input_number",
-            "color_picker",
-            "selectable",
-        ),
         look_for=(
             "clickable button, draggable slider at 42, checked checkbox, "
             "combo dropdown defaulting to 'review', text input pre-filled "
@@ -308,13 +375,6 @@ def _build_layout_frame() -> FrameSpec:
             content="Children of a movable sub-window.",
         ),
         ButtonElement(id="layout-window-btn", label="Floating button"),
-    ]
-    modal_children: list[Element] = [
-        TextElement(
-            id="layout-modal-text",
-            content="This modal is open by default — dismiss with Escape.",
-        ),
-        ButtonElement(id="layout-modal-btn", label="OK", action="dismiss"),
     ]
     elements: list[Element] = [
         TextElement(
@@ -362,31 +422,16 @@ def _build_layout_frame() -> FrameSpec:
             height=180.0,
             children=window_children,
         ),
-        ModalElement(
-            id="layout-modal",
-            title="Modal dialog",
-            open=True,
-            children=modal_children,
-        ),
     ]
     return FrameSpec(
         frame_id="smoke-layout",
         title="Smoke 3 — Layout & Containers",
         elements=elements,
-        kinds=(
-            "group",
-            "collapsing_header",
-            "tab_bar",
-            "tree",
-            "window",
-            "modal",
-        ),
         look_for=(
             "rows-group containing nested children, open collapsing header "
             "with text + separator + progress, tab bar switchable between "
             "A and B, tree with two branches and three leaves, floating "
-            "sub-window with its own button, modal popup that must be "
-            "dismissed (Escape) before interacting with the rest"
+            "sub-window with its own button"
         ),
     )
 
@@ -486,7 +531,6 @@ def _build_graphics_frame() -> FrameSpec:
         frame_id="smoke-graphics",
         title="Smoke 4 — Graphics",
         elements=elements,
-        kinds=("draw",),
         look_for=(
             "400x320 dark canvas showing all draw-command kinds — red line, "
             "outlined and filled rects, outlined and filled circles, filled "
@@ -552,11 +596,56 @@ def _build_table_frame() -> FrameSpec:
         frame_id="smoke-table",
         title="Smoke 5 — Table",
         elements=elements,
-        kinds=("table",),
         look_for=(
             "5-row table with ID/Status/Priority/Title columns, search "
             "filter on Title, status combo filter ('All', 'open', …), and "
             "a detail panel that updates when a row is selected"
+        ),
+    )
+
+
+def _build_modal_frame() -> FrameSpec:
+    """Frame 7 — ModalElement opened by default.
+
+    Lives last so it doesn't trap the operator behind a popup while
+    frames 1-6 are still being inspected.  Its containment is exposed
+    via two child elements rendered inside the modal body.
+    """
+    modal_children: list[Element] = [
+        TextElement(
+            id="modal-text",
+            content="This modal is open by default — dismiss with Escape or OK.",
+        ),
+        ButtonElement(id="modal-btn", label="OK", action="dismiss"),
+    ]
+    elements: list[Element] = [
+        TextElement(id="modal-heading", content="Modal", style="heading"),
+        TextElement(
+            id="modal-intro",
+            content=(
+                "The modal popup appears over this frame.  Dismiss it to "
+                "interact with the rest of the display."
+            ),
+        ),
+        ModalElement(
+            id="modal-dialog",
+            title="Modal dialog",
+            open=True,
+            children=modal_children,
+        ),
+    ]
+    return FrameSpec(
+        frame_id="smoke-modal",
+        title="Smoke 7 — Modal",
+        elements=elements,
+        look_for=(
+            "popup labelled 'Modal dialog' over the frame, containing text "
+            "and an OK button; dismissing with Escape or OK returns "
+            "interaction to the underlying display"
+        ),
+        warn_before_send=(
+            "Frame 7 opens a modal — dismiss with Escape or click OK "
+            "before inspecting other frames."
         ),
     )
 
@@ -587,7 +676,6 @@ def _build_plot_frame() -> FrameSpec:
         frame_id="smoke-plot",
         title="Smoke 6 — Plot",
         elements=elements,
-        kinds=("plot",),
         look_for=(
             "labeled chart with x and y axes, a smooth quadratic line "
             "series ('y = x²/10') and a 5-bar series ('samples') with "
@@ -602,19 +690,24 @@ def _build_plot_frame() -> FrameSpec:
 
 
 def _print_manifest(frames: list[FrameSpec]) -> None:
-    """Print the cross-reference manifest to stdout."""
+    """Print the cross-reference manifest to stdout.
+
+    Kinds are derived from each frame's elements via :func:`_collect_kinds`
+    — the manifest is always in sync with what was sent.
+    """
     print("=" * 72)
     print("Lux manual smoke test — element coverage manifest")
     print("=" * 72)
     print()
     total_kinds: set[str] = set()
     for i, spec in enumerate(frames, start=1):
+        frame_kinds = _collect_kinds(spec.elements)
+        total_kinds |= frame_kinds
         print(f"Frame {i}: {spec.title}")
         print(f"  frame_id : {spec.frame_id}")
-        print(f"  kinds    : {', '.join(spec.kinds)}")
+        print(f"  kinds    : {', '.join(sorted(frame_kinds))}")
         print(f"  look for : {spec.look_for}")
         print()
-        total_kinds.update(spec.kinds)
     print("-" * 72)
     print(f"Total element kinds covered: {len(total_kinds)}")
     print(f"  {', '.join(sorted(total_kinds))}")
@@ -632,7 +725,11 @@ def _print_manifest(frames: list[FrameSpec]) -> None:
 
 
 def _build_all_frames() -> list[FrameSpec]:
-    """Return every frame in the order they should be sent to the display."""
+    """Return every frame in the order they should be sent to the display.
+
+    The modal frame is intentionally last so its popup doesn't paint over
+    frames 1-6 while the operator is still inspecting them.
+    """
     image_path = _write_sample_png()
     return [
         _build_basics_frame(image_path),
@@ -641,11 +738,16 @@ def _build_all_frames() -> list[FrameSpec]:
         _build_graphics_frame(),
         _build_table_frame(),
         _build_plot_frame(),
+        _build_modal_frame(),
     ]
 
 
 def main() -> int:
     """Send every frame, print the manifest, exit per the docstring table.
+
+    Sanity-checks that the union of every frame's kinds matches the
+    24-kind expected set before contacting the display — a missing kind
+    fails loud with a diff before any I/O happens.
 
     Tries every frame even if earlier ones fail — partial coverage on
     screen is more useful than a clean abort, and the manifest tells the
@@ -654,11 +756,24 @@ def main() -> int:
     printed, even when a transport error breaks the loop early.
     """
     frames = _build_all_frames()
+    actual_kinds = frozenset().union(*(_collect_kinds(f.elements) for f in frames))
+    missing = _EXPECTED_KINDS - actual_kinds
+    extra = actual_kinds - _EXPECTED_KINDS
+    if missing or extra:
+        msg = (
+            f"smoke coverage mismatch — expected {len(_EXPECTED_KINDS)} kinds, "
+            f"got {len(actual_kinds)} "
+            f"(missing: {sorted(missing)}; extra: {sorted(extra)})"
+        )
+        print(msg, file=sys.stderr)
+        return 5
     missed_acks: list[str] = []
     transport_errors: list[tuple[str, str]] = []
     try:
         with DisplayClient(name="manual-smoke") as client:
             for spec in frames:
+                if spec.warn_before_send is not None:
+                    print(spec.warn_before_send, file=sys.stderr)
                 try:
                     ack = client.show(
                         scene_id=spec.frame_id,
@@ -681,7 +796,9 @@ def main() -> int:
                     # within the client's recv_timeout (default 5s).
                     missed_acks.append(spec.frame_id)
                     print(
-                        f"no ack for frame {spec.frame_id} (display may be stalled)",
+                        f"Frame {spec.frame_id}: no ack received within 5s "
+                        "(display may be stalled, disconnected, or still "
+                        "processing the previous scene)",
                         file=sys.stderr,
                     )
     finally:
