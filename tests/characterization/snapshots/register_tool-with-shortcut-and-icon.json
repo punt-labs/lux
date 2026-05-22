@@ -1,0 +1,27 @@
+{
+  "inputs": [
+    [
+      "label",
+      "Build"
+    ],
+    [
+      "tool_id",
+      "build-btn"
+    ],
+    [
+      "shortcut",
+      "Cmd+B"
+    ],
+    [
+      "icon",
+      "hammer"
+    ]
+  ],
+  "response": "registered:build-btn",
+  "setup": {
+    "client": {},
+    "display_running": true,
+    "session_key": "corpus-register-shortcut"
+  },
+  "tool": "register_tool"
+}

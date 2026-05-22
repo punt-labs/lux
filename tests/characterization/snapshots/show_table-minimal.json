@@ -1,0 +1,35 @@
+{
+  "inputs": [
+    [
+      "scene_id",
+      "tbl-min"
+    ],
+    [
+      "columns",
+      [
+        "A"
+      ]
+    ],
+    [
+      "rows",
+      [
+        [
+          "x"
+        ]
+      ]
+    ]
+  ],
+  "response": "ack:tbl-min",
+  "setup": {
+    "client": {
+      "show": {
+        "return": {
+          "scene_id": "tbl-min",
+          "ts": 1000.0
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "show_table"
+}

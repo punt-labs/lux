@@ -211,7 +211,150 @@ LIFECYCLE_SCENARIOS: tuple[Scenario, ...] = (
 )
 
 
-SCENARIOS: tuple[Scenario, ...] = LIFECYCLE_SCENARIOS
+# ---------------------------------------------------------------------------
+# Composition scenarios — show_table, show_dashboard, register_tool, set_menu.
+# These tools assemble higher-level structures (tables, dashboards, menu
+# trees) on top of show(); the corpus pins their response shape so the
+# migration cannot drift on convenience-wrapper output.
+# ---------------------------------------------------------------------------
+
+
+COMPOSITION_SCENARIOS: tuple[Scenario, ...] = (
+    Scenario(
+        name="show_table-ack",
+        tool="show_table",
+        inputs={
+            "scene_id": "issues",
+            "columns": ["ID", "Title", "Status"],
+            "rows": [
+                ["ISS-1", "Fix login timeout", "Open"],
+                ["ISS-2", "Add dark mode", "In Progress"],
+            ],
+            "filters": [
+                {"type": "search", "column": [0, 1], "hint": "Filter..."},
+                {"type": "combo", "column": 2, "items": ["All", "Open"]},
+            ],
+            "detail": {
+                "fields": ["ID", "Status"],
+                "rows": [["ISS-1", "Open"], ["ISS-2", "In Progress"]],
+                "body": ["Login times out.", "Add dark-mode toggle."],
+            },
+            "title": "Issue Explorer",
+        },
+        setup={
+            "display_running": True,
+            "client": {"show": {"return": {"scene_id": "issues", "ts": 1000.0}}},
+        },
+    ),
+    Scenario(
+        name="show_table-minimal",
+        tool="show_table",
+        inputs={
+            "scene_id": "tbl-min",
+            "columns": ["A"],
+            "rows": [["x"]],
+        },
+        setup={
+            "display_running": True,
+            "client": {"show": {"return": {"scene_id": "tbl-min", "ts": 1000.0}}},
+        },
+    ),
+    Scenario(
+        name="show_dashboard-all-sections",
+        tool="show_dashboard",
+        inputs={
+            "scene_id": "dash",
+            "metrics": [
+                {"label": "Total", "value": "42"},
+                {"label": "Passed", "value": "40"},
+            ],
+            "charts": [
+                {
+                    "id": "trend",
+                    "title": "Trend",
+                    "x_label": "t",
+                    "y_label": "v",
+                    "series": [
+                        {"label": "y", "type": "line", "x": [1, 2], "y": [10, 20]}
+                    ],
+                }
+            ],
+            "table_columns": ["Name", "Status"],
+            "table_rows": [["test_login", "PASS"]],
+            "title": "Dashboard",
+        },
+        setup={
+            "display_running": True,
+            "client": {"show": {"return": {"scene_id": "dash", "ts": 1000.0}}},
+        },
+    ),
+    Scenario(
+        name="show_dashboard-metrics-only",
+        tool="show_dashboard",
+        inputs={
+            "scene_id": "metrics",
+            "metrics": [{"label": "Users", "value": "100"}],
+        },
+        setup={
+            "display_running": True,
+            "client": {"show": {"return": {"scene_id": "metrics", "ts": 1000.0}}},
+        },
+    ),
+    Scenario(
+        name="show_dashboard-empty",
+        tool="show_dashboard",
+        inputs={"scene_id": "empty"},
+        setup={
+            "display_running": True,
+            "client": {"show": {"return": {"scene_id": "empty", "ts": 1000.0}}},
+        },
+    ),
+    Scenario(
+        name="register_tool-basic",
+        tool="register_tool",
+        inputs={"label": "Run", "tool_id": "run-btn"},
+        setup={
+            "display_running": True,
+            "client": {},
+            "session_key": "corpus-register-basic",
+        },
+    ),
+    Scenario(
+        name="register_tool-with-shortcut-and-icon",
+        tool="register_tool",
+        inputs={
+            "label": "Build",
+            "tool_id": "build-btn",
+            "shortcut": "Cmd+B",
+            "icon": "hammer",
+        },
+        setup={
+            "display_running": True,
+            "client": {},
+            "session_key": "corpus-register-shortcut",
+        },
+    ),
+    Scenario(
+        name="set_menu-ok",
+        tool="set_menu",
+        inputs={
+            "menus": [
+                {
+                    "label": "Tools",
+                    "items": [
+                        {"label": "Run", "id": "run-btn"},
+                        {"label": "---"},
+                        {"label": "Build", "id": "build-btn"},
+                    ],
+                }
+            ]
+        },
+        setup={"display_running": True, "client": {}},
+    ),
+)
+
+
+SCENARIOS: tuple[Scenario, ...] = LIFECYCLE_SCENARIOS + COMPOSITION_SCENARIOS
 
 
 def build_all(scenarios: Sequence[Scenario] = SCENARIOS) -> list[Path]:

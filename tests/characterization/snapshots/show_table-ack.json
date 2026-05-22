@@ -1,0 +1,92 @@
+{
+  "inputs": [
+    [
+      "scene_id",
+      "issues"
+    ],
+    [
+      "columns",
+      [
+        "ID",
+        "Title",
+        "Status"
+      ]
+    ],
+    [
+      "rows",
+      [
+        [
+          "ISS-1",
+          "Fix login timeout",
+          "Open"
+        ],
+        [
+          "ISS-2",
+          "Add dark mode",
+          "In Progress"
+        ]
+      ]
+    ],
+    [
+      "filters",
+      [
+        {
+          "column": [
+            0,
+            1
+          ],
+          "hint": "Filter...",
+          "type": "search"
+        },
+        {
+          "column": 2,
+          "items": [
+            "All",
+            "Open"
+          ],
+          "type": "combo"
+        }
+      ]
+    ],
+    [
+      "detail",
+      {
+        "body": [
+          "Login times out.",
+          "Add dark-mode toggle."
+        ],
+        "fields": [
+          "ID",
+          "Status"
+        ],
+        "rows": [
+          [
+            "ISS-1",
+            "Open"
+          ],
+          [
+            "ISS-2",
+            "In Progress"
+          ]
+        ]
+      }
+    ],
+    [
+      "title",
+      "Issue Explorer"
+    ]
+  ],
+  "response": "ack:issues",
+  "setup": {
+    "client": {
+      "show": {
+        "return": {
+          "scene_id": "issues",
+          "ts": 1000.0
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "show_table"
+}
