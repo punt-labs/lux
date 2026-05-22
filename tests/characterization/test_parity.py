@@ -58,7 +58,7 @@ def test_snapshot_replays(path: Path) -> None:
     inputs = dict(snap.inputs)
     observed = ToolExerciser.call(snap.tool, inputs, snap.setup)
     assert snap.matches(observed), (
-        f"snapshot drift in {path.stem}:\n{snap.diff(observed)}"
+        f"snapshot drift in {path.stem}:\n{snap.describe_mismatch(observed)}"
     )
 
 
@@ -70,3 +70,19 @@ def test_corpus_is_non_empty() -> None:
         "characterization corpus is empty — run "
         "`uv run --extra display python -m tests.characterization.build_corpus`"
     )
+
+
+@pytest.mark.parametrize("path", _snapshot_files(), ids=_snapshot_ids())
+def test_snapshot_has_no_absolute_paths(path: Path) -> None:
+    """Snapshots must use REPO_ROOT_TOKEN, never a maintainer's host path.
+
+    The corpus is checked into git and replays on every contributor's
+    machine and on CI. An absolute path like ``/Users/foo/...`` or
+    ``/home/foo/...`` would make the snapshot unreplayable elsewhere.
+    """
+    text = path.read_text(encoding="utf-8")
+    for forbidden in ("/Users/", "/home/", "/private/var/"):
+        assert forbidden not in text, (
+            f"{path.name} contains absolute path token {forbidden!r}; "
+            "use REPO_ROOT_TOKEN and run `make snapshot-record`"
+        )

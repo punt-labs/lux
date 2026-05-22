@@ -2,7 +2,7 @@
   "inputs": [
     [
       "repo",
-      "/Users/jfreeman/Coding/punt-labs/lux/tests/characterization/snapshots/fixtures/repo-unset"
+      "<REPO_ROOT>/tests/characterization/snapshots/fixtures/repo-unset"
     ]
   ],
   "response": "display:off",

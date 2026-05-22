@@ -6,7 +6,7 @@
     ],
     [
       "repo",
-      "/Users/jfreeman/Coding/punt-labs/lux/tests/characterization/snapshots/fixtures/repo-y"
+      "<REPO_ROOT>/tests/characterization/snapshots/fixtures/repo-y"
     ]
   ],
   "response": "display:on",

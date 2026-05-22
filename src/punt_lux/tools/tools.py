@@ -550,12 +550,7 @@ def set_frame_state(
 
 @mcp.tool()
 def clear() -> str:
-    """Clear the Lux display window. Removes all content.
-
-    Returns ``"not running"`` when the display server is not running,
-    matching the rest of the not-running short-circuits (ping, screenshot,
-    inspect_scene, list_scenes, set_window_settings, set_theme).
-    """
+    """Clear the Lux display window. Returns "not running" when display is off."""
     if not DisplayPaths().is_running():
         return "not running"
 
