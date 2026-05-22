@@ -31,8 +31,4 @@ class ProgressElement:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> Self:
-        return cls(
-            id=d["id"],
-            fraction=d.get("fraction", 0.0),
-            label=d.get("label", ""),
-        )
+        return cls(id=d["id"], fraction=d["fraction"], label=d.get("label", ""))

@@ -31,5 +31,4 @@ class SeparatorElement:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> Self:
-        raw = d.get("id", "")
-        return cls(id=str(raw) if raw is not None else "")
+        return cls(id=d.get("id", ""))

@@ -27,4 +27,4 @@ class MarkdownElement:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> Self:
-        return cls(id=d["id"], content=d.get("content", ""))
+        return cls(id=d["id"], content=d["content"])

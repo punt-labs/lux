@@ -36,7 +36,7 @@ class TextElement:
     def from_dict(cls, d: Mapping[str, Any]) -> Self:
         return cls(
             id=d["id"],
-            content=d.get("content", ""),
+            content=d["content"],
             style=d.get("style"),
             color=d.get("color"),
         )
