@@ -28,7 +28,7 @@ def hide_from_dock_and_cmd_tab() -> None:
     if platform.system() != "Darwin":
         return
     try:
-        import AppKit as _AppKit  # type: ignore[import-untyped] # pyright: ignore[reportMissingImports]
+        import AppKit as _AppKit  # type: ignore[import-untyped,import-not-found] # pyright: ignore[reportMissingImports]
 
         _ak: Any = _AppKit  # PY-TS-9: AppKit is an untyped pyobjc shim.
         _ak.NSApplication.sharedApplication().setActivationPolicy_(
