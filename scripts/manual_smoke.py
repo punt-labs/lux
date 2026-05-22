@@ -4,11 +4,15 @@ Invoked as:
 
     uv run --extra display python scripts/manual_smoke.py
 
-Requires luxd + lux-display already running.  Sends 7 themed scenes —
-basics, inputs, layout, graphics, table, plot, modal — and prints a
-cross-reference manifest to stdout that names each frame's contents and
-what the operator should look for.  Does NOT call ``clear()`` — items
-stay on screen for visual inspection.
+Requires luxd + lux-display already running.  Will NOT auto-spawn —
+the script fails loudly (exit 2) when the prerequisite isn't met
+because silent auto-spawn would hide the operator setup mistake the
+script is meant to surface.
+
+Sends 7 themed scenes — basics, inputs, layout, graphics, table, plot,
+modal — and prints a cross-reference manifest to stdout that names
+each frame's contents and what the operator should look for.  Does
+NOT call ``clear()`` — items stay on screen for visual inspection.
 
 Exit codes:
 
@@ -22,9 +26,10 @@ Exit codes:
   kinds did not match the 24-kind expected set; a frame builder dropped
   or duplicated an element kind
 
-The manifest is always printed (via a ``finally`` block) regardless of
-exit code, so the operator can still cross-reference whatever did land
-on screen against what was supposed to land.
+The manifest prints in every exit path except ``4`` (PNG asset failed
+before frames exist).  When no frame was ever sent (coverage mismatch,
+connect failure) the closing line names that fact instead of falsely
+claiming items remain on screen.
 """
 
 from __future__ import annotations
@@ -351,12 +356,15 @@ class SmokeRunner:
             f"(missing: {sorted(missing)}; extra: {sorted(extra)})"
         )
 
-    def print_manifest(self) -> None:
+    def print_manifest(self, *, attempted: bool = True) -> None:
         """Print the cross-reference manifest to stdout.
 
         Kinds are derived from each frame's elements via
         :func:`_collect_kinds` — the manifest is always in sync with what
-        was sent.
+        was sent.  The closing line is conditional on ``attempted``: when
+        no frame ever reached ``client.show()`` (connect failed, coverage
+        mismatch) the "Items remain on screen for inspection" claim
+        would be a lie.
         """
         print("=" * 72)
         print("Lux manual smoke test — element coverage manifest")
@@ -378,7 +386,12 @@ class SmokeRunner:
         print("DrawElement (frame 4) additionally exercises every draw-command kind:")
         print("  line, rect, circle, triangle, polyline, bezier_cubic, text")
         print()
-        print("Display has NOT been cleared. Items remain on screen for inspection.")
+        if attempted:
+            print(
+                "Display has NOT been cleared. Items remain on screen for inspection."
+            )
+        else:
+            print("No frame was sent — manifest describes intended contents only.")
         print("=" * 72)
 
     def run(self, client: DisplayClient) -> RunResult:
@@ -897,19 +910,42 @@ def main() -> int:
     Sanity-checks that the union of every frame's kinds matches the
     24-kind expected set before contacting the display — a missing kind
     fails loud with a diff before any I/O happens.
+
+    Connect failures (display not running, socket refused) are surfaced
+    as the documented exit-2 transport failure with a clear stderr
+    message, never as an unframed traceback.  ``auto_spawn`` is left
+    off so the script fails the prerequisite check loudly rather than
+    silently spawning a display the operator didn't ask for.
     """
     image_path = _write_sample_png()
     runner = SmokeRunner(image_path)
     coverage_error = runner.verify_coverage()
     if coverage_error is not None:
+        # The manifest is the operator's cross-reference even when nothing
+        # was sent — print it before exiting so they can see what the script
+        # would have rendered if the coverage check had passed.
         print(coverage_error, file=sys.stderr)
+        runner.print_manifest(attempted=False)
         return 5
-    result = RunResult()
     try:
-        with DisplayClient(name="manual-smoke") as client:
-            result = runner.run(client)
+        client = DisplayClient(name="manual-smoke", auto_spawn=False)
+        client.connect()
+    except (RuntimeError, OSError) as exc:
+        # DisplayClient.connect() raises RuntimeError when the display
+        # isn't accepting connections (no socket, refused handshake,
+        # protocol mismatch).  Document it as a transport failure so the
+        # operator sees exit 2 with a clear reason instead of a traceback.
+        print(
+            f"connect failed: {exc} (is luxd + lux-display running?)",
+            file=sys.stderr,
+        )
+        runner.print_manifest(attempted=False)
+        return 2
+    try:
+        result = runner.run(client)
     finally:
-        runner.print_manifest()
+        client.close()
+        runner.print_manifest(attempted=True)
     if result.missed_acks:
         print(
             f"smoke ack-timeout: {len(result.missed_acks)} of "
