@@ -162,9 +162,10 @@ def _collect_kinds(elements: list[Element]) -> frozenset[str]:
     """Walk every element (and its containers) and return the set of kinds.
 
     Recurses into ``children`` (Group, CollapsingHeader, Window, Modal),
-    ``tabs[].children`` (TabBar), and ``nodes[].children`` (Tree).
-    ``DrawElement.commands`` are not separate elements — they're commands
-    of the ``draw`` kind and contribute only ``"draw"`` itself.
+    ``pages`` (Group with ``layout="paged"``), ``tabs[].children``
+    (TabBar), and ``nodes[].children`` (Tree).  ``DrawElement.commands``
+    are not separate elements — they're commands of the ``draw`` kind
+    and contribute only ``"draw"`` itself.
     """
     kinds: set[str] = set()
     for elem in elements:
@@ -174,14 +175,21 @@ def _collect_kinds(elements: list[Element]) -> frozenset[str]:
             GroupElement | CollapsingHeaderElement | WindowElement | ModalElement,
         ):
             kinds |= _collect_kinds(elem.children)
-        elif isinstance(elem, TabBarElement):
+        if isinstance(elem, GroupElement):
+            # GroupElement(layout="paged") puts indexed content panels in
+            # ``pages`` — recurse into every page so paged content counts
+            # toward coverage.
+            for page in elem.pages:
+                if isinstance(page, list):
+                    kinds |= _collect_kinds(page)
+        if isinstance(elem, TabBarElement):
             for tab in elem.tabs:
                 # Wire boundary — TabBarElement.tabs holds raw dicts in the
                 # protocol; children inside each tab are Element instances.
                 tab_children = tab.get("children", [])
                 if isinstance(tab_children, list):
                     kinds |= _collect_kinds(tab_children)
-        elif isinstance(elem, TreeElement):
+        if isinstance(elem, TreeElement):
             kinds |= _collect_tree_node_kinds(elem.nodes)
     return frozenset(kinds)
 
