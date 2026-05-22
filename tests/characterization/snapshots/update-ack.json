@@ -1,0 +1,32 @@
+{
+  "inputs": [
+    [
+      "scene_id",
+      "s1"
+    ],
+    [
+      "patches",
+      [
+        {
+          "id": "t1",
+          "set": {
+            "content": "New text"
+          }
+        }
+      ]
+    ]
+  ],
+  "response": "ack:s1",
+  "setup": {
+    "client": {
+      "update": {
+        "return": {
+          "scene_id": "s1",
+          "ts": 1000.0
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "update"
+}

@@ -1,0 +1,24 @@
+{
+  "inputs": [
+    [
+      "scene_id",
+      "s1"
+    ],
+    [
+      "elements",
+      []
+    ],
+    [
+      "frame_size",
+      [
+        800
+      ]
+    ]
+  ],
+  "response": "error: frame_size must be [width, height]",
+  "setup": {
+    "client": {},
+    "display_running": true
+  },
+  "tool": "show"
+}

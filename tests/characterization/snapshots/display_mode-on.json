@@ -1,0 +1,13 @@
+{
+  "inputs": [
+    [
+      "repo",
+      "/Users/jfreeman/Coding/punt-labs/lux/tests/characterization/snapshots/fixtures/repo-y"
+    ]
+  ],
+  "response": "display:on",
+  "setup": {
+    "display_running": false
+  },
+  "tool": "display_mode"
+}

@@ -1,0 +1,37 @@
+{
+  "inputs": [
+    [
+      "scene_id",
+      "s1"
+    ],
+    [
+      "elements",
+      [
+        {
+          "content": "Hello",
+          "id": "t1",
+          "kind": "text",
+          "style": "heading"
+        },
+        {
+          "id": "b1",
+          "kind": "button",
+          "label": "OK"
+        }
+      ]
+    ]
+  ],
+  "response": "ack:s1",
+  "setup": {
+    "client": {
+      "show": {
+        "return": {
+          "scene_id": "s1",
+          "ts": 1000.0
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "show"
+}

@@ -1,0 +1,22 @@
+{
+  "inputs": [
+    [
+      "scene_id",
+      "s1"
+    ],
+    [
+      "elements",
+      []
+    ],
+    [
+      "frame_layout",
+      "grid"
+    ]
+  ],
+  "response": "error: frame_layout must be 'tab' or 'stack', got 'grid'",
+  "setup": {
+    "client": {},
+    "display_running": true
+  },
+  "tool": "show"
+}

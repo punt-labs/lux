@@ -1,0 +1,8 @@
+{
+  "inputs": [],
+  "response": "cleared",
+  "setup": {
+    "display_running": false
+  },
+  "tool": "clear"
+}

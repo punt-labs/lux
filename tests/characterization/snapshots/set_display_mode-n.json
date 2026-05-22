@@ -1,0 +1,17 @@
+{
+  "inputs": [
+    [
+      "mode",
+      "n"
+    ],
+    [
+      "repo",
+      "/Users/jfreeman/Coding/punt-labs/lux/tests/characterization/snapshots/fixtures/repo-n"
+    ]
+  ],
+  "response": "display:off",
+  "setup": {
+    "display_running": false
+  },
+  "tool": "set_display_mode"
+}
