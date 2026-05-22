@@ -71,7 +71,7 @@ violates one of these is rejected before review.
 
 ## Pipeline
 
-Eight PRs. Each row names the rollback-coherent unit, the OO ratchet
+Seven PRs (PR 0 + PR 1-6). Each row names the rollback-coherent unit, the OO ratchet
 direction it moves, and the assigned worker/evaluator pairing.
 
 ### PR 0 — Characterization baseline
@@ -80,45 +80,35 @@ direction it moves, and the assigned worker/evaluator pairing.
 |-------|-------|
 | **Goal** | Capture behavioral snapshots of every MCP tool response against current `main`. |
 | **What lands** | `tests/characterization/snapshots/` with one snapshot per MCP tool input → response. `make snapshot-parity` target that replays them. CI workflow runs the parity check on every PR from this point forward. |
-| **Why this PR exists** | Without an oracle, every subsequent PR is shipping blind. The snapshots are the safety net that lets us migrate aggressively in PRs 1-5. |
+| **Why this PR exists** | Without an oracle, every subsequent PR is shipping blind. The snapshots are the safety net that lets us migrate aggressively in PRs 1-4. |
 | **Ratchet effect** | None directly. Adds tests. |
 | **Worker / Evaluator** | `rmh` / `gvr` (Python test infrastructure). |
 | **Acceptance** | `make snapshot-parity` passes against `main`. CI workflow runs it on every PR. Snapshots cover every MCP tool listed in `tools/tools.py`. |
 
-### PR 1 — Domain infrastructure (scoped to basics)
+### PR 1 — Domain infrastructure shipped with `basics` family
 
 | Field | Value |
 |-------|-------|
-| **Goal** | Land just enough of the `domain/` package to carry the `basics` element family end-to-end through the new pipeline. |
-| **What lands** | `domain/` package with: `ClientId`, `SceneId`, `ElementId` newtypes; `Element` Protocol; `Update` sum type (`AddElement`, `RemoveElement`, `SetProperty` — only what `basics` needs); `Event` sum type (`ElementAdded`, `ElementRemoved`, `ElementUpdated`); `Display` class with `connect_client`, `disconnect_client`, `add_scene`, `apply(client_id, update) -> Event \| Error`, `subscribe`, `snapshot`. Each existing `basics` element type (Text/Button/Separator/Image) is made to satisfy `Element` Protocol via tests. **`Text` is carried through end-to-end internally as proof** — a test exercises `Display.apply(AddElement(...Text...))`, `SetProperty(...Text...)`, `RemoveElement(...Text...)` and asserts events fire correctly. |
-| **What does NOT land** | No public migration. `show()` and every MCP tool still routes through the old `SceneManager` path. The new `Display` has no production consumer yet. |
-| **Why "scoped to basics"** | Extract from working code, not toward imagined code. Building the full domain vocabulary before any of it has rendered a pixel is the empty-infrastructure failure mode. The other Update / Event kinds appear in the PRs that first need them. |
-| **Ratchet effect** | `method_ratio` improves (new classes with behavior). `module_size` neutral (new package, no growth in existing files). `class_to_func_ratio` improves. |
-| **Worker / Evaluator** | `rmh` (Python implementation) / `gvr` (Python evaluation). Mission YAML cites PY-OO-1/5/7, PY-CC-5, PY-IC-1, PY-TS-6, PY-EH-1/8. |
-| **Acceptance** | Tests demonstrate every existing `basics` element type satisfies `Element` Protocol. `Text` round-trips Add/SetProperty/Remove through `Display.apply`. Events fire. `make snapshot-parity` still passes (no production behavior changed). |
+| **Goal** | Land the `domain/` package and migrate the `basics` element family (Text/Button/Separator/Image) end-to-end in the same PR. Per The Bar §5 (PY-RF-2), infrastructure does not ship without its first production consumer; `basics` is that consumer. |
+| **What lands** | (a) **Infrastructure:** `domain/` package with `ClientId`, `SceneId`, `ElementId` newtypes; `Element` Protocol; `Update` sum type (`AddElement`, `RemoveElement`, `SetProperty` — only what `basics` needs); `Event` sum type (`ElementAdded`, `ElementRemoved`, `ElementUpdated`); `Display` class with `connect_client`, `disconnect_client`, `add_scene`, `apply(client_id, update) -> Event \| Error`, `subscribe`, `snapshot`. (b) **Production migration:** `basics` elements made live (mutable, validated, emit events) and satisfy the `Element` Protocol. Codec methods on the classes (delete module-level `_to_dict_text` etc.). Per-kind renderer classes for `basics`. (c) **Wire path:** agents calling `show(...)` with `basics` elements route through `Display.apply(AddElement(...))`. (d) **Old-path deletion:** `SceneManager.handle_scene` code paths exercised by `basics` are deleted in this PR. |
+| **Why infrastructure + first family in one PR** | The Bar §5 says new code must ship wired. Splitting infrastructure from its first consumer is the empty-infrastructure failure mode (PY-RF-2). The two cannot be torn apart — the basics family is what proves the infrastructure works. Internally during the PR, commits MAY be ordered "infrastructure → Text wired internally → all basics → delete old paths" so each step is locally reviewable, but the PR ships as one rollback-coherent unit. |
+| **Internal commit sequence (recommended)** | (i) Add `domain/` package types and `Display` skeleton. (ii) Wire `Text` end-to-end with tests; events fire. (iii) Repeat for Button, Separator, Image. (iv) Route the public `show(...)` path for these kinds through `Display.apply`. (v) Delete the old `SceneManager` code paths exercised by `basics`. Each commit passes `make check` and is locally reviewed before the next. |
+| **What does NOT land** | Other families (`inputs`, `layout`, `graphics`, `table`, `plot`) still route through the old `SceneManager`. The remaining Update / Event kinds appear in the PRs that first need them. |
+| **Ratchet effect** | `method_ratio` rises (new classes with behavior + codec on existing classes + per-kind renderers). `module_size` falls on `element_renderer.py` (per-kind renderers extracted). `class_to_func_ratio` improves. |
+| **Worker / Evaluator** | `rmh` (Python implementation) / `gvr` (Python evaluation). `edt` consulted on per-kind renderer shape. Mission YAML cites PY-OO-1/5/7, PY-CC-5, PY-IC-1, PY-TS-6, PY-EH-1/8 verbatim with one BEFORE/AFTER example in the first 20 lines. |
+| **Acceptance** | `make snapshot-parity` passes (byte-identical output for `basics` elements). Local smoke test: `set_display_mode(mode="y", repo=...)`, `show(...)` with Text + Button + Image, observe correct rendering, click button, observe Interaction routed back through the new `Display`. Every existing `basics` element type satisfies `Element` Protocol via tests. The old code paths for these kinds are gone from the diff (verified by grep). |
 
-### PR 2 — basics family fully native
-
-| Field | Value |
-|-------|-------|
-| **Goal** | Migrate `basics` (Text/Button/Separator/Image) to the new pipeline end-to-end. Delete the old path for these kinds. |
-| **What lands** | Codec methods on `basics` element classes (delete module-level `_to_dict_text` etc.). `basics` elements are live (mutable, validated, emit events). Per-kind renderer classes for `basics`. Wire path: agents calling `show(...)` with `basics` elements route through the new `Display.apply(AddElement(...))`. **Old `SceneManager.handle_scene` code paths exercised by these kinds are deleted in this PR.** |
-| **Why this shape** | First production migration. Proves the new infrastructure works under real load. Old paths for other families remain untouched — those families still route through the old `SceneManager`. |
-| **Ratchet effect** | `method_ratio` rises (codec methods + live element methods + renderer methods). `module_size` falls on `element_renderer.py` (per-kind renderer classes extracted). |
-| **Worker / Evaluator** | `rmh` / `gvr` for the protocol/domain layer; `edt` (information design) consulted on per-kind renderer shape. |
-| **Acceptance** | `make snapshot-parity` passes (output for `basics` elements is byte-identical). Local smoke test: `set_display_mode(mode="y", repo=...)`, `show(...)` with a Text + Button + Image, observe correct rendering, click button, observe Interaction routed back. The old code path for these kinds is gone from the diff (verified by grep). |
-
-### PR 3 — inputs family
+### PR 2 — inputs family
 
 | Field | Value |
 |-------|-------|
 | **Goal** | Migrate `inputs` family (Slider/Checkbox/Combo/InputText/Radio/ColorPicker) through the new pipeline. Delete the old path for these kinds. |
-| **What lands** | Same shape as PR 2 for `inputs`. New Update / Event kinds added as needed (e.g., `WidgetValueChanged` event). Wire path migrated. |
+| **What lands** | Same shape as PR 1's basics migration for `inputs`. New Update / Event kinds added as needed (e.g., `WidgetValueChanged` event). Wire path migrated. |
 | **Ratchet effect** | Continued `method_ratio` rise. `element_renderer.py` shrinks further. |
 | **Worker / Evaluator** | `rmh` / `gvr`. `dna` (interaction design) consulted on Interaction → Update flow for input elements. |
 | **Acceptance** | `make snapshot-parity` passes. Local smoke test: each input kind interactable; values reach the agent via `recv()`. |
 
-### PR 4 — layout family
+### PR 3 — layout family
 
 | Field | Value |
 |-------|-------|
@@ -128,7 +118,7 @@ direction it moves, and the assigned worker/evaluator pairing.
 | **Worker / Evaluator** | `rmh` / `gvr`. `rej` consulted on Composite pattern realization. |
 | **Acceptance** | `make snapshot-parity` passes. Local smoke test: nested groups, tabbed scenes, collapsing sections all render and update correctly. Reparent test: move a Button from one Group to another via `ReparentElement`, observe event, verify the renderer reflects the new parent. |
 
-### PR 5 — graphics + table + plot families
+### PR 4 — graphics + table + plot families
 
 | Field | Value |
 |-------|-------|
@@ -138,7 +128,7 @@ direction it moves, and the assigned worker/evaluator pairing.
 | **Worker / Evaluator** | `rmh` / `gvr` for protocol; `kpz` (ML/perf) consulted on plot rendering perf-critical paths; `edt` on table/plot information design. |
 | **Acceptance** | `make snapshot-parity` passes. Local smoke test: draw a diagram with Draw commands, render a filterable table with detail panel, render a plot with multiple series. Cycle test, ownership test, duplicate-id test all raise the correct Event type and refuse the Update. |
 
-### PR 6 — cleanup
+### PR 5 — cleanup
 
 | Field | Value |
 |-------|-------|
@@ -148,7 +138,7 @@ direction it moves, and the assigned worker/evaluator pairing.
 | **Worker / Evaluator** | `rmh` / `gvr`. `djb` (security) consulted on the audit of removed code paths to confirm no input-validation logic is lost in the deletion. |
 | **Acceptance** | `make snapshot-parity` passes. Local smoke test: full MCP surface exercised. OO ratchet shows targets met. Zero dead code remains. |
 
-### PR 7 — process split
+### PR 6 — process split
 
 | Field | Value |
 |-------|-------|
@@ -199,7 +189,7 @@ Plan 9 simplicity school). Verdicts:
 | Method | Description | Verdict | Reason |
 |--------|-------------|---------|--------|
 | **A — Horizontal Bands** | One architectural concept per PR across the whole codebase. ~7 PRs, each cross-cutting. | ITERATE (3/3) | PR 6 in this method ("all 24 kinds migrated and old paths deleted in one PR") is a flag day. Empty infrastructure (PR 2) ships before any consumer. Shadow Display tax has no production value. If PR 6 is split family-by-family, A collapses into B — not chosen because B captures the same end state without the intermediate cost. |
-| **B — End-to-End Vertical Slices (amended)** | Infrastructure scoped to first family + family-by-family migration with each PR deleting its own old path. ~8 PRs total. | **SELECTED** | Each PR is a rollback-coherent unit. Two vocabularies never coexist for the same noun longer than one PR. Snapshot parity from PR 0 is the safety net. Adopted as the active plan. |
+| **B — End-to-End Vertical Slices (amended)** | Infrastructure ships with its first production consumer (basics family) in one PR, then family-by-family migration with each PR deleting its own old path. ~7 PRs total. | **SELECTED** | Each PR is a rollback-coherent unit. Infrastructure does not exist without a production caller (The Bar §5 / PY-RF-2). Two vocabularies never coexist for the same noun longer than one PR. Snapshot parity from PR 0 is the safety net. Adopted as the active plan. |
 | **C — Parallel Universe Cutover** | Build a complete second implementation under `domain/`. Cut over with a one-line-per-tool flip. Delete old code. 3 PRs. | REJECTED (3/3 REJECT) | The canonical big-bang rewrite pattern. PR 1 has no production consumer until the flip; the flip surfaces every assumption error simultaneously. Snapshot parity proves outputs match but not behavior (event ordering, error timing, interaction semantics aren't captured). |
 
 The architectural target (the `domain-model.md` north star) is **not under
