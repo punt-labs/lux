@@ -1,7 +1,7 @@
 # OO Refactoring Resume
 
-**As of:** PR #182 (2026-05-22)
-**Prior:** through PR #178 (2026-05-21), PR #165 (2026-05-16)
+**As of:** PR 1 (lux-b14i, 2026-05-22) — branch `feat/pr1-domain-basics`
+**Prior:** PR #182 (2026-05-22), through PR #178 (2026-05-21), PR #165 (2026-05-16)
 
 > **Active plan:** `migration-plan.md` is the executable source of truth for
 > the path to the `domain-model.md` target. Method B-amended was selected
@@ -23,22 +23,24 @@ Target state is named formally in `docs/architecture/domain-model.md`.
 
 Aggregate of `python tools/oo_score.py src/punt_lux/`:
 
-| Metric | Target | PR #165 | Current | Status |
-|--------|--------|---------|---------|--------|
-| `method_ratio` | ≥ 0.80 | 0.68 | **0.636** | **FAIL — went backwards.** Phase A added module-level `_to_dict` / `_from_dict` codec functions; PY-OO-7 names this anti-pattern. |
-| `encapsulation_ratio` | == 1.0 | 1.00 | 1.00 | PASS |
-| `avg_params` | ≤ 4.0 | 0.98 | 0.99 | PASS |
-| `max_complexity` | ≤ 10 | 19 | **19** | **FAIL** — `table_renderer`, `server`, `element_renderer`. |
-| `avg_complexity` | ≤ 5.0 | 2.31 | 2.07 | PASS |
-| `module_size` | ≤ 300 | 1,213 | **1,203** | **FAIL** — `oo_score.py`'s metric is non-empty lines; the three biggest are `display/server.py` (1,203), `element_renderer.py` (~999), `__main__.py` (~488). Raw `wc -l` line counts for the same files are ~1,400 / ~1,100 / ~580. |
-| `classes_per_module` | ≤ 3 | 27 | **9** | **FAIL** — improved by Phase A, still over. |
-| `class_to_func_ratio` | ≥ 0.5 | 0.60 | 0.62 | PASS |
-| `init_violations` | == 0 | 0 | 0 | PASS |
-| `public_attr_violations` | == 0 | 0 | 0 | PASS |
-| `future_annotations` | == 1 | 1 | 1 | PASS |
+| Metric | Target | PR #165 | PR #182 | PR 1 | Status |
+|--------|--------|---------|---------|------|--------|
+| `method_ratio` | ≥ 0.80 | 0.68 | 0.636 | **0.71** | **Improved +0.074 from #182.** PY-OO-7 removed in basics: codec on the class, six per-kind renderers extracted. |
+| `encapsulation_ratio` | == 1.0 | 1.00 | 1.00 | 1.00 | PASS |
+| `avg_params` | ≤ 4.0 | 0.98 | 0.99 | 0.85 | PASS — improved by per-kind renderer extraction. |
+| `max_complexity` | ≤ 10 | 19 | 19 | **19** | **FAIL** — concentrated in `table_renderer`, `server`, `element_renderer`. Untouched by PR 1. |
+| `avg_complexity` | ≤ 5.0 | 2.31 | 2.07 | 1.94 | PASS |
+| `module_size` | ≤ 300 | 1,213 | 1,203 | **1,260** | **FAIL** — `display/server.py` grew by ~57 lines (Display + `_route_to_domain_display` wiring). Renderer dropped 255 lines (1130 → 875). |
+| `classes_per_module` | ≤ 3 | 27 | 9 | **9** | **FAIL** — unchanged. |
+| `class_to_func_ratio` | ≥ 0.5 | 0.60 | 0.62 | 0.70 | PASS |
+| `init_violations` | == 0 | 0 | 0 | 0 | PASS |
+| `public_attr_violations` | == 0 | 0 | 0 | 0 | PASS |
+| `future_annotations` | == 1 | 1 | 1 | 1 | PASS |
 
-**7 of 11 passing.** Same four failing metrics as PR #165, with `method_ratio`
-actively worse and `classes_per_module` substantially improved.
+**7 of 11 passing.** Four metrics still failing (`max_complexity`,
+`module_size`, `classes_per_module`). `method_ratio` recovered substantially —
+the regression PR #182 inherited from Phase A's procedural codec layout is
+being undone family-by-family. PR 2 (inputs) will continue the trend.
 
 ## What shipped since PR #165
 
@@ -56,6 +58,8 @@ actively worse and `classes_per_module` substantially improved.
 | **#176** | lux-4n1b | **Typed `DrawCommand` decoder; remove silent `.get()` defaults from renderer** |
 | #177 | — | Rename `*Cmd` records to nouns (they aren't commands) |
 | **#178** | — | **`docs/architecture/domain-model.md` — north star** |
+| **PR 0** | lux-edvm | **Characterization snapshot baseline + `make snapshot-parity` CI gate** |
+| **PR 1** | lux-b14i | **Domain layer (`domain/`) + basics family migration end-to-end.** `ClientId` / `SceneId` / `ElementId` NewTypes, `Element` Protocol, `Update` / `Event` / `Error` sum types, `Display.apply(client, update) -> Event \| Error` (PY-EH-1 validate-before-mutate, PY-EH-8 never None).  Codec methods on every basics class; module-level `_to_dict_*` / `_from_dict_*` helpers deleted (PY-OO-7).  Per-kind renderer classes (`text_renderer.py`, `image_renderer.py`, etc.) replace the basics branches of `_RENDERERS` dispatch.  Basics-only scenes routed through `Display.apply` alongside SceneManager in the hub.  `basics.py` split into one-class-per-module form per PY-OO-2.  `make snapshot-parity` green throughout. |
 
 Three structural advances (#169, #170, #176) and one architectural foundation
 doc (#178). The OO ratchet enforced direction of travel on every PR; the
@@ -88,10 +92,10 @@ absolute targets remain unmet.
 | Stage | What it means | Status |
 |-------|---------------|--------|
 | 1 | Name the domain | **Done** — PR #178 |
-| 2 | Extract `Display`, `Client`, `Update`, `Event` | Not started |
-| 3 | Make Elements live (mutable, emit events on mutation) | Not started |
+| 2 | Extract `Display`, `Client`, `Update`, `Event` | **Done (basics-scope)** — PR 1 lands the full `domain/` package with all three Update kinds, all Events / Errors, and Display.apply/subscribe/snapshot. |
+| 3 | Make Elements live (mutable, emit events on mutation) | **Partial** — basics now flow through Display (events fire), but elements are still frozen dataclasses replaced via `dataclasses.replace` inside SetProperty.  Mutability in place lands when more Update kinds need it. |
 | 4 | Semantic updates on the wire | Not started |
-| 5 | Decompose `element_renderer.py` | Not started |
+| 5 | Decompose `element_renderer.py` | **Partial** — six per-kind basics renderers extracted (PR 1); inputs/layout/graphics/table/plot still in `element_renderer.py`. |
 | 6 | Split process boundary (hub / display server) | Not started |
 
 ## Architecture references
