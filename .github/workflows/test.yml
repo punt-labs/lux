@@ -20,3 +20,5 @@ jobs:
           python-version: "3.13"
       - run: uv sync --locked --extra display
       - run: uv run --extra display pytest
+      - name: Snapshot parity (characterization corpus must replay byte-for-byte)
+        run: make snapshot-parity
