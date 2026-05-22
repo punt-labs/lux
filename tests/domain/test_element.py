@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import ClassVar, Literal, Self
+from typing import Literal, Self
 
 from punt_lux.domain import Element, ElementId
 
@@ -14,7 +14,7 @@ class _ConformantElement:
     """Synthetic element used to verify the Protocol's structural check."""
 
     id: ElementId
-    kind: ClassVar[Literal["synthetic"]] = "synthetic"
+    kind: Literal["synthetic"] = "synthetic"
 
     def to_dict(self) -> dict[str, object]:
         return {"id": str(self.id), "kind": self.kind}
@@ -29,7 +29,7 @@ class _NonConformantElement:
     """Missing to_dict / from_dict — must fail isinstance(Element)."""
 
     id: str
-    kind: ClassVar[str] = "broken"
+    kind: Literal["broken"] = "broken"
 
 
 def test_conformant_class_satisfies_element_protocol() -> None:
