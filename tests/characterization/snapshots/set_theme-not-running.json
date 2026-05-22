@@ -1,0 +1,13 @@
+{
+  "inputs": [
+    [
+      "theme",
+      "darcula"
+    ]
+  ],
+  "response": "not running",
+  "setup": {
+    "display_running": false
+  },
+  "tool": "set_theme"
+}

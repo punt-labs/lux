@@ -1,0 +1,17 @@
+{
+  "inputs": [],
+  "response": "pong rtt=0.042s",
+  "setup": {
+    "client": {
+      "ping": {
+        "return": {
+          "display_ts": 1000.005,
+          "ts": 1000.0
+        }
+      }
+    },
+    "display_running": true,
+    "time": 1000.042
+  },
+  "tool": "ping"
+}

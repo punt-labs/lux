@@ -1,0 +1,13 @@
+{
+  "inputs": [
+    [
+      "repo",
+      "<REPO_ROOT>/tests/characterization/snapshots/fixtures/repo-y"
+    ]
+  ],
+  "response": "display:on",
+  "setup": {
+    "display_running": false
+  },
+  "tool": "display_mode"
+}

@@ -1,0 +1,18 @@
+{
+  "inputs": [
+    [
+      "mode",
+      "y"
+    ],
+    [
+      "repo",
+      "<REPO_ROOT>/tests/characterization/snapshots/fixtures/repo-y"
+    ]
+  ],
+  "response": "display:on",
+  "setup": {
+    "client": {},
+    "display_running": false
+  },
+  "tool": "set_display_mode"
+}

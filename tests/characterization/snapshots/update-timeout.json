@@ -1,0 +1,27 @@
+{
+  "inputs": [
+    [
+      "patches",
+      [
+        {
+          "id": "t1",
+          "remove": true
+        }
+      ]
+    ],
+    [
+      "scene_id",
+      "s1"
+    ]
+  ],
+  "response": "timeout",
+  "setup": {
+    "client": {
+      "update": {
+        "return": null
+      }
+    },
+    "display_running": true
+  },
+  "tool": "update"
+}

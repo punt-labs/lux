@@ -1,0 +1,13 @@
+{
+  "inputs": [
+    [
+      "scene_id",
+      "s1"
+    ]
+  ],
+  "response": "not running",
+  "setup": {
+    "display_running": false
+  },
+  "tool": "inspect_scene"
+}

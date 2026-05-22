@@ -64,6 +64,70 @@ Permanent skips are bugs.
 **Mirror source structure.** `src/punt_lux/scene/manager.py` →
 `tests/test_scene_manager.py`. Every source module has a counterpart.
 
+## Characterization tests
+
+The `tests/characterization/` package is the migration safety net introduced
+in PR #lux-edvm. Every MCP tool registered in `src/punt_lux/tools/tools.py`
+has at least one captured input/response snapshot in
+`tests/characterization/snapshots/`. The migration PRs (`lux-b14i` through
+`lux-uxvj`) verify byte-identical output by replaying the corpus.
+
+**Run the gate**:
+
+```bash
+make snapshot-parity          # replay every snapshot, fail on any drift
+make snapshot-record          # rebuild the corpus from build_corpus.py
+```
+
+`make snapshot-parity` is also wired into `.github/workflows/test.yml`, so
+every PR is gated automatically.
+
+**How the corpus is built**:
+
+- `snapshot.py` — frozen dataclass `Snapshot(tool, inputs, setup, response)`
+  with `from_file` / `to_file` / `matches` / `diff` / `describe_mismatch`.
+  Comparison is strict string equality; single-line responses diff cleanly.
+  `REPO_ROOT_TOKEN` (the literal `<REPO_ROOT>`) stands in for the project
+  root in inputs so the corpus is portable across checkouts.
+- `exerciser.py` — `ToolExerciser.call(tool, inputs, setup)` invokes a tool
+  under a stub configuration that patches `DisplayPaths.is_running` and
+  both `_get_client` lookups (`tools.tools._get_client` *and*
+  `tools.connection._get_client` — the `@_query_tool` family closes over
+  the latter). Returns the tool's response or raises `ToolCallError`; no
+  `T | None` on the value path (PY-EH-8).
+- `build_corpus.py` — every scenario lives in `SCENARIOS`. The build
+  canonicalises each setup through JSON-sort-keys before recording so the
+  on-disk file and the in-memory replay agree on dict iteration order.
+- `test_parity.py` — parametrizes over every JSON file in `snapshots/`,
+  asserts `Snapshot.matches(observed)` after running the exerciser. One
+  guard test refuses an empty corpus so "I forgot to regenerate" fails
+  loud rather than silently passing zero parametrized cases.
+
+**When a tool's behavior intentionally changes**:
+
+1. Edit `build_corpus.py` if the scenario shape needs updating (new inputs,
+   different stub setup).
+2. Run `make snapshot-record` to regenerate every JSON file.
+3. Inspect the diff — every snapshot whose response actually changed should
+   be visible in `git diff tests/characterization/snapshots/`. Snapshots
+   whose response did NOT change are still rewritten with the same content;
+   the diff for those should be empty.
+4. Commit the regenerated corpus in the same PR as the production change.
+
+**Manual regression check** (sanity gate the corpus exists at all): change
+one byte of a tool's output — for example, edit `"ack:"` to `"ACK:"` in
+`show()` — and run `make snapshot-parity`. Six snapshots fail with a
+unified diff each. Revert the production change; the gate returns to
+green. `test_parity.py`'s module docstring shows the exact diff format
+the migration PRs are reviewed against.
+
+**Adding a new tool to the corpus**: append a `Scenario(name=..., tool=...,
+inputs=..., setup=...)` to the relevant category in `build_corpus.py`,
+then `make snapshot-record` and `make snapshot-parity`. Coverage is
+audited by checking that every name in `punt_lux.tools.__all__` (minus
+`mcp` and `run_mcp_session`) has at least one snapshot whose `tool` field
+matches.
+
 ## Visual testing
 
 `display/server.py` and the rendering layer have no pixel-level automated

@@ -1,0 +1,19 @@
+{
+  "inputs": [
+    [
+      "scene_id",
+      "missing"
+    ]
+  ],
+  "response": "error: Scene 'missing' not found",
+  "setup": {
+    "client": {
+      "query": {
+        "error": "Scene 'missing' not found",
+        "method": "inspect_scene"
+      }
+    },
+    "display_running": true
+  },
+  "tool": "inspect_scene"
+}

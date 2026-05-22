@@ -1,0 +1,79 @@
+{
+  "inputs": [
+    [
+      "charts",
+      [
+        {
+          "id": "trend",
+          "series": [
+            {
+              "label": "y",
+              "type": "line",
+              "x": [
+                1,
+                2
+              ],
+              "y": [
+                10,
+                20
+              ]
+            }
+          ],
+          "title": "Trend",
+          "x_label": "t",
+          "y_label": "v"
+        }
+      ]
+    ],
+    [
+      "metrics",
+      [
+        {
+          "label": "Total",
+          "value": "42"
+        },
+        {
+          "label": "Passed",
+          "value": "40"
+        }
+      ]
+    ],
+    [
+      "scene_id",
+      "dash"
+    ],
+    [
+      "table_columns",
+      [
+        "Name",
+        "Status"
+      ]
+    ],
+    [
+      "table_rows",
+      [
+        [
+          "test_login",
+          "PASS"
+        ]
+      ]
+    ],
+    [
+      "title",
+      "Dashboard"
+    ]
+  ],
+  "response": "ack:dash",
+  "setup": {
+    "client": {
+      "show": {
+        "return": {
+          "scene_id": "dash",
+          "ts": 1000.0
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "show_dashboard"
+}

@@ -1,0 +1,21 @@
+{
+  "inputs": [],
+  "response": "{\n  \"available\": [\n    \"imgui_colors_light\",\n    \"imgui_colors_dark\",\n    \"darcula\"\n  ],\n  \"theme\": \"imgui_colors_dark\"\n}",
+  "setup": {
+    "client": {
+      "query": {
+        "method": "get_theme",
+        "result": {
+          "available": [
+            "imgui_colors_light",
+            "imgui_colors_dark",
+            "darcula"
+          ],
+          "theme": "imgui_colors_dark"
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "get_theme"
+}

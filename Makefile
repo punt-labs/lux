@@ -1,4 +1,4 @@
-.PHONY: help test test-integration test-e2e lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling report format build install clean depot fuzz prob prfaq clean-tex font-test
+.PHONY: help test test-integration test-e2e snapshot-parity snapshot-record lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling report format build install clean depot fuzz prob prfaq clean-tex font-test
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -11,6 +11,12 @@ test-integration: ## Run integration tests (tier 2, requires no display)
 
 test-e2e: ## Run end-to-end tests (tier 3, requires display process running)
 	uv run --extra display pytest -m e2e
+
+snapshot-parity: ## Replay the characterization corpus — every snapshot must match
+	uv run --extra display pytest tests/characterization/ -v
+
+snapshot-record: ## Rebuild the characterization corpus (overwrites snapshots/)
+	uv run --extra display python -m tests.characterization.build_corpus
 
 lint: ## Lint and format check
 	uv run --extra display ruff check .

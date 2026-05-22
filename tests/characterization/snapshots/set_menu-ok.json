@@ -1,0 +1,33 @@
+{
+  "inputs": [
+    [
+      "menus",
+      [
+        {
+          "items": [
+            {
+              "id": "run-btn",
+              "label": "Run"
+            },
+            {
+              "label": "---"
+            },
+            {
+              "id": "build-btn",
+              "label": "Build"
+            }
+          ],
+          "label": "Tools"
+        }
+      ]
+    ]
+  ],
+  "response": "ok",
+  "setup": {
+    "client": {
+      "set_menu": {}
+    },
+    "display_running": true
+  },
+  "tool": "set_menu"
+}

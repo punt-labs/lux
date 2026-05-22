@@ -1,0 +1,30 @@
+{
+  "inputs": [
+    [
+      "metrics",
+      [
+        {
+          "label": "Users",
+          "value": "100"
+        }
+      ]
+    ],
+    [
+      "scene_id",
+      "metrics"
+    ]
+  ],
+  "response": "ack:metrics",
+  "setup": {
+    "client": {
+      "show": {
+        "return": {
+          "scene_id": "metrics",
+          "ts": 1000.0
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "show_dashboard"
+}

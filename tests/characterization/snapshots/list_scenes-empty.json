@@ -1,0 +1,17 @@
+{
+  "inputs": [],
+  "response": "{\n  \"frames\": [],\n  \"scenes\": []\n}",
+  "setup": {
+    "client": {
+      "query": {
+        "method": "list_scenes",
+        "result": {
+          "frames": [],
+          "scenes": []
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "list_scenes"
+}

@@ -1,0 +1,28 @@
+{
+  "inputs": [
+    [
+      "elements",
+      [
+        {
+          "content": "Hi",
+          "id": "t1",
+          "kind": "text"
+        }
+      ]
+    ],
+    [
+      "scene_id",
+      "s1"
+    ]
+  ],
+  "response": "timeout",
+  "setup": {
+    "client": {
+      "show": {
+        "return": null
+      }
+    },
+    "display_running": true
+  },
+  "tool": "show"
+}

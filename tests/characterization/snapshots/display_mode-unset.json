@@ -1,0 +1,13 @@
+{
+  "inputs": [
+    [
+      "repo",
+      "<REPO_ROOT>/tests/characterization/snapshots/fixtures/repo-unset"
+    ]
+  ],
+  "response": "display:off",
+  "setup": {
+    "display_running": false
+  },
+  "tool": "display_mode"
+}

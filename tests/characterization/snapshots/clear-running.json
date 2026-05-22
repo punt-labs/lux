@@ -1,0 +1,11 @@
+{
+  "inputs": [],
+  "response": "cleared",
+  "setup": {
+    "client": {
+      "clear": {}
+    },
+    "display_running": true
+  },
+  "tool": "clear"
+}

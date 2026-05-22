@@ -1,0 +1,23 @@
+{
+  "inputs": [],
+  "response": "{\n  \"events\": [\n    {\n      \"action\": \"click\",\n      \"element_id\": \"btn-go\",\n      \"ts\": 1000.0,\n      \"value\": true\n    }\n  ]\n}",
+  "setup": {
+    "client": {
+      "query": {
+        "method": "list_recent_events",
+        "result": {
+          "events": [
+            {
+              "action": "click",
+              "element_id": "btn-go",
+              "ts": 1000.0,
+              "value": true
+            }
+          ]
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "list_recent_events"
+}

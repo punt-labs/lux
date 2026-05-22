@@ -550,12 +550,9 @@ def set_frame_state(
 
 @mcp.tool()
 def clear() -> str:
-    """Clear the Lux display window. Removes all content.
-
-    No-op if the display server is not running.
-    """
+    """Clear the Lux display window. Returns "not running" when display is off."""
     if not DisplayPaths().is_running():
-        return "cleared"
+        return "not running"
 
     def _call() -> str:
         client = _get_client()

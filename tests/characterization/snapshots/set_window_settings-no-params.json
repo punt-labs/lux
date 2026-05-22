@@ -1,0 +1,9 @@
+{
+  "inputs": [],
+  "response": "error: no settings provided",
+  "setup": {
+    "client": {},
+    "display_running": true
+  },
+  "tool": "set_window_settings"
+}

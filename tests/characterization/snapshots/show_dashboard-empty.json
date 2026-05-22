@@ -1,0 +1,21 @@
+{
+  "inputs": [
+    [
+      "scene_id",
+      "empty"
+    ]
+  ],
+  "response": "ack:empty",
+  "setup": {
+    "client": {
+      "show": {
+        "return": {
+          "scene_id": "empty",
+          "ts": 1000.0
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "show_dashboard"
+}

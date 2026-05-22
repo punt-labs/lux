@@ -1,0 +1,14 @@
+{
+  "inputs": [],
+  "response": "error: OpenGL not available",
+  "setup": {
+    "client": {
+      "query": {
+        "error": "OpenGL not available",
+        "method": "screenshot"
+      }
+    },
+    "display_running": true
+  },
+  "tool": "screenshot"
+}

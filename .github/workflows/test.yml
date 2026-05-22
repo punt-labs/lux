@@ -19,4 +19,7 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv sync --locked --extra display
-      - run: uv run --extra display pytest
+      - name: Unit and integration tests (excludes the characterization corpus)
+        run: uv run --extra display pytest --ignore=tests/characterization
+      - name: Snapshot parity (characterization corpus must replay byte-for-byte)
+        run: make snapshot-parity

@@ -1,0 +1,13 @@
+{
+  "inputs": [
+    [
+      "opacity",
+      0.5
+    ]
+  ],
+  "response": "not running",
+  "setup": {
+    "display_running": false
+  },
+  "tool": "set_window_settings"
+}
