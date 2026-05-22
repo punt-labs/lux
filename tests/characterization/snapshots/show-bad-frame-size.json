@@ -1,10 +1,6 @@
 {
   "inputs": [
     [
-      "scene_id",
-      "s1"
-    ],
-    [
       "elements",
       []
     ],
@@ -13,6 +9,10 @@
       [
         800
       ]
+    ],
+    [
+      "scene_id",
+      "s1"
     ]
   ],
   "response": "error: frame_size must be [width, height]",

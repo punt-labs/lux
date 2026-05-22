@@ -1,0 +1,8 @@
+{
+  "inputs": [],
+  "response": "not running",
+  "setup": {
+    "display_running": false
+  },
+  "tool": "ping"
+}

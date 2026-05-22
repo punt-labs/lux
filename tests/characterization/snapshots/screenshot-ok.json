@@ -1,0 +1,16 @@
+{
+  "inputs": [],
+  "response": "/tmp/lux-screenshot-abc.png",
+  "setup": {
+    "client": {
+      "query": {
+        "method": "screenshot",
+        "result": {
+          "path": "/tmp/lux-screenshot-abc.png"
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "screenshot"
+}

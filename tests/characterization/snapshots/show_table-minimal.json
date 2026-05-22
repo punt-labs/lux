@@ -1,10 +1,6 @@
 {
   "inputs": [
     [
-      "scene_id",
-      "tbl-min"
-    ],
-    [
       "columns",
       [
         "A"
@@ -17,6 +13,10 @@
           "x"
         ]
       ]
+    ],
+    [
+      "scene_id",
+      "tbl-min"
     ]
   ],
   "response": "ack:tbl-min",

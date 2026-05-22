@@ -1,0 +1,33 @@
+{
+  "inputs": [],
+  "response": "{\n  \"frames\": [\n    {\n      \"frame_id\": \"f1\",\n      \"scene_count\": 1,\n      \"scene_ids\": [\n        \"s1\"\n      ],\n      \"title\": \"Main\"\n    }\n  ],\n  \"scenes\": [\n    {\n      \"element_count\": 3,\n      \"frame_id\": \"f1\",\n      \"owner_fd\": 5,\n      \"scene_id\": \"s1\"\n    }\n  ]\n}",
+  "setup": {
+    "client": {
+      "query": {
+        "method": "list_scenes",
+        "result": {
+          "frames": [
+            {
+              "frame_id": "f1",
+              "scene_count": 1,
+              "scene_ids": [
+                "s1"
+              ],
+              "title": "Main"
+            }
+          ],
+          "scenes": [
+            {
+              "element_count": 3,
+              "frame_id": "f1",
+              "owner_fd": 5,
+              "scene_id": "s1"
+            }
+          ]
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "list_scenes"
+}

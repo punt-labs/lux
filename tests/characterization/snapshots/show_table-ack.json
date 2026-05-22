@@ -1,51 +1,11 @@
 {
   "inputs": [
     [
-      "scene_id",
-      "issues"
-    ],
-    [
       "columns",
       [
         "ID",
         "Title",
         "Status"
-      ]
-    ],
-    [
-      "rows",
-      [
-        [
-          "ISS-1",
-          "Fix login timeout",
-          "Open"
-        ],
-        [
-          "ISS-2",
-          "Add dark mode",
-          "In Progress"
-        ]
-      ]
-    ],
-    [
-      "filters",
-      [
-        {
-          "column": [
-            0,
-            1
-          ],
-          "hint": "Filter...",
-          "type": "search"
-        },
-        {
-          "column": 2,
-          "items": [
-            "All",
-            "Open"
-          ],
-          "type": "combo"
-        }
       ]
     ],
     [
@@ -70,6 +30,46 @@
           ]
         ]
       }
+    ],
+    [
+      "filters",
+      [
+        {
+          "column": [
+            0,
+            1
+          ],
+          "hint": "Filter...",
+          "type": "search"
+        },
+        {
+          "column": 2,
+          "items": [
+            "All",
+            "Open"
+          ],
+          "type": "combo"
+        }
+      ]
+    ],
+    [
+      "rows",
+      [
+        [
+          "ISS-1",
+          "Fix login timeout",
+          "Open"
+        ],
+        [
+          "ISS-2",
+          "Add dark mode",
+          "In Progress"
+        ]
+      ]
+    ],
+    [
+      "scene_id",
+      "issues"
     ],
     [
       "title",

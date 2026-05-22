@@ -1,10 +1,6 @@
 {
   "inputs": [
     [
-      "scene_id",
-      "s1"
-    ],
-    [
       "elements",
       [
         {
@@ -13,6 +9,10 @@
           "kind": "text"
         }
       ]
+    ],
+    [
+      "scene_id",
+      "s1"
     ]
   ],
   "response": "timeout",

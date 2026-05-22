@@ -1,10 +1,6 @@
 {
   "inputs": [
     [
-      "scene_id",
-      "s1"
-    ],
-    [
       "patches",
       [
         {
@@ -14,6 +10,10 @@
           }
         }
       ]
+    ],
+    [
+      "scene_id",
+      "s1"
     ]
   ],
   "response": "ack:s1",

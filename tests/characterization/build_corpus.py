@@ -11,10 +11,17 @@ scenario through :class:`ToolExerciser`, captures the response, and writes
 The replay test in ``test_parity.py`` loads every JSON file in that
 directory and asserts the live response matches the recorded one. The
 corpus IS the contract; this script is just the recorder.
+
+Determinism note: ``Snapshot.to_file`` writes setups with sorted keys for
+diff stability. Before recording each scenario, we round-trip its setup
+through JSON so the in-memory dict order matches what replay will see —
+otherwise the tool's ``json.dumps`` output would differ by key order
+between record and replay.
 """
 
 from __future__ import annotations
 
+import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -48,16 +55,32 @@ class Scenario:
 
     def record(self) -> Snapshot:
         """Run the scenario and return the captured :class:`Snapshot`."""
-        response = ToolExerciser.call(self.tool, self.inputs, self.setup)
+        setup = _canonical(self.setup)
+        inputs = _canonical(self.inputs)
+        response = ToolExerciser.call(self.tool, inputs, setup)
         return Snapshot(
             tool=self.tool,
-            inputs=tuple(self.inputs.items()),
-            setup=dict(self.setup),
+            inputs=tuple(inputs.items()),
+            setup=setup,
             response=response,
         )
 
     def path(self, root: Path = SNAPSHOT_DIR) -> Path:
         return root / f"{self.name}.json"
+
+
+def _canonical(data: Mapping[str, object]) -> dict[str, object]:
+    """Round-trip a mapping through JSON with sorted keys.
+
+    The snapshot file stores ``setup`` with ``sort_keys=True``. Replaying
+    means reading that sorted JSON and feeding it back to the tool. The
+    record-time call must see the same key order; otherwise the tool's
+    own ``json.dumps`` of a dict result would print keys in insertion
+    order at record and sorted order at replay — and the responses would
+    diverge for nothing more than dict iteration order.
+    """
+    roundtripped: dict[str, object] = json.loads(json.dumps(dict(data), sort_keys=True))
+    return roundtripped
 
 
 # ---------------------------------------------------------------------------
@@ -354,7 +377,314 @@ COMPOSITION_SCENARIOS: tuple[Scenario, ...] = (
 )
 
 
-SCENARIOS: tuple[Scenario, ...] = LIFECYCLE_SCENARIOS + COMPOSITION_SCENARIOS
+# ---------------------------------------------------------------------------
+# Introspection scenarios — read-only tools that return JSON for an agent
+# to consume. Every read endpoint gets at least one snapshot under a known
+# fixture response and one under "display not running" so the corpus
+# covers both halves of the short-circuit pattern in tools.py.
+# ---------------------------------------------------------------------------
+
+
+INTROSPECTION_SCENARIOS: tuple[Scenario, ...] = (
+    Scenario(
+        name="inspect_scene-found",
+        tool="inspect_scene",
+        inputs={"scene_id": "s1"},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {
+                    "method": "inspect_scene",
+                    "result": {
+                        "scene_id": "s1",
+                        "elements": [{"kind": "text", "id": "t1", "content": "hello"}],
+                    },
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="inspect_scene-not-found",
+        tool="inspect_scene",
+        inputs={"scene_id": "missing"},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {
+                    "method": "inspect_scene",
+                    "error": "Scene 'missing' not found",
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="inspect_scene-not-running",
+        tool="inspect_scene",
+        inputs={"scene_id": "s1"},
+        setup={"display_running": False},
+    ),
+    Scenario(
+        name="list_scenes-populated",
+        tool="list_scenes",
+        inputs={},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {
+                    "method": "list_scenes",
+                    "result": {
+                        "scenes": [
+                            {
+                                "scene_id": "s1",
+                                "element_count": 3,
+                                "frame_id": "f1",
+                                "owner_fd": 5,
+                            },
+                        ],
+                        "frames": [
+                            {
+                                "frame_id": "f1",
+                                "title": "Main",
+                                "scene_count": 1,
+                                "scene_ids": ["s1"],
+                            },
+                        ],
+                    },
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="list_scenes-empty",
+        tool="list_scenes",
+        inputs={},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {
+                    "method": "list_scenes",
+                    "result": {"scenes": [], "frames": []},
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="list_scenes-not-running",
+        tool="list_scenes",
+        inputs={},
+        setup={"display_running": False},
+    ),
+    Scenario(
+        name="list_clients-populated",
+        tool="list_clients",
+        inputs={},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {
+                    "method": "list_clients",
+                    "result": {
+                        "clients": [
+                            {"fd": 5, "name": "lux-mcp", "pid": 1234},
+                        ]
+                    },
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="list_menus-populated",
+        tool="list_menus",
+        inputs={},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {
+                    "method": "list_menus",
+                    "result": {
+                        "menus": [
+                            {
+                                "label": "Tools",
+                                "items": [{"label": "Run", "id": "run-btn"}],
+                            }
+                        ]
+                    },
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="list_recent_events-default-count",
+        tool="list_recent_events",
+        inputs={},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {
+                    "method": "list_recent_events",
+                    "result": {
+                        "events": [
+                            {
+                                "element_id": "btn-go",
+                                "action": "click",
+                                "ts": 1000.0,
+                                "value": True,
+                            }
+                        ]
+                    },
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="list_recent_events-explicit-count",
+        tool="list_recent_events",
+        inputs={"count": 5},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {
+                    "method": "list_recent_events",
+                    "result": {"events": []},
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="list_errors-default",
+        tool="list_errors",
+        inputs={},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {
+                    "method": "list_errors",
+                    "result": {
+                        "errors": [
+                            {
+                                "ts": 1000.0,
+                                "severity": "warning",
+                                "message": "texture cache full",
+                            }
+                        ]
+                    },
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="get_display_info-ok",
+        tool="get_display_info",
+        inputs={},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {
+                    "method": "get_display_info",
+                    "result": {
+                        "backend": "imgui",
+                        "resolution": [1920, 1080],
+                        "fps": 60.0,
+                        "pid": 5678,
+                        "uptime_s": 12.5,
+                    },
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="get_window_settings-ok",
+        tool="get_window_settings",
+        inputs={},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {
+                    "method": "get_window_settings",
+                    "result": {
+                        "opacity": 0.95,
+                        "font_scale": 1.25,
+                        "decorated": True,
+                        "fps_idle": 30.0,
+                    },
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="get_theme-ok",
+        tool="get_theme",
+        inputs={},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {
+                    "method": "get_theme",
+                    "result": {
+                        "theme": "imgui_colors_dark",
+                        "available": [
+                            "imgui_colors_light",
+                            "imgui_colors_dark",
+                            "darcula",
+                        ],
+                    },
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="ping-rtt",
+        tool="ping",
+        inputs={},
+        setup={
+            "display_running": True,
+            "time": 1000.042,
+            "client": {"ping": {"return": {"ts": 1000.0, "display_ts": 1000.005}}},
+        },
+    ),
+    Scenario(
+        name="ping-not-running",
+        tool="ping",
+        inputs={},
+        setup={"display_running": False},
+    ),
+    Scenario(
+        name="screenshot-ok",
+        tool="screenshot",
+        inputs={},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {
+                    "method": "screenshot",
+                    "result": {"path": "/tmp/lux-screenshot-abc.png"},
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="screenshot-error",
+        tool="screenshot",
+        inputs={},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {"method": "screenshot", "error": "OpenGL not available"}
+            },
+        },
+    ),
+    Scenario(
+        name="screenshot-not-running",
+        tool="screenshot",
+        inputs={},
+        setup={"display_running": False},
+    ),
+)
+
+
+SCENARIOS: tuple[Scenario, ...] = (
+    LIFECYCLE_SCENARIOS + COMPOSITION_SCENARIOS + INTROSPECTION_SCENARIOS
+)
 
 
 def build_all(scenarios: Sequence[Scenario] = SCENARIOS) -> list[Path]:

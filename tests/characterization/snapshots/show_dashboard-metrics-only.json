@@ -1,10 +1,6 @@
 {
   "inputs": [
     [
-      "scene_id",
-      "metrics"
-    ],
-    [
       "metrics",
       [
         {
@@ -12,6 +8,10 @@
           "value": "100"
         }
       ]
+    ],
+    [
+      "scene_id",
+      "metrics"
     ]
   ],
   "response": "ack:metrics",

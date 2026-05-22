@@ -1,23 +1,6 @@
 {
   "inputs": [
     [
-      "scene_id",
-      "dash"
-    ],
-    [
-      "metrics",
-      [
-        {
-          "label": "Total",
-          "value": "42"
-        },
-        {
-          "label": "Passed",
-          "value": "40"
-        }
-      ]
-    ],
-    [
       "charts",
       [
         {
@@ -41,6 +24,23 @@
           "y_label": "v"
         }
       ]
+    ],
+    [
+      "metrics",
+      [
+        {
+          "label": "Total",
+          "value": "42"
+        },
+        {
+          "label": "Passed",
+          "value": "40"
+        }
+      ]
+    ],
+    [
+      "scene_id",
+      "dash"
     ],
     [
       "table_columns",

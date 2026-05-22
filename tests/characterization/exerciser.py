@@ -185,11 +185,18 @@ class ToolExerciser:
             msg = f"setup.client must be a mapping; got {type(client_spec).__name__}"
             raise ToolCallError(msg)
 
+        stub_client = _StubClient(client_spec)
+        # Tools fall into two families that look up DisplayClient through
+        # different module attributes: the hand-written @mcp.tool ones go
+        # through ``tools.tools._get_client``, while the @_query_tool
+        # decorator in connection.py closes over ``connection._get_client``.
+        # Both must be patched or the stub is bypassed for the @_query_tool
+        # family (list_clients, get_display_info, etc.).
         stubs: list[contextlib.AbstractContextManager[Any]] = [
             mock.patch.object(DisplayPaths, "is_running", return_value=running),
+            mock.patch("punt_lux.tools.tools._get_client", return_value=stub_client),
             mock.patch(
-                "punt_lux.tools.tools._get_client",
-                return_value=_StubClient(client_spec),
+                "punt_lux.tools.connection._get_client", return_value=stub_client
             ),
         ]
         now = setup.get("time")

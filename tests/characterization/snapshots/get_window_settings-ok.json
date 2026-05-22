@@ -1,0 +1,19 @@
+{
+  "inputs": [],
+  "response": "{\n  \"decorated\": true,\n  \"font_scale\": 1.25,\n  \"fps_idle\": 30.0,\n  \"opacity\": 0.95\n}",
+  "setup": {
+    "client": {
+      "query": {
+        "method": "get_window_settings",
+        "result": {
+          "decorated": true,
+          "font_scale": 1.25,
+          "fps_idle": 30.0,
+          "opacity": 0.95
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "get_window_settings"
+}

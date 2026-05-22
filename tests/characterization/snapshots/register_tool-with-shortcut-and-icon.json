@@ -1,20 +1,20 @@
 {
   "inputs": [
     [
-      "label",
-      "Build"
+      "icon",
+      "hammer"
     ],
     [
-      "tool_id",
-      "build-btn"
+      "label",
+      "Build"
     ],
     [
       "shortcut",
       "Cmd+B"
     ],
     [
-      "icon",
-      "hammer"
+      "tool_id",
+      "build-btn"
     ]
   ],
   "response": "registered:build-btn",

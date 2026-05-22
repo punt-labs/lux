@@ -1,0 +1,22 @@
+{
+  "inputs": [],
+  "response": "{\n  \"clients\": [\n    {\n      \"fd\": 5,\n      \"name\": \"lux-mcp\",\n      \"pid\": 1234\n    }\n  ]\n}",
+  "setup": {
+    "client": {
+      "query": {
+        "method": "list_clients",
+        "result": {
+          "clients": [
+            {
+              "fd": 5,
+              "name": "lux-mcp",
+              "pid": 1234
+            }
+          ]
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "list_clients"
+}
