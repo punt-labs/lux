@@ -164,9 +164,11 @@ _register_table(_codec.register)
 def _element_to_dict(elem: Element) -> dict[str, Any]:
     """Serialize an Element dataclass to a JSON-compatible dict."""
     result = _codec.to_dict(elem)
-    tooltip = getattr(elem, "tooltip", None)
-    if tooltip is not None:
-        result["tooltip"] = tooltip
+    # ``tooltip`` is part of the Element Protocol — every conforming class
+    # has it, so we read the attribute directly instead of via ``getattr``
+    # (PY-TS-10: no ``hasattr``-equivalent dispatch).
+    if elem.tooltip is not None:
+        result["tooltip"] = elem.tooltip
     return result
 
 
@@ -176,16 +178,12 @@ def element_to_dict(elem: Element) -> dict[str, Any]:
 
 
 def element_from_dict(d: dict[str, Any]) -> Element:
-    """Deserialize a dict to the appropriate Element dataclass.
-
-    Accepts dicts matching this module's element schema or as supplied by
-    MCP tool callers.  Missing ``content``/``label`` keys default to ``""``.
-    """
+    """Deserialize a dict to the appropriate Element dataclass."""
     elem = _codec.from_dict(d)
     tooltip = d.get("tooltip")
     if tooltip is not None:
-        # Invariant: every Element subtype declares tooltip: str | None = None.
-        # New element types must include this field or element_from_dict will raise.
+        # Every Element subtype declares ``tooltip: str | None`` — the
+        # Protocol guarantee makes ``replace(elem, tooltip=...)`` safe.
         elem = replace(elem, tooltip=tooltip)
     return elem
 

@@ -15,6 +15,7 @@ class _ConformantElement:
 
     id: ElementId
     kind: Literal["synthetic"] = "synthetic"
+    tooltip: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {"id": str(self.id), "kind": self.kind}

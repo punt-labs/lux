@@ -44,6 +44,7 @@ class _Button:
     label: str
     disabled: bool = False
     kind: Literal["button"] = "button"
+    tooltip: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {

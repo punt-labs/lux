@@ -17,6 +17,7 @@ class _Elem:
     id: ElementId
     label: str
     kind: Literal["fake"] = "fake"
+    tooltip: str | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {"id": str(self.id), "kind": self.kind, "label": self.label}
