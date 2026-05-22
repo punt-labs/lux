@@ -14,8 +14,9 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import ClassVar, Literal, Self, cast
+from typing import ClassVar, Literal, Self
 
+from punt_lux.domain._wire_fields import WireFields
 from punt_lux.domain.element import Element
 from punt_lux.domain.ids import ElementId, SceneId
 
@@ -32,24 +33,6 @@ __all__ = [
 # registry — to break what would otherwise be a circular import from
 # domain → protocol. Domain owns the contract; protocol owns the wire dispatch.
 type ElementDecoder = Callable[[Mapping[str, object]], Element]
-
-
-def _require_str(d: Mapping[str, object], field: str) -> str:
-    """Return ``d[field]`` as a non-empty str or raise."""
-    raw = d.get(field)
-    if not isinstance(raw, str) or not raw:
-        msg = f"Update field {field!r} must be a non-empty str, got {raw!r}"
-        raise ValueError(msg)
-    return raw
-
-
-def _require_mapping(d: Mapping[str, object], field: str) -> Mapping[str, object]:
-    """Return ``d[field]`` as a mapping or raise."""
-    raw = d.get(field)
-    if not isinstance(raw, Mapping):
-        msg = f"Update field {field!r} must be a mapping, got {type(raw).__name__}"
-        raise ValueError(msg)
-    return cast("Mapping[str, object]", raw)
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,18 +62,12 @@ class AddElement:
         *,
         decode_element: ElementDecoder,
     ) -> Self:
-        scene_id = SceneId(_require_str(d, "scene_id"))
-        element = decode_element(_require_mapping(d, "element"))
-        raw_parent = d.get("parent_id")
-        parent_id: ElementId | None
-        if raw_parent is None:
-            parent_id = None
-        elif isinstance(raw_parent, str) and raw_parent:
-            parent_id = ElementId(raw_parent)
-        else:
-            msg = f"AddElement.parent_id must be str or absent, got {raw_parent!r}"
-            raise ValueError(msg)
-        return cls(scene_id=scene_id, element=element, parent_id=parent_id)
+        fields = WireFields(d, "AddElement")
+        return cls(
+            scene_id=SceneId(fields.require_str("scene_id")),
+            element=decode_element(fields.require_mapping("element")),
+            parent_id=fields.optional_id("parent_id"),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,9 +87,10 @@ class RemoveElement:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, object]) -> Self:
+        fields = WireFields(d, "RemoveElement")
         return cls(
-            scene_id=SceneId(_require_str(d, "scene_id")),
-            element_id=ElementId(_require_str(d, "element_id")),
+            scene_id=SceneId(fields.require_str("scene_id")),
+            element_id=ElementId(fields.require_str("element_id")),
         )
 
 
@@ -137,10 +115,11 @@ class SetProperty:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, object]) -> Self:
+        fields = WireFields(d, "SetProperty")
         return cls(
-            scene_id=SceneId(_require_str(d, "scene_id")),
-            element_id=ElementId(_require_str(d, "element_id")),
-            field=_require_str(d, "field"),
+            scene_id=SceneId(fields.require_str("scene_id")),
+            element_id=ElementId(fields.require_str("element_id")),
+            field=fields.require_str("field"),
             value=d.get("value"),
         )
 
