@@ -98,6 +98,35 @@ class TestRaisesOnBadSetup:
             )
 
 
+class TestPassthroughAllowlist:
+    def test_show_runs_without_declaring_setup_apps_side_effects(self) -> None:
+        # _setup_apps calls declare_menu_item and on_event on first
+        # _get_client(). Those two are in _PASSTHROUGH_METHODS so a
+        # scenario that only declares the methods its tool actually uses
+        # records cleanly — the constant-overhead side effects don't
+        # need a spec entry.
+        result = ToolExerciser.call(
+            "show",
+            {"scene_id": "s1", "elements": []},
+            {
+                "display_running": True,
+                "client": {"show": {"return": {"scene_id": "s1", "ts": 1000.0}}},
+            },
+        )
+        assert result == "ack:s1"
+
+    def test_non_allowlisted_method_still_raises(self) -> None:
+        # The allowlist is constrained — only declare_menu_item and
+        # on_event pass through silently. Any other unstubbed method
+        # still raises, so the F4 safety net survives the F4-style
+        # exception.
+        from .exerciser import _StubClient
+
+        client = _StubClient({})
+        with pytest.raises(ToolCallError, match="stub 'show' called"):
+            client.show()
+
+
 class TestToolExceptionPropagates:
     def test_invalid_mode_raises_value_error_not_tool_call_error(
         self, tmp_path: object

@@ -41,7 +41,7 @@ from __future__ import annotations
 import contextlib
 import unittest.mock as mock
 from collections.abc import Callable, Generator, Mapping
-from typing import Any
+from typing import Any, ClassVar
 
 from punt_lux import tools as tools_pkg
 from punt_lux.paths import DisplayPaths
@@ -68,7 +68,19 @@ class _StubClient:
     :class:`ToolCallError` so the missing stub is surfaced loudly instead
     of returning ``None`` and producing a wrong-but-stable snapshot
     (per PY-EH-8 and PL-PP-3).
+
+    ``_PASSTHROUGH_METHODS`` names the methods that may be called without
+    a spec entry. They are confined to side effects ``_setup_apps()`` fires
+    on first ``_get_client()`` invocation (declare a beads-browser menu
+    item, register a callback for it). Those side effects are a constant
+    overhead the corpus does not need to model; without the allowlist
+    every scenario would have to declare them, which is the noisy-stub
+    smell ``_require_spec`` is meant to prevent.
     """
+
+    _PASSTHROUGH_METHODS: ClassVar[frozenset[str]] = frozenset(
+        {"declare_menu_item", "on_event"}
+    )
 
     # PY-TS-14: per-method config shapes are heterogeneous (dicts, literals,
     # error strings) and JSON-loaded from snapshot files — typing them
@@ -124,17 +136,10 @@ class _StubClient:
         return
 
     def declare_menu_item(self, _item: object) -> None:
-        # declare_menu_item is called once during _setup_apps for the Beads
-        # Browser registration; treating it as a no-op without requiring a
-        # spec entry keeps every scenario from needing to declare that one
-        # side effect.
-        return None
+        self._require_spec("declare_menu_item")
 
     def on_event(self, *_args: object, **_kwargs: object) -> None:
-        # Same rationale as declare_menu_item — _setup_apps registers an
-        # interaction callback at first call; it is a constant overhead the
-        # corpus does not need to model.
-        return None
+        self._require_spec("on_event")
 
     def query(self, method: str, _params: object = None) -> QueryResponse | None:
         cfg = self._require_spec("query")
@@ -163,14 +168,16 @@ class _StubClient:
         return AckMessage(scene_id=str(ret["scene_id"]), ts=float(ret["ts"]))
 
     def _require_spec(self, key: str) -> Mapping[str, Any]:
-        """Return the spec for ``key`` or raise ToolCallError."""
-        if key not in self._spec:
-            msg = (
-                f"stub {key!r} called but setup did not configure it; "
-                "add the entry to the scenario's client spec"
-            )
-            raise ToolCallError(msg)
-        return self._spec[key]
+        """Return the spec for ``key``, an empty mapping for passthroughs, or raise."""
+        if key in self._spec:
+            return self._spec[key]
+        if key in self._PASSTHROUGH_METHODS:
+            return {}
+        msg = (
+            f"stub {key!r} called but setup did not configure it; "
+            "add the entry to the scenario's client spec"
+        )
+        raise ToolCallError(msg)
 
 
 class ToolExerciser:
