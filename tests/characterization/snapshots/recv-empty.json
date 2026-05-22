@@ -1,0 +1,18 @@
+{
+  "inputs": [
+    [
+      "timeout",
+      0.1
+    ]
+  ],
+  "response": "none",
+  "setup": {
+    "client": {
+      "recv": {
+        "return": null
+      }
+    },
+    "display_running": true
+  },
+  "tool": "recv"
+}

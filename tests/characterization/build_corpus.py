@@ -770,11 +770,66 @@ CONTROL_SCENARIOS: tuple[Scenario, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Interaction scenarios — ``recv`` returns either the next queued event or
+# the literal ``"none"`` when the timeout expires. The snapshot pair pins
+# both halves so PR 2 (inputs family) can verify event delivery survives
+# the migration.
+# ---------------------------------------------------------------------------
+
+
+INTERACTION_SCENARIOS: tuple[Scenario, ...] = (
+    Scenario(
+        name="recv-empty",
+        tool="recv",
+        inputs={"timeout": 0.1},
+        setup={"display_running": True, "client": {"recv": {"return": None}}},
+    ),
+    Scenario(
+        name="recv-button-click",
+        tool="recv",
+        inputs={"timeout": 1.0},
+        setup={
+            "display_running": True,
+            "client": {
+                "recv": {
+                    "return": {
+                        "element_id": "btn-submit",
+                        "action": "click",
+                        "ts": 1000.0,
+                        "value": True,
+                    }
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="recv-slider-change",
+        tool="recv",
+        inputs={"timeout": 1.0},
+        setup={
+            "display_running": True,
+            "client": {
+                "recv": {
+                    "return": {
+                        "element_id": "slider-temp",
+                        "action": "changed",
+                        "ts": 1000.0,
+                        "value": 42.5,
+                    }
+                }
+            },
+        },
+    ),
+)
+
+
 SCENARIOS: tuple[Scenario, ...] = (
     LIFECYCLE_SCENARIOS
     + COMPOSITION_SCENARIOS
     + INTROSPECTION_SCENARIOS
     + CONTROL_SCENARIOS
+    + INTERACTION_SCENARIOS
 )
 
 

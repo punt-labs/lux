@@ -1,0 +1,23 @@
+{
+  "inputs": [
+    [
+      "timeout",
+      1.0
+    ]
+  ],
+  "response": "interaction:element=btn-submit,action=click,value=True",
+  "setup": {
+    "client": {
+      "recv": {
+        "return": {
+          "action": "click",
+          "element_id": "btn-submit",
+          "ts": 1000.0,
+          "value": true
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "recv"
+}

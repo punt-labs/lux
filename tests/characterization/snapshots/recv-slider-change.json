@@ -1,0 +1,23 @@
+{
+  "inputs": [
+    [
+      "timeout",
+      1.0
+    ]
+  ],
+  "response": "interaction:element=slider-temp,action=changed,value=42.5",
+  "setup": {
+    "client": {
+      "recv": {
+        "return": {
+          "action": "changed",
+          "element_id": "slider-temp",
+          "ts": 1000.0,
+          "value": 42.5
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "recv"
+}
