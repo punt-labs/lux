@@ -218,6 +218,37 @@ def test_basics_module_holds_only_registration() -> None:
     assert basics.__all__ == ["BasicsRegistry"]
 
 
+def test_scene_manager_has_no_basics_branches() -> None:
+    """Step 8 verification: scene/manager.py never references basics kinds.
+
+    SceneManager already operates on the SceneMessage / Element union
+    without per-kind branches for basics — the existing dispatch handles
+    every kind uniformly via getattr.  This test pins the absence so
+    future refactors do not accidentally reintroduce a basics-specific
+    branch in the SceneManager path.
+    """
+    import ast
+    from pathlib import Path
+
+    from punt_lux import scene
+
+    source = (Path(scene.__file__).parent / "manager.py").read_text()
+    tree = ast.parse(source)
+    forbidden = {
+        "TextElement",
+        "ImageElement",
+        "SeparatorElement",
+        "ProgressElement",
+        "SpinnerElement",
+        "MarkdownElement",
+    }
+    referenced = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)} | {
+        node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
+    }
+    intersection = forbidden & referenced
+    assert not intersection, f"scene/manager.py references basics kinds: {intersection}"
+
+
 def test_basics_codec_helpers_are_gone_from_every_per_kind_module() -> None:
     """PL-PP-1 + PY-OO-7: no module-level `_to_dict_*` / `_from_dict_*` survives.
 
