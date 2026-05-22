@@ -721,12 +721,12 @@ class TestDisplayModeRepoArg:
 class TestClearNoAutoSpawn:
     @patch("punt_lux.tools.tools._get_client")
     @patch.object(DisplayPaths, "is_running", return_value=False)
-    def test_clear_noop_when_not_running(
+    def test_clear_returns_not_running_when_display_off(
         self, mock_running: MagicMock, mock_get: MagicMock
     ) -> None:
 
         result = clear()
-        assert result == "cleared"
+        assert result == "not running"
         mock_get.assert_not_called()
 
     @patch("punt_lux.tools.tools._get_client")

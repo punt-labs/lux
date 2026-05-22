@@ -1,6 +1,6 @@
 {
   "inputs": [],
-  "response": "cleared",
+  "response": "not running",
   "setup": {
     "display_running": false
   },

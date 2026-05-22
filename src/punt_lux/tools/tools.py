@@ -552,10 +552,12 @@ def set_frame_state(
 def clear() -> str:
     """Clear the Lux display window. Removes all content.
 
-    No-op if the display server is not running.
+    Returns ``"not running"`` when the display server is not running,
+    matching the rest of the not-running short-circuits (ping, screenshot,
+    inspect_scene, list_scenes, set_window_settings, set_theme).
     """
     if not DisplayPaths().is_running():
-        return "cleared"
+        return "not running"
 
     def _call() -> str:
         client = _get_client()
