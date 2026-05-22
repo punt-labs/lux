@@ -1,18 +1,4 @@
-"""Dual-write pump: route wire SceneMessages through the domain Display.
-
-This module is the transitional bridge between the legacy SceneManager
-path and the authoritative domain ``Display`` introduced in PR 1.  For
-every basics-only scene that arrives over the wire, the pump removes any
-elements the domain Display already holds for the scene and re-adds the
-current set so the snapshot reflects the latest send.  Mixed-kind scenes
-(containing any non-basics element) bypass the pump until their families
-migrate.
-
-Failures from ``Display.apply`` — ``OwnershipError``, ``DuplicateIdError``,
-``PropertyTypeError`` — are surfaced via ``logger.warning`` with full
-context (scene_id, element_id, op, error kind).  Silently dropping them
-would let SceneManager and the domain Display diverge.
-"""
+"""Dual-write pump: mirror basics-only SceneMessages into the domain Display."""
 
 from __future__ import annotations
 
@@ -33,13 +19,7 @@ _log = logging.getLogger(__name__)
 
 
 class DomainPump:
-    """Mirror basics-only SceneMessages into a domain Display.
-
-    The pump owns the per-hub ``ClientId`` and the membership predicate
-    that decides which kinds are routed.  Tests can construct one with a
-    fresh ``Display`` and exercise routing in isolation — no socket, no
-    ImGui.
-    """
+    """Mirror basics-only SceneMessages into a domain Display."""
 
     _display: Display
     _client_id: ClientId
@@ -90,29 +70,18 @@ class DomainPump:
 
     @staticmethod
     def _with_unique_id(elem: DomainElement, *, index: int) -> DomainElement:
-        """Return ``elem`` with a synthesized id when its id is empty.
+        """Return ``elem`` with ``<kind>:<index>`` id when its id is empty.
 
-        Anonymous elements (empty-string ``id`` — currently only
-        ``SeparatorElement``) collide in the domain Display's
-        ``dict[ElementId, Element]`` storage when more than one appears
-        in a scene.  SceneManager has no such uniqueness check, so
-        without this synthesis the two stores diverge: SceneManager
-        keeps every separator; ``Display._apply_add`` rejects each
-        duplicate after the first with ``DuplicateIdError``.
-
-        The synthesized id is ``<kind>:<index>`` — deterministic for
-        tests, scoped to the dual-write boundary, and never escapes the
-        domain Display (the wire and renderer use the original elem.id).
+        Anonymous elements (``SeparatorElement``) collide in the
+        Display's ``dict[ElementId, Element]`` when multiple appear in
+        one scene; SceneManager has no such check.  Synthesis is scoped
+        to the dual-write boundary — wire/renderer see the original id.
         """
         if elem.id:
             return elem
-        new_id = f"{elem.kind}:{index}"
-        # dataclasses.replace is typed against a concrete dataclass TypeVar;
-        # the Element Protocol is not a dataclass to the type checker, so the
-        # cast widens elem to Any for the replace call.  Every basics-family
-        # element is a frozen dataclass with an ``id`` field — the assertion
-        # at the boundary is documented in the docstring.
-        replaced = dataclasses.replace(cast("Any", elem), id=new_id)
+        # Element Protocol is opaque to dataclasses.replace's TypeVar; every
+        # basics element is a frozen dataclass with `id`.
+        replaced = dataclasses.replace(cast("Any", elem), id=f"{elem.kind}:{index}")
         return cast("DomainElement", replaced)
 
     def _clear_scene(self, scene_id: SceneId) -> None:
@@ -139,9 +108,7 @@ def _warn_on_error(
     op: str,
 ) -> None:
     """Log a domain Display.apply failure with full context."""
-    # Event is the success-shape; anything else is a typed Error from the
-    # domain.error module.  Use the concrete success classes (the ``Event``
-    # type alias is not isinstance-checkable).
+    # The Event type alias isn't isinstance-checkable; spell the concretes.
     if isinstance(result, ElementAdded | ElementRemoved | ElementUpdated):
         return
     _log.warning(
