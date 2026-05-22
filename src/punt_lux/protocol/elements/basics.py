@@ -1,4 +1,4 @@
-"""Static display primitives — text, image, separator, progress, spinner."""
+"""Static display primitives — image, separator, progress, spinner, markdown."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 from punt_lux.protocol.elements.codec import Register
+from punt_lux.protocol.elements.text import TextElement
 
 __all__ = [
     "ImageElement",
@@ -37,18 +38,6 @@ class ImageElement:
         if self.path is None and self.data is None:
             msg = "ImageElement requires either 'path' or 'data'"
             raise ValueError(msg)
-
-
-@dataclass(frozen=True, slots=True)
-class TextElement:
-    """A text block."""
-
-    id: str
-    content: str
-    kind: Literal["text"] = "text"
-    style: str | None = None  # "body", "heading", "caption", "code"
-    tooltip: str | None = None
-    color: str | None = None  # hex color e.g. "#FF3333"
 
 
 @dataclass(frozen=True, slots=True)
@@ -94,7 +83,6 @@ class MarkdownElement:
 
 
 def _strip_none(d: dict[str, Any]) -> dict[str, Any]:
-    """Remove keys whose value is None."""
     return {k: v for k, v in d.items() if v is not None}
 
 
@@ -109,18 +97,6 @@ def _image_to_dict(elem: ImageElement) -> dict[str, Any]:
             "alt": elem.alt,
             "width": elem.width,
             "height": elem.height,
-        }
-    )
-
-
-def _text_to_dict(elem: TextElement) -> dict[str, Any]:
-    return _strip_none(
-        {
-            "kind": elem.kind,
-            "id": elem.id,
-            "content": elem.content,
-            "style": elem.style,
-            "color": elem.color,
         }
     )
 
@@ -175,15 +151,6 @@ def _image_from_dict(d: dict[str, Any]) -> ImageElement:
     )
 
 
-def _text_from_dict(d: dict[str, Any]) -> TextElement:
-    return TextElement(
-        id=d["id"],
-        content=d.get("content", ""),
-        style=d.get("style"),
-        color=d.get("color"),
-    )
-
-
 def _separator_from_dict(d: dict[str, Any]) -> SeparatorElement:
     return SeparatorElement(id=d.get("id"))
 
@@ -215,7 +182,7 @@ def _markdown_from_dict(d: dict[str, Any]) -> MarkdownElement:
 def register_codecs(register: Register) -> None:
     """Register this module's element codecs into an ElementCodec."""
     register("image", ImageElement, _image_to_dict, _image_from_dict)
-    register("text", TextElement, _text_to_dict, _text_from_dict)
+    register("text", TextElement, TextElement.to_dict, TextElement.from_dict)
     register("separator", SeparatorElement, _separator_to_dict, _separator_from_dict)
     register("progress", ProgressElement, _progress_to_dict, _progress_from_dict)
     register("spinner", SpinnerElement, _spinner_to_dict, _spinner_from_dict)
