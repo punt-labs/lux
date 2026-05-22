@@ -79,3 +79,40 @@ def test_route_empty_elements_on_fresh_scene_is_safe(pump: DomainPump) -> None:
     msg = SceneMessage(id="s-new", elements=[])
     pump.route(msg)
     assert _scene_snapshot_ids(pump, SceneId("s-new")) == frozenset()
+
+
+def test_route_multiple_anonymous_separators(
+    pump: DomainPump, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Copilot CP-NEW-1: anonymous SeparatorElements must not collide.
+
+    Separators rarely receive explicit ids — the common case is
+    ``SeparatorElement()`` with ``id=""``.  Without per-element id
+    synthesis the second and third anonymous separators would hit the
+    Display's ``DuplicateIdError`` guard, the pump would only log a
+    warning, and SceneManager (which has no uniqueness check) would
+    keep all three.  The two stores would diverge.
+
+    The pump synthesizes ``<kind>:<index>`` ids inside the domain
+    boundary so every anonymous element occupies a distinct slot in the
+    snapshot.  The wire and renderer continue to see the original
+    empty id — synthesis is local to the dual-write path.
+    """
+    msg = SceneMessage(
+        id="s1",
+        elements=[
+            SeparatorElement(),
+            SeparatorElement(),
+            SeparatorElement(),
+        ],
+    )
+    with caplog.at_level("WARNING", logger="punt_lux.display.domain_pump"):
+        pump.route(msg)
+    assert _scene_snapshot_ids(pump, SceneId("s1")) == {
+        ElementId("separator:0"),
+        ElementId("separator:1"),
+        ElementId("separator:2"),
+    }
+    assert not caplog.records, (
+        f"unexpected DomainPump warnings: {[r.getMessage() for r in caplog.records]}"
+    )

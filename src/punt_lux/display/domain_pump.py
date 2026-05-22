@@ -16,8 +16,9 @@ would let SceneManager and the domain Display diverge.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
-from typing import Self, cast
+from typing import Any, Self, cast
 
 from punt_lux.domain.display import Display, Result
 from punt_lux.domain.element import Element as DomainElement
@@ -68,20 +69,51 @@ class DomainPump:
         scene_id = SceneId(msg.id)
         self._display.add_scene(scene_id)
         self._clear_scene(scene_id)
-        for elem in msg.elements:
+        for index, elem in enumerate(msg.elements):
             # cast: isinstance check above narrowed the element to a basics
             # kind, every one of which satisfies the domain Element Protocol.
+            domain_elem = self._with_unique_id(cast("DomainElement", elem), index=index)
             result = self._display.apply(
                 self._client_id,
                 AddElement(
                     scene_id=scene_id,
-                    element=cast("DomainElement", elem),
+                    element=domain_elem,
                     parent_id=None,
                 ),
             )
             _warn_on_error(
-                result, scene_id=scene_id, element_id=ElementId(elem.id), op="add"
+                result,
+                scene_id=scene_id,
+                element_id=ElementId(domain_elem.id),
+                op="add",
             )
+
+    @staticmethod
+    def _with_unique_id(elem: DomainElement, *, index: int) -> DomainElement:
+        """Return ``elem`` with a synthesized id when its id is empty.
+
+        Anonymous elements (empty-string ``id`` — currently only
+        ``SeparatorElement``) collide in the domain Display's
+        ``dict[ElementId, Element]`` storage when more than one appears
+        in a scene.  SceneManager has no such uniqueness check, so
+        without this synthesis the two stores diverge: SceneManager
+        keeps every separator; ``Display._apply_add`` rejects each
+        duplicate after the first with ``DuplicateIdError``.
+
+        The synthesized id is ``<kind>:<index>`` — deterministic for
+        tests, scoped to the dual-write boundary, and never escapes the
+        domain Display (the wire and renderer use the original elem.id).
+        """
+        if elem.id:
+            return elem
+        new_id = f"{elem.kind}:{index}"
+        # dataclasses.replace is typed against a concrete dataclass TypeVar;
+        # the Element Protocol is not a dataclass to the type checker, so the
+        # cast widens elem to Any for the replace call.  Every basics-family
+        # element is a frozen dataclass with an ``id`` field — the assertion
+        # at the boundary is documented in the docstring.
+        replaced = dataclasses.replace(cast("Any", elem), id=new_id)
+        return cast("DomainElement", replaced)
 
     def _clear_scene(self, scene_id: SceneId) -> None:
         """Remove every element this hub owns in the given domain scene."""
