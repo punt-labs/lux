@@ -13,21 +13,23 @@ byte — the test fails with a unified diff showing exactly what changed.
 Manual regression check (the "negative case" the mission asks for): pick
 any tool the corpus covers, deliberately break it by editing one
 character in ``src/punt_lux/tools/tools.py`` (e.g., change ``"ack:"`` to
-``"ACK:"``), then run::
+``"ACK:"`` in the ``show`` tool's success branch), then run::
 
     make snapshot-parity
 
-The target exits non-zero. The pytest output names the failing snapshot
-and prints ``Snapshot.diff(observed)``::
+The target exits non-zero. The pytest output names every failing
+snapshot and embeds ``Snapshot.diff(observed)``::
 
     AssertionError: snapshot drift in show-ack:
-    --- show (recorded)
-    +++ show (observed)
-    -ack:s1
-    +ACK:s1
+      --- show (recorded)
+      +++ show (observed)
+      @@ -1 +1 @@
+      -ack:s1
+      +ACK:s1
 
-Revert the production edit; the test goes green again. That diff format
-is the contract the migration PRs are reviewed against.
+Revert the production edit; the target goes green again. That diff
+format is the contract the migration PRs (lux-b14i and onward) are
+reviewed against.
 """
 
 from __future__ import annotations

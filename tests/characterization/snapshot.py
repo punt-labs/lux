@@ -119,16 +119,15 @@ class Snapshot:
         of that delta — show what was expected, what came back, and let the
         reader spot the change.
         """
-        expected_lines = self.response.splitlines(keepends=True)
-        observed_lines = observed.splitlines(keepends=True)
         from difflib import unified_diff
 
+        expected_lines = (self.response + "\n").splitlines(keepends=True)
+        observed_lines = (observed + "\n").splitlines(keepends=True)
         return "".join(
             unified_diff(
                 expected_lines,
                 observed_lines,
                 fromfile=f"{self.tool} (recorded)",
                 tofile=f"{self.tool} (observed)",
-                lineterm="",
             )
         )
