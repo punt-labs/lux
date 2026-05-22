@@ -643,62 +643,38 @@ class TestRecvTool:
         assert result == "none"
 
 
-def _mock_config_manager_cls(
-    cfg: MagicMock | None = None,
-) -> MagicMock:
-    """Build a mock ConfigManager class whose instances delegate to *cfg*."""
-    mgr = MagicMock()
-    if cfg is not None:
-        mgr.read.return_value = cfg
-    return MagicMock(return_value=mgr)
-
-
 class TestDisplayModeTool:
-    def test_display_mode_returns_on(self) -> None:
-        cfg = MagicMock()
-        cfg.display = "y"
-        mock_cls = _mock_config_manager_cls(cfg)
-        with patch("punt_lux.tools.tools.ConfigManager", mock_cls):
-            result = display_mode()
-        assert result == "display:on"
+    def test_display_mode_returns_on(self, tmp_path: Path) -> None:
+        (tmp_path / ".punt-labs").mkdir()
+        (tmp_path / ".punt-labs" / "lux.md").write_text(
+            '---\ndisplay: "y"\n---\n', encoding="utf-8"
+        )
+        assert display_mode(repo=str(tmp_path)) == "display:on"
 
-    def test_display_mode_returns_off(self) -> None:
-        cfg = MagicMock()
-        cfg.display = "n"
-        mock_cls = _mock_config_manager_cls(cfg)
-        with patch("punt_lux.tools.tools.ConfigManager", mock_cls):
-            result = display_mode()
-        assert result == "display:off"
+    def test_display_mode_returns_off_when_unset(self, tmp_path: Path) -> None:
+        assert display_mode(repo=str(tmp_path)) == "display:off"
 
 
 class TestSetDisplayModeTool:
     @patch("punt_lux.tools.tools._get_client")
-    def test_set_display_mode_y(self, mock_get: MagicMock) -> None:
+    def test_set_display_mode_y(self, mock_get: MagicMock, tmp_path: Path) -> None:
         mock_get.return_value = _mock_client()
-        mock_cls = _mock_config_manager_cls()
-        with patch("punt_lux.tools.tools.ConfigManager", mock_cls):
-            result = set_display_mode("y")
-        assert result == "display:on"
-        mock_cls.return_value.write_field.assert_called_once_with("display", "y")
+        assert set_display_mode("y", repo=str(tmp_path)) == "display:on"
+        content = (tmp_path / ".punt-labs" / "lux.md").read_text()
+        assert 'display: "y"' in content
 
-    def test_set_display_mode_n(self) -> None:
-        mock_cls = _mock_config_manager_cls()
-        with patch("punt_lux.tools.tools.ConfigManager", mock_cls):
-            result = set_display_mode("n")
-        assert result == "display:off"
-        mock_cls.return_value.write_field.assert_called_once_with("display", "n")
+    def test_set_display_mode_n(self, tmp_path: Path) -> None:
+        assert set_display_mode("n", repo=str(tmp_path)) == "display:off"
+        content = (tmp_path / ".punt-labs" / "lux.md").read_text()
+        assert 'display: "n"' in content
 
-    def test_set_display_mode_invalid(self) -> None:
+    def test_set_display_mode_invalid(self, tmp_path: Path) -> None:
         with pytest.raises(ValueError, match="Invalid mode"):
-            set_display_mode("bogus")
+            set_display_mode("bogus", repo=str(tmp_path))
 
 
 class TestDisplayModeRepoArg:
-    """Regression for lux-r929 — config resolves to the caller's repo."""
-
     def test_set_then_read_roundtrip_in_repo(self, tmp_path: Path) -> None:
-        """set_display_mode(repo=X) writes to X/.punt-labs/lux.md;
-        display_mode(repo=X) reads it back. No MCP server cwd in the loop."""
         with patch("punt_lux.tools.tools._get_client", return_value=_mock_client()):
             assert set_display_mode("y", repo=str(tmp_path)) == "display:on"
         assert (tmp_path / ".punt-labs" / "lux.md").exists()
@@ -709,7 +685,6 @@ class TestDisplayModeRepoArg:
         assert display_mode(repo=str(tmp_path)) == "display:off"
 
     def test_repo_paths_are_isolated(self, tmp_path: Path) -> None:
-        """Two different repo paths maintain independent display-mode state."""
         repo_a = tmp_path / "a"
         repo_b = tmp_path / "b"
         repo_a.mkdir()
@@ -725,36 +700,22 @@ class TestDisplayModeRepoArg:
             display_mode(repo="relative/path")
 
     def test_repo_must_exist(self, tmp_path: Path) -> None:
-        missing = tmp_path / "does-not-exist"
         with pytest.raises(ValueError, match="does not exist"):
-            display_mode(repo=str(missing))
+            display_mode(repo=str(tmp_path / "does-not-exist"))
 
     def test_repo_must_be_directory(self, tmp_path: Path) -> None:
-        """Passing a file path raises rather than silently failing later
-        with a cryptic 'directory not empty' or 'is a file' error from
-        write_field when it tries to mkdir <file>/.punt-labs."""
         file_path = tmp_path / "regular-file"
         file_path.write_text("not a directory")
         with pytest.raises(ValueError, match="must be a directory"):
             display_mode(repo=str(file_path))
 
     def test_repo_empty_string_raises(self) -> None:
-        """An empty string is almost certainly a caller bug (e.g.,
-        ``repo=os.getenv('PROJECT_ROOT', '')`` with no env var set).
-        Fail loud rather than silently falling back to the lux-r929 path."""
-        with pytest.raises(ValueError, match="must not be empty"):
+        with pytest.raises(ValueError, match="repo is required"):
             display_mode(repo="")
 
-    def test_repo_none_falls_back_to_process_cwd(self) -> None:
-        """When repo is omitted, behavior is the historical process-cwd path
-        (the lux-r929 bug surface). Hooks and CLI rely on this fallback."""
-        cfg = MagicMock()
-        cfg.display = "y"
-        mock_cls = _mock_config_manager_cls(cfg)
-        with patch("punt_lux.tools.tools.ConfigManager", mock_cls):
-            assert display_mode() == "display:on"
-        # No config_path kwarg means the process-cwd resolver runs.
-        mock_cls.assert_called_once_with()
+    def test_repo_is_required(self) -> None:
+        with pytest.raises(TypeError):
+            display_mode()  # type: ignore[call-arg]
 
 
 class TestClearNoAutoSpawn:

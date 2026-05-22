@@ -129,8 +129,8 @@ Agents interact with Lux through **24 MCP tools** exposed by `lux serve`:
 | `register_tool(id, label)` | Register a World menu item routed only to the calling server via `recv()` |
 | `set_theme(theme)` | Switch display theme |
 | **Configuration** | |
-| `display_mode()` | Read current display mode (`y`/`n`) --- advisory signal for consumer plugins |
-| `set_display_mode(mode)` | Set display mode |
+| `display_mode(repo)` | Read current display mode (`y`/`n`) for the caller's project --- pass the absolute project path |
+| `set_display_mode(mode, repo)` | Set display mode for the caller's project --- pass the absolute project path |
 | `set_window_settings(...)` | Configure opacity, font scale, decoration, idle FPS |
 | `set_frame_state(frame_id, ...)` | Minimize or restore a frame |
 | **Introspection** | |

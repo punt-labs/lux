@@ -109,7 +109,7 @@ This model means:
 
 `luxd` is a WebSocket server that costs ~40 MB at idle. It does NOT read `.punt-labs/lux.md` to decide whether to connect to the display. Display mode (`lux y|n`) is a per-repo agent preference enforced by the skill layer on the agent host — `luxd` is user-scoped and cannot read per-repo config (especially in remote mode where the repo is on a different host).
 
-`luxd` connects to `lux-display` lazily: the first `show()` call from any session triggers `ensure_display()`. No eager connect at startup. The `set_display_mode()` MCP tool writes `.punt-labs/lux.md` (for the skill layer to read back) but does not trigger a display connection itself.
+`luxd` connects to `lux-display` lazily: the first `show()` call from any session triggers `ensure_display()`. No eager connect at startup. The `set_display_mode(mode, repo)` MCP tool writes `<repo>/.punt-labs/lux.md` (for the skill layer to read back) but does not trigger a display connection itself; `repo` is required because `luxd` runs under launchd with cwd=`$HOME` (lux-r929).
 
 Why not (a): "`luxd` always runs, `show()` returns silent ack when display=n" means every `show()` call in `n` mode still traverses the full tool path and returns a fake ack that could confuse agents expecting real rendering.
 
@@ -374,10 +374,10 @@ Total time from Claude Code open to first tool call: <200 ms (proxy startup ~10 
 
 **Precondition:** `luxd` is running, connected to proxy. `display=n` in `.punt-labs/lux.md`. No display process.
 
-1. Skill calls `set_display_mode("y")` MCP tool.
+1. Skill calls `set_display_mode(mode="y", repo="<cwd>")` MCP tool.
 2. Proxy forwards to `luxd` via WebSocket.
 3. `luxd`'s `set_display_mode()` handler:
-   a. Writes `display: "y"` to `.punt-labs/lux.md` via `write_field()`.
+   a. Writes `display: "y"` to `<repo>/.punt-labs/lux.md` via `write_field()`.
    b. Returns `"display:on"`.
    c. Does NOT connect to `lux-display` — that happens lazily on first `show()`.
 4. Skill layer reads `display=y` and allows subsequent display tool calls.
@@ -388,9 +388,9 @@ Total time from Claude Code open to first tool call: <200 ms (proxy startup ~10 
 
 **Precondition:** `luxd` is running, connected to `lux-display`. `display=y` in config.
 
-1. Skill calls `set_display_mode("n")` MCP tool.
+1. Skill calls `set_display_mode(mode="n", repo="<cwd>")` MCP tool.
 2. `luxd`'s `set_display_mode()` handler:
-   a. Writes `display: "n"` to `.punt-labs/lux.md` via `write_field()`.
+   a. Writes `display: "n"` to `<repo>/.punt-labs/lux.md` via `write_field()`.
    b. Does NOT disconnect from `lux-display`. The Unix socket connection stays open.
 3. Returns `"display:off"`.
 4. Subsequent `show()` calls still succeed (display connection is live).
