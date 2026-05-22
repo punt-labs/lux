@@ -114,14 +114,10 @@ def abstract(server: DisplayServer) -> AbstractState:
     scene = server._scene_manager._scenes.get(active_id) if active_id else None
     scene_id = scene.id if scene is not None else ""
     elem_ids = (
-        frozenset(e.id for e in scene.elements if e.id is not None)
-        if scene is not None
-        else frozenset()
+        frozenset(e.id for e in scene.elements) if scene is not None else frozenset()
     )
     elem_kinds: dict[str, str] = (
-        {e.id: e.kind for e in scene.elements if e.id is not None}
-        if scene is not None
-        else {}
+        {e.id: e.kind for e in scene.elements} if scene is not None else {}
     )
 
     # Event queue -> set of element IDs with pending interactions

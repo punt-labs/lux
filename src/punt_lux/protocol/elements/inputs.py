@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from punt_lux.protocol.elements.basics import _strip_none
+from punt_lux.protocol.elements._util import strip_none as _strip_none
 from punt_lux.protocol.elements.codec import Register
 
 __all__ = [

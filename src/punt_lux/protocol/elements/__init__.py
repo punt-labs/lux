@@ -27,24 +27,17 @@ from typing import Any
 
 from punt_lux.protocol.elements import layout
 
-# _strip_none is re-exported for protocol.messages.scene; it lives in basics
-# because both basics codecs and the message codecs use it.
-from punt_lux.protocol.elements.basics import (
-    ImageElement,
-    MarkdownElement,
-    ProgressElement,
-    SeparatorElement,
-    SpinnerElement,
-    TextElement,
-    _strip_none as _strip_none,
-    register_codecs as _register_basics,
-)
+# _strip_none is re-exported for protocol.messages.scene; lives in
+# _util because the codec layer above the per-element modules uses it.
+from punt_lux.protocol.elements._util import strip_none as _strip_none
+from punt_lux.protocol.elements.basics import BasicsRegistry
 from punt_lux.protocol.elements.codec import ElementCodec
 from punt_lux.protocol.elements.graphics import (
     DrawElement,
     PlotElement,
     register_codecs as _register_graphics,
 )
+from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.inputs import (
     ButtonElement,
     CheckboxElement,
@@ -66,6 +59,7 @@ from punt_lux.protocol.elements.layout import (
     WindowElement,
     register_codecs as _register_layout,
 )
+from punt_lux.protocol.elements.markdown import MarkdownElement
 
 # _patch_to_dict / _patch_from_dict are re-exported for protocol.messages.scene
 # (used by UpdateMessage codec).
@@ -74,12 +68,16 @@ from punt_lux.protocol.elements.patch import (
     _patch_from_dict as _patch_from_dict,
     _patch_to_dict as _patch_to_dict,
 )
+from punt_lux.protocol.elements.progress import ProgressElement
+from punt_lux.protocol.elements.separator import SeparatorElement
+from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.protocol.elements.table import (
     TableDetail,
     TableElement,
     TableFilter,
     register_codecs as _register_table,
 )
+from punt_lux.protocol.elements.text import TextElement
 
 __all__ = [
     "ButtonElement",
@@ -156,7 +154,7 @@ Element = (
 # isolation construct their own ElementCodec instance directly via the
 # codec sub-module.
 _codec = ElementCodec()
-_register_basics(_codec.register)
+BasicsRegistry().apply(_codec.register)
 _register_inputs(_codec.register)
 _register_layout(_codec.register)
 _register_graphics(_codec.register)
