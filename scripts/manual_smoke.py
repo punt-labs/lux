@@ -1,11 +1,11 @@
-"""Manual smoke test — render every supported element kind across 6 frames.
+"""Manual smoke test — render every supported element kind across 7 frames.
 
 Invoked as:
 
     uv run --extra display python scripts/manual_smoke.py
 
-Requires luxd + lux-display already running.  Sends 6 themed scenes —
-basics, inputs, layout, graphics, table, plot — and prints a
+Requires luxd + lux-display already running.  Sends 7 themed scenes —
+basics, inputs, layout, graphics, table, plot, modal — and prints a
 cross-reference manifest to stdout that names each frame's contents and
 what the operator should look for.  Does NOT call ``clear()`` — items
 stay on screen for visual inspection.
@@ -33,9 +33,9 @@ import io
 import struct
 import sys
 import zlib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Final
+from typing import Final, Self
 
 from PIL import Image, UnidentifiedImageError
 
@@ -82,10 +82,10 @@ class FrameSpec:
     """One frame in the smoke test — the scene plus its manifest entry.
 
     ``elements`` is the source of truth for what's on screen.  ``kinds``
-    is *not* stored — the manifest derives it by walking the elements via
-    :func:`_collect_kinds` so a stale hardcoded tuple can't lie about
-    what the frame actually contains.  ``look_for`` is narrative for the
-    operator and stays hardcoded.
+    is *not* stored — :class:`SmokeRunner` derives it by walking the
+    elements via :func:`_collect_kinds` so a stale hardcoded tuple can't
+    lie about what the frame actually contains.  ``look_for`` is
+    narrative for the operator and stays hardcoded.
     """
 
     frame_id: str
@@ -93,6 +93,30 @@ class FrameSpec:
     elements: list[Element]
     look_for: str
     warn_before_send: str | None = None  # PY-TS-14: absent = no operator warning
+
+
+@dataclass(frozen=True, slots=True)
+class RunResult:
+    """Result of a :meth:`SmokeRunner.run` call.
+
+    ``missed_acks`` are frame ids whose ``client.show()`` returned
+    ``None`` (ack timeout).  ``transport_errors`` are frame ids paired
+    with the exception message that broke the send (broken socket,
+    dead listener, etc.).
+    """
+
+    missed_acks: list[str] = field(default_factory=list)
+    transport_errors: list[tuple[str, str]] = field(default_factory=list)
+
+    @property
+    def exit_code(self) -> int:
+        """Return the 2-bit OR of missed-acks (1) and transport-errors (2)."""
+        code = 0
+        if self.missed_acks:
+            code |= 1
+        if self.transport_errors:
+            code |= 2
+        return code
 
 
 # The 24 known element kinds covered by this smoke test.  Used for the
@@ -126,6 +150,12 @@ _EXPECTED_KINDS: Final = frozenset(
         "window",
     }
 )
+
+
+# ---------------------------------------------------------------------------
+# Element-tree walkers — primitives toolkit, PY-OO-7 exception:
+# stateless, no FrameSpec/SmokeRunner vocabulary.
+# ---------------------------------------------------------------------------
 
 
 def _collect_kinds(elements: list[Element]) -> frozenset[str]:
@@ -172,10 +202,10 @@ def _collect_tree_node_kinds(nodes: list[dict[str, object]]) -> frozenset[str]:
 
 
 # ---------------------------------------------------------------------------
-# Asset generation — a tiny 32x32 PNG, written to .tmp/, so ImageElement has
-# a real file to reference.  We hand-roll the PNG here so the script has no
-# heavy import dependency (Pillow is available under [display], but the asset
-# is so small the bytes are cheaper to emit directly than the dependency).
+# PNG asset generation — primitives toolkit, PY-OO-7 exception:
+# stateless, no FrameSpec/SmokeRunner vocabulary.  We hand-roll a tiny PNG
+# so the script doesn't pull Pillow just to write an asset (Pillow is in
+# the [display] extra and used only for round-trip validation).
 # ---------------------------------------------------------------------------
 
 
@@ -183,7 +213,7 @@ _PNG_SIGNATURE: Final = b"\x89PNG\r\n\x1a\n"
 
 
 def _png_chunk(tag: bytes, payload: bytes) -> bytes:
-    """Build one PNG chunk (length, tag, payload, CRC) — used by _write_png."""
+    """Build one PNG chunk (length, tag, payload, CRC) — used by _make_png."""
     crc = zlib.crc32(tag + payload) & 0xFFFFFFFF
     return struct.pack(">I", len(payload)) + tag + payload + struct.pack(">I", crc)
 
@@ -214,8 +244,7 @@ def _resolve_tmp_dir() -> Path:
     Resolves via ``__file__`` so the path is the same whether the script
     is invoked from the repo root or any other working directory.
     Project invariant: ``.tmp/`` is the only scratch location; no
-    fallback to the system temp directory.  Creates the directory if it
-    doesn't exist.
+    fallback to the system temp directory.
     """
     return Path(__file__).resolve().parent.parent / ".tmp"
 
@@ -257,515 +286,585 @@ def _write_sample_png() -> Path:
 
 
 # ---------------------------------------------------------------------------
-# Frame builders — one function per frame.  Each returns a FrameSpec; the
-# main driver iterates and dispatches them in order.
+# SmokeRunner — owns frame construction, manifest emission, send loop.
 # ---------------------------------------------------------------------------
 
 
-def _build_basics_frame(image_path: Path) -> FrameSpec:
-    """Frame 1 — every static display primitive."""
-    elements: list[Element] = [
-        TextElement(id="basics-heading", content="Basics", style="heading"),
-        TextElement(
-            id="basics-body",
-            content="Static display primitives — text, image, separator, "
-            "progress, spinner, markdown.",
-        ),
-        SeparatorElement(id="basics-sep1"),
-        ImageElement(
-            id="basics-image",
-            path=str(image_path),
-            alt="2-stripe pattern (smoke-test asset)",
-            width=128,
-            height=128,
-        ),
-        ProgressElement(id="basics-progress", fraction=0.42, label="42%"),
-        SpinnerElement(id="basics-spinner", label="loading…", radius=12.0),
-        MarkdownElement(
-            id="basics-md",
-            content=(
-                "## Markdown sample\n\n"
-                "* Bullet one\n"
-                "* Bullet two — **bold** and *italic*\n\n"
-                "Inline `code` and a [link](https://example.com).\n"
-            ),
-        ),
-    ]
-    return FrameSpec(
-        frame_id="smoke-basics",
-        title="Smoke 1 — Basics",
-        elements=elements,
-        look_for=(
-            "heading text, body paragraph, divider, 128px checker image, "
-            "42% progress bar, spinning indicator, rendered markdown with "
-            "bullets and bold/italic"
-        ),
-    )
+class SmokeRunner:
+    """Build the seven smoke-test frames, verify coverage, drive the send loop.
 
-
-def _build_inputs_frame() -> FrameSpec:
-    """Frame 2 — every interactive control."""
-    elements: list[Element] = [
-        TextElement(id="inputs-heading", content="Inputs", style="heading"),
-        ButtonElement(id="inputs-btn", label="Click me", action="clicked"),
-        SliderElement(
-            id="inputs-slider",
-            label="Volume",
-            value=42.0,
-            min=0.0,
-            max=100.0,
-        ),
-        CheckboxElement(id="inputs-check", label="Enable feature", value=True),
-        ComboElement(
-            id="inputs-combo",
-            label="Mode",
-            items=["draft", "review", "published"],
-            selected=1,
-        ),
-        InputTextElement(
-            id="inputs-text",
-            label="Title",
-            value="Hello, Lux",
-            hint="enter a title",
-        ),
-        RadioElement(
-            id="inputs-radio",
-            label="Severity",
-            items=["info", "warn", "error"],
-            selected=0,
-        ),
-        InputNumberElement(
-            id="inputs-number",
-            label="Threshold",
-            value=12.5,
-            min=0.0,
-            max=100.0,
-            step=0.5,
-        ),
-        ColorPickerElement(
-            id="inputs-color",
-            label="Accent",
-            value="#33CCFF",
-            picker=True,
-        ),
-        SelectableElement(
-            id="inputs-select",
-            label="Selectable row",
-            selected=True,
-        ),
-    ]
-    return FrameSpec(
-        frame_id="smoke-inputs",
-        title="Smoke 2 — Inputs",
-        elements=elements,
-        look_for=(
-            "clickable button, draggable slider at 42, checked checkbox, "
-            "combo dropdown defaulting to 'review', text input pre-filled "
-            "with 'Hello, Lux', radio defaulting to 'info', numeric input "
-            "with steppers at 12.5, color picker widget showing #33CCFF, "
-            "highlighted selectable row"
-        ),
-    )
-
-
-def _build_layout_frame() -> FrameSpec:
-    """Frame 3 — containers, with nested children to expose containment."""
-    group_children: list[Element] = [
-        TextElement(id="layout-group-text", content="Children of a rows group"),
-        ButtonElement(id="layout-group-btn", label="Nested button"),
-        CheckboxElement(
-            id="layout-group-check",
-            label="Nested checkbox",
-            value=False,
-        ),
-    ]
-    header_children: list[Element] = [
-        TextElement(
-            id="layout-header-text",
-            content="Hidden inside a collapsing header (default-open).",
-        ),
-        SeparatorElement(id="layout-header-sep"),
-        ProgressElement(id="layout-header-progress", fraction=0.66),
-    ]
-    tab_a_children: list[Element] = [
-        TextElement(id="layout-tab-a-text", content="Content of tab A."),
-        SliderElement(id="layout-tab-a-slider", label="Tab-A slider"),
-    ]
-    tab_b_children: list[Element] = [
-        TextElement(id="layout-tab-b-text", content="Content of tab B."),
-        InputTextElement(id="layout-tab-b-text-input", label="Tab-B input"),
-    ]
-    window_children: list[Element] = [
-        TextElement(
-            id="layout-window-text",
-            content="Children of a movable sub-window.",
-        ),
-        ButtonElement(id="layout-window-btn", label="Floating button"),
-    ]
-    elements: list[Element] = [
-        TextElement(
-            id="layout-heading",
-            content="Layout & Containers",
-            style="heading",
-        ),
-        GroupElement(id="layout-group", layout="rows", children=group_children),
-        CollapsingHeaderElement(
-            id="layout-header",
-            label="Disclosure region",
-            default_open=True,
-            children=header_children,
-        ),
-        TabBarElement(
-            id="layout-tabs",
-            tabs=[
-                {"label": "Tab A", "children": tab_a_children},
-                {"label": "Tab B", "children": tab_b_children},
-            ],
-        ),
-        TreeElement(
-            id="layout-tree",
-            label="Tree root",
-            nodes=[
-                {
-                    "label": "branch-1",
-                    "children": [
-                        {"label": "leaf-1a"},
-                        {"label": "leaf-1b"},
-                    ],
-                },
-                {
-                    "label": "branch-2",
-                    "children": [{"label": "leaf-2a"}],
-                },
-            ],
-        ),
-        WindowElement(
-            id="layout-window",
-            title="Sub-window",
-            x=80.0,
-            y=80.0,
-            width=320.0,
-            height=180.0,
-            children=window_children,
-        ),
-    ]
-    return FrameSpec(
-        frame_id="smoke-layout",
-        title="Smoke 3 — Layout & Containers",
-        elements=elements,
-        look_for=(
-            "rows-group containing nested children, open collapsing header "
-            "with text + separator + progress, tab bar switchable between "
-            "A and B, tree with two branches and three leaves, floating "
-            "sub-window with its own button"
-        ),
-    )
-
-
-def _build_graphics_frame() -> FrameSpec:
-    """Frame 4 — DrawElement exercising every draw-command kind."""
-    red = Color("#FF5555")
-    green = Color("#55FF55")
-    blue = Color("#5599FF")
-    yellow = Color("#FFCC33")
-    white = Color("#FFFFFF")
-    stroke = Thickness(2.0)
-    caption = "draw commands: line, rect, circle, tri, polyline, bezier, text"
-    line = Line(
-        p1=Point2(10, 10),
-        p2=Point2(110, 60),
-        color=red,
-        thickness=stroke,
-    )
-    rect_outline = Rect(
-        min=Point2(130, 10),
-        max=Point2(230, 60),
-        color=green,
-        thickness=stroke,
-    )
-    rect_filled = Rect(
-        min=Point2(250, 10),
-        max=Point2(350, 60),
-        color=blue,
-        filled=True,
-    )
-    circle_outline = Circle(
-        center=Point2(60, 130),
-        radius=Radius(30.0),
-        color=yellow,
-        thickness=stroke,
-    )
-    circle_filled = Circle(
-        center=Point2(180, 130),
-        radius=Radius(30.0),
-        color=red,
-        filled=True,
-    )
-    triangle = Triangle(
-        p1=Point2(270, 100),
-        p2=Point2(330, 100),
-        p3=Point2(300, 160),
-        color=green,
-        filled=True,
-    )
-    polyline = Polyline(
-        points=(
-            Point2(10, 220),
-            Point2(40, 200),
-            Point2(70, 230),
-            Point2(100, 200),
-            Point2(130, 230),
-        ),
-        color=blue,
-        thickness=stroke,
-    )
-    bezier = BezierCubic(
-        p1=Point2(170, 220),
-        p2=Point2(200, 180),
-        p3=Point2(260, 260),
-        p4=Point2(310, 220),
-        color=yellow,
-        thickness=Thickness(2.5),
-    )
-    glyph = TextGlyph(pos=Point2(10, 280), text=caption, color=white)
-    commands = (
-        line,
-        rect_outline,
-        rect_filled,
-        circle_outline,
-        circle_filled,
-        triangle,
-        polyline,
-        bezier,
-        glyph,
-    )
-    elements: list[Element] = [
-        TextElement(
-            id="graphics-heading",
-            content="Graphics — Draw Commands",
-            style="heading",
-        ),
-        DrawElement(
-            id="graphics-canvas",
-            width=400,
-            height=320,
-            bg_color="#202028",
-            commands=commands,
-        ),
-    ]
-    return FrameSpec(
-        frame_id="smoke-graphics",
-        title="Smoke 4 — Graphics",
-        elements=elements,
-        look_for=(
-            "400x320 dark canvas showing all draw-command kinds — red line, "
-            "outlined and filled rects, outlined and filled circles, filled "
-            "green triangle, blue polyline zigzag, gold bezier S-curve, "
-            "caption text along the bottom"
-        ),
-    )
-
-
-def _build_table_frame() -> FrameSpec:
-    """Frame 5 — TableElement with filters and detail panel."""
-    rows: list[list[object]] = [
-        ["lux-001", "open", "P0", "Render every element kind"],
-        ["lux-002", "in_progress", "P1", "Add manual smoke test"],
-        ["lux-003", "closed", "P2", "Document architecture"],
-        ["lux-004", "open", "P1", "Decompose display/server.py"],
-        ["lux-005", "blocked", "P3", "Texture cache eviction"],
-    ]
-    detail_rows: list[list[object]] = [
-        ["lux-001", "P0", "open"],
-        ["lux-002", "P1", "in_progress"],
-        ["lux-003", "P2", "closed"],
-        ["lux-004", "P1", "open"],
-        ["lux-005", "P3", "blocked"],
-    ]
-    detail_body = [
-        "Smoke-test must cover all element kinds across logical frames.",
-        "This script is the deliverable for that bead.",
-        "Architecture is captured in docs/architecture/system.tex.",
-        "server.py and element_renderer.py are still > 1000 lines.",
-        "TextureCache currently has no eviction policy — unbounded growth.",
-    ]
-    table = TableElement(
-        id="table-beads",
-        columns=["ID", "Status", "Priority", "Title"],
-        rows=rows,
-        flags=["borders", "row_bg", "resizable", "sortable", "copy_id"],
-        filters=[
-            TableFilter(
-                type="search",
-                column_spec=3,
-                hint="search titles…",
-                label="Title",
-            ),
-            TableFilter(
-                type="combo",
-                column_spec=1,
-                items=["All", "open", "in_progress", "closed", "blocked"],
-                label="Status",
-            ),
-        ],
-        detail=TableDetail(
-            fields=["ID", "Priority", "Status"],
-            rows=detail_rows,
-            body=detail_body,
-        ),
-    )
-    elements: list[Element] = [
-        TextElement(id="table-heading", content="Table", style="heading"),
-        table,
-    ]
-    return FrameSpec(
-        frame_id="smoke-table",
-        title="Smoke 5 — Table",
-        elements=elements,
-        look_for=(
-            "5-row table with ID/Status/Priority/Title columns, search "
-            "filter on Title, status combo filter ('All', 'open', …), and "
-            "a detail panel that updates when a row is selected"
-        ),
-    )
-
-
-def _build_modal_frame() -> FrameSpec:
-    """Frame 7 — ModalElement opened by default.
-
-    Lives last so it doesn't trap the operator behind a popup while
-    frames 1-6 are still being inspected.  Its containment is exposed
-    via two child elements rendered inside the modal body.
+    Frame builders are methods that share the runner's vocabulary
+    (every one returns a :class:`FrameSpec`).  The previous module-level
+    helpers were a PY-OO-7 smell: a class plus a cluster of free
+    functions all producing instances of the class.  Now each is a
+    method; the runner is the single seam between the test data and
+    the display.
     """
-    modal_children: list[Element] = [
-        TextElement(
-            id="modal-text",
-            content="This modal is open by default — dismiss with Escape or OK.",
-        ),
-        ButtonElement(id="modal-btn", label="OK", action="dismiss"),
-    ]
-    elements: list[Element] = [
-        TextElement(id="modal-heading", content="Modal", style="heading"),
-        TextElement(
-            id="modal-intro",
-            content=(
-                "The modal popup appears over this frame.  Dismiss it to "
-                "interact with the rest of the display."
-            ),
-        ),
-        ModalElement(
-            id="modal-dialog",
-            title="Modal dialog",
-            open=True,
-            children=modal_children,
-        ),
-    ]
-    return FrameSpec(
-        frame_id="smoke-modal",
-        title="Smoke 7 — Modal",
-        elements=elements,
-        look_for=(
-            "popup labelled 'Modal dialog' over the frame, containing text "
-            "and an OK button; dismissing with Escape or OK returns "
-            "interaction to the underlying display"
-        ),
-        warn_before_send=(
-            "Frame 7 opens a modal — dismiss with Escape or click OK "
-            "before inspecting other frames."
-        ),
-    )
 
+    _image_path: Path
+    _frames: list[FrameSpec]
 
-def _build_plot_frame() -> FrameSpec:
-    """Frame 6 — PlotElement with a line and a bar series, labeled axes."""
-    line_x = [float(i) for i in range(11)]
-    line_y = [float(i * i) / 10.0 for i in range(11)]
-    bar_x = [float(i) for i in range(1, 6)]
-    bar_y = [3.0, 7.0, 4.0, 9.0, 5.0]
-    series: list[dict[str, object]] = [
-        {"label": "y = x²/10", "type": "line", "x": line_x, "y": line_y},
-        {"label": "samples", "type": "bar", "x": bar_x, "y": bar_y},
-    ]
-    plot = PlotElement(
-        id="plot-demo",
-        title="Smoke plot",
-        x_label="x (index)",
-        y_label="y (value)",
-        height=320,
-        series=series,
-    )
-    elements: list[Element] = [
-        TextElement(id="plot-heading", content="Plot", style="heading"),
-        plot,
-    ]
-    return FrameSpec(
-        frame_id="smoke-plot",
-        title="Smoke 6 — Plot",
-        elements=elements,
-        look_for=(
-            "labeled chart with x and y axes, a smooth quadratic line "
-            "series ('y = x²/10') and a 5-bar series ('samples') with "
-            "values 3, 7, 4, 9, 5"
-        ),
-    )
+    def __new__(cls, image_path: Path) -> Self:
+        self = super().__new__(cls)
+        self._image_path = image_path
+        self._frames = [
+            self._build_basics(),
+            self._build_inputs(),
+            self._build_layout(),
+            self._build_graphics(),
+            self._build_table(),
+            self._build_plot(),
+            self._build_modal(),
+        ]
+        return self
 
+    # -- public surface ----------------------------------------------------
 
-# ---------------------------------------------------------------------------
-# Manifest emission — the script's contract with the operator.
-# ---------------------------------------------------------------------------
+    @property
+    def frames(self) -> list[FrameSpec]:
+        """Return the seven FrameSpecs in send order (modal last)."""
+        return list(self._frames)
 
+    def verify_coverage(self) -> str | None:
+        """Return an error message if coverage doesn't match expected, else None.
 
-def _print_manifest(frames: list[FrameSpec]) -> None:
-    """Print the cross-reference manifest to stdout.
+        Compares the union of every frame's kinds against
+        :data:`_EXPECTED_KINDS`.  Returning a string instead of raising
+        keeps the caller in charge of exit-code dispatch.
+        """
+        actual = frozenset().union(*(_collect_kinds(f.elements) for f in self._frames))
+        missing = _EXPECTED_KINDS - actual
+        extra = actual - _EXPECTED_KINDS
+        if not missing and not extra:
+            return None
+        return (
+            f"smoke coverage mismatch — expected {len(_EXPECTED_KINDS)} kinds, "
+            f"got {len(actual)} "
+            f"(missing: {sorted(missing)}; extra: {sorted(extra)})"
+        )
 
-    Kinds are derived from each frame's elements via :func:`_collect_kinds`
-    — the manifest is always in sync with what was sent.
-    """
-    print("=" * 72)
-    print("Lux manual smoke test — element coverage manifest")
-    print("=" * 72)
-    print()
-    total_kinds: set[str] = set()
-    for i, spec in enumerate(frames, start=1):
-        frame_kinds = _collect_kinds(spec.elements)
-        total_kinds |= frame_kinds
-        print(f"Frame {i}: {spec.title}")
-        print(f"  frame_id : {spec.frame_id}")
-        print(f"  kinds    : {', '.join(sorted(frame_kinds))}")
-        print(f"  look for : {spec.look_for}")
+    def print_manifest(self) -> None:
+        """Print the cross-reference manifest to stdout.
+
+        Kinds are derived from each frame's elements via
+        :func:`_collect_kinds` — the manifest is always in sync with what
+        was sent.
+        """
+        print("=" * 72)
+        print("Lux manual smoke test — element coverage manifest")
+        print("=" * 72)
         print()
-    print("-" * 72)
-    print(f"Total element kinds covered: {len(total_kinds)}")
-    print(f"  {', '.join(sorted(total_kinds))}")
-    print()
-    print("DrawElement (frame 4) additionally exercises every draw-command kind:")
-    print("  line, rect, circle, triangle, polyline, bezier_cubic, text")
-    print()
-    print("Display has NOT been cleared. Items remain on screen for inspection.")
-    print("=" * 72)
+        total_kinds: set[str] = set()
+        for i, spec in enumerate(self._frames, start=1):
+            frame_kinds = _collect_kinds(spec.elements)
+            total_kinds |= frame_kinds
+            print(f"Frame {i}: {spec.title}")
+            print(f"  frame_id : {spec.frame_id}")
+            print(f"  kinds    : {', '.join(sorted(frame_kinds))}")
+            print(f"  look for : {spec.look_for}")
+            print()
+        print("-" * 72)
+        print(f"Total element kinds covered: {len(total_kinds)}")
+        print(f"  {', '.join(sorted(total_kinds))}")
+        print()
+        print("DrawElement (frame 4) additionally exercises every draw-command kind:")
+        print("  line, rect, circle, triangle, polyline, bezier_cubic, text")
+        print()
+        print("Display has NOT been cleared. Items remain on screen for inspection.")
+        print("=" * 72)
+
+    def run(self, client: DisplayClient) -> RunResult:
+        """Send every frame, return a :class:`RunResult` summary.
+
+        Tries every frame even if earlier ones fail — partial coverage
+        on screen is more useful than a clean abort.  ``warn_before_send``
+        prints to stderr before the corresponding frame is dispatched so
+        the operator knows e.g. a modal is about to take over.
+        """
+        result = RunResult()
+        for spec in self._frames:
+            if spec.warn_before_send is not None:
+                print(spec.warn_before_send, file=sys.stderr)
+            try:
+                ack = client.show(
+                    scene_id=spec.frame_id,
+                    elements=spec.elements,
+                    frame_id=spec.frame_id,
+                    frame_title=spec.title,
+                )
+            except (RuntimeError, OSError) as exc:
+                # Broken socket, dead listener, or any other transport-level
+                # failure from DisplayClient.  Keep trying later frames —
+                # the operator may still get partial coverage.
+                result.transport_errors.append((spec.frame_id, str(exc)))
+                print(
+                    f"transport error for frame {spec.frame_id}: {exc}",
+                    file=sys.stderr,
+                )
+                continue
+            if ack is None:
+                # The display accepted the scene message but no ack returned
+                # within the client's recv_timeout (default 5s).
+                result.missed_acks.append(spec.frame_id)
+                print(
+                    f"Frame {spec.frame_id}: no ack received within 5s "
+                    "(display may be stalled, disconnected, or still "
+                    "processing the previous scene)",
+                    file=sys.stderr,
+                )
+        return result
+
+    # -- frame builders ----------------------------------------------------
+
+    def _build_basics(self) -> FrameSpec:
+        """Frame 1 — every static display primitive."""
+        elements: list[Element] = [
+            TextElement(id="basics-heading", content="Basics", style="heading"),
+            TextElement(
+                id="basics-body",
+                content="Static display primitives — text, image, separator, "
+                "progress, spinner, markdown.",
+            ),
+            SeparatorElement(id="basics-sep1"),
+            ImageElement(
+                id="basics-image",
+                path=str(self._image_path),
+                alt="2-stripe pattern (smoke-test asset)",
+                width=128,
+                height=128,
+            ),
+            ProgressElement(id="basics-progress", fraction=0.42, label="42%"),
+            SpinnerElement(id="basics-spinner", label="loading…", radius=12.0),
+            MarkdownElement(
+                id="basics-md",
+                content=(
+                    "## Markdown sample\n\n"
+                    "* Bullet one\n"
+                    "* Bullet two — **bold** and *italic*\n\n"
+                    "Inline `code` and a [link](https://example.com).\n"
+                ),
+            ),
+        ]
+        return FrameSpec(
+            frame_id="smoke-basics",
+            title="Smoke 1 — Basics",
+            elements=elements,
+            look_for=(
+                "heading text, body paragraph, divider, 128px checker image, "
+                "42% progress bar, spinning indicator, rendered markdown with "
+                "bullets and bold/italic"
+            ),
+        )
+
+    def _build_inputs(self) -> FrameSpec:
+        """Frame 2 — every interactive control."""
+        elements: list[Element] = [
+            TextElement(id="inputs-heading", content="Inputs", style="heading"),
+            ButtonElement(id="inputs-btn", label="Click me", action="clicked"),
+            SliderElement(
+                id="inputs-slider",
+                label="Volume",
+                value=42.0,
+                min=0.0,
+                max=100.0,
+            ),
+            CheckboxElement(id="inputs-check", label="Enable feature", value=True),
+            ComboElement(
+                id="inputs-combo",
+                label="Mode",
+                items=["draft", "review", "published"],
+                selected=1,
+            ),
+            InputTextElement(
+                id="inputs-text",
+                label="Title",
+                value="Hello, Lux",
+                hint="enter a title",
+            ),
+            RadioElement(
+                id="inputs-radio",
+                label="Severity",
+                items=["info", "warn", "error"],
+                selected=0,
+            ),
+            InputNumberElement(
+                id="inputs-number",
+                label="Threshold",
+                value=12.5,
+                min=0.0,
+                max=100.0,
+                step=0.5,
+            ),
+            ColorPickerElement(
+                id="inputs-color",
+                label="Accent",
+                value="#33CCFF",
+                picker=True,
+            ),
+            SelectableElement(
+                id="inputs-select",
+                label="Selectable row",
+                selected=True,
+            ),
+        ]
+        return FrameSpec(
+            frame_id="smoke-inputs",
+            title="Smoke 2 — Inputs",
+            elements=elements,
+            look_for=(
+                "clickable button, draggable slider at 42, checked checkbox, "
+                "combo dropdown defaulting to 'review', text input pre-filled "
+                "with 'Hello, Lux', radio defaulting to 'info', numeric input "
+                "with steppers at 12.5, color picker widget showing #33CCFF, "
+                "highlighted selectable row"
+            ),
+        )
+
+    def _build_layout(self) -> FrameSpec:
+        """Frame 3 — containers, with nested children to expose containment."""
+        group_children: list[Element] = [
+            TextElement(id="layout-group-text", content="Children of a rows group"),
+            ButtonElement(id="layout-group-btn", label="Nested button"),
+            CheckboxElement(
+                id="layout-group-check",
+                label="Nested checkbox",
+                value=False,
+            ),
+        ]
+        header_children: list[Element] = [
+            TextElement(
+                id="layout-header-text",
+                content="Hidden inside a collapsing header (default-open).",
+            ),
+            SeparatorElement(id="layout-header-sep"),
+            ProgressElement(id="layout-header-progress", fraction=0.66),
+        ]
+        tab_a_children: list[Element] = [
+            TextElement(id="layout-tab-a-text", content="Content of tab A."),
+            SliderElement(id="layout-tab-a-slider", label="Tab-A slider"),
+        ]
+        tab_b_children: list[Element] = [
+            TextElement(id="layout-tab-b-text", content="Content of tab B."),
+            InputTextElement(id="layout-tab-b-text-input", label="Tab-B input"),
+        ]
+        window_children: list[Element] = [
+            TextElement(
+                id="layout-window-text",
+                content="Children of a movable sub-window.",
+            ),
+            ButtonElement(id="layout-window-btn", label="Floating button"),
+        ]
+        elements: list[Element] = [
+            TextElement(
+                id="layout-heading",
+                content="Layout & Containers",
+                style="heading",
+            ),
+            GroupElement(id="layout-group", layout="rows", children=group_children),
+            CollapsingHeaderElement(
+                id="layout-header",
+                label="Disclosure region",
+                default_open=True,
+                children=header_children,
+            ),
+            TabBarElement(
+                id="layout-tabs",
+                tabs=[
+                    {"label": "Tab A", "children": tab_a_children},
+                    {"label": "Tab B", "children": tab_b_children},
+                ],
+            ),
+            TreeElement(
+                id="layout-tree",
+                label="Tree root",
+                nodes=[
+                    {
+                        "label": "branch-1",
+                        "children": [
+                            {"label": "leaf-1a"},
+                            {"label": "leaf-1b"},
+                        ],
+                    },
+                    {
+                        "label": "branch-2",
+                        "children": [{"label": "leaf-2a"}],
+                    },
+                ],
+            ),
+            WindowElement(
+                id="layout-window",
+                title="Sub-window",
+                x=80.0,
+                y=80.0,
+                width=320.0,
+                height=180.0,
+                children=window_children,
+            ),
+        ]
+        return FrameSpec(
+            frame_id="smoke-layout",
+            title="Smoke 3 — Layout & Containers",
+            elements=elements,
+            look_for=(
+                "rows-group containing nested children, open collapsing header "
+                "with text + separator + progress, tab bar switchable between "
+                "A and B, tree with two branches and three leaves, floating "
+                "sub-window with its own button"
+            ),
+        )
+
+    def _build_graphics(self) -> FrameSpec:
+        """Frame 4 — DrawElement exercising every draw-command kind."""
+        red = Color("#FF5555")
+        green = Color("#55FF55")
+        blue = Color("#5599FF")
+        yellow = Color("#FFCC33")
+        white = Color("#FFFFFF")
+        stroke = Thickness(2.0)
+        caption = "draw commands: line, rect, circle, tri, polyline, bezier, text"
+        line = Line(
+            p1=Point2(10, 10),
+            p2=Point2(110, 60),
+            color=red,
+            thickness=stroke,
+        )
+        rect_outline = Rect(
+            min=Point2(130, 10),
+            max=Point2(230, 60),
+            color=green,
+            thickness=stroke,
+        )
+        rect_filled = Rect(
+            min=Point2(250, 10),
+            max=Point2(350, 60),
+            color=blue,
+            filled=True,
+        )
+        circle_outline = Circle(
+            center=Point2(60, 130),
+            radius=Radius(30.0),
+            color=yellow,
+            thickness=stroke,
+        )
+        circle_filled = Circle(
+            center=Point2(180, 130),
+            radius=Radius(30.0),
+            color=red,
+            filled=True,
+        )
+        triangle = Triangle(
+            p1=Point2(270, 100),
+            p2=Point2(330, 100),
+            p3=Point2(300, 160),
+            color=green,
+            filled=True,
+        )
+        polyline = Polyline(
+            points=(
+                Point2(10, 220),
+                Point2(40, 200),
+                Point2(70, 230),
+                Point2(100, 200),
+                Point2(130, 230),
+            ),
+            color=blue,
+            thickness=stroke,
+        )
+        bezier = BezierCubic(
+            p1=Point2(170, 220),
+            p2=Point2(200, 180),
+            p3=Point2(260, 260),
+            p4=Point2(310, 220),
+            color=yellow,
+            thickness=Thickness(2.5),
+        )
+        glyph = TextGlyph(pos=Point2(10, 280), text=caption, color=white)
+        commands = (
+            line,
+            rect_outline,
+            rect_filled,
+            circle_outline,
+            circle_filled,
+            triangle,
+            polyline,
+            bezier,
+            glyph,
+        )
+        elements: list[Element] = [
+            TextElement(
+                id="graphics-heading",
+                content="Graphics — Draw Commands",
+                style="heading",
+            ),
+            DrawElement(
+                id="graphics-canvas",
+                width=400,
+                height=320,
+                bg_color="#202028",
+                commands=commands,
+            ),
+        ]
+        return FrameSpec(
+            frame_id="smoke-graphics",
+            title="Smoke 4 — Graphics",
+            elements=elements,
+            look_for=(
+                "400x320 dark canvas showing all draw-command kinds — red line, "
+                "outlined and filled rects, outlined and filled circles, filled "
+                "green triangle, blue polyline zigzag, gold bezier S-curve, "
+                "caption text along the bottom"
+            ),
+        )
+
+    def _build_table(self) -> FrameSpec:
+        """Frame 5 — TableElement with filters and detail panel."""
+        rows: list[list[object]] = [
+            ["lux-001", "open", "P0", "Render every element kind"],
+            ["lux-002", "in_progress", "P1", "Add manual smoke test"],
+            ["lux-003", "closed", "P2", "Document architecture"],
+            ["lux-004", "open", "P1", "Decompose display/server.py"],
+            ["lux-005", "blocked", "P3", "Texture cache eviction"],
+        ]
+        detail_rows: list[list[object]] = [
+            ["lux-001", "P0", "open"],
+            ["lux-002", "P1", "in_progress"],
+            ["lux-003", "P2", "closed"],
+            ["lux-004", "P1", "open"],
+            ["lux-005", "P3", "blocked"],
+        ]
+        detail_body = [
+            "Smoke-test must cover all element kinds across logical frames.",
+            "This script is the deliverable for that bead.",
+            "Architecture is captured in docs/architecture/system.tex.",
+            "server.py and element_renderer.py are still > 1000 lines.",
+            "TextureCache currently has no eviction policy — unbounded growth.",
+        ]
+        table = TableElement(
+            id="table-beads",
+            columns=["ID", "Status", "Priority", "Title"],
+            rows=rows,
+            flags=["borders", "row_bg", "resizable", "sortable", "copy_id"],
+            filters=[
+                TableFilter(
+                    type="search",
+                    column_spec=3,
+                    hint="search titles…",
+                    label="Title",
+                ),
+                TableFilter(
+                    type="combo",
+                    column_spec=1,
+                    items=["All", "open", "in_progress", "closed", "blocked"],
+                    label="Status",
+                ),
+            ],
+            detail=TableDetail(
+                fields=["ID", "Priority", "Status"],
+                rows=detail_rows,
+                body=detail_body,
+            ),
+        )
+        elements: list[Element] = [
+            TextElement(id="table-heading", content="Table", style="heading"),
+            table,
+        ]
+        return FrameSpec(
+            frame_id="smoke-table",
+            title="Smoke 5 — Table",
+            elements=elements,
+            look_for=(
+                "5-row table with ID/Status/Priority/Title columns, search "
+                "filter on Title, status combo filter ('All', 'open', …), and "
+                "a detail panel that updates when a row is selected"
+            ),
+        )
+
+    def _build_plot(self) -> FrameSpec:
+        """Frame 6 — PlotElement with a line and a bar series, labeled axes."""
+        line_x = [float(i) for i in range(11)]
+        line_y = [float(i * i) / 10.0 for i in range(11)]
+        bar_x = [float(i) for i in range(1, 6)]
+        bar_y = [3.0, 7.0, 4.0, 9.0, 5.0]
+        # PY-TS-14: wire boundary — PlotElement.series is dict-typed in the
+        # protocol (each series is a heterogeneous {label, type, x, y} record);
+        # tightening it here would require a per-series dataclass that's a
+        # downstream concern.
+        series: list[dict[str, object]] = [
+            {"label": "y = x²/10", "type": "line", "x": line_x, "y": line_y},
+            {"label": "samples", "type": "bar", "x": bar_x, "y": bar_y},
+        ]
+        plot = PlotElement(
+            id="plot-demo",
+            title="Smoke plot",
+            x_label="x (index)",
+            y_label="y (value)",
+            height=320,
+            series=series,
+        )
+        elements: list[Element] = [
+            TextElement(id="plot-heading", content="Plot", style="heading"),
+            plot,
+        ]
+        return FrameSpec(
+            frame_id="smoke-plot",
+            title="Smoke 6 — Plot",
+            elements=elements,
+            look_for=(
+                "labeled chart with x and y axes, a smooth quadratic line "
+                "series ('y = x²/10') and a 5-bar series ('samples') with "
+                "values 3, 7, 4, 9, 5"
+            ),
+        )
+
+    def _build_modal(self) -> FrameSpec:
+        """Frame 7 — ModalElement opened by default.
+
+        Lives last so it doesn't trap the operator behind a popup while
+        frames 1-6 are still being inspected.  Its containment is exposed
+        via two child elements rendered inside the modal body.
+        """
+        modal_children: list[Element] = [
+            TextElement(
+                id="modal-text",
+                content="This modal is open by default — dismiss with Escape or OK.",
+            ),
+            ButtonElement(id="modal-btn", label="OK", action="dismiss"),
+        ]
+        elements: list[Element] = [
+            TextElement(id="modal-heading", content="Modal", style="heading"),
+            TextElement(
+                id="modal-intro",
+                content=(
+                    "The modal popup appears over this frame.  Dismiss it to "
+                    "interact with the rest of the display."
+                ),
+            ),
+            ModalElement(
+                id="modal-dialog",
+                title="Modal dialog",
+                open=True,
+                children=modal_children,
+            ),
+        ]
+        return FrameSpec(
+            frame_id="smoke-modal",
+            title="Smoke 7 — Modal",
+            elements=elements,
+            look_for=(
+                "popup labelled 'Modal dialog' over the frame, containing text "
+                "and an OK button; dismissing with Escape or OK returns "
+                "interaction to the underlying display"
+            ),
+            warn_before_send=(
+                "Frame 7 opens a modal — dismiss with Escape or click OK "
+                "before inspecting other frames."
+            ),
+        )
 
 
 # ---------------------------------------------------------------------------
 # Main driver.
 # ---------------------------------------------------------------------------
-
-
-def _build_all_frames() -> list[FrameSpec]:
-    """Return every frame in the order they should be sent to the display.
-
-    The modal frame is intentionally last so its popup doesn't paint over
-    frames 1-6 while the operator is still inspecting them.
-    """
-    image_path = _write_sample_png()
-    return [
-        _build_basics_frame(image_path),
-        _build_inputs_frame(),
-        _build_layout_frame(),
-        _build_graphics_frame(),
-        _build_table_frame(),
-        _build_plot_frame(),
-        _build_modal_frame(),
-    ]
 
 
 def main() -> int:
@@ -774,80 +873,34 @@ def main() -> int:
     Sanity-checks that the union of every frame's kinds matches the
     24-kind expected set before contacting the display — a missing kind
     fails loud with a diff before any I/O happens.
-
-    Tries every frame even if earlier ones fail — partial coverage on
-    screen is more useful than a clean abort, and the manifest tells the
-    operator which frames they should be able to see.  ``_print_manifest``
-    runs from a ``finally`` block so the cross-reference is always
-    printed, even when a transport error breaks the loop early.
     """
-    frames = _build_all_frames()
-    actual_kinds = frozenset().union(*(_collect_kinds(f.elements) for f in frames))
-    missing = _EXPECTED_KINDS - actual_kinds
-    extra = actual_kinds - _EXPECTED_KINDS
-    if missing or extra:
-        msg = (
-            f"smoke coverage mismatch — expected {len(_EXPECTED_KINDS)} kinds, "
-            f"got {len(actual_kinds)} "
-            f"(missing: {sorted(missing)}; extra: {sorted(extra)})"
-        )
-        print(msg, file=sys.stderr)
+    image_path = _write_sample_png()
+    runner = SmokeRunner(image_path)
+    coverage_error = runner.verify_coverage()
+    if coverage_error is not None:
+        print(coverage_error, file=sys.stderr)
         return 5
-    missed_acks: list[str] = []
-    transport_errors: list[tuple[str, str]] = []
+    result = RunResult()
     try:
         with DisplayClient(name="manual-smoke") as client:
-            for spec in frames:
-                if spec.warn_before_send is not None:
-                    print(spec.warn_before_send, file=sys.stderr)
-                try:
-                    ack = client.show(
-                        scene_id=spec.frame_id,
-                        elements=spec.elements,
-                        frame_id=spec.frame_id,
-                        frame_title=spec.title,
-                    )
-                except (RuntimeError, OSError) as exc:
-                    # Broken socket, dead listener, or any other transport-level
-                    # failure from DisplayClient.  Keep trying later frames —
-                    # the operator may still get partial coverage.
-                    transport_errors.append((spec.frame_id, str(exc)))
-                    print(
-                        f"transport error for frame {spec.frame_id}: {exc}",
-                        file=sys.stderr,
-                    )
-                    continue
-                if ack is None:
-                    # The display accepted the scene message but no ack returned
-                    # within the client's recv_timeout (default 5s).
-                    missed_acks.append(spec.frame_id)
-                    print(
-                        f"Frame {spec.frame_id}: no ack received within 5s "
-                        "(display may be stalled, disconnected, or still "
-                        "processing the previous scene)",
-                        file=sys.stderr,
-                    )
+            result = runner.run(client)
     finally:
-        _print_manifest(frames)
-    if missed_acks:
+        runner.print_manifest()
+    if result.missed_acks:
         print(
-            f"smoke ack-timeout: {len(missed_acks)} of {len(frames)} frames had no ack "
-            f"({', '.join(missed_acks)})",
+            f"smoke ack-timeout: {len(result.missed_acks)} of "
+            f"{len(runner.frames)} frames had no ack "
+            f"({', '.join(result.missed_acks)})",
             file=sys.stderr,
         )
-    if transport_errors:
-        ids = ", ".join(fid for fid, _ in transport_errors)
+    if result.transport_errors:
+        ids = ", ".join(fid for fid, _ in result.transport_errors)
         print(
-            f"smoke transport-error: {len(transport_errors)} of {len(frames)} "
-            f"frames failed to send ({ids})",
+            f"smoke transport-error: {len(result.transport_errors)} of "
+            f"{len(runner.frames)} frames failed to send ({ids})",
             file=sys.stderr,
         )
-    code = 0
-    if missed_acks:
-        code |= 1
-    if transport_errors:
-        code |= 2
-    return code
+    return result.exit_code
 
 
 if __name__ == "__main__":
