@@ -11,6 +11,14 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
 import numpy as np
 
+from punt_lux.display.renderers import (
+    ImageRenderer,
+    MarkdownRenderer,
+    ProgressRenderer,
+    SeparatorRenderer,
+    SpinnerRenderer,
+    TextRenderer,
+)
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.protocol import (
@@ -51,12 +59,17 @@ class ElementRenderer:
     _emit_event: EmitEventFn
     _current_scene_id: str | None
     _check_dirty_window: DirtyWindowFn
+    # Per-kind renderer classes for the basics family (PR 1).  Other
+    # families still go through ``_RENDERERS`` until their PRs land.
+    _text_renderer: TextRenderer
+    _image_renderer: ImageRenderer
+    _separator_renderer: SeparatorRenderer
+    _progress_renderer: ProgressRenderer
+    _spinner_renderer: SpinnerRenderer
+    _markdown_renderer: MarkdownRenderer
 
     _RENDERERS: ClassVar[dict[str, str]] = {
-        "text": "_render_text",
         "button": "_render_button",
-        "separator": "_render_separator",
-        "image": "_render_image",
         "slider": "_render_slider",
         "checkbox": "_render_checkbox",
         "combo": "_render_combo",
@@ -73,9 +86,6 @@ class ElementRenderer:
         "tree": "_render_tree",
         "table": "_render_table",
         "plot": "_render_plot",
-        "progress": "_render_progress",
-        "spinner": "_render_spinner",
-        "markdown": "_render_markdown",
         "modal": "_render_modal",
     }
 
@@ -96,12 +106,22 @@ class ElementRenderer:
         self._emit_event = emit_event
         self._check_dirty_window = check_dirty_window
         self._current_scene_id = None
+        self._text_renderer = TextRenderer()
+        self._image_renderer = ImageRenderer(texture_cache)
+        self._separator_renderer = SeparatorRenderer()
+        self._progress_renderer = ProgressRenderer()
+        self._spinner_renderer = SpinnerRenderer()
+        self._markdown_renderer = MarkdownRenderer()
         return self
+
+    # Count of basics kinds that have per-kind renderer classes (PR 1):
+    # text, image, separator, progress, spinner, markdown.
+    _BASICS_KIND_COUNT: ClassVar[int] = 6
 
     @property
     def element_kind_count(self) -> int:
         """Return the number of supported element kinds."""
-        return len(self._RENDERERS)
+        return len(self._RENDERERS) + self._BASICS_KIND_COUNT
 
     @property
     def widget_state(self) -> WidgetState:
@@ -125,13 +145,15 @@ class ElementRenderer:
         """Dispatch an element to its kind-specific renderer."""
         from imgui_bundle import imgui
 
-        method_name = self._RENDERERS.get(elem.kind)
-        if method_name is not None:
-            getattr(self, method_name)(elem)
-        else:
-            imgui.text(f"[unsupported element: {elem.kind}]")
+        handled_by_basics = self._dispatch_basics(elem)
+        if not handled_by_basics:
+            method_name = self._RENDERERS.get(elem.kind)
+            if method_name is not None:
+                getattr(self, method_name)(elem)
+            else:
+                imgui.text(f"[unsupported element: {elem.kind}]")
 
-        # Unstyled text with tooltip uses selectable() in _render_text_tooltip
+        # Unstyled text with tooltip uses selectable() in TextRenderer
         # and handles its own tooltip there.  All other elements (including
         # styled text) use this generic tooltip handler.
         is_text_with_inline_tooltip = (
@@ -143,6 +165,38 @@ class ElementRenderer:
             tooltip = getattr(elem, "tooltip", None)
             if tooltip and imgui.is_item_hovered(imgui.HoveredFlags_.for_tooltip.value):
                 imgui.set_tooltip(tooltip)
+
+    def _dispatch_basics(self, elem: Element) -> bool:
+        """Route basics-family kinds to per-kind renderer classes.
+
+        Returns True iff the element belongs to the basics family.
+        """
+        from punt_lux.protocol.elements.image import ImageElement
+        from punt_lux.protocol.elements.markdown import MarkdownElement
+        from punt_lux.protocol.elements.progress import ProgressElement
+        from punt_lux.protocol.elements.separator import SeparatorElement
+        from punt_lux.protocol.elements.spinner import SpinnerElement
+        from punt_lux.protocol.elements.text import TextElement
+
+        if isinstance(elem, TextElement):
+            self._text_renderer.render(elem)
+            return True
+        if isinstance(elem, ImageElement):
+            self._image_renderer.render(elem)
+            return True
+        if isinstance(elem, SeparatorElement):
+            self._separator_renderer.render(elem)
+            return True
+        if isinstance(elem, ProgressElement):
+            self._progress_renderer.render(elem)
+            return True
+        if isinstance(elem, SpinnerElement):
+            self._spinner_renderer.render(elem)
+            return True
+        if isinstance(elem, MarkdownElement):
+            self._markdown_renderer.render(elem)
+            return True
+        return False
 
     # -- color helpers ---------------------------------------------------------
 
@@ -235,82 +289,7 @@ class ElementRenderer:
         )
         return result
 
-    # -- text helpers ----------------------------------------------------------
-
-    @staticmethod
-    def _render_text_tooltip(
-        text_elem: Any,
-        content: str,
-        color: tuple[float, float, float, float] | None,
-    ) -> None:
-        """Render a text element with tooltip via selectable().
-
-        selectable() is hoverable -- imgui.text() is not. Tooltip is
-        handled here (not in the generic render_element handler) to
-        avoid first-item-after-collapsing-header hover detection issues.
-        """
-        from imgui_bundle import ImVec4, imgui
-
-        eid = getattr(text_elem, "id", "t")
-        if color:
-            imgui.push_style_color(imgui.Col_.text.value, ImVec4(*color))
-        try:
-            selected = False
-            imgui.selectable(f"{content}##{eid}", selected)
-        finally:
-            if color:
-                imgui.pop_style_color()
-        if imgui.is_item_hovered(imgui.HoveredFlags_.for_tooltip.value):
-            imgui.set_tooltip(text_elem.tooltip)
-
     # -- individual element renderers ------------------------------------------
-
-    def _render_text(self, elem: Element) -> None:
-        from imgui_bundle import ImVec4, imgui
-
-        text_elem: Any = elem
-        content: str = text_elem.content
-        style: str | None = text_elem.style
-        has_tooltip = bool(getattr(text_elem, "tooltip", None))
-        color_str: str | None = getattr(text_elem, "color", None)
-        color = self._parse_hex_color(color_str) if color_str else None
-
-        # For unstyled text with a tooltip, use selectable() for hover.
-        # Styled text handles tooltips via the generic post-render block.
-        if has_tooltip and not style:
-            self._render_text_tooltip(text_elem, content, color)
-            return
-
-        style_colors: dict[str, tuple[float, float, float, float]] = {
-            "caption": (0.6, 0.6, 0.6, 1.0),
-            "success": (0.2, 0.8, 0.2, 1.0),
-            "error": (0.9, 0.2, 0.2, 1.0),
-        }
-
-        if color:
-            imgui.push_style_color(imgui.Col_.text.value, ImVec4(*color))
-        try:
-            if style == "heading":
-                imgui.separator_text(content)
-            elif style in style_colors:
-                if not color:
-                    imgui.push_style_color(
-                        imgui.Col_.text.value, ImVec4(*style_colors[style])
-                    )
-                try:
-                    imgui.text_wrapped(content)
-                finally:
-                    if not color:
-                        imgui.pop_style_color()
-            elif style == "code":
-                imgui.indent(10.0)
-                imgui.text(content)
-                imgui.unindent(10.0)
-            else:
-                imgui.text_wrapped(content)
-        finally:
-            if color:
-                imgui.pop_style_color()
 
     def _resolve_arrow_dir(self, name: str) -> Any | None:
         from imgui_bundle import imgui
@@ -363,26 +342,6 @@ class ElementRenderer:
 
         if disabled:
             imgui.end_disabled()
-
-    def _render_separator(self, _elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        imgui.separator()
-
-    def _render_image(self, elem: Element) -> None:
-        from imgui_bundle import ImVec2, imgui
-
-        img: Any = elem
-        path: str | None = img.path
-        width: int = img.width if img.width is not None else 200
-        height: int = img.height if img.height is not None else 150
-
-        tex_id = self._texture_cache.get_or_load(path) if path else None
-        if tex_id is not None:
-            imgui.image(imgui.ImTextureRef(tex_id), ImVec2(width, height))
-        else:
-            alt: str = img.alt or path or "(image)"
-            imgui.text(f"[{alt}]")
 
     def _render_slider(self, elem: Element) -> None:
         from imgui_bundle import imgui
@@ -869,67 +828,6 @@ class ElementRenderer:
                         implot.plot_bars(s_label, y_data, 0.67)
 
             implot.end_plot()
-
-    # -- progress, spinner, markdown rendering ---------------------------------
-
-    def _render_progress(self, elem: Element) -> None:
-        from imgui_bundle import ImVec2, imgui
-
-        prog: Any = elem
-        fraction: float = prog.fraction
-        label: str = prog.label
-        overlay = label if label else f"{int(fraction * 100)}%"
-        imgui.progress_bar(fraction, ImVec2(-1, 0), overlay)
-
-    def _render_spinner(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        sp: Any = elem
-        eid: str = sp.id
-        label: str = sp.label
-        radius: float = sp.radius
-        color_hex: str = sp.color
-
-        try:
-            from imgui_bundle import imspinner
-
-            r, g, b, _a = self._parse_color(color_hex)
-            from imgui_bundle import ImVec4
-
-            color = ImVec4(r / 255.0, g / 255.0, b / 255.0, 1.0)
-            im_color = imgui.ImColor(color)
-            imspinner.spinner_ang_triple(
-                f"##spin_{eid}",
-                radius,
-                radius * 0.6,
-                radius * 0.3,
-                2.5,
-                im_color,
-                im_color,
-                im_color,
-            )
-        except ImportError:
-            dots = "." * (int(imgui.get_time() * 3) % 4)
-            imgui.text(f"[loading{dots}]")
-
-        if label:
-            imgui.same_line()
-            imgui.text(label)
-
-    def _render_markdown(self, elem: Element) -> None:
-        md: Any = elem
-        try:
-            from imgui_bundle import imgui, imgui_md
-
-            imgui.push_text_wrap_pos(0.0)
-            try:
-                imgui_md.render_unindented(md.content)
-            finally:
-                imgui.pop_text_wrap_pos()
-        except ImportError:
-            from imgui_bundle import imgui
-
-            imgui.text_unformatted(md.content)
 
     # -- modal rendering -------------------------------------------------------
 
