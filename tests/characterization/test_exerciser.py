@@ -85,3 +85,31 @@ class TestRaisesOnBadSetup:
                     "client": {"query": {"method": "get_theme", "result": {}}},
                 },
             )
+
+    def test_missing_stub_spec_raises(self) -> None:
+        # A scenario that forgets to declare client.show but calls show()
+        # would silently see None ("timeout") on the old contract. With
+        # F4 the stub raises so the missing declaration surfaces.
+        with pytest.raises(ToolCallError, match="stub 'show' called"):
+            ToolExerciser.call(
+                "show",
+                {"scene_id": "s1", "elements": []},
+                {"display_running": True, "client": {}},
+            )
+
+
+class TestToolExceptionPropagates:
+    def test_invalid_mode_raises_value_error_not_tool_call_error(
+        self, tmp_path: object
+    ) -> None:
+        # set_display_mode raises ValueError on bad input. The exerciser
+        # must not wrap that — production code's traceback is what callers
+        # need to see.
+        import pytest as _pytest
+
+        with _pytest.raises(ValueError, match="Invalid mode"):
+            ToolExerciser.call(
+                "set_display_mode",
+                {"mode": "bogus", "repo": str(tmp_path)},  # pyright: ignore[reportUnknownArgumentType]
+                {"display_running": False, "client": {}},
+            )

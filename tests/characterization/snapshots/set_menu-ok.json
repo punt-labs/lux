@@ -24,7 +24,9 @@
   ],
   "response": "ok",
   "setup": {
-    "client": {},
+    "client": {
+      "set_menu": {}
+    },
     "display_running": true
   },
   "tool": "set_menu"

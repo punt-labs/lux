@@ -55,8 +55,8 @@ class Scenario:
 
     def record(self) -> Snapshot:
         """Run the scenario and return the captured :class:`Snapshot`."""
-        setup = _canonical(self.setup)
-        inputs = _canonical(self.inputs)
+        setup = self.canonical(self.setup)
+        inputs = self.canonical(self.inputs)
         response = ToolExerciser.call(self.tool, inputs, setup)
         return Snapshot(
             tool=self.tool,
@@ -68,19 +68,22 @@ class Scenario:
     def path(self, root: Path = SNAPSHOT_DIR) -> Path:
         return root / f"{self.name}.json"
 
+    @staticmethod
+    def canonical(data: Mapping[str, object]) -> dict[str, object]:
+        """Round-trip a mapping through JSON with sorted keys.
 
-def _canonical(data: Mapping[str, object]) -> dict[str, object]:
-    """Round-trip a mapping through JSON with sorted keys.
-
-    The snapshot file stores ``setup`` with ``sort_keys=True``. Replaying
-    means reading that sorted JSON and feeding it back to the tool. The
-    record-time call must see the same key order; otherwise the tool's
-    own ``json.dumps`` of a dict result would print keys in insertion
-    order at record and sorted order at replay — and the responses would
-    diverge for nothing more than dict iteration order.
-    """
-    roundtripped: dict[str, object] = json.loads(json.dumps(dict(data), sort_keys=True))
-    return roundtripped
+        The snapshot file stores ``setup`` with ``sort_keys=True``.
+        Replaying means reading that sorted JSON and feeding it back to
+        the tool. The record-time call must see the same key order;
+        otherwise the tool's own ``json.dumps`` of a dict result would
+        print keys in insertion order at record and sorted order at
+        replay — and the responses would diverge for nothing more than
+        dict iteration order.
+        """
+        roundtripped: dict[str, object] = json.loads(
+            json.dumps(dict(data), sort_keys=True)
+        )
+        return roundtripped
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +161,7 @@ LIFECYCLE_SCENARIOS: tuple[Scenario, ...] = (
         name="clear-running",
         tool="clear",
         inputs={},
-        setup={"display_running": True, "client": {}},
+        setup={"display_running": True, "client": {"clear": {}}},
     ),
     Scenario(
         name="clear-not-running",
@@ -338,7 +341,7 @@ COMPOSITION_SCENARIOS: tuple[Scenario, ...] = (
         inputs={"label": "Run", "tool_id": "run-btn"},
         setup={
             "display_running": True,
-            "client": {},
+            "client": {"register_menu_item": {}},
             "session_key": "corpus-register-basic",
         },
     ),
@@ -353,7 +356,7 @@ COMPOSITION_SCENARIOS: tuple[Scenario, ...] = (
         },
         setup={
             "display_running": True,
-            "client": {},
+            "client": {"register_menu_item": {}},
             "session_key": "corpus-register-shortcut",
         },
     ),
@@ -372,7 +375,7 @@ COMPOSITION_SCENARIOS: tuple[Scenario, ...] = (
                 }
             ]
         },
-        setup={"display_running": True, "client": {}},
+        setup={"display_running": True, "client": {"set_menu": {}}},
     ),
 )
 

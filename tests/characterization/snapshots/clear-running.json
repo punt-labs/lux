@@ -2,7 +2,9 @@
   "inputs": [],
   "response": "cleared",
   "setup": {
-    "client": {},
+    "client": {
+      "clear": {}
+    },
     "display_running": true
   },
   "tool": "clear"

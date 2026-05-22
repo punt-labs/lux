@@ -6,32 +6,34 @@ to decide whether to short-circuit, ``_get_client`` to substitute a fake
 ``DisplayClient`` whose methods return fixed values, and (for tools that
 depend on the wall clock) ``time.time``.
 
-The exerciser raises on any internal failure — a missing stub field, an
-unknown method, or an unexpected exception inside the tool. It never
-returns ``T | None``; the contract is "produce the tool's response or
-raise" (PY-EH-8).
+The exerciser raises ``ToolCallError`` for any failure the corpus can detect
+locally — unknown tool name, malformed ``setup``, a stub method called whose
+spec key the scenario forgot to declare, or a tool that returned something
+other than ``str``. Exceptions raised *inside* the tool function (the
+production code under test) propagate unchanged so the migration PRs see
+the same traceback their users would. The contract is "return the tool's
+response, or surface every error loudly" (PY-EH-8 plus PL-PP-3: no
+defensive try/except smothering production failure modes).
 
 A ``setup`` dict has this shape::
 
     {
         "display_running": bool,                # patches DisplayPaths.is_running
-        "time": float | None,                   # patches time.time when set
-        "session_key": str | None,              # ContextVar override
-        "client": {                             # stub DisplayClient
-            "show":   {"return": "ack:s1"},     # AckMessage(scene_id=...) or None
-            "update": {"return": "ack:s1"},
-            "clear":  {"return": None},
-            "ping":   {"return": {"ts": 1000.0, "display_ts": 1000.005}},
-            "recv":   {"return": None | {...}},
-            "set_menu":            {"return": None},
-            "register_menu_item":  {"return": None},
-            "query":  {"method": "set_theme", "result": {...}, "error": ...},
+        "time": float,                          # patches time.time when set
+        "session_key": str,                     # ContextVar override (optional)
+        "client": {                             # stub DisplayClient method specs
+            "show":   {"return": {...}},        # AckMessage payload or None
+            "update": {"return": {...}},
+            "ping":   {"return": {...}},
+            "recv":   {"return": {...}},
+            "query":  {"method": "...", "result": {...}, "error": "..."},
         },
     }
 
-Every key is optional; whatever the tool does not call goes unconfigured.
-Recording and replay go through the same code path so the corpus is, by
-construction, replayable.
+A scenario only declares the client method specs the tool will actually
+call. The stub raises ``ToolCallError`` when a method is called and its key
+is absent — that's the safety net against "I forgot to stub X" silently
+shaping a wrong-but-stable snapshot.
 """
 
 from __future__ import annotations
@@ -55,14 +57,21 @@ __all__ = ["ToolCallError", "ToolExerciser"]
 
 
 class ToolCallError(RuntimeError):
-    """A tool produced a non-string or otherwise unrepresentable result."""
+    """An exerciser-detected failure: bad setup, unstubbed call, or non-str return."""
 
 
 class _StubClient:
-    """Stand-in for ``DisplayClient`` configured from a snapshot setup."""
+    """Stand-in for ``DisplayClient`` configured from a snapshot setup.
+
+    Methods consult the scenario's ``client`` spec for their return value.
+    A method invoked without a matching spec key raises
+    :class:`ToolCallError` so the missing stub is surfaced loudly instead
+    of returning ``None`` and producing a wrong-but-stable snapshot
+    (per PY-EH-8 and PL-PP-3).
+    """
 
     # PY-TS-14: per-method config shapes are heterogeneous (dicts, literals,
-    # error strings) and are JSON-loaded from snapshot files — typing them
+    # error strings) and JSON-loaded from snapshot files — typing them
     # precisely would require one TypedDict per tool family for no benefit
     # at the test boundary.
     _spec: Mapping[str, Mapping[str, Any]]
@@ -83,10 +92,11 @@ class _StubClient:
         return self._ack_or_none("update")
 
     def clear(self) -> None:
-        return None
+        self._require_spec("clear")
+        return
 
     def ping(self) -> PongMessage | None:
-        cfg = self._spec.get("ping", {})
+        cfg = self._require_spec("ping")
         ret = cfg.get("return")
         if ret is None:
             return None
@@ -94,7 +104,7 @@ class _StubClient:
 
     def recv(self, timeout: float = 1.0) -> InteractionMessage | None:
         del timeout
-        cfg = self._spec.get("recv", {})
+        cfg = self._require_spec("recv")
         ret = cfg.get("return")
         if ret is None:
             return None
@@ -106,26 +116,38 @@ class _StubClient:
         )
 
     def set_menu(self, _menus: object) -> None:
-        return None
+        self._require_spec("set_menu")
+        return
 
     def register_menu_item(self, _item: object) -> None:
-        return None
+        self._require_spec("register_menu_item")
+        return
 
     def declare_menu_item(self, _item: object) -> None:
+        # declare_menu_item is called once during _setup_apps for the Beads
+        # Browser registration; treating it as a no-op without requiring a
+        # spec entry keeps every scenario from needing to declare that one
+        # side effect.
         return None
 
     def on_event(self, *_args: object, **_kwargs: object) -> None:
+        # Same rationale as declare_menu_item — _setup_apps registers an
+        # interaction callback at first call; it is a constant overhead the
+        # corpus does not need to model.
         return None
 
     def query(self, method: str, _params: object = None) -> QueryResponse | None:
-        cfg = self._spec.get("query", {})
+        cfg = self._require_spec("query")
         if cfg.get("method") != method:
             msg = (
                 f"stub query called for {method!r} but setup expected "
                 f"{cfg.get('method')!r}"
             )
             raise ToolCallError(msg)
-        if cfg.get("timeout"):
+        # A scenario that wants a query timeout declares "return": None,
+        # matching the show/update/ping convention. There is no separate
+        # "timeout" key.
+        if "return" in cfg and cfg["return"] is None:
             return None
         return QueryResponse(
             method=method,
@@ -134,11 +156,21 @@ class _StubClient:
         )
 
     def _ack_or_none(self, key: str) -> AckMessage | None:
-        cfg = self._spec.get(key, {})
+        cfg = self._require_spec(key)
         ret = cfg.get("return")
         if ret is None:
             return None
         return AckMessage(scene_id=str(ret["scene_id"]), ts=float(ret["ts"]))
+
+    def _require_spec(self, key: str) -> Mapping[str, Any]:
+        """Return the spec for ``key`` or raise ToolCallError."""
+        if key not in self._spec:
+            msg = (
+                f"stub {key!r} called but setup did not configure it; "
+                "add the entry to the scenario's client spec"
+            )
+            raise ToolCallError(msg)
+        return self._spec[key]
 
 
 class ToolExerciser:
@@ -153,8 +185,12 @@ class ToolExerciser:
     ) -> str:
         """Return the tool's response under ``setup`` and ``inputs``.
 
-        Raises ``ToolCallError`` if the tool name is unknown or its return
-        type is not a string.
+        Raises :class:`ToolCallError` for exerciser-detected problems:
+        unknown tool name, malformed ``setup``, a stub method called
+        without a configured spec entry, or a non-string return from
+        the tool. Exceptions raised *inside* the tool function — the
+        production code being characterised — propagate unchanged so the
+        traceback matches what an agent would observe in production.
         """
         fn = cls._resolve(tool)
         with cls._apply_setup(setup):

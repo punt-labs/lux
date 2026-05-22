@@ -19,7 +19,9 @@
   ],
   "response": "registered:build-btn",
   "setup": {
-    "client": {},
+    "client": {
+      "register_menu_item": {}
+    },
     "display_running": true,
     "session_key": "corpus-register-shortcut"
   },
