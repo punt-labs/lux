@@ -186,6 +186,34 @@ class TestRefinementReceiveScene:
         )
         assert abstract(server) == abs_after
 
+    def test_abstract_filters_anonymous_separator_ids(self):
+        """Copilot CP-8: anonymous separators (id == "") are excluded.
+
+        Prior to the basics PY-OO-2 split, ``SeparatorElement.id`` was
+        ``str | None`` and the abstraction filtered ``e.id is not None``.
+        Post-split, ``id`` defaults to ``""``; without the empty-string
+        filter, multiple anonymous separators collapse to the same
+        empty-string key and the abstraction loses cardinality.  The
+        filter restores the prior "no id => excluded" behaviour.
+        """
+        server = _make_server()
+        sock = _mock_sock()
+        scene = SceneMessage(
+            id="s1",
+            elements=[
+                TextElement(id="t1", content="A"),
+                SeparatorElement(),  # anonymous — id == ""
+                SeparatorElement(),  # anonymous — id == ""
+                SeparatorElement(id="sep-named"),
+            ],
+        )
+        server._handle_message(sock, scene)
+
+        snap = abstract(server)
+        # Only the two named elements survive the empty-id filter.
+        assert snap.elem_ids == frozenset({"t1", "sep-named"})
+        assert snap.elem_kinds == {"t1": "text", "sep-named": "separator"}
+
 
 # ---------------------------------------------------------------------------
 # ClearScene commutativity

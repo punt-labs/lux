@@ -107,6 +107,23 @@ def test_set_property_value_preserves_none() -> None:
     assert restored.value is None
 
 
+def test_set_property_rejects_missing_value_key() -> None:
+    """Copilot CP-6: a payload without the ``value`` key is malformed.
+
+    ``d.get("value")`` previously coalesced this with explicit-null,
+    silently accepting both.  The fix raises on missing key while still
+    accepting explicit ``None`` (verified by the test above).
+    """
+    payload = {
+        "kind": "set_property",
+        "scene_id": "s1",
+        "element_id": "e1",
+        "field": "tooltip",
+    }
+    with pytest.raises(ValueError, match=r"SetProperty missing required field 'value'"):
+        SetProperty.from_dict(payload)
+
+
 def test_remove_element_rejects_missing_scene_id() -> None:
     with pytest.raises(ValueError, match="scene_id"):
         RemoveElement.from_dict({"kind": "remove_element", "element_id": "e1"})

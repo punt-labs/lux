@@ -120,7 +120,13 @@ class SetProperty:
             scene_id=SceneId(fields.require_str("scene_id")),
             element_id=ElementId(fields.require_str("element_id")),
             field=fields.require_str("field"),
-            value=d.get("value"),
+            # Copilot CP-6: ``value`` is a required wire field but its
+            # contents are typed-object (a SetProperty can legitimately
+            # set a nullable field to ``None``).  ``d.get(...)`` can't
+            # distinguish a missing ``value`` key from an explicit null,
+            # so use ``require_present`` which raises on absence and
+            # accepts ``None`` as a valid present value.
+            value=fields.require_present("value"),
         )
 
 
