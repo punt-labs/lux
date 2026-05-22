@@ -46,9 +46,7 @@ class ElementWireContext:
 
     # --- optional-with-default helpers ------------------------------------
 
-    def optional_str(
-        self, d: Mapping[str, object], field: str, *, default: str
-    ) -> str:
+    def optional_str(self, d: Mapping[str, object], field: str, *, default: str) -> str:
         """Return ``d[field]`` as str, ``default`` if absent; raise on wrong type."""
         if field not in d:
             return default
@@ -62,9 +60,7 @@ class ElementWireContext:
             return default
         return self._wire.require_number(d[field], field)
 
-    def optional_int(
-        self, d: Mapping[str, object], field: str
-    ) -> int | None:
+    def optional_int(self, d: Mapping[str, object], field: str) -> int | None:
         """Return ``d[field]`` as int, ``None`` if absent; raise on wrong type."""
         if field not in d:
             return None
@@ -73,9 +69,7 @@ class ElementWireContext:
             raise self._wire.field_error(field, "an int", raw)
         return raw
 
-    def optional_nullable_str(
-        self, d: Mapping[str, object], field: str
-    ) -> str | None:
+    def optional_nullable_str(self, d: Mapping[str, object], field: str) -> str | None:
         """Return ``d[field]`` as str, ``None`` if absent; raise on wrong type."""
         if field not in d:
             return None

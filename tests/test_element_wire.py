@@ -36,9 +36,7 @@ class TestRequireStr:
 
 
 class TestRequireNumber:
-    def test_returns_value_when_present(
-        self, spinner_ctx: ElementWireContext
-    ) -> None:
+    def test_returns_value_when_present(self, spinner_ctx: ElementWireContext) -> None:
         assert spinner_ctx.require_number({"radius": 8.0}, "radius") == 8.0
 
     def test_coerces_int_to_float(self, spinner_ctx: ElementWireContext) -> None:
@@ -66,15 +64,11 @@ class TestOptionalStr:
 
 
 class TestOptionalNumber:
-    def test_returns_default_when_absent(
-        self, spinner_ctx: ElementWireContext
-    ) -> None:
+    def test_returns_default_when_absent(self, spinner_ctx: ElementWireContext) -> None:
         assert spinner_ctx.optional_number({}, "radius", default=16.0) == 16.0
 
     def test_coerces_int_to_float(self, spinner_ctx: ElementWireContext) -> None:
-        assert (
-            spinner_ctx.optional_number({"radius": 8}, "radius", default=16.0) == 8.0
-        )
+        assert spinner_ctx.optional_number({"radius": 8}, "radius", default=16.0) == 8.0
 
     def test_rejects_bool(self, spinner_ctx: ElementWireContext) -> None:
         with pytest.raises(ValueError, match=r"spinner element.*'radius'"):
