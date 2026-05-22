@@ -9,6 +9,19 @@ basics, inputs, layout, graphics, table, plot — and prints a
 cross-reference manifest to stdout that names each frame's contents and
 what the operator should look for.  Does NOT call ``clear()`` — items
 stay on screen for visual inspection.
+
+Exit codes:
+
+* ``0`` — every frame acked
+* ``1`` — at least one frame's ack timed out (no transport error)
+* ``2`` — at least one frame raised a transport error (broken socket,
+  dead listener, etc.)
+* ``3`` — both timeouts AND transport errors
+* ``4`` — PNG asset preparation failed before the display was contacted
+
+The manifest is always printed (via a ``finally`` block) regardless of
+exit code, so the operator can still cross-reference whatever did land
+on screen against what was supposed to land.
 """
 
 from __future__ import annotations
@@ -108,11 +121,26 @@ def _make_png(width: int, height: int) -> bytes:
 
 
 def _write_sample_png() -> Path:
-    """Write a 32x32 PNG to .tmp/ (or a system temp dir) and return its path."""
+    """Write a 32x32 PNG atomically to .tmp/ and return its path.
+
+    Writes to ``<path>.png.tmp`` first then ``os.replace``s into place —
+    a partial PNG file is never visible to a concurrent reader, even if
+    the process dies mid-write.
+
+    Raises ``SystemExit(4)`` on any ``OSError`` (permission denied, no
+    space, etc.) so the failure surfaces to the operator before the
+    display is contacted.
+    """
     repo_tmp = Path.cwd() / ".tmp"
     out_dir = repo_tmp if repo_tmp.is_dir() else Path(tempfile.gettempdir())
     path = out_dir / "lux-manual-smoke-sample.png"
-    path.write_bytes(_make_png(32, 32))
+    tmp = path.with_suffix(".png.tmp")
+    try:
+        tmp.write_bytes(_make_png(32, 32))
+        tmp.replace(path)
+    except OSError as exc:
+        print(f"PNG asset failed at {path}: {exc}", file=sys.stderr)
+        raise SystemExit(4) from exc
     return path
 
 
@@ -617,40 +645,66 @@ def _build_all_frames() -> list[FrameSpec]:
 
 
 def main() -> int:
-    """Send every frame, print the manifest, exit 0 on success.
+    """Send every frame, print the manifest, exit per the docstring table.
 
-    Returns non-zero if any frame's ack times out — the display received
-    the bytes but did not confirm the scene was processed, so the operator
-    cannot trust that the items they expect are actually rendered.
+    Tries every frame even if earlier ones fail — partial coverage on
+    screen is more useful than a clean abort, and the manifest tells the
+    operator which frames they should be able to see.  ``_print_manifest``
+    runs from a ``finally`` block so the cross-reference is always
+    printed, even when a transport error breaks the loop early.
     """
     frames = _build_all_frames()
     missed_acks: list[str] = []
-    with DisplayClient(name="manual-smoke") as client:
-        for spec in frames:
-            ack = client.show(
-                scene_id=spec.frame_id,
-                elements=spec.elements,
-                frame_id=spec.frame_id,
-                frame_title=spec.title,
-            )
-            if ack is None:
-                # The display accepted the scene message but no ack returned
-                # within the client's recv_timeout (default 5s). Surface this
-                # explicitly so the operator doesn't trust a silent success.
-                missed_acks.append(spec.frame_id)
-                print(
-                    f"no ack for frame {spec.frame_id} (display may be stalled)",
-                    file=sys.stderr,
-                )
-    _print_manifest(frames)
+    transport_errors: list[tuple[str, str]] = []
+    try:
+        with DisplayClient(name="manual-smoke") as client:
+            for spec in frames:
+                try:
+                    ack = client.show(
+                        scene_id=spec.frame_id,
+                        elements=spec.elements,
+                        frame_id=spec.frame_id,
+                        frame_title=spec.title,
+                    )
+                except (RuntimeError, OSError) as exc:
+                    # Broken socket, dead listener, or any other transport-level
+                    # failure from DisplayClient.  Keep trying later frames —
+                    # the operator may still get partial coverage.
+                    transport_errors.append((spec.frame_id, str(exc)))
+                    print(
+                        f"transport error for frame {spec.frame_id}: {exc}",
+                        file=sys.stderr,
+                    )
+                    continue
+                if ack is None:
+                    # The display accepted the scene message but no ack returned
+                    # within the client's recv_timeout (default 5s).
+                    missed_acks.append(spec.frame_id)
+                    print(
+                        f"no ack for frame {spec.frame_id} (display may be stalled)",
+                        file=sys.stderr,
+                    )
+    finally:
+        _print_manifest(frames)
     if missed_acks:
         print(
-            f"smoke failed: {len(missed_acks)} of {len(frames)} frames had no ack "
+            f"smoke ack-timeout: {len(missed_acks)} of {len(frames)} frames had no ack "
             f"({', '.join(missed_acks)})",
             file=sys.stderr,
         )
-        return 1
-    return 0
+    if transport_errors:
+        ids = ", ".join(fid for fid, _ in transport_errors)
+        print(
+            f"smoke transport-error: {len(transport_errors)} of {len(frames)} "
+            f"frames failed to send ({ids})",
+            file=sys.stderr,
+        )
+    code = 0
+    if missed_acks:
+        code |= 1
+    if transport_errors:
+        code |= 2
+    return code
 
 
 if __name__ == "__main__":
