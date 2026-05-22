@@ -82,8 +82,9 @@ class TestElementFromDict:
             element_from_dict({"id": "t1", "content": "Hi"})
 
     def test_text_missing_content_raises(self) -> None:
-        # PY-EH-8 / Bug-H: required wire fields raise, no silent default.
-        with pytest.raises(KeyError, match="content"):
+        # PY-EH-8 / Bug-H + SFH-NEW-1: required wire fields raise a typed
+        # ValueError naming the kind and field, no silent default.
+        with pytest.raises(ValueError, match=r"text element.*'content'"):
             element_from_dict({"kind": "text", "id": "t1"})
 
     def test_button_defaults_label_to_empty(self) -> None:
@@ -326,8 +327,9 @@ class TestElementFromDict:
         assert elem.label == "75%"
 
     def test_progress_missing_fraction_raises(self) -> None:
-        # PY-EH-8 / Bug-H: required wire fields raise, no silent default.
-        with pytest.raises(KeyError, match="fraction"):
+        # PY-EH-8 / Bug-H + SFH-NEW-1: required wire fields raise a typed
+        # ValueError naming the kind and field, no silent default.
+        with pytest.raises(ValueError, match=r"progress element.*'fraction'"):
             element_from_dict({"kind": "progress", "id": "pg1"})
 
     def test_progress_label_optional(self) -> None:
@@ -357,8 +359,9 @@ class TestElementFromDict:
         assert elem.content == "**bold**"
 
     def test_markdown_missing_content_raises(self) -> None:
-        # PY-EH-8 / Bug-H: required wire fields raise, no silent default.
-        with pytest.raises(KeyError, match="content"):
+        # PY-EH-8 / Bug-H + SFH-NEW-1: required wire fields raise a typed
+        # ValueError naming the kind and field, no silent default.
+        with pytest.raises(ValueError, match=r"markdown element.*'content'"):
             element_from_dict({"kind": "markdown", "id": "md1"})
 
     def test_tooltip_from_dict(self) -> None:

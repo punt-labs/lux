@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Self
 
+from punt_lux.protocol.elements.draw_wire import WireContext
+
 __all__ = ["MarkdownElement"]
 
 
@@ -27,4 +29,8 @@ class MarkdownElement:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> Self:
-        return cls(id=d["id"], content=d["content"])
+        ctx = WireContext.for_element("markdown")
+        return cls(
+            id=ctx.require_string(ctx.require_field(d, "id"), "id"),
+            content=ctx.require_string(ctx.require_field(d, "content"), "content"),
+        )

@@ -114,3 +114,90 @@ class TestRequireSequence:
     def test_rejects_int(self, ctx: WireContext) -> None:
         with pytest.raises(ValueError, match="list or tuple"):
             ctx.require_sequence(1, "f")
+
+
+class TestForElementFactory:
+    def test_prefix_is_kind_plus_element(self) -> None:
+        assert WireContext.for_element("progress").prefix == "progress element"
+
+
+class TestOptionalString:
+    @pytest.fixture
+    def elem_ctx(self) -> WireContext:
+        return WireContext.for_element("text")
+
+    def test_returns_default_when_absent(self, elem_ctx: WireContext) -> None:
+        assert elem_ctx.optional_string({}, "label", default="x") == "x"
+
+    def test_returns_value_when_present(self, elem_ctx: WireContext) -> None:
+        assert elem_ctx.optional_string({"label": "hi"}, "label", default="x") == "hi"
+
+    def test_rejects_non_string(self, elem_ctx: WireContext) -> None:
+        with pytest.raises(ValueError, match=r"text element.*'label'"):
+            elem_ctx.optional_string({"label": 42}, "label", default="x")
+
+
+class TestOptionalNumber:
+    @pytest.fixture
+    def elem_ctx(self) -> WireContext:
+        return WireContext.for_element("spinner")
+
+    def test_returns_default_when_absent(self, elem_ctx: WireContext) -> None:
+        assert elem_ctx.optional_number({}, "radius", default=16.0) == 16.0
+
+    def test_coerces_int_to_float(self, elem_ctx: WireContext) -> None:
+        assert elem_ctx.optional_number({"radius": 8}, "radius", default=16.0) == 8.0
+
+    def test_returns_float_when_present(self, elem_ctx: WireContext) -> None:
+        assert elem_ctx.optional_number({"radius": 4.5}, "radius", default=16.0) == 4.5
+
+    def test_rejects_bool(self, elem_ctx: WireContext) -> None:
+        with pytest.raises(ValueError, match=r"spinner element.*'radius'"):
+            elem_ctx.optional_number({"radius": True}, "radius", default=1.0)
+
+    def test_rejects_string(self, elem_ctx: WireContext) -> None:
+        with pytest.raises(ValueError, match=r"spinner element.*'radius'"):
+            elem_ctx.optional_number({"radius": "big"}, "radius", default=1.0)
+
+
+class TestOptionalInt:
+    @pytest.fixture
+    def elem_ctx(self) -> WireContext:
+        return WireContext.for_element("image")
+
+    def test_returns_none_default_when_absent(self, elem_ctx: WireContext) -> None:
+        assert elem_ctx.optional_int({}, "width") is None
+
+    def test_returns_int_when_present(self, elem_ctx: WireContext) -> None:
+        assert elem_ctx.optional_int({"width": 100}, "width") == 100
+
+    def test_rejects_bool(self, elem_ctx: WireContext) -> None:
+        with pytest.raises(ValueError, match=r"image element.*'width'"):
+            elem_ctx.optional_int({"width": True}, "width")
+
+    def test_rejects_float(self, elem_ctx: WireContext) -> None:
+        with pytest.raises(ValueError, match=r"image element.*'width'"):
+            elem_ctx.optional_int({"width": 1.5}, "width")
+
+    def test_rejects_string(self, elem_ctx: WireContext) -> None:
+        with pytest.raises(ValueError, match=r"image element.*'width'"):
+            elem_ctx.optional_int({"width": "100"}, "width")
+
+
+class TestOptionalNullableString:
+    @pytest.fixture
+    def elem_ctx(self) -> WireContext:
+        return WireContext.for_element("text")
+
+    def test_returns_none_when_absent(self, elem_ctx: WireContext) -> None:
+        assert elem_ctx.optional_nullable_string({}, "style") is None
+
+    def test_returns_value_when_present(self, elem_ctx: WireContext) -> None:
+        assert (
+            elem_ctx.optional_nullable_string({"style": "heading"}, "style")
+            == "heading"
+        )
+
+    def test_rejects_non_string(self, elem_ctx: WireContext) -> None:
+        with pytest.raises(ValueError, match=r"text element.*'style'"):
+            elem_ctx.optional_nullable_string({"style": 5}, "style")

@@ -264,6 +264,89 @@ def test_scene_manager_has_no_basics_branches() -> None:
     assert not kind_hits, f"scene/manager.py references basics kinds: {kind_hits}"
 
 
+# -- SFH-NEW-1: wire-boundary type checks on basics from_dict --------------
+
+
+def test_progress_rejects_non_numeric_fraction() -> None:
+    """PY-EH-1: a wrong-typed fraction raises ValueError, not silent build."""
+    import pytest
+
+    with pytest.raises(ValueError, match=r"progress element.*'fraction'"):
+        ProgressElement.from_dict({"id": "p1", "fraction": "not a float"})
+
+
+def test_progress_rejects_bool_fraction() -> None:
+    """PY-EH-1: bool is rejected (bool is-a int — easy to slip through)."""
+    import pytest
+
+    with pytest.raises(ValueError, match=r"progress element.*'fraction'"):
+        ProgressElement.from_dict({"id": "p1", "fraction": True})
+
+
+def test_progress_rejects_non_string_label() -> None:
+    """PY-EH-1: optional fields are type-checked when present."""
+    import pytest
+
+    with pytest.raises(ValueError, match=r"progress element.*'label'"):
+        ProgressElement.from_dict({"id": "p1", "fraction": 0.5, "label": 42})
+
+
+def test_spinner_rejects_non_numeric_radius() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match=r"spinner element.*'radius'"):
+        SpinnerElement.from_dict({"id": "sp1", "radius": "big"})
+
+
+def test_spinner_rejects_non_string_color() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match=r"spinner element.*'color'"):
+        SpinnerElement.from_dict({"id": "sp1", "color": 0xFF})
+
+
+def test_text_rejects_non_string_style() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match=r"text element.*'style'"):
+        TextElement.from_dict({"id": "t1", "content": "x", "style": 5})
+
+
+def test_text_rejects_non_string_id() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match=r"text element.*'id'"):
+        TextElement.from_dict({"id": 7, "content": "x"})
+
+
+def test_separator_rejects_non_string_id() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match=r"separator element.*'id'"):
+        SeparatorElement.from_dict({"id": 99})
+
+
+def test_image_rejects_non_int_width() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match=r"image element.*'width'"):
+        ImageElement.from_dict({"id": "i1", "path": "/a.png", "width": "100"})
+
+
+def test_image_rejects_non_string_path() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match=r"image element.*'path'"):
+        ImageElement.from_dict({"id": "i1", "path": 7})
+
+
+def test_markdown_rejects_non_string_content() -> None:
+    import pytest
+
+    with pytest.raises(ValueError, match=r"markdown element.*'content'"):
+        MarkdownElement.from_dict({"id": "md1", "content": 42})
+
+
 def test_basics_codec_helpers_are_gone_from_every_per_kind_module() -> None:
     """PL-PP-1 + PY-OO-7: no module-level `_to_dict_*` / `_from_dict_*` survives.
 

@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Literal, Self
 
+from punt_lux.protocol.elements.draw_wire import WireContext
+
 __all__ = ["SeparatorElement"]
 
 
@@ -31,4 +33,7 @@ class SeparatorElement:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> Self:
-        return cls(id=d.get("id", ""))
+        ctx = WireContext.for_element("separator")
+        # PY-TS-14 OK: "" is the documented "anonymous separator" value
+        # (see class docstring). Present-but-non-str raises (PY-EH-1).
+        return cls(id=ctx.optional_string(d, "id", default=""))
