@@ -85,9 +85,10 @@ every PR is gated automatically.
 **How the corpus is built**:
 
 - `snapshot.py` — frozen dataclass `Snapshot(tool, inputs, setup, response)`
-  with `from_file` / `to_file` / `matches` / `diff`. Single-line responses
-  diff cleanly; the `<TS>` and `<PID>` tokens (documented in the module
-  docstring) absorb non-essential variation if a future scenario needs them.
+  with `from_file` / `to_file` / `matches` / `diff` / `describe_mismatch`.
+  Comparison is strict string equality; single-line responses diff cleanly.
+  `REPO_ROOT_TOKEN` (the literal `<REPO_ROOT>`) stands in for the project
+  root in inputs so the corpus is portable across checkouts.
 - `exerciser.py` — `ToolExerciser.call(tool, inputs, setup)` invokes a tool
   under a stub configuration that patches `DisplayPaths.is_running` and
   both `_get_client` lookups (`tools.tools._get_client` *and*
