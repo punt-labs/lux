@@ -1,7 +1,15 @@
 # OO Refactoring Resume
 
-**As of:** PR #178 (2026-05-21)
-**Prior:** through PR #165 (2026-05-16)
+**As of:** PR #182 (2026-05-22)
+**Prior:** through PR #178 (2026-05-21), PR #165 (2026-05-16)
+
+> **Active plan:** `migration-plan.md` is the executable source of truth for
+> the path to the `domain-model.md` target. Method B-amended was selected
+> after architect review (3/3 reject Method C, 3/3 iterate Method A, 2/3
+> approve B). The architectural target itself is **not under review** — see
+> `DESIGN.md` DES-031 for the grounding decision. This resume file remains
+> the snapshot of current state and ratchet scores; the plan file is the
+> sequence of work.
 
 ## Goal
 
