@@ -1,0 +1,21 @@
+{
+  "inputs": [
+    [
+      "theme",
+      "darcula"
+    ]
+  ],
+  "response": "theme:darcula",
+  "setup": {
+    "client": {
+      "query": {
+        "method": "set_theme",
+        "result": {
+          "theme": "darcula"
+        }
+      }
+    },
+    "display_running": true
+  },
+  "tool": "set_theme"
+}

@@ -682,8 +682,99 @@ INTROSPECTION_SCENARIOS: tuple[Scenario, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Control scenarios — the set_* tools that mutate display state. Each
+# snapshot pins the response shape (not the rendered output, which is
+# verified manually); set_menu lives with the composition family because
+# it composes menu trees.
+# ---------------------------------------------------------------------------
+
+
+CONTROL_SCENARIOS: tuple[Scenario, ...] = (
+    Scenario(
+        name="set_window_settings-ok",
+        tool="set_window_settings",
+        inputs={"opacity": 0.9, "font_scale": 1.25, "fps_idle": 30},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {
+                    "method": "set_window_settings",
+                    "result": {
+                        "opacity": 0.9,
+                        "font_scale": 1.25,
+                        "fps_idle": 30.0,
+                        "decorated": True,
+                    },
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="set_window_settings-no-params",
+        tool="set_window_settings",
+        inputs={},
+        setup={"display_running": True, "client": {}},
+    ),
+    Scenario(
+        name="set_window_settings-not-running",
+        tool="set_window_settings",
+        inputs={"opacity": 0.5},
+        setup={"display_running": False},
+    ),
+    Scenario(
+        name="set_frame_state-minimize",
+        tool="set_frame_state",
+        inputs={"frame_id": "f1", "minimized": True},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {
+                    "method": "set_frame_state",
+                    "result": {"frame_id": "f1", "minimized": True},
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="set_frame_state-expand",
+        tool="set_frame_state",
+        inputs={"frame_id": "f1", "minimized": False},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {
+                    "method": "set_frame_state",
+                    "result": {"frame_id": "f1", "minimized": False},
+                }
+            },
+        },
+    ),
+    Scenario(
+        name="set_theme-ok",
+        tool="set_theme",
+        inputs={"theme": "darcula"},
+        setup={
+            "display_running": True,
+            "client": {
+                "query": {"method": "set_theme", "result": {"theme": "darcula"}}
+            },
+        },
+    ),
+    Scenario(
+        name="set_theme-not-running",
+        tool="set_theme",
+        inputs={"theme": "darcula"},
+        setup={"display_running": False},
+    ),
+)
+
+
 SCENARIOS: tuple[Scenario, ...] = (
-    LIFECYCLE_SCENARIOS + COMPOSITION_SCENARIOS + INTROSPECTION_SCENARIOS
+    LIFECYCLE_SCENARIOS
+    + COMPOSITION_SCENARIOS
+    + INTROSPECTION_SCENARIOS
+    + CONTROL_SCENARIOS
 )
 
 
