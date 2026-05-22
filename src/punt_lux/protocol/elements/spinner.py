@@ -35,9 +35,8 @@ class SpinnerElement:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> Self:
+        # PY-TS-14 OK: label/radius/color have semantic defaults; PY-EH-1.
         ctx = ElementWireContext.for_kind("spinner")
-        # PY-TS-14 OK: label="" => "no label"; radius=16.0 => default size;
-        # color="#3399FF" => brand default. PY-EH-1: each is type-checked.
         return cls(
             id=ctx.require_str(d, "id"),
             label=ctx.optional_str(d, "label", default=""),

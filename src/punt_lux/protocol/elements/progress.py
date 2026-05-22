@@ -33,9 +33,8 @@ class ProgressElement:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> Self:
+        # PY-EH-1 + PY-TS-14 OK: fraction required; label="" => "no label".
         ctx = ElementWireContext.for_kind("progress")
-        # PY-EH-1: fraction is required + type-checked.  PY-TS-14 OK:
-        # label is genuinely optional UI text; absence => "no label".
         return cls(
             id=ctx.require_str(d, "id"),
             fraction=ctx.require_number(d, "fraction"),

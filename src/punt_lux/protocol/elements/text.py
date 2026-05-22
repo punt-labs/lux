@@ -36,9 +36,8 @@ class TextElement:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> Self:
+        # PY-TS-14 OK: style/color absent => renderer default. PY-EH-1.
         ctx = ElementWireContext.for_kind("text")
-        # PY-TS-14 OK: style/color absent => renderer default; present-but-non-str
-        # raises (PY-EH-1 wire-boundary check).
         return cls(
             id=ctx.require_str(d, "id"),
             content=ctx.require_str(d, "content"),

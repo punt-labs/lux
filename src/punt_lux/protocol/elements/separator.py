@@ -33,7 +33,6 @@ class SeparatorElement:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> Self:
-        # PY-TS-14 OK: "" is the documented "anonymous separator" value
-        # (see class docstring). Present-but-non-str raises (PY-EH-1).
+        # PY-TS-14 OK: "" is "anonymous separator" (see class docstring); PY-EH-1.
         ctx = ElementWireContext.for_kind("separator")
         return cls(id=ctx.optional_str(d, "id", default=""))

@@ -43,9 +43,7 @@ class ImageElement:
 
     @classmethod
     def from_dict(cls, d: Mapping[str, Any]) -> Self:
-        # PY-TS-14 OK: path/data/format/alt absent => None (renderer infers);
-        # width/height absent => natural pixel size.  PY-EH-1: each is
-        # type-checked.  path/data invariant is enforced by __post_init__.
+        # PY-TS-14 OK: every optional => None (renderer infers). PY-EH-1.
         ctx = ElementWireContext.for_kind("image")
         return cls(
             id=ctx.require_str(d, "id"),
