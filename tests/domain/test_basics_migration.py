@@ -221,11 +221,12 @@ def test_basics_module_holds_only_registration() -> None:
 def test_scene_manager_has_no_basics_branches() -> None:
     """Step 8 verification: scene/manager.py never references basics kinds.
 
-    SceneManager already operates on the SceneMessage / Element union
-    without per-kind branches for basics — the existing dispatch handles
-    every kind uniformly via getattr.  This test pins the absence so
-    future refactors do not accidentally reintroduce a basics-specific
-    branch in the SceneManager path.
+    SceneManager operates on the SceneMessage / Element union without
+    per-kind branches for basics.  The guard checks three AST shapes:
+    Name / Attribute references to the wire classes themselves AND
+    Constant string nodes carrying the wire ``kind`` discriminators
+    (e.g. ``elem.kind == "text"``).  All three forms would reintroduce
+    a basics-specific branch in the SceneManager path.
     """
     import ast
     from pathlib import Path
@@ -234,7 +235,7 @@ def test_scene_manager_has_no_basics_branches() -> None:
 
     source = (Path(scene.__file__).parent / "manager.py").read_text()
     tree = ast.parse(source)
-    forbidden = {
+    forbidden_classes = {
         "TextElement",
         "ImageElement",
         "SeparatorElement",
@@ -242,11 +243,25 @@ def test_scene_manager_has_no_basics_branches() -> None:
         "SpinnerElement",
         "MarkdownElement",
     }
-    referenced = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)} | {
-        node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
+    forbidden_kinds = {
+        "text",
+        "image",
+        "separator",
+        "progress",
+        "spinner",
+        "markdown",
     }
-    intersection = forbidden & referenced
-    assert not intersection, f"scene/manager.py references basics kinds: {intersection}"
+    names = {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)}
+    attrs = {node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)}
+    constants = {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    }
+    class_hits = forbidden_classes & (names | attrs)
+    kind_hits = forbidden_kinds & constants
+    assert not class_hits, f"scene/manager.py references basics classes: {class_hits}"
+    assert not kind_hits, f"scene/manager.py references basics kinds: {kind_hits}"
 
 
 def test_basics_codec_helpers_are_gone_from_every_per_kind_module() -> None:
