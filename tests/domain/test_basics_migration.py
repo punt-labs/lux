@@ -347,6 +347,30 @@ def test_markdown_rejects_non_string_content() -> None:
         MarkdownElement.from_dict({"id": "md1", "content": 42})
 
 
+def test_element_from_dict_accepts_null_tooltip() -> None:
+    """Copilot CP-5: ``{"tooltip": null}`` is equivalent to omitting the field."""
+    payload = {"kind": "text", "id": "t1", "content": "hi", "tooltip": None}
+    elem = element_from_dict(payload)
+    assert isinstance(elem, TextElement)
+    assert elem.tooltip is None
+
+
+def test_element_from_dict_accepts_string_tooltip() -> None:
+    payload = {"kind": "text", "id": "t1", "content": "hi", "tooltip": "hover me"}
+    elem = element_from_dict(payload)
+    assert isinstance(elem, TextElement)
+    assert elem.tooltip == "hover me"
+
+
+def test_element_from_dict_rejects_non_string_tooltip() -> None:
+    """Copilot CP-5: non-str tooltips raise at the boundary (PY-EH-1)."""
+    import pytest
+
+    payload = {"kind": "text", "id": "t1", "content": "hi", "tooltip": 42}
+    with pytest.raises(ValueError, match=r"text element.*'tooltip'"):
+        element_from_dict(payload)
+
+
 def test_basics_codec_helpers_are_gone_from_every_per_kind_module() -> None:
     """PL-PP-1 + PY-OO-7: no module-level `_to_dict_*` / `_from_dict_*` survives.
 

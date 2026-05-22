@@ -32,6 +32,7 @@ from punt_lux.protocol.elements import layout
 from punt_lux.protocol.elements._util import strip_none as _strip_none
 from punt_lux.protocol.elements.basics import BasicsRegistry
 from punt_lux.protocol.elements.codec import ElementCodec
+from punt_lux.protocol.elements.element_wire import ElementWireContext
 from punt_lux.protocol.elements.graphics import (
     DrawElement,
     PlotElement,
@@ -180,7 +181,15 @@ def element_to_dict(elem: Element) -> dict[str, Any]:
 def element_from_dict(d: dict[str, Any]) -> Element:
     """Deserialize a dict to the appropriate Element dataclass."""
     elem = _codec.from_dict(d)
-    tooltip = d.get("tooltip")
+    # Copilot CP-5: validate tooltip at the boundary (PY-EH-1).  The
+    # codec returns each Element with its declared tooltip default
+    # (``None``); the cross-element tooltip read here previously trusted
+    # whatever value the wire carried and forwarded non-str into
+    # renderers via ``dataclasses.replace``.  Route the read through
+    # ``ElementWireContext.optional_nullable_str`` so explicit null is
+    # tolerated and any other non-str raises a typed ``ValueError``.
+    tooltip_ctx = ElementWireContext.for_kind(elem.kind)
+    tooltip = tooltip_ctx.optional_nullable_str(d, "tooltip")
     if tooltip is not None:
         # Every Element subtype declares ``tooltip: str | None`` — the
         # Protocol guarantee makes ``replace(elem, tooltip=...)`` safe.

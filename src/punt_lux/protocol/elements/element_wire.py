@@ -2,8 +2,8 @@
 
 Sibling of ``WireContext`` (draw-command decoding).  Carries the element
 kind in its prefix (``{kind} element``) and adds the four optional helpers
-the basics codecs need: ``optional_string``, ``optional_number``,
-``optional_int``, ``optional_nullable_string``.  Required-field validation
+the basics codecs need: ``optional_str``, ``optional_number``,
+``optional_int``, ``optional_nullable_str``.  Required-field validation
 delegates to the wrapped ``WireContext``.
 
 The split exists because draw-command decoding and element decoding have
@@ -61,16 +61,31 @@ class ElementWireContext:
         return self._wire.require_number(d[field], field)
 
     def optional_int(self, d: Mapping[str, object], field: str) -> int | None:
-        """Return ``d[field]`` as int, ``None`` if absent; raise on wrong type."""
+        """Return ``d[field]`` as int, ``None`` if absent or explicitly null.
+
+        Copilot CP-4: a wire payload that carries ``{"width": null}`` is
+        treated the same as one that omits ``width`` — both yield
+        ``None``.  Only present, non-None, non-int values raise.
+        """
         if field not in d:
             return None
         raw = d[field]
+        if raw is None:
+            return None
         if isinstance(raw, bool) or not isinstance(raw, int):
             raise self._wire.field_error(field, "an int", raw)
         return raw
 
     def optional_nullable_str(self, d: Mapping[str, object], field: str) -> str | None:
-        """Return ``d[field]`` as str, ``None`` if absent; raise on wrong type."""
+        """Return ``d[field]`` as str, ``None`` if absent or explicitly null.
+
+        Copilot CP-3: a wire payload that carries ``{"style": null}`` is
+        treated the same as one that omits ``style`` — both yield
+        ``None``.  Only present, non-None, non-str values raise.
+        """
         if field not in d:
             return None
-        return self._wire.require_string(d[field], field)
+        raw = d[field]
+        if raw is None:
+            return None
+        return self._wire.require_string(raw, field)

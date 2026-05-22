@@ -86,6 +86,12 @@ class TestOptionalInt:
     def test_returns_int_when_present(self, image_ctx: ElementWireContext) -> None:
         assert image_ctx.optional_int({"width": 100}, "width") == 100
 
+    def test_returns_none_when_explicit_null(
+        self, image_ctx: ElementWireContext
+    ) -> None:
+        """Copilot CP-4: explicit JSON null is the same as absent."""
+        assert image_ctx.optional_int({"width": None}, "width") is None
+
     def test_rejects_bool(self, image_ctx: ElementWireContext) -> None:
         with pytest.raises(ValueError, match=r"image element.*'width'"):
             image_ctx.optional_int({"width": True}, "width")
@@ -107,6 +113,12 @@ class TestOptionalNullableStr:
         assert (
             text_ctx.optional_nullable_str({"style": "heading"}, "style") == "heading"
         )
+
+    def test_returns_none_when_explicit_null(
+        self, text_ctx: ElementWireContext
+    ) -> None:
+        """Copilot CP-3: explicit JSON null is the same as absent."""
+        assert text_ctx.optional_nullable_str({"style": None}, "style") is None
 
     def test_rejects_non_string(self, text_ctx: ElementWireContext) -> None:
         with pytest.raises(ValueError, match=r"text element.*'style'"):
