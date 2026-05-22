@@ -380,8 +380,15 @@ class SmokeRunner:
         on screen is more useful than a clean abort.  ``warn_before_send``
         prints to stderr before the corresponding frame is dispatched so
         the operator knows e.g. a modal is about to take over.
+
+        Accumulates failures into local lists and constructs the
+        ``RunResult`` once at the end.  Mutating ``frozen=True``
+        instance fields (even mutable lists) breaks the frozen
+        contract — callers see a dataclass whose lists are still being
+        populated under the rug.
         """
-        result = RunResult()
+        missed_acks: list[str] = []
+        transport_errors: list[tuple[str, str]] = []
         for spec in self._frames:
             if spec.warn_before_send is not None:
                 print(spec.warn_before_send, file=sys.stderr)
@@ -396,7 +403,7 @@ class SmokeRunner:
                 # Broken socket, dead listener, or any other transport-level
                 # failure from DisplayClient.  Keep trying later frames —
                 # the operator may still get partial coverage.
-                result.transport_errors.append((spec.frame_id, str(exc)))
+                transport_errors.append((spec.frame_id, str(exc)))
                 print(
                     f"transport error for frame {spec.frame_id}: {exc}",
                     file=sys.stderr,
@@ -405,14 +412,17 @@ class SmokeRunner:
             if ack is None:
                 # The display accepted the scene message but no ack returned
                 # within the client's recv_timeout (default 5s).
-                result.missed_acks.append(spec.frame_id)
+                missed_acks.append(spec.frame_id)
                 print(
                     f"Frame {spec.frame_id}: no ack received within 5s "
                     "(display may be stalled, disconnected, or still "
                     "processing the previous scene)",
                     file=sys.stderr,
                 )
-        return result
+        return RunResult(
+            missed_acks=missed_acks,
+            transport_errors=transport_errors,
+        )
 
     # -- frame builders ----------------------------------------------------
 
