@@ -38,6 +38,12 @@ from punt_lux.protocol.elements.draw_commands_shape import (
 )
 from punt_lux.protocol.elements.draw_commands_text import TextGlyph
 from punt_lux.protocol.elements.graphics import DrawElement
+from punt_lux.protocol.elements.image import ImageElement
+from punt_lux.protocol.elements.markdown import MarkdownElement
+from punt_lux.protocol.elements.progress import ProgressElement
+from punt_lux.protocol.elements.separator import SeparatorElement
+from punt_lux.protocol.elements.spinner import SpinnerElement
+from punt_lux.protocol.elements.text import TextElement
 from punt_lux.scene import WidgetState
 
 if TYPE_CHECKING:
@@ -114,14 +120,22 @@ class ElementRenderer:
         self._markdown_renderer = MarkdownRenderer()
         return self
 
-    # Count of basics kinds that have per-kind renderer classes (PR 1):
-    # text, image, separator, progress, spinner, markdown.
-    _BASICS_KIND_COUNT: ClassVar[int] = 6
+    # Basics dispatch table: (element type, renderer-attribute name).  Single
+    # source of truth for both _dispatch_basics and element_kind_count — adding
+    # a basics kind here updates both call sites at once.
+    _BASICS_DISPATCH: ClassVar[tuple[tuple[type, str], ...]] = (
+        (TextElement, "_text_renderer"),
+        (ImageElement, "_image_renderer"),
+        (SeparatorElement, "_separator_renderer"),
+        (ProgressElement, "_progress_renderer"),
+        (SpinnerElement, "_spinner_renderer"),
+        (MarkdownElement, "_markdown_renderer"),
+    )
 
     @property
     def element_kind_count(self) -> int:
         """Return the number of supported element kinds."""
-        return len(self._RENDERERS) + self._BASICS_KIND_COUNT
+        return len(self._RENDERERS) + len(self._BASICS_DISPATCH)
 
     @property
     def widget_state(self) -> WidgetState:
@@ -171,31 +185,10 @@ class ElementRenderer:
 
         Returns True iff the element belongs to the basics family.
         """
-        from punt_lux.protocol.elements.image import ImageElement
-        from punt_lux.protocol.elements.markdown import MarkdownElement
-        from punt_lux.protocol.elements.progress import ProgressElement
-        from punt_lux.protocol.elements.separator import SeparatorElement
-        from punt_lux.protocol.elements.spinner import SpinnerElement
-        from punt_lux.protocol.elements.text import TextElement
-
-        if isinstance(elem, TextElement):
-            self._text_renderer.render(elem)
-            return True
-        if isinstance(elem, ImageElement):
-            self._image_renderer.render(elem)
-            return True
-        if isinstance(elem, SeparatorElement):
-            self._separator_renderer.render(elem)
-            return True
-        if isinstance(elem, ProgressElement):
-            self._progress_renderer.render(elem)
-            return True
-        if isinstance(elem, SpinnerElement):
-            self._spinner_renderer.render(elem)
-            return True
-        if isinstance(elem, MarkdownElement):
-            self._markdown_renderer.render(elem)
-            return True
+        for element_type, renderer_attr in self._BASICS_DISPATCH:
+            if isinstance(elem, element_type):
+                getattr(self, renderer_attr).render(elem)
+                return True
         return False
 
     # -- color helpers ---------------------------------------------------------
