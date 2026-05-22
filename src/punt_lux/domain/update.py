@@ -34,15 +34,6 @@ __all__ = [
 type ElementDecoder = Callable[[Mapping[str, object]], Element]
 
 
-# PY-OO-7 exception #3: these are wire-decode primitives — stateless
-# utilities that take a Mapping + field name and produce a typed value.
-# They orbit no class in the module (the AddElement/RemoveElement/SetProperty
-# classes accept already-narrowed types in their fields); the helpers
-# operate at the parser layer above the dataclass surface.  Inlining the
-# 6 call sites across three classmethods would be more duplication than
-# this small toolkit warrants.
-
-
 def _require_str(d: Mapping[str, object], field: str) -> str:
     """Return ``d[field]`` as a non-empty str or raise."""
     raw = d.get(field)
