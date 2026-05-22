@@ -1,11 +1,8 @@
 """Hex colour parsers — return ``None`` on bad input with a warning.
 
-Float-returning callers must skip the colour push when this returns
-``None`` so ImGui's theme default renders.  An always-opaque-white
-fallback regressed text rendering: invalid hex turned every label
-white instead of preserving the theme.  PY-TS-14 OK on the ``| None``
-return — absence is the documented contract: "could not parse, caller
-must use theme default."
+PY-TS-14 OK on ``| None``: absence is the documented contract; callers
+guard the colour push so ImGui's theme default renders on malformed
+input.  Always-opaque-white fallback regressed text rendering.
 """
 
 from __future__ import annotations
@@ -20,13 +17,7 @@ _WHITE_RGBA: tuple[int, int, int, int] = (255, 255, 255, 255)
 
 
 def _channels(hex_str: str) -> tuple[int, int, int, int] | None:
-    """Return (r, g, b, a) 0..255 or None on malformed input; log on failure.
-
-    PY-TS-14 OK: the ``| None`` is the documented absence contract — the
-    function's job is "parse hex into 0..255 channels"; ``None`` signals
-    "no valid parse" so callers can choose their own fallback (opaque
-    white for ints, theme default for floats).
-    """
+    """Return ``(r, g, b, a)`` 0..255 or ``None`` on malformed input; log on failure."""
     s = hex_str.lstrip("#")
     try:
         if len(s) == 6:
@@ -41,14 +32,7 @@ def _channels(hex_str: str) -> tuple[int, int, int, int] | None:
 
 
 def parse_hex_color(hex_str: str) -> tuple[float, float, float, float] | None:
-    """Parse ``"#RRGGBB"`` / ``"#RRGGBBAA"`` to floats 0..1, or ``None`` if invalid.
-
-    PY-TS-14 OK on ``| None``: absence is the documented contract.
-    Callers must guard the push — ``if color is not None: push_style_color(...)``
-    — so ImGui's theme default renders on malformed input.  Returning
-    opaque white here would silently override every styled colour the
-    theme provides.
-    """
+    """Parse ``"#RRGGBB"`` / ``"#RRGGBBAA"`` to floats 0..1, or ``None`` if invalid."""
     rgba = _channels(hex_str)
     if rgba is None:
         return None
