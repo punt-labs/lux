@@ -2,8 +2,10 @@
 
 The ``DisplayHelpers`` class groups them so the module passes PY-OO-7
 (method_ratio + class_to_func_ratio) — every helper is a static method on
-a real class, not a free function next to a domain class.  The class is
-stateless and a single shared instance is the usage pattern.
+a real class, not a free function next to a domain class.  Call sites
+invoke the helpers as ``DisplayHelpers.field_info(...)`` /
+``DisplayHelpers.update_target_id(...)`` — the class is a static
+namespace and is never instantiated.
 """
 
 from __future__ import annotations

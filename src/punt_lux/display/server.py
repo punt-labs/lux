@@ -1341,6 +1341,12 @@ class DisplayServer:
             self._widget_state = ws
             self._table_renderer.widget_state = ws
             self._element_renderer.widget_state = ws
+        # Bugbot HIGH (PR #187): _emit_event stamps scene_id from
+        # ``self._current_scene_id`` for any InteractionMessage whose scene_id
+        # is None — without this assignment, clicks inside framed scenes
+        # carried whatever ``_render_scene_tab`` last set (stale or None),
+        # so ``DomainPump.route_interaction`` silently dropped them.
+        self._current_scene_id = scene_id
         self._element_renderer.current_scene_id = scene_id
         scene = frame.scenes[scene_id]
         for elem in scene.elements:

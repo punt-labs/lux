@@ -183,14 +183,19 @@ def _warn_on_error(
     element_id: ElementId,
     op: str,
 ) -> None:
-    """Log a domain Display.apply failure with full context."""
+    """Log a domain Display refusal with full context.
+
+    Used for both ``Display.apply(...)`` (add / remove / set) and
+    ``Display.interact(...)`` (button click).  The ``op`` parameter names
+    the operation so the warning stays accurate as new variants land.
+    """
     # The Event type alias isn't isinstance-checkable; spell the concretes.
     if isinstance(
         result, ElementAdded | ElementRemoved | ElementUpdated | ButtonPressed
     ):
         return
     _log.warning(
-        "domain Display.apply refused %s(scene=%s, element=%s): %s — %r",
+        "domain Display refused %s(scene=%s, element=%s): %s — %r",
         op,
         scene_id,
         element_id,
