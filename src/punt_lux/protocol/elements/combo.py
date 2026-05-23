@@ -22,6 +22,10 @@ class ComboElement:
     selected: int = 0
     tooltip: str | None = None
 
+    def widget_value(self) -> Any:
+        """Return the selected index SceneManager mirrors into WidgetState."""
+        return self.selected
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "kind": self.kind,

@@ -25,6 +25,10 @@ class SliderElement:
     integer: bool = False
     tooltip: str | None = None
 
+    def widget_value(self) -> Any:
+        """Return the value SceneManager mirrors into WidgetState after a patch."""
+        return self.value
+
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
             "kind": self.kind,

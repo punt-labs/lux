@@ -179,7 +179,15 @@ def test_route_interaction_silently_skips_unknown_scene(pump: DomainPump) -> Non
     assert observed == []
 
 
-def test_route_interaction_silently_skips_unknown_element(pump: DomainPump) -> None:
+def test_route_interaction_warns_on_unknown_element_in_known_scene(
+    pump: DomainPump, caplog: pytest.LogCaptureFixture
+) -> None:
+    """SFH M1: unknown element in a tracked scene is a divergence signal.
+
+    Wire saw an element the domain forgot, OR renderer fired against a
+    stale id.  Either case is exactly what the parallel Display is meant
+    to detect; suppressing the warning loses that signal.
+    """
     scene = SceneMessage(id="s1", elements=[ButtonElement(id="b1", label="OK")])
     pump.route(scene)
 
@@ -193,8 +201,40 @@ def test_route_interaction_silently_skips_unknown_element(pump: DomainPump) -> N
         value=True,
         scene_id="s1",
     )
-    pump.route_interaction(msg)
+    with caplog.at_level("WARNING", logger="punt_lux.display.domain_pump"):
+        pump.route_interaction(msg)
     assert observed == []
+    assert any(
+        "unknown element" in r.getMessage() and "ghost" in r.getMessage()
+        for r in caplog.records
+    ), f"expected unknown-element warning; got {[r.getMessage() for r in caplog.records]}"
+
+
+def test_route_interaction_warns_on_non_truthy_button_value(
+    pump: DomainPump, caplog: pytest.LogCaptureFixture
+) -> None:
+    """SFH M2: a button InteractionMessage with non-truthy value is a renderer-bug signature."""
+    scene = SceneMessage(id="s1", elements=[ButtonElement(id="b1", label="OK")])
+    pump.route(scene)
+
+    observed: list[Event] = []
+    pump._display.subscribe(observed.append)
+
+    msg = InteractionMessage(
+        element_id="b1",
+        action="b1",
+        ts=1.0,
+        value=False,  # phantom click — renderer bug
+        scene_id="s1",
+    )
+    with caplog.at_level("WARNING", logger="punt_lux.display.domain_pump"):
+        pump.route_interaction(msg)
+    # The click still routes (treating as click anyway) — observe the event AND the warning.
+    assert len(observed) == 1
+    assert isinstance(observed[0], ButtonPressed)
+    assert any(
+        "not truthy" in r.getMessage() for r in caplog.records
+    ), f"expected truthy-warning; got {[r.getMessage() for r in caplog.records]}"
 
 
 def test_route_interaction_skips_message_without_scene_id(pump: DomainPump) -> None:

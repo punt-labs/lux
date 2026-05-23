@@ -21,6 +21,10 @@ class SelectableElement:
     selected: bool = False
     tooltip: str | None = None
 
+    def widget_value(self) -> Any:
+        """Return the selected bool SceneManager mirrors into WidgetState."""
+        return self.selected
+
     def to_dict(self) -> dict[str, Any]:
         d: dict[str, Any] = {
             "kind": self.kind,

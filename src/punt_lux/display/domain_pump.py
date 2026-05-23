@@ -126,7 +126,9 @@ class DomainPump:
         click.  The element id identifies the target.  Scenes that don't
         live in the domain Display (mixed-scene case) are skipped silently:
         ``Display.interact`` would return ``UnknownElementError`` and the
-        warning would be noise rather than signal.
+        warning would be noise rather than signal.  An element id missing
+        from a scene the domain DOES track is the opposite — a divergence
+        signal worth logging (SFH M1).
 
         Messages from non-button sources (slider, checkbox, …) are skipped
         here pending their own Interaction variants in later PRs.
@@ -140,6 +142,11 @@ class DomainPump:
             return
         element_id = ElementId(msg.element_id)
         if element_id not in snap.element_ids:
+            _log.warning(
+                "interaction targets unknown element scene=%s element=%s",
+                scene_id,
+                element_id,
+            )
             return
         if not self._is_button_click(msg, snap.element(element_id)):
             return
@@ -147,21 +154,26 @@ class DomainPump:
             self._client_id,
             ButtonClicked(scene_id=scene_id, element_id=element_id),
         )
-        _warn_on_error(
-            result, scene_id=scene_id, element_id=element_id, op="interact"
-        )
+        _warn_on_error(result, scene_id=scene_id, element_id=element_id, op="interact")
 
     @staticmethod
     def _is_button_click(msg: InteractionMessage, elem: DomainElement) -> bool:
         """Return True if the wire ``InteractionMessage`` describes a button click.
 
         Resolution is by element kind: every InteractionMessage referencing
-        a ``button`` element is a click.  ``msg`` is reserved for future
-        per-input dispatch (slider drag, combo change) when subsequent PRs
-        add their Interaction variants.
+        a ``button`` element is a click.  ButtonRenderer's wire-side emit
+        sets ``value=True`` on click; a non-truthy value reaching this point
+        is a renderer-bug signature worth logging (SFH M2).  ``msg`` becomes
+        a real discriminator when slider/combo Interaction variants ship.
         """
-        _ = msg
-        return elem.kind == "button"
+        if elem.kind != "button":
+            return False
+        if not msg.value:
+            _log.warning(
+                "button interaction value=%r is not truthy; treating as click anyway",
+                msg.value,
+            )
+        return True
 
 
 def _warn_on_error(

@@ -310,4 +310,3 @@ class Display:
                 owning_client_id=owner,
             )
         return None
-
