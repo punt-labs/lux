@@ -23,12 +23,15 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self
 
 from PIL import Image
 
+from punt_lux.display.domain_pump import DomainPump
 from punt_lux.display.element_renderer import ElementRenderer
 from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.macos import hide_from_dock_and_cmd_tab
 from punt_lux.display.menu_manager import MenuManager
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
+from punt_lux.domain.display import Display
+from punt_lux.domain.ids import ClientId
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
@@ -58,9 +61,27 @@ from punt_lux.protocol import (
     UnknownMessage,
     UpdateMessage,
 )
+from punt_lux.protocol.elements.image import ImageElement
+from punt_lux.protocol.elements.markdown import MarkdownElement
+from punt_lux.protocol.elements.progress import ProgressElement
+from punt_lux.protocol.elements.separator import SeparatorElement
+from punt_lux.protocol.elements.spinner import SpinnerElement
+from punt_lux.protocol.elements.text import TextElement
 from punt_lux.query_dispatcher import QueryDispatcher
 from punt_lux.scene import Frame, SceneManager, WidgetState
 from punt_lux.socket_server import SocketServer
+
+# Element kinds in the basics family — routed through Display.apply
+# alongside SceneManager during PR 1.  Mixed scenes (containing other
+# kinds) still go exclusively through SceneManager.
+_BASICS_KINDS: tuple[type, ...] = (
+    TextElement,
+    ImageElement,
+    SeparatorElement,
+    ProgressElement,
+    SpinnerElement,
+    MarkdownElement,
+)
 
 if TYPE_CHECKING:
     from punt_lux.protocol import Message
@@ -79,6 +100,9 @@ class DisplayServer:
     _socket_path: Path
     _socket_server: SocketServer
     _scene_manager: SceneManager
+    _domain_display: Display
+    _domain_client_id: ClientId
+    _domain_pump: DomainPump
     _event_queue: list[InteractionMessage]
     _textures: TextureCache
     _table_renderer: TableRenderer
@@ -110,6 +134,17 @@ class DisplayServer:
         self._display_paths = paths
         self._scene_manager = SceneManager(
             on_scene_replaced=self._drain_stale_events,
+        )
+        # Parallel domain Display (PR 1): basics-only scenes are also
+        # routed through Display.apply so the new infrastructure has a
+        # real production caller (PY-RF-2).  Renderer reads from
+        # SceneManager during PR 1; later PRs route rendering through
+        # Display.snapshot.  ``_domain_client_id`` is the synthetic
+        # client that owns every wire-decoded element on this hub.
+        self._domain_display = Display()
+        self._domain_client_id = self._domain_display.connect_client(name="display-hub")
+        self._domain_pump = DomainPump(
+            self._domain_display, self._domain_client_id, _BASICS_KINDS
         )
         self._themes = []
         self._decorated = True
@@ -778,6 +813,7 @@ class DisplayServer:
         except OSError:
             return
         self._scene_manager.handle_scene(msg, fd)
+        self._route_to_domain_display(msg)
         ack = AckMessage(scene_id=msg.id, ts=time.time())
         self._socket_server.send_to_client(sock, ack)
         if self._test_auto_click:
@@ -790,10 +826,15 @@ class DisplayServer:
         except OSError:
             return
         self._scene_manager.handle_framed_scene(msg, fd)
+        self._route_to_domain_display(msg)
         ack = AckMessage(scene_id=msg.id, ts=time.time())
         self._socket_server.send_to_client(sock, ack)
         if self._test_auto_click:
             self._auto_click_buttons(msg)
+
+    def _route_to_domain_display(self, msg: SceneMessage) -> None:
+        """Mirror basics-only scenes through Display.apply (PR 1 dual-write)."""
+        self._domain_pump.route(msg)
 
     def _auto_click_buttons(self, msg: SceneMessage) -> None:
         """Enqueue synthetic interactions for testable elements (test mode)."""

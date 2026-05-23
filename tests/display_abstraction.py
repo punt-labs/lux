@@ -113,15 +113,20 @@ def abstract(server: DisplayServer) -> AbstractState:
     active_id = server._scene_manager._active_tab
     scene = server._scene_manager._scenes.get(active_id) if active_id else None
     scene_id = scene.id if scene is not None else ""
+    # Copilot CP-8: filter out empty-string ids.  ``SeparatorElement.id``
+    # defaults to ``""`` for anonymous separators (post-PY-OO-2 split:
+    # the prior wire shape was ``str | None`` and was filtered by
+    # ``e.id is not None``).  Without this filter, multiple anonymous
+    # separators all collapse to the same empty-string key in
+    # ``elem_ids`` / ``elem_kinds``, diverging from the spec's
+    # "every element has a distinct id or no id" model.
     elem_ids = (
-        frozenset(e.id for e in scene.elements if e.id is not None)
+        frozenset(e.id for e in scene.elements if e.id)
         if scene is not None
         else frozenset()
     )
     elem_kinds: dict[str, str] = (
-        {e.id: e.kind for e in scene.elements if e.id is not None}
-        if scene is not None
-        else {}
+        {e.id: e.kind for e in scene.elements if e.id} if scene is not None else {}
     )
 
     # Event queue -> set of element IDs with pending interactions

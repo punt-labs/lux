@@ -27,24 +27,18 @@ from typing import Any
 
 from punt_lux.protocol.elements import layout
 
-# _strip_none is re-exported for protocol.messages.scene; it lives in basics
-# because both basics codecs and the message codecs use it.
-from punt_lux.protocol.elements.basics import (
-    ImageElement,
-    MarkdownElement,
-    ProgressElement,
-    SeparatorElement,
-    SpinnerElement,
-    TextElement,
-    _strip_none as _strip_none,
-    register_codecs as _register_basics,
-)
+# _strip_none is re-exported for protocol.messages.scene; lives in
+# _util because the codec layer above the per-element modules uses it.
+from punt_lux.protocol.elements._util import strip_none as _strip_none
+from punt_lux.protocol.elements.basics import BasicsRegistry
 from punt_lux.protocol.elements.codec import ElementCodec
+from punt_lux.protocol.elements.element_wire import ElementWireContext
 from punt_lux.protocol.elements.graphics import (
     DrawElement,
     PlotElement,
     register_codecs as _register_graphics,
 )
+from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.inputs import (
     ButtonElement,
     CheckboxElement,
@@ -66,6 +60,7 @@ from punt_lux.protocol.elements.layout import (
     WindowElement,
     register_codecs as _register_layout,
 )
+from punt_lux.protocol.elements.markdown import MarkdownElement
 
 # _patch_to_dict / _patch_from_dict are re-exported for protocol.messages.scene
 # (used by UpdateMessage codec).
@@ -74,12 +69,16 @@ from punt_lux.protocol.elements.patch import (
     _patch_from_dict as _patch_from_dict,
     _patch_to_dict as _patch_to_dict,
 )
+from punt_lux.protocol.elements.progress import ProgressElement
+from punt_lux.protocol.elements.separator import SeparatorElement
+from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.protocol.elements.table import (
     TableDetail,
     TableElement,
     TableFilter,
     register_codecs as _register_table,
 )
+from punt_lux.protocol.elements.text import TextElement
 
 __all__ = [
     "ButtonElement",
@@ -156,7 +155,7 @@ Element = (
 # isolation construct their own ElementCodec instance directly via the
 # codec sub-module.
 _codec = ElementCodec()
-_register_basics(_codec.register)
+BasicsRegistry().apply(_codec.register)
 _register_inputs(_codec.register)
 _register_layout(_codec.register)
 _register_graphics(_codec.register)
@@ -166,9 +165,11 @@ _register_table(_codec.register)
 def _element_to_dict(elem: Element) -> dict[str, Any]:
     """Serialize an Element dataclass to a JSON-compatible dict."""
     result = _codec.to_dict(elem)
-    tooltip = getattr(elem, "tooltip", None)
-    if tooltip is not None:
-        result["tooltip"] = tooltip
+    # ``tooltip`` is part of the Element Protocol — every conforming class
+    # has it, so we read the attribute directly instead of via ``getattr``
+    # (PY-TS-10: no ``hasattr``-equivalent dispatch).
+    if elem.tooltip is not None:
+        result["tooltip"] = elem.tooltip
     return result
 
 
@@ -178,16 +179,20 @@ def element_to_dict(elem: Element) -> dict[str, Any]:
 
 
 def element_from_dict(d: dict[str, Any]) -> Element:
-    """Deserialize a dict to the appropriate Element dataclass.
-
-    Accepts dicts matching this module's element schema or as supplied by
-    MCP tool callers.  Missing ``content``/``label`` keys default to ``""``.
-    """
+    """Deserialize a dict to the appropriate Element dataclass."""
     elem = _codec.from_dict(d)
-    tooltip = d.get("tooltip")
+    # Copilot CP-5: validate tooltip at the boundary (PY-EH-1).  The
+    # codec returns each Element with its declared tooltip default
+    # (``None``); the cross-element tooltip read here previously trusted
+    # whatever value the wire carried and forwarded non-str into
+    # renderers via ``dataclasses.replace``.  Route the read through
+    # ``ElementWireContext.optional_nullable_str`` so explicit null is
+    # tolerated and any other non-str raises a typed ``ValueError``.
+    tooltip_ctx = ElementWireContext.for_kind(elem.kind)
+    tooltip = tooltip_ctx.optional_nullable_str(d, "tooltip")
     if tooltip is not None:
-        # Invariant: every Element subtype declares tooltip: str | None = None.
-        # New element types must include this field or element_from_dict will raise.
+        # Every Element subtype declares ``tooltip: str | None`` — the
+        # Protocol guarantee makes ``replace(elem, tooltip=...)`` safe.
         elem = replace(elem, tooltip=tooltip)
     return elem
 
