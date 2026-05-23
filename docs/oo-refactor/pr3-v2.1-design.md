@@ -116,19 +116,16 @@ class ImGuiRendererFactory:
             case _: raise ValueError(f"no imgui renderer for {type(elem).__name__}")
 ```
 
-Per-kind renderers receive the factory itself (not the shared pieces
-individually) so the factory remains the single mediator for shared state —
-this matches the spike's "factory holds the surface; per-kind takes it"
-shape (spike `renderers/text.py:49`).
+Per-kind renderers receive the factory, not the shared pieces — the
+factory remains the single mediator (spike `renderers/text.py:49`).
 
 ### ImGuiTextRenderer
 
-The existing `src/punt_lux/display/renderers/text_renderer.py` (86 LoC,
-class `TextRenderer`) already does the right ImGui calls for `TextElement`
-(style branches, color, tooltip via `imgui.text_wrapped` /
-`imgui.selectable` / `imgui.separator_text`). PR 3 does NOT rewrite that
-logic. The new `ImGuiTextRenderer` is a thin Renderer-Protocol-conforming
-adapter:
+The existing `display/renderers/text_renderer.py` (86 LoC) already
+does the right ImGui calls for `TextElement` (style branches, color,
+tooltip via `imgui.text_wrapped` / `selectable` / `separator_text`).
+PR 3 doesn't rewrite that logic. The new `ImGuiTextRenderer` is a
+thin Renderer-Protocol-conforming adapter:
 
 ```python
 # src/punt_lux/display/renderers/imgui/text.py
@@ -150,18 +147,14 @@ The existing `display/renderers/text_renderer.py` survives PR 3 verbatim —
 deletion is part of PR 12's sweep, when no PR-2 dispatch path calls it
 directly.
 
-### RecordingRenderer as a test surface (spike survives)
+### RecordingRenderer as a test surface
 
-The spike's `RecordingRendererFactory` lifts verbatim to
-`src/punt_lux/protocol/renderers/recording.py`. It has zero ImGui
-dependency, so it's importable from `tests/render/` without the `[display]`
-extra. PR 3 lands two test scaffolds against it:
-
-- `tests/render/test_text_recording.py` — per-spike `R1`'s shape, asserts
-  a Text scene renders to the recording log with one `{"op": "render",
-  "kind": "text", "id": ..., "content": ...}` entry per frame.
-- `tests/integration/test_text_outbound_e2e.py` — full pipeline via
-  `Connection` (either backend, see §5). Asserts paint output.
+Spike `RecordingRendererFactory` lifts verbatim to
+`src/punt_lux/protocol/renderers/recording.py` — zero ImGui dep,
+importable from `tests/render/` without `[display]`. PR 3 lands
+`test_text_recording.py` (asserts per-frame `{"op": "render",
+"kind": "text", ...}` entries — spike `R1` shape) and
+`test_text_outbound_e2e.py` (full pipeline through `Connection`).
 
 ### What does NOT change in PR 3
 
@@ -187,9 +180,9 @@ break into:
 | Query-style (`@_query_tool`-decorated) | ~10 | No — pure server-side state queries | Untouched |
 | Menu / theme / misc (`set_menu`, `set_theme`, `recv`, `ping`, …) | ~7 | No | Untouched |
 
-`tools/tools.py:33-156` is the `show()` tool — the largest blast radius for
-PR 3. Its argument schema (`elements: list[dict[str, Any]]`) does NOT
-change. What changes is the internals of `element_from_dict()`.
+`tools/tools.py:33-156` (`show()`) is the largest blast radius. Its
+argument schema (`elements: list[dict[str, Any]]`) doesn't change; only
+`element_from_dict()`'s internals do.
 
 ### Dispatch shape (Text → new path; 23 kinds → existing path)
 
@@ -227,28 +220,18 @@ def element_from_dict(d: dict[str, Any]) -> Element:
     return elem
 ```
 
-Why this is the smallest-blast-radius shape:
-
-- The 29 MCP tool signatures don't move.
-- `show()` and its peers continue to receive `list[dict[str, Any]]` and
-  pass each dict through `element_from_dict()` — they never need to know
-  the kind they're constructing.
-- The TextElement object that comes back out from the new factory has
-  an `id`, `kind`, `tooltip`, and the io-model behavior + ABC methods.
-  It is structurally a satisfier of the PR-1 `Element` Protocol so the
-  downstream `SceneMessage` plumbing accepts it.
-
-The `Element` union type (`__init__.py:124`) becomes a union over the
-ABC's TextElement plus the 23 PR-2 dataclasses for the duration of PR 3
-— a runtime no-op (both satisfy the structural Protocol), a type-check
-narrowing concern that mypy handles with the union.
+Why this shape: 29 MCP tools stay invariant; `show()` peers pass dicts
+through `element_from_dict()` unchanged; the new TextElement satisfies
+the PR-1 `Element` Protocol structurally so downstream `SceneMessage`
+plumbing accepts it. The `Element` union (`__init__.py:124`) becomes
+ABC TextElement ∪ the 23 PR-2 dataclasses for PR 3 — runtime no-op,
+mypy narrowing via union.
 
 ### What gates the io-model path
 
-PR 3 has no environment flag for the Text dispatch — it's a pure code
-swap. The two backends (in-memory vs Unix socket — §5) are gated by
-`LUX_DISPLAY_IN_PROCESS=1`. That's the only env var PR 3 introduces;
-the spike's other env vars (`LUX_SPIKE_*`) don't migrate.
+No env flag for Text dispatch — pure code swap. The two backends
+(in-memory vs Unix socket — §5) are gated by `LUX_DISPLAY_IN_PROCESS=1`;
+that's the only env var PR 3 adds (spike's `LUX_SPIKE_*` don't migrate).
 
 ### Tools.py call-site count
 
@@ -270,16 +253,15 @@ bounded by `tests/protocol/test_element_codec.py` plus tool smokes.
 
 ### Pattern source
 
-Spike `elements.py` `LabelElement` (lines 28–58) is the closest cousin
-to production Text and the canonical template. Production `TextElement`
-follows the same `__new__`-keyword-only-injected pattern verbatim with
-Text's additional fields (style, color, tooltip).
+Spike `elements.py` `LabelElement` (28-58) is the template. Production
+`TextElement` mirrors its `__new__`-keyword-only-injected pattern with
+Text's extra fields (style, color, tooltip).
 
 ### Production TextElement (PR 3)
 
-`src/punt_lux/protocol/elements/text.py` — REWRITTEN. The existing
-dataclass + `to_dict`/`from_dict` is DELETED in the same commit; the
-codec moves to `text_codec.py` (Section 1, row #4).
+`src/punt_lux/protocol/elements/text.py` — REWRITTEN. Dataclass deleted;
+codec body moves to `text_codec.py` (§1 row #4); `to_dict`/`from_dict`
+remain as thin delegators per D5 (see below).
 
 ```python
 # Module-level sentinels — same null objects the spike's Hub tier uses.
@@ -304,8 +286,12 @@ class TextElement(Element):
         self._tooltip, self._color, self._kind = tooltip, color, "text"
         return self
 
-    # @property accessors for id, kind, content, style, tooltip, color
-    # _set_content(value) for DisplayDisplay.apply(SetProperty) in PR 5
+    # @property accessors for id, kind, content, style, tooltip, color.
+    # _set_content / _set_style / _set_tooltip / _set_color — minimal
+    # setters for the scene patch path (D6) + PR 5's SetProperty.
+    # to_dict / from_dict — ≤ 3-line delegators to JsonTextEncoder /
+    # JsonTextDecoder for D5 (Element Protocol contract). _patch
+    # inherited from Element ABC for D6.
 ```
 
 **D1 transitional resolution — sentinel defaults on `renderer_factory`
@@ -324,8 +310,10 @@ family and update call sites.
 - `@dataclass(frozen=True, slots=True)` — replaced by `__new__`.
 - All dataclass fields (`kind`, `id`, `content`, `style`, `tooltip`,
   `color`) — become `_`-prefixed slots with `@property` accessors.
-- `to_dict` / `from_dict` methods — move to `JsonTextEncoder.encode` /
-  `JsonTextDecoder.decode` in `text_codec.py`.
+- The codec **body** of `to_dict` / `from_dict` moves to
+  `JsonTextEncoder.encode` / `JsonTextDecoder.decode` in
+  `text_codec.py`. The methods themselves stay on the class as
+  ≤ 3-line delegators (D5).
 
 ### What's added (other than the class itself)
 
@@ -357,6 +345,29 @@ family and update call sites.
   agent-traffic audit; in PR 3 the field stays `str | None = None`
   and `text_renderer.py:34`'s existing
   `if elem.tooltip and not elem.style:` works unchanged.
+
+### Paired adaptations for the existing production layer (D5, D6)
+
+- **D5 — Element Protocol satisfaction.** `domain/element.py` declares
+  a `@runtime_checkable` Element Protocol that structurally requires
+  `to_dict` and `from_dict` on every element kind. Deleting both from
+  TextElement would break `isinstance(elem, Element)` for every
+  TextElement instance (and ≥ 3 tests assert exactly that). Resolution:
+  TextElement keeps both methods as ≤ 3-line delegators (see code
+  block above). Codec body lives in `JsonTextEncoder/Decoder`; the
+  delegators are removed in a follow-up PR that relaxes the Protocol
+  to drop the codec methods (the architecturally correct end-state,
+  out of PR 3 scope).
+- **D6 — Scene patch path adaptation.** `scene/manager.py:402-415`
+  uses `dataclasses.fields(elem)` and `dataclasses.replace(elem,
+  **valid)` for the SetProperty patch path. Both raise `TypeError`
+  on non-dataclass TextElement. Resolution: commit (iii) adds a
+  generic `_patch(patch: dict) -> Self` method to the Element ABC
+  (see code block above) and inserts an `isinstance(elem, Element)`
+  branch in `scene/manager._apply_patch_set`: ABC elements route
+  through `elem._patch(valid)`, dataclass elements continue through
+  `dataclasses.replace`. The 5 scene-manager patch tests exercise
+  the new branch automatically.
 
 ### What remains `str | None`
 
@@ -391,18 +402,10 @@ unchanged for the subprocess backend.
 
 ### The two backends (`LUX_DISPLAY_IN_PROCESS`)
 
-Per migration-plan.md PR 3 row 200 (b): "Connection abstraction with
-in-memory queue backend (default `LUX_DISPLAY_IN_PROCESS=1`) and bare
-Unix-socket subprocess backend (lifted from spike's `connection.py`,
-adapted to lux's existing socket paths)."
-
-Note: the plan says "default = in-process", but the production default
-must stay Unix-socket subprocess (existing agent behavior). PR 3's
-`LUX_DISPLAY_IN_PROCESS=1` is opt-in **for tests**. The text "default"
-in the plan is ambiguous; PR 3 implements opt-in to preserve
-backwards-compatible defaults for live agents. (See Section 9.)
-
-The `Connection` Protocol has two concrete implementations:
+Plan row 200(b) calls for in-memory + Unix-socket backends. PR 3
+implements `LUX_DISPLAY_IN_PROCESS=1` as opt-in for tests; production
+default stays Unix-socket subprocess (preserves live agent behavior;
+plan's "default" wording is ambiguous — see §9). Two implementations:
 
 ```text
 src/punt_lux/protocol/connection.py
@@ -445,13 +448,11 @@ in a fixture (see §7 commit iv test naming).
 
 ### Subprocess spawn — no new code
 
-PR 3 does NOT add a service supervision layer. `DisplayPaths.ensure()`
-already spawns the bare `python -m punt_lux display --socket ...`
-subprocess; the spike's hub `main()` becomes the body of a new
-`src/punt_lux/hub/main.py` entry point invoked the same way once
-PR 3+ migration completes. Through PR 3, the existing subprocess
-target (display server inside `display/server.py`) is the one
-spawned.
+PR 3 doesn't add service supervision. `DisplayPaths.ensure()` already
+spawns `python -m punt_lux display --socket ...`; the spike's hub
+`main()` becomes `src/punt_lux/hub/main.py` invoked the same way once
+the migration completes. Through PR 3, the existing
+`display/server.py` target is what's spawned.
 
 ---
 
@@ -459,39 +460,24 @@ spawned.
 
 ### Existing public API (preserved verbatim)
 
-`src/punt_lux/display_client.py:73-618` — public methods:
-
-- `connect()`, `close()`, `__enter__`, `__exit__`
-- `show(scene_id, elements, *, title, layout, frame_id, frame_title, frame_size, frame_flags, frame_layout) -> AckMessage | None`
-- `show_async(...)` (same signature, no ack)
-- `update(scene_id, patches)` / `update_async(...)`
-- `set_menu(menus)`, `set_theme(theme)`, `clear()`, `clear_async()`
-- `ping() -> PongMessage | None`
-- `query(method, params, timeout) -> QueryResponse | None`
-- `recv(timeout) -> Message | None`
-- `on_event(element_id, action, callback)`, `remove_callback(...)`
-- `start_listener()`, `stop_listener()`
-- `declare_menu_item(item)`, `register_menu_item(item)`
-- Properties: `is_connected`, `listener_active`, `ready_message`
-
-All 19 of these keep their signatures through PR 3. Test surfaces and
-`tools/connection.py:55-70` (`_get_client`) keep working.
+`src/punt_lux/display_client.py:73-618` — all 19 public methods keep
+their signatures through PR 3 (`connect`/`close`/`__enter__`/`__exit__`;
+`show`/`show_async`; `update`/`update_async`; `set_menu`/`set_theme`/
+`clear`/`clear_async`; `ping`/`query`/`recv`; `on_event`/
+`remove_callback`; `start_listener`/`stop_listener`;
+`declare_menu_item`/`register_menu_item`; `is_connected`/
+`listener_active`/`ready_message` properties). `tools/connection.py:55-70`
+(`_get_client`) keeps working.
 
 ### Internal wiring changes
 
-PR 3 introduces a single internal change: `DisplayClient._send(msg)`
-(currently line 378-383) delegates to a `Connection` instead of
-calling `sock.sendall(wire)` directly. The connection backend (Unix
-socket vs in-memory) is the only branch.
-
-The `SceneMessage` codec already handles the Text element on the wire
-(via `element_to_dict` → `JsonTextEncoder` post-PR-3). No
-`DisplayClient.show()` change is needed for Text to flow through the
-new path — encoding is symmetric.
-
-For the inbound listener (`_listener_loop`, line 309): keep verbatim.
-`InteractionMessage` parsing is unchanged. PR 4 adds Observer push;
-PR 3 has none.
+One change: `DisplayClient._send(msg)` (line 378-383) delegates to a
+`Connection` instead of `sock.sendall(wire)`; the backend (Unix
+socket vs in-memory) is the only branch. `SceneMessage` codec
+already handles Text on the wire via `element_to_dict` →
+`JsonTextEncoder` post-PR-3; no `show()` change needed (encoding
+symmetric). `_listener_loop` (line 309) and `InteractionMessage`
+parsing stay verbatim (Observer push lands in PR 4).
 
 ### What stays verbatim
 
@@ -545,8 +531,18 @@ the same commit (Bar §10).
   per §2), `src/punt_lux/display/renderers/imgui/text.py` (ImGuiTextRenderer
   per §2), `src/punt_lux/display/renderers/imgui/__init__.py`.
 - **Modify:** `src/punt_lux/protocol/elements/text.py` — REWRITE per §4
-  (delete dataclass, add ABC subclass with sentinel defaults for
-  `renderer_factory` / `emit` per D1).
+  (delete dataclass; add ABC subclass with sentinel defaults per D1;
+  keep `to_dict` / `from_dict` as ≤ 3-line delegators per D5; add
+  `_patch` per D6; add `_set_content` / `_set_style` / `_set_tooltip` /
+  `_set_color` minimal setters for the scene patch path).
+- **Modify:** `src/punt_lux/domain/element_abc.py` — add abstract
+  `_patch(patch: dict[str, Any]) -> Self` to the Element ABC (default
+  implementation walks the patch dict calling `_set_<key>` per entry;
+  TextElement inherits the default). D6.
+- **Modify:** `src/punt_lux/scene/manager.py:402-415` — insert
+  `isinstance(elem, ABCElement)` branch in `_apply_patch_set`: ABC
+  elements route through `elem._patch(valid)`; dataclass elements
+  continue through `dataclasses.replace(elem, **valid)`. D6.
 - **Modify:** `src/punt_lux/protocol/elements/__init__.py` — register Text
   through `JsonElementFactory` for inbound; encoder factory for outbound;
   keep `_codec` for the other 23 kinds. Dispatch shape per §3.
@@ -645,16 +641,16 @@ Per migration-plan.md PR 3 row 208 ("Acceptance"):
 
 | Criterion | Verifying test / command |
 |---|---|
-| `make snapshot-parity` passes for Text wire bytes | `make snapshot-parity` — replays every PR-0 characterization snapshot for `show()` calls containing Text; byte-compares the serialized `SceneMessage`. After §4 PY-TS-14 cleanups, snapshots are byte-equivalent because absent `style`/`color` keys are stripped in both encoders. |
-| `make check` clean | `make check` — runs OO ratchet, mypy/pyright, ruff format + lint, radon CC, pylint design. |
-| Text renders end-to-end through Connection in both backends | `tests/integration/test_text_outbound_e2e.py::test_in_memory_backend` and `tests/integration/test_text_outbound_e2e.py::test_subprocess_backend`. |
-| Loose perf smoke at 50ms/frame for 10 Text elements | `tests/perf/test_frame_budget.py::test_text_10_elements_under_50ms`. |
-| All 29 MCP tools continue to work | Manual smoke per §6 (CLAUDE.md inner-loop step 5): `make install` + `lux ensure-hub --restart` + invoke each tool via `mcp` once. The `test_text_outbound_e2e` automated test exercises the `show` tool with Text; the other 28 tools' signatures grep clean (next row). |
-| Zero `to_dict`/`from_dict` on `TextElement` | `grep -n "def to_dict\|def from_dict" src/punt_lux/protocol/elements/text.py` returns zero lines. |
-| Zero references to `WidgetValueProvider` | `grep -rn "WidgetValueProvider" src/punt_lux/ tests/` returns zero lines. |
-| 29 MCP tool signatures unchanged | `grep -c "@mcp.tool\|@_query_tool" src/punt_lux/tools/tools.py` returns the same count (29) as `main`. (Per PR 3 row 204.) |
-| Element ABC + template-method shape lifted from spike | `grep -n "def render(self) -> None" src/punt_lux/domain/element_abc.py` returns one line; `grep -n "def _children" src/punt_lux/domain/element_abc.py` returns one line. |
-| io-model dispatch only on Text in PR 3 | `grep -n "kind == \"text\"" src/punt_lux/protocol/elements/__init__.py` returns exactly one line (the gate). |
+| `make snapshot-parity` passes for Text wire bytes | Replays PR-0 characterization snapshots for `show()` calls containing Text; byte-compares serialized `SceneMessage`. §4 PY-TS-14 cleanups are byte-equivalent (absent `style`/`color` stripped in both encoders). |
+| `make check` clean | OO ratchet, mypy/pyright, ruff format + lint, radon CC, pylint design. |
+| Text e2e through Connection in both backends | `tests/integration/test_text_outbound_e2e.py::{test_in_memory_backend,test_subprocess_backend}`. |
+| Loose perf smoke at 50ms/frame for 10 Text | `tests/perf/test_frame_budget.py::test_text_10_elements_under_50ms`. |
+| All 29 MCP tools continue to work | Manual smoke per §6 inner-loop step 5; `test_text_outbound_e2e` covers `show` with Text; other 28 grep clean (next row). |
+| `to_dict`/`from_dict` on `TextElement` delegator-only (D5) | `grep -A 4 "def to_dict\|def from_dict" src/punt_lux/protocol/elements/text.py` shows ≤ 3 lines per body delegating to `JsonTextEncoder`/`Decoder`. |
+| Zero `WidgetValueProvider` references | `grep -rn "WidgetValueProvider" src/punt_lux/ tests/` returns zero lines. |
+| 29 MCP tool signatures unchanged | `grep -c "@mcp.tool\|@_query_tool" src/punt_lux/tools/tools.py` returns same count as `main`. |
+| Element ABC shape lifted from spike | `grep -n "def render(self) -> None\|def _children" src/punt_lux/domain/element_abc.py` returns two lines. |
+| io-model dispatch only on Text in PR 3 | `grep -n 'kind == "text"' src/punt_lux/protocol/elements/__init__.py` returns exactly one line. |
 
 Test file inventory (all NEW in PR 3 unless noted):
 
