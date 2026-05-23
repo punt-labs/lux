@@ -9,7 +9,7 @@
 
 The v1 revision (merged in PR #188) replaced the original PR 3–6 sequence with a PR 3–13 sequence that landed io-model infrastructure family-by-family, then bundled connection-layer cleanup + Encoder (PR 10), Observer (PR 11), and process split (PR 13) at the end.
 
-Operator review identified that PR 3–13 sequence as a repeat of the horizontal-bands anti-pattern that **Method A** (rejected during the original plan drafting) was rejected for: "build infrastructure now, integrate later." Specifically:
+Operator review identified the PR 3–13 sequence as a repeat of **Method A** (the horizontal-bands approach rejected during the original plan drafting). Method A was rejected because it builds infrastructure before end-to-end proof — and v1 quietly does the same. Specifically:
 
 - The Encoder family (PR 10) is built without exercise until then.
 - The process split (PR 13) is built without exercise until then.
@@ -506,7 +506,7 @@ Do not work two PRs in parallel on the same working tree.
 
 - `docs/architecture/domain-model.md` — the algebra this plan realizes
 - `docs/architecture/io-model.md` — the I/O architecture (Decoder / Element / Renderer)
-- `docs/architecture/x11-model.md` — the topology PR 3 realises (bare subprocess; operational supervision in a later PR)
+- `docs/architecture/x11-model.md` — the topology PR 3 realizes (bare subprocess; operational supervision in a later PR)
 - `docs/architecture/introspection-api.md` — already-implemented query pattern
 - `docs/oo-refactor/resume.md` — current OO scores; updated after each PR
 - `DESIGN.md` DES-030 — three-layer type model (wire / scene graph / snapshot)
@@ -518,4 +518,3 @@ Do not work two PRs in parallel on the same working tree.
 - `DESIGN.md` DES-036 — Observer Pattern at the MCP Boundary
 - `DESIGN.md` DES-037 — Hub thread-safety architecture (committed in PR 5)
 - `punt-labs/.claude/rules/python-*.md` — the rules every mission YAML cites
-- `.tmp/pr-sequence-final-2026-05-23.md` — v2 plan working notes + peer-review synthesis (rej / kwb / rop)
