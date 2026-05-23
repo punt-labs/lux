@@ -3224,7 +3224,7 @@ Subscription is **topic-based**.
 
 **Wire surface (MCP tools and notifications):**
 
-```
+```text
    MCP TOOLS                            MCP NOTIFICATIONS
    (client → server, RPC)               (server → client, async push)
    ──────────────────────               ────────────────────────────

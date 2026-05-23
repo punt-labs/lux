@@ -351,7 +351,7 @@ JsonGroupDecoder, …) and dispatches by `raw["kind"]` to the right one.
 The output surface is singular — a Display has one renderer. The input
 fans in: each connected client/app can speak its own wire format.
 
-```
+```text
               CLIENTS / APPS  (N — different formats, different identities)
         ┌────────────┬────────────┬────────────┐
 Python  │   JSON     │            │            │
@@ -425,7 +425,7 @@ tests and embedded scenarios.
 
 Three processes, one tier each:
 
-```
+```text
 ┌──────────────────┐       ┌─────────────────┐       ┌────────────────┐
 │  Applet process  │◄─────►│   Hub (luxd)    │◄─────►│  lux-display   │
 │  (punt_lux lib)  │ IPC + │  authoritative  │ IPC + │  render-only   │
@@ -472,7 +472,7 @@ Updates and Events.
 
 The flow when an applet adds an element:
 
-```
+```text
 Applet                  Hub                       Display
 ─────                   ───                       ───────
 Construct ButtonElement
@@ -596,7 +596,7 @@ A single conceptual button has DIFFERENT representations in each tier
 where it appears. They share an Element abstract base and the same data
 fields, but they are not interchangeable:
 
-```
+```text
    applet process           hub process               display process
    ──────────────           ───────────               ───────────────
 
@@ -637,7 +637,7 @@ Setup: a Python applet has constructed `SubmitButton(id="submit", action="do_sub
 and called `display.apply(applet_client_id, AddElement(scene, submit))`. The
 Update has propagated applet → hub → display; the button is on screen.
 
-```
+```text
 1. Display's ImGui render loop (60 Hz frame):
    scene_root.render() walks display's Element tree.
    ButtonElement.render()  [Element ABC template]
@@ -691,7 +691,7 @@ into three independent axes. Conflating them caused several false
 proposals during design discussion; documenting the split is what made
 the design coherent.
 
-```
+```text
    AXIS 1 — OWNERSHIP        Who runs the handler? Two cases:
                                • "hub"           → hub runs in-place
                                • <connection_id> → hub forwards to that conn
@@ -729,7 +729,7 @@ and is invisible to both the hub and the runtime.
 
 Examples in practice:
 
-```
+```text
    ownership      client kind        handler pattern        example
    ─────────      ───────────        ───────────────        ───────
    hub            (n/a)              deterministic          FilterableTable's
@@ -752,7 +752,7 @@ to one of these four cases — invisible to the hub and to routing.
 
 ### Seq 1 — Hub-local data table filter (owner = "hub", deterministic)
 
-```
+```text
 USER          DISPLAY                     HUB
  │             │                           │
  │             │   ◄────── Update tree ────┤   FilterableTable in
@@ -780,7 +780,7 @@ USER          DISPLAY                     HUB
 
 ### Seq 2 — Modal confirm to Claude Code (owner = CC connection, LLM agent, agent-escalation)
 
-```
+```text
 USER         DISPLAY              HUB                    CLAUDE CODE (agent)
  │            │                    │                      │
  │            │                    │  ◄──── MCP ──────────┤  show_modal(
@@ -816,7 +816,7 @@ USER         DISPLAY              HUB                    CLAUDE CODE (agent)
 
 ### Seq 3 — Python applet filter input (owner = applet conn, library client, local deterministic)
 
-```
+```text
 USER       DISPLAY              HUB                 APPLET (Python)
  │          │                    │                   │
 type "x" ──►│ ImGui InputText    │                   │
@@ -843,7 +843,7 @@ type "x" ──►│ ImGui InputText    │                   │
 
 ### Seq 4 — Python applet "Queue Work" notifies agents via MCP-bridged Observer (async)
 
-```
+```text
 USER     DISPLAY        HUB                  APPLET                  AGENT (observer
  │        │              │                    │                       of "bead.queued")
 click ───►│              │                    │                       │
@@ -891,7 +891,7 @@ the MCP boundary to LLM agents, a different mechanism is used: the
 **Observer pattern**, with the hub as Subject and connected agents as
 Observers, topic-based.
 
-```
+```text
 HUB (Subject)                                     AGENTS (Observers)
 ─────────────                                     ──────────────────
 
@@ -923,7 +923,7 @@ publish(topic, payload):                          ┌─────────
 
 The MCP contract surface:
 
-```
+```text
    MCP TOOLS that agents call               MCP NOTIFICATIONS hub pushes
    ──────────────────────────              ─────────────────────────────
 
@@ -941,7 +941,7 @@ The MCP contract surface:
 
 **Why this is loose:**
 
-```
+```text
    Hub knows         ─►  topic name + payload shape
                      ─►  which connections subscribed to which topics
 
@@ -992,6 +992,7 @@ composes naturally with the Composite pattern.
 ## Migration notes — what changes from PR 1+2
 
 PR 1 and PR 2 shipped:
+
 - Per-class modules with `to_dict` / `from_dict` codec methods ON the
   Element class
 - A `Renderer` family of sorts (per-kind classes in `display/renderers/`)
