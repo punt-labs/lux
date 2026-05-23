@@ -228,28 +228,29 @@ class ImGuiRendererFactory:
 Each surface family has one renderer class per Element kind. Renderers
 hold a reference to the Element (read-only) and any surface-shared state.
 
-The example below shows the **owner-tier** path — i.e. the renderer
-running in the process that constructed the Element subclass and bound
-its `on_click` behavior (typically an in-process applet, or the hub for
-hub-local handlers). In this case the renderer can call
-`self._elem.on_click()` directly because the bound behavior lives in
-the same process.
-
-On a **non-owner tier** (the display process for an applet-owned button,
-which holds only a base-class mirror of the Element), the renderer
-does NOT call `on_click()`; it emits an `InteractionMessage` that the
-hub routes back to the owner. See *Tier-local Element representation*
-below (around line 620) and the end-to-end click trace that follows it
-for the full cross-tier flow.
+**Display-tier renderers detect surface events and emit `InteractionMessage`
+to the hub.** The display does not invoke element behavior locally —
+its element instances are mirrors of hub-side state with no bound
+behavior to call. The hub receives the `InteractionMessage`, resolves
+the element on `hub_display`, and invokes the standard library
+behavior (e.g. `ButtonElement.on_click`) there. See *Tier-local
+Element representation* below and the end-to-end click trace that
+follows it for the full cross-tier flow.
 
 ```python
 class ImGuiButtonRenderer:
     _elem: ButtonElement
+    _emit: Emit
     def render(self) -> None:
         if self._elem.disabled: imgui.begin_disabled()
         try:
             if imgui.button(f"{self._elem.label}##{self._elem.id}"):
-                self._elem.on_click()    # OWNER-TIER ONLY — see note above
+                # Display renderer detects the surface event and emits
+                # an InteractionMessage. Routed via IPC to the hub,
+                # which resolves the element on hub_display and invokes
+                # the library-standard on_click there.
+                self._emit(InteractionMessage(
+                    elem_id=self._elem.id, action="click"))
         finally:
             if self._elem.disabled: imgui.end_disabled()
 
@@ -263,9 +264,8 @@ class HtmlButtonRenderer:
             f"<button{attrs} onclick=\"luxClick('{self._elem.id}')\">"
             f"{html.escape(self._elem.label)}</button>"
         )
-        # JS handler luxClick() eventually reaches the owner tier (where
-        # on_click is bound) via the websocket round-trip back to the
-        # server — same cross-tier routing as the ImGui non-owner case.
+        # JS handler luxClick() eventually emits InteractionMessage to
+        # the hub via websocket — same routing as the ImGui case.
 
 class ImGuiGroupRenderer:
     _elem: GroupElement
@@ -607,52 +607,73 @@ def render_frame() -> None:
                                # format their wire payload arrived in
 ```
 
-## Tier-local Element representation — NOT three identical instances
+## Tier-local Element representation — same standard classes, different roles per tier
 
-A single conceptual button has DIFFERENT representations in each tier
-where it appears. They share an Element abstract base and the same data
-fields, but they are not interchangeable:
+A single conceptual button has an instance on each tier where it
+appears. All instances are of the **same standard library class**
+(`ButtonElement`) — applets do NOT ship custom subclasses across the
+wire; only the data and which standard kind is implied by the wire
+shape. What differs per tier is the injected renderer factory and
+which tier actually invokes behavior:
 
 ```text
    applet process           hub process               display process
    ──────────────           ───────────               ───────────────
 
-   class SubmitButton       ButtonElement             ButtonElement
-   (ButtonElement):         (base class — data        (base class — data
-       def on_click(self):   only; no behavior         only; no behavior
-           # custom logic    method bindings —         method bindings —
-           ...               applet's code is NOT      applet's code is NOT
-                             in this process)          in this process)
-
-   Bound behavior?  YES     Bound behavior?  NO       Bound behavior?  NO
-   (applet wrote on_click   (decoded from wire        (decoded from wire
-    on this subclass)        as the base class)        as the base class)
+   ButtonElement            ButtonElement             ButtonElement
+   (standard library        (standard library         (standard library
+    class — no custom        class with bound          class — used only
+    subclass)                library behavior:         for rendering
+                              .on_click runs here)     on this surface)
 
    _renderer_factory:       _renderer_factory:        _renderer_factory:
      NullRendererFactory      NullRendererFactory       ImGuiRendererFactory
      (applet has no render    (hub has no render        (the render loop
       loop in default          loop)                     here calls
       deployment)                                        elem.render())
+
+   _emit:                   _emit:                    _emit:
+     ships Updates over       hub_emit (routes          discards / no-op
+     Lux IPC to the hub        Events to publish,        (display does not
+     (e.g. show())             Updates to apply+ship     run behavior; it
+                               to display)               emits Interaction
+                                                         Messages from the
+                                                         renderer instead)
 ```
 
-The applet's process is the only one that has the customized subclass
-with the bound `on_click` method. Hub and display decode the wire payload
-into the BASE `ButtonElement` (they don't have the applet's Python
-source) — they hold data + the abstract render template + their
-tier-appropriate factory.
+**Applets compose standard components; they don't add new Element
+kinds.** A button labeled "Get Quotes" is a *standard* `ButtonElement`
+shipped via the wire as `{"kind": "button", "id": "quotes_btn",
+"label": "Get Quotes"}`. The hub instantiates it from the wire dict
+with library-standard behavior bound (`on_click` emits
+`ButtonClicked`). The applet's custom logic — fetching quotes, then
+shipping a new `TableElement` to show the result — runs in the
+applet's process, **triggered by an Observer notification on a topic
+the applet subscribed to** (`interaction.quotes_btn`). See *Agent
+observers — MCP boundary* below.
 
-When a click happens, the display tier's renderer does NOT call
-`elem.on_click()` on its local Element instance — its local instance has
-no custom behavior. Instead, the renderer emits an `InteractionMessage`
-identifying the element. That message routes via the hub to the owner
-(applet), and the applet's local instance — the one with the custom
-on_click — runs the behavior.
+**Roles are fixed per tier, not per element:**
 
-### End-to-end trace of a single Button click (corrected)
+- **Applet:** composes standard scenes via `show()`; subscribes to
+  topics it cares about; reacts to `observed` notifications by
+  running its custom Python and shipping further state changes.
+- **Hub:** runs all library-standard element behavior (because it
+  has the library); accepts state changes onto `hub_display`;
+  publishes topics from emitted Events; ships Updates to display.
+- **Display:** holds a mirror of hub state; renders each frame;
+  detects user input and emits `InteractionMessage` to the hub.
 
-Setup: a Python applet has constructed `SubmitButton(id="submit", action="do_submit")`
-and called `display.apply(applet_client_id, AddElement(scene, submit))`. The
-Update has propagated applet → hub → display; the button is on screen.
+There is no cross-tier behavior invocation. The hub does not route
+clicks to applets for custom dispatch — applets receive clicks the
+same way agents do, via Observer topic notifications.
+
+### End-to-end trace of a single Button click
+
+Setup: an applet (or an MCP agent — same flow) sent
+`show(scene_id="form", root=Panel{Label("Save?"), Button(id="submit",
+label="Save")})` and subscribed to `interaction.submit`. The hub
+accepted the scene, shipped `AddElement` to display, and display has
+rendered the button on screen.
 
 ```text
 1. Display's ImGui render loop (60 Hz frame):
@@ -660,39 +681,41 @@ Update has propagated applet → hub → display; the button is on screen.
    ButtonElement.render()  [Element ABC template]
      renderer = self._renderer_factory(self)   # ImGuiRendererFactory
      renderer.render()                          # ImGuiButtonRenderer
-       imgui.button("Submit##submit") → False this frame
+       imgui.button("Save##submit") → False this frame
        (no click)
 
 2. User clicks. Next frame:
    ImGuiButtonRenderer.render()
-     imgui.button("Submit##submit") → True
-     Renderer emits InteractionMessage(
-         element_id="submit", action="do_submit", value=True, ts=...)
+     imgui.button("Save##submit") → True
+     Renderer emits InteractionMessage(elem_id="submit", action="click")
      via the display tier's Encoder for the hub connection.
 
 3. Hub receives the InteractionMessage:
    Decoder decodes JSON → InteractionMessage object.
-   Hub looks up owner of element_id="submit" → applet_client_id.
-   Hub re-encodes the message via the applet connection's Encoder,
-   pushes via IPC to the applet.
+   Hub resolves elem_id="submit" on hub_display → ButtonElement instance.
+   Hub invokes elem.on_click() — library-standard ButtonElement behavior.
 
-4. Applet receives:
-   Decoder decodes → InteractionMessage.
-   Applet's local Display proxy delivers it to subscribers.
-   Applet's runtime finds its local SubmitButton instance by element_id="submit"
-   and calls submit.on_click()  — the custom subclass method runs HERE.
+4. ButtonElement.on_click() runs in the hub process:
+   - Emits ButtonClicked(elem_id="submit") via self._emit.
+   - If the button has a bound on_click_callback (e.g. it's inside a
+     Dialog: Button(on_click_callback=dialog.close)), invokes it.
+     dialog.close() emits RemoveElement(dlg) via self._emit.
 
-5. Inside on_click(), the applet mutates its local scene:
-       self.scene.replace_with(SuccessScene())
-   This produces Updates the applet's local Display proxy emits.
+5. Hub's emit handler dispatches by message type:
+   - ButtonClicked Event  → publish('interaction.submit', payload) to
+                            every subscribed connection.
+   - RemoveElement Update → accept on hub_display (removes the dialog
+                            subtree); encode + ship to display.
 
-6. Updates flow applet → hub → display.
-   Hub applies them to hub_display.
-   Hub re-encodes the whole tree (ImGui downstream) or diffs (HTML downstream)
-   and ships to display.
+6. The subscribing applet receives `observed(topic='interaction.submit',
+   payload={...})` over Lux IPC. Its handler runs custom logic — saves
+   the form, fetches a result, etc. — and sends a new show() with the
+   updated scene back to the hub. The hub accepts the new scene and
+   ships AddElement to display.
 
-7. Display applies Updates to its mirror.
-   Next frame: render loop draws the new state.
+7. Display applies the inbound Updates (RemoveElement from step 5;
+   AddElement from step 6) to its mirror. Next frame: render loop
+   draws the new state.
 ```
 
 Substituting `Surface.HTML` changes only the display-side render
@@ -831,34 +854,54 @@ USER         DISPLAY              HUB                    CLAUDE CODE (agent)
               │   modal gone       │                      │
 ```
 
-### Seq 3 — Python applet filter input (owner = applet conn, library client, local deterministic)
+### Seq 3 — Python applet filter input (Observer-based reactive flow)
 
 ```text
-USER       DISPLAY              HUB                 APPLET (Python)
- │          │                    │                   │
-type "x" ──►│ ImGui InputText    │                   │
-            │ InteractionMsg     │                   │
-            │ ──── IPC ─────────►│ owner = applet conn
-            │                    │ ──── IPC ────────►│ runtime finds local
-            │                    │                   │ FilterInput instance
-            │                    │                   │ filter.on_change("x")
-            │                    │                   │ applet.filter = "x"
-            │                    │                   │ applet.recompute_visible()
-            │                    │                   │ emits Updates
-            │                    │ ◄──── IPC ────────┤
-            │ ◄──── IPC ─────────┤ apply, re-encode  │
-            │ shows filtered     │                   │
-            │ list               │                   │
-                              (no external system touched)
+USER       DISPLAY              HUB                              APPLET (Python)
+ │          │                    │                                │
+            │                    │                                │ (subscribed at startup to
+            │                    │                                │  interaction.filter_input)
+type "x" ──►│ ImGui InputText    │                                │
+            │ InteractionMsg     │                                │
+            │ ──── IPC ─────────►│ decode                         │
+            │                    │ resolve InputTextElement       │
+            │                    │ invoke .on_change("x") —       │
+            │                    │   library-standard behavior    │
+            │                    │   emits InputTextChanged Event │
+            │                    │ hub_emit dispatch:             │
+            │                    │   Event → publish(             │
+            │                    │     'interaction.filter_input',│
+            │                    │     {value: "x"})              │
+            │                    │ ── MCP / IPC notification ────►│ receives observed(…)
+            │                    │                                │ applet.filter = "x"
+            │                    │                                │ applet.recompute_visible()
+            │                    │                                │ ships show(updated table)
+            │                    │ ◄── show() ────────────────────┤
+            │                    │ accept on hub_display          │
+            │                    │ encode + send AddElement       │
+            │ ◄──── IPC ─────────┤                                │
+            │ shows filtered     │                                │
+            │ list               │                                │
 ```
 
-> **Handler bodies with external side effects (CLIs, DBs, network)** route
-> identically to Seq 3. The applet's `on_click` may call `subprocess.run(["bd",
-> "update", …])`, hit a database, make an HTTP request, etc. The hub and
-> display see nothing different — InteractionMessage in, Updates out. The
-> side effects are internal to the handler body and invisible to routing.
+> The applet's reaction is custom Python (in its own process). The
+> input element on the hub uses standard `InputTextElement` behavior.
+> Cross-process communication is one-way per direction: hub publishes
+> notifications to applet via Observer; applet drives state via
+> `show()` (typed Updates).
 
-### Seq 4 — Python applet "Queue Work" notifies agents via MCP-bridged Observer (async)
+### Seq 4 — Cross-process publish from applet to hub topics (FUTURE — deferred per A3)
+
+> **Status:** This sequence describes a capability that is **not in
+> current scope**. The `PublishMessage` wire kind it relies on (an
+> applet calling `hub.publish()` over Lux IPC to notify agents on
+> arbitrary topics) is deferred — see ARCHITECTURE_NOTES.md A3. The
+> current model: external apps express intent via typed Updates
+> (`show()`), and the hub's reactive machinery generates `observed`
+> notifications as a consequence of accepted state changes. If
+> generalized peer-to-peer pub/sub is later needed, it would be
+> additive. The sketch below is retained as a forward-looking design
+> note, not a build target.
 
 ```text
 USER     DISPLAY        HUB                  APPLET                  AGENT (observer
@@ -866,38 +909,23 @@ USER     DISPLAY        HUB                  APPLET                  AGENT (obse
 click ───►│              │                    │                       │
           │ Button       │                    │                       │
           │ Interaction  │                    │                       │
-          │ ── IPC ─────►│ ── IPC ───────────►│ queue.on_click()      │
+          │ ── IPC ─────►│ invoke on_click ── topic interaction.* ───►│ applet learns
+          │              │                    │                       │ of click via
+          │              │                    │                       │ Observer push
           │              │                    │ build work spec       │
-          │              │                    │ hub.publish(          │
-          │              │                    │   topic="bead.queued",│
-          │              │                    │   payload=spec)       │
+          │              │                    │ (HYPOTHETICAL future:                │
+          │              │                    │  hub.publish('bead.queued', spec)    │
+          │              │                    │  over a PublishMessage wire kind)    │
           │              │ ◄── PublishMessage ┤                       │
-          │              │ (Lux IPC wire kind)│ mark UI "queued"      │
-          │              │ subscription       │ emits Updates         │
-          │              │ registry lookup:   │                       │
-          │              │ subscribers of     │                       │
-          │              │ "bead.queued"      │                       │
-          │              │ → [agent_conn, …]  │                       │
-          │              │ for each sub:      │                       │
-          │              │ ── MCP notification observed(topic, payload) ────►│ receives
-          │              │ ◄── IPC ───────────┤                       │ notification
-          │ ◄── IPC ─────┤ apply, re-encode   │                       │ LLM interprets,
-          │ row shows    │                    │                       │ decides action
-          │ "queued"     │                    │                       │
-          │              │                    │                       │ (async — applet's
-          │              │                    │                       │  handler already
-          │              │                    │                       │  returned; observer
-          │              │                    │                       │  count could be 0
-          │              │                    │                       │  or N)
-          │              │ ◄── MCP tool call (client → server) ───────┤ e.g.
-          │              │ decode, AddElement / SetProperty             bd_update or
-          │              │ apply to hub_display, re-encode tree         update Lux
-          │ ◄── IPC ─────┤                    │                       │ element
-          │ shows result │                    │                       │
-              (Two UI updates: first "queued" (sync from applet), then
-               "done" later (async from agent). Applet did not name the
-               agent — it published a topic; the hub fanned out to every
-               subscriber. Loose coupling per DES-036.)
+          │              │ subscription                               │
+          │              │ registry fan-out                           │
+          │              │ ── MCP notification observed(topic, payload) ────►│ LLM
+          │ ◄── IPC ─────┤ (other updates)                            │ interprets,
+          │ shows new    │                                            │ decides action
+          │ state        │                                            │
+              (Two UI updates: first from applet's typed Update to
+               update the displayed state, then the agent's reaction
+               via further MCP tool calls.)
 ```
 
 ## Agent observers — MCP boundary
