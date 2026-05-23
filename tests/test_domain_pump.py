@@ -204,16 +204,16 @@ def test_route_interaction_warns_on_unknown_element_in_known_scene(
     with caplog.at_level("WARNING", logger="punt_lux.display.domain_pump"):
         pump.route_interaction(msg)
     assert observed == []
-    assert any(
-        "unknown element" in r.getMessage() and "ghost" in r.getMessage()
-        for r in caplog.records
-    ), f"expected unknown-element warning; got {[r.getMessage() for r in caplog.records]}"
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("unknown element" in m and "ghost" in m for m in messages), (
+        f"expected unknown-element warning; got {messages}"
+    )
 
 
 def test_route_interaction_warns_on_non_truthy_button_value(
     pump: DomainPump, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """SFH M2: a button InteractionMessage with non-truthy value is a renderer-bug signature."""
+    """SFH M2: non-truthy button InteractionMessage value is a renderer-bug signal."""
     scene = SceneMessage(id="s1", elements=[ButtonElement(id="b1", label="OK")])
     pump.route(scene)
 
@@ -229,12 +229,13 @@ def test_route_interaction_warns_on_non_truthy_button_value(
     )
     with caplog.at_level("WARNING", logger="punt_lux.display.domain_pump"):
         pump.route_interaction(msg)
-    # The click still routes (treating as click anyway) — observe the event AND the warning.
+    # The click still routes (conservative); observe both the event AND warning.
     assert len(observed) == 1
     assert isinstance(observed[0], ButtonPressed)
-    assert any(
-        "not truthy" in r.getMessage() for r in caplog.records
-    ), f"expected truthy-warning; got {[r.getMessage() for r in caplog.records]}"
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("not truthy" in m for m in messages), (
+        f"expected truthy-warning; got {messages}"
+    )
 
 
 def test_route_interaction_skips_message_without_scene_id(pump: DomainPump) -> None:
