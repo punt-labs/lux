@@ -9,9 +9,11 @@ from __future__ import annotations
 
 from punt_lux.protocol import (
     ButtonElement,
+    InputNumberElement,
     Patch,
     SceneMessage,
     SeparatorElement,
+    SliderElement,
     TextElement,
     UpdateMessage,
     WindowElement,
@@ -354,6 +356,46 @@ class TestApplyUpdate:
 
         elem = mgr._scenes["s1"].elements[0]
         assert elem.content == "Hello"  # type: ignore[union-attr]
+
+    def test_patch_value_on_input_number_writes_widget_state(self) -> None:
+        """Regression for code-reviewer IMPORTANT on f3bd2bb.
+
+        InputNumberElement must implement WidgetValueProvider — otherwise a
+        ``value`` patch sets WidgetState to ``None`` and the next render crashes
+        on ``int(None)`` inside ``InputNumberRenderer._draw_input``.
+        """
+        mgr, _ = _make_manager()
+        scene = _make_scene(
+            elements=[InputNumberElement(id="in1", label="N", value=1.0)]
+        )
+        mgr.handle_scene(scene, owner_fd=10)
+        ws = mgr.widget_state_for("s1")
+        assert ws is not None
+
+        update = UpdateMessage(
+            scene_id="s1",
+            patches=[Patch(id="in1", set={"value": 42.0})],
+        )
+        mgr.apply_update(update)
+
+        # widget_value() returns elem.value — the patch must mirror into state.
+        assert ws.get("in1") == 42.0
+
+    def test_patch_value_on_slider_writes_widget_state(self) -> None:
+        """Companion regression: SliderElement also writes its post-patch value."""
+        mgr, _ = _make_manager()
+        scene = _make_scene(elements=[SliderElement(id="sl1", label="Vol", value=0.5)])
+        mgr.handle_scene(scene, owner_fd=10)
+        ws = mgr.widget_state_for("s1")
+        assert ws is not None
+
+        update = UpdateMessage(
+            scene_id="s1",
+            patches=[Patch(id="sl1", set={"value": 7.5})],
+        )
+        mgr.apply_update(update)
+
+        assert ws.get("sl1") == 7.5
 
     def test_update_framed_scene(self) -> None:
         """Updates work for scenes inside frames."""
