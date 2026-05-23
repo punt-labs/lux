@@ -2311,7 +2311,7 @@ Half-measure.
   in one place — the domain layer — and trusted everywhere else.
 - The mental model is small and stable: six nouns, six verbs, two
   failure shapes.
-- Process split becomes mechanical (PR 7 in the migration plan) because
+- Process split becomes mechanical (PR 13 in the migration plan) because
   the codec is the only thing that differs across the boundary.
 
 **Negative:**
@@ -2360,3 +2360,1042 @@ review.
   difference between the tiers.
 - `docs/oo-refactor/migration-plan.md`: the executable path to
   realize this decision.
+
+## DES-032: Element Owns Behavior, Not I/O — Codec Methods Move Off the Class
+
+**Date:** 2026-05-23
+**Status:** ACCEPTED
+**Decided by:** the operator
+**Companion doc:** `docs/architecture/io-model.md`
+
+### Problem
+
+PR 1 (`lux-b14i`, #186) and PR 2 (`lux-i84j`, #187) shipped the basics
+and inputs element families with codec methods — `to_dict` and
+`from_dict` — defined on the Element class itself. The pattern was
+justified by PY-OO-5 (state + behavior on the class) and PY-OO-7 (no
+fake-OO module-level helpers next to dataclasses), and it was a strict
+improvement over the procedural module helpers that preceded it.
+
+The principle is consistent with DES-031: Element is a domain object,
+not a JSON renderer. But applying that principle uniformly raises a
+sharper question.
+
+If "Element imports `imgui` directly" is wrong because it couples the
+domain object to one render surface, then **"Element imports `json`-shaped
+dicts directly" is wrong by the same logic** — it couples the domain
+object to one wire format. The codec methods on the class are a
+narrower version of the same coupling we forbid elsewhere.
+
+PR 1 and PR 2 over-applied PY-OO-5: codec is an I/O concern, not
+domain behavior. State + behavior on the class means *domain* behavior —
+what happens on click, on minimize, on maximize, on drag, on value
+change — not *transport* behavior.
+
+### Decision
+
+The Element class owns:
+
+- **State** — fields (id, label, value, children, ...)
+- **Behavior** — domain methods (`on_click`, `on_drag`, `on_minimize`,
+  `on_maximize`, `on_value_change`, ...) that encode what user actions
+  *mean* for this element
+- **Composition** — `_children()` hook for composites; empty tuple
+  for leaves
+- **Render template** — inherited from the `Element` abstract base via
+  the template method pattern; delegates to an injected
+  `RendererFactory`
+
+The Element class does NOT own:
+
+- `to_dict` / `from_dict` (or any other format-specific codec)
+- Direct render code for any surface
+- Direct emission to any wire channel — interactions go through
+  behavior methods (`on_click` etc.) which decide what (if anything)
+  to emit through an injected `Emit` callable
+
+Wire-decode moves to a per-format Decoder family. Rendering moves to
+a per-surface Renderer family. Both injection points are abstract
+Protocols the Element imports; no concrete I/O imports survive on
+the Element side.
+
+### Rationale
+
+**1. Symmetry is the principle.** Input format and output surface are
+structurally identical concerns: both external, both pluggable, both
+have multiple legitimate implementations. The argument that justifies
+"no `imgui` import on Element" justifies "no `json` import on Element"
+by the same shape. Splitting one off and leaving the other on the
+class is incoherent.
+
+**2. Behavior is the missing piece for real applets.** A button is
+not just "a thing that emits when clicked" — it is "a thing that
+KNOWS what its click means." A modal dialog's OK button closes the
+modal and passes form state back. A window remembers its position
+across drags. A tree node knows how to expand and collapse. None of
+that lives on a renderer; all of it lives on the element. Without
+behavior on Element, every applet author re-implements the same
+patterns outside the tree with ad-hoc state-threading. With behavior
+on Element, applets compose naturally through the Composite pattern.
+
+**3. The PR 1+2 placement of codec on the class was justified
+locally but wrong in aggregate.** Locally, putting `to_dict` on
+`ButtonElement` is better than `_button_to_dict(elem)` in a module
+file — PY-OO-7 is correct about that. But the right answer is not
+"codec on the class" — it is "codec is not a method of the domain
+class at all." The right factoring puts codec in a per-format
+Decoder family, restoring full separation between domain and I/O.
+
+**4. The migration from PR 1+2 state is bounded.** The codec methods
+on the class are a small surface (one `to_dict`, one `from_dict` per
+Element kind). Moving them to per-format Decoder classes is
+mechanical for the JSON case (the only format we use today) and
+opens the door to msgpack / cbor / protobuf families when those
+become valuable.
+
+### Alternatives considered
+
+**Alternative A — Keep codec on the class.** Justification: PY-OO-5
+plus a single-format world (we only ever speak JSON). Lower file
+count, no abstract Decoder Protocol needed.
+
+*Why rejected:* Inconsistent with DES-031's reasoning when applied
+to render. The "single-format world" assumption is the same shape
+as "single-surface world" that we already rejected for rendering.
+Multi-format inputs (JSON for Python agents, msgpack for Go, cbor
+for embedded) is a near-future capability the symmetric design
+enables for free; the asymmetric one blocks.
+
+**Alternative B — Element is a transport struct (no behavior at all).**
+Plain dataclass, renderer does all the work including click handling.
+Codec stays on the class as the only "behavior."
+
+*Why rejected:* This is the procedural-Python-with-dataclasses
+anti-pattern PR 1 and PR 2 were tearing out. It contradicts DES-031
+directly and produces the "applet authors re-implement everything
+outside the tree" failure mode.
+
+### Consequences
+
+**Positive:**
+
+- Element is a true domain object — state, behavior, composition. The
+  noun in the model, not a transport detail.
+- Multi-format inputs become free. Adding `MsgpackDecoderFactory` is
+  purely additive; no Element changes.
+- Multi-surface outputs become free. Adding `HtmlRendererFactory` is
+  purely additive; no Element changes.
+- Test renderers (`RecordingRendererFactory`, `NullRendererFactory`)
+  unlock automated coverage of the render layer for the first time.
+- Behavior methods on Element compose with the Composite pattern —
+  applets author behavior on per-kind subclasses, not in separate
+  event-handling layers.
+- **Direct construction is a free consequence.** Because
+  `renderer_factory` and `emit` are injected at constructor time
+  (not threaded through a Decoder), any Python code that has both
+  in scope can construct Elements directly. This includes (a) tests
+  that build Elements headlessly without serializing through JSON,
+  (b) native Python applets that import the `punt_lux` library
+  rather than write JSON manually, and (c) embedded scenarios where
+  the same process holds the applet, hub, and display. The Decoder
+  family is the path for *crossing trust boundaries* (untrusted
+  input, foreign-language agents); it is not the only path for
+  Element construction.
+
+**Negative:**
+
+- The PR 1+2 codec-on-class pattern must be migrated to per-format
+  Decoder families. This is a structural change to every per-kind
+  module, even though the migration is mechanical.
+- File count rises — each format adds N per-kind decoder classes
+  (where N is the element-kind count). The cost is bounded by the
+  number of formats we actually support.
+- The construction signature for Element subclasses gains two
+  required keyword args (`renderer_factory`, `emit`). Wire-decode
+  is the one place that has to thread them in; internal callers
+  (tests, applets, hub) already have both in scope from Display
+  startup or library initialization.
+
+### What this is not
+
+- This ADR does not specify the migration order — that is a separate
+  migration-plan update.
+- This ADR does not commit to a specific Encoder family for the
+  output side of the wire (`Element → dict`). An Encoder family
+  parallel to Decoder will be needed at least for snapshot
+  characterization tests and scene-state introspection; its design
+  follows the same shape but is not in scope here.
+- This ADR does not change the Element vocabulary, the Update sum
+  type, the Event sum type, or any other domain-layer specification
+  established in DES-031 and `domain-model.md`.
+
+### Authority
+
+The decision is the operator's, reached through design discussion in
+the post-PR-2 session that produced `docs/architecture/io-model.md`.
+The reasoning that PR 1 and PR 2 over-applied PY-OO-5 is the
+operator's. This ADR records the correction so the question — *should
+codec live on the Element class?* — does not get reopened and so the
+migration of codec off the class proceeds with explicit authority.
+
+### Relationship to other decisions
+
+- DES-031 (domain model across tiers): this ADR is a direct consequence.
+  DES-031 says Element is a domain object; DES-032 names what that
+  means at the I/O boundary specifically.
+- DES-030 (three-layer type model): unchanged. The wire layer still
+  has typed shapes; this ADR moves the codec that produces them off
+  the domain class.
+- DES-029 (`frozen=True` wire types): partially affected. Element
+  subclasses move from `@dataclass(frozen=True, slots=True)` to ABC
+  inheritance with `__new__`-pattern construction. The immutability
+  invariant is preserved by convention (no mutation methods on
+  Element subclasses) rather than by `@dataclass(frozen=True)`. A
+  follow-up ADR will specify the new immutability discipline if
+  this proves to need teeth beyond convention.
+- DES-033 (Renderer and Decoder families): the next ADR, which
+  specifies the I/O architecture this one commits to.
+- `docs/architecture/io-model.md`: the long-form architecture
+  document this ADR is the decision of.
+
+## DES-033: Renderer and Decoder Families with Asymmetric Cardinality
+
+**Date:** 2026-05-23
+**Status:** ACCEPTED
+**Decided by:** the operator
+**Companion doc:** `docs/architecture/io-model.md`
+
+### Problem
+
+DES-032 established that Element owns behavior and not I/O. The
+follow-on question is structural: *how* do the two I/O sides get
+plugged in, and what is the runtime cardinality?
+
+Three design questions need explicit resolution:
+
+1. What shape do the per-surface render and per-format decode
+   families take? One god-object Surface with a method per element
+   kind, or per-kind classes per family?
+2. How do the registries dispatch? At construction time, at render
+   time, at message-receive time, or some combination?
+3. What is the runtime cardinality? One renderer + one decoder per
+   Display, or many?
+
+The first two were converged in the io-model design discussion
+([`io-model.md`](docs/architecture/io-model.md)). The third is
+asymmetric in a way that affects the application wiring.
+
+### Decision
+
+**Per-surface Renderer family.** One `RendererFactory` per render
+surface (ImGui, HTML, Recording, Null). Each factory owns a
+collection of per-kind Renderer classes (one per Element kind:
+`ImGuiButtonRenderer`, `HtmlButtonRenderer`, etc.). The factory
+dispatches by Element type via `match` and returns the
+appropriate per-kind Renderer instance bound to the element. The
+`Renderer` Protocol is small: `render()` for leaves, `begin()` /
+`end()` for composites. The Composite recursion lives in the
+`Element.render` template method, not in the Renderer.
+
+**Per-format Decoder family.** Structurally identical: one
+`DecoderFactory` per wire format (JSON, msgpack, cbor, protobuf).
+Each factory owns per-kind Decoder classes that read wire bytes
+into fully-constructed Elements with `renderer_factory` and `emit`
+injected at construction.
+
+**Module-level registries** select the family by key:
+
+- `Renderers.getRendererFor(Surface.IMGUI) → RendererFactory`
+- `Decoders.getDecoderFor(WireFormat.JSON, renderer_factory, emit) → DecoderFactory`
+
+`Surface` and `WireFormat` are constrained enums — no behavior, just
+discriminators.
+
+**Cardinality is deliberately asymmetric:**
+
+| | Selected when | Lifetime | Count per Display |
+|---|---|---|---|
+| `RendererFactory` | Display startup | process | 1 |
+| `Decoder` | client connect (format detected/negotiated) | connection | N |
+
+A single Display has one rendering surface but accepts many
+concurrent client connections, each potentially speaking a
+different wire format. All decoders thread the same
+`renderer_factory` and `emit` into the Elements they construct, so
+every Element regardless of input origin renders through the same
+output and emits to the same channel.
+
+### Rationale
+
+**1. Per-kind, per-family classes avoid the god-object Surface.** An
+earlier draft proposed a `Surface` Protocol with one method per
+Element kind (`surface.button(...)`, `surface.text(...)`,
+`surface.slider(...)`). That collapses to a 30+ method interface
+that every surface must implement in full. Per-kind classes
+distribute the family knowledge across small, focused units. Each
+class is ~30 lines and tells you exactly what an ImGui Button does
+or what an HTML Group emits.
+
+**2. The Composite pattern lives on Element, not on Renderer.** The
+GoF Composite requires the same operation method on Component, Leaf,
+and Composite — implemented via inheritance. By placing `render()`
+on the Element abstract base as a template method, the Composite
+shape is on the domain object. The Renderer Protocol can be
+narrower (just the drawing primitives) without needing to
+reproduce the composite recursion. Recursion happens through
+`Element.render` calling itself on children.
+
+**3. Registries (Renderers, Decoders) decouple selection from
+construction.** The application wiring code calls the registry with
+a key and gets a factory; the factory is then passed where it's
+needed. The Element class never imports any concrete factory; it
+imports only the abstract Protocols. New families register by
+extending the registry's `match` block.
+
+**4. The cardinality asymmetry is structural and intentional.** A
+Display is a singular thing — it draws to one surface. Adding a
+second concurrent surface would be a second Display. Conversely,
+multi-client multi-format input is the entire point of Lux as a
+shared visual surface — agents in different languages or runtimes
+must be able to participate. The registries make this trivial: the
+connection handler negotiates a format per connection and gets the
+right decoder; the rendering loop never knows or cares which
+client's elements it's drawing.
+
+**5. The renderer reports interactions back to Element behavior;
+the Element decides what to emit.** Per DES-032, behavior lives on
+Element. ImGui detects "the user clicked the button" and calls
+`elem.on_click()`; the Element runs its domain behavior, which for
+a button typically emits an InteractionMessage to the injected
+`emit` channel. HTML detects clicks asynchronously via a JS
+handler and websocket round-trip; the same `elem.on_click()`
+method is the destination. The renderer's responsibility is
+*surface-idiom detection*, not domain decisions.
+
+### Alternatives considered
+
+**Alternative A — God-object Surface with one method per element
+kind.** A single `Surface` Protocol that every backend implements
+in full.
+
+*Why rejected:* Forces every surface to know about every element
+kind; one new element kind requires a coordinated update to every
+surface. Per-kind, per-family classes localize the change.
+
+**Alternative B — Visitor pattern with `accept(visitor)` on
+Element.** External dispatch where the renderer is a Visitor that
+walks the Element tree.
+
+*Why rejected:* Adds `accept()` method to every Element solely for
+dispatch. Doesn't compose well with behavior methods (`on_click`,
+`on_drag`) that live on the same class. Template method on the
+Element base is cleaner and reads as the Composite the pattern
+literally is.
+
+**Alternative C — Parallel Renderer tree mirroring Element tree
+(no Element render method).** Element stays inert data; a factory
+walks the Element tree and builds a parallel Renderer tree where
+each Renderer node knows its element and surface. Renderer tree
+has the Composite shape.
+
+*Why rejected:* Sneaks Element back into the
+no-behavior-on-the-class pattern PR 1 and PR 2 were eliminating.
+Forces a rebuild story for the Renderer tree on every Element
+mutation. Doubles the in-memory tree. By DES-031 + DES-032, the
+behavior belongs on Element; the Renderer tree shadow is
+unnecessary.
+
+**Alternative D — Dispatcher object separate from Renderer.** A
+Dispatcher class holds the per-kind dispatch table and is passed
+into Element.render. Element.render delegates to dispatcher,
+dispatcher delegates to per-kind renderer.
+
+*Why rejected:* Three objects (Element, Dispatcher, Renderer) for
+what is structurally two responsibilities (Element's render +
+per-kind drawing). The `RendererFactory` callable IS the dispatch
+(`factory(elem) -> Renderer`); no separate Dispatcher class needed.
+
+**Alternative E — Symmetric cardinality (one Decoder per Display).**
+Force all connected clients to speak the same wire format.
+
+*Why rejected:* The Lux value proposition is multi-language,
+multi-runtime agents collaborating on a shared display. Forcing
+format uniformity rules out polyglot agents at the architectural
+level for no benefit.
+
+### Consequences
+
+**Positive:**
+
+- Adding a new render surface (HTML, recording, EventTracking)
+  requires a new factory and per-kind classes — no Element changes,
+  no Decoder changes, no registry changes beyond one `match` arm.
+- Adding a new wire format (msgpack, cbor, protobuf) requires a new
+  decoder family — no Element changes, no Renderer changes, no
+  registry changes beyond one `match` arm.
+- Test renderers (Recording, Null, EventTracking) unblock the
+  rendering-layer test gap that's existed since PR 0 — every render
+  path becomes assertable headlessly.
+- Multi-client multi-format input becomes a configuration
+  decision, not an architecture project.
+- Click handling, drag handling, value-change handling all live in
+  one place per Element kind, on the Element subclass.
+
+**Negative:**
+
+- More files. Per-surface families plus per-format families
+  multiply per-kind classes by `(surfaces × kinds) + (formats × kinds)`.
+  Today: 24 kinds × 1 surface (ImGui) × 1 format (JSON) =
+  48 per-kind classes. Five years out with three surfaces and two
+  formats: 24 × 3 + 24 × 2 = 120 per-kind classes. Each is small
+  (~30 lines) but the directory grows.
+- Connection-layer wiring gains complexity — format negotiation,
+  per-connection decoder lifecycle, owner-routing of emit.
+- DES-029's `frozen=True` invariant changes shape — see DES-032's
+  note on this.
+
+### What this is not
+
+- This ADR does not commit to building HTML, RecordingRenderer, or
+  any specific test backend. It commits to the architectural shape
+  that makes them additive when wanted. Concrete backends ship
+  when they have a consumer.
+- This ADR does not specify the migration order from the PR 1+2
+  state (codec-on-class, `ElementRenderer` god class, no per-format
+  decoders) to the io-model architecture. The migration plan is a
+  separate update.
+- This ADR does not specify Encoder symmetry. **SUPERSEDED by DES-034:**
+  Encoder family is committed as a peer to Decoder. The rest of this
+  bullet is preserved for historical context; the actual Encoder
+  family lands in the migration PR that ships the connection-layer
+  cleanup.
+- This ADR does not specify the format-negotiation mechanism (sniff
+  first bytes, scheme tag, per-port convention, content-type
+  header). That is a connection-layer concern, not an Element-design
+  concern.
+
+### Authority
+
+The decision is the operator's, reached through design discussion in
+the post-PR-2 session that produced `docs/architecture/io-model.md`.
+The asymmetric-cardinality observation is the operator's. This ADR
+records the architecture so that the question — *how do we plug in
+multiple surfaces and multiple wire formats?* — has a single
+answer to point at and so that the implementation is bounded.
+
+### Relationship to other decisions
+
+- DES-031 (domain model across tiers): this ADR specifies the I/O
+  shape that the domain model demands.
+- DES-032 (Element owns behavior, not I/O): direct precursor. This
+  ADR is the architecture that realizes DES-032's principle.
+- DES-030 (three-layer type model): wire layer is now produced by
+  Decoder families and consumed by Encoder families if added; the
+  type shape is unchanged.
+- `docs/architecture/io-model.md`: the long-form architecture
+  document this ADR is the decision of. ADR records the decision;
+  io-model.md records the design in detail.
+- `docs/architecture/x11-model.md`: when PR 13 of the migration
+  plan splits `lux-display` into its own process, the cross-process
+  IPC is one specific Decoder family (whichever format the hub
+  serializes Updates and Events into) on each side of the boundary.
+
+## DES-034: IPC and Rendering Are Decoupled — Renderer vs Encoder Distinction
+
+**Date:** 2026-05-23
+**Status:** ACCEPTED
+**Decided by:** the operator
+**Companion doc:** `docs/architecture/io-model.md`
+
+### Problem
+
+DES-031 and DES-032 establish that Lux is a domain model living across
+three tiers (applet, hub, display). The remaining structural question:
+how do state changes propagate from applet through hub to display, and
+how does rendering fit in? Two confusable framings:
+
+- **(a)** Rendering propagates through IPC. Each tier has a "renderer"
+  that, when `elem.render()` is called, ships a render request to the
+  next tier (RemoteRenderer pattern). The display's renderer terminates
+  by drawing pixels.
+- **(b)** IPC carries state-change messages only; rendering is a
+  per-tier concern. Each tier holds its own `Display` instance with
+  the current scene state; tiers stay in sync by serializing Updates
+  across IPC. Rendering happens locally in whichever tier has a render
+  loop (display tier only in the default deployment).
+
+The earlier io-model drafts conflated (a) and (b) by using the word
+"Renderer" loosely. Post-PR-2 design discussion resolved this.
+
+### Decision
+
+(b). IPC carries **state-change messages** — Updates and Events. IPC
+does NOT carry render calls. Each tier holds its own `Display` and its
+own copy of the scene state; tiers stay synchronized by applying
+Updates that flow across IPC boundaries.
+
+Rendering is a per-tier concern. A tier that has a render loop calls
+`scene_root.render()` against its OWN `Display`'s scene with its OWN
+`RendererFactory`. The default deployment has a render loop only in
+the display tier (lux-display, ImGui main loop). The hub and applet
+tiers have no render loop; they have message loops that propagate
+Updates and Events.
+
+To prevent the same word from covering two distinct responsibilities,
+the design distinguishes:
+
+- **Renderer** — paints a surface. Per-kind, per-surface (e.g.
+  `ImGuiButtonRenderer`, `HtmlButtonRenderer`). Lives in tiers that
+  have a render loop. Output is pixels (ImGui), HTML strings (Html),
+  or a captured event log (Recording).
+- **Encoder** — produces wire bytes for the next IPC hop. Per-kind,
+  per-format (e.g. `JsonButtonEncoder`, `MsgpackButtonEncoder`). Lives
+  in every tier that ships state to a neighbor.
+
+The pair is parallel to the existing **Decoder** family (per-kind,
+per-format, reads wire bytes back into Element instances).
+
+The shipping STRATEGY (whole tree vs diffs) is a property of the
+downstream surface, not of the tier doing the shipping:
+
+- ImGui downstream → whole-tree shipping every state change. ImGui is
+  immediate-mode at the programming interface (its internal diffing is
+  its own optimization concern), so re-emitting the whole tree per
+  state change is the natural fit.
+- HTML downstream → diff-shipping. DOM is retained-mode; full
+  retransmission would tear down and rebuild every node.
+
+### Rationale
+
+**1. RemoteRenderer conflates two orthogonal concerns.** Render-call
+propagation (on-demand) and state propagation (per state change) have
+different cardinalities, different triggers, and different consumers.
+A render loop polls every frame; state propagation fires on change.
+Marrying them by making render() the IPC trigger forces both behaviors
+to share a path that fits neither.
+
+**2. ImGui's immediate-mode interface matches whole-tree shipping.**
+ImGui is told the whole tree every frame anyway. Shipping the whole
+tree from hub to display on every state change costs the same as
+shipping a diff to a stateful client, because the display tier just
+hands the latest tree to ImGui's next frame. Diffing only matters
+when the downstream is retained-mode (HTML, native DOM).
+
+**3. Renderer-and-Encoder as separate families keeps each focused.**
+A renderer's job is "produce surface effects" (draw, emit HTML); an
+encoder's job is "produce wire bytes." Lumping them under one name
+hides which one a particular class does. Two names, two contracts,
+two registries.
+
+**4. Per-tier rendering preserves single-runtime testability** (DES-031
+rationale 1). Tests construct an in-process `Display`, exercise it
+without IPC, and use a `RecordingRenderer` or `NullRenderer` to assert
+on outputs. The render loop in tests is whatever the test drives — no
+ImGui context, no display process required.
+
+### Alternatives considered
+
+**Alternative A — RemoteRenderer.** Each tier's `Element.render()` ships
+a render request to the next tier via IPC. Display tier's renderer
+terminates by drawing.
+
+*Why rejected:* Conflates render-call propagation with state
+propagation. Makes the render loop's cadence depend on IPC, which
+mismatches how ImGui polls. Tests would have to simulate an IPC chain
+to exercise render at all.
+
+**Alternative B — One Renderer concept that covers both surface painting
+and wire serialization.** A single Protocol with multiple
+implementations: ImGui, HTML, JSON-shipper, msgpack-shipper.
+
+*Why rejected:* Conflates two distinct responsibilities. A JSON shipper
+isn't "rendering" — it's serializing. Naming them the same hides the
+difference. Two families is two contracts; one family is one fuzzy
+contract.
+
+### Consequences
+
+**Positive:**
+
+- The render loop and IPC run in parallel, independently. The render
+  loop draws every frame from the local scene state; IPC just keeps
+  the local scene state in sync with upstream. The two never collide.
+- Renderer family stays focused on surface output (display tier only).
+- Encoder family is the dual of Decoder family — same shape, opposite
+  direction. Symmetric across IPC boundaries.
+- Tests use `RecordingRenderer` / `NullRenderer` against an in-process
+  `Display` without any IPC. The single-runtime testability invariant
+  from DES-031 is preserved.
+- Shipping strategy can vary per downstream surface: ImGui targets get
+  whole trees; HTML targets get diffs. The shipping strategy is part
+  of the Encoder family's responsibility for the downstream connection.
+
+**Negative:**
+
+- More classes — Renderer family AND Encoder family, both per-kind.
+  For N element kinds and S surfaces and F formats, the per-kind class
+  count is N×S (renderers) + N×F (encoders) + N×F (decoders). Each
+  class is small.
+- The applet/hub tiers need a renderer_factory at construction even
+  though they never call `elem.render()`. They use `NullRendererFactory`.
+  The constructor signature is uniform across tiers; the factory is
+  dead weight in tiers without a render loop. Operator accepted this
+  cost in exchange for uniform construction.
+
+### What this is not
+
+- This ADR does not specify which formats the Encoder family supports.
+  JSON is the only required format today. Adding msgpack, cbor,
+  protobuf, cap'n proto is purely additive.
+- This ADR does not specify which surfaces the Renderer family
+  supports. ImGui is the required surface; RecordingRenderer and
+  NullRenderer for tests are required; HTML and any other surface
+  ships when there is a consumer.
+- This ADR does not specify the diff format for retained-mode
+  surfaces. When HTML or another retained-mode surface ships, its
+  Encoder family will define its diff shape.
+
+### Authority
+
+The decision is the operator's. Recorded post-PR-2 to prevent the
+RemoteRenderer pattern from being re-proposed by a future reviewer or
+agent who reads the io-model and reaches for the wrong synthesis.
+
+### Relationship to other decisions
+
+- DES-031: this ADR specifies how state propagates across the three
+  tiers that DES-031 established.
+- DES-032: this ADR's Renderer vs Encoder distinction sits underneath
+  DES-032's "Element does not own its I/O." The Element doesn't know
+  about either family; both are injected.
+- DES-033: this ADR refines the role of the families DES-033 named.
+  Renderer is per-kind-per-surface; Encoder is per-kind-per-format;
+  both are dispatched by per-tier registries (`Renderers` and
+  `Encoders`).
+- `docs/architecture/io-model.md` §"Where rendering happens" — the
+  long-form spec.
+- `docs/architecture/x11-model.md` — the topology this ADR's IPC
+  carries across.
+
+## DES-035: Handler Routing — Ownership, Client Kind, and Pattern Are Three Independent Axes
+
+**Date:** 2026-05-23
+**Status:** ACCEPTED
+**Decided by:** the operator
+**Companion doc:** `docs/architecture/io-model.md`
+
+### Problem
+
+When a user interacts with an element on the display (clicks a button,
+types in an input, drags a window), the InteractionMessage must reach
+the code that decides what the interaction means. Several earlier
+drafts conflated three distinct concerns into one word ("agent-owned"
+versus "applet-owned" etc.), producing routing rules that mixed levels
+of abstraction. The right architecture separates them into three
+independent axes.
+
+### Decision
+
+Routing of InteractionMessages from the display tier to handler code is
+decomposed into three independent concerns. The hub is responsible for
+the first axis only; the other two are downstream of routing.
+
+**Axis 1 — Ownership.** Who runs the handler? Two cases:
+
+- `owner = "hub"` — the hub runs the handler in-place. Used for
+  hub-shipped element classes whose behavior is built into the hub
+  itself (e.g., `FilterableTable.on_filter_change`).
+- `owner = <connection_id>` — the hub forwards the InteractionMessage
+  to the named connection. The recipient's runtime handles dispatch.
+
+The hub maintains `{element_id → owner}` as part of `Display`'s state
+(established in DES-031's ownership model). Lookup at routing time is
+O(1).
+
+**Axis 2 — Client kind.** When ownership is a connection, the recipient
+client's runtime dispatches the message. The mechanism depends on
+what kind of client is on the other end:
+
+- **Library client** (Python applet using `punt_lux`) — holds real
+  Element instances with bound behavior methods. Dispatches by
+  looking up the instance for `element_id` and calling the appropriate
+  method (`on_click`, `on_value_change`, etc.) on the subclass.
+- **Wire client** (Go, Rust, external Python, anything that emits
+  JSON over MCP without using the library) — holds no Element class
+  instances. Dispatches via a language-native switch / match on the
+  message fields.
+- **LLM agent** (Claude Code, other MCP-connected language models) —
+  special case of wire client where dispatch IS prompt interpretation.
+  The runtime surfaces the message to the LLM, which decides what to
+  do via reasoning and emits Updates back via MCP tool calls.
+
+The hub does not distinguish among client kinds at routing time. To
+the hub, a connection is a connection. The client's runtime handles
+its own dispatch.
+
+**Axis 3 — Handler pattern.** What does the handler body do? Independent
+of who runs it.
+
+- **Deterministic** — straight code that runs synchronously and
+  produces Updates locally. `SubmitButton.on_click` validates a form,
+  computes a result, mutates scene state.
+- **Agent-escalation** — handler builds a prompt, sends it to an LLM,
+  waits for the response, then emits Updates based on what the LLM
+  decided. A Python applet can have an agent-escalation handler
+  (calls its own LLM); an LLM agent's "handler" is usually
+  agent-escalation by construction (its only mode is LLM reasoning).
+- **Hybrid** — handler does some deterministic work, then escalates
+  for the part that requires reasoning.
+
+The handler pattern is internal to the handler body. The runtime
+delivers the message; the handler decides how to process it. Pattern
+is invisible to both the hub and the recipient client's dispatch
+mechanism.
+
+The applet author writes tier-blind code. They write a Python class
+with behavior methods. They do not write code that asks "what tier am
+I in?" or "is my element hub-owned?" The runtime infrastructure
+handles ownership tracking and message routing.
+
+### Rationale
+
+**1. Three axes are independent in the wild.** Every combination of
+the three axes has a realistic example:
+
+| ownership | client kind | handler pattern | realistic example |
+|-----------|-------------|-----------------|-------------------|
+| hub | (n/a) | deterministic | FilterableTable.on_filter_change |
+| connection | library | deterministic | Beads applet's update-bead button |
+| connection | library | agent-escalation | Python applet that calls its own LLM |
+| connection | LLM agent | agent-escalation | Claude Code modal confirm |
+| connection | wire client | deterministic | Go applet with switch-on-action |
+
+Conflating the axes makes some combinations unrepresentable.
+
+**2. The hub's routing decision should be O(1).** Ownership is a
+single lookup in a dict. The hub does not interpret client kind or
+handler pattern; those are downstream concerns.
+
+**3. Applet authors should not write tier-aware code.** This is the
+principle the operator stated explicitly. An applet's `SubmitButton`
+should have the same `on_click` method whether the applet runs as a
+separate process (default), in-process embedded (tests), or anywhere
+else. The runtime handles tier routing transparently.
+
+**4. Naming axes prevents future re-conflation.** Documenting
+"ownership versus client kind versus handler pattern" as three named
+axes makes it possible to reject proposals that try to combine them
+back into one rule.
+
+### Alternatives considered
+
+**Alternative A — One routing rule per (ownership, client kind, handler
+pattern) combination.** Every combination is a separate rule the hub
+matches against.
+
+*Why rejected:* Combinatorial explosion. Most combinations route the
+same way at the hub level; only ownership matters at the hub. The
+rule-set bloats with no benefit.
+
+**Alternative B — Routing by element class type.** The hub knows what
+classes are hub-handled vs forwarded; routes accordingly.
+
+*Why rejected:* Couples the hub to specific element classes. Adding
+a new applet-owned class would require hub-side configuration.
+Ownership tracking solves the same problem with one bit per element
+instance, no class registry.
+
+**Alternative C — Single "agent-owned" / "hub-owned" / "applet-owned"
+flag conflating ownership with client kind.** What I originally
+proposed in early drafts.
+
+*Why rejected:* Misses the wire client case (Go applet that's not an
+LLM agent). Misses the library client with agent-escalation handler
+case (Python applet that calls its own LLM). The three-axis
+decomposition is what makes those cases coherent.
+
+### Consequences
+
+**Positive:**
+
+- The hub's routing logic is small: lookup owner; if hub, dispatch
+  locally; if connection, forward.
+- New client kinds (e.g., a future WASM applet) require no hub
+  changes; the runtime on the client side handles dispatch.
+- Hybrid handler patterns (some deterministic work then escalation)
+  fit naturally because pattern is internal to the handler body.
+- The applet programming interface is tier-blind. The applet author
+  writes one Element subclass with one on_click; the runtime delivers
+  events to it regardless of deployment topology.
+
+**Negative:**
+
+- The hub must track per-element ownership for every element, not
+  just per-client ownership. (DES-031 already requires this — no new
+  cost.)
+- Wire clients must implement their own dispatch mechanism. There is
+  no library-level convention for non-Python clients beyond "your
+  language has a switch statement." This is a feature of wire-client
+  flexibility, not a bug, but it does mean a Go applet author writes
+  more code than a Python applet author.
+
+### What this is not
+
+- This ADR does not specify how the hub determines ownership at
+  element creation time. That mechanism is established in DES-031 —
+  the connection that creates an element via `display.apply(...)` is
+  recorded as the owner. Hub-shipped elements have `owner = "hub"`.
+- This ADR does not specify what the InteractionMessage shape is.
+  That is the protocol-element layer's concern.
+- This ADR does not commit to any specific handler-pattern
+  vocabulary. "Deterministic vs agent-escalation vs hybrid" are
+  descriptive labels for the handler-body author; the runtime doesn't
+  enforce a category.
+
+### Authority
+
+The decision is the operator's, reached through design discussion
+post-PR-2. The three-axis decomposition emerged from the operator
+pushing back on the "applet-owned vs agent-owned vs hub-owned" framing
+as conflated. Recording the split as an ADR prevents future drift back
+to one-axis routing rules.
+
+### Relationship to other decisions
+
+- DES-031: this ADR builds on the ownership model that DES-031
+  established (per-element ownership in `Display`).
+- DES-032: this ADR's "applet author writes tier-blind code" is a
+  consequence of DES-032's "behavior on Element" — the behavior method
+  doesn't know about tiers because behavior is just Python code on
+  the class.
+- DES-033: InteractionMessages routed in this ADR travel on the
+  Decoder/Encoder family DES-033 named (with DES-034 specifying the
+  Renderer/Encoder distinction within it).
+- DES-034: this ADR's routing concerns operate on InteractionMessages
+  which are one of the message kinds the Decoder/Encoder families
+  handle.
+- `docs/architecture/io-model.md` §"Handler routing — three
+  independent axes" — the long-form spec.
+
+## DES-036: Observer Pattern at the MCP Boundary
+
+**Date:** 2026-05-23
+**Status:** ACCEPTED
+**Decided by:** the operator
+**Companion doc:** `docs/architecture/io-model.md`
+
+### Problem
+
+The default applet/hub/display deployment uses Lux's own IPC for
+inter-tier communication (state changes via Updates, notifications via
+Events). At the MCP boundary — between the hub and connected LLM
+agents (Claude Code being the canonical example) — a different
+protocol applies: MCP defines tools (client → server RPC) and
+notifications (server → client push), with no native concept of
+Lux's domain-model Updates or Events.
+
+The question is: when an applet (or any internal Lux actor) needs to
+**notify an agent** of something the agent should consider — a new
+work item is ready, a modal needs confirmation, a form was submitted —
+what is the mechanism that crosses the MCP boundary?
+
+Naive options:
+
+- **Polling.** Agent periodically calls a "give me pending events"
+  tool. Cheap to implement; high latency; load increases with active
+  agents whether or not there's anything to deliver.
+- **Direct point-to-point.** Applet has a direct connection to a
+  specific agent and pushes notifications across it. Tight coupling;
+  applet needs to know which agent exists and how to reach it.
+- **Broadcast.** Hub pushes every notification to every connected
+  agent. Each agent filters. Wasteful; doesn't scale.
+
+None of these is right. The applet doesn't know which agents exist,
+and shouldn't. The agent doesn't know which applets exist, and
+shouldn't. They should communicate through a structured intermediary
+that preserves loose coupling.
+
+### Decision
+
+The hub implements the **Observer pattern** (Gamma, Helm, Johnson,
+Vlissides, *Design Patterns*) at the MCP boundary, with the hub as
+the **Subject** and MCP-connected agents as **Observers**.
+Subscription is **topic-based**.
+
+**Wire surface (MCP tools and notifications):**
+
+```
+   MCP TOOLS                            MCP NOTIFICATIONS
+   (client → server, RPC)               (server → client, async push)
+   ──────────────────────               ────────────────────────────
+
+   subscribe(topic: str)                observed(topic: str,
+   unsubscribe(topic: str)                       payload: object)
+   publish(topic: str,
+           payload: object)
+```
+
+**Internal hub-side API for applets and other in-fabric actors:**
+
+```python
+hub.publish(topic: str, payload: Any) -> None
+hub.subscribe(topic: str) -> Subscription   # in-process subscribers also welcome
+```
+
+The applet calls `hub.publish(...)`; the hub fans the payload out to
+every subscribed connection via MCP server-push notifications (for
+MCP-connected agents) or via in-process delivery (for in-fabric
+subscribers). The publisher does not enumerate subscribers. The
+subscriber does not know who else subscribed.
+
+**Topic vocabulary** is open. The hub does not pre-declare valid
+topics; any string is a valid topic. Conventions will emerge per
+applet domain (`bead.queued`, `modal.confirmed`, `form.submitted`,
+etc.). Topic namespacing is recommended (dotted prefix) but not
+enforced.
+
+### Rationale
+
+**1. Loose coupling matches the actor architecture.** Lux already has
+multiple actor types: applets, agents, the hub itself. The Observer
+pattern makes them communicable without point-to-point knowledge.
+Applets and agents come and go; the hub mediates.
+
+**2. Topic-based fits domain vocabulary, not connection identity.**
+Subscribers express interest in WHAT happened, not WHO told them. A
+beads-queued notification doesn't care whether it was the beads
+dashboard applet or the hub itself that published it. Multiple
+observers can subscribe to the same topic for different reasons.
+
+**3. MCP natively supports server-push notifications.** MCP's
+notification mechanism (server → client) is unsolicited push. The
+agent's runtime (Claude Code, etc.) surfaces incoming notifications
+to the LLM, which decides what to do. No polling required.
+
+**4. The internal `hub.publish(...)` API and the MCP wire are dual.**
+An applet that publishes via the in-fabric API and an agent that
+publishes via the MCP tool produce indistinguishable effects on
+subscribers. Subscribers don't know which side the publisher was on.
+Same for subscription: in-fabric subscribers and MCP-connected
+agents see the same payloads.
+
+**5. The pattern is a textbook Composite-pattern peer.** Composite is
+used for the Element family (DES-031, DES-032); Observer is used for
+event distribution across loose actors. Both are GoF patterns chosen
+for their fit, not for novelty.
+
+### Alternatives considered
+
+**Alternative A — Polling.** Agent calls `pending_events()` periodically.
+
+*Why rejected:* High latency. Wasted work. Doesn't fit the LLM agent's
+interactive cycle (agent isn't running a background poll loop;
+it's waiting for human prompts).
+
+**Alternative B — Direct point-to-point notification.** Applet
+maintains a connection to specific agents.
+
+*Why rejected:* Applets shouldn't know about agents. Coupling
+explodes as actor count grows.
+
+**Alternative C — Broadcast.** Hub pushes every notification to every
+connected agent.
+
+*Why rejected:* Wasteful. Doesn't scale. Each agent has to filter on
+its own, which means each agent has its own filter logic that has to
+match the publisher's vocabulary.
+
+**Alternative D — Pub/sub on a separate message bus** (Redis,
+RabbitMQ, NATS, etc.).
+
+*Why rejected:* Adds an external dependency for a problem the hub
+can solve in-process. The hub is already the single point of
+coordination for all Lux actors; it's the natural place for the
+subscription registry. If scale ever requires it, swapping the
+in-process pub/sub for an external bus is a future change.
+
+### Consequences
+
+**Positive:**
+
+- Applets can notify agents without knowing the agent exists.
+- Agents can react to applet events without polling.
+- Multiple agents can observe the same topic for different purposes.
+- New actor kinds (other applets, observability sinks, monitoring
+  tools) can subscribe via the same mechanism with no infrastructure
+  changes.
+- Same shape works whether the publisher is an applet, the hub
+  itself, or another agent.
+
+**Negative:**
+
+- The hub gains a subscription registry and an MCP notification push
+  path. New code surface to test and maintain.
+- Topic vocabulary is open — convention rather than enforcement.
+  Wrong topic names produce silent no-ops (no subscribers); this is
+  a debugging burden mitigated by logging unsubscribed publish calls
+  at debug level.
+- MCP server-push notifications depend on each MCP client's runtime
+  surfacing them. Claude Code does; other MCP clients should be
+  verified before relying on push semantics.
+
+### What this is not
+
+- This ADR does not commit to a topic vocabulary. Topics are domain
+  conventions that emerge per applet.
+- This ADR does not commit to a specific subscription persistence
+  model. Subscriptions are session-scoped by default (live as long
+  as the MCP connection lives). Durable subscriptions across
+  disconnects are a future capability if needed.
+- This ADR does not commit to a delivery-guarantee model. Default is
+  at-most-once via MCP notification (delivery follows the MCP
+  transport's reliability). Persistent queues, acks, retries are
+  future capabilities if a use case demands them.
+- This ADR does not replace the Update/Event flow inside the Lux
+  fabric. Updates and Events are how state changes propagate across
+  applet/hub/display IPC. Observer notifications are how arbitrary
+  domain events propagate across the MCP boundary.
+- **Wire kind for `publish` over Lux IPC (separate-process applet
+  case).** When an applet runs as a separate process and calls
+  `hub.publish(topic, payload)`, the call crosses Lux IPC, not MCP.
+  This ADR commits to adding `PublishMessage(topic: str, payload:
+  object)` as a new wire-message kind alongside `Update` and `Event`
+  (handled by the Encoder/Decoder family). In-process applets call
+  `hub.publish` directly with no wire serialization. Both paths
+  converge at the hub's subscription registry, which fans out to all
+  subscribers (in-process delivery for in-fabric subscribers; MCP
+  server-push for MCP-connected agents).
+
+### Authority
+
+The decision is the operator's, reached through design discussion in
+the post-PR-2 session that produced `docs/architecture/io-model.md`.
+The operator named the Observer pattern explicitly as the right
+shape; this ADR records the decision so the choice doesn't get
+re-proposed as polling or as point-to-point.
+
+### Relationship to other decisions
+
+- DES-031: this ADR introduces a SECOND inter-actor communication
+  mechanism alongside the Update/Event flow DES-031 established.
+  Updates/Events are inside the Lux fabric; Observer is across the
+  MCP boundary.
+- DES-032: this ADR doesn't change Element ownership or behavior.
+  Element behavior methods can call `hub.publish(...)` to notify
+  observers; observers can call `Display.apply(...)` to mutate
+  scene state. The two systems are orthogonal.
+- DES-033: this ADR's per-tier Renderer / Encoder families are
+  unaffected. The MCP boundary is its own protocol surface; the
+  Encoder family is for Lux IPC, not MCP.
+- DES-034: this ADR sits alongside DES-034's IPC/render decoupling.
+  Observer notifications are a third channel (Updates, Events,
+  notifications), with notifications targeting MCP-connected
+  agents.
+- DES-035: this ADR's `publish` and `subscribe` mechanisms can be
+  used by handlers in any of DES-035's three handler patterns —
+  deterministic handlers can publish; agent-escalation handlers can
+  both subscribe and publish.
+- `docs/architecture/io-model.md` §"Agent observers — MCP boundary" —
+  the long-form spec.
+- `docs/oo-refactor/migration-plan.md` PR 11 — the migration PR that
+  introduces this subsystem.
