@@ -232,90 +232,104 @@ def simulate_user_click(display_proc: subprocess.Popen[str], elem_id: str) -> No
 
 
 def run_r1(surface: str) -> bool:
-    """ROUNDTRIP 1 — agent show() reaches display + agent receives observer push.
+    """ROUNDTRIP 1 — show command from Agent, acceptance + propagation by Hub,
+    apply + render by Display, observer push back to Agent.
 
     Independent: spawns its own hub+display+agent."""
     reset_observed()
-    section("ROUNDTRIP 1 — outbound + observer push")
-    step("intent", "AGNT calls show(Panel{Label, Button}) → HUB applies + ships → DISP renders")
-    step("intent", "                                      → HUB publishes 'scene.applied' → AGNT receives push")
+    section("ROUNDTRIP 1 — show + accept + apply + render + notify")
+    step("intent", "AGNT subscribes to 'scene.accepted', then sends show(Panel{Label, Button}) to HUB.")
+    step("intent", "HUB decodes + instantiates Hub-tier Elements (rf=Null), accepts on hub_display,")
+    step("intent", "encodes + sends AddElement Update to DISP, and publishes 'scene.accepted'.")
+    step("intent", "DISP receives + decodes + instantiates DISP-tier Elements (rf=Surface), applies")
+    step("intent", "to display_display, and renders the scene each frame. AGNT is notified via push.")
 
     with trio(surface=surface) as t:
         ok = True
-        ok &= require("HUB",  "agent connected",                      timeout=5.0); step("1", "AGNT connected to HUB")
-        ok &= require("HUB",  "agent subscribed to 'scene.applied'",  timeout=3.0); step("2", "AGNT registered to observe 'scene.applied'")
-        ok &= require("AGNT", "sent show('scene1')",                  timeout=3.0); step("3", "AGNT sent show() to HUB")
-        ok &= require("HUB",  "applied scene 'scene1'",               timeout=3.0); step("4", "HUB decoded + applied + shipped Update to DISP")
-        ok &= require("DISP", "applied add_element",                  timeout=3.0); step("5", "DISP decoded + applied the Update to its own tree")
-        ok &= require("DISP", "Panel[p1]",                            timeout=3.0); step("6", "DISP render loop drew Panel composite")
-        ok &= require("DISP", "Label[lbl1]",                          timeout=3.0); step("7", "DISP render loop drew Label leaf")
-        ok &= require("DISP", "Button[btn1]",                         timeout=3.0); step("8", "DISP render loop drew Button leaf")
-        ok &= require("AGNT", "observed 'scene.applied'",             timeout=3.0); step("9", "AGNT received observer push from HUB")
+        ok &= require("HUB",  "AGNT connected",                              timeout=5.0); step("1", "AGNT connected to HUB")
+        ok &= require("HUB",  "AGNT subscribed to 'scene.accepted'",         timeout=3.0); step("2", "AGNT subscribed to 'scene.accepted'")
+        ok &= require("AGNT", "sent show('scene1') to HUB",                  timeout=3.0); step("3", "AGNT sent show() to HUB")
+        ok &= require("HUB",  "accepted scene 'scene1'",                     timeout=3.0); step("4", "HUB decoded + instantiated Hub-tier Elements; accepted scene on hub_display")
+        ok &= require("HUB",  "sent AddElement Update to DISP",              timeout=3.0); step("5", "HUB encoded + sent AddElement Update to DISP")
+        ok &= require("DISP", "decoded + instantiated DISP-tier Element tree", timeout=3.0); step("6", "DISP decoded + instantiated DISP-tier Elements; applied AddElement to display_display")
+        ok &= require("DISP", "Panel[p1]",                                   timeout=3.0); step("7", "DISP rendered Panel composite")
+        ok &= require("DISP", "Label[lbl1]",                                 timeout=3.0); step("8", "DISP rendered Label leaf")
+        ok &= require("DISP", "Button[btn1]",                                timeout=3.0); step("9", "DISP rendered Button leaf — scene visible")
+        ok &= require("HUB",  "published 'scene.accepted'",                  timeout=3.0); step("10", "HUB published 'scene.accepted' to subscribers")
+        ok &= require("AGNT", "notified — topic='scene.accepted'",           timeout=3.0); step("11", "AGNT notified — 'scene.accepted' handler ran")
 
-        out("DEMO", "✓ R1 PASSED — every tier participated; observer push delivered" if ok else "✗ R1 FAILED")
+        out("DEMO", "✓ R1 PASSED — full outbound + observer push roundtrip end-to-end" if ok else "✗ R1 FAILED")
         return ok
 
 
 def run_r2(surface: str) -> bool:
-    """ROUNDTRIP 2 — Hub background-thread state update propagates to Display.
+    """ROUNDTRIP 2 — Hub background-thread accepts state changes; DISP mirrors.
 
     Independent: spawns its own hub+display+agent."""
     reset_observed()
-    section("ROUNDTRIP 2 — background-thread state update")
-    step("intent", "HUB timer thread mutates LabelElement.content via SetProperty Update → DISP re-renders new content")
+    section("ROUNDTRIP 2 — background-thread accept + apply + render")
+    step("intent", "HUB timer thread is an in-process source of authoritative state changes:")
+    step("intent", "each tick it accepts a SetProperty Update on hub_display, then encodes + sends")
+    step("intent", "to DISP. DISP applies the Update to display_display; the next frame renders the new content.")
 
     with trio(surface=surface) as t:
         ok = True
-        ok &= require("AGNT", "sent show('scene1')",      timeout=5.0); step("1", "scene live on DISP — wait for HUB timer activity")
-        ok &= require("DISP", "Button[btn1]",             timeout=5.0); step("2", "initial render confirmed")
-        ok &= require("HUB",  "timer tick 1",             timeout=3.0); step("3", "HUB timer fired tick 1 → SetProperty(content='ticks: 1')")
-        ok &= require("DISP", "applied set_property",     timeout=3.0); step("4", "DISP received + applied the Update")
-        ok &= require("DISP", "ticks: 1",                 timeout=3.0); step("5", "DISP re-rendered Label with new content")
-        ok &= require("HUB",  "timer tick 2",             timeout=3.0); step("6", "HUB timer fired tick 2 → another SetProperty")
-        ok &= require("DISP", "ticks: 2",                 timeout=3.0); step("7", "DISP re-rendered with tick 2 content")
+        ok &= require("AGNT", "sent show('scene1') to HUB",                  timeout=5.0); step("1", "AGNT sent initial scene")
+        ok &= require("DISP", "Button[btn1]",                                timeout=5.0); step("2", "initial scene rendered on DISP")
+        ok &= require("HUB",  "timer tick 1 → accepted SetProperty",         timeout=3.0); step("3", "HUB timer tick 1 → accepted SetProperty(content='ticks: 1')")
+        ok &= require("DISP", "applied SetProperty",                         timeout=3.0); step("4", "DISP applied the Update to display_display")
+        ok &= require("DISP", "ticks: 1",                                    timeout=3.0); step("5", "DISP rendered Label with new content")
+        ok &= require("HUB",  "timer tick 2 → accepted SetProperty",         timeout=3.0); step("6", "HUB timer tick 2 → accepted another SetProperty")
+        ok &= require("DISP", "ticks: 2",                                    timeout=3.0); step("7", "DISP rendered Label with tick 2 content")
 
-        out("DEMO", "✓ R2 PASSED — HUB timer → IPC → DISP re-render observed end-to-end" if ok else "✗ R2 FAILED")
+        out("DEMO", "✓ R2 PASSED — HUB accept → encode → send → DISP apply → render" if ok else "✗ R2 FAILED")
         return ok
 
 
 def run_r3(surface: str) -> bool:
-    """ROUNDTRIP 3 — user click on Display propagates to Hub, runs behavior,
-    publishes topic, subscribed Agent receives push.
+    """ROUNDTRIP 3 — user input enters at DISP, propagates to HUB for behavior
+    invocation, EmittedEvent published, subscribed Agent notified.
 
-    Independent: spawns its own hub+display+agent. Tells the storyline:
-    processes start → agent registers → agent sends scene → delay → user
-    clicks → agent receives push."""
+    Independent: spawns its own hub+display+agent."""
     reset_observed()
-    section("ROUNDTRIP 3 — user click inbound (USER → DISP → HUB → AGNT)")
-    step("intent", "USER clicks button on DISP → DISP ships InteractionMessage to HUB")
-    step("intent", "  → HUB runs button.on_click() → HUB publishes 'interaction.btn1' → AGNT receives push")
+    section("ROUNDTRIP 3 — detect + send + resolve + invoke + emit + publish + notify")
+    step("intent", "USER produces a keystroke on DISP — the only tier where user input enters the system.")
+    step("intent", "DISP detects the click, encodes an InteractionMessage, and sends it to HUB.")
+    step("intent", "HUB receives + decodes, resolves the Element by id on hub_display, invokes")
+    step("intent", "ButtonElement.on_click() (which emits a ButtonClicked Event), and publishes")
+    step("intent", "'interaction.btn1' to subscribers. AGNT (subscribed) is notified.")
 
     with trio(surface=surface) as t:
         ok = True
 
         # ───── setup ─────
-        ok &= require("HUB",  "agent connected",                       timeout=5.0); step("1", "processes started; AGNT connected to HUB")
-        ok &= require("HUB",  "agent subscribed to 'interaction.btn1'", timeout=3.0); step("2", "AGNT registered to observe 'interaction.btn1'")
-        ok &= require("AGNT", "sent show('scene1')",                   timeout=3.0); step("3", "AGNT sent scene")
-        ok &= require("DISP", "Button[btn1]",                          timeout=5.0); step("4", "scene live on DISP — Button[btn1] visible")
+        ok &= require("HUB",  "AGNT connected",                              timeout=5.0); step("1", "processes started; AGNT connected to HUB")
+        ok &= require("HUB",  "AGNT subscribed to 'interaction.btn1'",       timeout=3.0); step("2", "AGNT subscribed to 'interaction.btn1'")
+        ok &= require("AGNT", "sent show('scene1') to HUB",                  timeout=3.0); step("3", "AGNT sent scene to HUB")
+        ok &= require("HUB",  "accepted scene 'scene1'",                     timeout=3.0); step("4", "HUB accepted scene on hub_display + sent AddElement Update to DISP")
+        ok &= require("DISP", "decoded + instantiated DISP-tier Element tree", timeout=3.0); step("5", "DISP decoded + instantiated Elements + applied to display_display")
+        ok &= require("DISP", "Panel[p1]",                                   timeout=3.0); step("6", "DISP rendered Panel composite")
+        ok &= require("DISP", "Label[lbl1]",                                 timeout=3.0); step("7", "DISP rendered Label leaf")
+        ok &= require("DISP", "Button[btn1]",                                timeout=3.0); step("8", "DISP rendered Button leaf — scene fully visible")
 
         # ───── steady-state delay ─────
-        step("5", "delay (2.5s) — steady state, no user interaction yet")
+        step("9", "delay (2.5s) — steady state, no user input yet")
         time.sleep(2.5)
 
-        # ───── the user click ─────
-        step("6", "USER clicks the button (simulated keystroke to DISP stdin)")
+        # ───── user input ─────
+        step("10", "USER clicks the button (simulated keystroke to DISP stdin)")
         simulate_user_click(t.display, "btn1")
 
         # ───── inbound roundtrip ─────
-        ok &= require("DISP", "sent click(btn1)",                      timeout=2.0); step("7", "DISP encoded InteractionMessage + shipped to HUB")
-        ok &= require("HUB",  "received interaction from display",     timeout=2.0); step("8", "HUB received the interaction")
-        ok &= require("HUB",  "looked up ButtonElement",               timeout=2.0); step("9", "HUB looked up ButtonElement on hub_display")
-        ok &= require("HUB",  "calling ButtonElement.on_click()",      timeout=2.0); step("10", "HUB invoked the behavior method")
-        ok &= require("HUB",  "publish 'interaction.btn1'",            timeout=2.0); step("11", "HUB published 'interaction.btn1' to subscribers")
-        ok &= require("AGNT", "observed 'interaction.btn1'",           timeout=2.0); step("12", "AGNT received the click push notification")
+        ok &= require("DISP", "detected click(btn1)",                        timeout=2.0); step("11", "DISP detected the click")
+        ok &= require("DISP", "encoded + sent InteractionMessage to HUB",    timeout=2.0); step("12", "DISP encoded + sent InteractionMessage to HUB")
+        ok &= require("HUB",  "received InteractionMessage from DISP",       timeout=2.0); step("13", "HUB received the InteractionMessage")
+        ok &= require("HUB",  "resolved ButtonElement",                      timeout=2.0); step("14", "HUB resolved ButtonElement[btn1] on hub_display")
+        ok &= require("HUB",  "invoked ButtonElement.on_click()",            timeout=2.0); step("15", "HUB invoked behavior method (which emitted ButtonClicked)")
+        ok &= require("HUB",  "published 'interaction.btn1'",                timeout=2.0); step("16", "HUB published 'interaction.btn1' to subscribers")
+        ok &= require("AGNT", "notified — topic='interaction.btn1'",         timeout=2.0); step("17", "AGNT notified — 'interaction.btn1' handler ran")
 
-        out("DEMO", "✓ R3 PASSED — USER → DISP → HUB → AGNT full inbound roundtrip observed" if ok else "✗ R3 FAILED")
+        out("DEMO", "✓ R3 PASSED — USER → DISP → HUB → AGNT full inbound roundtrip end-to-end" if ok else "✗ R3 FAILED")
         return ok
 
 

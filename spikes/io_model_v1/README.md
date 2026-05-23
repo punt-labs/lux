@@ -2,16 +2,35 @@
 
 Demonstrates `docs/architecture/io-model.md` end-to-end in the smallest spec that exercises all three roundtrip kinds.
 
+## Canonical vocabulary
+
+This spike is documentation. The verbs are precise; every log line, every demo step, every source comment uses the same words. Mixing them up makes the system harder to reason about, so they're listed up front:
+
+| Layer | Verb | Meaning |
+|---|---|---|
+| **Transport** | **send / receive** | Bytes on the socket. Pure I/O, no domain meaning. |
+| **Wire** | **encode / decode** | Bytes ↔ wire dict. The Encoder/Decoder families. |
+| **Domain** | **instantiate** | Build a tier-local `Element` object from a decoded wire dict via the per-kind Decoder. The injected `renderer_factory` distinguishes the tier (Null on Hub/AGNT, Surface on DISP). |
+| | **accept** | Hub commits a state change to `hub_display`. After accept, the Hub is authoritative. The Hub is the **only** tier that accepts. |
+| | **apply** | DISP mirrors an accepted Update into `display_display`. The Hub remains authoritative; DISP holds a local copy for its render loop. |
+| | **resolve** | Look up an `Element` by id on the tier's local state. |
+| | **invoke** | Call a behavior method on a resolved `Element` (e.g. `button.on_click()`). |
+| | **emit** | A behavior method produces a domain `Event` (e.g. `ButtonClicked`). |
+| | **publish** | Hub fans an Event out to topic subscribers as `observed` envelopes. |
+| | **notify** | A subscriber's local handler runs for an `observed` Event. |
+| **Surface** | **render** | DISP walks `display_display` and paints the surface. The **only** tier that renders. |
+| **Origin** | **detect** | DISP recognizes a user input event. The **only** tier where user input enters the system. |
+
 ## What this spike proves
 
-1. **Three tiers, three OS processes.** Agent, Hub, Display. Real Unix-socket IPC between them. Each tier holds its own `Display` instance with its own per-tier Element subtree decoded from incoming Updates. No shared memory.
+1. **Three tiers, three OS processes.** Agent, Hub, Display. Real Unix-socket IPC between them. Each tier holds its own `Display` instance with its own per-tier Element subtree (instantiated from decoded wire dicts). No shared memory.
 2. **IPC carries Updates and Events. Not render calls.** Per `io-model.md` §"Where rendering happens": "No render call crosses any IPC boundary."
-3. **Only the Display tier has a render loop.** Hub gets `NullRendererFactory`. Display gets the chosen surface factory. Hub never iterates its scene for drawing.
-4. **Two output surfaces (selectable at Display startup).** `TextSurface` prints scenes to stdout each tick; `RecordingSurface` appends JSONL to a log file each tick. Selected via `LUX_SURFACE=text|recording` or `--surface=...`. Same Element classes, same Renderer Protocol, different per-kind renderers.
+3. **Hub accepts; DISP mirrors and renders.** Hub gets `NullRendererFactory` and has no render loop — its role is to accept and propagate. DISP gets the chosen surface factory and runs the render loop. AGNT is a pure subscriber/sender.
+4. **Two output surfaces (selectable at DISP startup).** `TextSurface` prints scenes to stdout each tick; `RecordingSurface` appends JSONL to a log file each tick. Selected via `LUX_SURFACE=text|recording`. Same Element classes, same Renderer Protocol, different per-kind renderers.
 5. **Three roundtrip kinds, end-to-end:**
-   - **R1 outbound + Observer push:** Agent calls `show(...)` over Lux IPC → Hub decodes + applies → encodes `AddElement` Update → ships to Display → Display decodes + applies → render loop draws. Hub publishes `scene.applied` topic → subscribed Agent receives push notification.
-   - **R2 background-thread state update:** Hub timer thread mutates a `LabelElement.content` every 2s via `SetProperty` Update → Hub encodes → ships to Display → Display applies → next render shows new content.
-   - **R3 user interaction roundtrip:** Display reads simulated user input from stdin (`click <button_id>`) → encodes `InteractionMessage` → ships to Hub → Hub looks up Element on its tier → `button.on_click()` runs → emits `ButtonClicked` Event → Hub publishes `interaction.<button_id>` topic → subscribed Agent receives push notification.
+   - **R1 — show + accept + apply + render + notify.** AGNT subscribes to `scene.accepted`, then sends `show(Panel{Label, Button})` to HUB. HUB decodes + instantiates Hub-tier Elements (rf=Null), accepts the scene on `hub_display`, encodes + sends an `AddElement` Update to DISP, and publishes `scene.accepted`. DISP receives + decodes + instantiates DISP-tier Elements (rf=Surface), applies the Update to `display_display`, and renders each frame. AGNT is notified via push.
+   - **R2 — background-thread accept + apply + render.** HUB's timer thread is an in-process source of authoritative state changes: each tick it accepts a `SetProperty` Update on `hub_display`, then encodes + sends to DISP. DISP applies the Update to `display_display`; the next frame renders the new content.
+   - **R3 — detect + send + resolve + invoke + emit + publish + notify.** USER produces a keystroke on DISP. DISP detects the click, encodes an `InteractionMessage`, and sends to HUB. HUB receives + decodes, resolves the Element on `hub_display`, invokes `button.on_click()`, which emits a `ButtonClicked` Event. HUB publishes `interaction.<id>` to subscribers. AGNT (subscribed) is notified.
 
 ## Element vocabulary (smallest set that exercises Composite + behavior)
 
@@ -23,32 +42,44 @@ Three element kinds:
 
 That's one composite and two leaves, satisfying the criteria.
 
-## Architecture (per io-model.md, verbatim)
+## Architecture (per io-model.md)
 
 ```text
 ┌──────────┐   Lux IPC   ┌────────────┐   Lux IPC   ┌─────────────┐
-│  Agent   │◄───────────►│    Hub     │◄───────────►│   Display   │
+│  AGNT    │◄───────────►│    HUB     │◄───────────►│    DISP     │
 │ process  │             │  process   │             │   process   │
 └──────────┘             └────────────┘             └─────────────┘
      │                         │                          │
      │ rf=NullRendererFactory  │ rf=NullRendererFactory   │ rf=Text or RecordingRendererFactory
-     │ (no render loop)        │ (no render loop)         │ (render loop @ 10Hz)
+     │ (no render loop)        │ (no render loop)         │ (render loop @ N Hz)
      │                         │                          │
-     │ - Subscribe to topics   │ - Subscription registry  │ - Decode inbound Updates
-     │ - Send commands         │ - Background timer       │ - DisplayClient applies to display_display
-     │ - Receive notifications │ - Apply Updates to       │ - Each frame: scene.render() walks tree
-     │                         │   hub_display            │   and calls elem.render() through per-kind
-     │                         │ - Encode Updates → ship  │   renderer (TextRenderer or RecordingRenderer)
-     │                         │   to Display             │ - Stdin reader: simulated user input
-     │                         │ - Decode Interactions    │
-     │                         │   from Display, run      │
-     │                         │   element behavior,      │
-     │                         │   publish topics         │
-     │                         │ - Push notifications     │
-     │                         │   to subscribed Agents   │
+     │ subscribe(topic)        │ SUBSCRIPTION REGISTRY    │ RECEIVE Updates from HUB
+     │ send commands           │   subscribe / publish    │ DECODE + INSTANTIATE DISP-tier Elements
+     │ receive observed{}      │                          │   (rf=Surface)
+     │ NOTIFY local handler    │ AUTHORITATIVE STATE      │ APPLY Updates → display_display
+     │                         │   hub_display            │   (mirrors Hub state)
+     │                         │                          │
+     │                         │ inbound from AGNT:       │ RENDER LOOP each frame:
+     │                         │   DECODE + INSTANTIATE   │   walk display_display,
+     │                         │   ACCEPT scene/property  │   call elem.render()
+     │                         │   on hub_display         │   → surface paints
+     │                         │   ENCODE + SEND Update   │
+     │                         │   to DISP                │ USER-INPUT DETECTOR (stdin):
+     │                         │   PUBLISH 'scene.…'      │   DETECT click
+     │                         │                          │   ENCODE InteractionMessage
+     │                         │ background TIMER:        │   SEND to HUB
+     │                         │   accepts SetProperty    │
+     │                         │   per tick               │
+     │                         │                          │
+     │                         │ inbound from DISP:       │
+     │                         │   DECODE Interaction     │
+     │                         │   RESOLVE Element by id  │
+     │                         │   INVOKE on_click()      │
+     │                         │   on_click() EMITS Event │
+     │                         │   PUBLISH 'interaction.…'│
 ```
 
-Each tier decodes incoming wire payloads into its own Element tree via the Decoder family. The Hub tier and Display tier each have their own `display.apply(client_id, update)` invocations — Hub's apply produces an outbound Update via Encoder that ships to Display; Display's apply mutates the display-side tree, which the render loop draws each frame.
+Note the **role asymmetry** between Hub and DISP. Hub `accepts`; DISP `applies`. The state-mutation primitive is the same — both end up updating their tier-local `Display` object — but the role differs: Hub commits (it is the source of truth), DISP mirrors. Naming the methods `accept` vs `apply` keeps the boundary explicit.
 
 ## Wire protocol — minimal JSON
 
@@ -56,20 +87,21 @@ Line-delimited JSON over Unix sockets. Each line is one envelope:
 
 ```json
 {"kind": "show",          "scene_id": "...", "root": {...}}
-{"kind": "add_element",   "parent": "...", "elem": {...}}
+{"kind": "add_element",   "scene_id": "...", "parent_id": null, "elem": {...}}
 {"kind": "set_property",  "elem_id": "...", "field": "content", "value": "..."}
 {"kind": "interaction",   "elem_id": "...", "action": "click"}
-{"kind": "subscribe",     "topic": "scene.applied"}
-{"kind": "publish",       "topic": "interaction.btn1", "payload": {...}}
+{"kind": "subscribe",     "topic": "scene.accepted"}
+{"kind": "observed",      "topic": "interaction.btn1", "payload": {...}}
 ```
 
-`show` is the Agent → Hub command for "make this scene live."
-`add_element` / `set_property` are Hub → Display Updates.
-`interaction` is Display → Hub.
-`subscribe` is Agent → Hub.
-`publish` is Hub → Agent (push notification).
+Per-direction summary:
 
-The Encoder family produces these payloads; the Decoder family parses them. Each per-kind Element (Label/Button/Panel) has its own `JsonLabelEncoder` / `JsonLabelDecoder` etc., registered with the Encoders/Decoders registries.
+- **AGNT → HUB:** `show`, `subscribe`.
+- **HUB → DISP:** `add_element`, `set_property` (the Update family).
+- **DISP → HUB:** `interaction`.
+- **HUB → AGNT:** `observed` (the push notification carrying the published topic payload).
+
+The Encoder family produces these payloads; the Decoder family parses them. Each per-kind Element (Label/Button/Panel) has its own `JsonLabelEncoder` / `JsonLabelDecoder` etc., registered with the `JsonEncoderFactory` / `JsonElementFactory` registries.
 
 ## Module layout
 
@@ -115,24 +147,26 @@ LUX_SURFACE=text LUX_SPIKE_HUB_DISPLAY_SOCK=/tmp/lux-spike-display.sock lux-spik
 LUX_SPIKE_HUB_AGENT_SOCK=/tmp/lux-spike-agent.sock lux-spike-agent
 ```
 
-The Agent will:
+The AGNT will:
 
-1. Connect to Hub, subscribe to `scene.applied` and `interaction.btn1`.
+1. Connect to HUB, subscribe to `scene.accepted` and `interaction.btn1`.
 2. Send `show(Panel(id=p1, children=[Label(id=lbl1, content="ticks: 0"), Button(id=btn1, label="Click me")]))`.
-3. Wait for `scene.applied` push and print it.
-4. Wait for `interaction.btn1` pushes (when the user clicks) and print them.
+3. Be notified for `scene.accepted` and `interaction.btn1` topics (handler runs, prints the observed envelope).
 
-The Hub will:
-1. Apply Updates from the Agent.
-2. Start a background thread that increments `lbl1.content` every 2s (`SetProperty`).
-3. Encode + ship Updates to Display.
-4. Receive Interactions from Display → call `button.on_click()` → publish `interaction.<id>` to subscribers.
+The HUB will:
 
-The Display will:
-1. Receive Updates, decode, apply to its local tree.
-2. Run a 10Hz render loop that walks the scene and calls `elem.render()`.
-3. With `LUX_SURFACE=text`: prints the formatted scene each tick to stdout.
-4. Read stdin; on `click btn1`, send `InteractionMessage` to Hub.
+1. Decode + instantiate Hub-tier Elements from inbound `show` commands (rf=Null).
+2. Accept the resulting scene on `hub_display`.
+3. Encode + send the `AddElement` Update to DISP.
+4. Publish `scene.accepted` to subscribers.
+5. Run a background timer that accepts a `SetProperty(content='ticks: N')` on `hub_display` every N seconds, then encodes + sends to DISP.
+6. Receive `InteractionMessage`s from DISP, resolve the Element on `hub_display`, invoke the behavior method, and publish the emitted Event to the matching `interaction.<id>` topic.
+
+The DISP will:
+
+1. Receive Updates from HUB, decode + instantiate DISP-tier Elements (rf=Surface), apply to `display_display`.
+2. Run a render loop at `LUX_SPIKE_DISPLAY_HZ` Hz that walks `display_display` each frame and calls `elem.render()`. With `LUX_SURFACE=text` it prints; with `LUX_SURFACE=recording` it appends JSONL.
+3. Detect user input from stdin (`click <elem_id>`), encode an `InteractionMessage`, and send to HUB.
 
 Run with `LUX_SURFACE=recording` to see scenes written to `/tmp/lux-spike-recording.jsonl` instead of stdout.
 
@@ -222,20 +256,32 @@ class InteractionMessage:
     action: str  # "click"
 ```
 
-### Display (the domain object that holds tier-local state)
+### Tier-local Display (state owner)
 
-Each tier has one `Display`:
+Each tier has one `Display`-shaped state owner. The verb differs by role:
 
 ```python
-class Display:
-    _scene_by_id: dict[str, Element]
-    _rf: RendererFactory  # injected at startup; Null on Hub, Text/Recording on Display
-    _emit: Callable[[object], None]
+class HubDisplay:
+    """Authoritative state. `accept(update)` commits the change; after
+    accept, hub_display reflects the new authoritative state."""
 
-    def apply(self, client_id: ClientId, update: Update) -> Event | None: ...
-    # Hub's apply produces outbound encoded Updates via emit;
-    # Display's apply mutates local state for the render loop to draw.
+    _by_id: dict[str, Element]
+    _root_id: str | None
+
+    def accept(self, update: AddElement | SetProperty) -> None: ...
+    def resolve(self, elem_id: str) -> Element | None: ...
+
+class DisplayDisplay:
+    """Local mirror of Hub state. `apply(update)` mirrors an accepted
+    Update into display_display; the render loop reads from here."""
+
+    _by_id: dict[str, Element]
+    _root: Element | None
+
+    def apply(self, update: AddElement | SetProperty) -> None: ...
 ```
+
+The state-mutation primitive is identical (index by id, mutate fields). The role differs: Hub **accepts** (it is the source of truth), DISP **applies** (it mirrors).
 
 ### Hub-tier renderers (Null)
 
@@ -298,11 +344,13 @@ Each surface (`TextOutput`, `RecordingLog`) is a small composed object — the f
 
 ## Acceptance criteria
 
-Tests in `tests/test_roundtrips.py`:
+Tests in `tests/test_roundtrips.py`. Each test spawns its own trio of processes; no state leaks between tests.
 
-- **R1 outbound + Observer push.** Spawn three processes. Agent connects, subscribes to `scene.applied`, sends `show(panel_with_label_and_button)`. Within 1s, Agent receives `scene.applied` push. Display has rendered the scene at least once (Text: stdout contains "Panel", "Label", "Button"; Recording: log file contains 3 entries).
-- **R2 background-thread state update.** With the scene from R1 live, wait 5s and assert the Label's content has changed at least twice (Display log shows 3+ distinct content values).
-- **R3 user click roundtrip.** Send `click btn1` to Display's stdin. Within 1s, Agent receives `interaction.btn1` push notification with payload `{"elem_id": "btn1", "action": "click"}`.
+- **R1 — show + accept + apply + render + notify.** AGNT subscribes to `scene.accepted`, sends `show(Panel{Label, Button})`. HUB accepts the scene on `hub_display`, sends `AddElement` to DISP, publishes `scene.accepted`. DISP applies + renders. AGNT is notified. Recording surface shows at least 4 entries (Panel begin + Label + Button + Panel end).
+- **R2 — background-thread accept + apply + render.** HUB timer accepts a `SetProperty(content='ticks: N')` every tick. DISP applies + renders; assert ≥ 4 distinct `ticks: N` values appear in the recording log.
+- **R3 — detect + send + resolve + invoke + emit + publish + notify.** Inject a click via the test-only `synthesize_interaction` agent command (equivalent to DISP receiving stdin `click btn1` and sending the `InteractionMessage`). Assert AGNT receives the `interaction.btn1` push with payload `{"elem_id": "btn1"}`.
+
+The `demo.py` script runs the same three scenarios with full tier-tagged narration, each verified by per-step `require()` calls that wait for the expected log lines from each tier.
 
 Each test asserts:
 - Three processes spawned successfully.

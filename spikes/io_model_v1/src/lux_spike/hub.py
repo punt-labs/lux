@@ -1,10 +1,23 @@
-"""Hub process — receives Agent commands, decodes into Hub Elements (rf=Null),
-holds hub_display, encodes Updates → ships to Display, runs background
-timer thread, handles Interactions from Display, publishes topics to
-subscribed Agents.
+"""Hub process — authoritative state owner.
 
-Per io-model.md: Hub gets NullRendererFactory. The Hub has no render
-loop. IPC carries Updates and Events — not render calls.
+Per io-model.md the Hub is the only tier that *accepts* state changes
+(the moment that hub_display becomes authoritative for new content);
+every other tier *applies* the resulting Update to mirror it. The Hub
+also resolves Elements for inbound Interactions, invokes their behavior
+methods, and publishes the emitted Events to topic subscribers.
+
+Canonical Hub verbs:
+  - receive  — bytes off an inbound socket
+  - decode   — bytes → wire dict + instantiate per-kind Element (rf=Null)
+  - accept   — commit a state change to hub_display (Hub is authoritative)
+  - encode   — Update → wire dict → bytes
+  - send     — bytes onto the Display socket
+  - resolve  — look up an Element on hub_display by id
+  - invoke   — call a behavior method on a resolved Element
+  - publish  — fan out an emitted Event to topic subscribers
+
+The Hub gets NullRendererFactory. The Hub has no render loop. IPC
+carries Updates and Events — not render calls.
 """
 
 from __future__ import annotations
@@ -34,8 +47,13 @@ if TYPE_CHECKING:
 
 
 class HubDisplay:
-    """Per-tier authoritative state owner. Knows nothing about wire I/O —
-    it just holds elements indexed by id and provides apply()."""
+    """Authoritative tier-local state.
+
+    The verb here is `accept` (not `apply`) because Hub is the source of
+    truth — once `accept` returns, hub_display reflects the new committed
+    state. Other tiers (DISP) `apply` the same Update to mirror it; the
+    state-mutation primitive is identical, but the role differs: Hub commits,
+    DISP mirrors. Naming the method `accept` keeps that boundary explicit."""
 
     _by_id: dict[str, "Element"]
     _root_id: str | None
@@ -46,7 +64,7 @@ class HubDisplay:
         self._root_id = None
         return self
 
-    def apply(self, update: AddElement | SetProperty) -> None:
+    def accept(self, update: AddElement | SetProperty) -> None:
         match update:
             case AddElement(elem=elem, parent_id=parent_id):
                 self._index(elem)
@@ -68,7 +86,9 @@ class HubDisplay:
             for child in elem._children():
                 self._index(child)
 
-    def lookup(self, elem_id: str) -> "Element | None":
+    def resolve(self, elem_id: str) -> "Element | None":
+        """Find an Element on hub_display by id. Used to route an inbound
+        InteractionMessage to the right Element's behavior method."""
         return self._by_id.get(elem_id)
 
     def root(self) -> "Element | None":
@@ -131,21 +151,22 @@ def main() -> None:
     display_sock_path = os.environ.get("LUX_SPIKE_HUB_DISPLAY_SOCK", "/tmp/lux-spike-display.sock")
     tick_seconds = float(os.environ.get("LUX_SPIKE_HUB_TICK_SECONDS", "2.0"))
 
-    print(f"[hub] starting (agent_sock={agent_sock_path}, display_sock={display_sock_path})", flush=True)
+    print(f"[hub] starting (AGNT sock={agent_sock_path}, DISP sock={display_sock_path})", flush=True)
 
     # Hub-tier state.
     display = HubDisplay()
     registry = SubscriptionRegistry()
     null_rf = NullRendererFactory()
 
-    # The Hub's emit callback receives Events from Element behavior methods.
+    # The Hub's emit callback receives Events EMITTED by Element behavior
+    # methods. The Hub responds by PUBLISHING the Event to topic subscribers.
     def hub_emit(event: object) -> None:
         match event:
             case ButtonClicked():
                 topic = f"interaction.{event.elem_id}"
                 payload = encode_button_clicked(event)
                 n = registry.publish(topic, payload)
-                print(f"[hub] publish {topic!r} payload={payload} → {n} subscriber(s)", flush=True)
+                print(f"[hub] published {topic!r} payload={payload} → {n} subscriber(s)", flush=True)
             case _:
                 # Other Event types — no-op in spike scope.
                 pass
@@ -173,24 +194,24 @@ def main() -> None:
         kind = payload.get("kind")
         if kind == "interaction":
             msg = decode_interaction(payload)
-            print(f"[hub] received interaction from display: elem_id={msg.elem_id!r} action={msg.action!r}", flush=True)
-            elem = display.lookup(msg.elem_id)
+            print(f"[hub] received InteractionMessage from DISP: elem_id={msg.elem_id!r} action={msg.action!r}", flush=True)
+            elem = display.resolve(msg.elem_id)
             if elem is None:
-                print(f"[hub] WARN: no element {msg.elem_id!r} on hub_display; dropping interaction", file=sys.stderr, flush=True)
+                print(f"[hub] WARN: could not resolve elem_id={msg.elem_id!r} on hub_display; dropping", file=sys.stderr, flush=True)
                 return
-            print(f"[hub] looked up {type(elem).__name__}[{msg.elem_id}] on hub_display", flush=True)
+            print(f"[hub] resolved {type(elem).__name__}[{msg.elem_id}] on hub_display", flush=True)
             if isinstance(elem, ButtonElement) and msg.action == "click":
-                print(f"[hub] calling {type(elem).__name__}.on_click() — runs the behavior method", flush=True)
-                elem.on_click()  # emits ButtonClicked via hub_emit → publishes topic
+                print(f"[hub] invoked {type(elem).__name__}.on_click()", flush=True)
+                elem.on_click()  # emits ButtonClicked → hub_emit → published as 'interaction.<id>'
         else:
-            print(f"[hub] unknown display message: {kind!r}", file=sys.stderr, flush=True)
+            print(f"[hub] unknown DISP message: {kind!r}", file=sys.stderr, flush=True)
 
     def handle_agent_message(agent_sock: LineSocket, payload: "WireDict") -> None:
         kind = payload.get("kind")
         if kind == "subscribe":
             topic = str(payload["topic"])
             registry.subscribe(topic, agent_sock)
-            print(f"[hub] agent subscribed to {topic!r}", flush=True)
+            print(f"[hub] AGNT subscribed to {topic!r}", flush=True)
         elif kind == "synthesize_interaction":
             # Test-only path: equivalent to receiving an InteractionMessage from
             # the Display, but injected via the agent socket so a test can drive
@@ -198,24 +219,31 @@ def main() -> None:
             # Hub-side code path that handle_display_message does for "interaction".
             elem_id = str(payload["elem_id"])
             action = str(payload["action"])
-            elem = display.lookup(elem_id)
+            elem = display.resolve(elem_id)
             if isinstance(elem, ButtonElement) and action == "click":
                 elem.on_click()
         elif kind == "show":
             scene_id = str(payload["scene_id"])
             root_raw = payload["root"]
             assert isinstance(root_raw, dict)
+            # 1. decode: parse wire dict, instantiate Hub-tier Element tree (rf=Null)
             root = element_factory.decode(root_raw)
             update = AddElement(scene_id=scene_id, parent_id=None, elem=root)
-            display.apply(update)
+            # 2. accept: commit to hub_display (Hub is now authoritative for this scene)
+            display.accept(update)
+            print(f"[hub] accepted scene {scene_id!r} (hub_display is authoritative)", flush=True)
+            # 3. encode + send: ship the AddElement Update to DISP
             wire = update_codec.encode(update)
             sent = with_display(lambda s: s.send_line(wire))
             if not sent:
-                print("[hub] WARN: no display connected; show buffered nothing", file=sys.stderr, flush=True)
-            registry.publish("scene.applied", {"scene_id": scene_id})
-            print(f"[hub] applied scene {scene_id!r}", flush=True)
+                print("[hub] WARN: no DISP connected; AddElement Update was not sent", file=sys.stderr, flush=True)
+            else:
+                print(f"[hub] sent AddElement Update to DISP (scene_id={scene_id!r})", flush=True)
+            # 4. publish: notify subscribers that Hub has accepted the scene
+            n = registry.publish("scene.accepted", {"scene_id": scene_id})
+            print(f"[hub] published 'scene.accepted' → {n} subscriber(s)", flush=True)
         else:
-            print(f"[hub] unknown agent message: {kind!r}", file=sys.stderr, flush=True)
+            print(f"[hub] unknown AGNT message: {kind!r}", file=sys.stderr, flush=True)
 
     # Background timer thread: mutates the first Label every tick_seconds.
     stop_event = threading.Event()
@@ -233,10 +261,12 @@ def main() -> None:
             label_id = label_ids[0]
             new_content = f"ticks: {tick}"
             update = SetProperty(elem_id=label_id, field="content", value=new_content)
-            display.apply(update)
+            # Hub timer is itself a source of authoritative state changes —
+            # 1. accept the Update on hub_display, then 2. encode + send to DISP.
+            display.accept(update)
+            print(f"[hub] timer tick {tick} → accepted SetProperty({label_id}, content={new_content!r})", flush=True)
             wire = update_codec.encode(update)
             with_display(lambda s: s.send_line(wire))
-            print(f"[hub] timer tick {tick} → SetProperty({label_id}, content={new_content!r})", flush=True)
 
     threading.Thread(target=timer_loop, name="hub-timer", daemon=True).start()
 
@@ -247,13 +277,13 @@ def main() -> None:
         try:
             display_sock_raw, _ = display_listen.accept()
         except socket.timeout:
-            print("[hub] timed out waiting for display", file=sys.stderr, flush=True)
+            print("[hub] timed out waiting for DISP to connect", file=sys.stderr, flush=True)
             return
         display_line = LineSocket(display_sock_raw)
         with display_sock_lock:
             display_sock_holder["sock"] = display_line
         spawn_reader(display_line, handle_display_message)
-        print("[hub] display connected", flush=True)
+        print("[hub] DISP connected", flush=True)
 
         # Now accept agents one at a time (spike-scope: one agent).
         agent_listen.settimeout(None)
@@ -263,7 +293,7 @@ def main() -> None:
             except OSError:
                 break
             agent_line = LineSocket(agent_sock_raw)
-            print("[hub] agent connected", flush=True)
+            print("[hub] AGNT connected", flush=True)
             spawn_reader(agent_line, lambda payload, s=agent_line: handle_agent_message(s, payload))
 
 

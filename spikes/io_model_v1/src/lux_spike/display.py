@@ -1,11 +1,24 @@
-"""Display process — connects to Hub, decodes inbound Updates into its
-own Element tree (rf=Text or Recording factory), runs a 10Hz render loop
-that calls elem.render() each frame, reads stdin for simulated user input
-that emits Interactions back to Hub.
+"""Display process — local mirror of Hub state + render loop + user-input detector.
 
-Per io-model.md: Display has the render loop. ImGui-equivalent rendering
-(here: TextOutput or RecordingLog) runs locally in this process. IPC
-carries Updates and Events only — never render calls.
+Per io-model.md the Display is the only tier with a render loop. It
+decodes inbound Updates from the Hub, applies them to its local mirror
+(display_display), and on each frame walks the local Element tree
+calling elem.render() through its surface-bound RendererFactory
+(TextRendererFactory or RecordingRendererFactory).
+
+The Display is also the only tier where user input enters the system.
+Its stdin reader thread detects keystrokes, encodes them as
+InteractionMessages, and sends them to the Hub for resolution and
+behavior invocation.
+
+Canonical DISP verbs:
+  - receive  — bytes off the Hub socket
+  - decode   — bytes → wire dict + instantiate per-kind Element (rf=Surface)
+  - apply    — mirror an Update into display_display (Hub remains authoritative)
+  - render   — walk display_display, call elem.render() per-frame, paint surface
+  - detect   — recognize a user input event (stdin keystroke in this spike)
+  - encode   — InteractionMessage → wire dict → bytes
+  - send     — bytes onto the Hub socket
 """
 
 from __future__ import annotations
@@ -30,8 +43,13 @@ if TYPE_CHECKING:
 
 
 class DisplayDisplay:
-    """Display-tier authoritative state owner. Holds the local Element tree.
-    The render loop walks this tree every tick."""
+    """Display-tier local mirror of Hub state.
+
+    The verb here is `apply` (not `accept`) because Hub is the source of
+    truth — DISP is mirroring committed state. Once Hub accepts an Update,
+    it ships it; DISP applies it to display_display so the next render
+    frame reflects the new state. The render loop walks this tree every
+    tick to paint the surface."""
 
     _by_id: dict[str, "Element"]
     _root: "Element | None"
@@ -111,45 +129,54 @@ def main() -> None:
     frame_hz = float(os.environ.get("LUX_SPIKE_DISPLAY_HZ", "10"))
     stdin_disabled = os.environ.get("LUX_SPIKE_DISPLAY_NO_STDIN", "") == "1"
 
-    print(f"[display] starting (hub_sock={display_sock_path}, hz={frame_hz})", flush=True)
+    print(f"[display] starting (HUB sock={display_sock_path}, hz={frame_hz})", flush=True)
 
-    # Display-tier state.
+    # Display-tier local mirror + surface.
     display = DisplayDisplay()
     renderer_factory, flush = build_surface()
 
     # Connect to Hub.
     hub_socket = connect_unix(display_sock_path)
-    print("[display] connected to hub", flush=True)
+    print("[display] connected to HUB", flush=True)
 
-    # Display-tier emit: Element behavior on Display side does not exist
-    # in the spike — the Hub is the owner tier for behavior. emit is a
-    # no-op here (Display Elements use the same Element ABC but their
-    # injected emit never fires).
+    # Display-tier emit: Element behavior on the Display side does not run
+    # in this spike — the Hub is the owner tier for behavior (it RESOLVES
+    # the Element by id on hub_display and INVOKES on_click there). DISP
+    # Elements use the same Element ABC but their injected emit is a no-op.
     def display_emit(event: object) -> None:
         pass
 
     element_factory = JsonElementFactory(renderer_factory=renderer_factory, emit=display_emit)
 
     # Handle inbound Updates from Hub.
+    # Per io-model.md: IPC carries Updates and Events — never render calls.
+    # DISP receives an Update, decodes it (instantiating DISP-tier Elements
+    # with rf=surface), and applies it to display_display. The render loop
+    # picks up the new state on the next frame.
     def handle_hub_message(payload: "WireDict") -> None:
         kind = payload.get("kind")
         if kind == "add_element":
             root_raw = payload["elem"]
             assert isinstance(root_raw, dict)
+            # decode + instantiate: build DISP-tier Element tree (rf=Surface)
             root = element_factory.decode(root_raw)
+            # apply: mirror into display_display (Hub remains authoritative)
             display.apply(AddElement(scene_id=str(payload["scene_id"]), parent_id=None, elem=root))
-            print("[display] applied add_element", flush=True)
+            print("[display] decoded + instantiated DISP-tier Element tree; applied AddElement to display_display", flush=True)
         elif kind == "set_property":
             display.apply(
                 SetProperty(elem_id=str(payload["elem_id"]), field=str(payload["field"]), value=payload["value"])
             )
-            print(f"[display] applied set_property({payload['elem_id']!r}, {payload['field']!r})", flush=True)
+            print(f"[display] applied SetProperty({payload['elem_id']!r}, {payload['field']!r}) to display_display", flush=True)
         else:
-            print(f"[display] unknown hub message: {kind!r}", file=sys.stderr, flush=True)
+            print(f"[display] unknown HUB message: {kind!r}", file=sys.stderr, flush=True)
 
     spawn_reader(hub_socket, handle_hub_message)
 
-    # Simulated user input — read stdin for `click <elem_id>` lines.
+    # User-input detector — read stdin for `click <elem_id>` lines.
+    # DISP is the only tier where user input ENTERS the system. The
+    # detector encodes the keystroke as an InteractionMessage and sends
+    # it to the Hub for RESOLVE → INVOKE → EMIT → PUBLISH.
     def stdin_loop() -> None:
         for line in sys.stdin:
             line = line.strip()
@@ -158,10 +185,11 @@ def main() -> None:
             parts = line.split()
             if len(parts) == 2 and parts[0] == "click":
                 elem_id = parts[1]
+                print(f"[display] detected click({elem_id}) from user", flush=True)
                 msg = InteractionMessage(elem_id=elem_id, action="click")
                 try:
                     hub_socket.send_line(encode_interaction(msg))
-                    print(f"[display] sent click({elem_id})", flush=True)
+                    print(f"[display] encoded + sent InteractionMessage to HUB", flush=True)
                 except OSError:
                     return
             else:
@@ -170,8 +198,10 @@ def main() -> None:
     if not stdin_disabled:
         threading.Thread(target=stdin_loop, name="display-stdin", daemon=True).start()
 
-    # Render loop — runs forever at frame_hz. Walks scene; calls elem.render();
-    # flushes the surface.
+    # Render loop — runs forever at frame_hz. Walks display_display each
+    # frame and calls elem.render(); the surface paints the result.
+    # Per io-model.md the render loop is independent of IPC activity —
+    # it draws whatever state display_display currently holds.
     frame_interval = 1.0 / frame_hz
     try:
         while True:

@@ -44,7 +44,7 @@ def test_r1_outbound_and_observer_push(spike: SpikeProcs) -> None:
     """Agent sends show() → Hub applies + ships AddElement to Display →
     Display renders into recording surface → 3+ entries appear.
 
-    Separately: Agent subscribes to scene.applied; Hub publishes; Agent
+    Separately: Agent subscribes to scene.accepted; Hub publishes; Agent
     receives push. Verified via the recording log containing rendered
     output for all three elements (Panel begin/end + Label + Button)."""
     ok = wait_for(lambda: spike.recording_path.exists() and len(_recording_entries(spike.recording_path)) >= 4, timeout=8.0)
