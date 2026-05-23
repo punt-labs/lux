@@ -863,7 +863,24 @@ class DisplayServer:
         self._domain_pump.route(msg)
 
     def _auto_click_buttons(self, msg: SceneMessage) -> None:
-        """Enqueue synthetic interactions for testable elements (test mode)."""
+        """Enqueue synthetic interactions for testable elements (test mode).
+
+        Bugbot LOW (PR #187): synthetic events run BEFORE the first render
+        loop assigns ``self._current_scene_id`` from ``_render_scene_tab``.
+        Without stamping the scene id here, ``_emit_event`` would set
+        ``scene_id=None`` and ``DomainPump.route_interaction`` would
+        silently drop every synthetic button click.  Save / restore the
+        prior value so the render loop's later assignment is undisturbed.
+        """
+        prior_scene_id = self._current_scene_id
+        self._current_scene_id = msg.id
+        try:
+            self._auto_click_emit_loop(msg)
+        finally:
+            self._current_scene_id = prior_scene_id
+
+    def _auto_click_emit_loop(self, msg: SceneMessage) -> None:
+        """Per-element synthetic-interaction emit loop (see _auto_click_buttons)."""
         for elem in msg.elements:
             if elem.kind == "button" and not getattr(elem, "disabled", False):
                 eid: str = getattr(elem, "id", "")
