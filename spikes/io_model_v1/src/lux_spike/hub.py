@@ -108,14 +108,19 @@ class SubscriptionRegistry:
             for subs in self._by_topic.values():
                 subs.discard(sock)
 
-    def publish(self, topic: str, payload: "WireDict") -> None:
+    def publish(self, topic: str, payload: "WireDict") -> int:
+        """Fan out `observed` notification to every subscriber.
+        Returns the number of subscriber sockets the notification was sent to."""
         with self._lock:
             subs = list(self._by_topic.get(topic, ()))
+        delivered = 0
         for s in subs:
             try:
                 s.send_line({"kind": "observed", "topic": topic, "payload": payload})
+                delivered += 1
             except OSError:
                 pass
+        return delivered
 
 
 # ────────────────────────── Hub main loop ─────────────────────────────────────
@@ -137,7 +142,10 @@ def main() -> None:
     def hub_emit(event: object) -> None:
         match event:
             case ButtonClicked():
-                registry.publish(f"interaction.{event.elem_id}", encode_button_clicked(event))
+                topic = f"interaction.{event.elem_id}"
+                payload = encode_button_clicked(event)
+                n = registry.publish(topic, payload)
+                print(f"[hub] publish {topic!r} payload={payload} → {n} subscriber(s)", flush=True)
             case _:
                 # Other Event types — no-op in spike scope.
                 pass
@@ -165,8 +173,14 @@ def main() -> None:
         kind = payload.get("kind")
         if kind == "interaction":
             msg = decode_interaction(payload)
+            print(f"[hub] received interaction from display: elem_id={msg.elem_id!r} action={msg.action!r}", flush=True)
             elem = display.lookup(msg.elem_id)
+            if elem is None:
+                print(f"[hub] WARN: no element {msg.elem_id!r} on hub_display; dropping interaction", file=sys.stderr, flush=True)
+                return
+            print(f"[hub] looked up {type(elem).__name__}[{msg.elem_id}] on hub_display", flush=True)
             if isinstance(elem, ButtonElement) and msg.action == "click":
+                print(f"[hub] calling {type(elem).__name__}.on_click() — runs the behavior method", flush=True)
                 elem.on_click()  # emits ButtonClicked via hub_emit → publishes topic
         else:
             print(f"[hub] unknown display message: {kind!r}", file=sys.stderr, flush=True)

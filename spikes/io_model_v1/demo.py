@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Live demo of the io-model spike — watch all three roundtrips happen.
+"""Live demo of the io-model spike — three self-contained scenarios.
 
-Spawns hub + display + agent as three separate OS processes, tags each
-process's stdout with a colored tier prefix, multiplexes them onto the
-demo terminal in real time, and walks through the three canonical
-roundtrips with clear section markers.
+Each scenario spawns its own fresh trio of OS processes (hub, display,
+agent), narrates a single end-to-end roundtrip from start to finish,
+verifies every tier participated, and tears down cleanly. No state
+leaks between scenarios.
 
 Run from the spike directory:
 
-    python demo.py                  # text surface (default — pretty terminal output)
-    LUX_SURFACE=recording python demo.py   # recording surface (JSONL log)
-
-Stops on Ctrl-C or after the demo completes (~12s).
+    python demo.py                                # text surface
+    LUX_SURFACE=recording python demo.py          # recording surface
+    python demo.py r1                              # run only R1
+    python demo.py r3                              # run only R3
 """
 
 from __future__ import annotations
@@ -23,28 +23,32 @@ import sys
 import tempfile
 import threading
 import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
 from pathlib import Path
 
 
 # ─────────────────────────── output multiplexing ──────────────────────────────
 
 
-# ANSI 256-color escapes. Fall back to plain text if stdout isn't a TTY.
 _IS_TTY = sys.stdout.isatty()
-
 _RESET = "\x1b[0m" if _IS_TTY else ""
 _BOLD = "\x1b[1m" if _IS_TTY else ""
-_DIM = "\x1b[2m" if _IS_TTY else ""
 
 _TIER_COLORS = {
     "HUB":  "\x1b[38;5;39m"  if _IS_TTY else "",   # cyan
     "DISP": "\x1b[38;5;208m" if _IS_TTY else "",   # orange
     "AGNT": "\x1b[38;5;120m" if _IS_TTY else "",   # green
     "DEMO": "\x1b[38;5;213m" if _IS_TTY else "",   # pink
+    "USER": "\x1b[38;5;226m" if _IS_TTY else "",   # yellow
 }
 
-
 _print_lock = threading.Lock()
+
+# Captured output for after-the-fact verification — reset per scenario.
+_observed_lines: list[str] = []
+_observed_lock = threading.Lock()
 
 
 def _tag(label: str) -> str:
@@ -55,6 +59,13 @@ def _tag(label: str) -> str:
 def out(label: str, line: str) -> None:
     with _print_lock:
         print(f"{_tag(label)} {line}", flush=True)
+    with _observed_lock:
+        _observed_lines.append(f"[{label}] {line}")
+
+
+def reset_observed() -> None:
+    with _observed_lock:
+        _observed_lines.clear()
 
 
 def section(title: str) -> None:
@@ -67,18 +78,37 @@ def section(title: str) -> None:
         print()
 
 
-def banner(text: str) -> None:
-    with _print_lock:
-        print()
-        print(f"{_TIER_COLORS['DEMO']}{_BOLD}» {text}{_RESET}")
-        print()
+def step(label: str, text: str) -> None:
+    """Narration step — labeled to make the scenario script obvious."""
+    out("DEMO", f"{_BOLD}{label}.{_RESET} {text}")
+
+
+def wait_for_line(label: str, fragment: str, *, timeout: float = 5.0) -> bool:
+    """Poll captured output for a line from `label` containing `fragment`.
+    Returns True if found within timeout; False otherwise."""
+    deadline = time.time() + timeout
+    prefix = f"[{label}] "
+    while time.time() < deadline:
+        with _observed_lock:
+            for line in _observed_lines:
+                if line.startswith(prefix) and fragment in line:
+                    return True
+        time.sleep(0.05)
+    return False
+
+
+def require(label: str, fragment: str, *, timeout: float = 5.0) -> bool:
+    """wait_for_line + print on failure. Returns whether the line was observed."""
+    if wait_for_line(label, fragment, timeout=timeout):
+        return True
+    out("DEMO", f"✗ FAILED — never observed [{label}] line containing {fragment!r} within {timeout}s")
+    return False
 
 
 # ─────────────────────────── process spawning ─────────────────────────────────
 
 
 def _stream_reader(label: str, stream) -> threading.Thread:
-    """Tag every line from a subprocess stream with the tier prefix."""
     def loop() -> None:
         for raw in iter(stream.readline, ""):
             line = raw.rstrip()
@@ -92,7 +122,7 @@ def _stream_reader(label: str, stream) -> threading.Thread:
     return t
 
 
-def spawn(label: str, module: str, env: dict[str, str], *, stdin_pipe: bool = False) -> subprocess.Popen[str]:
+def _spawn(label: str, module: str, env: dict[str, str], *, stdin_pipe: bool = False) -> subprocess.Popen[str]:
     proc = subprocess.Popen(
         [sys.executable, "-m", f"lux_spike.{module}"],
         env=env,
@@ -106,22 +136,44 @@ def spawn(label: str, module: str, env: dict[str, str], *, stdin_pipe: bool = Fa
     return proc
 
 
-# ─────────────────────────── demo orchestrator ────────────────────────────────
+def _terminate(*procs: subprocess.Popen) -> None:
+    for p in reversed(procs):
+        try:
+            p.terminate()
+        except ProcessLookupError:
+            pass
+    for p in procs:
+        try:
+            p.wait(timeout=3.0)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait(timeout=2.0)
 
 
-def simulate_user_click(display_proc: subprocess.Popen[str], elem_id: str) -> None:
-    """Drive the real user-input path: write `click <id>` to the Display
-    process's stdin. The Display's stdin reader thread will encode an
-    InteractionMessage and ship it to the Hub over Unix socket — same code
-    path a keyboard-typed `click btn1` from a human user would take."""
-    assert display_proc.stdin is not None, "display must be spawned with stdin_pipe=True"
-    out("DEMO", f"writing 'click {elem_id}' to DISPLAY process stdin (simulating a real user keystroke)")
-    display_proc.stdin.write(f"click {elem_id}\n")
-    display_proc.stdin.flush()
+# ─────────────────────────── scenario context ─────────────────────────────────
 
 
-def main() -> int:
-    surface = os.environ.get("LUX_SURFACE", "text")
+@dataclass
+class Trio:
+    hub: subprocess.Popen[str]
+    display: subprocess.Popen[str]
+    agent: subprocess.Popen[str]
+    agent_sock: Path
+    display_sock: Path
+    recording_path: Path
+    tmpdir: Path
+
+
+@contextmanager
+def trio(
+    *,
+    surface: str,
+    timer_seconds: float = 1.5,
+    display_hz: float = 2.0,
+    spawn_agent: bool = True,
+    agent_run_seconds: int = 30,
+) -> Iterator[Trio]:
+    """Spawn hub + display + (optionally) agent for one scenario. Tear down on exit."""
     tmp = Path(tempfile.mkdtemp(prefix="lux-spike-demo-"))
     agent_sock = tmp / "agent.sock"
     display_sock = tmp / "display.sock"
@@ -132,91 +184,174 @@ def main() -> int:
     env["LUX_SPIKE_HUB_DISPLAY_SOCK"] = str(display_sock)
     env["LUX_SPIKE_RECORDING_PATH"] = str(recording_path)
     env["LUX_SURFACE"] = surface
-    env["LUX_SPIKE_HUB_TICK_SECONDS"] = "1.5"
-    env["LUX_SPIKE_DISPLAY_HZ"] = "2"
-    # DISPLAY stdin stays enabled so R3 can drive the real user-input code path.
-    env["LUX_SPIKE_AGENT_RUN_SECONDS"] = "20"
+    env["LUX_SPIKE_HUB_TICK_SECONDS"] = str(timer_seconds)
+    env["LUX_SPIKE_DISPLAY_HZ"] = str(display_hz)
+    env["LUX_SPIKE_AGENT_RUN_SECONDS"] = str(agent_run_seconds)
     src = Path(__file__).resolve().parent / "src"
     env["PYTHONPATH"] = f"{src}:{env.get('PYTHONPATH', '')}".rstrip(":")
 
-    section(f"io-model spike — live demo (surface = {surface})")
-    out("DEMO", f"tmpdir = {tmp}")
-    out("DEMO", f"hub<->display sock = {display_sock}")
-    out("DEMO", f"hub<->agent  sock = {agent_sock}")
-    if surface == "recording":
-        out("DEMO", f"recording log     = {recording_path}")
+    out("DEMO", f"tmpdir={tmp}  surface={surface}")
 
-    banner("Step 1: spawn three OS processes — hub, display, agent")
-    procs: list[subprocess.Popen[str]] = []
+    hub = _spawn("HUB", "hub", env)
+    time.sleep(0.6)
+    display = _spawn("DISP", "display", env, stdin_pipe=True)
+    time.sleep(0.6)
+    agent = (
+        _spawn("AGNT", "agent", env)
+        if spawn_agent
+        else subprocess.Popen([sys.executable, "-c", "import time; time.sleep(0)"])  # placeholder
+    )
+
+    trio_handle = Trio(
+        hub=hub,
+        display=display,
+        agent=agent,
+        agent_sock=agent_sock,
+        display_sock=display_sock,
+        recording_path=recording_path,
+        tmpdir=tmp,
+    )
     try:
-        hub = spawn("HUB", "hub", env)
-        procs.append(hub)
-        time.sleep(0.7)
-        display = spawn("DISP", "display", env, stdin_pipe=True)
-        procs.append(display)
-        time.sleep(0.7)
-        agent = spawn("AGNT", "agent", env)
-        procs.append(agent)
-
-        # ── ROUNDTRIP 1 ─────────────────────────────────────────────────────
-        section("ROUNDTRIP 1 — outbound + observer push")
-        out("DEMO", "Expected sequence:")
-        out("DEMO", "  agent.show(Panel{Label, Button})")
-        out("DEMO", "  → hub decodes + applies + encodes AddElement Update")
-        out("DEMO", "  → ships via Unix socket to display process")
-        out("DEMO", "  → display decodes + applies to its own Element tree")
-        out("DEMO", "  → display render loop calls elem.render() each frame")
-        out("DEMO", "  → hub publishes 'scene.applied' topic")
-        out("DEMO", "  → agent (subscribed) receives push notification")
-        time.sleep(4.0)
-
-        # ── ROUNDTRIP 2 ─────────────────────────────────────────────────────
-        section("ROUNDTRIP 2 — background-thread state update")
-        out("DEMO", "Hub timer thread fires every 1.5s and mutates LabelElement.content")
-        out("DEMO", "via SetProperty Update. Watch the Label content increment each tick.")
-        time.sleep(5.0)
-
-        # ── ROUNDTRIP 3 ─────────────────────────────────────────────────────
-        section("ROUNDTRIP 3 — user click inbound (display → hub → agent)")
-        out("DEMO", "Expected sequence:")
-        out("DEMO", "  user types `click btn1` (simulated by writing to DISPLAY stdin)")
-        out("DEMO", "  → DISPLAY stdin reader encodes InteractionMessage")
-        out("DEMO", "  → DISPLAY ships InteractionMessage to HUB over Unix socket")
-        out("DEMO", "  → HUB looks up ButtonElement, calls button.on_click()")
-        out("DEMO", "  → on_click() emits ButtonClicked Event")
-        out("DEMO", "  → HUB publishes 'interaction.btn1' to subscribers")
-        out("DEMO", "  → AGENT (subscribed on startup) receives push notification")
-        simulate_user_click(display, "btn1")
-        # Give the three processes time to handle the click roundtrip.
-        time.sleep(2.5)
-
-        section("Demo complete — shutting down")
-        time.sleep(0.5)
-
-    except KeyboardInterrupt:
-        section("Interrupted — shutting down")
+        yield trio_handle
     finally:
-        for p in reversed(procs):
-            try:
-                p.terminate()
-            except ProcessLookupError:
-                pass
-        for p in procs:
-            try:
-                p.wait(timeout=3.0)
-            except subprocess.TimeoutExpired:
-                p.kill()
-                p.wait(timeout=2.0)
-        if surface == "recording" and recording_path.exists():
-            banner("Recording surface output (first 12 lines)")
-            for i, line in enumerate(recording_path.read_text().splitlines()):
-                if i >= 12:
-                    break
-                out("DEMO", line)
+        _terminate(agent, display, hub)
         shutil.rmtree(tmp, ignore_errors=True)
 
-    return 0
+
+def simulate_user_click(display_proc: subprocess.Popen[str], elem_id: str) -> None:
+    """Drive the real user-input path: write `click <id>` to Display stdin.
+    Display's stdin reader thread encodes an InteractionMessage and ships
+    it to Hub — same code path a human typing the line would take."""
+    assert display_proc.stdin is not None, "display must be spawned with stdin_pipe=True"
+    out("USER", f"types: click {elem_id}")
+    display_proc.stdin.write(f"click {elem_id}\n")
+    display_proc.stdin.flush()
+
+
+# ───────────────────────────── scenarios ──────────────────────────────────────
+
+
+def run_r1(surface: str) -> bool:
+    """ROUNDTRIP 1 — agent show() reaches display + agent receives observer push.
+
+    Independent: spawns its own hub+display+agent."""
+    reset_observed()
+    section("ROUNDTRIP 1 — outbound + observer push")
+    step("intent", "AGNT calls show(Panel{Label, Button}) → HUB applies + ships → DISP renders")
+    step("intent", "                                      → HUB publishes 'scene.applied' → AGNT receives push")
+
+    with trio(surface=surface) as t:
+        ok = True
+        ok &= require("HUB",  "agent connected",                      timeout=5.0); step("1", "AGNT connected to HUB")
+        ok &= require("HUB",  "agent subscribed to 'scene.applied'",  timeout=3.0); step("2", "AGNT registered to observe 'scene.applied'")
+        ok &= require("AGNT", "sent show('scene1')",                  timeout=3.0); step("3", "AGNT sent show() to HUB")
+        ok &= require("HUB",  "applied scene 'scene1'",               timeout=3.0); step("4", "HUB decoded + applied + shipped Update to DISP")
+        ok &= require("DISP", "applied add_element",                  timeout=3.0); step("5", "DISP decoded + applied the Update to its own tree")
+        ok &= require("DISP", "Panel[p1]",                            timeout=3.0); step("6", "DISP render loop drew Panel composite")
+        ok &= require("DISP", "Label[lbl1]",                          timeout=3.0); step("7", "DISP render loop drew Label leaf")
+        ok &= require("DISP", "Button[btn1]",                         timeout=3.0); step("8", "DISP render loop drew Button leaf")
+        ok &= require("AGNT", "observed 'scene.applied'",             timeout=3.0); step("9", "AGNT received observer push from HUB")
+
+        out("DEMO", "✓ R1 PASSED — every tier participated; observer push delivered" if ok else "✗ R1 FAILED")
+        return ok
+
+
+def run_r2(surface: str) -> bool:
+    """ROUNDTRIP 2 — Hub background-thread state update propagates to Display.
+
+    Independent: spawns its own hub+display+agent."""
+    reset_observed()
+    section("ROUNDTRIP 2 — background-thread state update")
+    step("intent", "HUB timer thread mutates LabelElement.content via SetProperty Update → DISP re-renders new content")
+
+    with trio(surface=surface) as t:
+        ok = True
+        ok &= require("AGNT", "sent show('scene1')",      timeout=5.0); step("1", "scene live on DISP — wait for HUB timer activity")
+        ok &= require("DISP", "Button[btn1]",             timeout=5.0); step("2", "initial render confirmed")
+        ok &= require("HUB",  "timer tick 1",             timeout=3.0); step("3", "HUB timer fired tick 1 → SetProperty(content='ticks: 1')")
+        ok &= require("DISP", "applied set_property",     timeout=3.0); step("4", "DISP received + applied the Update")
+        ok &= require("DISP", "ticks: 1",                 timeout=3.0); step("5", "DISP re-rendered Label with new content")
+        ok &= require("HUB",  "timer tick 2",             timeout=3.0); step("6", "HUB timer fired tick 2 → another SetProperty")
+        ok &= require("DISP", "ticks: 2",                 timeout=3.0); step("7", "DISP re-rendered with tick 2 content")
+
+        out("DEMO", "✓ R2 PASSED — HUB timer → IPC → DISP re-render observed end-to-end" if ok else "✗ R2 FAILED")
+        return ok
+
+
+def run_r3(surface: str) -> bool:
+    """ROUNDTRIP 3 — user click on Display propagates to Hub, runs behavior,
+    publishes topic, subscribed Agent receives push.
+
+    Independent: spawns its own hub+display+agent. Tells the storyline:
+    processes start → agent registers → agent sends scene → delay → user
+    clicks → agent receives push."""
+    reset_observed()
+    section("ROUNDTRIP 3 — user click inbound (USER → DISP → HUB → AGNT)")
+    step("intent", "USER clicks button on DISP → DISP ships InteractionMessage to HUB")
+    step("intent", "  → HUB runs button.on_click() → HUB publishes 'interaction.btn1' → AGNT receives push")
+
+    with trio(surface=surface) as t:
+        ok = True
+
+        # ───── setup ─────
+        ok &= require("HUB",  "agent connected",                       timeout=5.0); step("1", "processes started; AGNT connected to HUB")
+        ok &= require("HUB",  "agent subscribed to 'interaction.btn1'", timeout=3.0); step("2", "AGNT registered to observe 'interaction.btn1'")
+        ok &= require("AGNT", "sent show('scene1')",                   timeout=3.0); step("3", "AGNT sent scene")
+        ok &= require("DISP", "Button[btn1]",                          timeout=5.0); step("4", "scene live on DISP — Button[btn1] visible")
+
+        # ───── steady-state delay ─────
+        step("5", "delay (2.5s) — steady state, no user interaction yet")
+        time.sleep(2.5)
+
+        # ───── the user click ─────
+        step("6", "USER clicks the button (simulated keystroke to DISP stdin)")
+        simulate_user_click(t.display, "btn1")
+
+        # ───── inbound roundtrip ─────
+        ok &= require("DISP", "sent click(btn1)",                      timeout=2.0); step("7", "DISP encoded InteractionMessage + shipped to HUB")
+        ok &= require("HUB",  "received interaction from display",     timeout=2.0); step("8", "HUB received the interaction")
+        ok &= require("HUB",  "looked up ButtonElement",               timeout=2.0); step("9", "HUB looked up ButtonElement on hub_display")
+        ok &= require("HUB",  "calling ButtonElement.on_click()",      timeout=2.0); step("10", "HUB invoked the behavior method")
+        ok &= require("HUB",  "publish 'interaction.btn1'",            timeout=2.0); step("11", "HUB published 'interaction.btn1' to subscribers")
+        ok &= require("AGNT", "observed 'interaction.btn1'",           timeout=2.0); step("12", "AGNT received the click push notification")
+
+        out("DEMO", "✓ R3 PASSED — USER → DISP → HUB → AGNT full inbound roundtrip observed" if ok else "✗ R3 FAILED")
+        return ok
+
+
+# ───────────────────────────── main ───────────────────────────────────────────
+
+
+_SCENARIOS = {
+    "r1": run_r1,
+    "r2": run_r2,
+    "r3": run_r3,
+}
+
+
+def main(argv: list[str]) -> int:
+    surface = os.environ.get("LUX_SURFACE", "text")
+    requested = [a.lower() for a in argv[1:]] or ["r1", "r2", "r3"]
+
+    unknown = [r for r in requested if r not in _SCENARIOS]
+    if unknown:
+        print(f"unknown scenarios: {unknown!r}; valid: {list(_SCENARIOS)}", file=sys.stderr)
+        return 2
+
+    section(f"io-model spike — live demo (surface={surface}, scenarios={requested})")
+    out("DEMO", "Each scenario spawns fresh hub+display+agent processes,")
+    out("DEMO", "runs one roundtrip end-to-end, verifies, and tears down.")
+
+    results: dict[str, bool] = {}
+    for name in requested:
+        results[name] = _SCENARIOS[name](surface)
+
+    section("Summary")
+    for name in requested:
+        mark = "✓" if results[name] else "✗"
+        out("DEMO", f"{mark} {name.upper()}")
+    return 0 if all(results.values()) else 1
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(main(sys.argv))
