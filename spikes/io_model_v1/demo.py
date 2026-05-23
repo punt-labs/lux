@@ -16,10 +16,8 @@ Stops on Ctrl-C or after the demo completes (~12s).
 
 from __future__ import annotations
 
-import json
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import tempfile
@@ -94,11 +92,11 @@ def _stream_reader(label: str, stream) -> threading.Thread:
     return t
 
 
-def spawn(label: str, module: str, env: dict[str, str]) -> subprocess.Popen[str]:
+def spawn(label: str, module: str, env: dict[str, str], *, stdin_pipe: bool = False) -> subprocess.Popen[str]:
     proc = subprocess.Popen(
         [sys.executable, "-m", f"lux_spike.{module}"],
         env=env,
-        stdin=subprocess.DEVNULL,
+        stdin=subprocess.PIPE if stdin_pipe else subprocess.DEVNULL,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
         text=True,
@@ -111,43 +109,15 @@ def spawn(label: str, module: str, env: dict[str, str]) -> subprocess.Popen[str]
 # ─────────────────────────── demo orchestrator ────────────────────────────────
 
 
-def synthesize_click(agent_sock_path: Path, elem_id: str) -> None:
-    """Connect to the Hub's agent socket, subscribe to interaction.<id>,
-    inject a synthesized click, print the push notification when received."""
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.connect(str(agent_sock_path))
-
-    def send(payload: dict) -> None:
-        sock.sendall((json.dumps(payload) + "\n").encode("utf-8"))
-
-    send({"kind": "subscribe", "topic": f"interaction.{elem_id}"})
-    send({"kind": "synthesize_interaction", "elem_id": elem_id, "action": "click"})
-
-    sock.settimeout(3.0)
-    buf = b""
-    deadline = time.time() + 3.0
-    while time.time() < deadline:
-        try:
-            while b"\n" not in buf:
-                chunk = sock.recv(4096)
-                if not chunk:
-                    out("DEMO", "synthesize-click: hub closed connection unexpectedly")
-                    sock.close()
-                    return
-                buf += chunk
-            line, _, rest = buf.partition(b"\n")
-            buf = rest
-            if not line:
-                continue
-            msg = json.loads(line.decode("utf-8"))
-            if msg.get("kind") == "observed" and msg.get("topic") == f"interaction.{elem_id}":
-                out("DEMO", f"received push: topic={msg['topic']!r} payload={msg['payload']!r}")
-                sock.close()
-                return
-        except socket.timeout:
-            break
-    out("DEMO", "synthesize-click: timed out waiting for push notification")
-    sock.close()
+def simulate_user_click(display_proc: subprocess.Popen[str], elem_id: str) -> None:
+    """Drive the real user-input path: write `click <id>` to the Display
+    process's stdin. The Display's stdin reader thread will encode an
+    InteractionMessage and ship it to the Hub over Unix socket — same code
+    path a keyboard-typed `click btn1` from a human user would take."""
+    assert display_proc.stdin is not None, "display must be spawned with stdin_pipe=True"
+    out("DEMO", f"writing 'click {elem_id}' to DISPLAY process stdin (simulating a real user keystroke)")
+    display_proc.stdin.write(f"click {elem_id}\n")
+    display_proc.stdin.flush()
 
 
 def main() -> int:
@@ -164,7 +134,7 @@ def main() -> int:
     env["LUX_SURFACE"] = surface
     env["LUX_SPIKE_HUB_TICK_SECONDS"] = "1.5"
     env["LUX_SPIKE_DISPLAY_HZ"] = "2"
-    env["LUX_SPIKE_DISPLAY_NO_STDIN"] = "1"  # demo orchestrator synthesises the click
+    # DISPLAY stdin stays enabled so R3 can drive the real user-input code path.
     env["LUX_SPIKE_AGENT_RUN_SECONDS"] = "20"
     src = Path(__file__).resolve().parent / "src"
     env["PYTHONPATH"] = f"{src}:{env.get('PYTHONPATH', '')}".rstrip(":")
@@ -182,7 +152,7 @@ def main() -> int:
         hub = spawn("HUB", "hub", env)
         procs.append(hub)
         time.sleep(0.7)
-        display = spawn("DISP", "display", env)
+        display = spawn("DISP", "display", env, stdin_pipe=True)
         procs.append(display)
         time.sleep(0.7)
         agent = spawn("AGNT", "agent", env)
@@ -208,16 +178,17 @@ def main() -> int:
 
         # ── ROUNDTRIP 3 ─────────────────────────────────────────────────────
         section("ROUNDTRIP 3 — user click inbound (display → hub → agent)")
-        out("DEMO", "Synthesizing a click on btn1...")
         out("DEMO", "Expected sequence:")
-        out("DEMO", "  user click (simulated)")
-        out("DEMO", "  → display encodes InteractionMessage")
-        out("DEMO", "  → ships via Unix socket to hub")
-        out("DEMO", "  → hub looks up ButtonElement → calls button.on_click()")
+        out("DEMO", "  user types `click btn1` (simulated by writing to DISPLAY stdin)")
+        out("DEMO", "  → DISPLAY stdin reader encodes InteractionMessage")
+        out("DEMO", "  → DISPLAY ships InteractionMessage to HUB over Unix socket")
+        out("DEMO", "  → HUB looks up ButtonElement, calls button.on_click()")
         out("DEMO", "  → on_click() emits ButtonClicked Event")
-        out("DEMO", "  → hub publishes 'interaction.btn1' topic")
-        out("DEMO", "  → subscribed agent receives push notification")
-        synthesize_click(agent_sock, "btn1")
+        out("DEMO", "  → HUB publishes 'interaction.btn1' to subscribers")
+        out("DEMO", "  → AGENT (subscribed on startup) receives push notification")
+        simulate_user_click(display, "btn1")
+        # Give the three processes time to handle the click roundtrip.
+        time.sleep(2.5)
 
         section("Demo complete — shutting down")
         time.sleep(0.5)
