@@ -2521,10 +2521,11 @@ outside the tree" failure mode.
 - This ADR does not specify the migration order — that is a separate
   migration-plan update.
 - This ADR does not commit to a specific Encoder family for the
-  output side of the wire (`Element → dict`). An Encoder family
-  parallel to Decoder will be needed at least for snapshot
-  characterization tests and scene-state introspection; its design
-  follows the same shape but is not in scope here.
+  output side of the wire (`Element → dict`). **SUPERSEDED by
+  DES-034:** Encoder family is committed as a peer to Decoder. The
+  rest of this bullet is preserved for historical context; the actual
+  Encoder family lands in the migration PR that ships the
+  connection-layer cleanup.
 - This ADR does not change the Element vocabulary, the Update sum
   type, the Event sum type, or any other domain-layer specification
   established in DES-031 and `domain-model.md`.
@@ -2757,9 +2758,11 @@ level for no benefit.
 ### What this is not
 
 - This ADR does not commit to building HTML, RecordingRenderer, or
-  any specific test backend. It commits to the architectural shape
-  that makes them additive when wanted. Concrete backends ship
-  when they have a consumer.
+  any specific test backend. **SUPERSEDED by DES-034 + migration
+  plan PR 3:** RecordingRenderer and NullRenderer are committed
+  (DES-034) and built in PR 3 — they are no longer optional. HTML
+  remains additive when wanted. The shape that makes additional
+  backends drop-in is unchanged.
 - This ADR does not specify the migration order from the PR 1+2
   state (codec-on-class, `ElementRenderer` god class, no per-format
   decoders) to the io-model architecture. The migration plan is a

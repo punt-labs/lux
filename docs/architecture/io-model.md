@@ -1,5 +1,7 @@
 # I/O Model — Decoder, Element, Renderer
 
+**Author:** Claude Agento (claude)
+**Date:** 2026-05-23
 **Status:** TARGET (not yet implemented).
 **Companion docs:** [`domain-model.md`](domain-model.md) (the domain north star),
 [`x11-model.md`](x11-model.md) (the process topology),
@@ -226,6 +228,20 @@ class ImGuiRendererFactory:
 Each surface family has one renderer class per Element kind. Renderers
 hold a reference to the Element (read-only) and any surface-shared state.
 
+The example below shows the **owner-tier** path — i.e. the renderer
+running in the process that constructed the Element subclass and bound
+its `on_click` behavior (typically an in-process applet, or the hub for
+hub-local handlers). In this case the renderer can call
+`self._elem.on_click()` directly because the bound behavior lives in
+the same process.
+
+On a **non-owner tier** (the display process for an applet-owned button,
+which holds only a base-class mirror of the Element), the renderer
+does NOT call `on_click()`; it emits an `InteractionMessage` that the
+hub routes back to the owner. See *Tier-local Element representation*
+below (around line 620) and the end-to-end click trace that follows it
+for the full cross-tier flow.
+
 ```python
 class ImGuiButtonRenderer:
     _elem: ButtonElement
@@ -233,7 +249,7 @@ class ImGuiButtonRenderer:
         if self._elem.disabled: imgui.begin_disabled()
         try:
             if imgui.button(f"{self._elem.label}##{self._elem.id}"):
-                self._elem.on_click()    # renderer detects → element decides
+                self._elem.on_click()    # OWNER-TIER ONLY — see note above
         finally:
             if self._elem.disabled: imgui.end_disabled()
 
@@ -247,8 +263,9 @@ class HtmlButtonRenderer:
             f"<button{attrs} onclick=\"luxClick('{self._elem.id}')\">"
             f"{html.escape(self._elem.label)}</button>"
         )
-        # JS handler luxClick() eventually calls elem.on_click() via the
-        # websocket round-trip back to the server.
+        # JS handler luxClick() eventually reaches the owner tier (where
+        # on_click is bound) via the websocket round-trip back to the
+        # server — same cross-tier routing as the ImGui non-owner case.
 
 class ImGuiGroupRenderer:
     _elem: GroupElement
@@ -1037,10 +1054,6 @@ the destination, not the route.
 
 These are decided later, when first concrete need arises.
 
-- **Encoder symmetry.** Does the input side need a parallel Encoder
-  family for round-trip (replay, inspection, scene serialization)?
-  Probably yes for at least `JsonEncoder`, used by snapshot
-  characterization tests and scene-state introspection.
 - **State invariants on patch.** When `Display.apply(SetProperty(...))`
   replaces an Element field, does the renderer need to be re-resolved?
   In the current design `renderer_factory(self)` is called on every
