@@ -31,7 +31,11 @@ from punt_lux.protocol.elements import layout
 # _util because the codec layer above the per-element modules uses it.
 from punt_lux.protocol.elements._util import strip_none as _strip_none
 from punt_lux.protocol.elements.basics import BasicsRegistry
+from punt_lux.protocol.elements.button import ButtonElement
+from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.codec import ElementCodec
+from punt_lux.protocol.elements.color_picker import ColorPickerElement
+from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.element_wire import ElementWireContext
 from punt_lux.protocol.elements.graphics import (
     DrawElement,
@@ -39,18 +43,9 @@ from punt_lux.protocol.elements.graphics import (
     register_codecs as _register_graphics,
 )
 from punt_lux.protocol.elements.image import ImageElement
-from punt_lux.protocol.elements.inputs import (
-    ButtonElement,
-    CheckboxElement,
-    ColorPickerElement,
-    ComboElement,
-    InputNumberElement,
-    InputTextElement,
-    RadioElement,
-    SelectableElement,
-    SliderElement,
-    register_codecs as _register_inputs,
-)
+from punt_lux.protocol.elements.input_number import InputNumberElement
+from punt_lux.protocol.elements.input_text import InputTextElement
+from punt_lux.protocol.elements.inputs import InputsRegistry
 from punt_lux.protocol.elements.layout import (
     CollapsingHeaderElement,
     GroupElement,
@@ -70,7 +65,10 @@ from punt_lux.protocol.elements.patch import (
     _patch_to_dict as _patch_to_dict,
 )
 from punt_lux.protocol.elements.progress import ProgressElement
+from punt_lux.protocol.elements.radio import RadioElement
+from punt_lux.protocol.elements.selectable import SelectableElement
 from punt_lux.protocol.elements.separator import SeparatorElement
+from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.protocol.elements.table import (
     TableDetail,
@@ -156,7 +154,7 @@ Element = (
 # codec sub-module.
 _codec = ElementCodec()
 BasicsRegistry().apply(_codec.register)
-_register_inputs(_codec.register)
+InputsRegistry().apply(_codec.register)
 _register_layout(_codec.register)
 _register_graphics(_codec.register)
 _register_table(_codec.register)
