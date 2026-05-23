@@ -210,10 +210,13 @@ def test_route_interaction_warns_on_unknown_element_in_known_scene(
     )
 
 
-def test_route_interaction_warns_on_non_truthy_button_value(
+def test_route_interaction_warns_on_non_true_button_value_and_does_not_route(
     pump: DomainPump, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """SFH M2: non-truthy button InteractionMessage value is a renderer-bug signal."""
+    """Bugbot HIGH (PR #187): a button-element message whose value is not
+    boolean True (e.g. a dict from a colliding menu emit) MUST NOT route
+    as a ButtonPressed.  The warning surfaces the renderer bug.
+    """
     scene = SceneMessage(id="s1", elements=[ButtonElement(id="b1", label="OK")])
     pump.route(scene)
 
@@ -229,13 +232,92 @@ def test_route_interaction_warns_on_non_truthy_button_value(
     )
     with caplog.at_level("WARNING", logger="punt_lux.display.domain_pump"):
         pump.route_interaction(msg)
-    # The click still routes (conservative); observe both the event AND warning.
-    assert len(observed) == 1
-    assert isinstance(observed[0], ButtonPressed)
+    # NOT routed — strict value-shape check protects against spurious events.
+    assert observed == []
     messages = [r.getMessage() for r in caplog.records]
-    assert any("not truthy" in m for m in messages), (
-        f"expected truthy-warning; got {messages}"
+    assert any("not True (boolean)" in m for m in messages), (
+        f"expected boolean-True warning; got {messages}"
     )
+
+
+def test_route_interaction_skips_menu_action_without_warning(
+    pump: DomainPump, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Bugbot MED (PR #187): menu emissions have action="menu" and ids that
+    are not scene elements.  They MUST NOT trip the unknown-element
+    divergence warning — that warning exists for real divergence.
+    """
+    scene = SceneMessage(id="s1", elements=[ButtonElement(id="b1", label="OK")])
+    pump.route(scene)
+
+    observed: list[Event] = []
+    pump._display.subscribe(observed.append)
+
+    menu_msg = InteractionMessage(
+        element_id="menu.file.open",
+        action="menu",
+        ts=1.0,
+        value={"menu": "File", "item": "Open"},
+        scene_id="s1",
+    )
+    with caplog.at_level("WARNING", logger="punt_lux.display.domain_pump"):
+        pump.route_interaction(menu_msg)
+    assert observed == []
+    assert caplog.records == [], (
+        f"menu action must not log; got {[r.getMessage() for r in caplog.records]}"
+    )
+
+
+def test_route_interaction_skips_frame_close_action_without_warning(
+    pump: DomainPump, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Frame-close events are display-chrome, not element-targeted."""
+    scene = SceneMessage(id="s1", elements=[ButtonElement(id="b1", label="OK")])
+    pump.route(scene)
+
+    observed: list[Event] = []
+    pump._display.subscribe(observed.append)
+
+    msg = InteractionMessage(
+        element_id="frame-1",
+        action="frame_close",
+        ts=1.0,
+        scene_id="s1",
+    )
+    with caplog.at_level("WARNING", logger="punt_lux.display.domain_pump"):
+        pump.route_interaction(msg)
+    assert observed == []
+    assert caplog.records == []
+
+
+def test_route_interaction_menu_id_colliding_with_button_does_not_fire(
+    pump: DomainPump, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Bugbot HIGH (PR #187): defense-in-depth — even if the menu filter
+    were bypassed, a menu emission whose id collides with a real button
+    in the scene MUST NOT fire ButtonPressed.  Verified via the strict
+    ``value is True`` check in ``_is_button_click``.
+    """
+    scene = SceneMessage(id="s1", elements=[ButtonElement(id="b1", label="OK")])
+    pump.route(scene)
+
+    observed: list[Event] = []
+    pump._display.subscribe(observed.append)
+
+    # action != "menu" so the early skip doesn't fire — simulates a hypothetical
+    # routing oversight to confirm the value-shape check still protects.
+    msg = InteractionMessage(
+        element_id="b1",  # collides with the button id
+        action="something_else",
+        ts=1.0,
+        value={"menu": "File", "item": "Open"},  # dict, not bool True
+        scene_id="s1",
+    )
+    with caplog.at_level("WARNING", logger="punt_lux.display.domain_pump"):
+        pump.route_interaction(msg)
+    assert observed == []  # phantom ButtonPressed suppressed
+    messages = [r.getMessage() for r in caplog.records]
+    assert any("not True (boolean)" in m for m in messages)
 
 
 def test_route_interaction_skips_message_without_scene_id(pump: DomainPump) -> None:

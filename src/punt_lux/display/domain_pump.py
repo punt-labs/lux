@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import logging
-from typing import Any, Self, cast
+from typing import Any, ClassVar, Self, cast
 
 from punt_lux.domain.display import Display, Result
 from punt_lux.domain.element import Element as DomainElement
@@ -117,22 +117,32 @@ class DomainPump:
                 result, scene_id=scene_id, element_id=element_id, op="remove"
             )
 
+    # Wire actions that do NOT target a scene element — emitted by display
+    # chrome (menu bar, frame close button) rather than by an Element
+    # renderer.  They flow through the wire event queue but have no domain
+    # equivalent; the pump skips them BEFORE the element-existence check so
+    # they don't trip the SFH-M1 divergence warning (Bugbot MED on PR #187).
+    _NON_ELEMENT_ACTIONS: ClassVar[frozenset[str]] = frozenset({"menu", "frame_close"})
+
     def route_interaction(self, msg: InteractionMessage) -> None:
         """Translate a wire ``InteractionMessage`` into a domain ``Interaction``.
 
         PR 2: only button clicks have a corresponding domain Interaction.
-        ButtonRenderer emits InteractionMessage with no kind discriminator
-        on the wire — every button-sourced message reaches this pump as a
-        click.  The element id identifies the target.  Scenes that don't
-        live in the domain Display (mixed-scene case) are skipped silently:
-        ``Display.interact`` would return ``UnknownElementError`` and the
-        warning would be noise rather than signal.  An element id missing
-        from a scene the domain DOES track is the opposite — a divergence
-        signal worth logging (SFH M1).
+        ButtonRenderer emits InteractionMessage with ``value=True`` and an
+        action equal to the button's ``elem.action or elem.id``.  Display
+        chrome (menu, frame close) emits InteractionMessages with no
+        scene-element backing; those skip the pump entirely.  Scenes that
+        don't live in the domain Display (mixed-scene case) are skipped
+        silently — ``Display.interact`` would return ``UnknownElementError``
+        and the warning would be noise rather than signal.  An element id
+        missing from a scene the domain DOES track is the opposite — a
+        divergence signal worth logging (SFH M1).
 
-        Messages from non-button sources (slider, checkbox, …) are skipped
-        here pending their own Interaction variants in later PRs.
+        Messages from non-button element sources (slider, checkbox, …) are
+        skipped here pending their own Interaction variants in later PRs.
         """
+        if msg.action in self._NON_ELEMENT_ACTIONS:
+            return
         if msg.scene_id is None:
             return
         scene_id = SceneId(msg.scene_id)
@@ -160,19 +170,23 @@ class DomainPump:
     def _is_button_click(msg: InteractionMessage, elem: DomainElement) -> bool:
         """Return True if the wire ``InteractionMessage`` describes a button click.
 
-        Resolution is by element kind: every InteractionMessage referencing
-        a ``button`` element is a click.  ButtonRenderer's wire-side emit
-        sets ``value=True`` on click; a non-truthy value reaching this point
-        is a renderer-bug signature worth logging (SFH M2).  ``msg`` becomes
-        a real discriminator when slider/combo Interaction variants ship.
+        Resolution is by element kind AND wire value shape.  ButtonRenderer's
+        wire-side emit always sets ``value=True`` (boolean ``True``); any
+        other shape — dict (menu payload), str (input value), int — is from
+        a different source and MUST NOT route as a ButtonPressed even if
+        ``element_id`` happens to match a button in the scene.  Bugbot HIGH
+        on PR #187 named the menu-id-collides-with-button-id case: without
+        the ``msg.value is True`` guard a menu selection whose id matched a
+        real button would have fired a phantom ButtonPressed to subscribers.
         """
         if elem.kind != "button":
             return False
-        if not msg.value:
+        if msg.value is not True:
             _log.warning(
-                "button interaction value=%r is not truthy; treating as click anyway",
+                "button interaction value=%r is not True (boolean); not a click",
                 msg.value,
             )
+            return False
         return True
 
 
