@@ -45,3 +45,27 @@ If generalized pub/sub is later needed, it would be additive — a new wire kind
 **Q.** Does the Hub's internal `publish()` call cross a process boundary?
 
 **Resolved.** The Python call itself is in-process (one Python function calling another), but **its purpose is to produce wire output** — `{"kind": "observed", "topic": ..., "payload": ...}` envelopes written to every subscriber socket. So while the API invocation is in-process, the wire format of `observed` envelopes is part of the contract and lives on subscriber-facing sockets.
+
+## A5 — Applets compose standard components; they don't ship custom Element subclasses
+
+**Q.** When the OWNER of an Element's behavior is an applet (separate process), how does the HUB route interactions to the applet so the applet's custom behavior can run? What's the wire shape for forwarding interactions; how does the applet's reply flow back?
+
+**Resolved.** The premise was wrong. **Applets don't add new Element kinds or custom subclasses.** Lux ships a fixed catalog of standard Element kinds (Label, Button, Panel, Dialog, Table, …), each with its own *standard library-built-in behavior*. The HUB has the library code; the HUB is always the runner of element behavior.
+
+What an applet adds is **custom data + custom reactions to user actions**:
+
+- A button labeled "Get Quotes" is a *standard* `ButtonElement`. The HUB's Button.on_click emits the standard `ButtonClicked` Event — same as for any other button.
+- The applet's custom part: it `subscribe()`s to `interaction.quotes_btn`, gets notified via the Observer path, performs domain work (fetches the quotes from a web service), and ships a fresh `show()` with a standard `TableElement` displaying the result.
+
+So the apparent "behavior on owner tier" pattern is actually two distinct things:
+
+- **Standard component behavior** (e.g. `Dialog.close`, `Button.on_click`): runs on the HUB because the HUB has the library. Hub-local, deterministic, no routing needed.
+- **Custom applet behavior**: runs in the applet's process, triggered by an `observed` notification on a topic the applet subscribed to. The applet then drives the next state change via the standard `show()` / `apply()` API back to the HUB.
+
+This dissolves the routing/forwarding/return-path questions: there is nothing custom to forward; the applet only consumes standard notifications and produces standard Updates. The architecture's three tiers (applet, hub, display) each play exactly one role with no cross-tier behavior invocation:
+
+- Applet: composes standard scenes, subscribes to topics, reacts via further `show()` calls.
+- Hub: runs standard component behavior, accepts state changes, publishes topics.
+- Display: renders the scene, detects user input, ships InteractionMessages to the Hub.
+
+**Spike correspondence.** R4 is already correct under this model. The HUB runs `Dialog.close()` (standard library behavior). The AGNT acts exactly like an applet would: subscribes to `interaction.btn_yes`, gets notified, performs custom logic, ships a new `show()`.
