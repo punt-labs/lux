@@ -2999,96 +2999,79 @@ independent axes.
 
 ### Decision
 
-Routing of InteractionMessages from the display tier to handler code is
-decomposed into three independent concerns. The hub is responsible for
-the first axis only; the other two are downstream of routing.
+**Important revision (2026-05-23):** an earlier draft of this ADR
+described an "ownership" axis where the hub could forward an
+`InteractionMessage` to an owning connection so that connection
+could run a custom subclass's behavior. **That model has been
+withdrawn.** Per the architecture clarification in
+`spikes/io_model_v1/ARCHITECTURE_NOTES.md` A5, applets do **not**
+ship custom Element subclasses; they compose standard library
+components. All element behavior runs on the hub (which has the
+library code). External actors (applets, agents) participate in
+interactions by **subscribing to topics published by the hub** when
+behavior emits Events.
 
-**Axis 1 — Ownership.** Who runs the handler? Two cases:
+The revised model has two concerns, not three:
 
-- `owner = "hub"` — the hub runs the handler in-place. Used for
-  hub-shipped element classes whose behavior is built into the hub
-  itself (e.g., `FilterableTable.on_filter_change`).
-- `owner = <connection_id>` — the hub forwards the InteractionMessage
-  to the named connection. The recipient's runtime handles dispatch.
+**Axis 1 — Element behavior dispatch (hub-internal).** When an
+`InteractionMessage` arrives from display, the hub resolves the
+element on `hub_display` and invokes its standard library behavior
+method (e.g. `Button.on_click`). The hub's emit handler then
+dispatches whatever the behavior emits:
 
-The hub maintains `{element_id → owner}` as part of `Display`'s state
-(established in DES-031's ownership model). Lookup at routing time is
-O(1).
+- Typed **Events** (e.g. `ButtonClicked`) → `publish(topic, payload)`
+  on the subscription registry.
+- Typed **Updates** (e.g. `RemoveElement` emitted by `Dialog.close()`)
+  → accept on `hub_display` + encode + ship to display.
 
-**Axis 2 — Client kind.** When ownership is a connection, the recipient
-client's runtime dispatches the message. The mechanism depends on
-what kind of client is on the other end:
+There is **no `owner = <connection_id>` case**. The hub does not
+forward `InteractionMessage`s to external processes for custom
+dispatch.
 
-- **Library client** (Python applet using `punt_lux`) — holds real
-  Element instances with bound behavior methods. Dispatches by
-  looking up the instance for `element_id` and calling the appropriate
-  method (`on_click`, `on_value_change`, etc.) on the subclass.
-- **Wire client** (Go, Rust, external Python, anything that emits
-  JSON over MCP without using the library) — holds no Element class
-  instances. Dispatches via a language-native switch / match on the
-  message fields.
-- **LLM agent** (Claude Code, other MCP-connected language models) —
-  special case of wire client where dispatch IS prompt interpretation.
-  The runtime surfaces the message to the LLM, which decides what to
-  do via reasoning and emits Updates back via MCP tool calls.
+**Axis 2 — Reaction pattern (downstream of routing).** A connection
+that subscribed to a topic decides how to react when notified:
 
-The hub does not distinguish among client kinds at routing time. To
-the hub, a connection is a connection. The client's runtime handles
-its own dispatch.
+- **Deterministic** — applet's notification handler runs straight
+  code (e.g. fetch from DB, format new table, ship `show()` back to
+  hub). Same as MCP agent calling tools in a fixed pattern.
+- **Agent-escalation** — handler builds a prompt, sends to an LLM,
+  waits for response, then ships Updates. An LLM agent's "handler"
+  is agent-escalation by construction.
+- **Hybrid** — some deterministic work, then escalation.
 
-**Axis 3 — Handler pattern.** What does the handler body do? Independent
-of who runs it.
+This axis is downstream of routing — the hub doesn't see it. The
+subscriber's process decides how it reacts.
 
-- **Deterministic** — straight code that runs synchronously and
-  produces Updates locally. `SubmitButton.on_click` validates a form,
-  computes a result, mutates scene state.
-- **Agent-escalation** — handler builds a prompt, sends it to an LLM,
-  waits for the response, then emits Updates based on what the LLM
-  decided. A Python applet can have an agent-escalation handler
-  (calls its own LLM); an LLM agent's "handler" is usually
-  agent-escalation by construction (its only mode is LLM reasoning).
-- **Hybrid** — handler does some deterministic work, then escalates
-  for the part that requires reasoning.
-
-The handler pattern is internal to the handler body. The runtime
-delivers the message; the handler decides how to process it. Pattern
-is invisible to both the hub and the recipient client's dispatch
-mechanism.
-
-The applet author writes tier-blind code. They write a Python class
-with behavior methods. They do not write code that asks "what tier am
-I in?" or "is my element hub-owned?" The runtime infrastructure
-handles ownership tracking and message routing.
+The applet author writes tier-blind code. They subscribe to topics
+they care about and react by composing standard components and
+calling `show()`. They never override standard element behavior.
 
 ### Rationale
 
-**1. Three axes are independent in the wild.** Every combination of
-the three axes has a realistic example:
+**1. Standard components keep the wire vocabulary closed.** If
+applets could ship custom subclasses with custom behavior bodies,
+either (a) Python code must cross the wire (security and
+deserialization nightmare) or (b) the wire encodes a behavior
+descriptor the hub interprets (closed vocabulary anyway, just
+indirected). The simpler answer: applets compose; the hub runs
+library-standard behavior; custom logic lives in applet reactions
+to Observer notifications.
 
-| ownership | client kind | handler pattern | realistic example |
-|-----------|-------------|-----------------|-------------------|
-| hub | (n/a) | deterministic | FilterableTable.on_filter_change |
-| connection | library | deterministic | Beads applet's update-bead button |
-| connection | library | agent-escalation | Python applet that calls its own LLM |
-| connection | LLM agent | agent-escalation | Claude Code modal confirm |
-| connection | wire client | deterministic | Go applet with switch-on-action |
+**2. Hub routing remains O(1).** Resolve element by id on
+`hub_display`, invoke its bound behavior. No cross-process
+forwarding for routing.
 
-Conflating the axes makes some combinations unrepresentable.
+**3. Applet authors should not write tier-aware code.** Applets
+write Python that composes standard scenes and reacts to
+notifications. They don't ask "what tier am I in?" The same applet
+code runs whether the applet is a separate process or in-process
+embedded.
 
-**2. The hub's routing decision should be O(1).** Ownership is a
-single lookup in a dict. The hub does not interpret client kind or
-handler pattern; those are downstream concerns.
-
-**3. Applet authors should not write tier-aware code.** This is the
-principle the operator stated explicitly. An applet's `SubmitButton`
-should have the same `on_click` method whether the applet runs as a
-separate process (default), in-process embedded (tests), or anywhere
-else. The runtime handles tier routing transparently.
-
-**4. Naming axes prevents future re-conflation.** Documenting
-"ownership versus client kind versus handler pattern" as three named
-axes makes it possible to reject proposals that try to combine them
-back into one rule.
+**4. Naming the two axes prevents re-conflation.** "Element
+behavior" (hub-internal, library-standard) and "reaction pattern"
+(per-subscriber, custom) are distinct concerns. Future proposals
+that try to combine them — e.g. "let applets ship Python handler
+bodies" — should be rejected at this boundary.
 
 ### Alternatives considered
 
@@ -3238,18 +3221,28 @@ Subscription is **topic-based**.
            payload: object)
 ```
 
-**Internal hub-side API for applets and other in-fabric actors:**
+**Internal hub-side API (hub-process callers only):**
 
 ```python
 hub.publish(topic: str, payload: Any) -> None
-hub.subscribe(topic: str) -> Subscription   # in-process subscribers also welcome
+hub.subscribe(topic: str) -> Subscription
 ```
 
-The applet calls `hub.publish(...)`; the hub fans the payload out to
-every subscribed connection via MCP server-push notifications (for
-MCP-connected agents) or via in-process delivery (for in-fabric
-subscribers). The publisher does not enumerate subscribers. The
-subscriber does not know who else subscribed.
+The hub's emit handler calls `hub.publish(...)` when an Element's
+behavior method emits a typed Event. The hub fans the payload out
+to every subscribed connection via MCP server-push notifications.
+The publisher does not enumerate subscribers; the subscriber does
+not know who else subscribed.
+
+**Note (2026-05-23 clarification, see
+`spikes/io_model_v1/ARCHITECTURE_NOTES.md` A2 + A3):** `hub.publish`
+is **not exposed as a wire API for external processes**. External
+apps express intent via typed Updates (`show()`,
+`AddElement`/`SetProperty`/`RemoveElement`); the hub's reactive
+machinery produces `observed` notifications as a consequence of
+accepted state changes. Generalized peer-to-peer pub/sub from
+external publishers is a future capability not yet thought
+through — see the "What this is not" section below.
 
 **Topic vocabulary** is open. The hub does not pre-declare valid
 topics; any string is a valid topic. Conventions will emerge per
@@ -3358,16 +3351,20 @@ in-process pub/sub for an external bus is a future change.
   fabric. Updates and Events are how state changes propagate across
   applet/hub/display IPC. Observer notifications are how arbitrary
   domain events propagate across the MCP boundary.
-- **Wire kind for `publish` over Lux IPC (separate-process applet
-  case).** When an applet runs as a separate process and calls
-  `hub.publish(topic, payload)`, the call crosses Lux IPC, not MCP.
-  This ADR commits to adding `PublishMessage(topic: str, payload:
-  object)` as a new wire-message kind alongside `Update` and `Event`
-  (handled by the Encoder/Decoder family). In-process applets call
-  `hub.publish` directly with no wire serialization. Both paths
-  converge at the hub's subscription registry, which fans out to all
-  subscribers (in-process delivery for in-fabric subscribers; MCP
-  server-push for MCP-connected agents).
+- **Wire kind for `publish` over Lux IPC from external publishers
+  (DEFERRED, was committed earlier in this ADR).** An earlier draft
+  of this ADR committed to a `PublishMessage(topic, payload)` wire
+  kind so a separate-process applet could call `hub.publish` over
+  Lux IPC. **That commitment is withdrawn** per
+  `spikes/io_model_v1/ARCHITECTURE_NOTES.md` A3. The current model:
+  external apps drive state via typed Updates (`show()` etc.); the
+  hub publishes topics from emitted Events as a side effect of
+  accepting Updates. There is currently no wire kind by which an
+  external process initiates a `publish()`. If generalized
+  peer-to-peer pub/sub from external publishers is later needed it
+  would be additive — a `PublishMessage` wire kind that triggers
+  the hub's `publish()` from outside — but it must not replace or
+  compete with the typed Update channel.
 
 ### Authority
 
@@ -3384,9 +3381,15 @@ re-proposed as polling or as point-to-point.
   Updates/Events are inside the Lux fabric; Observer is across the
   MCP boundary.
 - DES-032: this ADR doesn't change Element ownership or behavior.
-  Element behavior methods can call `hub.publish(...)` to notify
-  observers; observers can call `Display.apply(...)` to mutate
-  scene state. The two systems are orthogonal.
+  Element behavior methods emit typed Events (e.g. `ButtonClicked`)
+  via `self._emit`; the hub's emit handler routes Events to
+  `publish()` (Observer channel) and Updates to `accept` +
+  ship-to-display (typed channel). Behavior methods do **not**
+  call `hub.publish` directly — see
+  `spikes/io_model_v1/ARCHITECTURE_NOTES.md` A2 for the
+  typed-Events-vs-Observer-notifications distinction. Observers
+  can react to notifications by composing further state changes
+  via `show()` / `Display.apply(...)`.
 - DES-033: this ADR's per-tier Renderer / Encoder families are
   unaffected. The MCP boundary is its own protocol surface; the
   Encoder family is for Lux IPC, not MCP.
