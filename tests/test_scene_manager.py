@@ -432,9 +432,11 @@ class TestApplyUpdate:
         mgr.apply_update(update)
 
         # Cache must be DISCARDED — not poisoned with None.  Next render's
-        # ensure() will re-seed from elem.value via parse_rgba.
-        assert ws.get("cp1") is None
-        assert "cp1" not in ws._state
+        # ensure() will re-seed from elem.value via parse_rgba.  Use a
+        # sentinel default to distinguish "key absent" from "key present
+        # with value None" (the previous buggy state).
+        sentinel = object()
+        assert ws.get("cp1", sentinel) is sentinel
 
     def test_update_framed_scene(self) -> None:
         """Updates work for scenes inside frames."""

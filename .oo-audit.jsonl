@@ -138,3 +138,4 @@
 {"ts":"2026-05-23T02:59:24Z","commit":"2d499cc","files_scored":113,"files_improved":0,"files_regressed":3,"verdict":"fail","deltas":{}}
 {"ts":"2026-05-23T03:10:41Z","commit":"e6746a9","files_scored":113,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{}}
 {"ts":"2026-05-23T03:16:41Z","commit":"073c781","files_scored":113,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
+{"ts":"2026-05-23T03:24:46Z","commit":"247eab2","files_scored":113,"files_improved":1,"files_regressed":2,"verdict":"fail","deltas":{"src/punt_lux/display/server.py":{"avg_complexity":[3.43,3.39]}}}

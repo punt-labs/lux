@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import dataclasses
 import typing
-from typing import Any, Self, assert_never, cast
+from typing import Any, assert_never, cast
 
 from punt_lux.domain._typing import annotation_name, annotation_runtime_types
 from punt_lux.domain.element import Element
@@ -23,10 +23,14 @@ __all__ = ["DisplayHelpers"]
 
 
 class DisplayHelpers:
-    """Stateless helpers used by ``Display``; instance is a thin namespace."""
+    """Static-namespace helpers used by ``Display``.
 
-    def __new__(cls) -> Self:
-        return super().__new__(cls)
+    Every method is a ``@staticmethod``; the class is never instantiated.
+    Call sites use ``DisplayHelpers.field_info(...)`` directly.  The class
+    exists so the module satisfies PY-OO-7 (method_ratio +
+    class_to_func_ratio) rather than living as free functions next to a
+    domain class.
+    """
 
     @staticmethod
     def field_info(elem: Element, field: str) -> tuple[str, tuple[type, ...]] | None:

@@ -207,6 +207,21 @@ class Display:
                 )
                 if owner_check is not None:
                     return owner_check
+                # Bugbot MED (PR #187): ButtonClicked targeting a non-button
+                # element (slider, checkbox, …) would still emit ButtonPressed
+                # without this kind check — a domain-level Protocol violation.
+                # The pump's _is_button_click already filters at the wire
+                # boundary; this is defense-in-depth for any direct caller
+                # (test code, future server-side synthesis).
+                elem = self._scenes[interaction.scene_id][interaction.element_id]
+                if elem.kind != "button":
+                    return PropertyTypeError(
+                        scene_id=interaction.scene_id,
+                        element_id=interaction.element_id,
+                        field="kind",
+                        expected_type="button",
+                        got_value=elem.kind,
+                    )
                 event = ButtonPressed(
                     scene_id=interaction.scene_id,
                     element_id=interaction.element_id,
