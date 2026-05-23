@@ -397,6 +397,45 @@ class TestApplyUpdate:
 
         assert ws.get("sl1") == 7.5
 
+    def test_patch_value_on_color_picker_discards_widget_state(self) -> None:
+        """Regression for cumulative SFH HIGH finding on PR 2.
+
+        ColorPickerElement intentionally does NOT implement WidgetValueProvider
+        (the renderer caches an ``ImVec4`` whose shape the domain cannot
+        produce).  Before this fix a ``value`` patch wrote ``None`` into
+        WidgetState; the next render's ``ensure(eid, ImVec4(...))`` returned
+        ``None`` (key present), and ``imgui.color_edit3(label, None)`` crashed
+        or mis-rendered.
+
+        The contract: patching a value on a class without a
+        WidgetValueProvider implementation must DISCARD the cached entry so
+        the next render re-seeds from the patched element fields.
+        """
+        from punt_lux.protocol.elements.color_picker import ColorPickerElement
+
+        mgr, _ = _make_manager()
+        scene = _make_scene(
+            elements=[ColorPickerElement(id="cp1", label="Tint", value="#FF0000")]
+        )
+        mgr.handle_scene(scene, owner_fd=10)
+        ws = mgr.widget_state_for("s1")
+        assert ws is not None
+
+        # Seed the cache the way the renderer would: with an ImVec4-shaped tuple.
+        ws.set("cp1", (1.0, 0.0, 0.0, 1.0))
+        assert ws.get("cp1") == (1.0, 0.0, 0.0, 1.0)
+
+        update = UpdateMessage(
+            scene_id="s1",
+            patches=[Patch(id="cp1", set={"value": "#00FF00"})],
+        )
+        mgr.apply_update(update)
+
+        # Cache must be DISCARDED — not poisoned with None.  Next render's
+        # ensure() will re-seed from elem.value via parse_rgba.
+        assert ws.get("cp1") is None
+        assert "cp1" not in ws._state
+
     def test_update_framed_scene(self) -> None:
         """Updates work for scenes inside frames."""
         mgr, _ = _make_manager()

@@ -420,7 +420,15 @@ class SceneManager:
             "items",
         }
         if eid is not None and ws is not None and has_value_key:
-            ws.set(eid, _widget_value(elem))
+            new_value = _widget_value(elem)
+            if new_value is None:
+                # Element does not expose its widget value via WidgetValueProvider
+                # (e.g. ColorPickerElement — see widget_value_provider.py).  Writing
+                # None would poison ensure() on the next frame; discarding forces
+                # the renderer to re-seed from the patched element fields.
+                ws.discard(eid)
+            else:
+                ws.set(eid, new_value)
         has_pos_key = valid.keys() & {
             "x",
             "y",
