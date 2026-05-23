@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Self
 
@@ -14,6 +15,8 @@ from punt_lux.scene import WidgetState
 from punt_lux.types import EmitEventFn
 
 __all__ = ["ComboRenderer"]
+
+_log = logging.getLogger(__name__)
 
 
 class ComboRenderer:
@@ -46,6 +49,12 @@ class ComboRenderer:
         initial = max(0, min(elem.selected, len(items) - 1))
         current = self._widget_state.ensure(eid, initial)
         if current < 0 or current >= len(items):
+            _log.warning(
+                "combo %s widget_state index %d out of range [0,%d); resetting to 0",
+                eid,
+                current,
+                len(items),
+            )
             current = 0
             self._widget_state.set(eid, current)
         changed, new_val = imgui.combo(f"{label}##{eid}", current, items)

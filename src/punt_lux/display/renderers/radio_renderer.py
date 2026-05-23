@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Self
 
@@ -14,6 +15,8 @@ from punt_lux.scene import WidgetState
 from punt_lux.types import EmitEventFn
 
 __all__ = ["RadioRenderer"]
+
+_log = logging.getLogger(__name__)
 
 
 class RadioRenderer:
@@ -41,6 +44,15 @@ class RadioRenderer:
         label = elem.label
         items = elem.items
         current: int = self._widget_state.ensure(eid, elem.selected)
+        if items and (current < 0 or current >= len(items)):
+            _log.warning(
+                "radio %s widget_state index %d out of range [0,%d); resetting to 0",
+                eid,
+                current,
+                len(items),
+            )
+            current = 0
+            self._widget_state.set(eid, 0)
         if label:
             imgui.text(label)
         for i, item in enumerate(items):
