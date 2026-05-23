@@ -9,19 +9,13 @@ no JSON. The single-runtime testability requirement from
 from __future__ import annotations
 
 import contextlib
-import dataclasses
 import itertools
 import logging
-import typing
 from collections.abc import Callable
-from typing import Any, Self, assert_never, cast
+from typing import Self, assert_never
 
-from punt_lux.domain._typing import (
-    annotation_name,
-    annotation_runtime_types,
-    replace_field,
-    value_matches,
-)
+from punt_lux.domain._display_helpers import DisplayHelpers
+from punt_lux.domain._typing import replace_field, value_matches
 from punt_lux.domain.element import Element
 from punt_lux.domain.error import (
     DuplicateIdError,
@@ -30,12 +24,14 @@ from punt_lux.domain.error import (
     UnknownElementError,
 )
 from punt_lux.domain.event import (
+    ButtonPressed,
     ElementAdded,
     ElementRemoved,
     ElementUpdated,
     Event,
 )
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.domain.interaction import ButtonClicked, Interaction
 from punt_lux.domain.ownership import OwnershipError
 from punt_lux.domain.snapshot import SceneSnapshot
 from punt_lux.domain.subscription import Subscription
@@ -167,14 +163,14 @@ class Display:
             # Unknown client encoded as OwnershipError: one error vocabulary.
             return OwnershipError(
                 scene_id=update.scene_id,
-                element_id=self._update_target_id(update),
+                element_id=DisplayHelpers.update_target_id(update),
                 attempting_client_id=client_id,
                 owning_client_id=ClientId(""),
             )
         if update.scene_id not in self._scenes:
             return UnknownElementError(
                 scene_id=update.scene_id,
-                element_id=self._update_target_id(update),
+                element_id=DisplayHelpers.update_target_id(update),
             )
         # PY-EH-8: assert_never makes the type checker fail when a new Update
         # kind lands without a branch instead of silently returning None.
@@ -187,6 +183,39 @@ class Display:
                 return self._apply_set(client_id, update)
             case _:
                 assert_never(update)
+
+    # -- interact -----------------------------------------------------------
+
+    def interact(self, client_id: ClientId, interaction: Interaction) -> Result:
+        """Validate user Interaction, emit Event on success — never returns None."""
+        if client_id not in self._clients:
+            return OwnershipError(
+                scene_id=interaction.scene_id,
+                element_id=interaction.element_id,
+                attempting_client_id=client_id,
+                owning_client_id=ClientId(""),
+            )
+        if interaction.scene_id not in self._scenes:
+            return UnknownElementError(
+                scene_id=interaction.scene_id,
+                element_id=interaction.element_id,
+            )
+        match interaction:
+            case ButtonClicked():
+                owner_check = self._require_ownership(
+                    client_id, interaction.scene_id, interaction.element_id
+                )
+                if owner_check is not None:
+                    return owner_check
+                event = ButtonPressed(
+                    scene_id=interaction.scene_id,
+                    element_id=interaction.element_id,
+                    owner_id=client_id,
+                )
+                self._emit(event)
+                return event
+            case _:
+                assert_never(interaction)
 
     # -- per-Update handlers ------------------------------------------------
 
@@ -229,7 +258,7 @@ class Display:
         if owner_check is not None:
             return owner_check
         elem = self._scenes[update.scene_id][update.element_id]
-        info = self._field_info(elem, update.field)
+        info = DisplayHelpers.field_info(elem, update.field)
         if info is None:
             return PropertyTypeError(
                 scene_id=update.scene_id,
@@ -282,31 +311,3 @@ class Display:
             )
         return None
 
-    @staticmethod
-    def _field_info(elem: Element, field: str) -> tuple[str, tuple[type, ...]] | None:
-        """Return (declared-name, runtime-types) for a dataclass field, or None."""
-        # PY-EH-5: gate on is_dataclass rather than swallowing TypeError from
-        # dataclasses.fields(); cast to Any so the TypeGuard narrows from the
-        # widest type (Element is a Protocol).
-        elem_any = cast("Any", elem)
-        if not dataclasses.is_dataclass(elem_any):
-            return None
-        field_names = {f.name for f in dataclasses.fields(elem_any)}
-        if field not in field_names:
-            return None
-        hints = typing.get_type_hints(type(elem))
-        annotation = hints.get(field)
-        if annotation is None:
-            return None
-        return annotation_name(annotation), annotation_runtime_types(annotation)
-
-    @staticmethod
-    def _update_target_id(update: Update) -> ElementId:
-        """Pull the targeted ElementId out of any Update kind for error reporting."""
-        match update:
-            case AddElement():
-                return ElementId(update.element.id)
-            case RemoveElement() | SetProperty():
-                return update.element_id
-            case _:
-                assert_never(update)

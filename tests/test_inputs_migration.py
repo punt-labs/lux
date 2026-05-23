@@ -26,7 +26,8 @@ import pytest
 from punt_lux.domain import ElementId, SceneId
 from punt_lux.domain.display import Display
 from punt_lux.domain.element import Element
-from punt_lux.domain.event import ElementAdded
+from punt_lux.domain.event import ButtonPressed, ElementAdded, Event
+from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.domain.update import AddElement
 from punt_lux.protocol import (
     ButtonElement,
@@ -214,6 +215,54 @@ def test_every_inputs_kind_flows_through_display_apply() -> None:
 
     snap = display.snapshot(SceneId("s1"))
     assert snap.element_ids == frozenset({ElementId(e.id) for e in elements})
+
+
+# -- Button-interaction-routing (contract acceptance from PR 1) -----------
+
+
+def test_button_click_routes_through_display_to_every_subscriber() -> None:
+    """Contract: construct Display, AddElement Button, simulate click, observe Event.
+
+    Deferred from PR 1's basics acceptance.  Realises the minimum-correct
+    shape: a wire-equivalent ``ButtonClicked`` interaction passed to
+    ``Display.interact`` reaches every subscriber without state
+    inconsistency.
+    """
+    display = Display()
+    alice = display.connect_client(name="alice")
+    display.add_scene(SceneId("s1"))
+
+    # AddElement for a ButtonElement.
+    button = ButtonElement(id="b1", label="OK")
+    add_result = display.apply(
+        alice, AddElement(scene_id=SceneId("s1"), element=button)
+    )
+    assert isinstance(add_result, ElementAdded)
+
+    # Two subscribers — both must observe the click.
+    sub_a: list[Event] = []
+    sub_b: list[Event] = []
+    display.subscribe(sub_a.append)
+    display.subscribe(sub_b.append)
+
+    # Simulate a click.
+    click_result = display.interact(
+        alice, ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("b1"))
+    )
+    assert isinstance(click_result, ButtonPressed)
+
+    # Both subscribers saw the same ButtonPressed; nothing else.
+    assert sub_a == sub_b
+    button_events = [ev for ev in sub_a if isinstance(ev, ButtonPressed)]
+    assert len(button_events) == 1
+    assert button_events[0].element_id == ElementId("b1")
+    assert button_events[0].owner_id == alice
+
+    # State consistency: snapshot is unchanged by the interaction.
+    snap = display.snapshot(SceneId("s1"))
+    stored = snap.element(ElementId("b1"))
+    assert isinstance(stored, ButtonElement)
+    assert stored.label == "OK"
 
 
 # -- inputs.py is now an aggregator only ------------------------------------

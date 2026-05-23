@@ -16,10 +16,12 @@ import pytest
 
 from punt_lux.display.domain_pump import DomainPump
 from punt_lux.domain.display import Display
+from punt_lux.domain.event import ButtonPressed, Event
 from punt_lux.domain.ids import ElementId, SceneId
 from punt_lux.protocol import (
     ButtonElement,
     GroupElement,
+    InteractionMessage,
     SceneMessage,
     SeparatorElement,
     SliderElement,
@@ -102,6 +104,112 @@ def test_route_empty_elements_on_fresh_scene_is_safe(pump: DomainPump) -> None:
     msg = SceneMessage(id="s-new", elements=[])
     pump.route(msg)
     assert _scene_snapshot_ids(pump, SceneId("s-new")) == frozenset()
+
+
+def test_route_interaction_emits_button_pressed_for_button_click(
+    pump: DomainPump,
+) -> None:
+    """Production-caller test: route_interaction lifts a wire click into ButtonPressed.
+
+    PY-RF-2: ButtonClicked + ButtonPressed both gain a production caller here
+    (DomainPump) and a test caller (this test).  Without route_interaction the
+    new domain types are dead code; without this test the pump's translation
+    is untested.
+    """
+    # Seed the domain Display with a Button by routing a scene through.
+    scene = SceneMessage(id="s1", elements=[ButtonElement(id="b1", label="OK")])
+    pump.route(scene)
+
+    observed: list[Event] = []
+    pump._display.subscribe(observed.append)
+
+    msg = InteractionMessage(
+        element_id="b1",
+        action="b1",
+        ts=1.0,
+        value=True,
+        scene_id="s1",
+    )
+    pump.route_interaction(msg)
+
+    assert len(observed) == 1
+    event = observed[0]
+    assert isinstance(event, ButtonPressed)
+    assert event.element_id == ElementId("b1")
+
+
+def test_route_interaction_skips_non_button_kinds(pump: DomainPump) -> None:
+    """Slider/Checkbox/etc. interactions are not yet domain-routed."""
+    scene = SceneMessage(id="s1", elements=[SliderElement(id="sl1", label="Vol")])
+    pump.route(scene)
+
+    observed: list[Event] = []
+    pump._display.subscribe(observed.append)
+
+    msg = InteractionMessage(
+        element_id="sl1",
+        action="changed",
+        ts=1.0,
+        value=42.0,
+        scene_id="s1",
+    )
+    pump.route_interaction(msg)
+
+    assert observed == []
+
+
+def test_route_interaction_silently_skips_unknown_scene(pump: DomainPump) -> None:
+    """A click on a scene the domain Display doesn't know is silently ignored.
+
+    Mixed-scene case: the wire saw a scene SceneManager renders, but the
+    pump's earlier ``route`` skipped it.  The click reaches _emit_event but
+    the pump has no way to translate it — drop it without warning.
+    """
+    observed: list[Event] = []
+    pump._display.subscribe(observed.append)
+
+    msg = InteractionMessage(
+        element_id="b1",
+        action="b1",
+        ts=1.0,
+        value=True,
+        scene_id="never-seen",
+    )
+    pump.route_interaction(msg)
+    assert observed == []
+
+
+def test_route_interaction_silently_skips_unknown_element(pump: DomainPump) -> None:
+    scene = SceneMessage(id="s1", elements=[ButtonElement(id="b1", label="OK")])
+    pump.route(scene)
+
+    observed: list[Event] = []
+    pump._display.subscribe(observed.append)
+
+    msg = InteractionMessage(
+        element_id="ghost",
+        action="ghost",
+        ts=1.0,
+        value=True,
+        scene_id="s1",
+    )
+    pump.route_interaction(msg)
+    assert observed == []
+
+
+def test_route_interaction_skips_message_without_scene_id(pump: DomainPump) -> None:
+    observed: list[Event] = []
+    pump._display.subscribe(observed.append)
+
+    msg = InteractionMessage(
+        element_id="b1",
+        action="b1",
+        ts=1.0,
+        value=True,
+        scene_id=None,
+    )
+    pump.route_interaction(msg)
+    assert observed == []
 
 
 def test_route_multiple_anonymous_separators(

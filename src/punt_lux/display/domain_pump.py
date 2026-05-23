@@ -8,10 +8,16 @@ from typing import Any, Self, cast
 
 from punt_lux.domain.display import Display, Result
 from punt_lux.domain.element import Element as DomainElement
-from punt_lux.domain.event import ElementAdded, ElementRemoved, ElementUpdated
+from punt_lux.domain.event import (
+    ButtonPressed,
+    ElementAdded,
+    ElementRemoved,
+    ElementUpdated,
+)
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.domain.update import AddElement, RemoveElement
-from punt_lux.protocol import SceneMessage
+from punt_lux.protocol import InteractionMessage, SceneMessage
 
 __all__ = ["DomainPump"]
 
@@ -111,6 +117,52 @@ class DomainPump:
                 result, scene_id=scene_id, element_id=element_id, op="remove"
             )
 
+    def route_interaction(self, msg: InteractionMessage) -> None:
+        """Translate a wire ``InteractionMessage`` into a domain ``Interaction``.
+
+        PR 2: only button clicks have a corresponding domain Interaction.
+        ButtonRenderer emits InteractionMessage with no kind discriminator
+        on the wire — every button-sourced message reaches this pump as a
+        click.  The element id identifies the target.  Scenes that don't
+        live in the domain Display (mixed-scene case) are skipped silently:
+        ``Display.interact`` would return ``UnknownElementError`` and the
+        warning would be noise rather than signal.
+
+        Messages from non-button sources (slider, checkbox, …) are skipped
+        here pending their own Interaction variants in later PRs.
+        """
+        if msg.scene_id is None:
+            return
+        scene_id = SceneId(msg.scene_id)
+        try:
+            snap = self._display.snapshot(scene_id)
+        except KeyError:
+            return
+        element_id = ElementId(msg.element_id)
+        if element_id not in snap.element_ids:
+            return
+        if not self._is_button_click(msg, snap.element(element_id)):
+            return
+        result = self._display.interact(
+            self._client_id,
+            ButtonClicked(scene_id=scene_id, element_id=element_id),
+        )
+        _warn_on_error(
+            result, scene_id=scene_id, element_id=element_id, op="interact"
+        )
+
+    @staticmethod
+    def _is_button_click(msg: InteractionMessage, elem: DomainElement) -> bool:
+        """Return True if the wire ``InteractionMessage`` describes a button click.
+
+        Resolution is by element kind: every InteractionMessage referencing
+        a ``button`` element is a click.  ``msg`` is reserved for future
+        per-input dispatch (slider drag, combo change) when subsequent PRs
+        add their Interaction variants.
+        """
+        _ = msg
+        return elem.kind == "button"
+
 
 def _warn_on_error(
     result: Result,
@@ -121,7 +173,9 @@ def _warn_on_error(
 ) -> None:
     """Log a domain Display.apply failure with full context."""
     # The Event type alias isn't isinstance-checkable; spell the concretes.
-    if isinstance(result, ElementAdded | ElementRemoved | ElementUpdated):
+    if isinstance(
+        result, ElementAdded | ElementRemoved | ElementUpdated | ButtonPressed
+    ):
         return
     _log.warning(
         "domain Display.apply refused %s(scene=%s, element=%s): %s — %r",

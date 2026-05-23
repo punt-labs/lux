@@ -3,6 +3,11 @@
 Failure responses live alongside in ``domain.error``; together they form
 the ``Result`` returned by ``Display.apply`` (see ``domain.result``).
 ``Display.apply`` never returns ``None`` — PY-EH-8.
+
+PR 2 split the family: state-mutation events stay here, while
+``ButtonPressed`` (emitted by ``Display.interact``) lives in
+``domain.interaction_event``.  This module re-exports it so the
+``Event`` union remains a single name.
 """
 
 from __future__ import annotations
@@ -11,8 +16,10 @@ from dataclasses import dataclass
 from typing import ClassVar, Literal
 
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.domain.interaction_event import ButtonPressed
 
 __all__ = [
+    "ButtonPressed",
     "ElementAdded",
     "ElementRemoved",
     "ElementUpdated",
@@ -86,4 +93,4 @@ class ElementUpdated:
 
 
 # Discriminated union of success events.
-type Event = ElementAdded | ElementRemoved | ElementUpdated
+type Event = ElementAdded | ElementRemoved | ElementUpdated | ButtonPressed

@@ -733,9 +733,17 @@ class DisplayServer:
         }
 
     def _emit_event(self, event: InteractionMessage) -> None:
-        """Stamp scene_id and append to the event queue."""
+        """Stamp scene_id, route domain-eligible events to the pump, and queue.
+
+        PR 2: wire-side button clicks mirror through ``DomainPump.route_interaction``
+        before joining the queue so the domain Display sees the same user-driven
+        event the wire-side subscribers do.  Non-button interactions (slider,
+        checkbox, …) flow through the queue unchanged until their own
+        Interaction variants ship in later PRs.
+        """
         if event.scene_id is None:
             event = dataclasses.replace(event, scene_id=self._current_scene_id)
+        self._domain_pump.route_interaction(event)
         self._event_queue.append(event)
 
     # -- Tier 3 write handlers ------------------------------------------------
