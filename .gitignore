@@ -52,5 +52,6 @@ uv.toml
 
 # Spike/scratch/demo trees — release tooling requires a clean working tree
 # (CLAUDE.md gotcha from v0.5.0: punt release fails if demos/ is dirty)
-spikes/
+spikes/*
+!spikes/io_model_v1/
 demos/

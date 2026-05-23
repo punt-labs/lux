@@ -73,6 +73,9 @@ module-name = "punt_lux"
 [tool.ruff]
 line-length = 88
 target-version = "py313"
+# Spike directories are self-contained uv projects with their own pyproject.toml;
+# they should not be linted by the main project's ruff config.
+extend-exclude = ["spikes/"]
 
 [tool.ruff.lint]
 select = [
