@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from lux_spike.elements import ButtonElement, LabelElement, PanelElement
+from lux_spike.elements import ButtonElement, DialogElement, LabelElement, PanelElement
 from lux_spike.updates import AddElement, ButtonClicked, InteractionMessage, RemoveElement, SetProperty
 
 if TYPE_CHECKING:
@@ -90,6 +90,61 @@ class JsonPanelDecoder:
         )
 
 
+class JsonDialogDecoder:
+    """Construct a DialogElement and wire its child Buttons' on_click
+    callbacks to `dialog.close`. The Dialog must exist before the
+    Buttons can reference its method — so we build the dialog first
+    (with empty children), then construct each child, binding button
+    callbacks to dialog.close, then install the children on the dialog."""
+
+    _rf: RendererFactory
+    _emit: Emit
+    _factory: "JsonElementFactory"
+
+    def __new__(
+        cls,
+        *,
+        renderer_factory: RendererFactory,
+        emit: Emit,
+        factory: "JsonElementFactory",
+    ) -> "JsonDialogDecoder":
+        self = object.__new__(cls)
+        self._rf = renderer_factory
+        self._emit = emit
+        self._factory = factory
+        return self
+
+    def decode(self, raw: dict[str, object]) -> DialogElement:
+        dialog = DialogElement(
+            renderer_factory=self._rf,
+            emit=self._emit,
+            id=str(raw["id"]),
+            children=(),
+        )
+        children_raw = raw.get("children", [])
+        assert isinstance(children_raw, list)
+        children: list[object] = []
+        for c_raw in children_raw:
+            assert isinstance(c_raw, dict)
+            if c_raw.get("kind") == "button":
+                # Construct the Button with on_click_callback bound to
+                # dialog.close. This is the OO wire-up: the button's
+                # behavior references the dialog's API at construction.
+                children.append(
+                    ButtonElement(
+                        renderer_factory=self._rf,
+                        emit=self._emit,
+                        id=str(c_raw["id"]),
+                        label=str(c_raw["label"]),
+                        on_click_callback=dialog.close,
+                    )
+                )
+            else:
+                children.append(self._factory.decode(c_raw))
+        dialog._set_children(tuple(children))  # type: ignore[arg-type]
+        return dialog
+
+
 # ───────────────────── DecoderFactory + registry ──────────────────────────────
 
 
@@ -116,6 +171,8 @@ class JsonElementFactory:
                 return JsonButtonDecoder(renderer_factory=self._rf, emit=self._emit).decode(raw)
             case "panel":
                 return JsonPanelDecoder(renderer_factory=self._rf, emit=self._emit, factory=self).decode(raw)
+            case "dialog":
+                return JsonDialogDecoder(renderer_factory=self._rf, emit=self._emit, factory=self).decode(raw)
             case _:
                 raise ValueError(f"unknown element kind: {kind!r}")
 
@@ -149,6 +206,22 @@ class JsonPanelEncoder:
         }
 
 
+class JsonDialogEncoder:
+    _factory: "JsonEncoderFactory"
+
+    def __new__(cls, *, factory: "JsonEncoderFactory") -> "JsonDialogEncoder":
+        self = object.__new__(cls)
+        self._factory = factory
+        return self
+
+    def encode(self, elem: DialogElement) -> dict[str, object]:
+        return {
+            "kind": "dialog",
+            "id": elem.id,
+            "children": [self._factory.encode(c) for c in elem._children()],
+        }
+
+
 class JsonEncoderFactory:
     """Top-level element encoder: dispatches by Element type to per-kind."""
 
@@ -163,6 +236,8 @@ class JsonEncoderFactory:
                 return JsonButtonEncoder().encode(elem)
             case PanelElement():
                 return JsonPanelEncoder(factory=self).encode(elem)
+            case DialogElement():
+                return JsonDialogEncoder(factory=self).encode(elem)
             case _:
                 raise ValueError(f"unknown element type: {type(elem).__name__}")
 
@@ -185,13 +260,12 @@ class UpdateCodec:
 
     def encode(self, update: AddElement | SetProperty | RemoveElement) -> dict[str, object]:
         match update:
-            case AddElement(scene_id=sid, parent_id=pid, elem=elem, dismiss_on_click=dismiss):
+            case AddElement(scene_id=sid, parent_id=pid, elem=elem):
                 return {
                     "kind": "add_element",
                     "scene_id": sid,
                     "parent_id": pid,
                     "elem": self._enc.encode(elem),
-                    "dismiss_on_click": dismiss,
                 }
             case SetProperty(elem_id=eid, field=field, value=value):
                 return {
@@ -214,7 +288,6 @@ class UpdateCodec:
                     scene_id=str(raw["scene_id"]),
                     parent_id=raw["parent_id"] if raw["parent_id"] is None else str(raw["parent_id"]),
                     elem=self._dec.decode(raw["elem"]),  # type: ignore[arg-type]
-                    dismiss_on_click=bool(raw.get("dismiss_on_click", False)),
                 )
             case "set_property":
                 return SetProperty(

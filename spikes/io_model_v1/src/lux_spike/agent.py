@@ -83,10 +83,13 @@ _CANCEL_SCENE_ID = "cancelled"
 
 
 def _dialog_scene() -> dict[str, object]:
-    """A Yes / No confirmation dialog. Three Elements: one Label, two Buttons,
-    inside a Panel composite."""
+    """A Yes / No confirmation dialog. The wire kind is "dialog" (not
+    "panel") so the HUB instantiates a DialogElement — which means its
+    child buttons get bound to `dialog.close` at construction time, and
+    clicking either button triggers the dialog's self-dismiss behavior
+    through its own API."""
     return {
-        "kind": "panel",
+        "kind": "dialog",
         "id": "dlg",
         "children": [
             {"kind": "label",  "id": "dlg_q",     "content": "Save your work?"},
@@ -121,17 +124,20 @@ def _cancel_scene() -> dict[str, object]:
 
 
 def _dialog_mode(hub_socket: "LineSocket", run_seconds: float) -> None:
-    """Send a Yes/No dialog as a modal scene (dismiss_on_click=True). The
-    HUB itself dismisses the dialog when any button in it is clicked —
-    that's a property of the show() the AGNT issued, not something the
-    AGNT does at click time.
+    """Send a Yes/No dialog. The dialog is a DialogElement (kind="dialog"
+    on the wire); the HUB's decoder wires its child buttons' on_click
+    callbacks to `dialog.close()` at construction. When the user clicks
+    a button, the HUB invokes the button's on_click, which calls the
+    bound callback, which calls dialog.close(), which emits a
+    RemoveElement Update. The HUB's emit handler accepts the Update on
+    hub_display and ships it to DISP. The Dialog removes itself from
+    its parent (the scene root) through its own API. No Hub-side flag,
+    no special interaction-handler logic — pure OO behavior dispatch.
 
     AGNT subscribes to the buttons' interaction topics purely as an
     OBSERVER. On btn_yes, AGNT performs its work and independently
     composes a result scene to send to the HUB. AGNT never tells the
-    HUB to dismiss anything; the dismissal already happened as part of
-    HUB's click handling. AGNT's new show() arrives at a (briefly)
-    empty display_display and installs the result scene fresh."""
+    HUB to dismiss anything; the dialog dismissed itself."""
 
     def handle(payload: "WireDict") -> None:
         if payload.get("kind") != "observed":
@@ -142,15 +148,17 @@ def _dialog_mode(hub_socket: "LineSocket", run_seconds: float) -> None:
         print(f"[agent] notified — topic={topic!r} payload={inner!r}", flush=True)
 
         if topic == "interaction.btn_yes":
-            # AGNT is an observer of the click. HUB has already dismissed
-            # the dialog by the time this notification arrives (the AGNT
-            # asked for that behavior by passing dismiss_on_click=True on
-            # the original show() — see below). AGNT's role is to decide
-            # what comes next.
+            # AGNT is an observer of the click. By the time this
+            # notification arrives the DialogElement on the HUB has
+            # already called its own close() method (because the
+            # button's on_click invoked it), so the dialog is gone
+            # from hub_display and the RemoveElement Update is in
+            # flight (or already applied) on DISP. AGNT's role is
+            # purely to decide what scene comes next.
             print("[agent] observed btn_yes — performing computation for follow-up scene...", flush=True)
             time.sleep(0.3)  # simulated work — fetch / save / etc.
             result_text = f"Result: 42 (computed at t={time.strftime('%H:%M:%S')})"
-            print("[agent] composing new scene (the dialog is already gone — HUB dismissed it)", flush=True)
+            print("[agent] composing new scene (the dialog already dismissed itself on the HUB)", flush=True)
             hub_socket.send_line(
                 {"kind": "show", "scene_id": _RESULT_SCENE_ID, "root": _result_scene(result_text=result_text)}
             )
@@ -173,15 +181,15 @@ def _dialog_mode(hub_socket: "LineSocket", run_seconds: float) -> None:
     hub_socket.send_line({"kind": "subscribe", "topic": "interaction.btn_no"})
     print("[agent] subscribed to 'interaction.btn_no'", flush=True)
 
-    # Initial scene — the Yes/No dialog, marked dismiss_on_click=True so the
-    # HUB removes it as part of click handling (modal-dialog semantics).
+    # Initial scene — the Yes/No dialog. The dialog knows how to close
+    # itself (DialogElement.close); the HUB's decoder wires that to each
+    # button's on_click callback. No special show()-level flags.
     hub_socket.send_line({
         "kind": "show",
         "scene_id": _DIALOG_SCENE_ID,
         "root": _dialog_scene(),
-        "dismiss_on_click": True,
     })
-    print(f"[agent] sent show({_DIALOG_SCENE_ID!r}) to HUB with dismiss_on_click=True", flush=True)
+    print(f"[agent] sent show({_DIALOG_SCENE_ID!r}) to HUB", flush=True)
 
     _idle_until(run_seconds)
 

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
-from lux_spike.elements import ButtonElement, LabelElement, PanelElement
+from lux_spike.elements import ButtonElement, DialogElement, LabelElement, PanelElement
 
 if TYPE_CHECKING:
     from lux_spike.element import Element
@@ -104,6 +104,28 @@ class TextPanelRenderer:
         self._out.line("}")
 
 
+class TextDialogRenderer:
+    _elem: DialogElement
+    _out: TextOutput
+
+    def __new__(cls, elem: DialogElement, out: TextOutput) -> Self:
+        self = object.__new__(cls)
+        self._elem = elem
+        self._out = out
+        return self
+
+    def render(self) -> None:
+        pass
+
+    def begin(self) -> None:
+        self._out.line(f"Dialog[{self._elem.id}] {{")
+        self._out.indent()
+
+    def end(self) -> None:
+        self._out.dedent()
+        self._out.line("}")
+
+
 class TextRendererFactory:
     _out: TextOutput
 
@@ -112,7 +134,9 @@ class TextRendererFactory:
         self._out = out
         return self
 
-    def __call__(self, elem: Element) -> TextLabelRenderer | TextButtonRenderer | TextPanelRenderer:
+    def __call__(
+        self, elem: Element
+    ) -> TextLabelRenderer | TextButtonRenderer | TextPanelRenderer | TextDialogRenderer:
         match elem:
             case LabelElement():
                 return TextLabelRenderer(elem, self._out)
@@ -120,5 +144,7 @@ class TextRendererFactory:
                 return TextButtonRenderer(elem, self._out)
             case PanelElement():
                 return TextPanelRenderer(elem, self._out)
+            case DialogElement():
+                return TextDialogRenderer(elem, self._out)
             case _:
                 raise ValueError(f"text surface has no renderer for {type(elem).__name__}")

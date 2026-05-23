@@ -145,7 +145,7 @@ def test_r4_interactive_dialog_agent_responds_with_new_scene(spike_dialog: Spike
         entries = _recording_entries(spike_dialog.recording_path)
         kinds = [(e.get("op"), e.get("kind"), e.get("id")) for e in entries]
         return (
-            ("begin", "panel", "dlg") in kinds
+            ("begin", "dialog", "dlg") in kinds
             and ("render", "label", "dlg_q") in kinds
             and ("render", "button", "btn_yes") in kinds
             and ("render", "button", "btn_no") in kinds

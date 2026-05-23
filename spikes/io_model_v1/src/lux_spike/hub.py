@@ -37,7 +37,7 @@ from lux_spike.codec import (
     encode_button_clicked,
 )
 from lux_spike.connection import LineSocket, listen_unix, spawn_reader
-from lux_spike.elements import ButtonElement, LabelElement, PanelElement
+from lux_spike.elements import ButtonElement, DialogElement, LabelElement, PanelElement
 from lux_spike.renderers.null import NullRendererFactory
 from lux_spike.updates import AddElement, ButtonClicked, RemoveElement, SetProperty
 
@@ -57,25 +57,22 @@ class HubDisplay:
 
     _by_id: dict[str, "Element"]
     _root_id: str | None
-    _dismiss_on_click: bool  # show()-level option carried by the current root
 
     def __new__(cls) -> "HubDisplay":
         self = object.__new__(cls)
         self._by_id = {}
         self._root_id = None
-        self._dismiss_on_click = False
         return self
 
     def accept(self, update: AddElement | SetProperty | RemoveElement) -> None:
         match update:
-            case AddElement(elem=elem, parent_id=parent_id, dismiss_on_click=dismiss):
+            case AddElement(elem=elem, parent_id=parent_id):
                 if parent_id is None:
                     # Whole-scene replacement: drop the old root's subtree
                     # from the index before installing the new tree.
                     self._clear()
                     self._index(elem)
                     self._root_id = _get_id(elem)
-                    self._dismiss_on_click = dismiss
                 else:
                     # Append-under-parent (not exercised in current scenarios).
                     self._index(elem)
@@ -90,16 +87,14 @@ class HubDisplay:
                 self._remove_subtree(eid)
                 if self._root_id == eid:
                     self._root_id = None
-                    self._dismiss_on_click = False
 
     def _clear(self) -> None:
         self._by_id.clear()
         self._root_id = None
-        self._dismiss_on_click = False
 
     def _index(self, elem: "Element") -> None:
         self._by_id[_get_id(elem)] = elem
-        if isinstance(elem, PanelElement):
+        if isinstance(elem, PanelElement | DialogElement):
             for child in elem._children():
                 self._index(child)
 
@@ -107,7 +102,7 @@ class HubDisplay:
         elem = self._by_id.pop(elem_id, None)
         if elem is None:
             return
-        if isinstance(elem, PanelElement):
+        if isinstance(elem, PanelElement | DialogElement):
             for child in elem._children():
                 self._remove_subtree(_get_id(child))
 
@@ -124,15 +119,12 @@ class HubDisplay:
             return None
         return self._by_id.get(self._root_id)
 
-    def dismiss_on_click(self) -> bool:
-        return self._dismiss_on_click
-
     def all_label_ids(self) -> list[str]:
         return [eid for eid, elem in self._by_id.items() if isinstance(elem, LabelElement)]
 
 
 def _get_id(elem: "Element") -> str:
-    if isinstance(elem, LabelElement | ButtonElement | PanelElement):
+    if isinstance(elem, LabelElement | ButtonElement | PanelElement | DialogElement):
         return elem.id
     raise TypeError(f"no id accessor for {type(elem).__name__}")
 
@@ -190,18 +182,36 @@ def main() -> None:
     registry = SubscriptionRegistry()
     null_rf = NullRendererFactory()
 
-    # The Hub's emit callback receives Events EMITTED by Element behavior
-    # methods. The Hub responds by PUBLISHING the Event to topic subscribers.
-    def hub_emit(event: object) -> None:
-        match event:
+    # The Hub's emit callback is the channel by which Element behavior
+    # methods on the Hub tier communicate back to the Hub's
+    # infrastructure. Two kinds of messages flow through emit:
+    #
+    #   - Events (e.g. ButtonClicked) — the Hub PUBLISHES them to topic
+    #     subscribers (Observer side).
+    #   - Updates (e.g. RemoveElement emitted by Dialog.close()) — the Hub
+    #     ACCEPTS them onto hub_display and SHIPS them to DISP.
+    #
+    # This means an Element behavior method can mutate authoritative
+    # state by emitting an Update — no special "I want to mutate" hook,
+    # just the same emit() the Element already has. The Hub orchestrates.
+    def hub_emit(message: object) -> None:
+        match message:
             case ButtonClicked():
-                topic = f"interaction.{event.elem_id}"
-                payload = encode_button_clicked(event)
+                topic = f"interaction.{message.elem_id}"
+                payload = encode_button_clicked(message)
                 n = registry.publish(topic, payload)
                 print(f"[hub] published {topic!r} payload={payload} → {n} subscriber(s)", flush=True)
+            case RemoveElement() | SetProperty() | AddElement():
+                # An Element behavior emitted an Update. Accept on
+                # hub_display, then encode + ship to DISP.
+                display.accept(message)
+                kind_name = type(message).__name__
+                print(f"[hub] behavior emitted {kind_name} → accepted on hub_display", flush=True)
+                wire = update_codec.encode(message)
+                with_display(lambda s: s.send_line(wire))
+                print(f"[hub] sent {kind_name} Update to DISP (from behavior)", flush=True)
             case _:
-                # Other Event types — no-op in spike scope.
-                pass
+                print(f"[hub] WARN: unknown message emitted by behavior: {message!r}", file=sys.stderr, flush=True)
 
     element_factory = JsonElementFactory(renderer_factory=null_rf, emit=hub_emit)
     encoder_factory = JsonEncoderFactory()
@@ -233,26 +243,14 @@ def main() -> None:
                 return
             print(f"[hub] resolved {type(elem).__name__}[{msg.elem_id}] on hub_display", flush=True)
             if isinstance(elem, ButtonElement) and msg.action == "click":
+                # The Hub's only job here is to invoke the behavior on the
+                # resolved Element. Everything else is the Element's
+                # responsibility — emitting events for observers, calling
+                # bound callbacks (e.g. dialog.close), etc. The hub_emit
+                # callback receives whatever the behavior emits and routes
+                # it (publish for Events, accept+ship for Updates).
                 print(f"[hub] invoked {type(elem).__name__}.on_click()", flush=True)
-                elem.on_click()  # emits ButtonClicked → hub_emit → published as 'interaction.<id>'
-
-                # If the current scene was accepted with the
-                # `dismiss_on_click=True` show() option, the click is
-                # treated as a request to dismiss the scene. HUB removes
-                # the root subtree from hub_display and ships a
-                # RemoveElement Update to DISP. AGNT is a pure observer
-                # here — it sees the click via the published topic but
-                # plays no role in the removal.
-                if display.dismiss_on_click():
-                    root_id = display.root_id()
-                    if root_id is not None:
-                        print(f"[hub] dismiss_on_click=True for current scene → removing scene root {root_id!r}", flush=True)
-                        remove = RemoveElement(elem_id=root_id)
-                        display.accept(remove)
-                        wire = update_codec.encode(remove)
-                        sent = with_display(lambda s: s.send_line(wire))
-                        if sent:
-                            print(f"[hub] sent RemoveElement Update to DISP (elem_id={root_id!r})", flush=True)
+                elem.on_click()
         else:
             print(f"[hub] unknown DISP message: {kind!r}", file=sys.stderr, flush=True)
 
@@ -266,31 +264,27 @@ def main() -> None:
             # Test-only path: equivalent to receiving an InteractionMessage from
             # the Display, but injected via the agent socket so a test can drive
             # R3/R4 without poking the Display process's stdin. Runs the same
-            # Hub-side code path that handle_display_message does for "interaction".
+            # Hub-side code path that handle_display_message does for "interaction":
+            # just invoke the resolved Element's behavior — emit handler does
+            # everything else.
             elem_id = str(payload["elem_id"])
             action = str(payload["action"])
             elem = display.resolve(elem_id)
             if isinstance(elem, ButtonElement) and action == "click":
                 elem.on_click()
-                if display.dismiss_on_click():
-                    root_id = display.root_id()
-                    if root_id is not None:
-                        remove = RemoveElement(elem_id=root_id)
-                        display.accept(remove)
-                        wire = update_codec.encode(remove)
-                        with_display(lambda s: s.send_line(wire))
         elif kind == "show":
             scene_id = str(payload["scene_id"])
             root_raw = payload["root"]
             assert isinstance(root_raw, dict)
-            dismiss_on_click = bool(payload.get("dismiss_on_click", False))
-            # 1. decode: parse wire dict, instantiate Hub-tier Element tree (rf=Null)
+            # 1. decode: parse wire dict, instantiate Hub-tier Element tree (rf=Null).
+            #    Note: when the root is a Dialog, its decoder wires each child
+            #    button's on_click_callback to `dialog.close` so the dialog
+            #    self-dismisses on click via its own behavior (no Hub-side flag).
             root = element_factory.decode(root_raw)
-            update = AddElement(scene_id=scene_id, parent_id=None, elem=root, dismiss_on_click=dismiss_on_click)
+            update = AddElement(scene_id=scene_id, parent_id=None, elem=root)
             # 2. accept: commit to hub_display (Hub is now authoritative for this scene)
             display.accept(update)
-            extra = " (dismiss_on_click=True)" if dismiss_on_click else ""
-            print(f"[hub] accepted scene {scene_id!r} (hub_display is authoritative){extra}", flush=True)
+            print(f"[hub] accepted scene {scene_id!r} (hub_display is authoritative)", flush=True)
             # 3. encode + send: ship the AddElement Update to DISP
             wire = update_codec.encode(update)
             sent = with_display(lambda s: s.send_line(wire))

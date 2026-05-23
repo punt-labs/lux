@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING
 
 from lux_spike.codec import JsonElementFactory, encode_interaction
 from lux_spike.connection import LineSocket, connect_unix, spawn_reader
-from lux_spike.elements import ButtonElement, LabelElement, PanelElement
+from lux_spike.elements import ButtonElement, DialogElement, LabelElement, PanelElement
 from lux_spike.renderers.recording import RecordingLog, RecordingRendererFactory
 from lux_spike.renderers.text import TextOutput, TextRendererFactory
 from lux_spike.updates import AddElement, InteractionMessage, RemoveElement, SetProperty
@@ -80,13 +80,15 @@ class DisplayDisplay:
                     elem._set_content(str(value))
             case RemoveElement(elem_id=eid):
                 self._remove_subtree(eid)
-                if self._root is not None and isinstance(self._root, LabelElement | ButtonElement | PanelElement) and self._root.id == eid:
+                if self._root is not None and isinstance(
+                    self._root, LabelElement | ButtonElement | PanelElement | DialogElement
+                ) and self._root.id == eid:
                     self._root = None
 
     def _index(self, elem: "Element") -> None:
-        if isinstance(elem, LabelElement | ButtonElement | PanelElement):
+        if isinstance(elem, LabelElement | ButtonElement | PanelElement | DialogElement):
             self._by_id[elem.id] = elem
-        if isinstance(elem, PanelElement):
+        if isinstance(elem, PanelElement | DialogElement):
             for child in elem._children():
                 self._index(child)
 
@@ -94,9 +96,9 @@ class DisplayDisplay:
         elem = self._by_id.pop(elem_id, None)
         if elem is None:
             return
-        if isinstance(elem, PanelElement):
+        if isinstance(elem, PanelElement | DialogElement):
             for child in elem._children():
-                if isinstance(child, LabelElement | ButtonElement | PanelElement):
+                if isinstance(child, LabelElement | ButtonElement | PanelElement | DialogElement):
                     self._remove_subtree(child.id)
 
     @property
@@ -184,7 +186,6 @@ def main() -> None:
                 scene_id=str(payload["scene_id"]),
                 parent_id=None,
                 elem=root,
-                dismiss_on_click=bool(payload.get("dismiss_on_click", False)),
             ))
             print("[display] decoded + instantiated DISP-tier Element tree; applied AddElement to display_display", flush=True)
         elif kind == "set_property":
@@ -195,7 +196,7 @@ def main() -> None:
         elif kind == "remove_element":
             elem_id = str(payload["elem_id"])
             display.apply(RemoveElement(elem_id=elem_id))
-            print(f"[display] applied RemoveElement({elem_id!r}) to display_display — render loop will draw nothing until next scene", flush=True)
+            print(f"[display] applied RemoveElement({elem_id!r}) to display_display", flush=True)
         else:
             print(f"[display] unknown HUB message: {kind!r}", file=sys.stderr, flush=True)
 

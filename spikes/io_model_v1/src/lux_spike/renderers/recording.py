@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
-from lux_spike.elements import ButtonElement, LabelElement, PanelElement
+from lux_spike.elements import ButtonElement, DialogElement, LabelElement, PanelElement
 
 if TYPE_CHECKING:
     from lux_spike.element import Element
@@ -101,6 +101,26 @@ class RecordingPanelRenderer:
         self._log.append({"op": "end", "kind": "panel", "id": self._elem.id})
 
 
+class RecordingDialogRenderer:
+    _elem: DialogElement
+    _log: RecordingLog
+
+    def __new__(cls, elem: DialogElement, log: RecordingLog) -> Self:
+        self = object.__new__(cls)
+        self._elem = elem
+        self._log = log
+        return self
+
+    def render(self) -> None:
+        pass
+
+    def begin(self) -> None:
+        self._log.append({"op": "begin", "kind": "dialog", "id": self._elem.id})
+
+    def end(self) -> None:
+        self._log.append({"op": "end", "kind": "dialog", "id": self._elem.id})
+
+
 class RecordingRendererFactory:
     _log: RecordingLog
 
@@ -111,7 +131,12 @@ class RecordingRendererFactory:
 
     def __call__(
         self, elem: Element
-    ) -> RecordingLabelRenderer | RecordingButtonRenderer | RecordingPanelRenderer:
+    ) -> (
+        RecordingLabelRenderer
+        | RecordingButtonRenderer
+        | RecordingPanelRenderer
+        | RecordingDialogRenderer
+    ):
         match elem:
             case LabelElement():
                 return RecordingLabelRenderer(elem, self._log)
@@ -119,5 +144,7 @@ class RecordingRendererFactory:
                 return RecordingButtonRenderer(elem, self._log)
             case PanelElement():
                 return RecordingPanelRenderer(elem, self._log)
+            case DialogElement():
+                return RecordingDialogRenderer(elem, self._log)
             case _:
                 raise ValueError(f"recording surface has no renderer for {type(elem).__name__}")
