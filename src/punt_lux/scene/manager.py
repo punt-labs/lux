@@ -8,22 +8,17 @@ from dataclasses import replace
 from typing import Any, Self
 
 from punt_lux.protocol import (
-    CheckboxElement,
     CollapsingHeaderElement,
-    ComboElement,
     Element,
     GroupElement,
-    InputTextElement,
-    RadioElement,
     SceneMessage,
-    SelectableElement,
-    SliderElement,
     TabBarElement,
     UpdateMessage,
     WindowElement,
 )
 from punt_lux.scene.frame import Frame
 from punt_lux.scene.widget_state import WidgetState
+from punt_lux.scene.widget_value_provider import WidgetValueProvider
 from punt_lux.types import OnSceneReplacedFn
 
 # ---------------------------------------------------------------------------
@@ -70,15 +65,16 @@ def _find_element(
 
 
 def _widget_value(elem: Element) -> Any:
-    """Extract the current widget value from an element for WidgetState."""
-    if isinstance(elem, (SliderElement, CheckboxElement, InputTextElement)):
-        return elem.value
-    if isinstance(elem, SelectableElement):
-        return elem.selected
-    if isinstance(elem, (ComboElement, RadioElement)):
-        return elem.selected
-    # ColorPickerElement: renderer initializes widget state with ImVec4 via
-    # ensure(). Returning the raw hex string here would corrupt that state.
+    """Extract the current widget value from an element for WidgetState.
+
+    Dispatch is structural via the ``WidgetValueProvider`` Protocol — each
+    value-bearing input class owns its own ``widget_value()`` method.
+    Color-picker elements do NOT implement the Protocol on purpose: their
+    renderer initialises widget state with an ``ImVec4`` via ``ensure()``;
+    returning the raw hex string here would corrupt that state.
+    """
+    if isinstance(elem, WidgetValueProvider):
+        return elem.widget_value()
     return None
 
 
@@ -424,7 +420,15 @@ class SceneManager:
             "items",
         }
         if eid is not None and ws is not None and has_value_key:
-            ws.set(eid, _widget_value(elem))
+            new_value = _widget_value(elem)
+            if new_value is None:
+                # Element does not expose its widget value via WidgetValueProvider
+                # (e.g. ColorPickerElement — see widget_value_provider.py).  Writing
+                # None would poison ensure() on the next frame; discarding forces
+                # the renderer to re-seed from the patched element fields.
+                ws.discard(eid)
+            else:
+                ws.set(eid, new_value)
         has_pos_key = valid.keys() & {
             "x",
             "y",

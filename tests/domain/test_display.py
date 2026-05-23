@@ -19,11 +19,13 @@ from punt_lux.domain.error import (
     UnknownElementError,
 )
 from punt_lux.domain.event import (
+    ButtonPressed,
     ElementAdded,
     ElementRemoved,
     ElementUpdated,
     Event,
 )
+from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.domain.ownership import OwnershipError
 from punt_lux.domain.snapshot import SceneSnapshot
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
@@ -563,3 +565,182 @@ def test_snapshot_is_a_point_in_time_view() -> None:
     # The earlier snapshot is decoupled from the live state.
     assert _button(before, ElementId("b1")).label == "hi"
     assert _button(display.snapshot(SceneId("s1")), ElementId("b1")).label == "hello"
+
+
+# -- Display.interact ------------------------------------------------------
+
+
+def test_interact_button_emits_button_pressed_to_subscriber() -> None:
+    """Acceptance: a click on a Button reaches every subscriber as ButtonPressed."""
+    display = Display()
+    alice = display.connect_client(name="alice")
+    display.add_scene(SceneId("s1"))
+    display.apply(
+        alice,
+        AddElement(
+            scene_id=SceneId("s1"),
+            element=_Button(id=ElementId("b1"), label="OK"),
+        ),
+    )
+    observed: list[Event] = []
+    display.subscribe(observed.append)
+
+    result = display.interact(
+        alice, ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("b1"))
+    )
+
+    assert isinstance(result, ButtonPressed)
+    assert result.owner_id == alice
+    assert result.element_id == ElementId("b1")
+    assert [type(ev) for ev in observed] == [ButtonPressed]
+
+
+def test_interact_returns_unknown_element_error_for_missing_element() -> None:
+    display = Display()
+    alice = display.connect_client(name="alice")
+    display.add_scene(SceneId("s1"))
+    # Note: no AddElement — element_id "ghost" doesn't exist.
+
+    result = display.interact(
+        alice, ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("ghost"))
+    )
+    assert isinstance(result, UnknownElementError)
+
+
+def test_interact_returns_unknown_element_error_for_missing_scene() -> None:
+    display = Display()
+    alice = display.connect_client(name="alice")
+
+    result = display.interact(
+        alice, ButtonClicked(scene_id=SceneId("no-such"), element_id=ElementId("b1"))
+    )
+    assert isinstance(result, UnknownElementError)
+
+
+def test_interact_returns_ownership_error_for_unknown_client() -> None:
+    from punt_lux.domain import ClientId
+
+    display = Display()
+    display.add_scene(SceneId("s1"))
+    result = display.interact(
+        ClientId("not-registered"),
+        ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("b1")),
+    )
+    assert isinstance(result, OwnershipError)
+
+
+def test_interact_returns_ownership_error_when_client_does_not_own_element() -> None:
+    display = Display()
+    alice = display.connect_client(name="alice")
+    bob = display.connect_client(name="bob")
+    display.add_scene(SceneId("s1"))
+    display.apply(
+        alice,
+        AddElement(
+            scene_id=SceneId("s1"),
+            element=_Button(id=ElementId("b1"), label="OK"),
+        ),
+    )
+
+    result = display.interact(
+        bob, ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("b1"))
+    )
+    assert isinstance(result, OwnershipError)
+    assert result.attempting_client_id == bob
+    assert result.owning_client_id == alice
+
+
+def test_interact_validation_precedes_mutation() -> None:
+    """PY-EH-1: unauthorized click leaves snapshot unchanged.
+
+    A failing ``interact`` returns an Error and the element state in the
+    snapshot is identical before and after — interact never mutates.
+    """
+    display = Display()
+    alice = display.connect_client(name="alice")
+    bob = display.connect_client(name="bob")
+    display.add_scene(SceneId("s1"))
+    display.apply(
+        alice,
+        AddElement(
+            scene_id=SceneId("s1"),
+            element=_Button(id=ElementId("b1"), label="OK"),
+        ),
+    )
+    before = display.snapshot(SceneId("s1"))
+
+    result = display.interact(
+        bob, ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("b1"))
+    )
+    assert isinstance(result, OwnershipError)
+    after = display.snapshot(SceneId("s1"))
+    assert _button(before, ElementId("b1")) == _button(after, ElementId("b1"))
+
+
+def test_interact_does_not_emit_event_on_failure() -> None:
+    display = Display()
+    alice = display.connect_client(name="alice")
+    bob = display.connect_client(name="bob")
+    display.add_scene(SceneId("s1"))
+    display.apply(
+        alice,
+        AddElement(
+            scene_id=SceneId("s1"),
+            element=_Button(id=ElementId("b1"), label="OK"),
+        ),
+    )
+    observed: list[Event] = []
+    display.subscribe(observed.append)
+
+    # ownership failure — no event should fire
+    display.interact(
+        bob, ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("b1"))
+    )
+    assert observed == []
+
+
+def test_interact_button_clicked_on_non_button_returns_property_type_error() -> None:
+    """Bugbot MED (PR #187): a ButtonClicked targeting a non-button element
+    (e.g. a slider whose id collides with a button id elsewhere) must NOT
+    emit ButtonPressed.  Defense-in-depth at the domain boundary — the
+    pump's wire-side filter is the first line; this is the second.
+    """
+
+    @dataclass(frozen=True, slots=True)
+    class _Slider:
+        id: ElementId
+        label: str
+        value: float = 0.0
+        kind: Literal["slider"] = "slider"
+        tooltip: str | None = None
+
+        def to_dict(self) -> dict[str, object]:  # pragma: no cover — unused
+            return {"id": str(self.id), "kind": self.kind, "label": self.label}
+
+        @classmethod
+        def from_dict(cls, d: Mapping[str, object]) -> Self:  # pragma: no cover
+            return cls(id=ElementId(str(d["id"])), label=str(d.get("label", "")))
+
+    display = Display()
+    alice = display.connect_client(name="alice")
+    display.add_scene(SceneId("s1"))
+    display.apply(
+        alice,
+        AddElement(
+            scene_id=SceneId("s1"),
+            element=_Slider(id=ElementId("s1elem"), label="Vol"),
+        ),
+    )
+    observed: list[Event] = []
+    display.subscribe(observed.append)
+
+    result = display.interact(
+        alice,
+        ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("s1elem")),
+    )
+
+    assert isinstance(result, PropertyTypeError)
+    assert result.field == "kind"
+    assert result.expected_type == "button"
+    assert result.got_value == "slider"
+    assert observed == []  # no event fired

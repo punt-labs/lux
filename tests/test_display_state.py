@@ -99,6 +99,36 @@ class TestEmitEvent:
         assert len(server._event_queue) == 1
         assert server._event_queue[0].scene_id == "s2"
 
+    def test_framed_scene_render_updates_current_scene_id(self) -> None:
+        """Bugbot HIGH on PR #187: button clicks inside framed scenes were
+        being stamped with stale or None scene_id because
+        ``_render_framed_scene`` updated only the element renderer's view,
+        not ``DisplayServer._current_scene_id``.  The stamp source must
+        track the scene actually being rendered, regardless of whether it
+        lives in a frame or a top-level tab.
+        """
+        from punt_lux.scene.frame import Frame
+
+        server = _make_server()
+        # Empty element list — the scene_id assignment lives at the top of
+        # _render_framed_scene, so the render loop never runs.  Keeps the
+        # test free of ImGui context requirements.
+        scene = SceneMessage(id="framed-1", elements=[])
+        frame = Frame(
+            frame_id="f1",
+            title="F1",
+            owner_fds={42},
+            scenes={"framed-1": scene},
+            scene_order=["framed-1"],
+            active_tab="framed-1",
+        )
+        server._scene_manager._scene_widget_state["framed-1"] = WidgetState()
+
+        # Pretend an earlier tab render set _current_scene_id to a stale value.
+        server._current_scene_id = "stale-tab"
+        server._render_framed_scene(frame, "framed-1")
+        assert server._current_scene_id == "framed-1"
+
 
 # -----------------------------------------------------------------------
 # Fix 1: Scene replacement and clear must drain the event queue

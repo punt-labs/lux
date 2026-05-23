@@ -26,6 +26,15 @@ class WidgetState:
             self._state[element_id] = default
         return self._state[element_id]
 
+    def discard(self, element_id: str) -> None:
+        """Remove ``element_id`` from the cache; no-op if absent.
+
+        Used when a patch invalidates cached widget state and the next
+        ``ensure(element_id, fresh_default)`` call should re-seed from
+        the element's current fields rather than read stale data.
+        """
+        self._state.pop(element_id, None)
+
     def clear(self) -> None:
         self._state.clear()
 

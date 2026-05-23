@@ -1,7 +1,7 @@
 # OO Refactoring Resume
 
-**As of:** PR 1 (lux-b14i, 2026-05-22) — branch `feat/pr1-domain-basics`
-**Prior:** PR #182 (2026-05-22), through PR #178 (2026-05-21), PR #165 (2026-05-16)
+**As of:** PR 2 (lux-i84j, 2026-05-23) — branch `feat/pr2-inputs`
+**Prior:** PR 1 (lux-b14i, 2026-05-22), PR #182 (2026-05-22), through PR #178 (2026-05-21), PR #165 (2026-05-16)
 
 > **Active plan:** `migration-plan.md` is the executable source of truth for
 > the path to the `domain-model.md` target. Method B-amended was selected
@@ -23,24 +23,26 @@ Target state is named formally in `docs/architecture/domain-model.md`.
 
 Aggregate of `python tools/oo_score.py src/punt_lux/`:
 
-| Metric | Target | PR #165 | PR #182 | PR 1 | Status |
-|--------|--------|---------|---------|------|--------|
-| `method_ratio` | ≥ 0.80 | 0.68 | 0.636 | **0.71** | **Improved +0.074 from #182.** PY-OO-7 removed in basics: codec on the class, six per-kind renderers extracted. |
-| `encapsulation_ratio` | == 1.0 | 1.00 | 1.00 | 1.00 | PASS |
-| `avg_params` | ≤ 4.0 | 0.98 | 0.99 | 0.85 | PASS — improved by per-kind renderer extraction. |
-| `max_complexity` | ≤ 10 | 19 | 19 | **19** | **FAIL** — concentrated in `table_renderer`, `server`, `element_renderer`. Untouched by PR 1. |
-| `avg_complexity` | ≤ 5.0 | 2.31 | 2.07 | 1.94 | PASS |
-| `module_size` | ≤ 300 | 1,213 | 1,203 | **1,260** | **FAIL** — `display/server.py` grew by ~57 lines (Display + `_route_to_domain_display` wiring). Renderer dropped 255 lines (1130 → 875). |
-| `classes_per_module` | ≤ 3 | 27 | 9 | **9** | **FAIL** — unchanged. |
-| `class_to_func_ratio` | ≥ 0.5 | 0.60 | 0.62 | 0.70 | PASS |
-| `init_violations` | == 0 | 0 | 0 | 0 | PASS |
-| `public_attr_violations` | == 0 | 0 | 0 | 0 | PASS |
-| `future_annotations` | == 1 | 1 | 1 | 1 | PASS |
+| Metric | Target | PR #165 | PR #182 | PR 1 | PR 2 | Status |
+|--------|--------|---------|---------|------|------|--------|
+| `method_ratio` | ≥ 0.80 | 0.68 | 0.636 | 0.71 | **0.79** | **Improved +0.08 from PR 1.** PY-OO-7 removed across inputs: nine input codecs on the class, nine per-kind renderers extracted, `_widget_value` collapsed to a Protocol predicate. 0.01 short of the 0.80 threshold. |
+| `encapsulation_ratio` | == 1.0 | 1.00 | 1.00 | 1.00 | 1.00 | PASS |
+| `avg_params` | ≤ 4.0 | 0.98 | 0.99 | 0.85 | **0.83** | PASS — continued improvement from per-kind extraction. |
+| `max_complexity` | ≤ 10 | 19 | 19 | 19 | **19** | **FAIL** — concentrated in `table_renderer`, `server`, `element_renderer`. Untouched by PR 2. |
+| `avg_complexity` | ≤ 5.0 | 2.31 | 2.07 | 1.94 | **1.91** | PASS |
+| `module_size` | ≤ 300 | 1,213 | 1,203 | 1,260 | **1,266** | **FAIL** — `display/server.py` +7 lines (`_NATIVE_KINDS` tuple + `DomainPump.route_interaction` forward). Aggregate masked by `element_renderer.py` losing 231 lines in PR 2. |
+| `classes_per_module` | ≤ 3 | 27 | 9 | 9 | **8** | **FAIL** — `element_renderer.py` lost one class boundary (basics dispatch merged with inputs). |
+| `class_to_func_ratio` | ≥ 0.5 | 0.60 | 0.62 | 0.70 | **0.77** | PASS — improved as inputs migrated to per-class form. |
+| `init_violations` | == 0 | 0 | 0 | 0 | 0 | PASS |
+| `public_attr_violations` | == 0 | 0 | 0 | 0 | 0 | PASS |
+| `future_annotations` | == 1 | 1 | 1 | 1 | 1 | PASS |
 
-**7 of 11 passing.** Four metrics still failing (`max_complexity`,
-`module_size`, `classes_per_module`). `method_ratio` recovered substantially —
-the regression PR #182 inherited from Phase A's procedural codec layout is
-being undone family-by-family. PR 2 (inputs) will continue the trend.
+**7 of 11 passing.** Same three metrics still failing (`max_complexity`,
+`module_size`, `classes_per_module`). `method_ratio` is now 0.01 from
+threshold — one more family migration (`layout` or `graphics`) should
+cross it. The structural pattern PR 1 established (codec on the class,
+per-kind renderer, DomainPump dual-write) is now proven across two
+families end-to-end.
 
 ## What shipped since PR #165
 
@@ -60,10 +62,13 @@ being undone family-by-family. PR 2 (inputs) will continue the trend.
 | **#178** | — | **`docs/architecture/domain-model.md` — north star** |
 | **PR 0** | lux-edvm | **Characterization snapshot baseline + `make snapshot-parity` CI gate** |
 | **PR 1** | lux-b14i | **Domain layer (`domain/`) + basics family migration end-to-end.** `ClientId` / `SceneId` / `ElementId` NewTypes, `Element` Protocol, `Update` / `Event` / `Error` sum types, `Display.apply(client, update) -> Event \| Error` (PY-EH-1 validate-before-mutate, PY-EH-8 never None).  Codec methods on every basics class; module-level `_to_dict_*` / `_from_dict_*` helpers deleted (PY-OO-7).  Per-kind renderer classes (`text_renderer.py`, `image_renderer.py`, etc.) replace the basics branches of `_RENDERERS` dispatch.  Basics-only scenes routed through `Display.apply` alongside SceneManager in the hub.  `basics.py` split into one-class-per-module form per PY-OO-2.  `make snapshot-parity` green throughout. |
+| **PR 2** | lux-i84j | **Inputs family migration end-to-end.** Nine input classes (Button, Slider, Checkbox, Combo, InputText, InputNumber, Radio, ColorPicker, Selectable) split into per-kind modules with codec methods on the class; `inputs.py` rebuilt as `InputsRegistry` aggregator (311→69 lines, 9→1 classes, method_ratio 0→1.0). Nine per-kind renderer classes in `display/renderers/` replace the inputs branches of `_RENDERERS` (element_renderer.py shrinks 869→638). `DomainPump` widened from basics to native kinds (`_BASICS_KINDS + _INPUTS_KINDS = _NATIVE_KINDS`); inputs scenes route through `Display.apply`. New `Display.interact(client, interaction) -> Event \| Error` for user-driven events; `domain/interaction.py::ButtonClicked` and `domain/interaction_event.py::ButtonPressed` ship as the first variant. `DomainPump.route_interaction` is the production caller; wire button clicks reach `Display.interact` via `DisplayServer._emit_event` forwarding. `SceneManager` branches for the nine inputs kinds deleted; `WidgetValueProvider` Protocol owns the per-class `widget_value()` accessor (six implementors + one — `InputNumber` — added post-review). `make snapshot-parity` green; +37 tests including the deferred Button-interaction-routing acceptance test. |
 
-Three structural advances (#169, #170, #176) and one architectural foundation
-doc (#178). The OO ratchet enforced direction of travel on every PR; the
-absolute targets remain unmet.
+Three structural advances (#169, #170, #176), one architectural foundation
+doc (#178), and two end-to-end family migrations (PR 1, PR 2). The OO
+ratchet enforced direction of travel on every PR; the absolute targets on
+three metrics remain unmet (concentrated in `element_renderer.py`,
+`server.py`, `table_renderer.py`).
 
 ## Open work from `oo-refactoring-plan.md`
 
@@ -92,10 +97,10 @@ absolute targets remain unmet.
 | Stage | What it means | Status |
 |-------|---------------|--------|
 | 1 | Name the domain | **Done** — PR #178 |
-| 2 | Extract `Display`, `Client`, `Update`, `Event` | **Done (basics-scope)** — PR 1 lands the full `domain/` package with all three Update kinds, all Events / Errors, and Display.apply/subscribe/snapshot. |
+| 2 | Extract `Display`, `Client`, `Update`, `Event` | **Done (basics + inputs)** — PR 1 lands the full `domain/` package with all three Update kinds, all state-mutation Events / Errors, and Display.apply/subscribe/snapshot. PR 2 adds the `Interaction` sum type (`ButtonClicked`), `ButtonPressed` event, and `Display.interact(client, interaction) -> Event \| Error` for user-driven events. |
 | 3 | Make Elements live (mutable, emit events on mutation) | **Partial** — basics now flow through Display (events fire), but elements are still frozen dataclasses replaced via `dataclasses.replace` inside SetProperty.  Mutability in place lands when more Update kinds need it. |
 | 4 | Semantic updates on the wire | Not started |
-| 5 | Decompose `element_renderer.py` | **Partial** — six per-kind basics renderers extracted (PR 1); inputs/layout/graphics/table/plot still in `element_renderer.py`. |
+| 5 | Decompose `element_renderer.py` | **Partial** — six basics renderers (PR 1) + nine inputs renderers (PR 2) extracted; layout/graphics/table/plot still in `element_renderer.py` (now 638 lines, down from 869). |
 | 6 | Split process boundary (hub / display server) | Not started |
 
 ## Architecture references
@@ -112,10 +117,14 @@ absolute targets remain unmet.
 
 ## Next priorities, ordered
 
-1. **`element_renderer.py` decomposition** — biggest single OO debt with no
-   API change. Step toward `module_size` and `max_complexity` targets.
-2. **Domain-model Stage 2-3** — introduce `Display`, `Client`, `Update`,
-   `Event`. Largest architectural step; unlocks the rest of the north star.
+1. **PR 3 — `layout` family migration** — Group, Window, TabBar,
+   CollapsingHeader, Modal, Tree. Same pattern as PR 1 (basics) and PR 2
+   (inputs): codec on the class, per-kind renderer, native-kinds tuple
+   widened, SceneManager branches deleted. Method_ratio is 0.01 short of
+   the 0.80 threshold — layout is the largest remaining contributor.
+2. **PR 4 — `graphics` + `table` + `plot` families** — finish the
+   `_RENDERERS` dispatch retirement. `element_renderer.py` becomes a
+   dispatcher-only module.
 3. **Implement `introspection-api.md` generic pattern** — `QueryRequest` /
    `QueryResponse` envelope + single `_handle_query` dispatcher in
    `display/server.py`. Migrates the existing three ops (`inspect_scene`,

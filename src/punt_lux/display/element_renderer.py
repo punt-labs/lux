@@ -12,10 +12,19 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 import numpy as np
 
 from punt_lux.display.renderers import (
+    ButtonRenderer,
+    CheckboxRenderer,
+    ColorPickerRenderer,
+    ComboRenderer,
     ImageRenderer,
+    InputNumberRenderer,
+    InputTextRenderer,
     MarkdownRenderer,
     ProgressRenderer,
+    RadioRenderer,
+    SelectableRenderer,
     SeparatorRenderer,
+    SliderRenderer,
     SpinnerRenderer,
     TextRenderer,
 )
@@ -28,6 +37,10 @@ from punt_lux.protocol import (
     TabBarElement,
     WindowElement,
 )
+from punt_lux.protocol.elements.button import ButtonElement
+from punt_lux.protocol.elements.checkbox import CheckboxElement
+from punt_lux.protocol.elements.color_picker import ColorPickerElement
+from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.draw_command_kind import DrawCommand
 from punt_lux.protocol.elements.draw_commands_curve import BezierCubic
 from punt_lux.protocol.elements.draw_commands_line import Line, Polyline
@@ -39,9 +52,14 @@ from punt_lux.protocol.elements.draw_commands_shape import (
 from punt_lux.protocol.elements.draw_commands_text import TextGlyph
 from punt_lux.protocol.elements.graphics import DrawElement
 from punt_lux.protocol.elements.image import ImageElement
+from punt_lux.protocol.elements.input_number import InputNumberElement
+from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.progress import ProgressElement
+from punt_lux.protocol.elements.radio import RadioElement
+from punt_lux.protocol.elements.selectable import SelectableElement
 from punt_lux.protocol.elements.separator import SeparatorElement
+from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.scene import WidgetState
@@ -65,37 +83,35 @@ class ElementRenderer:
     _emit_event: EmitEventFn
     _current_scene_id: str | None
     _check_dirty_window: DirtyWindowFn
-    # Per-kind renderer classes for the basics family (PR 1).  Other
-    # families still go through ``_RENDERERS`` until their PRs land.
+    # Per-kind renderer classes for the basics + inputs families (PR 1 + PR 2).
+    # Other families still go through ``_RENDERERS`` until their PRs land.
     _text_renderer: TextRenderer
     _image_renderer: ImageRenderer
     _separator_renderer: SeparatorRenderer
     _progress_renderer: ProgressRenderer
     _spinner_renderer: SpinnerRenderer
     _markdown_renderer: MarkdownRenderer
+    _button_renderer: ButtonRenderer
+    _slider_renderer: SliderRenderer
+    _checkbox_renderer: CheckboxRenderer
+    _combo_renderer: ComboRenderer
+    _input_text_renderer: InputTextRenderer
+    _input_number_renderer: InputNumberRenderer
+    _radio_renderer: RadioRenderer
+    _color_picker_renderer: ColorPickerRenderer
+    _selectable_renderer: SelectableRenderer
 
     _RENDERERS: ClassVar[dict[str, str]] = {
-        "button": "_render_button",
-        "slider": "_render_slider",
-        "checkbox": "_render_checkbox",
-        "combo": "_render_combo",
-        "input_text": "_render_input_text",
-        "input_number": "_render_input_number",
-        "radio": "_render_radio",
-        "color_picker": "_render_color_picker",
         "draw": "_render_draw",
         "group": "_render_group",
         "tab_bar": "_render_tab_bar",
         "collapsing_header": "_render_collapsing_header",
         "window": "_render_window",
-        "selectable": "_render_selectable",
         "tree": "_render_tree",
         "table": "_render_table",
         "plot": "_render_plot",
         "modal": "_render_modal",
     }
-
-    _arrow_dirs: ClassVar[dict[str, Any] | None] = None
 
     def __new__(
         cls,
@@ -118,24 +134,56 @@ class ElementRenderer:
         self._progress_renderer = ProgressRenderer()
         self._spinner_renderer = SpinnerRenderer()
         self._markdown_renderer = MarkdownRenderer()
+        self._button_renderer = ButtonRenderer(emit_event)
+        self._slider_renderer = SliderRenderer(widget_state, emit_event)
+        self._checkbox_renderer = CheckboxRenderer(widget_state, emit_event)
+        self._combo_renderer = ComboRenderer(widget_state, emit_event)
+        self._input_text_renderer = InputTextRenderer(widget_state, emit_event)
+        self._input_number_renderer = InputNumberRenderer(widget_state, emit_event)
+        self._radio_renderer = RadioRenderer(widget_state, emit_event)
+        self._color_picker_renderer = ColorPickerRenderer(widget_state, emit_event)
+        self._selectable_renderer = SelectableRenderer(widget_state, emit_event)
         return self
 
-    # Basics dispatch table: (element type, renderer-attribute name).  Single
-    # source of truth for both _dispatch_basics and element_kind_count — adding
-    # a basics kind here updates both call sites at once.
-    _BASICS_DISPATCH: ClassVar[tuple[tuple[type, str], ...]] = (
+    # Per-kind dispatch table: (element type, renderer-attribute name).  Single
+    # source of truth for both _dispatch_native and element_kind_count — adding
+    # a per-kind renderer here updates both call sites at once.
+    _NATIVE_DISPATCH: ClassVar[tuple[tuple[type, str], ...]] = (
         (TextElement, "_text_renderer"),
         (ImageElement, "_image_renderer"),
         (SeparatorElement, "_separator_renderer"),
         (ProgressElement, "_progress_renderer"),
         (SpinnerElement, "_spinner_renderer"),
         (MarkdownElement, "_markdown_renderer"),
+        (ButtonElement, "_button_renderer"),
+        (SliderElement, "_slider_renderer"),
+        (CheckboxElement, "_checkbox_renderer"),
+        (ComboElement, "_combo_renderer"),
+        (InputTextElement, "_input_text_renderer"),
+        (InputNumberElement, "_input_number_renderer"),
+        (RadioElement, "_radio_renderer"),
+        (ColorPickerElement, "_color_picker_renderer"),
+        (SelectableElement, "_selectable_renderer"),
+    )
+
+    # Renderer attributes that own per-scene WidgetState.  The widget_state
+    # setter forwards updates to each so a scene switch reaches every input
+    # renderer's view of widget state simultaneously.
+    _WIDGET_STATE_RENDERERS: ClassVar[tuple[str, ...]] = (
+        "_slider_renderer",
+        "_checkbox_renderer",
+        "_combo_renderer",
+        "_input_text_renderer",
+        "_input_number_renderer",
+        "_radio_renderer",
+        "_color_picker_renderer",
+        "_selectable_renderer",
     )
 
     @property
     def element_kind_count(self) -> int:
         """Return the number of supported element kinds."""
-        return len(self._RENDERERS) + len(self._BASICS_DISPATCH)
+        return len(self._RENDERERS) + len(self._NATIVE_DISPATCH)
 
     @property
     def widget_state(self) -> WidgetState:
@@ -144,6 +192,8 @@ class ElementRenderer:
     @widget_state.setter
     def widget_state(self, value: WidgetState) -> None:
         self._widget_state = value
+        for attr in self._WIDGET_STATE_RENDERERS:
+            getattr(self, attr).widget_state = value
 
     @property
     def current_scene_id(self) -> str | None:
@@ -159,8 +209,8 @@ class ElementRenderer:
         """Dispatch an element to its kind-specific renderer."""
         from imgui_bundle import imgui
 
-        handled_by_basics = self._dispatch_basics(elem)
-        if not handled_by_basics:
+        handled_natively = self._dispatch_native(elem)
+        if not handled_natively:
             method_name = self._RENDERERS.get(elem.kind)
             if method_name is not None:
                 getattr(self, method_name)(elem)
@@ -180,34 +230,19 @@ class ElementRenderer:
             if tooltip and imgui.is_item_hovered(imgui.HoveredFlags_.for_tooltip.value):
                 imgui.set_tooltip(tooltip)
 
-    def _dispatch_basics(self, elem: Element) -> bool:
-        """Route basics-family kinds to per-kind renderer classes.
+    def _dispatch_native(self, elem: Element) -> bool:
+        """Route per-kind renderer classes (basics + inputs).
 
-        Returns True iff the element belongs to the basics family.
+        Returns True iff the element belongs to a family with a per-kind
+        renderer class.
         """
-        for element_type, renderer_attr in self._BASICS_DISPATCH:
+        for element_type, renderer_attr in self._NATIVE_DISPATCH:
             if isinstance(elem, element_type):
                 getattr(self, renderer_attr).render(elem)
                 return True
         return False
 
     # -- color helpers ---------------------------------------------------------
-
-    @staticmethod
-    def _parse_hex_color(hex_str: str) -> tuple[float, float, float, float] | None:
-        """Parse "#RRGGBB" or "#RRGGBBAA" to (r, g, b, a) floats."""
-        s = hex_str.lstrip("#")
-        try:
-            if len(s) == 6:
-                r, g, b = int(s[0:2], 16), int(s[2:4], 16), int(s[4:6], 16)
-                return (r / 255.0, g / 255.0, b / 255.0, 1.0)
-            if len(s) == 8:
-                r = int(s[0:2], 16)
-                g, b, a = int(s[2:4], 16), int(s[4:6], 16), int(s[6:8], 16)
-                return (r / 255.0, g / 255.0, b / 255.0, a / 255.0)
-        except ValueError:
-            return None
-        return None
 
     @staticmethod
     def _parse_color(
@@ -262,14 +297,6 @@ class ElementRenderer:
         return (255, 255, 255, 255)
 
     @staticmethod
-    def _color_to_hex(r: float, g: float, b: float) -> str:
-        """Convert float RGB (0-1) to hex string."""
-        ri = int(max(0.0, min(1.0, r)) * 255)
-        gi = int(max(0.0, min(1.0, g)) * 255)
-        bi = int(max(0.0, min(1.0, b)) * 255)
-        return f"#{ri:02X}{gi:02X}{bi:02X}"
-
-    @staticmethod
     def _to_imgui_color(
         color: str | list[int] | tuple[int, ...] | Any,
     ) -> int:
@@ -281,291 +308,6 @@ class ElementRenderer:
             ImVec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0)
         )
         return result
-
-    # -- individual element renderers ------------------------------------------
-
-    def _resolve_arrow_dir(self, name: str) -> Any | None:
-        from imgui_bundle import imgui
-
-        if ElementRenderer._arrow_dirs is None:
-            ElementRenderer._arrow_dirs = {
-                "left": imgui.Dir.left,
-                "right": imgui.Dir.right,
-                "up": imgui.Dir.up,
-                "down": imgui.Dir.down,
-            }
-        return ElementRenderer._arrow_dirs.get(name)
-
-    def _render_button(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        btn: Any = elem
-        label: str = btn.label
-        eid: str = btn.id
-        action: str = btn.action or eid
-        disabled: bool = btn.disabled
-        arrow: str | None = btn.arrow
-        small: bool = btn.small
-
-        if disabled:
-            imgui.begin_disabled()
-
-        clicked = False
-        if arrow:
-            direction = self._resolve_arrow_dir(arrow)
-            if direction is not None:
-                clicked = imgui.arrow_button(f"##{eid}", direction)
-            else:
-                logger.warning("Unknown arrow direction %r for %s", arrow, eid)
-                clicked = imgui.button(f"{label}##{eid}")
-        elif small:
-            clicked = imgui.small_button(f"{label}##{eid}")
-        else:
-            clicked = imgui.button(f"{label}##{eid}")
-
-        if clicked:
-            self._emit_event(
-                InteractionMessage(
-                    element_id=eid,
-                    action=action,
-                    ts=time.time(),
-                    value=True,
-                )
-            )
-
-        if disabled:
-            imgui.end_disabled()
-
-    def _render_slider(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        sl: Any = elem
-        eid: str = sl.id
-        label: str = sl.label
-        v_min: float = sl.min
-        v_max: float = sl.max
-        fmt: str = sl.format
-        is_int: bool = sl.integer
-
-        current = self._widget_state.ensure(eid, sl.value)
-
-        new_val: int | float
-        if is_int:
-            changed, new_val = imgui.slider_int(
-                f"{label}##{eid}", int(current), int(v_min), int(v_max)
-            )
-        else:
-            changed, new_val = imgui.slider_float(
-                f"{label}##{eid}", float(current), float(v_min), float(v_max), fmt
-            )
-
-        if changed:
-            self._widget_state.set(eid, new_val)
-            self._emit_event(
-                InteractionMessage(
-                    element_id=eid,
-                    action="changed",
-                    ts=time.time(),
-                    value=new_val,
-                )
-            )
-
-    def _render_checkbox(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        cb: Any = elem
-        eid: str = cb.id
-        label: str = cb.label
-
-        current = self._widget_state.ensure(eid, cb.value)
-        changed, new_val = imgui.checkbox(f"{label}##{eid}", current)
-        if changed:
-            self._widget_state.set(eid, new_val)
-            self._emit_event(
-                InteractionMessage(
-                    element_id=eid,
-                    action="changed",
-                    ts=time.time(),
-                    value=new_val,
-                )
-            )
-
-    def _render_combo(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        co: Any = elem
-        eid: str = co.id
-        label: str = co.label
-        items: list[str] = co.items
-
-        initial = max(0, min(co.selected, len(items) - 1)) if items else 0
-        current = self._widget_state.ensure(eid, initial)
-        if not items:
-            imgui.text(f"{label}: (empty)")
-            return
-        if current < 0 or current >= len(items):
-            current = 0
-            self._widget_state.set(eid, current)
-        changed, new_val = imgui.combo(f"{label}##{eid}", current, items)
-
-        if changed:
-            self._widget_state.set(eid, new_val)
-            item_text = items[new_val] if 0 <= new_val < len(items) else ""
-            self._emit_event(
-                InteractionMessage(
-                    element_id=eid,
-                    action="changed",
-                    ts=time.time(),
-                    value={"index": new_val, "item": item_text},
-                )
-            )
-
-    def _render_input_text(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        it: Any = elem
-        eid: str = it.id
-        label: str = it.label
-        hint: str = it.hint
-
-        current = self._widget_state.ensure(eid, it.value)
-
-        if hint:
-            changed, new_val = imgui.input_text_with_hint(
-                f"{label}##{eid}", hint, current
-            )
-        else:
-            changed, new_val = imgui.input_text(f"{label}##{eid}", current)
-
-        if changed:
-            self._widget_state.set(eid, new_val)
-            self._emit_event(
-                InteractionMessage(
-                    element_id=eid,
-                    action="changed",
-                    ts=time.time(),
-                    value=new_val,
-                )
-            )
-
-    def _render_input_number(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        el: Any = elem
-        eid: str = el.id
-        label: str = el.label
-        is_int: bool = el.integer
-        step: float | None = el.step
-        fmt: str = el.format
-
-        initial: int | float = el.value
-        if el.min is not None and initial < el.min:
-            initial = int(el.min) if is_int else el.min
-        if el.max is not None and initial > el.max:
-            initial = int(el.max) if is_int else el.max
-        current = self._widget_state.ensure(eid, initial)
-
-        result: int | float
-        if is_int:
-            s = int(step) if step is not None else 0
-            changed, result = imgui.input_int(
-                f"{label}##{eid}", int(current), s, s * 10
-            )
-        else:
-            s_f = step if step is not None else 0.0
-            changed, result = imgui.input_float(
-                f"{label}##{eid}", float(current), s_f, s_f * 10.0, fmt
-            )
-
-        if el.min is not None and result < el.min:
-            result = int(el.min) if is_int else el.min
-            changed = True
-        if el.max is not None and result > el.max:
-            result = int(el.max) if is_int else el.max
-            changed = True
-
-        if changed:
-            self._widget_state.set(eid, result)
-            self._emit_event(
-                InteractionMessage(
-                    element_id=eid,
-                    action="changed",
-                    ts=time.time(),
-                    value=result,
-                )
-            )
-
-    def _render_radio(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        rd: Any = elem
-        eid: str = rd.id
-        label: str = rd.label
-        items: list[str] = rd.items
-
-        current: int = self._widget_state.ensure(eid, rd.selected)
-
-        if label:
-            imgui.text(label)
-
-        for i, item in enumerate(items):
-            if imgui.radio_button(f"{item}##{eid}_{i}", current == i) and current != i:
-                self._widget_state.set(eid, i)
-                self._emit_event(
-                    InteractionMessage(
-                        element_id=eid,
-                        action="changed",
-                        ts=time.time(),
-                        value={"index": i, "item": item},
-                    )
-                )
-                current = i
-            if i < len(items) - 1:
-                imgui.same_line()
-
-    def _render_color_picker(self, elem: Element) -> None:
-        from imgui_bundle import ImVec4, imgui
-
-        cp: Any = elem
-        eid: str = cp.id
-        label: str = cp.label
-        hex_str: str = cp.value
-        use_alpha: bool = cp.alpha
-        use_picker: bool = cp.picker
-
-        r, g, b, a = self._parse_color(hex_str)
-        initial = ImVec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0)
-        current = self._widget_state.ensure(eid, initial)
-
-        if use_picker:
-            if use_alpha:
-                changed, new_color = imgui.color_picker4(f"{label}##{eid}", current)
-            else:
-                changed, new_color = imgui.color_picker3(f"{label}##{eid}", current)
-        elif use_alpha:
-            changed, new_color = imgui.color_edit4(f"{label}##{eid}", current)
-        else:
-            changed, new_color = imgui.color_edit3(f"{label}##{eid}", current)
-
-        if changed:
-            self._widget_state.set(eid, new_color)
-            if use_alpha:
-                nc = new_color
-                r_ = int(max(0.0, min(1.0, nc[0])) * 255)
-                g_ = int(max(0.0, min(1.0, nc[1])) * 255)
-                b_ = int(max(0.0, min(1.0, nc[2])) * 255)
-                a_ = int(max(0.0, min(1.0, nc[3])) * 255)
-                hex_val = f"#{r_:02X}{g_:02X}{b_:02X}{a_:02X}"
-            else:
-                hex_val = self._color_to_hex(new_color[0], new_color[1], new_color[2])
-            self._emit_event(
-                InteractionMessage(
-                    element_id=eid,
-                    action="changed",
-                    ts=time.time(),
-                    value=hex_val,
-                )
-            )
 
     # -- container rendering ---------------------------------------------------
 
@@ -690,27 +432,7 @@ class ElementRenderer:
                 self.render_element(child)
         imgui.end()
 
-    # -- selectable and tree rendering -----------------------------------------
-
-    def _render_selectable(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        sel: Any = elem
-        eid: str = sel.id
-        label: str = sel.label
-
-        current: bool = self._widget_state.ensure(eid, sel.selected)
-        clicked, new_val = imgui.selectable(f"{label}##{eid}", current)
-        if clicked:
-            self._widget_state.set(eid, new_val)
-            self._emit_event(
-                InteractionMessage(
-                    element_id=eid,
-                    action="clicked",
-                    ts=time.time(),
-                    value=new_val,
-                )
-            )
+    # -- tree rendering --------------------------------------------------------
 
     def _render_tree(self, elem: Element) -> None:
         from imgui_bundle import imgui

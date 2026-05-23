@@ -35,11 +35,13 @@ from punt_lux.domain.ids import ClientId
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
+    ButtonElement,
     CheckboxElement,
     ClearMessage,
     ColorPickerElement,
     ComboElement,
     ConnectMessage,
+    InputNumberElement,
     InputTextElement,
     InteractionMessage,
     IntrospectRequest,
@@ -71,9 +73,11 @@ from punt_lux.query_dispatcher import QueryDispatcher
 from punt_lux.scene import Frame, SceneManager, WidgetState
 from punt_lux.socket_server import SocketServer
 
-# Element kinds in the basics family — routed through Display.apply
-# alongside SceneManager during PR 1.  Mixed scenes (containing other
-# kinds) still go exclusively through SceneManager.
+# Element kinds with a per-class renderer in ``display.renderers``.
+# Scenes containing only these kinds route through ``Display.apply``
+# alongside SceneManager.  Mixed scenes (containing any other kind)
+# still go exclusively through SceneManager until subsequent PRs
+# migrate the remaining families.
 _BASICS_KINDS: tuple[type, ...] = (
     TextElement,
     ImageElement,
@@ -82,6 +86,18 @@ _BASICS_KINDS: tuple[type, ...] = (
     SpinnerElement,
     MarkdownElement,
 )
+_INPUTS_KINDS: tuple[type, ...] = (
+    ButtonElement,
+    SliderElement,
+    CheckboxElement,
+    ComboElement,
+    InputTextElement,
+    InputNumberElement,
+    RadioElement,
+    ColorPickerElement,
+    SelectableElement,
+)
+_NATIVE_KINDS: tuple[type, ...] = _BASICS_KINDS + _INPUTS_KINDS
 
 if TYPE_CHECKING:
     from punt_lux.protocol import Message
@@ -138,13 +154,15 @@ class DisplayServer:
         # Parallel domain Display (PR 1): basics-only scenes are also
         # routed through Display.apply so the new infrastructure has a
         # real production caller (PY-RF-2).  Renderer reads from
-        # SceneManager during PR 1; later PRs route rendering through
+        # SceneManager during PR 1+2; later PRs route rendering through
         # Display.snapshot.  ``_domain_client_id`` is the synthetic
         # client that owns every wire-decoded element on this hub.
         self._domain_display = Display()
         self._domain_client_id = self._domain_display.connect_client(name="display-hub")
         self._domain_pump = DomainPump(
-            self._domain_display, self._domain_client_id, _BASICS_KINDS
+            self._domain_display,
+            self._domain_client_id,
+            _NATIVE_KINDS,
         )
         self._themes = []
         self._decorated = True
@@ -715,9 +733,17 @@ class DisplayServer:
         }
 
     def _emit_event(self, event: InteractionMessage) -> None:
-        """Stamp scene_id and append to the event queue."""
+        """Stamp scene_id, route domain-eligible events to the pump, and queue.
+
+        PR 2: wire-side button clicks mirror through ``DomainPump.route_interaction``
+        before joining the queue so the domain Display sees the same user-driven
+        event the wire-side subscribers do.  Non-button interactions (slider,
+        checkbox, …) flow through the queue unchanged until their own
+        Interaction variants ship in later PRs.
+        """
         if event.scene_id is None:
             event = dataclasses.replace(event, scene_id=self._current_scene_id)
+        self._domain_pump.route_interaction(event)
         self._event_queue.append(event)
 
     # -- Tier 3 write handlers ------------------------------------------------
@@ -837,7 +863,24 @@ class DisplayServer:
         self._domain_pump.route(msg)
 
     def _auto_click_buttons(self, msg: SceneMessage) -> None:
-        """Enqueue synthetic interactions for testable elements (test mode)."""
+        """Enqueue synthetic interactions for testable elements (test mode).
+
+        Bugbot LOW (PR #187): synthetic events run BEFORE the first render
+        loop assigns ``self._current_scene_id`` from ``_render_scene_tab``.
+        Without stamping the scene id here, ``_emit_event`` would set
+        ``scene_id=None`` and ``DomainPump.route_interaction`` would
+        silently drop every synthetic button click.  Save / restore the
+        prior value so the render loop's later assignment is undisturbed.
+        """
+        prior_scene_id = self._current_scene_id
+        self._current_scene_id = msg.id
+        try:
+            self._auto_click_emit_loop(msg)
+        finally:
+            self._current_scene_id = prior_scene_id
+
+    def _auto_click_emit_loop(self, msg: SceneMessage) -> None:
+        """Per-element synthetic-interaction emit loop (see _auto_click_buttons)."""
         for elem in msg.elements:
             if elem.kind == "button" and not getattr(elem, "disabled", False):
                 eid: str = getattr(elem, "id", "")
@@ -1315,6 +1358,12 @@ class DisplayServer:
             self._widget_state = ws
             self._table_renderer.widget_state = ws
             self._element_renderer.widget_state = ws
+        # Bugbot HIGH (PR #187): _emit_event stamps scene_id from
+        # ``self._current_scene_id`` for any InteractionMessage whose scene_id
+        # is None — without this assignment, clicks inside framed scenes
+        # carried whatever ``_render_scene_tab`` last set (stale or None),
+        # so ``DomainPump.route_interaction`` silently dropped them.
+        self._current_scene_id = scene_id
         self._element_renderer.current_scene_id = scene_id
         scene = frame.scenes[scene_id]
         for elem in scene.elements:
