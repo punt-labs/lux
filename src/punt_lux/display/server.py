@@ -35,11 +35,13 @@ from punt_lux.domain.ids import ClientId
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
+    ButtonElement,
     CheckboxElement,
     ClearMessage,
     ColorPickerElement,
     ComboElement,
     ConnectMessage,
+    InputNumberElement,
     InputTextElement,
     InteractionMessage,
     IntrospectRequest,
@@ -71,9 +73,11 @@ from punt_lux.query_dispatcher import QueryDispatcher
 from punt_lux.scene import Frame, SceneManager, WidgetState
 from punt_lux.socket_server import SocketServer
 
-# Element kinds in the basics family — routed through Display.apply
-# alongside SceneManager during PR 1.  Mixed scenes (containing other
-# kinds) still go exclusively through SceneManager.
+# Element kinds with a per-class renderer in ``display.renderers``.
+# Scenes containing only these kinds route through ``Display.apply``
+# alongside SceneManager.  Mixed scenes (containing any other kind)
+# still go exclusively through SceneManager until subsequent PRs
+# migrate the remaining families.
 _BASICS_KINDS: tuple[type, ...] = (
     TextElement,
     ImageElement,
@@ -82,6 +86,18 @@ _BASICS_KINDS: tuple[type, ...] = (
     SpinnerElement,
     MarkdownElement,
 )
+_INPUTS_KINDS: tuple[type, ...] = (
+    ButtonElement,
+    SliderElement,
+    CheckboxElement,
+    ComboElement,
+    InputTextElement,
+    InputNumberElement,
+    RadioElement,
+    ColorPickerElement,
+    SelectableElement,
+)
+_NATIVE_KINDS: tuple[type, ...] = _BASICS_KINDS + _INPUTS_KINDS
 
 if TYPE_CHECKING:
     from punt_lux.protocol import Message
@@ -138,13 +154,15 @@ class DisplayServer:
         # Parallel domain Display (PR 1): basics-only scenes are also
         # routed through Display.apply so the new infrastructure has a
         # real production caller (PY-RF-2).  Renderer reads from
-        # SceneManager during PR 1; later PRs route rendering through
+        # SceneManager during PR 1+2; later PRs route rendering through
         # Display.snapshot.  ``_domain_client_id`` is the synthetic
         # client that owns every wire-decoded element on this hub.
         self._domain_display = Display()
         self._domain_client_id = self._domain_display.connect_client(name="display-hub")
         self._domain_pump = DomainPump(
-            self._domain_display, self._domain_client_id, _BASICS_KINDS
+            self._domain_display,
+            self._domain_client_id,
+            _NATIVE_KINDS,
         )
         self._themes = []
         self._decorated = True

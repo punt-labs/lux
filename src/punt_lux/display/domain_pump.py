@@ -1,4 +1,4 @@
-"""Dual-write pump: mirror basics-only SceneMessages into the domain Display."""
+"""Dual-write pump: mirror native-kind SceneMessages into the domain Display."""
 
 from __future__ import annotations
 
@@ -19,38 +19,50 @@ _log = logging.getLogger(__name__)
 
 
 class DomainPump:
-    """Mirror basics-only SceneMessages into a domain Display."""
+    """Mirror native-kind SceneMessages into a domain Display.
+
+    "Native" = element kinds with their own per-class renderer in
+    ``display.renderers``.  PR 1 shipped six (basics: Text, Image,
+    Separator, Progress, Spinner, Markdown); PR 2 widens the set to
+    fifteen by adding the nine inputs (Button, Slider, Checkbox, Combo,
+    InputText, InputNumber, Radio, ColorPicker, Selectable).
+
+    A scene containing only native kinds is routed through ``Display.apply``;
+    a scene containing any non-native kind is skipped (mixed-scene rule —
+    SceneManager owns those until subsequent PRs migrate the remaining
+    families).
+    """
 
     _display: Display
     _client_id: ClientId
-    _basics_kinds: tuple[type, ...]
+    _native_kinds: tuple[type, ...]
 
     def __new__(
         cls,
         display: Display,
         client_id: ClientId,
-        basics_kinds: tuple[type, ...],
+        native_kinds: tuple[type, ...],
     ) -> Self:
         self = super().__new__(cls)
         self._display = display
         self._client_id = client_id
-        self._basics_kinds = basics_kinds
+        self._native_kinds = native_kinds
         return self
 
     def route(self, msg: SceneMessage) -> None:
         """Route a SceneMessage through the domain Display if it qualifies."""
-        # Mixed-scene rule: any non-basics element disqualifies the whole
+        # Mixed-scene rule: any non-native element disqualifies the whole
         # scene from the new path.  An EMPTY element list must still clear
         # the scene — agents re-send empty scenes to clear the surface, and
         # skipping the clear lets the domain Display retain stale elements
         # while SceneManager drops them (Copilot CP-2).
-        if any(not isinstance(elem, self._basics_kinds) for elem in msg.elements):
+        if any(not isinstance(elem, self._native_kinds) for elem in msg.elements):
             return
         scene_id = SceneId(msg.id)
         self._display.add_scene(scene_id)
         self._clear_scene(scene_id)
         for index, elem in enumerate(msg.elements):
-            # cast: isinstance check above narrowed the element to a basics
+            # cast: isinstance check above narrowed the element to a native
             # kind, every one of which satisfies the domain Element Protocol.
             domain_elem = self._with_unique_id(cast("DomainElement", elem), index=index)
             result = self._display.apply(
@@ -80,7 +92,7 @@ class DomainPump:
         if elem.id:
             return elem
         # Element Protocol is opaque to dataclasses.replace's TypeVar; every
-        # basics element is a frozen dataclass with `id`.
+        # native element is a frozen dataclass with `id`.
         replaced = dataclasses.replace(cast("Any", elem), id=f"{elem.kind}:{index}")
         return cast("DomainElement", replaced)
 
