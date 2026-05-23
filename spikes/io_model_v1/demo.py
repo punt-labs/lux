@@ -351,7 +351,7 @@ def run_r4(surface: str) -> bool:
     Two distinct things happen on a button click:
 
       A) HUB dismisses the dialog. The dialog scene was accepted with
-         `dismiss_on_click=True` (modal-dialog policy). When the click
+         `dismiss_on_click=True` on the show() call. When the click
          resolves, HUB removes the scene root from hub_display and
          ships a RemoveElement Update to DISP. AGNT plays NO role in
          this — AGNT is a pure observer of the click.
@@ -375,8 +375,8 @@ def run_r4(surface: str) -> bool:
         # ───── setup: dialog scene live ─────
         ok &= require("HUB",  "AGNT connected",                              timeout=5.0); step("1", "processes started; AGNT (dialog mode) connected to HUB")
         ok &= require("HUB",  "AGNT subscribed to 'interaction.btn_yes'",    timeout=3.0); step("2", "AGNT subscribed to 'interaction.btn_yes' (purely as observer)")
-        ok &= require("AGNT", "sent show('dialog') to HUB with dismiss_on_click=True", timeout=3.0); step("3", "AGNT sent dialog scene with modal policy")
-        ok &= require("HUB",  "accepted scene 'dialog' (hub_display is authoritative) (dismiss_on_click=ON)", timeout=3.0); step("4", "HUB accepted dialog on hub_display (modal policy recorded)")
+        ok &= require("AGNT", "sent show('dialog') to HUB with dismiss_on_click=True", timeout=3.0); step("3", "AGNT sent dialog scene with dismiss_on_click=True")
+        ok &= require("HUB",  "accepted scene 'dialog' (hub_display is authoritative) (dismiss_on_click=True)", timeout=3.0); step("4", "HUB accepted dialog on hub_display + recorded dismiss_on_click=True")
         ok &= require("DISP", "decoded + instantiated DISP-tier Element tree", timeout=3.0); step("5", "DISP applied AddElement to display_display")
         ok &= require("DISP", "Label[dlg_q]",                                timeout=3.0); step("6", "DISP rendered Label (Save your work?)")
         ok &= require("DISP", "Button[btn_yes]",                             timeout=3.0); step("7", "DISP rendered Button (Yes)")
@@ -398,7 +398,7 @@ def run_r4(surface: str) -> bool:
         ok &= require("HUB",  "published 'interaction.btn_yes'",             timeout=2.0); step("15", "HUB published 'interaction.btn_yes' (notifies observers)")
 
         # ───── (A) HUB dismisses the dialog — agent plays no role here ─────
-        ok &= require("HUB",  "dismiss_on_click policy active",              timeout=2.0); step("16", "HUB sees dismiss_on_click policy → dismissing dialog")
+        ok &= require("HUB",  "dismiss_on_click=True for current scene",     timeout=2.0); step("16", "HUB sees dismiss_on_click=True → dismissing dialog")
         ok &= require("HUB",  "sent RemoveElement Update to DISP",           timeout=2.0); step("17", "HUB accepted RemoveElement(dlg) on hub_display + sent to DISP")
         ok &= require("DISP", "applied RemoveElement('dlg')",                timeout=3.0); step("18", "DISP applied RemoveElement — display_display empty, render loop draws nothing")
 

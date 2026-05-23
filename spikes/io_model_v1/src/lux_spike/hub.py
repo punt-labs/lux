@@ -57,7 +57,7 @@ class HubDisplay:
 
     _by_id: dict[str, "Element"]
     _root_id: str | None
-    _dismiss_on_click: bool  # scene-level policy carried by the current root
+    _dismiss_on_click: bool  # show()-level option carried by the current root
 
     def __new__(cls) -> "HubDisplay":
         self = object.__new__(cls)
@@ -236,16 +236,17 @@ def main() -> None:
                 print(f"[hub] invoked {type(elem).__name__}.on_click()", flush=True)
                 elem.on_click()  # emits ButtonClicked → hub_emit → published as 'interaction.<id>'
 
-                # Scene-level dismiss-on-click policy: if the current scene was
-                # accepted with dismiss_on_click=True, the click is treated as
-                # a request to dismiss the scene. HUB removes the root subtree
-                # from hub_display and ships a RemoveElement Update to DISP.
-                # AGNT is a pure observer here — it sees the click via the
-                # published topic but plays no role in the removal.
+                # If the current scene was accepted with the
+                # `dismiss_on_click=True` show() option, the click is
+                # treated as a request to dismiss the scene. HUB removes
+                # the root subtree from hub_display and ships a
+                # RemoveElement Update to DISP. AGNT is a pure observer
+                # here — it sees the click via the published topic but
+                # plays no role in the removal.
                 if display.dismiss_on_click():
                     root_id = display.root_id()
                     if root_id is not None:
-                        print(f"[hub] dismiss_on_click policy active → removing scene root {root_id!r}", flush=True)
+                        print(f"[hub] dismiss_on_click=True for current scene → removing scene root {root_id!r}", flush=True)
                         remove = RemoveElement(elem_id=root_id)
                         display.accept(remove)
                         wire = update_codec.encode(remove)
@@ -288,8 +289,8 @@ def main() -> None:
             update = AddElement(scene_id=scene_id, parent_id=None, elem=root, dismiss_on_click=dismiss_on_click)
             # 2. accept: commit to hub_display (Hub is now authoritative for this scene)
             display.accept(update)
-            policy = " (dismiss_on_click=ON)" if dismiss_on_click else ""
-            print(f"[hub] accepted scene {scene_id!r} (hub_display is authoritative){policy}", flush=True)
+            extra = " (dismiss_on_click=True)" if dismiss_on_click else ""
+            print(f"[hub] accepted scene {scene_id!r} (hub_display is authoritative){extra}", flush=True)
             # 3. encode + send: ship the AddElement Update to DISP
             wire = update_codec.encode(update)
             sent = with_display(lambda s: s.send_line(wire))

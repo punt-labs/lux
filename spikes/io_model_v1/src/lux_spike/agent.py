@@ -123,7 +123,8 @@ def _cancel_scene() -> dict[str, object]:
 def _dialog_mode(hub_socket: "LineSocket", run_seconds: float) -> None:
     """Send a Yes/No dialog as a modal scene (dismiss_on_click=True). The
     HUB itself dismisses the dialog when any button in it is clicked —
-    that's a scene-level policy, not an AGNT concern.
+    that's a property of the show() the AGNT issued, not something the
+    AGNT does at click time.
 
     AGNT subscribes to the buttons' interaction topics purely as an
     OBSERVER. On btn_yes, AGNT performs its work and independently
@@ -142,8 +143,9 @@ def _dialog_mode(hub_socket: "LineSocket", run_seconds: float) -> None:
 
         if topic == "interaction.btn_yes":
             # AGNT is an observer of the click. HUB has already dismissed
-            # the dialog by the time this notification arrives (see
-            # `dismiss_on_click` policy below). AGNT's role is to decide
+            # the dialog by the time this notification arrives (the AGNT
+            # asked for that behavior by passing dismiss_on_click=True on
+            # the original show() — see below). AGNT's role is to decide
             # what comes next.
             print("[agent] observed btn_yes — performing computation for follow-up scene...", flush=True)
             time.sleep(0.3)  # simulated work — fetch / save / etc.

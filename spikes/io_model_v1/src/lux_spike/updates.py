@@ -18,7 +18,7 @@ class AddElement:
     """Hub → Display: add a new Element under the named parent (or as
     scene root if parent is None).
 
-    `dismiss_on_click` is a scene-level policy (only meaningful when the
+    `dismiss_on_click` is a show()-level option (only meaningful when the
     root is being installed, i.e. parent_id is None). When True, the HUB
     will accept a `RemoveElement` on the scene's root subtree as soon as
     any button inside that scene is clicked — modal-dialog semantics."""
