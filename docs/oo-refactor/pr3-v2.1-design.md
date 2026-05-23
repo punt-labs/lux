@@ -10,23 +10,17 @@
 
 The spike at `spikes/io_model_v1/` is the design. This document maps each spike
 module to its production destination, names the few production-only adaptations
-PR 3 must add (real ImGui, lux socket conventions, the existing 29 MCP tools),
-and sequences the commits.
+PR 3 must add (real ImGui, lux socket conventions, the 29 MCP tools), and
+sequences the commits. Where a spike module already answers a design question,
+this doc cites the spike instead of restating it. The two new surfaces
+production needs — `ImGuiTextRenderer` and integration with `paths.py` /
+`display_client.py` — are specified explicitly. Everything else is "lift".
 
-Where a spike module already answers a design question, this doc cites the
-spike instead of restating the design. The two new surfaces production needs
-that the spike does not address — `ImGuiTextRenderer` and integration with
-`src/punt_lux/paths.py` / `src/punt_lux/display_client.py` — are specified
-explicitly. Everything else is "lift".
-
-Hard constraints (from the mission contract):
-
-1. The 29 MCP tools in `src/punt_lux/tools/tools.py` keep their signatures.
-2. No new wire kinds; no `DrawProgram`; no `HubRenderer`-as-encoder; no
-   applet-routed custom subclass behavior. (See ARCHITECTURE_NOTES.md A2,
-   A3, A5.)
-3. Every production destination respects PY-OO-2 (≤ 300 lines, ≤ 3 classes
-   per module).
+Hard constraints (from the mission contract): (1) the 29 MCP tools in
+`src/punt_lux/tools/tools.py` keep their signatures; (2) no new wire kinds, no
+`DrawProgram`, no `HubRenderer`-as-encoder, no applet-routed custom subclass
+behavior (see ARCHITECTURE_NOTES.md A2, A3, A5); (3) every production
+destination respects PY-OO-2 (≤ 300 lines, ≤ 3 classes per module).
 
 ---
 
@@ -221,13 +215,19 @@ PR 3 introduces an io-model element factory for Text and keeps `_codec`
 for everything else. The shape:
 
 ```python
-# src/punt_lux/protocol/elements/__init__.py — modified in PR 3 commit (vi)
+# src/punt_lux/protocol/elements/__init__.py — modified in PR 3 commit (iii)
 from punt_lux.protocol.element_factory import JsonElementFactory  # io-model path
 
 _ELEMENT_FACTORY = _build_default_element_factory()   # rf=Null, emit=no-op
 
 def element_from_dict(d: dict[str, Any]) -> Element:
-    kind = d.get("kind", "text")
+    # Preserve _codec.from_dict's contract: missing/empty/non-string kind
+    # is a ValueError (no forward-compatible unknown fallback). See
+    # protocol/elements/codec.py:75-94.
+    kind = d.get("kind")
+    if not isinstance(kind, str) or not kind:
+        err = "Element missing or invalid 'kind' field"
+        raise ValueError(err)
     if kind == "text":
         return _ELEMENT_FACTORY.decode(d)            # → io-model TextElement (ABC subclass)
     elem = _codec.from_dict(d)                       # → PR-2 path for 23 other kinds
@@ -261,12 +261,17 @@ the spike's other env vars (`LUX_SPIKE_*`) don't migrate.
 
 ### Tools.py call-site count
 
-`grep -c "element_from_dict" src/punt_lux/tools/tools.py` returns 0 —
-the tools never call it directly. Their `show()` / `update()` calls land
-in `DisplayClient.show()` which builds a `SceneMessage` whose
-serialization runs `element_from_dict` per element. So PR 3 changes
-exactly one file's behavior (`protocol/elements/__init__.py`) and zero
-tool signatures.
+`grep -n "element_from_dict" src/punt_lux/tools/tools.py` returns the
+import (line 16) and one call inside `show()` (line 132):
+`typed_elements = [element_from_dict(e) for e in elements]`. Peer
+tools (`update()`, `show_table()`, `show_dashboard()`) take pre-typed
+`Element` objects or build dicts and round-trip the same way. PR 3
+changes only the *internals* of `element_from_dict`; the input shape
+(`dict[str, Any]`) and return type (`Element` Protocol satisfier) are
+unchanged, so every tool call site keeps compiling. `SceneMessage`
+serialization uses `element_to_dict` (not `element_from_dict`); the
+return trip happens on the receiver. Blast radius for the change is
+bounded by `tests/protocol/test_element_codec.py` plus tool smokes.
 
 ---
 
@@ -308,24 +313,17 @@ class TextElement(Element):
 ### What's deleted from `src/punt_lux/protocol/elements/text.py`
 
 - `@dataclass(frozen=True, slots=True)` — replaced by `__new__`.
-- `kind: Literal["text"] = "text"` as a dataclass field — becomes a
-  `@property` backed by `_kind`.
-- `id: str` / `content: str` / `style: str | None` / `tooltip: str | None`
-  / `color: str | None` dataclass fields — become `_id` / `_content` /
-  `_style` / `_tooltip` / `_color` with `@property` accessors.
-- `def to_dict(self) -> dict[str, Any]` — moves to
-  `JsonTextEncoder.encode(self, elem)` in `text_codec.py`.
-- `@classmethod def from_dict(cls, d) -> Self` — moves to
-  `JsonTextDecoder.decode(self, raw)` in `text_codec.py`.
+- All dataclass fields (`kind`, `id`, `content`, `style`, `tooltip`,
+  `color`) — become `_`-prefixed slots with `@property` accessors.
+- `to_dict` / `from_dict` methods — move to `JsonTextEncoder.encode` /
+  `JsonTextDecoder.decode` in `text_codec.py`.
 
 ### What's added (other than the class itself)
 
 - `src/punt_lux/protocol/elements/text_codec.py`: `JsonTextDecoder` +
   `JsonTextEncoder` lifted from spike `codec.py:25-41` and `:183-185`,
-  adapted to Text's fields. Each codec class follows spike pattern:
-  `__new__` injects `renderer_factory` + `emit` (decoder) or nothing
-  (encoder). `decode(raw) -> TextElement` and `encode(elem) -> dict`
-  return wire dicts.
+  adapted to Text's fields. `__new__` injects `renderer_factory` +
+  `emit` (decoder) or nothing (encoder).
 
 ### Two OO-rule resolutions
 
@@ -342,6 +340,15 @@ class TextElement(Element):
   text). The existing comment `# body|heading|caption|code|success|error`
   becomes the actual Literal. Spike does not have style; this is a
   PR-3-specific cleanup justified by PY-OO rules and a touched file.
+
+  **Paired renderer change (required).** `text_renderer.py:34` reads
+  `if elem.tooltip and not elem.style:` to route unstyled-tooltipped
+  text to `imgui.selectable()` for hover. `style="body"` is truthy, so
+  the branch stops firing — silent regression. Commit (iii) updates
+  the line to `if elem.tooltip and elem.style in (None, "body"):` in
+  the same diff as the Literal flip. New
+  `tests/render/test_text_renderer_tooltip.py` covers the paint
+  behavior (snapshot-parity covers wire bytes only).
 
 ### What remains `str | None`
 
@@ -478,16 +485,11 @@ For the inbound listener (`_listener_loop`, line 309): keep verbatim.
 `InteractionMessage` parsing is unchanged. PR 4 adds Observer push;
 PR 3 has none.
 
-### Why `recv()` stays
+### What stays verbatim
 
-PR 3 doesn't touch Observer subsystem (PR 4). `recv()` is the existing
-polling shim — kept verbatim, deleted in PR 12.
-
-### Why context manager stays
-
-`__enter__`/`__exit__` are unchanged. The `with DisplayClient() as client:
-client.show(...)` idiom in tests and `tools/connection.py` continues to
-work.
+`recv()` (polling shim, deleted in PR 12 when Observer push lands in
+PR 4), `__enter__`/`__exit__`, and the `with DisplayClient() as
+client:` idiom in `tools/connection.py` are unchanged.
 
 ---
 
@@ -539,10 +541,18 @@ the same commit (Bar §10).
 - **Modify:** `src/punt_lux/protocol/elements/__init__.py` — register Text
   through `JsonElementFactory` for inbound; encoder factory for outbound;
   keep `_codec` for the other 23 kinds. Dispatch shape per §3.
+- **Modify:** `src/punt_lux/display/renderers/text_renderer.py:34` —
+  change `if elem.tooltip and not elem.style:` to
+  `if elem.tooltip and elem.style in (None, "body"):` to preserve
+  tooltip-on-unstyled-text hover semantics after `style` flips from
+  `str | None` to `Literal[...] = "body"` (§4).
 - **Tests:** `tests/render/test_text_recording.py` — Text rendered via
   RecordingRenderer asserts `{"op": "render", "kind": "text", "id":
   "t1", "content": "Hello"}`. The xfail from (ii) flips to xpass; remove
   the xfail marker in the same commit.
+  `tests/render/test_text_renderer_tooltip.py` — asserts `style="body"`
+  with `tooltip="hint"` routes through `selectable()` (the hover path),
+  not `text_wrapped()`; covers the renderer change above.
 - **PY-RF-2 consumer:** the test from (ii) is the consumer.
 
 ### (iv) Connection abstraction + in-memory queue backend + integration test
@@ -643,6 +653,7 @@ Test file inventory (all NEW in PR 3 unless noted):
 - `tests/render/test_null_renderer.py`
 - `tests/render/test_recording_renderer.py`
 - `tests/render/test_text_recording.py`
+- `tests/render/test_text_renderer_tooltip.py`
 - `tests/render/test_imgui_text_renderer.py`
 - `tests/domain/test_element_abc.py`
 - `tests/protocol/test_render_protocols.py`
