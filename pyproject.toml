@@ -136,6 +136,11 @@ ignore = [
 "src/punt_lux/hub.py" = ["PLC0415"]
 "src/punt_lux/tools/server.py" = ["PLC0415"]
 "src/punt_lux/tools/__init__.py" = ["PLC0415"]
+# Element classes use `id` as a keyword/field name throughout the protocol —
+# it matches the wire format ({"kind":"text","id":...}), the spike, and 55+
+# existing call sites. Shadowing the builtin is the established convention
+# for this directory; A002 is suppressed for protocol/elements/ only.
+"src/punt_lux/protocol/elements/*.py" = ["A002"]
 "src/punt_lux/service.py" = ["S603", "S607", "PLC0415"]
 "src/punt_lux/_backends.py" = ["S603", "S607", "PLC0415"]
 
