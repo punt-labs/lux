@@ -34,7 +34,7 @@ from lux_spike.connection import LineSocket, connect_unix, spawn_reader
 from lux_spike.elements import ButtonElement, LabelElement, PanelElement
 from lux_spike.renderers.recording import RecordingLog, RecordingRendererFactory
 from lux_spike.renderers.text import TextOutput, TextRendererFactory
-from lux_spike.updates import AddElement, InteractionMessage, SetProperty
+from lux_spike.updates import AddElement, InteractionMessage, RemoveElement, SetProperty
 
 if TYPE_CHECKING:
     from lux_spike.connection import WireDict
@@ -60,7 +60,7 @@ class DisplayDisplay:
         self._root = None
         return self
 
-    def apply(self, update: AddElement | SetProperty) -> None:
+    def apply(self, update: AddElement | SetProperty | RemoveElement) -> None:
         match update:
             case AddElement(elem=elem, parent_id=parent_id):
                 if parent_id is None:
@@ -78,6 +78,10 @@ class DisplayDisplay:
                     return
                 if isinstance(elem, LabelElement) and field == "content":
                     elem._set_content(str(value))
+            case RemoveElement(elem_id=eid):
+                self._remove_subtree(eid)
+                if self._root is not None and isinstance(self._root, LabelElement | ButtonElement | PanelElement) and self._root.id == eid:
+                    self._root = None
 
     def _index(self, elem: "Element") -> None:
         if isinstance(elem, LabelElement | ButtonElement | PanelElement):
@@ -85,6 +89,15 @@ class DisplayDisplay:
         if isinstance(elem, PanelElement):
             for child in elem._children():
                 self._index(child)
+
+    def _remove_subtree(self, elem_id: str) -> None:
+        elem = self._by_id.pop(elem_id, None)
+        if elem is None:
+            return
+        if isinstance(elem, PanelElement):
+            for child in elem._children():
+                if isinstance(child, LabelElement | ButtonElement | PanelElement):
+                    self._remove_subtree(child.id)
 
     @property
     def root(self) -> "Element | None":
@@ -167,13 +180,22 @@ def main() -> None:
             # decode + instantiate: build DISP-tier Element tree (rf=Surface)
             root = element_factory.decode(root_raw)
             # apply: mirror into display_display (Hub remains authoritative)
-            display.apply(AddElement(scene_id=str(payload["scene_id"]), parent_id=None, elem=root))
+            display.apply(AddElement(
+                scene_id=str(payload["scene_id"]),
+                parent_id=None,
+                elem=root,
+                dismiss_on_click=bool(payload.get("dismiss_on_click", False)),
+            ))
             print("[display] decoded + instantiated DISP-tier Element tree; applied AddElement to display_display", flush=True)
         elif kind == "set_property":
             display.apply(
                 SetProperty(elem_id=str(payload["elem_id"]), field=str(payload["field"]), value=payload["value"])
             )
             print(f"[display] applied SetProperty({payload['elem_id']!r}, {payload['field']!r}) to display_display", flush=True)
+        elif kind == "remove_element":
+            elem_id = str(payload["elem_id"])
+            display.apply(RemoveElement(elem_id=elem_id))
+            print(f"[display] applied RemoveElement({elem_id!r}) to display_display — render loop will draw nothing until next scene", flush=True)
         else:
             print(f"[display] unknown HUB message: {kind!r}", file=sys.stderr, flush=True)
 

@@ -121,13 +121,17 @@ def _cancel_scene() -> dict[str, object]:
 
 
 def _dialog_mode(hub_socket: "LineSocket", run_seconds: float) -> None:
-    """Send a Yes/No dialog. React to the user's choice by sending a NEW
-    show() that REPLACES the dialog scene with a result/cancel scene."""
+    """Send a Yes/No dialog as a modal scene (dismiss_on_click=True). The
+    HUB itself dismisses the dialog when any button in it is clicked —
+    that's a scene-level policy, not an AGNT concern.
 
-    # The agent's handler reacts to `interaction.btn_yes` / `interaction.btn_no`
-    # pushes by composing and sending a new scene back to the Hub. This is the
-    # canonical "agent observes a click, performs a computation, ships a new
-    # scene" loop.
+    AGNT subscribes to the buttons' interaction topics purely as an
+    OBSERVER. On btn_yes, AGNT performs its work and independently
+    composes a result scene to send to the HUB. AGNT never tells the
+    HUB to dismiss anything; the dismissal already happened as part of
+    HUB's click handling. AGNT's new show() arrives at a (briefly)
+    empty display_display and installs the result scene fresh."""
+
     def handle(payload: "WireDict") -> None:
         if payload.get("kind") != "observed":
             print(f"[agent] unknown HUB message: {payload!r}", file=sys.stderr, flush=True)
@@ -137,16 +141,20 @@ def _dialog_mode(hub_socket: "LineSocket", run_seconds: float) -> None:
         print(f"[agent] notified — topic={topic!r} payload={inner!r}", flush=True)
 
         if topic == "interaction.btn_yes":
-            print("[agent] reacting to btn_yes: performing computation...", flush=True)
-            time.sleep(0.3)  # simulate "doing something" — fetch / save / etc.
+            # AGNT is an observer of the click. HUB has already dismissed
+            # the dialog by the time this notification arrives (see
+            # `dismiss_on_click` policy below). AGNT's role is to decide
+            # what comes next.
+            print("[agent] observed btn_yes — performing computation for follow-up scene...", flush=True)
+            time.sleep(0.3)  # simulated work — fetch / save / etc.
             result_text = f"Result: 42 (computed at t={time.strftime('%H:%M:%S')})"
-            print("[agent] sending NEW scene to REPLACE the dialog", flush=True)
+            print("[agent] composing new scene (the dialog is already gone — HUB dismissed it)", flush=True)
             hub_socket.send_line(
                 {"kind": "show", "scene_id": _RESULT_SCENE_ID, "root": _result_scene(result_text=result_text)}
             )
             print(f"[agent] sent show({_RESULT_SCENE_ID!r}) to HUB", flush=True)
         elif topic == "interaction.btn_no":
-            print("[agent] reacting to btn_no: sending cancellation scene", flush=True)
+            print("[agent] observed btn_no — composing cancellation scene", flush=True)
             hub_socket.send_line(
                 {"kind": "show", "scene_id": _CANCEL_SCENE_ID, "root": _cancel_scene()}
             )
@@ -163,9 +171,15 @@ def _dialog_mode(hub_socket: "LineSocket", run_seconds: float) -> None:
     hub_socket.send_line({"kind": "subscribe", "topic": "interaction.btn_no"})
     print("[agent] subscribed to 'interaction.btn_no'", flush=True)
 
-    # Initial scene — the Yes/No dialog.
-    hub_socket.send_line({"kind": "show", "scene_id": _DIALOG_SCENE_ID, "root": _dialog_scene()})
-    print(f"[agent] sent show({_DIALOG_SCENE_ID!r}) to HUB", flush=True)
+    # Initial scene — the Yes/No dialog, marked dismiss_on_click=True so the
+    # HUB removes it as part of click handling (modal-dialog semantics).
+    hub_socket.send_line({
+        "kind": "show",
+        "scene_id": _DIALOG_SCENE_ID,
+        "root": _dialog_scene(),
+        "dismiss_on_click": True,
+    })
+    print(f"[agent] sent show({_DIALOG_SCENE_ID!r}) to HUB with dismiss_on_click=True", flush=True)
 
     _idle_until(run_seconds)
 

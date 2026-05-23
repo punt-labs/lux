@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from lux_spike.elements import ButtonElement, LabelElement, PanelElement
-from lux_spike.updates import AddElement, ButtonClicked, InteractionMessage, SetProperty
+from lux_spike.updates import AddElement, ButtonClicked, InteractionMessage, RemoveElement, SetProperty
 
 if TYPE_CHECKING:
     from lux_spike.element import Element
@@ -183,14 +183,15 @@ class UpdateCodec:
         self._dec = decoder
         return self
 
-    def encode(self, update: AddElement | SetProperty) -> dict[str, object]:
+    def encode(self, update: AddElement | SetProperty | RemoveElement) -> dict[str, object]:
         match update:
-            case AddElement(scene_id=sid, parent_id=pid, elem=elem):
+            case AddElement(scene_id=sid, parent_id=pid, elem=elem, dismiss_on_click=dismiss):
                 return {
                     "kind": "add_element",
                     "scene_id": sid,
                     "parent_id": pid,
                     "elem": self._enc.encode(elem),
+                    "dismiss_on_click": dismiss,
                 }
             case SetProperty(elem_id=eid, field=field, value=value):
                 return {
@@ -199,8 +200,13 @@ class UpdateCodec:
                     "field": field,
                     "value": value,
                 }
+            case RemoveElement(elem_id=eid):
+                return {
+                    "kind": "remove_element",
+                    "elem_id": eid,
+                }
 
-    def decode(self, raw: dict[str, object]) -> AddElement | SetProperty:
+    def decode(self, raw: dict[str, object]) -> AddElement | SetProperty | RemoveElement:
         kind = raw.get("kind")
         match kind:
             case "add_element":
@@ -208,6 +214,7 @@ class UpdateCodec:
                     scene_id=str(raw["scene_id"]),
                     parent_id=raw["parent_id"] if raw["parent_id"] is None else str(raw["parent_id"]),
                     elem=self._dec.decode(raw["elem"]),  # type: ignore[arg-type]
+                    dismiss_on_click=bool(raw.get("dismiss_on_click", False)),
                 )
             case "set_property":
                 return SetProperty(
@@ -215,6 +222,8 @@ class UpdateCodec:
                     field=str(raw["field"]),
                     value=raw["value"],
                 )
+            case "remove_element":
+                return RemoveElement(elem_id=str(raw["elem_id"]))
             case _:
                 raise ValueError(f"unknown update kind: {kind!r}")
 

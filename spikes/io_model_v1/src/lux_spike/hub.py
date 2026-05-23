@@ -39,7 +39,7 @@ from lux_spike.codec import (
 from lux_spike.connection import LineSocket, listen_unix, spawn_reader
 from lux_spike.elements import ButtonElement, LabelElement, PanelElement
 from lux_spike.renderers.null import NullRendererFactory
-from lux_spike.updates import AddElement, ButtonClicked, SetProperty
+from lux_spike.updates import AddElement, ButtonClicked, RemoveElement, SetProperty
 
 if TYPE_CHECKING:
     from lux_spike.connection import WireDict
@@ -57,22 +57,25 @@ class HubDisplay:
 
     _by_id: dict[str, "Element"]
     _root_id: str | None
+    _dismiss_on_click: bool  # scene-level policy carried by the current root
 
     def __new__(cls) -> "HubDisplay":
         self = object.__new__(cls)
         self._by_id = {}
         self._root_id = None
+        self._dismiss_on_click = False
         return self
 
-    def accept(self, update: AddElement | SetProperty) -> None:
+    def accept(self, update: AddElement | SetProperty | RemoveElement) -> None:
         match update:
-            case AddElement(elem=elem, parent_id=parent_id):
+            case AddElement(elem=elem, parent_id=parent_id, dismiss_on_click=dismiss):
                 if parent_id is None:
                     # Whole-scene replacement: drop the old root's subtree
                     # from the index before installing the new tree.
                     self._clear()
                     self._index(elem)
                     self._root_id = _get_id(elem)
+                    self._dismiss_on_click = dismiss
                 else:
                     # Append-under-parent (not exercised in current scenarios).
                     self._index(elem)
@@ -83,10 +86,16 @@ class HubDisplay:
                 # Spike-scope: only `content` on LabelElement is mutated.
                 if isinstance(elem, LabelElement) and field == "content":
                     elem._set_content(str(value))
+            case RemoveElement(elem_id=eid):
+                self._remove_subtree(eid)
+                if self._root_id == eid:
+                    self._root_id = None
+                    self._dismiss_on_click = False
 
     def _clear(self) -> None:
         self._by_id.clear()
         self._root_id = None
+        self._dismiss_on_click = False
 
     def _index(self, elem: "Element") -> None:
         self._by_id[_get_id(elem)] = elem
@@ -94,15 +103,29 @@ class HubDisplay:
             for child in elem._children():
                 self._index(child)
 
+    def _remove_subtree(self, elem_id: str) -> None:
+        elem = self._by_id.pop(elem_id, None)
+        if elem is None:
+            return
+        if isinstance(elem, PanelElement):
+            for child in elem._children():
+                self._remove_subtree(_get_id(child))
+
     def resolve(self, elem_id: str) -> "Element | None":
         """Find an Element on hub_display by id. Used to route an inbound
         InteractionMessage to the right Element's behavior method."""
         return self._by_id.get(elem_id)
 
+    def root_id(self) -> str | None:
+        return self._root_id
+
     def root(self) -> "Element | None":
         if self._root_id is None:
             return None
         return self._by_id.get(self._root_id)
+
+    def dismiss_on_click(self) -> bool:
+        return self._dismiss_on_click
 
     def all_label_ids(self) -> list[str]:
         return [eid for eid, elem in self._by_id.items() if isinstance(elem, LabelElement)]
@@ -212,6 +235,23 @@ def main() -> None:
             if isinstance(elem, ButtonElement) and msg.action == "click":
                 print(f"[hub] invoked {type(elem).__name__}.on_click()", flush=True)
                 elem.on_click()  # emits ButtonClicked → hub_emit → published as 'interaction.<id>'
+
+                # Scene-level dismiss-on-click policy: if the current scene was
+                # accepted with dismiss_on_click=True, the click is treated as
+                # a request to dismiss the scene. HUB removes the root subtree
+                # from hub_display and ships a RemoveElement Update to DISP.
+                # AGNT is a pure observer here — it sees the click via the
+                # published topic but plays no role in the removal.
+                if display.dismiss_on_click():
+                    root_id = display.root_id()
+                    if root_id is not None:
+                        print(f"[hub] dismiss_on_click policy active → removing scene root {root_id!r}", flush=True)
+                        remove = RemoveElement(elem_id=root_id)
+                        display.accept(remove)
+                        wire = update_codec.encode(remove)
+                        sent = with_display(lambda s: s.send_line(wire))
+                        if sent:
+                            print(f"[hub] sent RemoveElement Update to DISP (elem_id={root_id!r})", flush=True)
         else:
             print(f"[hub] unknown DISP message: {kind!r}", file=sys.stderr, flush=True)
 
@@ -224,23 +264,32 @@ def main() -> None:
         elif kind == "synthesize_interaction":
             # Test-only path: equivalent to receiving an InteractionMessage from
             # the Display, but injected via the agent socket so a test can drive
-            # R3 without poking the Display process's stdin. Runs the same
+            # R3/R4 without poking the Display process's stdin. Runs the same
             # Hub-side code path that handle_display_message does for "interaction".
             elem_id = str(payload["elem_id"])
             action = str(payload["action"])
             elem = display.resolve(elem_id)
             if isinstance(elem, ButtonElement) and action == "click":
                 elem.on_click()
+                if display.dismiss_on_click():
+                    root_id = display.root_id()
+                    if root_id is not None:
+                        remove = RemoveElement(elem_id=root_id)
+                        display.accept(remove)
+                        wire = update_codec.encode(remove)
+                        with_display(lambda s: s.send_line(wire))
         elif kind == "show":
             scene_id = str(payload["scene_id"])
             root_raw = payload["root"]
             assert isinstance(root_raw, dict)
+            dismiss_on_click = bool(payload.get("dismiss_on_click", False))
             # 1. decode: parse wire dict, instantiate Hub-tier Element tree (rf=Null)
             root = element_factory.decode(root_raw)
-            update = AddElement(scene_id=scene_id, parent_id=None, elem=root)
+            update = AddElement(scene_id=scene_id, parent_id=None, elem=root, dismiss_on_click=dismiss_on_click)
             # 2. accept: commit to hub_display (Hub is now authoritative for this scene)
             display.accept(update)
-            print(f"[hub] accepted scene {scene_id!r} (hub_display is authoritative)", flush=True)
+            policy = " (dismiss_on_click=ON)" if dismiss_on_click else ""
+            print(f"[hub] accepted scene {scene_id!r} (hub_display is authoritative){policy}", flush=True)
             # 3. encode + send: ship the AddElement Update to DISP
             wire = update_codec.encode(update)
             sent = with_display(lambda s: s.send_line(wire))

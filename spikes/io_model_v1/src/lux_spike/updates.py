@@ -16,11 +16,17 @@ if TYPE_CHECKING:
 @dataclass(frozen=True, slots=True)
 class AddElement:
     """Hub → Display: add a new Element under the named parent (or as
-    scene root if parent is None)."""
+    scene root if parent is None).
+
+    `dismiss_on_click` is a scene-level policy (only meaningful when the
+    root is being installed, i.e. parent_id is None). When True, the HUB
+    will accept a `RemoveElement` on the scene's root subtree as soon as
+    any button inside that scene is clicked — modal-dialog semantics."""
 
     scene_id: str
     parent_id: str | None
     elem: Element
+    dismiss_on_click: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -32,8 +38,18 @@ class SetProperty:
     value: object
 
 
+@dataclass(frozen=True, slots=True)
+class RemoveElement:
+    """Hub → Display: remove an Element (and its subtree) from the tier's
+    local tree. If the removed Element is the scene root, the tier is
+    left with no root and its render loop draws nothing until a new
+    scene is accepted."""
+
+    elem_id: str
+
+
 # Update sum
-type Update = AddElement | SetProperty
+type Update = AddElement | SetProperty | RemoveElement
 
 
 @dataclass(frozen=True, slots=True)

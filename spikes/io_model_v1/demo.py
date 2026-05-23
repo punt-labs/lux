@@ -346,27 +346,37 @@ def run_r3(surface: str) -> bool:
 
 
 def run_r4(surface: str) -> bool:
-    """ROUNDTRIP 4 — interactive dialog. The AGNT shows a Yes/No dialog,
-    the USER clicks Yes, the AGNT reacts by performing a small computation
-    and shipping a NEW scene that REPLACES the dialog.
+    """ROUNDTRIP 4 — interactive dialog with separation of concerns.
 
-    Demonstrates the full agent-in-the-loop interaction cycle: every tier
-    participates twice, once for the initial dialog and once for the
-    follow-up scene the agent generates in response to the click."""
+    Two distinct things happen on a button click:
+
+      A) HUB dismisses the dialog. The dialog scene was accepted with
+         `dismiss_on_click=True` (modal-dialog policy). When the click
+         resolves, HUB removes the scene root from hub_display and
+         ships a RemoveElement Update to DISP. AGNT plays NO role in
+         this — AGNT is a pure observer of the click.
+
+      B) AGNT observes the click and decides what to show next. It
+         performs its work and sends a new `show()` for the result
+         scene. This is independent of (A) — AGNT only learns about
+         the click through the observer push; the dialog is already
+         gone by the time AGNT's handler runs."""
     reset_observed()
-    section("ROUNDTRIP 4 — interactive dialog: user clicks Yes → agent ships new scene")
-    step("intent", "AGNT shows a Yes/No dialog; USER clicks Yes; AGNT reacts by sending a NEW")
-    step("intent", "scene that REPLACES the dialog (HUB accepts the replacement on hub_display,")
-    step("intent", "ships AddElement to DISP, DISP drops the old scene's indices and renders the new tree).")
+    section("ROUNDTRIP 4 — interactive dialog: HUB dismisses + AGNT supplies follow-up")
+    step("intent", "AGNT shows a modal Yes/No dialog (dismiss_on_click=True).")
+    step("intent", "USER clicks Yes →")
+    step("intent", "  (A) HUB dismisses the dialog as part of click handling (state mutation)")
+    step("intent", "  (B) AGNT observes the click → performs work → ships a new follow-up scene")
+    step("intent", "AGNT is a pure observer of the click; HUB owns the dismiss.")
 
     with trio(surface=surface, agent_mode="dialog", timer_disabled=True) as t:
         ok = True
 
         # ───── setup: dialog scene live ─────
         ok &= require("HUB",  "AGNT connected",                              timeout=5.0); step("1", "processes started; AGNT (dialog mode) connected to HUB")
-        ok &= require("HUB",  "AGNT subscribed to 'interaction.btn_yes'",    timeout=3.0); step("2", "AGNT subscribed to 'interaction.btn_yes' (and btn_no, scene.accepted)")
-        ok &= require("AGNT", "sent show('dialog') to HUB",                  timeout=3.0); step("3", "AGNT sent dialog scene")
-        ok &= require("HUB",  "accepted scene 'dialog'",                     timeout=3.0); step("4", "HUB accepted dialog scene on hub_display")
+        ok &= require("HUB",  "AGNT subscribed to 'interaction.btn_yes'",    timeout=3.0); step("2", "AGNT subscribed to 'interaction.btn_yes' (purely as observer)")
+        ok &= require("AGNT", "sent show('dialog') to HUB with dismiss_on_click=True", timeout=3.0); step("3", "AGNT sent dialog scene with modal policy")
+        ok &= require("HUB",  "accepted scene 'dialog' (hub_display is authoritative) (dismiss_on_click=ON)", timeout=3.0); step("4", "HUB accepted dialog on hub_display (modal policy recorded)")
         ok &= require("DISP", "decoded + instantiated DISP-tier Element tree", timeout=3.0); step("5", "DISP applied AddElement to display_display")
         ok &= require("DISP", "Label[dlg_q]",                                timeout=3.0); step("6", "DISP rendered Label (Save your work?)")
         ok &= require("DISP", "Button[btn_yes]",                             timeout=3.0); step("7", "DISP rendered Button (Yes)")
@@ -380,27 +390,30 @@ def run_r4(surface: str) -> bool:
         step("10", "USER clicks the Yes button (simulated keystroke to DISP stdin)")
         simulate_user_click(t.display, "btn_yes")
 
-        # ───── click roundtrip up to AGNT ─────
+        # ───── click reaches HUB, behavior runs ─────
         ok &= require("DISP", "detected click(btn_yes)",                     timeout=2.0); step("11", "DISP detected the click")
         ok &= require("HUB",  "received InteractionMessage from DISP",       timeout=2.0); step("12", "HUB received the InteractionMessage")
         ok &= require("HUB",  "resolved ButtonElement",                      timeout=2.0); step("13", "HUB resolved ButtonElement[btn_yes] on hub_display")
         ok &= require("HUB",  "invoked ButtonElement.on_click()",            timeout=2.0); step("14", "HUB invoked behavior method (emitted ButtonClicked)")
-        ok &= require("HUB",  "published 'interaction.btn_yes'",             timeout=2.0); step("15", "HUB published 'interaction.btn_yes'")
-        ok &= require("AGNT", "notified — topic='interaction.btn_yes'",      timeout=2.0); step("16", "AGNT notified — the click handler runs")
+        ok &= require("HUB",  "published 'interaction.btn_yes'",             timeout=2.0); step("15", "HUB published 'interaction.btn_yes' (notifies observers)")
 
-        # ───── agent reacts and sends a NEW scene ─────
-        ok &= require("AGNT", "reacting to btn_yes: performing computation", timeout=2.0); step("17", "AGNT performs its work (simulated computation, ~0.3s)")
-        ok &= require("AGNT", "sending NEW scene to REPLACE the dialog",     timeout=3.0); step("18", "AGNT composes and sends the result scene")
-        ok &= require("AGNT", "sent show('result') to HUB",                  timeout=2.0); step("19", "AGNT sent show('result') — this scene REPLACES the dialog")
-        ok &= require("HUB",  "accepted scene 'result'",                     timeout=3.0); step("20", "HUB accepted result scene (replaces dialog on hub_display; old indices pruned)")
-        ok &= require("HUB",  "sent AddElement Update to DISP",              timeout=3.0); step("21", "HUB encoded + sent AddElement Update to DISP")
+        # ───── (A) HUB dismisses the dialog — agent plays no role here ─────
+        ok &= require("HUB",  "dismiss_on_click policy active",              timeout=2.0); step("16", "HUB sees dismiss_on_click policy → dismissing dialog")
+        ok &= require("HUB",  "sent RemoveElement Update to DISP",           timeout=2.0); step("17", "HUB accepted RemoveElement(dlg) on hub_display + sent to DISP")
+        ok &= require("DISP", "applied RemoveElement('dlg')",                timeout=3.0); step("18", "DISP applied RemoveElement — display_display empty, render loop draws nothing")
 
-        # ───── DISP renders the NEW scene ─────
-        ok &= require("DISP", "Label[result_status]",                        timeout=5.0); step("22", "DISP rendered Label (Saved.) — old Label[dlg_q] is gone")
-        ok &= require("DISP", "Label[result_body]",                          timeout=3.0); step("23", "DISP rendered Label (Result: 42 …)")
-        ok &= require("AGNT", "notified — topic='scene.accepted'",           timeout=3.0); step("24", "AGNT notified — Hub confirms the new scene was accepted")
+        # ───── (B) AGNT — purely observing — composes the follow-up ─────
+        ok &= require("AGNT", "notified — topic='interaction.btn_yes'",      timeout=3.0); step("19", "AGNT notified (observer) — click handler runs")
+        ok &= require("AGNT", "observed btn_yes — performing computation",   timeout=2.0); step("20", "AGNT performs its work (simulated, ~0.3s)")
+        ok &= require("AGNT", "composing new scene",                         timeout=3.0); step("21", "AGNT composes follow-up scene (dialog already gone)")
+        ok &= require("AGNT", "sent show('result') to HUB",                  timeout=2.0); step("22", "AGNT sent show('result') to HUB")
+        ok &= require("HUB",  "accepted scene 'result'",                     timeout=3.0); step("23", "HUB accepted result scene on hub_display")
+        ok &= require("HUB",  "sent AddElement Update to DISP",              timeout=3.0); step("24", "HUB sent AddElement Update to DISP")
+        ok &= require("DISP", "Label[result_status]",                        timeout=5.0); step("25", "DISP rendered Label (Saved.)")
+        ok &= require("DISP", "Label[result_body]",                          timeout=3.0); step("26", "DISP rendered Label (Result: 42 …)")
+        ok &= require("AGNT", "notified — topic='scene.accepted'",           timeout=3.0); step("27", "AGNT notified — HUB confirms the result scene was accepted")
 
-        out("DEMO", "✓ R4 PASSED — full interactive loop: dialog → click → agent reacts → new scene replaces old" if ok else "✗ R4 FAILED")
+        out("DEMO", "✓ R4 PASSED — HUB dismissed dialog + AGNT (observer) supplied follow-up" if ok else "✗ R4 FAILED")
         return ok
 
 
