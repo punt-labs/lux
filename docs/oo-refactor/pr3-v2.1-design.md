@@ -26,11 +26,10 @@ destination respects PY-OO-2 (≤ 300 lines, ≤ 3 classes per module).
 
 ## Section 1 — Module layout map
 
-Every spike module gets a production destination. The split rule is PY-OO-2:
-a spike file that holds more than 3 classes splits along its existing class
-groupings. The four kinds in the spike (Label, Button, Panel, Dialog) become
-one kind in PR 3 (Text); the per-kind split footprint is therefore smaller
-for PR 3 than the spike, and grows in later PRs.
+Every spike module gets a production destination. Split rule: PY-OO-2
+(spike files holding > 3 classes split along their class groupings).
+PR 3 migrates only Text (1 of 4 spike kinds); per-kind split footprint
+is smaller for PR 3 and grows in PRs 4-11.
 
 | # | Spike module | Production destination | Adaptation |
 |---|---|---|---|
@@ -47,22 +46,17 @@ for PR 3 than the spike, and grows in later PRs.
 | 11 | `src/lux_spike/agent.py` (basic + dialog modes) | NOT MIGRATED in PR 3 | The agent is the MCP tool surface. The 29 production MCP tools in `tools/tools.py` ARE the agent — they call into `DisplayClient`. No spike-agent file moves; instead §3 maps tool-call paths onto the new Hub API. |
 | 12 | `src/lux_spike/updates.py` (AddElement, SetProperty, RemoveElement, ButtonClicked, PropertyChanged, InteractionMessage) | `src/punt_lux/protocol/updates.py` (NEW — AddElement only in PR 3) | SetProperty lands in PR 5 with the in-fabric applet; RemoveElement + ButtonClicked + InteractionMessage land in PR 4 with Button + Dialog. PropertyChanged is deferred until a consumer exists (PR 5 candidate). |
 
-**Module-size check:** every new file above is < 300 LoC and < 4 classes
-(usually 1 class per file). The spike's largest module is `hub.py` (358
-LoC, 3 classes — already at PY-OO-2 ceiling); production splits it into
-`hub/hub_display.py` and `hub/main.py`. The spike's `codec.py` (314 LoC,
-9 classes — over ceiling for the spike's own purposes) splits into 4
-production files (#4 row above), each well under the threshold.
+**Module-size check:** every new file is < 300 LoC, ≤ 3 classes (usually
+1). Spike's `hub.py` (358 LoC, 3 classes) and `codec.py` (314 LoC, 9
+classes — over ceiling) each split into their per-row destinations.
 
-**WidgetValueProvider deletion** (PR 3 acceptance criterion): delete
-`src/punt_lux/scene/widget_value_provider.py` and its sole call site in
-`src/punt_lux/scene/manager.py` (lines 21, 76). The Protocol was a bridge
-for the PR-2 layer where wire elements owned no behavior. Under the
-io-model, elements own their own state via `_set_content` and equivalent
-mutators; the SceneManager dispatch through `WidgetValueProvider` becomes
-direct method calls on the element. Sole consumer goes away with this
-PR's Text migration; the Protocol has no other callers (grep verified —
-section 8).
+**WidgetValueProvider deletion** (PR 3 acceptance): delete
+`src/punt_lux/scene/widget_value_provider.py` + remove its sole call
+site in `scene/manager.py` (lines 21, 76). The Protocol bridged
+PR-2's behaviorless wire elements; under the io-model, elements own
+state via `_set_content` and the SceneManager dispatch becomes direct
+method calls. Sole consumer goes away with this PR's Text migration;
+grep verifies no others (§8).
 
 ---
 
@@ -171,14 +165,11 @@ extra. PR 3 lands two test scaffolds against it:
 
 ### What does NOT change in PR 3
 
-- `display/server.py` (1,459 LoC) — the existing render loop and frame
-  scheduler stay put. Only the per-element dispatch for Text gets a
-  conditional that routes through the new ImGuiTextRenderer instead of
-  the PR-2 path. (See §3 dispatch-shape table.) Decomposition of
-  `server.py` is its own debt and not in PR 3 scope.
-- `display/element_renderer.py` (1,113 LoC) — the PR-2 god-class
-  dispatcher continues to handle the 23 non-Text kinds. Deletion is
-  staged per family across PRs 4–11 and finalized in PR 12.
+`display/server.py` (1,459 LoC) keeps its render loop; only the
+per-element Text dispatch gets a conditional routing through
+`ImGuiTextRenderer` (§3). `display/element_renderer.py` (1,113 LoC)
+continues handling the 23 non-Text kinds. Decomposition of both is
+deferred per family across PRs 4-11 + PR 12.
 
 ---
 
@@ -291,16 +282,23 @@ dataclass + `to_dict`/`from_dict` is DELETED in the same commit; the
 codec moves to `text_codec.py` (Section 1, row #4).
 
 ```python
+# Module-level sentinels — same null objects the spike's Hub tier uses.
+_NULL_FACTORY: RendererFactory = NullRendererFactory()
+def _no_emit(_msg: object) -> None: pass
+
 class TextElement(Element):
     _id: str
     _content: str
-    _style: Literal["body","heading","caption","code","success","error"]
+    _style: str | None       # PY-TS-14 OK: see D3 (snapshot parity requires permissive)
     _tooltip: str | None     # PY-TS-14 OK: absence is the contract
     _color: str              # PY-TS-14 fix: "" = renderer default
     _kind: Literal["text"]
 
-    def __new__(cls, *, renderer_factory, emit, id, content,
-                style="body", tooltip=None, color="") -> Self:
+    def __new__(cls, *,
+                renderer_factory: RendererFactory = _NULL_FACTORY,
+                emit: Emit = _no_emit,
+                id, content,
+                style=None, tooltip=None, color="") -> Self:
         self = super().__new__(cls, renderer_factory=renderer_factory, emit=emit)
         self._id, self._content, self._style = id, content, style
         self._tooltip, self._color, self._kind = tooltip, color, "text"
@@ -309,6 +307,17 @@ class TextElement(Element):
     # @property accessors for id, kind, content, style, tooltip, color
     # _set_content(value) for DisplayDisplay.apply(SetProperty) in PR 5
 ```
+
+**D1 transitional resolution — sentinel defaults on `renderer_factory`
+and `emit`.** Spike `LabelElement` requires both as kwargs (no defaults,
+`elements.py:28-58`). Production has 100+ existing call sites that pass
+neither, so the verbatim spike signature would break the test suite. The
+defaults preserve the keyword-only-injected shape — factory and emit are
+still injected through `__new__`, not constructed inside the class — and
+the decode path through `JsonElementFactory` always passes real values
+(runtime semantics on the wire path unchanged). Required-kwarg
+discipline tightens back in PR 12's sweep after PRs 4-11 migrate each
+family and update call sites.
 
 ### What's deleted from `src/punt_lux/protocol/elements/text.py`
 
@@ -325,30 +334,29 @@ class TextElement(Element):
   adapted to Text's fields. `__new__` injects `renderer_factory` +
   `emit` (decoder) or nothing (encoder).
 
-### Two OO-rule resolutions
+### One OO-rule resolution + one deferred
 
-- **PY-TS-14 — `color: str | None`**: the spike's elements have no
-  `color`. Production Text does. The PR-2 file used `color: str | None
-  = None  # PY-TS-14: None = renderer default` — but the comment says
-  the type system gave up. PR 3 flips to `color: str = ""` (empty
-  string is the discriminated "no override" state). The renderer
+- **PY-TS-14 — `color: str | None` → `color: str = ""`** (D4 — land
+  as-is). The spike's elements have no `color`. Production Text does.
+  The PR-2 file used `color: str | None = None  # PY-TS-14: None =
+  renderer default` — the comment said the type system gave up. PR 3
+  flips to `color: str = ""` (empty string is the discriminated "no
+  override" state). The renderer
   `parse_hex_color(elem.color) if elem.color else None` already treats
   empty/None equivalently; the change is a refinement of the model,
   not a behavior change. Snapshot parity (acceptance) verifies bytes.
-- **PY-TS-14 — `style: str | None`**: same flip. `style: Literal[...]`
-  with default `"body"` (the renderer's implicit default for unstyled
-  text). The existing comment `# body|heading|caption|code|success|error`
-  becomes the actual Literal. Spike does not have style; this is a
-  PR-3-specific cleanup justified by PY-OO rules and a touched file.
-
-  **Paired renderer change (required).** `text_renderer.py:34` reads
-  `if elem.tooltip and not elem.style:` to route unstyled-tooltipped
-  text to `imgui.selectable()` for hover. `style="body"` is truthy, so
-  the branch stops firing — silent regression. Commit (iii) updates
-  the line to `if elem.tooltip and elem.style in (None, "body"):` in
-  the same diff as the Literal flip. New
-  `tests/render/test_text_renderer_tooltip.py` covers the paint
-  behavior (snapshot-parity covers wire bytes only).
+- **PY-TS-14 — `style: str | None`** (D3 — DEFERRED). Earlier drafts
+  flipped `style` to `Literal["body","heading","caption","code","success","error"]`.
+  Implementation surfaced that
+  `tests/domain/test_basics_migration.py::test_text_element_from_dict_accepts_arbitrary_style_string`
+  asserts arbitrary style strings are accepted for snapshot parity:
+  captured scenes with `{"style": "fancy"}` must replay byte-equivalent.
+  Tightening at the wire would either reject the value (breaking
+  replay) or coerce it (breaking byte parity). The Literal flip is a
+  schema tightening that needs a coordinated rollout PR with an
+  agent-traffic audit; in PR 3 the field stays `str | None = None`
+  and `text_renderer.py:34`'s existing
+  `if elem.tooltip and not elem.style:` works unchanged.
 
 ### What remains `str | None`
 
@@ -537,23 +545,23 @@ the same commit (Bar §10).
   per §2), `src/punt_lux/display/renderers/imgui/text.py` (ImGuiTextRenderer
   per §2), `src/punt_lux/display/renderers/imgui/__init__.py`.
 - **Modify:** `src/punt_lux/protocol/elements/text.py` — REWRITE per §4
-  (delete dataclass, add ABC subclass).
+  (delete dataclass, add ABC subclass with sentinel defaults for
+  `renderer_factory` / `emit` per D1).
 - **Modify:** `src/punt_lux/protocol/elements/__init__.py` — register Text
   through `JsonElementFactory` for inbound; encoder factory for outbound;
   keep `_codec` for the other 23 kinds. Dispatch shape per §3.
-- **Modify:** `src/punt_lux/display/renderers/text_renderer.py:34` —
-  change `if elem.tooltip and not elem.style:` to
-  `if elem.tooltip and elem.style in (None, "body"):` to preserve
-  tooltip-on-unstyled-text hover semantics after `style` flips from
-  `str | None` to `Literal[...] = "body"` (§4).
+- **Modify (D2):** `src/punt_lux/protocol/elements/basics.py:39` drops
+  the "text" entry from legacy codec registration (Text routes through
+  `JsonElementFactory` now); `tests/domain/test_basics_migration.py:312,319`
+  rewrites the two `TextElement.from_dict` calls against
+  `JsonTextDecoder(...).decode(...)` — equivalent boundary assertions.
 - **Tests:** `tests/render/test_text_recording.py` — Text rendered via
   RecordingRenderer asserts `{"op": "render", "kind": "text", "id":
   "t1", "content": "Hello"}`. The xfail from (ii) flips to xpass; remove
   the xfail marker in the same commit.
-  `tests/render/test_text_renderer_tooltip.py` — asserts `style="body"`
-  with `tooltip="hint"` routes through `selectable()` (the hover path),
-  not `text_wrapped()`; covers the renderer change above.
 - **PY-RF-2 consumer:** the test from (ii) is the consumer.
+- **No renderer change (D3):** `style` stays `str | None`, so
+  `text_renderer.py:34` works unchanged; no tooltip-paint test needed.
 
 ### (iv) Connection abstraction + in-memory queue backend + integration test
 
@@ -653,7 +661,6 @@ Test file inventory (all NEW in PR 3 unless noted):
 - `tests/render/test_null_renderer.py`
 - `tests/render/test_recording_renderer.py`
 - `tests/render/test_text_recording.py`
-- `tests/render/test_text_renderer_tooltip.py`
 - `tests/render/test_imgui_text_renderer.py`
 - `tests/domain/test_element_abc.py`
 - `tests/protocol/test_render_protocols.py`
@@ -674,25 +681,18 @@ pattern.
 
 ## Section 9 — Open questions
 
-1. **`LUX_DISPLAY_IN_PROCESS` default behavior.** Migration-plan.md PR 3
-   row 200 (d) says "in-memory queue backend (default
-   `LUX_DISPLAY_IN_PROCESS=1`)". Read literally, this means the
-   production default switches to in-process — which would break every
-   live agent that expects a subprocess display. §5 of this design
-   reads the plan as "in-process is the test default; subprocess is
-   the production default", which preserves existing behavior. The
-   spike does not answer this because it has no production-default
-   constraint. **Recommend gvr confirm:** PR 3 implements
-   `LUX_DISPLAY_IN_PROCESS=1` as opt-in (subprocess remains the
-   default). If the plan literally meant the opposite, this design
-   needs amendment.
+1. **`LUX_DISPLAY_IN_PROCESS` default.** Migration-plan.md PR 3 row
+   200 (d) says "default `LUX_DISPLAY_IN_PROCESS=1`" which read
+   literally flips the production default to in-process and breaks
+   live agents. §5 reads it as "in-process is the test default;
+   subprocess stays the production default", preserving behavior.
+   **Recommend gvr confirm** as opt-in; amend if plan literally meant
+   the opposite.
 
-2. **Existing `src/punt_lux/hub.py` (luxd WebSocket hub) vs new
-   `src/punt_lux/hub/` package.** §1 row 9 proposes a new `hub/`
-   package for the io-model Hub process, alongside the existing
-   `hub.py` luxd file. The two have different responsibilities (luxd
-   is the MCP gateway; io-model Hub is the state-owner process). The
-   spike is greenfield so doesn't address this co-existence. **Recommend
-   gvr confirm:** is `src/punt_lux/hub/` (new package) acceptable as
-   the io-model Hub home alongside the existing `hub.py`, or should
-   the new package take a different name to avoid confusion?
+2. **`src/punt_lux/hub.py` (luxd WebSocket hub) vs new `hub/`
+   package.** §1 row 9 proposes a new `hub/` package for the io-model
+   Hub alongside the existing `hub.py` MCP-gateway file (different
+   responsibilities). The spike is greenfield, so doesn't address
+   co-existence. **Recommend gvr confirm:** is `src/punt_lux/hub/`
+   acceptable as the io-model Hub home, or should it take a different
+   name to avoid confusion?
