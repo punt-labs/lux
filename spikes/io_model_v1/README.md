@@ -27,10 +27,11 @@ This spike is documentation. The verbs are precise; every log line, every demo s
 2. **IPC carries Updates and Events. Not render calls.** Per `io-model.md` §"Where rendering happens": "No render call crosses any IPC boundary."
 3. **Hub accepts; DISP mirrors and renders.** Hub gets `NullRendererFactory` and has no render loop — its role is to accept and propagate. DISP gets the chosen surface factory and runs the render loop. AGNT is a pure subscriber/sender.
 4. **Two output surfaces (selectable at DISP startup).** `TextSurface` prints scenes to stdout each tick; `RecordingSurface` appends JSONL to a log file each tick. Selected via `LUX_SURFACE=text|recording`. Same Element classes, same Renderer Protocol, different per-kind renderers.
-5. **Three roundtrip kinds, end-to-end:**
+5. **Four roundtrip kinds, end-to-end:**
    - **R1 — show + accept + apply + render + notify.** AGNT subscribes to `scene.accepted`, then sends `show(Panel{Label, Button})` to HUB. HUB decodes + instantiates Hub-tier Elements (rf=Null), accepts the scene on `hub_display`, encodes + sends an `AddElement` Update to DISP, and publishes `scene.accepted`. DISP receives + decodes + instantiates DISP-tier Elements (rf=Surface), applies the Update to `display_display`, and renders each frame. AGNT is notified via push.
    - **R2 — background-thread accept + apply + render.** HUB's timer thread is an in-process source of authoritative state changes: each tick it accepts a `SetProperty` Update on `hub_display`, then encodes + sends to DISP. DISP applies the Update to `display_display`; the next frame renders the new content.
    - **R3 — detect + send + resolve + invoke + emit + publish + notify.** USER produces a keystroke on DISP. DISP detects the click, encodes an `InteractionMessage`, and sends to HUB. HUB receives + decodes, resolves the Element on `hub_display`, invokes `button.on_click()`, which emits a `ButtonClicked` Event. HUB publishes `interaction.<id>` to subscribers. AGNT (subscribed) is notified.
+   - **R4 — interactive dialog with scene replacement.** AGNT (in `dialog` mode) shows a Yes/No confirmation: `Panel{Label("Save your work?"), Button("Yes"), Button("No")}`. USER clicks Yes. R3's inbound roundtrip carries the click to AGNT, which reacts: performs a short computation and sends a NEW `show()` for a result scene `Panel{Label("Saved."), Label("Result: ...")}`. HUB accepts the new scene — because the new root has `parent_id=None`, both `hub_display` and `display_display` PRUNE the old scene's indices before installing the new tree (whole-scene replacement). DISP renders the result; the dialog is gone. AGNT is notified of `scene.accepted` for the new scene. This proves the full agent-in-the-loop cycle: user input → agent reaction → new scene → display update.
 
 ## Element vocabulary (smallest set that exercises Composite + behavior)
 
@@ -349,8 +350,18 @@ Tests in `tests/test_roundtrips.py`. Each test spawns its own trio of processes;
 - **R1 — show + accept + apply + render + notify.** AGNT subscribes to `scene.accepted`, sends `show(Panel{Label, Button})`. HUB accepts the scene on `hub_display`, sends `AddElement` to DISP, publishes `scene.accepted`. DISP applies + renders. AGNT is notified. Recording surface shows at least 4 entries (Panel begin + Label + Button + Panel end).
 - **R2 — background-thread accept + apply + render.** HUB timer accepts a `SetProperty(content='ticks: N')` every tick. DISP applies + renders; assert ≥ 4 distinct `ticks: N` values appear in the recording log.
 - **R3 — detect + send + resolve + invoke + emit + publish + notify.** Inject a click via the test-only `synthesize_interaction` agent command (equivalent to DISP receiving stdin `click btn1` and sending the `InteractionMessage`). Assert AGNT receives the `interaction.btn1` push with payload `{"elem_id": "btn1"}`.
+- **R4 — interactive dialog with scene replacement.** AGNT runs in `dialog` mode (sends a Yes/No dialog, reacts to clicks by sending a new scene). Wait for the dialog to render on DISP. Inject a click on `btn_yes`. AGNT receives the push, performs its computation, sends `show(result_scene)`. Assert the result scene's elements appear in the recording log AND the dialog's elements do not appear in any entry after the result scene takes over (proves whole-scene replacement pruned the old indices). Assert AGNT received the `interaction.btn_yes` push.
 
-The `demo.py` script runs the same three scenarios with full tier-tagged narration, each verified by per-step `require()` calls that wait for the expected log lines from each tier.
+The `demo.py` script runs the same four scenarios with full tier-tagged narration, each verified by per-step `require()` calls that wait for the expected log lines from each tier.
+
+## Agent modes
+
+The AGNT process supports two modes selected via `LUX_SPIKE_AGENT_MODE`:
+
+- **`basic`** (default) — sends a single `show(Panel{Label, Button})` and waits. Used by R1, R2, R3.
+- **`dialog`** — sends a Yes/No dialog. The notification handler reacts to `interaction.btn_yes` / `interaction.btn_no` pushes by composing a new scene (result / cancellation) and sending it via `show()`. The new scene REPLACES the dialog (the wire-level mechanic is `AddElement` with `parent_id=None`, which triggers HubDisplay.accept's whole-scene-replace path). Used by R4.
+
+Both modes are in `src/lux_spike/agent.py` as separate functions (`_basic_mode`, `_dialog_mode`). The dialog mode is a worked example of "agent observes a click, performs work, ships new scene" — the foundational interactive loop for any Lux applet that needs to respond to user input.
 
 Each test asserts:
 - Three processes spawned successfully.

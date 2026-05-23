@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import socket
+import time
 from pathlib import Path
 
 import pytest
@@ -128,6 +129,95 @@ def test_r3_user_interaction_roundtrip(spike: SpikeProcs) -> None:
         pytest.fail("did not receive interaction.btn1 push within 5s")
     finally:
         sock.close()
+
+
+# ────────────────────────────── R4 ─────────────────────────────────────────────
+
+
+def test_r4_interactive_dialog_agent_responds_with_new_scene(spike_dialog: SpikeProcs) -> None:
+    """AGNT (dialog mode) shows Panel{Label, Yes-Button, No-Button}.
+    Synthesize a click on btn_yes. AGNT receives the push, performs a
+    computation, and ships a NEW show() with the result scene. The new
+    scene REPLACES the dialog: old indices are pruned on both hub_display
+    and display_display, and DISP renders the new tree."""
+    # Wait for the initial dialog scene to render on DISP.
+    def has_dialog() -> bool:
+        entries = _recording_entries(spike_dialog.recording_path)
+        kinds = [(e.get("op"), e.get("kind"), e.get("id")) for e in entries]
+        return (
+            ("begin", "panel", "dlg") in kinds
+            and ("render", "label", "dlg_q") in kinds
+            and ("render", "button", "btn_yes") in kinds
+            and ("render", "button", "btn_no") in kinds
+        )
+
+    assert wait_for(has_dialog, timeout=8.0), f"dialog never rendered: {_recording_entries(spike_dialog.recording_path)}"
+
+    # Synthesize a click on btn_yes via the test-only agent command (same
+    # Hub-side path as a DISP-originated InteractionMessage).
+    sock = _connect_unix(spike_dialog.agent_sock)
+    try:
+        _send_line(sock, {"kind": "subscribe", "topic": "interaction.btn_yes"})
+        _send_line(sock, {"kind": "synthesize_interaction", "elem_id": "btn_yes", "action": "click"})
+
+        # AGNT will receive the push, perform its computation, and ship a
+        # new show() for the result scene. Wait for the result scene's
+        # elements to appear in the recording log.
+        def has_result() -> bool:
+            entries = _recording_entries(spike_dialog.recording_path)
+            kinds = [(e.get("op"), e.get("kind"), e.get("id")) for e in entries]
+            return (
+                ("begin", "panel", "result_panel") in kinds
+                and ("render", "label", "result_status") in kinds
+                and ("render", "label", "result_body") in kinds
+            )
+
+        assert wait_for(has_result, timeout=8.0), f"result scene never rendered: {_recording_entries(spike_dialog.recording_path)}"
+
+        # And the dialog's elements should NOT appear AFTER the result scene
+        # arrives (the new scene REPLACES the old one — old indices are
+        # pruned on display_display, so subsequent frames don't draw them).
+        entries = _recording_entries(spike_dialog.recording_path)
+        # Find the first result_panel entry; subsequent entries must not
+        # contain dialog elements.
+        first_result_idx = next(
+            (i for i, e in enumerate(entries) if e.get("kind") == "panel" and e.get("id") == "result_panel"),
+            None,
+        )
+        assert first_result_idx is not None
+        post = entries[first_result_idx:]
+        dialog_ids_after_result = [e for e in post if e.get("id") in {"dlg", "dlg_q", "btn_yes", "btn_no"}]
+        assert not dialog_ids_after_result, (
+            f"dialog elements continued to render after result scene took over: {dialog_ids_after_result}"
+        )
+
+        # Confirm the agent received the click push and the scene.accepted
+        # push for the new scene — proves the full agent-in-the-loop cycle.
+        deadline = time.time() + 5.0
+        buf = b""
+        sock.settimeout(5.0)
+        observed_topics: list[str] = []
+        while time.time() < deadline:
+            while b"\n" not in buf:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+            line, _, rest = buf.partition(b"\n")
+            buf = rest
+            if not line:
+                continue
+            msg = json.loads(line.decode("utf-8"))
+            if msg.get("kind") == "observed":
+                observed_topics.append(str(msg.get("topic")))
+                if "interaction.btn_yes" in observed_topics:
+                    break
+        assert "interaction.btn_yes" in observed_topics, f"agent never received the click push: {observed_topics}"
+    finally:
+        sock.close()
+
+
+# ────────────────────────────── R1 with TextSurface ────────────────────────────
 
 
 @pytest.mark.parametrize("spike", ["text"], indirect=True)

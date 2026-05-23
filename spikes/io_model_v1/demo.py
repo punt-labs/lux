@@ -169,11 +169,21 @@ def trio(
     *,
     surface: str,
     timer_seconds: float = 1.5,
+    timer_disabled: bool = False,
     display_hz: float = 2.0,
     spawn_agent: bool = True,
     agent_run_seconds: int = 30,
+    agent_mode: str = "basic",
 ) -> Iterator[Trio]:
-    """Spawn hub + display + (optionally) agent for one scenario. Tear down on exit."""
+    """Spawn hub + display + (optionally) agent for one scenario. Tear down on exit.
+
+    `agent_mode` selects the AGNT's behavior:
+      - "basic"  — Panel{Label, Button}; no reactive behavior (R1/R2/R3).
+      - "dialog" — Yes/No dialog; on click, send a NEW scene to replace it (R4).
+    `timer_disabled` turns off HUB's background SetProperty timer (use for
+    scenarios where the timer would compete with scenario-driven state changes
+    — e.g. R4's dialog where the timer would otherwise overwrite the question
+    label with 'ticks: N')."""
     tmp = Path(tempfile.mkdtemp(prefix="lux-spike-demo-"))
     agent_sock = tmp / "agent.sock"
     display_sock = tmp / "display.sock"
@@ -185,8 +195,10 @@ def trio(
     env["LUX_SPIKE_RECORDING_PATH"] = str(recording_path)
     env["LUX_SURFACE"] = surface
     env["LUX_SPIKE_HUB_TICK_SECONDS"] = str(timer_seconds)
+    env["LUX_SPIKE_HUB_TIMER_DISABLED"] = "1" if timer_disabled else "0"
     env["LUX_SPIKE_DISPLAY_HZ"] = str(display_hz)
     env["LUX_SPIKE_AGENT_RUN_SECONDS"] = str(agent_run_seconds)
+    env["LUX_SPIKE_AGENT_MODE"] = agent_mode
     src = Path(__file__).resolve().parent / "src"
     env["PYTHONPATH"] = f"{src}:{env.get('PYTHONPATH', '')}".rstrip(":")
 
@@ -333,6 +345,65 @@ def run_r3(surface: str) -> bool:
         return ok
 
 
+def run_r4(surface: str) -> bool:
+    """ROUNDTRIP 4 — interactive dialog. The AGNT shows a Yes/No dialog,
+    the USER clicks Yes, the AGNT reacts by performing a small computation
+    and shipping a NEW scene that REPLACES the dialog.
+
+    Demonstrates the full agent-in-the-loop interaction cycle: every tier
+    participates twice, once for the initial dialog and once for the
+    follow-up scene the agent generates in response to the click."""
+    reset_observed()
+    section("ROUNDTRIP 4 — interactive dialog: user clicks Yes → agent ships new scene")
+    step("intent", "AGNT shows a Yes/No dialog; USER clicks Yes; AGNT reacts by sending a NEW")
+    step("intent", "scene that REPLACES the dialog (HUB accepts the replacement on hub_display,")
+    step("intent", "ships AddElement to DISP, DISP drops the old scene's indices and renders the new tree).")
+
+    with trio(surface=surface, agent_mode="dialog", timer_disabled=True) as t:
+        ok = True
+
+        # ───── setup: dialog scene live ─────
+        ok &= require("HUB",  "AGNT connected",                              timeout=5.0); step("1", "processes started; AGNT (dialog mode) connected to HUB")
+        ok &= require("HUB",  "AGNT subscribed to 'interaction.btn_yes'",    timeout=3.0); step("2", "AGNT subscribed to 'interaction.btn_yes' (and btn_no, scene.accepted)")
+        ok &= require("AGNT", "sent show('dialog') to HUB",                  timeout=3.0); step("3", "AGNT sent dialog scene")
+        ok &= require("HUB",  "accepted scene 'dialog'",                     timeout=3.0); step("4", "HUB accepted dialog scene on hub_display")
+        ok &= require("DISP", "decoded + instantiated DISP-tier Element tree", timeout=3.0); step("5", "DISP applied AddElement to display_display")
+        ok &= require("DISP", "Label[dlg_q]",                                timeout=3.0); step("6", "DISP rendered Label (Save your work?)")
+        ok &= require("DISP", "Button[btn_yes]",                             timeout=3.0); step("7", "DISP rendered Button (Yes)")
+        ok &= require("DISP", "Button[btn_no]",                              timeout=3.0); step("8", "DISP rendered Button (No)")
+
+        # ───── steady-state delay ─────
+        step("9", "delay (2.0s) — dialog steady, awaiting user input")
+        time.sleep(2.0)
+
+        # ───── user clicks Yes ─────
+        step("10", "USER clicks the Yes button (simulated keystroke to DISP stdin)")
+        simulate_user_click(t.display, "btn_yes")
+
+        # ───── click roundtrip up to AGNT ─────
+        ok &= require("DISP", "detected click(btn_yes)",                     timeout=2.0); step("11", "DISP detected the click")
+        ok &= require("HUB",  "received InteractionMessage from DISP",       timeout=2.0); step("12", "HUB received the InteractionMessage")
+        ok &= require("HUB",  "resolved ButtonElement",                      timeout=2.0); step("13", "HUB resolved ButtonElement[btn_yes] on hub_display")
+        ok &= require("HUB",  "invoked ButtonElement.on_click()",            timeout=2.0); step("14", "HUB invoked behavior method (emitted ButtonClicked)")
+        ok &= require("HUB",  "published 'interaction.btn_yes'",             timeout=2.0); step("15", "HUB published 'interaction.btn_yes'")
+        ok &= require("AGNT", "notified — topic='interaction.btn_yes'",      timeout=2.0); step("16", "AGNT notified — the click handler runs")
+
+        # ───── agent reacts and sends a NEW scene ─────
+        ok &= require("AGNT", "reacting to btn_yes: performing computation", timeout=2.0); step("17", "AGNT performs its work (simulated computation, ~0.3s)")
+        ok &= require("AGNT", "sending NEW scene to REPLACE the dialog",     timeout=3.0); step("18", "AGNT composes and sends the result scene")
+        ok &= require("AGNT", "sent show('result') to HUB",                  timeout=2.0); step("19", "AGNT sent show('result') — this scene REPLACES the dialog")
+        ok &= require("HUB",  "accepted scene 'result'",                     timeout=3.0); step("20", "HUB accepted result scene (replaces dialog on hub_display; old indices pruned)")
+        ok &= require("HUB",  "sent AddElement Update to DISP",              timeout=3.0); step("21", "HUB encoded + sent AddElement Update to DISP")
+
+        # ───── DISP renders the NEW scene ─────
+        ok &= require("DISP", "Label[result_status]",                        timeout=5.0); step("22", "DISP rendered Label (Saved.) — old Label[dlg_q] is gone")
+        ok &= require("DISP", "Label[result_body]",                          timeout=3.0); step("23", "DISP rendered Label (Result: 42 …)")
+        ok &= require("AGNT", "notified — topic='scene.accepted'",           timeout=3.0); step("24", "AGNT notified — Hub confirms the new scene was accepted")
+
+        out("DEMO", "✓ R4 PASSED — full interactive loop: dialog → click → agent reacts → new scene replaces old" if ok else "✗ R4 FAILED")
+        return ok
+
+
 # ───────────────────────────── main ───────────────────────────────────────────
 
 
@@ -340,12 +411,13 @@ _SCENARIOS = {
     "r1": run_r1,
     "r2": run_r2,
     "r3": run_r3,
+    "r4": run_r4,
 }
 
 
 def main(argv: list[str]) -> int:
     surface = os.environ.get("LUX_SURFACE", "text")
-    requested = [a.lower() for a in argv[1:]] or ["r1", "r2", "r3"]
+    requested = [a.lower() for a in argv[1:]] or ["r1", "r2", "r3", "r4"]
 
     unknown = [r for r in requested if r not in _SCENARIOS]
     if unknown:

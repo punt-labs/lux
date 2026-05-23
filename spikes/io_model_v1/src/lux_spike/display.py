@@ -63,9 +63,15 @@ class DisplayDisplay:
     def apply(self, update: AddElement | SetProperty) -> None:
         match update:
             case AddElement(elem=elem, parent_id=parent_id):
-                self._index(elem)
                 if parent_id is None:
+                    # Whole-scene replacement: drop old indices before
+                    # installing the new tree (mirrors HubDisplay.accept).
+                    self._by_id.clear()
+                    self._root = None
+                    self._index(elem)
                     self._root = elem
+                else:
+                    self._index(elem)
             case SetProperty(elem_id=eid, field=field, value=value):
                 elem = self._by_id.get(eid)
                 if elem is None:

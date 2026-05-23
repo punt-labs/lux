@@ -67,11 +67,15 @@ class HubDisplay:
     def accept(self, update: AddElement | SetProperty) -> None:
         match update:
             case AddElement(elem=elem, parent_id=parent_id):
-                self._index(elem)
                 if parent_id is None:
+                    # Whole-scene replacement: drop the old root's subtree
+                    # from the index before installing the new tree.
+                    self._clear()
+                    self._index(elem)
                     self._root_id = _get_id(elem)
-                # Composites already carry their children in the decoded tree;
-                # add_element with a parent appends (not used in PR-3 spike).
+                else:
+                    # Append-under-parent (not exercised in current scenarios).
+                    self._index(elem)
             case SetProperty(elem_id=eid, field=field, value=value):
                 elem = self._by_id.get(eid)
                 if elem is None:
@@ -79,6 +83,10 @@ class HubDisplay:
                 # Spike-scope: only `content` on LabelElement is mutated.
                 if isinstance(elem, LabelElement) and field == "content":
                     elem._set_content(str(value))
+
+    def _clear(self) -> None:
+        self._by_id.clear()
+        self._root_id = None
 
     def _index(self, elem: "Element") -> None:
         self._by_id[_get_id(elem)] = elem
@@ -150,8 +158,9 @@ def main() -> None:
     agent_sock_path = os.environ.get("LUX_SPIKE_HUB_AGENT_SOCK", "/tmp/lux-spike-agent.sock")
     display_sock_path = os.environ.get("LUX_SPIKE_HUB_DISPLAY_SOCK", "/tmp/lux-spike-display.sock")
     tick_seconds = float(os.environ.get("LUX_SPIKE_HUB_TICK_SECONDS", "2.0"))
+    timer_disabled = os.environ.get("LUX_SPIKE_HUB_TIMER_DISABLED", "") == "1"
 
-    print(f"[hub] starting (AGNT sock={agent_sock_path}, DISP sock={display_sock_path})", flush=True)
+    print(f"[hub] starting (AGNT sock={agent_sock_path}, DISP sock={display_sock_path}, timer={'OFF' if timer_disabled else f'{tick_seconds}s'})", flush=True)
 
     # Hub-tier state.
     display = HubDisplay()
@@ -268,7 +277,10 @@ def main() -> None:
             wire = update_codec.encode(update)
             with_display(lambda s: s.send_line(wire))
 
-    threading.Thread(target=timer_loop, name="hub-timer", daemon=True).start()
+    if not timer_disabled:
+        threading.Thread(target=timer_loop, name="hub-timer", daemon=True).start()
+    else:
+        print("[hub] background timer disabled (LUX_SPIKE_HUB_TIMER_DISABLED=1)", flush=True)
 
     # Bind both Unix sockets and accept connections.
     with listen_unix(display_sock_path) as display_listen, listen_unix(agent_sock_path) as agent_listen:
