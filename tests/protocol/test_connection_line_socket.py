@@ -9,10 +9,12 @@ against a server/client pair joined by a real ``AF_UNIX`` socket.
 
 from __future__ import annotations
 
+import logging
 import socket
 import tempfile
 import threading
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from punt_lux.protocol.connection import (
     LineSocket,
@@ -20,6 +22,9 @@ from punt_lux.protocol.connection import (
     listen_unix,
     spawn_reader,
 )
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _accept_one(server_sock: socket.socket) -> LineSocket:
@@ -101,6 +106,48 @@ def test_iter_lines_returns_when_peer_closes() -> None:
         server.close()
 
     assert received == []
+
+
+def test_spawn_reader_logs_and_terminates_on_malformed_json(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """SF1 regression: malformed input must log via ``logger.exception`` and
+    let the reader thread exit cleanly instead of dying silently.
+
+    Before the fix at 8c6fb02 the unprotected ``for payload in
+    iter_lines():`` loop swallowed ``JSONDecodeError`` (and ``OSError``,
+    ``ConnectionResetError``, ``UnicodeDecodeError``) — the daemon
+    thread terminated with no log entry and the hub went deaf. The
+    outer ``try/except`` in ``spawn_reader`` must surface those failures
+    and finish the loop.
+    """
+    raw_a, raw_b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    reader_socket = LineSocket(raw_b)
+    handled: list[dict[str, object]] = []
+
+    raw_a.sendall(b"{not valid json}\n")
+    raw_a.shutdown(socket.SHUT_RDWR)
+    raw_a.close()
+
+    with caplog.at_level(logging.ERROR, logger="punt_lux.protocol.connection"):
+        reader_thread = spawn_reader(reader_socket, handled.append)
+        reader_thread.join(timeout=2.0)
+
+    reader_socket.close()
+
+    assert not reader_thread.is_alive(), "reader thread did not terminate"
+    assert handled == [], "handler must not see lines after a decode failure"
+    matching = [
+        r
+        for r in caplog.records
+        if r.name == "punt_lux.protocol.connection"
+        and r.levelno == logging.ERROR
+        and r.exc_info is not None
+    ]
+    assert matching, (
+        f"expected logger.exception on iter_lines failure; got {caplog.records!r}"
+    )
+    assert "iter_lines terminated unexpectedly" in matching[0].message
 
 
 def test_spawn_reader_dispatches_lines_to_handler() -> None:
