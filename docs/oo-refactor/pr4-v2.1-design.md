@@ -368,24 +368,28 @@ class ButtonHandlers:
         return _handler
 
     @staticmethod
-    def call_model(method: str) -> Handler[ButtonClicked]:
-        """Invoke a named method on the button's parent-component model.
+    def call_model(bound_method: Callable[[], None]) -> Handler[ButtonClicked]:
+        """Invoke a parent-component model method bound at decode time.
 
-        The parent-component model reference is set by the parent's
-        decoder at construction time. The method name is the only wire
-        parameter; the agent never sees the model object.
+        The parent component's decoder (e.g., ``JsonDialogDecoder``)
+        resolves the verb string from the wire (e.g., ``"confirm"``)
+        against the parent model's typed ``_ACTIONS`` mapping and passes
+        the resolved bound method into this factory. The handler closure
+        captures the binding; the event itself carries no model reference.
         """
-        def _handler(event: ButtonClicked) -> None:
-            event.button.owner_model.invoke(method)
+        def _handler(_event: ButtonClicked) -> None:
+            bound_method()
         return _handler
 ```
 
 `ButtonHandlers` is a namespace, not an instantiable class — every
 member is a `@staticmethod` whose return type is the typed handler the
 ABC expects. The decoder calls `ButtonHandlers.noop()` or
-`ButtonHandlers.call_model("confirm")` based on the wire factory name
-and parameters; the typed return propagates all the way to
-`add_handler(ButtonClicked, handler)`.
+`ButtonHandlers.call_model(model.confirm)` based on the wire factory
+name and parameters — the verb string `"confirm"` is resolved against
+the parent model's `_ACTIONS` mapping by the parent's decoder, and the
+resolved bound method is passed in. The typed return propagates all
+the way to `add_handler(ButtonClicked, handler)`.
 
 ### Decorators compose declaratively
 
