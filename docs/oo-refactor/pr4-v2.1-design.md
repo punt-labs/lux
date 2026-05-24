@@ -1,1249 +1,2163 @@
-# PR 4 v2.1 — Button + DialogElement + Observer + inbound roundtrip
+# PR 4 — io-model Hub, Element interaction, Agent Subscribe
 
 **Status:** design
 **Bead:** `lux-wb55`
-**Plan reference:** `docs/oo-refactor/migration-plan.md` PR 4 (v2.1)
-**Reference implementation:** `spikes/io_model_v1/` R3 (inbound roundtrip) and R4 (Dialog self-dismiss). Validated against `ARCHITECTURE_NOTES.md` A1–A5.
-**PR 3 ancestor:** main squash `c238cf8` (lux-c2c8) — Element ABC, Renderer/Decoder/Encoder Protocols, TextElement, JsonText codec, ImGuiRendererFactory + ImGuiTextRenderer, NullRenderer + RecordingRenderer, `JsonElementFactory`/`JsonEncoderFactory`, `SceneManager._apply_patch_set` ABC branch (D6), and the `Connection` module (added; not wired into `DisplayClient` per D7) all on main.
-**Worker / Evaluator:** `rmh` / `gvr`.
-**Consulted:** `dna` on Element behavior shape + DialogElement contract. `mdm` on MCP tool surface. `djb` on Observer trust model. `rej` on Composite + bound-callback pattern.
+**Worker / Evaluator:** `rmh` / `gvr`
+**Consulted:** `dna` on Element behavior shape and DialogElement contract.
+`mdm` on MCP tool surface. `djb` on Observer trust model. `rej` on Composite
+and bound-callback pattern.
 
-## How to read this doc
+PR 4 lands four things at once:
 
-This is a port doc. The spike is the design; PR 3's `pr3-v2.1-design.md` is
-the working pattern; this doc maps both onto the production tree. Where the
-spike or PR 3 already answers a question, this doc cites the file and section
-instead of restating. The two surfaces PR 4 introduces — the Observer
-subsystem inside luxd's asyncio runtime, and the hub-emit-handler dispatch —
-are specified explicitly. Everything else is "lift".
+1. The io-model Hub — a process that owns authoritative scene state, resolves
+   wire-level interactions to Element instances, and dispatches handlers.
+2. Two interaction-bearing Element kinds — `ButtonElement` and a composite
+   `DialogElement` whose child Buttons self-wire to its own model methods.
+3. A typed event subsystem on the Element ABC — `add_handler` /
+   `remove_handler`, a dispatcher loop, and the canonical `ButtonClicked`
+   event constructed at exactly one validation site.
+4. The Agent Subscribe / Publish wire surface — per-connection topic scopes,
+   snapshot-then-iterate fan-out, and a typed outbound `ObserverMessage`
+   wire kind.
 
-Hard constraints (mission contract): (1) the 24 invariant MCP tools
-registered in `src/punt_lux/tools/tools.py` keep their signatures (the
-docstring there saying "29" is stale — verified count: 16 `@mcp.tool()` +
-8 `@_query_tool(...)` = 24); (2) no `PublishMessage` external wire kind
-(ARCHITECTURE_NOTES A3); (3) interaction-layer collapse
-(`Display.interact`, `DomainPump.route_interaction`,
-`domain.interaction.ButtonClicked`, `domain.event.ButtonPressed`) is OUT
-OF SCOPE — PR 7 owns deletion; PR 4 lands parity gate; (4) PY-OO-2 holds
-(≤ 300 lines, ≤ 3 classes per module).
+The work spans the Hub tier, the protocol package, and the MCP tool surface.
+PR 3 shipped the foundation: Element ABC with `_emit`, the Renderer /
+Decoder / Encoder Protocols, the sentinel-default `RendererFactory` /
+`Emit` pattern, and the `_patch` template for in-place mutation. This PR
+uses every piece of that foundation and adds the rest of the io-model.
 
-## Audit note (round-2 revision)
+## Guiding principle — no shims, no parallel paths
 
-Round-1 and round-1.x drafts named modules and classes that do not exist
-on `main` HEAD (notably `protocol/updates.py`, `UpdateCodec`,
-`_send_update`, a "new" `domain/events.py`). Round-2 walks every
-production reference against `grep` evidence and rewrites §1, §3, §5, §6,
-§7 against the verified tree. The corrections are tracked under
-"Production-tree audit corrections" at the head of each affected section.
+This design is legitimately complex: a distributed system, an event-driven
+UI, event-driven communication across tiers and clients. The likelihood
+of confusing ourselves and future readers is high. The discipline that
+keeps the codebase legible is straightforward:
 
----
+- No backwards-compatibility wrappers, alias shims, or "for now" branches
+  that handle both an old and a new path.
+- No retired class kept around because a single legacy caller still
+  imports it.
+- No parallel old / new code paths waiting for "the next PR" to remove the
+  old one.
+- Every caller of a renamed or replaced symbol migrates fully in the same
+  PR that introduces the replacement.
 
-## Section 1 — Module layout map
+The cost of making the design pristine on the way in is paid once. The
+cost of carrying a shim is paid every time a future contributor reads
+the codebase and has to discover which path is canonical and which is
+legacy. The same discipline applies to readers of this document: when
+the doc says a class is replaced, the old class is gone — there is no
+fallback to read about.
 
-### Production-tree audit corrections (round-2)
+## Module layout
 
-The spike modules `elements.py`, `codec.py`, `updates.py`, `hub.py` map
-onto production paths that already exist (or don't). The corrections:
+The Hub lives in `domain/hub/`. The Hub is the asyncio-resident process
+state that holds: an index of every Element by `(scene_id, element_id)`,
+the connection registry mapping each open transport to its `connection_id`,
+the per-connection event poll queues, the Agent Subscribe registry, and
+the dispatcher that resolves wire interactions to Element handlers and
+fires them. `domain/hub/` is the only package that may import asyncio
+primitives — every other domain module stays loop-agnostic.
 
-- **`protocol/updates.py` does not exist on `main`.** Production update
-  types live in `src/punt_lux/domain/update.py`:
-  `AddElement(scene_id, element, parent_id)`,
-  `RemoveElement(scene_id, element_id)`,
-  `SetProperty(scene_id, element_id, field, value)`. Each carries its own
-  `to_dict()` / `from_dict(cls, d)` methods (PY-OO-5 compliant). There is
-  no separate `UpdateCodec` class; per-class methods do the work.
-- **`domain/interaction.py` already defines
-  `ButtonClicked(scene_id, element_id)`.** The spike's
-  `ButtonClicked(elem_id)` Event class collides with this name. PR 4
-  introduces a renamed Event class — `ButtonClickEmitted` — in a new
-  `domain/io_event.py` so the existing
-  `domain.interaction.ButtonClicked` (which feeds the legacy
-  `Display.interact` path that PR 7 owns) is left untouched.
-- **`domain/interaction_event.py` exists** and holds
-  `ButtonPressed(scene_id, element_id, owner_id)`. The doc previously
-  said "interaction\_event.py is wrong" — that was wrong; the file is
-  load-bearing for the existing `Display.interact` Event union and stays
-  exactly as it is in PR 4.
-- **The `src/punt_lux/hub.py` module exists** (luxd WebSocket gateway)
-  and a same-name package `src/punt_lux/hub/` would shadow it on the
-  import path. The PR 4 hub-emit-handler module lives in a new
-  `src/punt_lux/iohub/` package; "iohub" names the io-model hub-tier
-  surface (Observer + emit dispatcher) and stays distinct from the
-  existing WebSocket-gateway module.
+The Element ABC lives in `domain/element_abc.py` and carries the handler
+registry, the dispatcher entry point, and the Observable property
+machinery. The Element kinds — `ButtonElement`, `DialogElement`, the
+existing `TextElement` — extend the ABC, add typed fields, and publish a
+catalog of declarative handler factories.
 
-### Per-row mapping
+```text
+luxd process (single process; holds the Hub):
+  src/punt_lux/
+    domain/
+      hub/                ← the io-model Hub: state, dispatch, Subscribe registry
+      element_abc.py      ← Element ABC: handler registry, Observable mixin
+      update.py           ← AddElement, RemoveElement, SetProperty (PR 3)
+    protocol/
+      elements/           ← per-kind wire classes + codecs
+        button.py
+        button_codec.py
+        dialog.py
+        dialog_codec.py
+        text.py           (PR 3)
+        text_codec.py     (PR 3)
+      messages/
+        interaction.py    ← inbound InteractionMessage (PR 3) + outbound ObserverMessage (PR 4)
+    tools/                ← MCP entry point. Thin: in-process, calls Hub directly.
+    applet/               ← Lux IPC entry point (PR 5 scaffold). Thin.
+    display/              ← display server harness (PR 3 / PR 6)
+    luxd.py               ← process entry point
 
-Every spike module touched by PR 4 maps to a production destination.
-Per-kind split rule follows PY-OO-2 + PR 3's `protocol/elements/<kind>.py`
-convention.
+Display process (separate, possibly remote):
+  Connects to luxd's display transport.
 
-| # | Spike construct | Production destination | Adaptation |
-|---|---|---|---|
-| 1 | `elements.py` ButtonElement (28–58) | `protocol/elements/button.py` (REWRITTEN) | Replace PR-2 dataclass with ABC subclass mirroring TextElement (§2). Keep production fields (`action`, `disabled`, `small`, `arrow`, `tooltip`) for snapshot parity. Sentinel defaults on `renderer_factory` / `emit` per D1. |
-| 2 | `elements.py` DialogElement (139–185) | `protocol/elements/dialog.py` (NEW) | Grep verified: zero existing `DialogElement` in production (`ModalElement` in `layout.py:109` is a different element kind). New file, no PR-2 carcass. Mirrors §3. |
-| 3 | `codec.py` JsonButtonDecoder/Encoder (44–60, 188–190) | `protocol/elements/button_codec.py` (NEW) | Per-kind codec mirroring `text_codec.py`. Field set extended to match production Button. |
-| 4 | `codec.py` JsonDialogDecoder/Encoder (93–145, 209–222) | `protocol/elements/dialog_codec.py` (NEW) | Per-kind module. Bound-callback dance lifted verbatim, threading `scene_id` through DialogElement construction (§3). |
-| 5 | `codec.py` `encode_interaction` / `decode_interaction` (304–309) | NOT MIGRATED in PR 4 | Production `protocol/messages/interaction.py` `InteractionMessage(element_id, action, value, scene_id, ts)` already routes through `MessageRegistry` and is load-bearing for the 8 unmigrated inputs. |
-| 6 | `codec.py` `encode_button_clicked` (312–313) | `protocol/elements/button_codec.py` (added as `JsonButtonClickEmittedEncoder` class) | Spike free function becomes a small class (PY-OO-1) co-located with the Button codec. Used by the io-model hub emit dispatcher (§5). |
-| 7 | `updates.py` `RemoveElement` (35–42) | already in `src/punt_lux/domain/update.py` as `RemoveElement(scene_id, element_id)` | No new file. The spike's `RemoveElement(elem_id)` shape is narrower than production's. DialogElement carries `scene_id` so its `close()` can construct the production shape (§3). |
-| 8 | `updates.py` `ButtonClicked` (49–54) | `src/punt_lux/domain/io_event.py` (NEW) as `ButtonClickEmitted(element_id, action, value)` | Renamed to avoid name collision with the existing `domain.interaction.ButtonClicked` (`scene_id, element_id`). The renamed class is the io-model Event Button raises through `self._emit`; the legacy `domain.interaction.ButtonClicked` continues to feed `Display.interact` until PR 7 deletes the legacy path. |
-| 9 | `hub.py` SubscriptionRegistry (132–166) | `src/punt_lux/iohub/observer.py` (NEW) | Lift adapted to asyncio per §4 (spike uses `threading.Lock` plus blocking line-socket sends; production luxd is asyncio). |
-| 10 | `hub.py` hub\_emit (197–215) + handle\_display\_message (235–255) | `src/punt_lux/iohub/emit_dispatch.py` (NEW) — `HubEmitDispatcher` class | Lives alongside `tools/server.py` per-MCP-session state (constructed once per session, kept in a session-keyed dict); NOT inside `src/punt_lux/hub.py` (the WebSocket gateway is a different responsibility). The hub-side element index (`_hub_display_index` per §6 / §9 (v)) is keyed by `element_id` (NOT by session_key) — see §6 production-tree audit for why: the `DisplayClient._listener_loop` thread has no `ContextVar` and no per-session demultiplex, so the only key the listener thread can use is the wire `element_id` it just received. |
-| 11 | `hub.py` handle\_agent\_message subscribe branch (259–262) | `src/punt_lux/iohub/observer_tools.py` (NEW) + registration call from `tools/server.py` | Subscribe/unsubscribe/publish exposed as MCP tools, additive to the 24 invariant. |
-
-**Module-size check (post-PR 4):** every new file is < 130 LoC and ≤ 3
-classes (PY-OO-2 OK). `button_codec.py` (3 classes: decoder, encoder,
-`ButtonClickEmitted` encoder) shares Button vocabulary so PL-CO-3 holds.
-`dialog_codec.py` (2 classes), `iohub/observer.py` (1),
-`iohub/emit_dispatch.py` (1), `iohub/observer_tools.py` (1),
-`domain/io_event.py` (1). `domain/update.py` is **not modified** — its
-`RemoveElement` already has the shape DialogElement needs.
-
-**One-file packages.** `src/punt_lux/iohub/` is new; the existing
-`src/punt_lux/hub.py` (luxd WebSocket gateway) stays unchanged at the
-package root. The two names — module `hub` and package `iohub` —
-coexist on the import path because the directory and file have different
-basenames. Resolves PR 3's §9 Q2: a one-file package would have shadowed
-the existing module; the rename to `iohub` is the only safe spelling.
-`iohub/__init__.py` re-exports `HubEmitDispatcher`, `Observer`,
-`WILDCARD_TOPIC`.
-
----
-
-## Section 2 — ButtonElement on ABC
-
-### Pattern source
-
-Spike `elements.py` ButtonElement (60–106) is the template. Production
-ButtonElement mirrors its `__new__`-keyword-only-injected pattern with the
-fields the PR-2 dataclass already carried.
-
-### Pre-design grep evidence
-
-`grep -rn "ButtonElement(" src/ tests/` returns 66 lines (45 in tests, 21 in
-src — mostly imports and one constructor per render test). Sentinel defaults
-on `renderer_factory` and `emit` (D1) are required: without them, the 45 test
-call sites of the form `ButtonElement(id="b1", label="OK")` break at
-construction.
-
-### Production ButtonElement (PR 4)
-
-`src/punt_lux/protocol/elements/button.py` — REWRITTEN. The PR-2 dataclass
-is deleted; codec body moves to `button_codec.py`; `to_dict`/`from_dict`
-remain on the class as ≤ 3-line delegators per D5 (the runtime-checkable
-`domain.element.Element` Protocol structurally requires both).
-
-```python
-# Module-level sentinels (per pr3-v2.1-design.md §4 D1).
-_NULL_FACTORY: RendererFactory = NullRendererFactory()
-def _no_emit(_msg: object) -> None: pass
-
-class ButtonElement(Element):
-    _id: str
-    _label: str
-    _action: str | None        # PY-TS-14 OK: None = action defaults to element id
-    _disabled: bool
-    _small: bool
-    _arrow: str | None         # PY-TS-14 OK: None = not an arrow button
-    _tooltip: str | None       # PY-TS-14 OK: absence = no tooltip
-    _on_click_callback: Callable[[], None] | None
-    _kind: Literal["button"]
-
-    def __new__(cls, *,
-                renderer_factory: RendererFactory = _NULL_FACTORY,
-                emit: Emit = _no_emit,
-                id: str, label: str, action: str | None = None,
-                disabled: bool = False, small: bool = False,
-                arrow: str | None = None, tooltip: str | None = None,
-                on_click_callback: Callable[[], None] | None = None) -> Self:
-        ...  # assign fields and return self (TextElement PR 3 pattern)
-
-    def on_click(self) -> None:
-        """Lifted from spike elements.py:98-105."""
-        self._emit(ButtonClickEmitted(element_id=self._id))
-        if self._on_click_callback is not None:
-            self._on_click_callback()
-
-    # @property accessors for id, kind, label, action, disabled, small,
-    # arrow, tooltip.  No @property for _on_click_callback — internal
-    # wiring bound at decode time (per spike R4).
-    # _set_<field> setters for the patch path (D6).
-    # to_dict / from_dict thin delegators to button_codec (D5).
+Applet processes (separate, possibly remote — first one lands in PR 5):
+  Wire: line-delimited JSON over TCP.
+  Connects to luxd's applet/ endpoint.
 ```
 
-### ButtonClickEmitted Event (where it lives and why renamed)
+The `tools/` and `applet/` packages do not own state. They are thin
+adapters that translate transport-specific frames into Hub method calls.
+Connection identity, locks, indexes, and the event loop all live in
+`domain/hub/`. When a future PR adds a third transport (HTTP, gRPC,
+anything), it adds another thin adapter in its own package and calls the
+same Hub API.
 
-Spike's `ButtonClicked` is `updates.py:49-54` and carries `elem_id: str`
-only — its wire payload (`codec.py:312-313`) is `{"elem_id": eid}`.
-Production already defines `domain.interaction.ButtonClicked(scene_id,
-element_id)` for the legacy `Display.interact` path (the Interaction
-sum type Round-2 audit row #3). PR 4 cannot add a second class with the
-same simple name in the same package without producing two
-`from punt_lux.domain... import ButtonClicked` paths whose semantics
-diverge — that is exactly the kind of cross-module name shadow PY-CS-7
-exists to prevent.
+The Hub's public surface is small and uniform across transports:
 
-The io-model Event is therefore named `ButtonClickEmitted` and lives in
-`src/punt_lux/domain/io_event.py` (NEW). It carries the uniform shape
-`(element_id, action="click", value=None)` so future non-Button event
-classes (slider, input, etc.) populate the same three fields without
-adapter classes. The §8 parity gate compares only the
-`(element_id, action)` pair against `InteractionMessage` — the `value`
-field intentionally differs between paths (`True` on the wire, `None`
-in the io-model) and is excluded from parity:
+- `subscribe(connection_id, topic)` — register interest in a topic.
+- `unsubscribe(connection_id, topic)` — drop registration.
+- `publish(connection_id, topic, payload)` — fan out a business event to
+  the caller's subscribers (scoping rules described in the Agent
+  Subscribe section).
+- `apply(connection_id, update)` — mutate authoritative scene state.
+- `poll(connection_id, timeout)` — block for the next queued business
+  event for this connection.
+
+Interaction routing is not a Hub method adapters call directly. A
+wire `InteractionMessage` arriving on a transport flows through
+`WirePump.route_interaction`, which calls `Display.interact` to
+domain-validate and construct the typed event, which is fired through
+`Element.fire` on the resolved Element. The pump, `Display`, and
+`HubDisplay` are wired together at `luxd.py` startup; adapters hand
+inbound wire messages to the pump and never touch dispatch state
+themselves.
+
+Adapters in `tools/` and `applet/` register and deregister connections
+on transport setup and teardown. Everything else is a Hub call.
+
+## Process topology
+
+Three roles, three processes:
+
+| Role | Where | What it does |
+|------|-------|--------------|
+| `luxd` | one host | holds the Hub, accepts MCP tool calls in-process, accepts applet TCP connections, drives the display transport |
+| display | same or remote host | ImGui renderer; receives the rendered scene over the display transport |
+| applet | same or remote host | a long-running consumer of business events; opens a TCP connection to luxd and holds it for its lifetime |
+
+The applet transport is line-delimited JSON over TCP. The choice of TCP
+is deliberate: the system is distributed by design, and an applet may
+run on a different machine from luxd. AF\_UNIX remains acceptable as a
+local-loopback optimization where both ends are on the same host, but
+the wire shape and connection model are the same — the protocol does
+not branch on transport.
+
+Applets hold their TCP connection open bidirectionally for the
+connection's lifetime. The Hub pushes business events on the same
+connection the applet uses to send updates, subscribe, or publish. No
+request / response close-between-calls, no reconnect-per-message. An
+applet that wants to poll synchronously may do so via the same `poll`
+call MCP uses, but the default async path is push over the open
+connection.
+
+MCP sessions are in-process. The `tools/` package runs inside the
+`luxd` process and calls Hub methods directly. There is no MCP-to-luxd
+network hop; the connection_id assigned to an MCP session is a
+process-local handle.
+
+The next sections describe the Element ABC's handler registry and
+dispatch loop, the declarative handler catalog and wire format, the
+composite component pattern that DialogElement embodies, the validated
+`ButtonClicked` event and its single construction site, and the Agent
+Subscribe / Publish subsystem with its per-connection scoping rule.
+
+## Element ABC: event-driven dispatch
+
+Every io-model Element kind extends the same ABC. The ABC carries the
+field plumbing introduced in PR 3 — `_renderer_factory`, `_emit`,
+`render()`, the `_children()` hook, `apply_patch()` — and adds a typed
+event-handler registry plus a dispatcher entry point that resolves which
+handlers run for a given event.
+
+### Handler registry API
 
 ```python
+class Element(ABC):
+
+    _renderer_factory: RendererFactory
+    _emit: Emit
+    _handlers: dict[type[Event], list[Handler[Event]]]
+    _removed: bool
+    _observers: list[Callable[[str], None]]
+
+    def __new__(cls, *, renderer_factory: RendererFactory, emit: Emit) -> Self:
+        self = super().__new__(cls)
+        self._renderer_factory = renderer_factory
+        self._emit = emit
+        self._handlers = {}
+        self._removed = False
+        self._observers = []
+        return self
+
+    def add_handler[E: Event](
+        self,
+        event_type: type[E],
+        handler: Handler[E],
+    ) -> None:
+        """Register a handler for an event type on this Element."""
+        self._handlers.setdefault(event_type, []).append(handler)
+
+    def remove_handler[E: Event](
+        self,
+        event_type: type[E],
+        handler: Handler[E],
+    ) -> None:
+        """Deregister a handler. No-op if not registered."""
+        registered = self._handlers.get(event_type)
+        if registered is None:
+            return
+        try:
+            registered.remove(handler)
+        except ValueError:
+            return
+        if not registered:
+            del self._handlers[event_type]
+
+    def fire[E: Event](self, event: E) -> None:
+        """Dispatch ``event`` to every handler registered for its type
+        on this Element. Handlers are invoked in registration order
+        against a snapshot of the list so a handler that mutates the
+        registry does not affect the in-flight dispatch."""
+        snapshot = tuple(self._handlers.get(type(event), ()))
+        for handler in snapshot:
+            handler(event)
+
+    def add_observer(self, observer: Callable[[str], None]) -> None:
+        """Register a property-change observer. Used by parent
+        composites to react to children flipping ``_removed`` (and,
+        in future, ``_visible`` / ``_enabled``)."""
+        self._observers.append(observer)
+
+    @property
+    def removed(self) -> bool:
+        return self._removed
+
+    def _mark_removed(self) -> None:
+        """Flip ``_removed`` and notify observers. Idempotent — a second
+        call is a no-op. This is the single mechanism for marking any
+        Element removed; the three removal paths (agent ``RemoveElement``,
+        component self-dismiss, connection disconnect) all reach it."""
+        if self._removed:
+            return
+        self._removed = True
+        for observer in tuple(self._observers):
+            observer("removed")
+```
+
+`Handler[E]` is `Callable[[E], None]`. `Event` is the shared marker
+Protocol for every dispatched event class — `ButtonClicked` satisfies
+it, future kinds (`SliderChanged`, `TextEdited`) will satisfy it the
+same way.
+
+Three properties keep the API honest:
+
+- The registry is per-Element. Handler lifetime is the Element's
+  lifetime. When the Element is removed from the scene, its handlers go
+  with it. No external cleanup needed.
+- The registry is typed. `add_handler(ButtonClicked, handler)` expects
+  `handler: Handler[ButtonClicked]`; passing a `Handler[SliderChanged]`
+  is a type error at the call site, not a runtime surprise.
+- Dispatch is snapshot-then-iterate. A handler may add or remove
+  handlers without breaking the iteration that called it.
+
+### Event class hierarchy
+
+```python
+class Event(Protocol):
+    """Marker Protocol for events dispatched through Element.fire."""
+
 @dataclass(frozen=True, slots=True)
-class ButtonClickEmitted:
-    element_id: str
-    action: Literal["click"] = "click"        # constant for Button
-    value: None = None                         # constant for Button
+class ButtonClicked:
+    """A validated button click. Constructible ONLY by the Hub's
+    interaction dispatcher (see the ButtonClicked validation section)."""
+    scene_id: SceneId
+    element_id: ElementId
+    owner_id: ConnectionId
 ```
 
-`action` and `value` are degenerate constants for the Button case — a
-slider/input event class added later would carry a non-`None` `value`.
-The three-field shape stays uniform across event types; the parity
-gate (§8) compares only `(element_id, action)` from both paths,
-deliberately omitting `value` to side-step the legacy-wire-vs-io-model
-`True` / `None` mismatch. `ButtonClickEmitted` is the io-model Event
-the ABC Button raises through `self._emit`; the existing
-`domain.interaction.ButtonClicked` keeps feeding the legacy
-`Display.interact` path until PR 7 deletes it.
+Events are frozen, slotted dataclasses with public fields — they are
+inert value records that travel from the dispatcher to handlers. Their
+construction sites are guarded (see the validation section); their
+interior is read-only.
 
-### What's deleted from `protocol/elements/button.py`
+### Dispatcher path
 
-- `@dataclass(frozen=True, slots=True)` — replaced by `__new__`.
-- All dataclass fields — become `_`-prefixed slots with `@property`
-  accessors.
-- The codec body of `to_dict`/`from_dict` moves to `JsonButtonEncoder.encode`
-  / `JsonButtonDecoder.decode` in `button_codec.py`. The methods stay as
-  ≤ 3-line delegators on the class (D5).
+The path from a wire `InteractionMessage` to a fired handler is a
+single line: `WirePump.route_interaction` does wire-shape triage,
+`Display.interact` does domain validation and constructs the typed
+event, `Element.fire` runs the handlers. There is no separate
+`Hub.dispatch` method. The pump is the bridge between the wire layer
+and the per-Element handler registries; `Display.interact` is the
+single domain-validation site; `Element.fire` is the single dispatch
+site. Each layer owns one concern and calls exactly one downstream
+layer.
 
-### What stays the same
+The three layers in order:
 
-Wire shape (snapshot parity §10); `inputs.py:43` registration; the
-`element_renderer.py:158` dispatch entry; `display/renderers/button_renderer.py`
-(reads via @property accessors).
+1. **Wire-shape triage** — `WirePump.route_interaction` drops messages
+   that cannot possibly be a domain-valid element interaction:
+   non-element actions (menu, frame chrome) and messages with no
+   `scene_id`. No kind-specific value check happens here; the wire
+   shape of `value` is checked per-kind inside `Display.interact`.
+2. **Domain validation and construction** — `Display.interact` is the
+   single construction site for the typed event. It checks that the
+   caller is a registered client, that `(scene_id, element_id)`
+   resolves, that the caller owns the element, and that the resolved
+   Element kind matches the wire `value` shape. On success it
+   constructs the typed event (`ButtonClicked` for a button click;
+   future input kinds add their own typed event class and their own
+   branch in `Display.interact`).
+3. **Fire** — `Element.fire(event)` runs every registered handler for
+   the event's type on the resolved Element.
 
----
+The pump does not know which handlers exist; `Display.interact` does
+not know how `value` arrived on the wire; `Element.fire` does not
+know whether the event was constructed by the dispatcher or by a
+test. Each layer is the mechanism for one concern; nothing in any
+layer is policy. The full sketch lives in the ButtonClicked
+validation section below.
 
-## Section 3 — DialogElement on ABC (composite + bound-callback decode)
+### Wire-to-handler decoding
 
-### Pattern source
+Handlers are not authored by the agent in Python — the agent ships
+declarative handler specifications on the wire as part of the scene
+definition. Each Element kind defines a per-kind typed catalog of
+handler factories; the decoder canonicalises the wire spec and calls
+the matching factory to produce the `Handler[E]` callable, then calls
+`add_handler(event_type, handler)` on the constructed Element.
 
-Spike `elements.py` DialogElement (139–185) plus `codec.py` JsonDialogDecoder
-(93–145). Verbatim, except for threading `scene_id` through DialogElement so
-its `close()` can construct the production
-`RemoveElement(scene_id, element_id)` shape.
+The wire and catalog mechanics are the subject of the next section. The
+boundary the Element ABC enforces is narrow: handlers arrive through
+`add_handler`, dispatch happens through `fire`, and the registry is
+inspectable for testing through the same two methods.
 
-### Production-tree audit correction (round-2)
+### Default behaviors are layered, not built in
 
-The spike's `DialogElement.close` emits `RemoveElement(elem_id=self._id)`
-— a single field. Production's
-`domain.update.RemoveElement(scene_id: SceneId, element_id: ElementId)`
-requires both. The shape is load-bearing: `Display.apply` validates the
-scene-element pair, the per-class `to_dict()` emits both fields onto the
-wire, and `DomainPump._clear_scene` calls
-`RemoveElement(scene_id=scene_id, element_id=element_id)` everywhere it
-ships one.
+The ABC does not provide default handlers. A button that does nothing
+when clicked is a valid button — no implicit `on_click` is registered
+by the ABC. Defaults that an agent expects (a dialog that dismisses on
+its own Cancel button) are wired by the composite Element's own
+construction-time logic, not by the ABC. The split keeps the ABC small
+and the defaults discoverable: the only place that adds a handler is
+either the agent's declarative spec or the component's own decoder.
 
-**Resolution:** thread `scene_id` through DialogElement at construction
-time. `JsonDialogDecoder.decode` already knows the enclosing scene id
-(passed in by the per-session JsonElementFactory's enclosing decode
-context); it passes that `scene_id` as a kwarg to `DialogElement(...)`,
-which stores it as a `_scene_id: SceneId` slot. `close()` then builds
-the production-shape `RemoveElement(scene_id=self._scene_id,
-element_id=ElementId(self._id))`. This is strictly additive — no change
-to `domain.update.RemoveElement`, no new "any-scene" mode, no second
-sum-type branch. Alternatives rejected:
+### Why event-driven, not method-named
 
-- **Extend `RemoveElement` with a "scene-implicit" mode.** Adds a `| None`
-  to a frozen dataclass that every existing caller has to defensively
-  handle; violates PY-TS-14 (no `| None` without contract reason).
-- **Introduce a separate `RemoveSelf` Update type.** Adds a sum-type
-  branch and an extra wire kind for one consumer; the discriminated
-  union grows for an internal convenience. PY-OO-6 says use the
-  existing type, not invent a new one.
-- **Resolve `scene_id` at emit time via lookup.** Requires the emit
-  dispatcher to know the inverse element → scene map. The map exists on
-  `hub_display` (PR 5 territory) but does not exist in PR 4; the
-  decoder-time threading is the smaller change.
+Two patterns were available for handler registration:
 
-### Pre-design grep evidence
+- Named method override on the Element — the spike's `on_click` shape.
+- Typed event registry with `add_handler` / `remove_handler` — the
+  pattern shipped here.
 
-`grep -rn "DialogElement(" src/ tests/` returns 0 lines. No existing
-DialogElement in production. New file, no PR-2 carcass, no sentinel-default
-adaptation needed. `ModalElement` in `layout.py:109` is unrelated (it is the
-modal popup container; PR 4 does not touch it).
+The event-registry pattern composes better. An Element can carry zero,
+one, or many handlers for the same event type. A button can be both an
+internal dialog-confirm controller and an emitter of a business event
+on the same click. A test can register a probe handler without
+subclassing the Element. The Element ABC stays small and the surface
+the agent reasons about — events and handlers — stays uniform across
+kinds.
 
-### Production DialogElement (PR 4 — NEW)
+The method-override pattern would have forced the ABC to grow per-event
+hooks (`on_click`, `on_change`, `on_select`) and forced composites to
+re-dispatch from their override to their listeners. The event registry
+collapses both responsibilities into one piece of machinery, and the
+catalog (described in the next section) makes the declarative use
+ergonomic.
 
-`src/punt_lux/protocol/elements/dialog.py`.
+## Declarative handler catalog and wire format
+
+Agents do not author handlers as Python code crossing the wire. Every
+handler an Element runs is produced by a per-kind catalog of typed
+factory methods that the Element class itself publishes. The agent
+picks a catalog entry by name and supplies declarative parameters; the
+decoder constructs the typed `Handler[E]` callable and registers it
+through `add_handler`. No code travels from the agent to the Hub.
+
+This mirrors how SwiftUI exposes environment-provided actions to
+descendant views, how Vue resolves `@click="methodName"` against the
+component's defined methods, and how JavaFX FXML's `onAction="#method"`
+binds to the Controller's typed method at load time. The wire is data;
+the catalog is the bounded vocabulary the wire may name.
+
+### Per-Element catalog of handler factories
+
+Each Element class publishes a catalog as a small typed namespace of
+static factory methods. The factories are typed against the Element's
+own event class — `ButtonHandlers`'s factories return
+`Handler[ButtonClicked]`; a future `SliderHandlers` will return
+`Handler[SliderChanged]`. The decoder routes wire factory specs to the
+right catalog by the Element kind it is decoding for.
+
+```python
+class ButtonHandlers:
+    """Catalog of declarative handler factories for ButtonElement."""
+
+    @staticmethod
+    def noop() -> Handler[ButtonClicked]:
+        """Return a handler that does nothing.
+
+        Used as the inner handler for clicks that exist only to fire
+        decorator side effects (publish, log, etc.). A button that
+        publishes a topic and does nothing else wraps ``noop()``.
+        """
+        def _handler(event: ButtonClicked) -> None:
+            return None
+        return _handler
+
+    @staticmethod
+    def call_model(bound_method: Callable[[], None]) -> Handler[ButtonClicked]:
+        """Invoke a parent-component model method bound at decode time.
+
+        The parent component's decoder (e.g., ``JsonDialogDecoder``)
+        resolves the verb string from the wire (e.g., ``"confirm"``)
+        against the parent model's typed ``_ACTIONS`` mapping and passes
+        the resolved bound method into this factory. The handler closure
+        captures the binding; the event itself carries no model reference.
+        """
+        def _handler(_event: ButtonClicked) -> None:
+            bound_method()
+        return _handler
+```
+
+`ButtonHandlers` is a namespace, not an instantiable class — every
+member is a `@staticmethod` whose return type is the typed handler the
+ABC expects. The decoder calls `ButtonHandlers.noop()` or
+`ButtonHandlers.call_model(model.confirm)` based on the wire factory
+name and parameters — the verb string `"confirm"` is resolved against
+the parent model's `_ACTIONS` mapping by the parent's decoder, and the
+resolved bound method is passed in. The typed return propagates all
+the way to `add_handler(ButtonClicked, handler)`.
+
+### Decorators compose declaratively
+
+Behavior that wraps any inner handler — publishing a business topic
+after the inner runs, logging the event, throttling repeat firings —
+is expressed as a decorator factory. Each decorator factory has the
+same shape: `Callable[[Handler[E]], Handler[E]]`. Type-preserving in
+the event class, so the chain remains type-safe end to end.
+
+```python
+def publish(topics: tuple[str, ...]) -> Callable[
+    [Handler[ButtonClicked]],
+    Handler[ButtonClicked],
+]:
+    """Wrap a handler so it publishes the listed topics after the inner runs."""
+    def _decorator(inner: Handler[ButtonClicked]) -> Handler[ButtonClicked]:
+        def _wrapped(event: ButtonClicked) -> None:
+            inner(event)
+            for topic in topics:
+                _hub.publish(event.owner_id, topic, _payload_of(event))
+        return _wrapped
+    return _decorator
+```
+
+A single handler that opens a dialog AND publishes "work.saved" is
+`publish(("work.saved",))(open_dialog_handler)`. Combinatorial cost
+stays bounded: `N` factories times `M` decorators yields `N + M`
+definitions, not `N * M`.
+
+### Wire format — long form, then sugar
+
+The long form is explicit and uniform: an event name, a factory name,
+factory parameters, and an ordered list of decorator wrappers applied
+inner-first.
+
+```jsonc
+{"event": "click",
+ "factory": "noop",
+ "wrap": [{"decorator": "publish", "topics": ["work.saved"]}]}
+```
+
+The decoder reads this verbatim: look up `"noop"` in `ButtonHandlers`,
+call it with no params, then apply each entry in `"wrap"` outermost
+last (so the first listed decorator sees the agent's inner handler,
+each subsequent decorator wraps the prior result). The final
+`Handler[ButtonClicked]` lands on the Element via `add_handler`.
+
+The common case — fire a business topic with nothing else attached —
+gets a sugar shorthand the decoder canonicalises to the long form
+before constructing the chain:
+
+```jsonc
+{"event": "click", "publish": ["work.saved"]}
+```
+
+After canonicalisation, both wire shapes produce the same long-form
+record:
+
+```jsonc
+{"event": "click",
+ "factory": "noop",
+ "wrap": [{"decorator": "publish", "topics": ["work.saved"]}]}
+```
+
+Sugar is one canonical rewrite per recognised key (`publish`, future
+`call_model`, etc.). The long form remains the authority — every wire
+spec is canonicalised first, then dispatched to the catalog and
+decorator chain through a single code path.
+
+### Per-parent-component verb vocabularies
+
+A `Button` inside a `Dialog` and a `Button` inside a `Form` share the
+same Element kind but answer to different verbs. Each composite Element
+publishes a typed action mapping — the verbs its child controllers may
+invoke against its model:
+
+```python
+class DialogModel:
+    """Component-local model that exposes a typed verb mapping."""
+
+    _ACTIONS: ClassVar[Mapping[str, Callable[["DialogModel"], None]]] = {
+        "confirm": lambda self: self.confirm(),
+        "cancel":  lambda self: self.cancel(),
+        "close":   lambda self: self.close(),
+        "dismiss": lambda self: self.cancel(),  # alias
+    }
+
+    def invoke(self, action: str) -> None:
+        action_fn = self._ACTIONS.get(action)
+        if action_fn is None:
+            raise ValueError(
+                f"unknown dialog action: {action!r} "
+                f"(expected one of {sorted(self._ACTIONS)})"
+            )
+        action_fn(self)
+```
+
+A future `FormModel` publishes its own vocabulary — `submit`, `reset`,
+`validate` — through the same `_ACTIONS` shape.
+
+When the decoder processes a child `Button` whose wire spec carries
+`{event: "click", factory: "call_model", method: "confirm"}`, it looks
+up `"confirm"` in the parent component's published verb mapping at
+decode time. An unrecognised verb fails loudly at decode, not at click.
+Mirrors SwiftUI's `@Environment`-provided actions, Vue's
+provide/inject, and JavaFX FXML's load-time controller binding.
+
+### No `getattr`, no `hasattr` — typed mappings throughout
+
+The catalog and the verb mappings replace every introspection-based
+dispatch the spike used. The decoder looks up a factory name in a
+`Mapping[str, Callable[..., Handler[E]]]`; the verb dispatcher looks
+up a verb name in `Mapping[str, Callable[[Model], None]]`; the ABC's
+`add_handler` takes a typed `event_type` and a typed `handler`.
+`isinstance` is the only runtime type check the dispatcher performs,
+and it runs against published Protocols and concrete event classes.
+
+This matters because the wire is the agent's surface. Every name the
+agent may use is enumerated in the Element kind's catalog and its
+parent composite's verb mapping. If the name is unknown, the decoder
+fails before any handler is registered. The Hub never executes wire
+content as Python; the only Python that runs in response to a click is
+a factory the Element kind itself ships, possibly wrapped by decorators
+the Hub itself ships.
+
+### Inline-code escape hatch is out of scope
+
+A future kind of catalog entry — `{factory: "inline", source: "..."}`
+— is forward-compatible with this shape. The agent ships a Python
+expression; the decoder constructs an inline handler from it; the
+decorator chain wraps it the same way. That capability is not in PR 4
+scope. The catalog model is built to accept it without restructuring
+when the trust model for executing agent-authored code is ready.
+
+## Composite Elements as MVC components
+
+A `DialogElement` is more than a panel with buttons inside. It is a
+self-contained component with its own model, its own view, and its own
+controllers — the classic Model-View-Controller split, contained within
+a single Element kind. Future composites (`FormElement`, `WizardElement`,
+the inspector, the workspace) follow the same pattern. The component
+is the unit of encapsulation; nothing outside the component touches its
+model.
+
+The component embodies the boundary the io-model needs: when an agent
+defines a Dialog with Confirm and Cancel buttons, the agent declares
+what each button means in the Dialog's vocabulary — and that's the end
+of the agent's involvement in the Dialog's behavior. The component
+wires its own controllers, dispatches its own state changes, and
+notifies its parent through the Element Observer subsystem when its
+visible state changes.
+
+### Model — the component's private state
+
+`DialogModel` is the Dialog's internal state. It holds the properties
+the Dialog cares about and the methods that mutate them. The model is
+an implementation detail of the `DialogElement` component — no code
+outside the component constructs it directly, references it by name,
+or invokes its methods through any path other than the typed verb
+mapping the model itself exposes.
+
+```python
+class DialogModel:
+    """The Dialog's private state. Owned by DialogElement.
+
+    Holds only the Dialog-specific properties (``_visible``,
+    ``_confirmed``). The ``_removed`` flag and observer cascade live on
+    the Element ABC — confirm/cancel/close set the model's own state,
+    then invoke the ``_on_dismiss`` callback the DialogElement
+    installed at construction. That callback calls
+    ``Element._mark_removed`` on the owning Element, which is the one
+    place ``_removed`` is set and the one place observers fire."""
+
+    _ACTIONS: ClassVar[Mapping[str, Callable[["DialogModel"], None]]] = {
+        "confirm": lambda self: self.confirm(),
+        "cancel":  lambda self: self.cancel(),
+        "close":   lambda self: self.close(),
+        "dismiss": lambda self: self.cancel(),
+    }
+
+    _visible: bool
+    _confirmed: bool
+    _on_dismiss: Callable[[], None]
+
+    def __new__(cls, *, on_dismiss: Callable[[], None]) -> Self:
+        self = super().__new__(cls)
+        self._visible = True
+        self._confirmed = False
+        self._on_dismiss = on_dismiss
+        return self
+
+    def confirm(self) -> None:
+        """Record confirmation and dismiss the dialog."""
+        self._confirmed = True
+        self._dismiss()
+
+    def cancel(self) -> None:
+        """Dismiss the dialog without recording confirmation."""
+        self._dismiss()
+
+    def close(self) -> None:
+        """Dismiss the dialog (semantic alias for an unspecified close)."""
+        self._dismiss()
+
+    def invoke(self, action: str) -> None:
+        """Dispatch a verb name from the typed action mapping."""
+        action_fn = self._ACTIONS.get(action)
+        if action_fn is None:
+            raise ValueError(
+                f"unknown dialog action: {action!r} "
+                f"(expected one of {sorted(self._ACTIONS)})"
+            )
+        action_fn(self)
+
+    def _dismiss(self) -> None:
+        """Drop visibility and ask the owning Element to mark itself
+        removed. Idempotency lives on ``Element._mark_removed`` — a
+        second dismiss is a harmless no-op there."""
+        self._visible = False
+        self._on_dismiss()
+```
+
+`_ACTIONS` is the typed mapping the wire-level verb vocabulary
+resolves against (introduced in the catalog section). The model
+exposes no observer hook of its own — the Element Observer hook the
+Dialog's parent composite registers through lives on the Element
+ABC (`Element.add_observer`), and the model reaches it indirectly by
+invoking `_on_dismiss`, which the decoder bound to the owning
+`DialogElement._mark_removed`.
+
+### View — DialogElement reads model state to render
+
+`DialogElement` is the Element kind. Its render path reads the model;
+it does not write the model. The view is a function of state.
 
 ```python
 class DialogElement(Element):
-    _id: str
-    _scene_id: SceneId          # threaded at construction (round-2)
-    _children_tuple: tuple[Element, ...]
-    _kind: Literal["dialog"]
+    """A composite Element whose state is owned by DialogModel."""
 
-    def __new__(cls, *,
-                renderer_factory: RendererFactory = _NULL_FACTORY,
-                emit: Emit = _no_emit,
-                id: str,
-                scene_id: SceneId,
-                children: tuple[Element, ...] = ()) -> Self:
-        ...  # assign fields, kind="dialog", return self
+    _id: ElementId
+    _model: DialogModel
+    _children_tuple: tuple[Element, ...]
+
+    def __new__(
+        cls,
+        *,
+        renderer_factory: RendererFactory,
+        emit: Emit,
+        id: ElementId,
+    ) -> Self:
+        self = super().__new__(cls, renderer_factory=renderer_factory, emit=emit)
+        self._id = id
+        self._children_tuple = ()
+        return self
+
+    @property
+    def id(self) -> ElementId:
+        return self._id
+
+    @property
+    def visible(self) -> bool:
+        return self._model._visible
 
     def _children(self) -> tuple[Element, ...]:
-        """Element ABC composite hook."""
         return self._children_tuple
 
-    def _set_children(self, children: tuple[Element, ...]) -> None:
-        """Two-pass install — JsonDialogDecoder constructs the dialog
-        first (empty children), then constructs each child Button with
-        on_click_callback=dialog.close bound, then calls this.  Spike R4."""
+    def _install_model(self, model: DialogModel) -> None:
+        """Decoder-only seam: install the model once it is constructed
+        with ``on_dismiss=self._mark_removed`` bound."""
+        self._model = model
+
+    def _install_children(self, children: tuple[Element, ...]) -> None:
+        """Decoder-only seam: install children after the model exists,
+        so child Buttons can bind to it."""
+        self._children_tuple = children
+```
+
+The Dialog exposes `visible` as a read-only property backed by the
+model. The `removed` property is inherited from the Element ABC and
+reflects the single Element-level `_removed` flag — every removal
+path (agent `RemoveElement`, the component's own dismiss, connection
+disconnect) flips that one flag through `Element._mark_removed`.
+
+### Controllers — child Buttons reference the model
+
+Each child Button in the Dialog is a controller for one of the model's
+actions. The wire spec the agent ships says only "this button's click
+means 'confirm'"; the decoder wires the Button to the Dialog's model
+through the bound-callback pattern.
+
+```python
+class JsonDialogDecoder:
+    """Decoder for DialogElement wire payloads."""
+
+    def decode(self, raw: Mapping[str, object]) -> DialogElement:
+        # 1. Construct the Dialog element first so its `_mark_removed`
+        #    method exists to be bound into the model's `on_dismiss`.
+        dialog = DialogElement(
+            renderer_factory=self._renderer_factory,
+            emit=self._emit,
+            id=ElementId(self._require_string(raw, "id")),
+        )
+
+        # 2. Construct the model with its dismiss callback bound to the
+        #    Dialog's Element-level `_mark_removed`. Confirm/cancel/close
+        #    on the model now route through the one Element-level
+        #    `_removed` flag and the one Element-level observer cascade.
+        model = DialogModel(on_dismiss=dialog._mark_removed)
+        dialog._install_model(model)
+
+        # 3. Decode each child Button. The Button's click-handler factory
+        #    is ButtonHandlers.call_model, with the verb name as its only
+        #    wire parameter. The factory closes over the model the decoder
+        #    has just constructed.
+        children = tuple(
+            self._button_decoder.decode_for_parent(child_raw, owner_model=model)
+            for child_raw in self._require_children(raw)
+        )
+
+        # 4. Install the wired children.
+        dialog._install_children(children)
+        return dialog
+```
+
+The Button's decoder receives `owner_model=model` and uses it when it
+builds the typed `Handler[ButtonClicked]` from the `call_model` factory
+in the catalog. By the time the Dialog is returned from `decode`, every
+child Button's click handler already holds a reference to the right
+model and the right verb. No runtime late-binding, no string lookup
+against `getattr`. The wire defines the verb; the decoder resolves it.
+
+This is the same shape as JavaFX FXML's controller binding: at load
+time the FXML parser resolves `onAction="#confirm"` against the
+Controller's `@FXML` methods. Loud at load, silent and typed at run.
+
+### Element Observer — intra-Hub property propagation
+
+When the user clicks Confirm, the controller runs
+`model.invoke("confirm")`, which calls `self.confirm()` on the model,
+which sets `_confirmed = True` and invokes `_on_dismiss`. The dismiss
+callback is `dialog._mark_removed` — the Element-ABC method that
+flips `_removed = True` on the DialogElement itself and notifies the
+Element's observers. The Dialog's parent composite is one of those
+observers. On `"removed"`, the parent performs the same drop an
+agent-issued `RemoveElement` would: it prunes the Dialog out of its
+own children tuple AND calls `HubDisplay.apply(RemoveElement(...))`
+so the Hub's `(scene_id, element_id)` index drops the entry too.
+Skipping either half leaves the system inconsistent — local-only
+pruning leaks an orphan in the Hub index that still resolves to a
+tree the parent no longer holds; Hub-only removal leaves a dangling
+reference in the parent's children tuple.
+
+```python
+class PanelElement(Element):
+    """A composite that observes its children's removal."""
+
+    def _install_children(self, children: tuple[Element, ...]) -> None:
+        for child in children:
+            child.add_observer(
+                lambda prop, _c=child: self._on_child_property(prop, _c)
+            )
         self._children_tuple = children
 
-    def close(self) -> None:
-        """Lifted from spike elements.py:181-185 with the production
-        RemoveElement(scene_id, element_id) shape (round-2 audit)."""
-        self._emit(RemoveElement(
-            scene_id=self._scene_id,
-            element_id=ElementId(self._id),
-        ))
-
-    # @property accessors for id, kind.  to_dict / from_dict thin
-    # delegators to dialog_codec (D5).
+    def _on_child_property(self, prop: str, child: Element) -> None:
+        if prop == "removed":
+            # 1. Local prune from this parent's children tuple.
+            self._children_tuple = tuple(
+                c for c in self._children_tuple if c is not child
+            )
+            # 2. Hub-side drop — same operation an agent-issued
+            #    RemoveElement would invoke. Keeps the (scene_id,
+            #    element_id) index consistent with the local view.
+            self._hub_display.apply(
+                self._owner_connection_id,
+                RemoveElement(scene_id=self._scene_id, element_id=child.id),
+            )
 ```
 
-### Bound-callback decode (spike R4 pattern)
+This is the Element Observer subsystem in action: a property on one
+Element changes, an observer registered by the parent runs, and the
+parent updates its own state — both its own children tuple and the
+Hub's authoritative index. Standard Swing/Cocoa/Qt mechanics, with
+the extra discipline that the Hub index is part of the parent's
+"state" for cascade purposes. The `add_observer` hook lives on the
+Element ABC, so every Element kind exposes it identically; `visible`
+and `enabled` will propagate the same way in future Layout work
+(without the Hub-index call — only `removed` mutates the index).
 
-`src/punt_lux/protocol/elements/dialog_codec.py` — `JsonDialogDecoder.decode`
-lifted from spike `codec.py:117-145`, threading `scene_id` through.
+The same machinery handles connection teardown: when a connection
+disconnects, the Hub calls `_mark_removed` on every root Element the
+connection owns. The Element-level notifications cascade up to each
+parent's observer; parents prune both halves; the scene shrinks
+naturally and the Hub index shrinks with it. All three removal paths
+— agent `RemoveElement`, component self-dismiss, connection
+disconnect — flip the same Element-level `_removed` flag through the
+same `_mark_removed` method and fire the same observer cascade.
 
-**Note on the pseudo-code below:** the snippet uses bare `str(raw[...])`
-and `raw.get(...)` for brevity to keep the bound-callback shape in
-focus. The shipped decoder MUST use `ElementWireContext.for_kind(...)`
-validators (`require_str`, `optional_*`, etc.) at every wire-boundary
-read — the same convention `JsonTextDecoder` and the existing
-`ButtonElement` codec follow. Bare `str(raw[...])` silently coerces
-wrong types (e.g., `id=123` → `"123"`); `ElementWireContext` raises a
-typed `ValueError` with a precise message instead. Treat the snippet as
-illustrative for the bound-callback dance, not as the on-wire validator
-shape.
+### Element Observer is not Agent Subscribe
 
-```python
-def decode(self, raw: Mapping[str, object], *, scene_id: SceneId) -> DialogElement:
-    dialog = DialogElement(
-        renderer_factory=self._rf, emit=self._emit,
-        id=str(raw["id"]), scene_id=scene_id, children=(),
-    )
-    children_raw = raw.get("children", [])
-    children: list[Element] = []
-    for c_raw in children_raw:
-        if c_raw.get("kind") == "button":
-            # Bind on_click_callback=dialog.close at construction so
-            # the button's behavior references the dialog's API.
-            children.append(ButtonElement(
-                renderer_factory=self._rf, emit=self._emit,
-                id=str(c_raw["id"]), label=str(c_raw["label"]),
-                on_click_callback=dialog.close,
-            ))
-        else:
-            children.append(self._factory.decode(c_raw))
-    dialog._set_children(tuple(children))
-    return dialog
+The Element Observer subsystem and the Agent Subscribe / Publish
+subsystem are two different mechanisms with two different lifecycles.
+They share no machinery. The Element Observer is in-process,
+property-typed, and registered by parents on their direct children.
+The Agent Subscribe registry is connection-scoped, topic-named, and
+serves cross-process pub/sub for agents and applets.
+
+| Concern | Element Observer | Agent Subscribe |
+|---|---|---|
+| Scope | Intra-Hub, intra-component | Cross-process |
+| Key | Property name on an Element | Topic name in a connection's scope |
+| Registration | Parent registers on child | Connection subscribes to its own scope |
+| Cleanup | Element death drops observers | Connection disconnect drops the scope |
+| Wire involvement | None — process-local references | Outbound `ObserverMessage` over the wire |
+| Trust model | None — every observer is in-process | Per-connection scoping (covered later) |
+
+A DialogElement's self-dismiss is intra-component coordination: the
+controller mutates the model, the model notifies the observer, the
+observer prunes. No topic name is invented; no pub-sub message crosses
+a process boundary. Pub-sub is reserved for cross-component business
+events — "work.saved", "scene.dismissed-by-agent" — where the producer
+and the consumer live in different connections, different processes,
+or different machines.
+
+Conflating the two subsystems is the easy mistake. The discipline that
+prevents it is one rule: intra-component coordination is Observer;
+cross-component / cross-process is Pub-Sub. If a DialogElement
+publishes a topic, the topic is a business event for outside
+consumers, not the means by which the Dialog dismisses itself.
+
+### The bound-callback pattern at the boundary
+
+The agent's declaration is small and declarative:
+
+```jsonc
+{
+  "kind": "dialog",
+  "id": "save_confirm",
+  "children": [
+    {"kind": "button", "id": "ok",     "label": "OK",
+     "on": [{"event": "click", "factory": "call_model", "method": "confirm"}]},
+    {"kind": "button", "id": "cancel", "label": "Cancel",
+     "on": [{"event": "click", "factory": "call_model", "method": "cancel"}]}
+  ]
+}
 ```
 
-Two-pass construction (build dialog with empty children → build children
-with back-reference → install) is the only OO-clean way to do mutual
-reference with frozen-after-construction state.
+The agent says "this button means confirm." It does not say "when this
+button is clicked, mark the Dialog's model `_confirmed = True` and
+notify the Dialog's parent through the Observer." That sentence is the
+component's documented behavior, expressed once in the Dialog's
+`DialogModel.confirm` method, resolved at decode time against the
+Dialog's typed verb mapping, and bound into each child Button's
+typed handler.
 
-`scene_id` reaches the decoder via the `JsonElementFactory.decode` path,
-which `tools/tools.py:show()` calls per-element with the enclosing
-`SceneId` already in scope (the scene-id arrives as the first parameter
-of `show`). PR 4 extends `JsonElementFactory.decode(raw, *, scene_id:
-SceneId)` to thread the scene id through; only Dialog needs it in PR 4,
-but the signature change is uniform so future composites (Window, Tab)
-inherit it for free.
+By the time the user clicks, every reference is resolved, every type
+is checked, every dispatch is a method call on an object the decoder
+constructed. The wire is data. The component is code. The decoder is
+the seam.
 
-### Display-tier behavior
+Future composite Elements follow the same template: a private model
+that publishes a typed verb mapping, a view-side Element class that
+reads model state, a controller-side decoder that constructs the model
+first and then wires every child controller's typed handler against
+it. Form, Wizard, Inspector, Workspace — each its own component, each
+its own model, each its own verb vocabulary, all reading and writing
+through the same MVC seam.
 
-On the Display tier, `dialog.close()` exists but `self._emit` is `_no_emit`
-(spike `elements.py:148-150`). PR 4 ships a minimal
-`display/renderers/imgui/dialog.py` mirroring PR-2 ModalElement's ImGui
-calls (distinct element, same shape). The follow-up mission decides whether
-to reuse `element_renderer.py` dispatch or route through ImGuiRendererFactory
-per PR 3 §2.
+## ButtonClicked: one event, one validation boundary
 
----
+`ButtonClicked` is the canonical typed event for a validated button
+press. It has exactly one constructor — the Hub's `Display.interact`
+method — and exactly one validation site — the same method. Everything
+upstream of `Display.interact` is wire-side triage; everything
+downstream is typed handler dispatch. There is no intermediate class
+between the inbound `InteractionMessage` and the `ButtonClicked` the
+dispatcher hands to `Element.fire`.
 
-## Section 4 — Observer subsystem
-
-### SubscriptionRegistry (production shape)
-
-`src/punt_lux/iohub/observer.py` (NEW). Lifted from spike `hub.py:132-166`,
-adapted to asyncio. See §6 for the inbound dispatch flow that uses
-`loop.call_soon_threadsafe` to schedule publish on the hub's event loop
-from the thread-side listener.
+### The event class
 
 ```python
-class Observer:
-    """Hub-side topic → connection-id registry; cascade-on-disconnect.
-    Adapted from spike SubscriptionRegistry to asyncio (see §11 Q1)."""
+@dataclass(frozen=True, slots=True)
+class ButtonClicked:
+    """A validated button click. Constructible ONLY by Display.interact."""
 
-    _by_topic: dict[str, set[str]]            # topic → {connection_id}
-    _lock: asyncio.Lock
-    _push: PushFn                              # (cid, payload) → awaitable
+    scene_id: SceneId
+    element_id: ElementId
+    owner_id: ConnectionId
+    kind: ClassVar[Literal["button_clicked"]] = "button_clicked"
 
-    def __new__(cls, *, push: PushFn) -> Self: ...
-
-    async def subscribe(self, topic: str, cid: str) -> None: ...
-    async def unsubscribe(self, topic: str, cid: str) -> None: ...
-    async def remove_connection(self, cid: str) -> None: ...
-    async def publish(self, topic: str, payload: dict[str, object]) -> int:
-        """Fan out 'observed' envelope to every exact-topic subscriber AND
-        every wildcard subscriber whose pattern matches `topic`.  Per
-        ARCHITECTURE_NOTES A4: in-process call, wire-output effect."""
+    def __new__(
+        cls,
+        *,
+        scene_id: SceneId,
+        element_id: ElementId,
+        owner_id: ConnectionId,
+        _token: object,
+    ) -> Self:
+        if _token is not Display._construction_token:
+            msg = (
+                "ButtonClicked must be constructed by Display.interact; "
+                "direct construction is not allowed"
+            )
+            raise TypeError(msg)
+        self = super().__new__(cls)
+        object.__setattr__(self, "scene_id", scene_id)
+        object.__setattr__(self, "element_id", element_id)
+        object.__setattr__(self, "owner_id", owner_id)
+        return self
 ```
 
-### Wildcard subscriptions (`WILDCARD_TOPIC`)
+Because the class is `frozen=True`, `__new__` must use `object.__setattr__`
+to populate the slots — the dataclass-synthesized `__setattr__` raises
+`FrozenInstanceError`. The three writes happen after the token check so
+that rejected constructions never produce a half-initialized instance.
 
-The spike has no recv-equivalent (`agent.py:48-60` registers one
-exact-match `handle` per topic). Production's load-bearing
-`DisplayClient.recv()` shim (§7) cannot enumerate `interaction.<id>`
-topics ahead of time — element ids are unknown until publish. Observer
-therefore admits one sentinel topic `WILDCARD_TOPIC = "*"` that matches
-every published topic; registry-local, no wire change:
+The factory guard is the PY-CC-3 pattern: the class refuses any
+construction path that does not present the token the `Display` class
+holds. Tests that need a `ButtonClicked` get one by calling
+`Display.interact` with a valid `InteractionMessage`, not by
+constructing the event directly. The token is module-private to the
+Hub; no other module can forge it.
 
-```python
-WILDCARD_TOPIC: Final = "*"
+The class is frozen and slotted — once constructed, it is an inert
+record of three values plus a `kind` discriminator. Handlers read
+fields; they do not mutate the event.
 
-async def publish(self, topic: str, payload: dict[str, object]) -> int:
-    async with self._lock:
-        targets = set(self._by_topic.get(topic, ())) \
-                | set(self._by_topic.get(WILDCARD_TOPIC, ()))
-    for cid in targets:
-        await self._push(cid, {"kind": "observed",
-                                "topic": topic, "payload": payload})
-    return len(targets)
-```
+### The domain-validation site
 
-Set-union dedupes a cid subscribed to both `interaction.btn1` and
-`WILDCARD_TOPIC`. Wildcard is reserved for the polling-shim adapter; the
-MCP `subscribe` tool rejects `"*"` so agents must use exact-match topics.
-
-`PushFn` type alias: `Callable[[str, dict[str, object]], Awaitable[None]]`.
-The registry is injected with whatever push channel the surrounding context
-exposes — for production, the per-MCP-session writer that ships an
-`observed` envelope back through the existing `MessageRegistry` wire path
-(D7 resolution: reuse the existing length-prefixed `InteractionMessage`
-channel shape; a new `ObservedMessage` only if `MessageRegistry` proves
-inadequate — see Open Question 2). The registry knows nothing about
-sockets, so it tests with a `RecordingPush` fixture (PY-DP-9 Null Object).
-
-### Hub-internal API
-
-`hub.subscribe(cid, topic)`, `hub.unsubscribe(cid, topic)`,
-`hub.publish(topic, payload)` are thin methods on whatever owns the
-Observer instance per session. The current `tools/server.py` per-session
-state already exists: a `_session_key: ContextVar[str]` (line 108) plus
-a `_session_menus: dict[str, list[str]]` registry (line 111). The
-Observer joins that state via a new module-level
-`_session_observers: dict[str, Observer]` populated in `run_mcp_session`
-(line 133). The session owner exposes
-`subscribe`/`unsubscribe`/`publish` to internal callers (the emit
-dispatcher in §5) AND wires the MCP tools below.
-
-### MCP tool surface (additive)
-
-`src/punt_lux/iohub/observer_tools.py` (NEW). Three FastMCP tools,
-registered in `tools/server.py` alongside the 24 invariant tools:
+`Display.interact` is the single function that turns a wire
+`InteractionMessage` into a typed `ButtonClicked`. It owns *domain*
+validation — client existence, scene/element resolution, ownership,
+and the per-kind value-shape gate that confirms a `button` Element
+saw a click (`value is True`) rather than a slider drag or a text
+edit. Wire-shape triage (non-element actions, missing `scene_id`) is
+a separate concern that the pump owns at the wire boundary before
+the message reaches `Display.interact`. There are two layers because
+there are two failure modes: wire-shape mismatches arrive constantly
+during normal operation (menu clicks, frame closes) and are dropped
+silently; domain failures should never happen on a well-formed
+interaction and surface as typed errors. The single-site claim is
+about *domain* validation — one place to check identity, ownership,
+and per-kind value shape, one place to construct the event, no
+re-validation downstream.
 
 ```python
-class ObserverTools:
-    """Holds a per-session Observer; registers three MCP tools.  Lifts
-    spike's agent socket handler (hub.py:257-299) into MCP."""
+class Display:
+    """Validation site and dispatch entry point. The Element index
+    and the clients registry both live on HubDisplay; Display borrows
+    HubDisplay through a constructor dependency rather than
+    maintaining parallel copies of either."""
 
-    _observer: Observer
-    _connection_id: str
+    _construction_token: ClassVar[object] = object()
 
-    def register(self, mcp: FastMCP) -> None:
-        @mcp.tool
-        async def subscribe(topic: str) -> dict[str, object]: ...
-        @mcp.tool
-        async def unsubscribe(topic: str) -> dict[str, object]: ...
-        @mcp.tool
-        async def publish(topic: str,
-                          payload: dict[str, object]) -> dict[str, object]: ...
-```
+    def __init__(self, hub_display: HubDisplay) -> None:
+        self._hub_display = hub_display
 
-`connection_id` derives from `_session_key.get()` (the same ContextVar
-the existing per-session state keys on, line 108 of `tools/server.py`).
-Subscribe/unsubscribe register/remove `(topic, connection_id)`. Publish
-fans out via `Observer.publish`.
+    def interact(
+        self,
+        client_id: ConnectionId,
+        msg: InteractionMessage,
+    ) -> ButtonClicked:
+        """Domain-validate the message, construct the typed event, return it.
 
-### Trust model
+        Callers must pass a wire-shape-valid message: ``msg.action`` is an
+        element action (not ``"menu"`` or ``"frame_close"``) and
+        ``msg.scene_id`` is not ``None``. The pump enforces those
+        wire-shape preconditions before invoking this method; direct callers
+        (test code, future server-side click synthesis) must do the same.
+        The per-kind ``value``-shape gate (a click is ``value is True``, a
+        slider change is ``isinstance(value, float)``, and so on) is the
+        responsibility of this method, not the pump.
 
-Per djb consultation: any agent can subscribe to any topic; any agent can
-publish on any topic. No ACLs in PR 4. The model is trusted multi-tenant on
-a single host — luxd binds to 127.0.0.1, CSWSH Origin allowlist already gates
-browsers (`hub.py:74-78`). The implementation commit (ii) lands a small
-"Trust model" subsection in `docs/architecture/io-model.md`. Later PR can add
-per-topic ACLs if needed.
+        Raises ``UnknownClientError`` / ``UnknownSceneError`` /
+        ``UnknownElementError`` / ``UnauthorizedInteractionError`` /
+        ``WrongKindError`` on any domain validation failure. Domain
+        failures are not normal outcomes; they are errors that surface
+        immediately.
+        """
+        scene_id = msg.require_scene_id()
+        element_id = ElementId(msg.element_id)
 
-### Cascade on disconnect
+        if not self._hub_display.is_client(client_id):
+            raise UnknownClientError(client_id=client_id)
+        element = self._hub_display.resolve(scene_id, element_id)
+        if self._hub_display.owner_of(scene_id, element_id) != client_id:
+            raise UnauthorizedInteractionError(
+                scene_id=scene_id,
+                element_id=element_id,
+                caller=client_id,
+            )
 
-When a WebSocket session closes, `tools/server.py:_cleanup_session(session_key)`
-(line 114) already runs in the `run_mcp_session` `finally:` block (line
-164). PR 4 extends `_cleanup_session` to schedule
-`observer.remove_connection(cid)` on the event loop (the session is
-running on the loop at cleanup time, so `await` is direct). The
-session-level lifecycle is the right hook — Observer never owns the
-disconnect signal directly.
-
----
-
-## Section 5 — Hub emit-handler dispatch
-
-### Production-tree audit corrections (round-2)
-
-Round-1 drafts named `UpdateCodec` and `_send_update` that do not exist.
-The verified production references:
-
-- **No `UpdateCodec` class.** `AddElement`, `RemoveElement`,
-  `SetProperty` carry their own `to_dict()` methods. The "update encode"
-  call is `update.to_dict()` directly.
-- **No `_send_update` method on `DisplayClient`.** The lowest-level send
-  is `DisplayClient._send(msg: Message)` (line 378) which takes a
-  `Message` dataclass, encodes it via `encode_message`, and writes the
-  framed bytes under `self._lock`. The session-owning code dispatches
-  via this method, wrapping the domain Update in an `UpdateMessage` (the
-  wire transport for incremental scene updates, defined in
-  `protocol/messages/scene.py:43`).
-- **For PR 4, only `RemoveElement` flows through the dispatcher in the
-  Update branch** (Dialog.close is the only emitter). `AddElement` is
-  agent-initiated, not behavior-initiated, and ships through the
-  existing `show()` path — PR 4 does not add a second
-  `AddElement`-from-emit path. The dispatcher's Update branch is
-  therefore single-case in PR 4; PR 5 widens it when `SetProperty` from
-  behavior lands.
-
-### Pattern source
-
-Spike `hub.py:197-215` `hub_emit`. Per ARCHITECTURE\_NOTES A2: the emit
-handler is the single fan-out point for everything an Element behavior
-raises through `self._emit`. Two branches: Events → publish; Updates →
-accept + ship.
-
-### Production shape
-
-`src/punt_lux/iohub/emit_dispatch.py` — `HubEmitDispatcher`.
-
-```python
-class HubEmitDispatcher:
-    """Satisfies the Emit Protocol.  JsonElementFactory passes
-    `dispatcher.dispatch` as every ABC Element's `emit` channel."""
-
-    _observer: Observer
-    _send: SendMessageFn             # DisplayClient._send bound for this session
-    _loop: asyncio.AbstractEventLoop  # captured at construction; see §6
-
-    def __new__(cls, *,
-                observer: Observer,
-                send: SendMessageFn,
-                loop: asyncio.AbstractEventLoop) -> Self: ...
-
-    def dispatch(self, message: object) -> None:
-        """Routes by type per A2."""
-        match message:
-            case ButtonClickEmitted():
-                topic = f"interaction.{message.element_id}"
-                payload = JsonButtonClickEmittedEncoder().encode(message)
-                # See §6: publish must run on the hub's event loop because
-                # Observer's lock is asyncio.Lock and _push is awaitable.
-                self._loop.call_soon_threadsafe(
-                    lambda: asyncio.create_task(
-                        self._observer.publish(topic, payload),
-                    ),
+        match element.kind, msg.value:
+            case "button", True:
+                return ButtonClicked(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    owner_id=client_id,
+                    _token=Display._construction_token,
                 )
-            case RemoveElement():
-                # PR 4 ships the dispatch; full hub_display.accept lands
-                # in PR 5.  See §11 Q3.  The wire envelope for a single
-                # remove is the existing UpdateMessage shape — PR 5
-                # generalizes when SetProperty joins the emit-Update set.
-                self._send(_remove_to_update_message(message))
-            case _:
-                msg = f"Unknown message: {type(message).__name__}"
-                raise ValueError(msg)
+            case "button", _:
+                raise WrongKindError(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    expected="button",
+                    got=f"button with value {msg.value!r}",
+                )
+            case _, _:
+                raise WrongKindError(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    expected="button",
+                    got=element.kind,
+                )
 ```
 
-`SendMessageFn` type alias: `Callable[[Message], None]` — exactly
-`DisplayClient._send`'s signature.
+The method does four domain checks in order: validate the client is
+registered (`hub_display.is_client(client_id)`); ask `HubDisplay` to
+resolve `(scene_id, element_id)` to an `Element` (which raises
+`UnknownSceneError` or `UnknownElementError` on miss); validate that
+the caller owns the element by comparing `client_id` to
+`hub_display.owner_of(scene_id, element_id)`; and dispatch on the
+resolved Element kind plus the wire `value` shape to construct the
+typed event. On success it returns the typed event. On failure it
+raises a typed domain error. There is no `None` return, no boolean
+success flag, no error sentinel — either the caller gets a typed
+event or the call raises. The wire-shape preconditions named in the
+docstring are not re-checked here; the pump owns them at the wire
+boundary, and direct callers carry the same obligation.
 
-`_remove_to_update_message(remove: RemoveElement) -> UpdateMessage`
-wraps the domain `RemoveElement` into the wire `UpdateMessage(scene_id,
-patches=[...])` envelope. PR 4 ships this conversion as a small free
-helper inside `iohub/emit_dispatch.py` (single-call-site, single
-emitter, ≤ 5 LoC); PR 5 promotes it to a method on a `HubDisplay`-side
-encoder when SetProperty joins the set. The decision to keep it a free
-helper now and absorb it later follows PY-OO-7: don't ship a class
-without a second method.
+The ownership check closes a trust-model gap: without it, any
+registered connection could fire a click against another
+connection's element merely by knowing the `(scene_id, element_id)`
+pair. With it, the per-connection scoping that `SubscriptionRegistry`
+enforces for pub-sub extends to interaction dispatch as well — a
+connection can only drive interactions on elements it installed.
 
-The `dispatch` method satisfies the `Emit` Protocol from
-`protocol/renderer.py:17` (`type Emit = Callable[[object], None]`).
-Synchronous wrapper around async work — `call_soon_threadsafe` is the
-asyncio API for scheduling work from a non-loop thread (see §6 for why
-this matters). Behavior methods on Elements stay synchronous (per spike:
-`def on_click(self) -> None`, not `async def`) so the synchronous emit
-signature is the right contract.
+`HubDisplay` is the single authoritative store for both the Element
+index and the clients registry. `Display` does not maintain its own
+`_scenes` dict or its own `_clients` set; those would be parallel
+state, exactly the kind of duplication the guiding principle rules
+out. `Display` takes `HubDisplay` as a constructor dependency and
+reads through it for every validation lookup. One index, one clients
+registry, one owner, every consumer goes through the same surface.
 
-### Where it plugs in
+### The pump shrinks to wire-side triage
 
-The session-owning code in `tools/server.py:run_mcp_session` constructs:
-
-1. The Observer (per-session; push wraps the per-session writer that
-   ships `observed` envelopes through the existing wire — §6, §11 Q2).
-2. The HubEmitDispatcher (`observer`, `send=client._send`,
-   `loop=asyncio.get_running_loop()` — the loop is captured at
-   construction so the dispatcher can schedule async work even when
-   `dispatch` fires from the listener thread).
-3. The JsonElementFactory (`renderer_factory=NullRendererFactory()`,
-   `emit=dispatcher.dispatch`) — so every ABC Element decoded from the
-   wire gets the dispatcher as its emit channel.
-
-The session-keyed factories live in
-`_session_factories: dict[str, JsonElementFactory]` (NEW
-module-level dict in `tools/server.py`, mirroring `_session_menus` at
-line 111). `tools/tools.py:show()` reads
-`_session_factories[_session_key.get()]` to look up the per-session
-factory without changing its function signature — the ContextVar
-pattern already in place is the integration path. PR 4 adds `kind ==
-"button"` and `kind == "dialog"` cases inside `JsonElementFactory.decode`
-routing through that factory (D2 follow-up; Text already routes per
-PR 3).
-
----
-
-## Section 6 — First Observer consumer (`interaction.<id>` push — PY-RF-2)
-
-### Production-tree audit corrections (round-2)
-
-Round-1 drafts proposed `asyncio.create_task` for the inbound publish
-hop. That is wrong:
-`DisplayClient._listener_loop` (line 309) is a `threading.Thread` target;
-the listener decodes inbound `InteractionMessage` on a worker thread,
-not in the asyncio event loop. Calling `asyncio.create_task` from a
-non-loop thread raises `RuntimeError: no running event loop`.
-
-The correct hand-off is `loop.call_soon_threadsafe(...)`, scheduling the
-publish coroutine on the hub's event loop (captured at dispatcher
-construction time — see §5's `_loop` slot). This is the asyncio API
-designed exactly for "thread produces work, event loop consumes it".
-
-### Production-tree audit corrections (round-4) — session-key routing
-
-Round-3 drafts keyed `_hub_display_index` by `session_key` and looked up
-the per-session index inside `_dispatch_or_buffer`. That is wrong:
-
-- **`DisplayClient` is a module-level singleton** in
-  `src/punt_lux/tools/connection.py:20`: `_client: DisplayClient | None
-  = None`, instantiated once in `_get_client()` (line 64) and reused
-  across every MCP session that the hub multiplexes. There is exactly
-  one `_listener_loop` thread for the whole process.
-- **`_session_key: ContextVar[str]`** (`tools/server.py:108`) is set by
-  `run_mcp_session` per asyncio task (line 143); it is NOT set on the
-  `DisplayClient._listener_thread`. A `ContextVar.get()` from the
-  listener thread returns the default (`"local"`), not the originating
-  session.
-- **`InteractionMessage` carries no session identifier** (verified —
-  `protocol/messages/interaction.py:15-24`: `element_id`, `action`,
-  `type`, `ts`, `value`, `scene_id` — no session/connection key).
-
-Threading a session key through `InteractionMessage` is not viable
-either: it is a wire kind shared by the legacy `Display.interact` path
-that PR 7 owns, and the display end (the source of the wire message)
-does not know which MCP session "owns" any given button. The display
-just sends a click for `element_id=X`; whichever session subscribed to
-`interaction.X` should receive it.
-
-**Resolution:** key `_hub_display_index` by `element_id` directly, with
-session ownership recorded at `show()` time. When `tools/tools.py:show()`
-builds the Element tree for session `S`, every newly-created Button
-registers two facts under the `_client_lock` held by the existing
-`connection.py` global state:
-
-1. `_hub_display_index[element_id] = button_instance` — the global
-   id → Element map the listener thread reads.
-2. `_element_owner[element_id] = session_key` — the global id → owner
-   map so cleanup at `_cleanup_session` can prune entries belonging to
-   the disconnecting session.
-
-The `DisplayClient._listener_loop` then dispatches purely on the wire
-`element_id`: look up `_hub_display_index[msg.element_id]`; if present
-and a Button and the click-value guard passes, call `elem.on_click()`.
-The Button's `_emit` is the `HubEmitDispatcher.dispatch` bound at decode
-time (§5) — the dispatcher carries the owning session's Observer +
-`_loop` references inside its closure, so the publish goes to the
-correct session-keyed Observer without the listener thread ever knowing
-the session.
-
-Element-id collisions across sessions are an existing global-scene-id
-hazard (two sessions calling `show("home", ...)` already collide on the
-display side); PR 4 does not introduce or solve cross-session id
-collision. Last-writer-wins on `_hub_display_index` matches the existing
-last-writer-wins on scene state.
-
-This is strictly additive — no `InteractionMessage` field added, no
-display-side change, no listener-thread `ContextVar` plumbing.
-
-Alternatives rejected:
-
-- **Wrap the listener thread with a per-session ContextVar.** Listener
-  is a singleton; there is no "per-session" listener to bind a
-  ContextVar to.
-- **Add `session_key` to `InteractionMessage`.** Wire-incompatible with
-  the legacy `Display.interact` path that ships the same kind; PR 7
-  owns the wire schema.
-- **Spawn one DisplayClient per MCP session.** Would also spawn one
-  Unix socket connection per session and one listener thread per
-  session; out of scope for PR 4, and the singleton client is the
-  production reality the dispatcher has to integrate with.
-
-### Pattern source
-
-Spike `hub.py:235-255` `handle_display_message`: on inbound
-`InteractionMessage`, decode → resolve on `hub_display` → if Button +
-click, call `elem.on_click()` → emit `ButtonClickEmitted` → publish
-`interaction.<id>` → subscribers receive `observed(topic, payload)`.
-
-### Production shape
-
-The existing `tools/server.py` MCP session receives display-side
-`InteractionMessage` via the existing `DisplayClient._listener_loop` →
-`_dispatch_or_buffer` → callback path (`display_client.py:309-368`). PR 4
-adds a parallel hub-side flow for Button clicks. When the listener
-routes an `InteractionMessage(element_id=X, action="click")`:
-
-- **Legacy path** (unchanged): `_dispatch_or_buffer` looks up
-  `self._callbacks.get((element_id, action))`; if registered, the
-  callback fires on the listener thread. Load-bearing for the 8
-  unmigrated inputs and for any agent that called `client.on_event()`.
-  PR 4 does NOT remove this.
-- **New path (guarded — see Click-value guard below):** the global
-  `_hub_display_index: dict[str, Element]` (keyed by `element_id`, not
-  by session — see Round-4 audit above) is consulted directly with
-  `msg.element_id`. If the entry exists AND resolves to a Button AND
-  the wire `value` shape is the boolean `True`, the listener invokes
-  `elem.on_click()`, which raises `ButtonClickEmitted` through
-  `self._emit` → `HubEmitDispatcher.dispatch`. The dispatcher captured
-  the owning session's Observer + event loop at decode time (§5), so
-  publish goes to the correct session-keyed Observer without the
-  listener thread ever calling `_session_key.get()`. Because dispatch
-  runs on the listener thread, the dispatcher uses
-  `loop.call_soon_threadsafe` to schedule
-  `Observer.publish("interaction.X", {...})` on the hub's event loop.
-  The publish then fans out to subscribers via the asyncio `_push`
-  channel.
-
-### Click-value guard (kind AND value shape)
-
-Resolution-by-element-id is necessary but NOT sufficient. The hub-side
-branch above MUST replicate the production
-`DomainPump._is_button_click(msg, elem)` predicate
-(`src/punt_lux/display/domain_pump.py:170-190`) exactly: a click fires
-`on_click()` if and only if BOTH conditions hold —
-
-1. The resolved element is a Button (`elem.kind == "button"`, i.e.
-   `isinstance(elem, ButtonElement)` on the hub-side mirror).
-2. The wire `value` is the boolean `True` (`msg.value is True`, by
-   identity not truthiness — `1`, `"True"`, a non-empty dict are all
-   distinct from boolean `True`).
-
-Without the second guard, a non-click `InteractionMessage` whose
-`element_id` happens to collide with a button in the scene would
-silently fire `on_click()`. PR #187 Bugbot HIGH named the menu-id case:
-menu payloads ship `value={...}` (a dict), not `True`; a menu id
-identical to a button id would have fired a phantom `ButtonPressed` to
-subscribers. The fix landed for `DomainPump.route_interaction` in
-production; the hub-side new path MUST carry the same predicate so the
-io-model surface inherits the same protection rather than reopening the
-defect class. Cite `domain_pump.py:170-190` in code comments; tests
-named in §10 ("Click guard rejects non-True value shapes") assert the
-predicate behavior.
-
-For PR 4 the "hub-side `hub_display`" mirror lives as two module-level
-dicts in `tools/connection.py` (alongside the singleton `_client`):
-
-- `_hub_display_index: dict[str, Element]` — global `element_id` →
-  Element. Populated when `show()` builds the Element tree (per spike
-  `hub.py:91-99` `HubDisplay._index`).
-- `_element_owner: dict[str, str]` — global `element_id` → owning
-  `session_key`. Populated alongside `_hub_display_index` so
-  `_cleanup_session` can drop entries belonging to the disconnecting
-  session.
-
-Both live under the existing `_client_lock` because they are
-write-once-per-`show()` and read-many on the listener thread; the
-existing lock already protects the cross-thread `_client` writes and
-extends naturally to its new neighbours. PR 5 promotes this to a proper
-HubDisplay class. PR 4 ships the minimal indexed dicts; the structure
-is the spike's `HubDisplay._by_id` minus the SetProperty branch (PR 5
-owns).
-
-### The load-bearing consumer
-
-`interaction.<id>` IS the first real consumer of the Observer subsystem.
-There is no manufactured `scene.accepted` or similar — `interaction.<id>` is
-what agents need to react to clicks per spike R3/R4. This satisfies PY-RF-2:
-the Observer is wired into a real call path the same commit it ships, not
-"create now, wire later".
-
----
-
-## Section 7 — `recv()` polling shim (deprecated for PR 12)
-
-### Production-tree audit corrections (round-2)
-
-Round-1.x drafts proposed `asyncio.Queue` + an awaited `recv()`. Verified
-production shape (`display_client.py:565-583`):
+The component that translates raw wire frames into Hub calls — the
+domain pump — now does only wire-shape filtering. Its previous
+responsibility for intermediate-class construction and partial domain
+reasoning is gone.
 
 ```python
-def recv(self, timeout: float | None = None) -> Message | None:
-    """Receive the next message from the display.
+class WirePump:
+    """Wire-side triage. Drops messages that cannot possibly be a
+    domain-valid element interaction, then hands the survivor directly
+    to Display.interact."""
 
-    Thread-safe.  When the listener is active, blocks on the
-    ``_pending`` queue.  When inactive, reads directly from the
-    socket.  Returns ``None`` on timeout.
-    """
-    t = timeout if timeout is not None else self._recv_timeout
-    if self.listener_active:
-        try:
-            return self._pending.get(timeout=t)
-        except queue.Empty:
-            return None
+    _NON_ELEMENT_ACTIONS: ClassVar[frozenset[str]] = frozenset(
+        {"menu", "frame_close"},
+    )
+
+    def route_interaction(
+        self,
+        client_id: ConnectionId,
+        msg: InteractionMessage,
+    ) -> None:
+        if msg.action in self._NON_ELEMENT_ACTIONS:
+            return
+        if msg.scene_id is None:
+            return
+
+        event = self._display.interact(client_id, msg)
+        element = self._hub_display.resolve(event.scene_id, event.element_id)
+        element.fire(event)
+```
+
+Two wire-shape filters, then the message goes to `Display.interact`,
+then the typed event goes to `Element.fire`. The pump does no domain
+reasoning, no element resolution, no kind check, no ownership check,
+and no kind-specific value-shape check. The first two live in
+`Display.interact` (domain validation), the third lives in
+`HubDisplay.resolve` (index lookup), and the value-shape gate is one
+of the per-kind branches inside `Display.interact`. `WirePump` does
+not filter on `msg.value` — a slider drag arrives with a `float`, a
+checkbox toggle with a `bool`, a text edit with a `str`, and each
+must reach `Display.interact` to be matched against the resolved
+Element kind. A blanket `value is not True` drop in the pump would
+discard every future non-button input before the dispatcher ever saw
+it. The pump's post-validation re-resolution uses the same
+`HubDisplay` instance `Display` borrows for its own domain
+validation — one authority, not a parallel one.
+
+### One domain-validation site, no defense-in-depth
+
+`Display.interact` is the only place a `ButtonClicked` is constructed
+and the only place domain validation runs. There is no second
+domain-validation layer in `Element.fire`, no third one in handler
+factories, no fourth one in the catalog. The class's factory guard
+ensures no caller bypasses `Display.interact` to manufacture a synthetic
+event; the domain-validation gate is therefore the construction gate.
+
+Wire-shape triage is a separate layer that lives at the wire boundary
+in `WirePump.route_interaction` — non-element actions and missing
+`scene_id`. The pump drops shape-mismatched messages silently because
+they arrive constantly during normal operation (menu clicks, frame
+closes). It does NOT filter on `msg.value`; the per-kind value-shape
+gate (`value is True` for a button, `isinstance(value, float)` for a
+slider, etc.) is one of the match branches inside `Display.interact`.
+By the time a message reaches `Display.interact`, it has passed
+wire-shape gating; `Display.interact` then validates identity,
+ownership, and per-kind value shape in one go. Two layers, two
+failure modes, one site per layer.
+
+Defense-in-depth across multiple *domain* validation sites was an
+artifact of the prior arrangement where the wire-side intermediate
+class and the domain-side event both held overlapping field sets and
+each had to be re-checked when crossing the boundary. With a single
+class constructed at a single site, the two domain checks collapse
+into the one check that matters.
+
+The `ButtonPressed` class is deleted. The `Interaction` sum type and
+its `domain/interaction.py` module are deleted. The
+`_warn_on_error(...)` helper in the pump is deleted. Every legacy
+caller migrates in the same PR — there is no `ButtonPressed` import
+that survives, no `Interaction` reference that lingers, no parallel
+old-and-new code path.
+
+### Future input kinds extend the same dispatch
+
+The `Display.interact` method's structure scales to additional input
+kinds without re-introducing a sum type and without pushing any
+per-kind logic back into the pump. Each new input kind adds a branch
+inside `Display.interact` that matches on the resolved Element's
+`kind` plus the wire `value`'s shape, runs its own typed validation,
+and constructs its own typed validated event. The discriminator is
+the resolved Element kind plus the value shape, not the `msg.action`
+string — `action` carries the agent-supplied action name
+(`elem.action or elem.id` for buttons), which varies per element and
+cannot be a fixed verb. A button click is `kind == "button" and value
+is True`; a slider change is `kind == "slider" and isinstance(value,
+float)`; future input kinds follow the same `kind + value-shape`
+pattern.
+
+The same client-existence, element-resolution, and ownership checks
+that gate a button click gate every other interaction — they are
+fixed prefix steps shared by every branch, not per-kind logic. The
+per-kind value-shape gate lives entirely in the match branches; the
+pump never inspects `msg.value`.
+
+```python
+class Display:
+
+    def interact(
+        self,
+        client_id: ConnectionId,
+        msg: InteractionMessage,
+    ) -> Event:
+        scene_id = msg.require_scene_id()
+        element_id = ElementId(msg.element_id)
+
+        # Fixed prefix: identity, resolution, ownership.
+        if not self._hub_display.is_client(client_id):
+            raise UnknownClientError(client_id=client_id)
+        element = self._hub_display.resolve(scene_id, element_id)
+        if self._hub_display.owner_of(scene_id, element_id) != client_id:
+            raise UnauthorizedInteractionError(
+                scene_id=scene_id,
+                element_id=element_id,
+                caller=client_id,
+            )
+
+        # Per-kind value-shape dispatch.
+        match element.kind, msg.value:
+            case "button", True:
+                return ButtonClicked(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    owner_id=client_id,
+                    _token=Display._construction_token,
+                )
+            case "slider", float() as new_value:
+                return SliderChanged(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    owner_id=client_id,
+                    new_value=new_value,
+                    _token=Display._construction_token,
+                )
+            case "checkbox", bool() as checked:
+                return CheckboxToggled(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    owner_id=client_id,
+                    checked=checked,
+                    _token=Display._construction_token,
+                )
+            # … future input kinds add their own typed branch here.
+            case _:
+                raise UnsupportedInteractionError(
+                    action=msg.action, kind=element.kind,
+                )
+```
+
+`SliderChanged`, `TextEdited`, `CheckboxToggled` — each is its own
+frozen typed class with its own factory guard, constructed by
+`Display.interact` and dispatched through `Element.fire` against
+handlers registered for its specific type. No intermediate-class sum
+type ever resurfaces. The catalog (`SliderHandlers`, `TextHandlers`,
+etc.) registers typed factories against the typed event class, the
+same way `ButtonHandlers` registers against `ButtonClicked`.
+
+The structure of the validation method grows by one branch per kind.
+The structure of the dispatcher and the handler registry does not
+change at all.
+
+## Agent Subscribe and Publish
+
+The Agent Subscribe / Publish subsystem is the cross-process pub-sub
+mechanism the Hub offers to agents and applets. A connection registers
+interest in a topic; another call on the same connection publishes a
+payload to that topic; subscribers receive the payload as a typed
+outbound `ObserverMessage` over their wire.
+
+This subsystem is entirely separate from the Element Observer subsystem
+described earlier. The Element Observer is intra-Hub, in-process,
+property-typed, and registered by parent composites on their direct
+children. The Agent Subscribe registry is cross-process, topic-named,
+and lives at the boundary where the Hub talks to remote connections.
+The two share no machinery, no data structures, no lifecycle. Intra-
+component coordination uses the Observer; cross-component and cross-
+process business events use Subscribe and Publish.
+
+### The subscription registry
+
+```python
+class SubscriptionRegistry:
+    """Per-connection topic registry. Snapshot-then-iterate for publish."""
+
+    _by_connection: dict[ConnectionId, dict[Topic, set[Handler]]]
+    _lock: threading.Lock
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._by_connection = {}
+        self._lock = threading.Lock()
+        return self
+
+    def subscribe(
+        self,
+        connection_id: ConnectionId,
+        topic: Topic,
+        handler: Handler,
+    ) -> None:
+        with self._lock:
+            scope = self._by_connection.setdefault(connection_id, {})
+            scope.setdefault(topic, set()).add(handler)
+
+    def unsubscribe(
+        self,
+        connection_id: ConnectionId,
+        topic: Topic,
+        handler: Handler,
+    ) -> None:
+        with self._lock:
+            scope = self._by_connection.get(connection_id)
+            if scope is None:
+                return
+            handlers = scope.get(topic)
+            if handlers is None:
+                return
+            handlers.discard(handler)
+            if not handlers:
+                del scope[topic]
+
+    def snapshot_subscribers(
+        self,
+        connection_id: ConnectionId,
+        topic: Topic,
+    ) -> tuple[Handler, ...]:
+        with self._lock:
+            scope = self._by_connection.get(connection_id, {})
+            return tuple(scope.get(topic, ()))
+
+    def drop_connection(self, connection_id: ConnectionId) -> None:
+        with self._lock:
+            self._by_connection.pop(connection_id, None)
+```
+
+The outer key is `ConnectionId`. The inner key is `Topic`. The value is
+a set of handlers — typically a one-element set holding the outbound-
+message writer for the subscribing connection itself. The shape
+`dict[ConnectionId, dict[Topic, set[Handler]]]` makes per-connection
+scoping a property of the data structure: cleanup of a disconnected
+connection is one `dict.pop`, and no topic registration leaks across
+connections by construction.
+
+### The Hub's subscribe, unsubscribe, and publish
+
+The Hub exposes three operations, all of them connection-scoped:
+
+```python
+class Hub:
+
+    def subscribe(
+        self,
+        connection_id: ConnectionId,
+        topic: Topic,
+    ) -> None:
+        """Register the caller's connection for ``topic``.
+
+        Declaration is implicit — calling subscribe with a topic the
+        connection has not used before adds it to the connection's scope.
+        """
+        handler = self._writer_for(connection_id)
+        self._subscriptions.subscribe(connection_id, topic, handler)
+
+    def unsubscribe(
+        self,
+        connection_id: ConnectionId,
+        topic: Topic,
+    ) -> None:
+        """Drop the caller's subscription to ``topic``. No-op if absent."""
+        handler = self._writer_for(connection_id)
+        self._subscriptions.unsubscribe(connection_id, topic, handler)
+
+    def publish(
+        self,
+        connection_id: ConnectionId,
+        topic: Topic,
+        payload: Mapping[str, object],
+    ) -> int:
+        """Fan ``payload`` out to ``topic``'s subscribers in the caller's scope.
+
+        Returns the number of subscribers that received the message.
+        Subscribers are snapshotted under a short lock, then iterated
+        outside the lock to avoid serializing publishes against each
+        other and against subscribe / unsubscribe.
+        """
+        message = ObserverMessage(topic=topic, payload=payload)
+        subscribers = self._subscriptions.snapshot_subscribers(
+            connection_id, topic,
+        )
+        for handler in subscribers:
+            handler(message)
+        return len(subscribers)
+```
+
+The three operations share one rule: every call is scoped to the
+`connection_id` of the caller. A subscription registered by connection
+A is visible only to connection A. A publish issued by connection A is
+delivered only to subscribers within connection A's own scope.
+
+### Per-connection topic scoping
+
+A connection can subscribe and publish only within its own scope. The
+trust model is the simplest possible: no connection can see, subscribe
+to, or publish into another connection's topics. Topic name collisions
+across connections do not matter — connection A's `work.saved` and
+connection B's `work.saved` are different scopes, holding different
+subscriber sets, fanning out different payloads.
+
+Declaration is implicit. There is no separate `declare_topic` step. The
+first `subscribe` or `publish` for a topic name within a connection's
+scope is the declaration. Subsequent calls on the same name add to the
+existing scope.
+
+Cross-connection pub-sub is not possible in PR 4. A future capability
+that allows agent-to-agent or applet-to-applet topic sharing would be
+a new feature with its own access-control rule, not a fix to the
+per-connection trust model. The mechanism for cross-connection pub-sub
+is genuinely absent: there is no path through the registry, the Hub
+methods, or the wire format that could deliver one connection's
+publish to another connection's subscriber.
+
+### The ObserverMessage wire kind
+
+When `Hub.publish` fans a payload out to a connection's subscribers,
+each subscriber receives the payload as a typed `ObserverMessage` on
+its outbound wire.
+
+```python
+@dataclass(frozen=True, slots=True)
+class ObserverMessage:
+    """Outbound wire kind delivered to a connection on its subscribed topics."""
+
+    topic: Topic
+    payload: Mapping[str, object]
+    kind: ClassVar[Literal["observer"]] = "observer"
+
+    def to_wire(self) -> Mapping[str, object]:
+        return {
+            "kind": self.kind,
+            "topic": self.topic,
+            "payload": self.payload,
+        }
+
+    @classmethod
+    def from_wire(cls, raw: Mapping[str, object]) -> Self:
+        ...
+```
+
+A concrete wire frame looks like this:
+
+```jsonc
+{
+  "kind": "observer",
+  "topic": "work.saved",
+  "payload": {"element_id": "save_btn", "ts": "2026-05-24T17:00:00Z"}
+}
+```
+
+`ObserverMessage` joins the existing `MessageRegistry` alongside
+`InteractionMessage`, `SceneMessage`, and the lifecycle kinds. The
+registry maps `kind` strings to typed message classes; the decoder
+dispatches on `kind`; encoders serialize via `to_wire`. No agent code
+ever constructs `ObserverMessage` directly — the Hub constructs the
+message inside `publish` and hands the writer the typed value.
+
+`InteractionMessage` is not reused for the outbound direction.
+`InteractionMessage` is by name and by content an inbound message —
+display tier or agent tier sending an event into the Hub. Reusing the
+same class for outbound delivery would collapse two unrelated concepts
+under one name and force every wire reader to disambiguate direction
+from context. `ObserverMessage` is its own type, with its own
+serialization, its own decoder, and its own dispatch path.
+
+### Concurrency: snapshot-then-iterate
+
+The registry's lock is held only long enough to mutate the data
+structure or copy a subscriber set. The publish fan-out iterates the
+snapshot outside the lock.
+
+```python
+def publish(
+    self,
+    connection_id: ConnectionId,
+    topic: Topic,
+    payload: Mapping[str, object],
+) -> int:
+    message = ObserverMessage(topic=topic, payload=payload)
+    subscribers = self._subscriptions.snapshot_subscribers(
+        connection_id, topic,
+    )            # short lock: copy the set, release.
+    for handler in subscribers:
+        handler(message)   # iterates outside the lock.
+    return len(subscribers)
+```
+
+The alternative — holding the lock across the entire publish-and-send
+loop — serializes publishes against each other and against
+subscribe / unsubscribe. A slow subscriber stalls every other publish
+on every other topic. Snapshot-then-iterate eliminates that coupling:
+two concurrent publishes on different topics never wait for each
+other, and a subscriber added in the middle of a publish cycle simply
+joins the next snapshot.
+
+The price is that a subscriber removed mid-publish may still receive
+one final message — the snapshot was taken before the removal. This is
+the same well-understood eventual-consistency behavior every snapshot-
+based observer pattern carries; subscribers that need stricter
+delivery semantics gate on the topic from inside the handler.
+
+### Cleanup on disconnect
+
+When a connection closes — whether the MCP session ends, the TCP
+applet hangs up, or the Hub forcibly evicts the connection — the
+registry drops the entire inner dict for that `ConnectionId`:
+
+```python
+class Hub:
+
+    def on_disconnect(self, connection_id: ConnectionId) -> None:
+        self._subscriptions.drop_connection(connection_id)
+```
+
+One `dict.pop` removes every topic and every handler that the
+connection registered. There is no per-topic cleanup walk, no handler
+reference list to scan, no global registry to update. The
+per-connection outer key was chosen precisely so that disconnect
+cleanup is `O(1)` against the data structure, not `O(number of
+topics)` or `O(number of handlers)`.
+
+## Lifecycle
+
+Two registries hold state that outlives a single interaction: the
+per-Element handler registry (on every Element instance) and the
+per-connection subscription registry (on the Hub). They are
+lifecycle-independent. Each owns its own cleanup path; neither calls
+into the other.
+
+The correctness argument for the design rests on this independence. A
+handler that fires after the subscriber it would have notified is gone
+has no observable effect — the publish it makes goes into an empty
+subscriber snapshot and the call returns zero. An Element handler that
+references a model the model's component owns dies when the component
+dies; the Element's `_handlers` dict goes out of scope with the
+Element. Neither path leaks state past its owner's lifetime.
+
+### Element handlers die with the Element
+
+Handlers live on Element instances. The handler registry is a field on
+the `Element` ABC — `_handlers: dict[type[Event], list[Handler[Event]]]`
+— populated by the decoder at construction time. When the Element is
+removed from a scene, its `_handlers` dict is dropped along with every
+other field on the instance.
+
+Removal of an Element happens through one of three paths, all of which
+end up at the same place:
+
+- An agent issues a `RemoveElement` update. The Hub looks up the
+  Element, removes it from the scene's index, and drops the only
+  reference the Hub holds. The Element becomes garbage.
+- A component dismisses itself. The component's model calls back
+  into the owning Element's `_mark_removed`, which flips the
+  Element-level `_removed = True` and notifies the Element's
+  observers. The parent composite is one of those observers and
+  performs the same drop: it prunes the component from its own
+  children tuple AND calls
+  `HubDisplay.apply(connection_id, RemoveElement(scene_id, child_id))`
+  to clear the Hub's `(scene_id, element_id)` index entry. Both
+  operations are required — local pruning alone leaves an orphan
+  index entry that still resolves to a tree the parent no longer
+  holds.
+- A connection disconnects. The Hub iterates every Element the
+  disconnecting connection owns and calls `_mark_removed` on each
+  root, which flips Element-level `_removed = True` and fires the
+  observer cascade. Each parent's observer prunes its own children
+  tuple and calls `HubDisplay.apply(...RemoveElement...)`.
+
+In all three paths, the handler registry follows the Element. No
+external bookkeeping tracks handlers separately. No registry needs to
+be updated when an Element disappears.
+
+### Subscriptions die with the connection
+
+Subscriptions live in the Hub's `SubscriptionRegistry`, keyed by
+`ConnectionId` at the outer level. When a connection disconnects, the
+Hub calls `SubscriptionRegistry.drop_connection(connection_id)`, which
+removes the inner dict for that connection from the outer dict. Every
+topic the connection had registered and every handler in those topics
+is gone in one operation.
+
+This cleanup runs unconditionally on disconnect. It does not depend on
+whether the connection held any Elements, whether any of those
+Elements had handlers, or whether any of those handlers had been bound
+through `publish`. The subscription registry is the only place
+connection-scoped state lives; dropping it is the only cleanup the
+disconnect path needs.
+
+### Disconnect needs no handler cleanup
+
+When a connection disconnects, the Hub does not walk Elements to find
+handlers and uninstall them. The two registries' independence makes
+this safe by construction.
+
+Consider the case the handler walk would have addressed: a connection
+disconnects, but its scene survives (different ownership, persisted
+across the disconnect). The Elements in that scene have handlers
+registered against them. Those handlers may include `publish` calls
+into topics the disconnecting connection had subscribed to.
+
+The disconnect path drops the connection's subscription scope. The
+Elements stay. Their handlers stay registered. If one of those
+handlers fires later — because some other connection's click reaches
+the surviving Element — the handler runs and may call `Hub.publish` on
+the disconnected connection's topic. The publish takes a snapshot of
+the topic's subscribers in the disconnected connection's scope; the
+scope is gone, the snapshot is empty, the call returns zero. No
+observable effect, no error, no leak.
+
+This is the safe no-op property. Orphan handlers that outlive the
+connection whose subscriptions they would have driven simply do
+nothing useful. They do not crash, they do not leak, they do not block
+further publishes. The independence of the two registries is what
+makes this trivial — the publish path does not need to know whether
+the topic's owning connection still exists; it only needs to know what
+subscribers are in the snapshot, and an empty snapshot is the right
+answer.
+
+### DisplayClient.recv is deleted in PR 4
+
+The legacy `DisplayClient.recv()` method is removed in PR 4. Every
+caller migrates to the new per-connection business-event poller in the
+same PR. No shim wraps the new poller for old callers; no
+backwards-compatible wrapper carries the old name. After PR 4 the
+codebase has one polling interface, with one set of semantics.
+
+The old method returned any wire `Message` from the client's combined
+listener queue. The new method returns only payloads from `Hub.publish`
+calls scoped to the calling connection — typed business events, not
+raw wire frames.
+
+```python
+class DisplayClient:
+
+    def poll_event(self, timeout: float) -> Mapping[str, object]:
+        """Block for the next business event delivered to this connection.
+
+        Returns the payload of the next ``ObserverMessage`` whose topic
+        the connection is subscribed to. Raises ``TimeoutError`` if no
+        message arrives within ``timeout`` seconds.
+        """
+```
+
+The signature reflects the new model. The return type is the payload
+itself — a typed `Mapping[str, object]` — not an `ObserverMessage` or
+a `Message | None`. Absence is signalled by `TimeoutError`, not by a
+sentinel return value; the caller's contract is to either receive a
+payload or raise.
+
+Three categories of legacy caller migrate in the same PR:
+
+- Tests that called `recv()` to verify a click roundtripped through the
+  client receive a payload from `poll_event` whose shape matches the
+  topic they subscribed to. The migration is one line at the call site
+  and one assertion-shape change.
+- Tests that called `recv()` to drain the listener queue (rather than
+  to assert on payload contents) are deleted — the new model has no
+  combined queue to drain.
+- Agents and applets that polled `recv()` for any-wire-message
+  behavior migrate to either `poll_event` (for business events) or to
+  the new push path on the bidirectional applet connection (for the
+  default async case described in the process topology section).
+
+The deletion is total. The class no longer exposes a method named
+`recv`. The wire listener no longer maintains a combined queue. The
+client's polling interface is `poll_event` and only `poll_event`.
+
+## Process entry point and HubDisplay
+
+The Hub described in the previous sections — its state, its dispatcher,
+its subscription registry — runs inside a single process. That process
+needs a binary entry point: the script `pyproject.toml` lists under
+`[project.scripts]`, the `main()` function that boots the asyncio loop
+and serves connections, the bootstrapper that knows nothing about
+domain logic. That entry point belongs in its own module, named for
+what it is.
+
+### The luxd module is the process bootstrapper
+
+The process entry point lives at `src/punt_lux/luxd.py`. The module's
+job is to start the daemon — parse CLI arguments, bind the display
+transport, open the applet TCP listener, install the in-process MCP
+tool surface, run the asyncio loop until shutdown. It contains no
+domain logic; the domain lives in `domain/hub/`.
+
+```toml
+# pyproject.toml — [project.scripts]
+luxd = "punt_lux.luxd:main"
+```
+
+The name `luxd` is intentional. The conceptual Hub — the object that
+owns scene state, dispatches interactions, and runs the subscription
+registry — is `domain/hub/`. The process that hosts the Hub is `luxd`.
+Naming the entry-point module `hub.py` conflated the two; the
+conceptual Hub is not a process, and the process is not the conceptual
+Hub.
+
+```python
+# src/punt_lux/luxd.py
+"""luxd — the Lux daemon. Process entry point.
+
+Boots the asyncio loop, binds the display transport, opens the applet
+TCP listener, installs the in-process MCP tool surface, runs until
+shutdown. Domain logic lives in ``punt_lux.domain.hub``.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+
+from punt_lux.domain.hub import Hub
+from punt_lux.applet import serve_applets
+from punt_lux.tools import install_mcp_tools
+
+
+def main() -> None:
+    """Parse arguments, boot the daemon, run until shutdown."""
+    args = _parse_args()
+    hub = Hub.new(...)
+    install_mcp_tools(hub)
+    asyncio.run(_serve(hub, args))
+
+
+async def _serve(hub: Hub, args: argparse.Namespace) -> None:
+    """Run the display transport, applet listener, and MCP loop concurrently."""
     ...
 ```
 
-`recv()` is fully synchronous: signature `Message | None`, returns from
-`queue.SimpleQueue.get(timeout=t)`, raises nothing
-async-flavoured. `_pending` is a `queue.SimpleQueue[Message]` (line 95);
-every consumer downstream — including the MCP `recv` tool in
-`tools/tools.py:777` — assumes a blocking, thread-safe queue.
-
-The shim must therefore use a `queue.SimpleQueue` (or `queue.Queue`),
-NOT `asyncio.Queue`. The asyncio side of the world (Observer fan-out,
-event-loop scheduling) lives behind the dispatcher and does not surface
-through `recv()`. Migrating `recv()` to async is a separate concern with
-a long blast radius (every caller would change); PR 4 does not attempt
-it.
-
-### Production-tree audit corrections (round-4) — shared queue is per-process, not per-session
-
-Round-3 drafts implied each MCP session got its own wildcard subscriber
-that enqueued onto "the" `_pending` queue without naming whose. That
-hides a real concurrency bug: `DisplayClient` is a module-level
-singleton (`tools/connection.py:20`), so `DisplayClient._pending` is
-**process-global**. One queue, one consumer-side `recv()` call, every
-session sharing the same FIFO.
-
-If two MCP sessions A and B both registered wildcard subscribers and
-both called `recv()`, whichever session's `_pending.get()` ran first
-would dequeue an `InteractionMessage` destined for *either*
-session — the queue is FIFO across all producers and the consumer side
-has no way to filter. Concurrent agents would steal each other's
-events.
-
-**Resolution:** the shim is a **single per-process subscriber**, not
-one per session. The shim owns exactly one wildcard subscription
-(`cid = "recv-shim"`, no session suffix) and writes every reconstructed
-`InteractionMessage` onto the singleton `DisplayClient._pending`. The
-shim is installed lazily on first `recv()`-using code path (or eagerly
-at `_get_client()` time alongside `_setup_apps`) and lives for the
-lifetime of the singleton client.
-
-This matches the existing `_pending` semantics exactly: before PR 4,
-the listener thread also writes every unrouted `InteractionMessage`
-onto the singleton `_pending`. The shim is just a second producer onto
-the same singleton queue — there was never per-session demultiplex on
-`recv()` to break.
-
-`recv()`-using callers are the pre-PR-4 polling agents (8 unmigrated
-input kinds). They run in the same process as the singleton client and
-have always shared the queue; PR 4 preserves the exact same semantics.
-The OO-correct subscribe-to-`interaction.<id>` path (typed callback,
-no shared queue) is the migration target and is per-session by
-construction (each session's Observer is its own instance — see §4
-and the per-session `_session_observers` dict in §5 / §9 (iii)). The
-shim is deliberately *not* per-session because making it per-session
-would require splitting `_pending` (a singleton-owned queue) and
-rewriting every existing `recv()` caller to address its own session's
-queue — exactly the blast radius PR 4 declines above.
-
-Alternatives rejected:
-
-- **Per-session `_pending` queues.** Requires splitting
-  `DisplayClient._pending` into a session-keyed dict; every existing
-  `recv()` caller would have to address its own queue. Out of scope for
-  PR 4 (the migration target is the typed-subscription path, not the
-  shim).
-- **Per-session shim writing onto the singleton queue.** Reintroduces
-  the cross-session FIFO bug this audit names. Rejected by definition.
-- **Drop the shim and break pre-PR-4 callers.** Out of scope; the shim
-  exists precisely to keep them working through PR 12 (see Deprecation
-  note below).
-
-### Existing shape
-
-`DisplayClient.recv()` returns the next message from a `_pending`
-queue, populated by the listener thread when it sees a message with no
-registered callback. Tests and agents that pre-date the Observer call
-`recv()` to block until the next `InteractionMessage`.
-
-### PR 4 reimplementation
-
-`recv()` is reimplemented as a polling adapter over a single
-per-process wildcard subscription (see Round-4 audit above for why
-per-process, not per-session). The shim crosses the thread / event-loop
-boundary in the opposite direction from §6:
-
-1. Subscribe a single process-wide synthetic cid (`recv-shim`, no
-   session suffix) to `WILDCARD_TOPIC`. The Observer-side `_push`
-   callback for this cid is an async function that reconstructs an
-   `InteractionMessage` from the published payload and calls
-   `self._pending.put(msg)` — i.e. it writes into the existing
-   singleton `DisplayClient._pending` queue
-   (`queue.SimpleQueue[Message]`, line 95). There is no separate "shim
-   queue" — the shim and the listener thread share `_pending`. Naming a
-   second queue would imply two stores to drain; only one exists.
-   Subscription occurs once on each per-session Observer (the wildcard
-   cid is the same string, registered once per Observer instance — set
-   semantics dedupe within an Observer; the singleton consumer-side
-   `_pending` is what makes the model coherent across sessions).
-2. Inbound `InteractionMessage` follows the §6 hub-side path (resolve →
-   `on_click` → `ButtonClickEmitted` → dispatcher →
-   `loop.call_soon_threadsafe` → `Observer.publish`).
-3. The wildcard branch fires the shim's async `_push`, which appends to
-   `_pending`.
-4. `DisplayClient.recv()` reads `self._pending.get(timeout=t)` — the
-   same blocking call it has always made. PR 4 adds a second producer
-   to `_pending` (the wildcard `_push` writing from the asyncio loop)
-   alongside the existing listener-thread producer for non-interaction
-   messages. Existing callers see the same `InteractionMessage` shape
-   as before.
-
-The shim adapter owns the producer-side wiring (subscribe, decode the
-`observed` envelope back into an `InteractionMessage`, hand to
-`_pending`); `Observer` itself only fans out push calls (§4 invariant:
-it knows nothing about buffering). `queue.SimpleQueue.put` is safe from
-both an async coroutine (running on the loop) and a thread; no
-synchronisation primitive needed. Tests verify `recv()` returns the
-same shape it did pre-PR-4 (snapshot fixture in commit (v)).
-
-### Deprecation note
-
-`DisplayClient.recv()` gets a deprecation docstring directing callers to
-subscribe to the typed `interaction.<id>` topic per agent and consume via
-the listener callback path. The polling shim deletes in PR 12 once every
-consumer has migrated; it stays load-bearing through PRs 5–11.
-
----
-
-## Section 8 — Interaction trace parity gate
-
-### What it asserts
-
-Per migration-plan PR 4 row 218 commit (vii): a regression test records
-`(element_id, action)` pairs produced by:
-
-1. The PR-2 baseline path (`Display.interact` → `DomainPump.route_interaction`
-   → `ButtonPressed` → legacy `InteractionMessage` on the wire).
-2. The new io-model path (display detects click → `InteractionMessage` on
-   the wire → hub-side ABC ButtonElement → `on_click` →
-   `ButtonClickEmitted` Event → Observer publish).
-
-Parity is defined as `(element_id, action)` only — the two-tuple — not
-a triple. The third "value" field intentionally differs between paths
-(`True` on the legacy wire per `domain_pump.py:184`; `None` on the
-io-model `ButtonClickEmitted`; see §2) and is excluded from the parity
-gate. Comparing only the pair sidesteps the value-shape difference
-while still proving the load-bearing fact: the same Button click
-produces the same `(element_id, action)` on both paths.
-
-The §2 `ButtonClickEmitted` triple still carries `value` so future
-non-Button event classes (slider, input, etc.) can populate it — but
-the *parity gate* only asserts on the two fields where the two paths
-are required to agree.
-
-The test asserts the two paths produce equivalent `(element_id,
-action)` pairs for Button clicks. This is the load-bearing proof that
-PR 4 has not broken the legacy path AND that PR 7's deletion of the
-legacy path is safe.
-
-### Implementation
-
-`tests/regression/test_interaction_trace_parity.py` (NEW). The test:
-
-1. Sets up a Display with a Button via `DisplayClient.show(...)`.
-2. Records the legacy trace: triggers the click via the existing test
-   harness (`InteractionMessage` synthesized into the display); captures
-   what the listener dispatches.
-3. Records the new trace: same click event, but observed via a subscribed
-   `interaction.<id>` topic.
-4. Asserts the recorded `(element_id, action)` pairs match exactly
-   between paths. `value` is deliberately not part of the pair (`True`
-   on the wire, `None` on the io-model side — the value-shape
-   difference is documented, not asserted on).
-
-Existing tests in `tests/test_inputs_migration.py` use the legacy path; the
-parity test reuses those fixtures plus a new Observer fixture.
-
----
-
-## Section 9 — Internal commit sequence
-
-Seven commits per migration-plan.md PR 4 row 218. Each commit passes
-`make check` + `make snapshot-parity` + local code-reviewer +
-silent-failure-hunter + OO ratchet.
-
-### (i) ButtonElement on ABC + JsonButtonDecoder/Encoder + headless behavior test
-
-- **Create:** `protocol/elements/button_codec.py` (`JsonButtonDecoder`,
-  `JsonButtonEncoder`, `JsonButtonClickEmittedEncoder`).
-- **Create:** `domain/io_event.py` — `ButtonClickEmitted` frozen
-  dataclass per §2.
-- **Modify:** `protocol/elements/button.py` — REWRITE per §2 (delete
-  dataclass; add ABC subclass with sentinel defaults D1; thin
-  `to_dict`/`from_dict` delegators D5; `on_click` plus
-  `_on_click_callback`; setters D6).
-- **Modify:** `protocol/elements/__init__.py` — add `kind == "button"`
-  route through `JsonElementFactory`; keep `_codec` fallback for the
-  other 22 unmigrated kinds.
-- **Modify:** `protocol/elements/inputs.py:43` — `register("button",
-  ButtonElement, ButtonElement.to_dict, ButtonElement.from_dict)` keeps
-  working because the delegators are still on the class.
-- **Tests:** `test_button_recording.py` (RecordingRenderer shape),
-  `test_button_codec.py` (wire roundtrip, all field combinations),
-  `test_button_on_click.py` (emits `ButtonClickEmitted`; bound callback
-  fires; uses `RecordingEmit` list-append per PR 3 pattern).
-- **PY-RF-2 consumer:** `test_button_on_click.py`. Snapshot parity holds.
-
-### (ii) Observer + emit dispatcher + unit tests
-
-- **Create:** `iohub/__init__.py` with
-  `__all__ = ["HubEmitDispatcher", "Observer", "WILDCARD_TOPIC"]`.
-- **Create:** `iohub/observer.py` — Observer class per §4.
-- **Create:** `iohub/emit_dispatch.py` — `HubEmitDispatcher` per §5,
-  including the `_remove_to_update_message` helper.
-- **Tests:** `test_observer.py` (subscribe/unsubscribe/publish fan-out
-  with `RecordingPush`; cascade-on-disconnect),
-  `test_emit_dispatch.py` (`ButtonClickEmitted` → publish,
-  `RemoveElement` → encode + send, unknown → `ValueError`; thread →
-  loop hand-off verified with an `asyncio.run_coroutine_threadsafe`
-  shape-check).
-- **Doc patch:** "Trust model" subsection in
-  `docs/architecture/io-model.md` per §4.
-- **PY-RF-2 consumer:** dispatch test consumes Observer.
-
-### (iii) MCP subscribe/unsubscribe/publish tools + server-push integration test
-
-- **Create:** `iohub/observer_tools.py` — `ObserverTools.register(mcp)`
-  per §4.
-- **Modify:** `tools/server.py` — add `_session_factories: dict[str,
-  JsonElementFactory]` and `_session_observers: dict[str, Observer]`
-  (mirroring `_session_menus` at line 111); instantiate per-session
-  Observer + dispatcher + factory in `run_mcp_session` (line 133);
-  register `ObserverTools` alongside the 24 invariant tool registrations;
-  extend `_cleanup_session` (line 114) to schedule
-  `observer.remove_connection(session_key)` on the event loop.
-- **Tests:** `test_observer_mcp.py` — connect test MCP client; subscribe,
-  publish; assert `observed(topic, payload)` push received (Starlette
-  TestClient + WebSocket per existing harness pattern).
-- **PY-RF-2 consumer:** the integration test.
-
-### (iv) DialogElement + JsonDialogDecoder (bound-callback) + JsonDialogEncoder + headless dismiss test
-
-- **Create:** `protocol/elements/dialog.py` per §3.
-- **Create:** `protocol/elements/dialog_codec.py` per §3.
-- **Modify:** `protocol/element_factory.py` — `JsonElementFactory.decode`
-  takes a `scene_id: SceneId` kwarg and threads it through to
-  per-kind decoders that need it (Dialog); existing Text branch
-  ignores it (TextElement does not need scene_id).
-- **Modify:** `protocol/elements/__init__.py` — `element_from_dict`
-  threads `scene_id` through (callers in PR 4: `show()`, scene
-  ingestion in SceneManager); add `kind == "dialog"` route through
-  JsonElementFactory; add `DialogElement` to the `Element` union;
-  re-export.
-- **Modify:** `display/element_renderer.py` — add `(DialogElement,
-  "_dialog_renderer")` dispatch entry pointing to the new
-  `display/renderers/imgui/dialog.py`.
-- **Create:** `display/renderers/imgui/dialog.py` — minimal ImGui dialog
-  renderer (per §3 last paragraph).
-- **Tests:** `test_dialog_close.py` (emits `RemoveElement(scene_id=...,
-  element_id=...)` with both fields populated from the threaded scene
-  id), `test_dialog_codec.py` (wire roundtrip; bound-callback: decode a
-  wire dict with two child Buttons; assert each child's
-  `_on_click_callback is dialog.close`),
-  `test_dialog_recording.py` (composite walk).
-- **PY-RF-2 consumer:** `test_dialog_codec.py` (bound-callback).
-
-### (v) Hub publishes `interaction.<id>` on routed InteractionMessage + `recv()` polling shim + end-to-end test
-
-- **Modify:** `tools/connection.py` — add two module-level dicts
-  alongside the singleton `_client`:
-  `_hub_display_index: dict[str, Element]` (global element_id → Element)
-  and `_element_owner: dict[str, str]` (global element_id → session_key
-  for cleanup). Both written under the existing `_client_lock`. Keyed
-  by `element_id` (NOT session) because the listener thread has no
-  ContextVar — see §6 round-4 audit.
-- **Modify:** `tools/tools.py:show()` — populate both dicts when
-  building the Element tree (Button registers `_hub_display_index[id]
-  = button` and `_element_owner[id] = _session_key.get()`).
-- **Modify:** `tools/server.py:_cleanup_session` — prune entries whose
-  `_element_owner[id]` equals the disconnecting session_key.
-- **Modify:** `display_client.py` (`_dispatch_or_buffer`,
-  `_listener_loop` integration) — when an `InteractionMessage` arrives
-  AND `element_id` resolves to a Button in the global
-  `_hub_display_index` AND the click-value guard passes, invoke
-  `elem.on_click()` (the dispatcher does the rest per §5 / §6). The
-  dispatcher captured the owning session's Observer + loop at decode
-  time, so no session lookup is needed on the listener thread.
-- **Modify:** wire the polling-shim path per §7 — subscribe a single
-  process-wide `recv-shim` cid to `WILDCARD_TOPIC` on each per-session
-  Observer (one cid string, registered per Observer instance) and have
-  its `_push` enqueue onto the singleton `DisplayClient._pending`
-  queue. NOT per-session cid (would not change semantics — same shared
-  queue — but would mislead future readers; see §7 round-4 audit).
-- **Tests:** `test_button_inbound_e2e.py` (display click →
-  `InteractionMessage` → hub resolve → `on_click` → publish → agent
-  push, AND `test_click_guard_rejects_non_true_value` per §6 click
-  guard: parameterise over `value` shapes `{...}` / `1` / `"True"` /
-  `None` and assert `on_click()` does NOT fire even when `element_id`
-  matches a button), `test_recv_polling_shim.py` (pre-PR-4 `recv()`
-  callers still receive the same `InteractionMessage` shape).
-- **PY-RF-2 consumer:** the e2e test.
-
-### (vi) End-to-end DialogElement test (R4 ported)
-
-- **No source changes** — dispatch from (v) + Dialog from (iv) compose.
-- **Tests:** `test_dialog_self_dismiss.py` — `Dialog{Label, Button(Yes),
-  Button(No)}`; agent subscribes `interaction.btn_yes`/`btn_no`; click
-  Yes; assert `RemoveElement(scene_id=..., element_id=...)` sent AND
-  `interaction.btn_yes` push received.
-- **PY-RF-2 consumer:** the e2e test consumes (i)–(v).
-
-### (vii) Interaction trace parity gate
-
-- **No source changes.**
-- **Tests:** `test_interaction_trace_parity.py` per §8.
-- **PY-RF-2 consumer:** the parity test.
-
-### Per-commit gates
-
-- `make check` — exit 0.
-- `make snapshot-parity` — Button wire bytes identical to PR-2 (Dialog is
-  new; no PR-2 baseline to compare). Acceptance §10.
-- `feature-dev:code-reviewer` + `pr-review-toolkit:silent-failure-hunter`
-  zero findings.
-- OO ratchet (`.oo-baseline.json`) holds or improves on each touched file.
-
----
-
-## Section 10 — Acceptance verification map
-
-Per migration-plan.md PR 4 row 223:
-
-| Criterion | Verifying test / command |
-|---|---|
-| `make snapshot-parity` passes for Button wire bytes | Replays PR-0 characterization snapshots for `show()` calls containing Button; byte-compares serialized SceneMessage. ABC field set matches PR-2; encoder omit-when-default rules preserved. |
-| End-to-end Button click → subscribed agent push works | `tests/integration/test_button_inbound_e2e.py::test_click_emits_observed_push`. |
-| Dialog self-dismiss works end-to-end | `tests/integration/test_dialog_self_dismiss.py::test_click_yes_dismisses_dialog_and_pushes_observed`. |
-| Interaction trace parity passes for Button | `tests/regression/test_interaction_trace_parity.py::test_legacy_and_io_model_traces_match`. |
-| Click guard rejects non-True value shapes (PR #187 Bugbot HIGH precedent) | `tests/integration/test_button_inbound_e2e.py::test_click_guard_rejects_non_true_value` — asserts `on_click()` does NOT fire for `InteractionMessage(action="click", value={...})` (menu payload), `value=1`, `value="True"`, or `value=None` even when `element_id` resolves to a Button. Mirrors `domain_pump.py:170-190` `_is_button_click` predicate. |
-| `recv()` polling shim works (existing agents unbroken) | `tests/integration/test_recv_polling_shim.py::test_recv_returns_interaction_message_via_observer`. |
-| `make check` clean | OO ratchet, mypy/pyright, ruff format + lint, radon CC, pylint design. |
-| Zero `to_dict`/`from_dict` on ButtonElement beyond delegators (D5) | `grep -A 4 "def to_dict\|def from_dict" src/punt_lux/protocol/elements/button.py` shows ≤ 3 lines per body delegating to JsonButtonEncoder/Decoder. |
-| Zero `to_dict`/`from_dict` on DialogElement beyond delegators (D5) | Same grep on `dialog.py`. |
-| All 24 invariant MCP tools continue to work | `grep -c "@mcp.tool()" src/punt_lux/tools/tools.py` returns 16; `grep -c "@_query_tool" src/punt_lux/tools/tools.py` returns 8; total 24, same as main. |
-| 3 new Observer tools registered and additive | `grep -n "subscribe\|unsubscribe\|publish" src/punt_lux/iohub/observer_tools.py` shows three tool definitions; integration test §9 (iii) verifies wire behavior. |
-| `JsonElementFactory` routes Button + Dialog (D2 follow-up) | `grep -n 'kind == .button.\|kind == .dialog.' src/punt_lux/protocol/element_factory.py` returns exactly two lines. |
-| Observer cascade-on-disconnect works | `tests/domain/test_observer.py::test_remove_connection_clears_all_topics`. |
-| No `PublishMessage` wire kind | `grep -rn "PublishMessage" src/` returns zero. |
-| No interaction-layer deletion | `grep -n "class ButtonPressed\|def route_interaction\|def interact" src/` returns the same lines as main (PR 7 owns deletion). |
-| `domain.interaction.ButtonClicked` unchanged | `grep -n "class ButtonClicked" src/punt_lux/domain/interaction.py` returns line 27 with `(scene_id, element_id)` shape — io-model uses the renamed `ButtonClickEmitted` to avoid collision. |
-| `domain.update.RemoveElement` unchanged | `grep -n "class RemoveElement" src/punt_lux/domain/update.py` returns line 74 with `(scene_id, element_id)` shape — DialogElement threads `scene_id` at construction to construct it. |
-
-13 new test files across `tests/render/`, `tests/protocol/`,
-`tests/domain/`, `tests/iohub/`, `tests/integration/`, `tests/regression/`
-— each named in §9 commit (i)–(vii). Create `tests/iohub/` and
-`tests/regression/` with empty `__init__.py` per existing pattern.
-
----
-
-## Section 11 — Open questions for gvr / operator
-
-Questions the spike and PR 3 pattern do not answer. Each needs an
-explicit ruling before implementation.
-
-### 1. SubscriptionRegistry concurrency primitive
-
-Spike uses `threading.Lock` plus blocking send inside the lock
-(`hub.py:154-166`). Production luxd is asyncio; §4 proposes `asyncio.Lock`
-plus awaitable `PushFn`; alternative is snapshot-under-short-lock then
-iterate outside. The thread-to-loop hand-off in §6 (via
-`call_soon_threadsafe`) is independent of this choice — both options
-work behind the same dispatcher. **Question:** `asyncio.Lock` (per §4)
-or snapshot-then-iterate (per spike)? Matters when subscribe/unsubscribe
-races mid-publish.
-
-### 2. Observer push wire path
-
-Spike sends `{kind: observed, topic, payload}` over the agent socket
-(`hub.py:162`). Production candidates:
-
-**(a)** Add `ObservedMessage(topic, payload)` to `MessageRegistry`; ship
-on the existing wire. Pro: zero new transport. Con: registers a
-logically different layer in the same dispatcher.
-
-**(b)** Reuse `InteractionMessage` as carrier; `publish` for
-`interaction.<id>` synthesizes one from the hub. Pro: zero new wire
-types. Con: only works for `interaction.*` topics.
-
-D7 said "reuse the existing wire"; §4/§6 propose (a); (b) is the
-minimum-delta option. **Question:** (a) or (b)? djb's trust input
-applies if (a) lands.
-
-### 3. Hub-side HubDisplay mirror
-
-§6 proposes a minimal `dict[str, Element]` in the session-owning code so
-PR 4's resolve path works (`_hub_display_index` per §9 commit (v)). The
-spike's full `HubDisplay` class (`hub.py:49-123`) ships its `accept`
-branch in PR 5. **Question:** minimal dict in PR 4 (recommended), or
-full `HubDisplay` class now (saves PR 5 wiring; adds untested code)?
-
-### 4. Trust model documentation patch
-
-§4 lands a "Trust model" subsection in `docs/architecture/io-model.md`.
-**Question:** OK to land in commit (ii) (recommended), or separate doc
-PR?
-
-### 5. `scene_id` threading through `JsonElementFactory.decode`
-
-§3 adds `scene_id: SceneId` as a kwarg on `JsonElementFactory.decode`
-(only Dialog uses it in PR 4; signature is uniform so future composites
-inherit it). The alternative is a per-kind decoder accepting `scene_id`
-only where needed, but that splits the dispatch signature across kinds —
-the uniform-keyword approach keeps one `decode(raw, *, scene_id)`
-signature for every kind. **Question:** uniform kwarg (recommended),
-per-kind specialization, or thread `scene_id` via a `DecodeContext`
-value class composed into the factory?
-
-### 6. ButtonClickEmitted naming
-
-The io-model Event needs a name distinct from
-`domain.interaction.ButtonClicked` (existing). §1 proposes
-`ButtonClickEmitted`. Alternatives: `ButtonClickEvent`,
-`ButtonClickedIO`. **Question:** confirm `ButtonClickEmitted`, or pick
-another? The name is load-bearing for PRs 5–11 (every new Event class
-in the io-model will follow the same naming convention).
+The module is small. The asyncio plumbing, the argument parser, the
+process-lifecycle hooks all live here; nothing else does.
+
+### HubDisplay lands complete
+
+`HubDisplay` is the Hub-side authoritative store: the index of every
+Element by `(scene_id, element_id)`, the owner-tracking metadata that
+makes disconnect cleanup correct, and the clients registry that
+`Display.interact` checks for caller identity. It ships complete —
+every method the dispatcher, the applier, and the disconnect path
+need is defined in the same PR that introduces the dispatcher and
+the applier.
+
+A minimal placeholder would force callers to test against a partial
+surface in this PR and a different surface in the next. That is the
+kind of churn the guiding principle exists to prevent. The full class
+ships once.
+
+```python
+class HubDisplay:
+    """Hub-side authoritative store of Elements, owners, and clients."""
+
+    _by_scene: dict[SceneId, dict[ElementId, Element]]
+    _owners: dict[tuple[SceneId, ElementId], ConnectionId]
+    _scene_owners: dict[SceneId, ConnectionId]
+    _clients: set[ConnectionId]
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._by_scene = {}
+        self._owners = {}
+        self._scene_owners = {}
+        self._clients = set()
+        return self
+
+    def register_client(self, connection_id: ConnectionId) -> None:
+        """Mark a connection as a known client. Called by adapters on
+        transport setup."""
+        self._clients.add(connection_id)
+
+    def is_client(self, connection_id: ConnectionId) -> bool:
+        """Return True if the connection is currently registered."""
+        return connection_id in self._clients
+
+    def apply(
+        self,
+        connection_id: ConnectionId,
+        update: AddElement | SetProperty | RemoveElement,
+    ) -> None:
+        """Commit a state change to the index. Owner is the caller."""
+        match update:
+            case AddElement(scene_id=sid, parent_id=None, element=elem):
+                self._install_scene(sid, elem, owner=connection_id)
+            case AddElement(scene_id=sid, parent_id=pid, element=elem):
+                self._install_child(sid, pid, elem, owner=connection_id)
+            case SetProperty(scene_id=sid, element_id=eid, field=field, value=value):
+                self._set_property(sid, eid, field, value)
+            case RemoveElement(scene_id=sid, element_id=eid):
+                self._remove_subtree(sid, eid)
+
+    def resolve(
+        self,
+        scene_id: SceneId,
+        element_id: ElementId,
+    ) -> Element:
+        """Return the Element. Raise UnknownElementError if absent."""
+        scene = self._by_scene.get(scene_id)
+        if scene is None:
+            raise UnknownSceneError(scene_id=scene_id)
+        element = scene.get(element_id)
+        if element is None:
+            raise UnknownElementError(
+                scene_id=scene_id, element_id=element_id,
+            )
+        return element
+
+    def owner_of(
+        self,
+        scene_id: SceneId,
+        element_id: ElementId,
+    ) -> ConnectionId:
+        """Return the connection that installed the Element."""
+        return self._owners[(scene_id, element_id)]
+
+    def elements_owned_by(
+        self,
+        connection_id: ConnectionId,
+    ) -> tuple[tuple[SceneId, ElementId], ...]:
+        """Return every (scene, element) pair this connection installed."""
+        return tuple(
+            key for key, owner in self._owners.items()
+            if owner == connection_id
+        )
+
+    def drop_connection(self, connection_id: ConnectionId) -> None:
+        """Mark the connection's owned roots removed and forget the
+        client registration; the Element Observer cascade prunes the rest."""
+        self._clients.discard(connection_id)
+        for root in self._owned_roots(connection_id):
+            root._mark_removed()
+```
+
+`drop_connection` does one thing: call `Element._mark_removed` on
+every root Element the connection owns. A "root" is an Element whose
+parent is the scene root rather than another Element — i.e., an
+Element installed via `AddElement(parent_id=None)`. `_mark_removed`
+is the single Element-ABC method that flips `_removed = True` and
+fires the observer cascade; the disconnect path uses the same
+mechanism as every other removal. Each scene-root container is
+observing its children; when a child flips `_removed = True`, the
+container's observer fires and performs the same two-step prune any
+other removal does — drop the child from its own children tuple AND
+call `HubDisplay.apply(RemoveElement(...))` to clear the index entry.
+That removal mutates the child, the child's children observe in turn,
+and the cascade walks the tree from leaves back up.
+
+`drop_connection` does NOT walk the subtree itself. A direct
+`_remove_subtree` loop would bypass the Observer cascade entirely —
+parents would never see their children disappear, leaving their own
+children tuples stale even as the Hub index drained. The cascade is
+the propagation mechanism; `drop_connection` is its trigger.
+
+Four responsibilities, all owned by this one class:
+
+- **Index** — the nested `_by_scene` dict resolves `(scene_id,
+  element_id)` lookups in `O(1)`. Every Element the Hub knows about
+  lives in this index; no other module holds an authoritative
+  reference.
+- **Owner tracking** — every Element has a `ConnectionId` that
+  installed it. `Display.interact` uses `owner_of` for the ownership
+  check that gates every interaction; the disconnect path uses
+  ownership to find every connection-owned root so it can mark each
+  one `_removed` and let the Element Observer cascade unwind the rest
+  of the tree.
+- **Clients registry** — `register_client` / `is_client` track which
+  `ConnectionId`s are currently bound to an open transport.
+  `Display.interact` calls `is_client` as its first domain check; no
+  other module maintains a parallel set of "known clients."
+- **Cleanup trigger** — `drop_connection` is the disconnect hook. It
+  discards the client registration and marks the owned roots
+  `_removed`; the Observer cascade prunes children, parents, and the
+  index entries.
+
+The `apply` method dispatches on the typed `Update` sum: a
+whole-scene `AddElement` installs a new tree; a child `AddElement`
+appends under an existing parent; `SetProperty` mutates a single
+field; `RemoveElement` walks the subtree. The pattern-match shape
+keeps the dispatch local and the cases exhaustive.
+
+The class is the only place that mutates the index or the clients
+set. `Display.interact` calls `is_client`, `resolve`, and `owner_of`
+(all read-only) before handing the Element to `fire`; the in-process
+MCP tools call `apply` to commit updates; the connection adapters
+call `register_client` on transport setup and `drop_connection` on
+teardown. No other caller reaches into `_by_scene` or `_clients`
+directly. The fields stay private; the operations stay typed.
+
+### Why the conceptual Hub and the process entry point are separate
+
+The Hub is the asyncio-resident object that owns state and dispatches
+events. It can be tested without binding a socket, without starting
+uvicorn, without parsing arguments — every test in the suite
+constructs a `Hub.new(...)` and exercises its methods directly. That
+is possible because the Hub is just an object, not a process.
+
+`luxd.py` is the process. Its job is to take a fresh Hub, wire it to
+the transports it needs (display, applet, MCP), and run the loop. The
+process is hard to test in isolation — it owns sockets, signal
+handlers, the asyncio loop itself — and it does not need to be tested
+that way. The Hub is the testable surface.
+
+Splitting these two responsibilities into two modules keeps each one
+small. Future transports (HTTP, gRPC, anything) add another adapter
+in their own package and wire it in `luxd.py`'s startup; they do not
+modify the Hub. Future Hub features (a new Update kind, a new event
+class, a richer subscription rule) modify the Hub; they do not
+modify `luxd.py`. The seam is clean because the two concerns are
+genuinely different.
+
+## Applet transport and reference frameworks
+
+Two cross-cutting items remain. The first is the applet transport —
+its long-term shape, what this PR documents, and what migrates in the
+next PR. The second is the catalog of UI frameworks that informed this
+design and that future implementers should consult when a detail
+surfaces that none of the design decisions fully specifies.
+
+### Applet transport: line-delimited JSON over TCP
+
+The applet wire protocol is line-delimited JSON over **TCP**. The
+choice is deliberate. The system is distributed by design — `luxd`
+runs on one host, an applet may run on another, and the protocol must
+work across machines. AF\_UNIX is acceptable as a local-loopback
+optimization where both ends are on the same host, but it is not the
+architectural intent; the wire shape and connection model do not
+branch on transport.
+
+Applets hold their TCP connection open bidirectionally for the
+connection's lifetime. The same socket carries:
+
+- inbound `subscribe` / `unsubscribe` / `publish` calls from the
+  applet to the Hub,
+- inbound `apply` calls that mutate scene state,
+- outbound `ObserverMessage` deliveries from the Hub to the applet,
+- outbound state-mirror updates if the applet observes a scene.
+
+No request / response close-between-calls, no reconnect-per-message,
+no separate channel for asynchronous notifications. One socket, one
+connection lifetime, both directions. An applet that prefers
+synchronous polling may call `poll_event` over the same socket — the
+default async path is push, polling is a convenience adapter for
+callers that need it.
+
+This document describes the production transport. The actual
+migration of the existing in-tree `LineSocket` from AF\_UNIX to TCP
+happens with the first applet implementation, when the change has a
+concrete consumer and a real cross-host scenario to verify against.
+No transport code changes in PR 4; the design doc just stops
+mis-describing the long-term shape.
+
+The reason for the explicit deferral is alignment with the guiding
+principle. Migrating `LineSocket` without an applet consumer would
+leave a transport with no callers — dead code waiting for the next PR
+to use it. The transport migrates in the same PR that introduces its
+first user, so the change is rollback-coherent: revert the applet,
+revert the transport.
+
+### Reference frameworks
+
+Implementation details that the design decisions do not fully specify
+are resolved by consulting an ordered list of UI frameworks. Each was
+chosen because its shape matches a specific concern of this design;
+none was chosen as a wholesale model.
+
+**Primary — JavaFX FXML + Controller.** The closest single match for
+this design's wire-format-plus-handler-binding shape. FXML resolves
+`onAction="#methodName"` against a typed Controller method at load
+time, fails loudly if the method does not exist, and binds the
+typed reference into the constructed widget tree. The catalog-plus-
+verb-vocabulary pattern this design uses for `call_model` and the
+`_ACTIONS` mapping is the same shape: the wire names a verb, the
+decoder resolves it against the typed verb mapping at decode time,
+the bound reference flows into the constructed Element tree.
+
+**Secondary — SwiftUI.** Typed component composition and
+`@Environment`-provided action vocabularies for descendants. The
+per-parent-component verb vocabulary pattern (where a Button inside a
+Dialog inherits Dialog's verbs and a Button inside a Form inherits
+Form's verbs) is SwiftUI's environment pattern. When a future
+composite Element needs to provide its own descendant vocabulary, the
+SwiftUI environment is the model.
+
+**Tertiary — Vue (template + methods).** Verb-string shorthand
+resolving to typed methods. Vue's `@click="methodName"` shorthand
+canonicalises to a typed call against the component's methods at
+compile time; the parallel here is the sugar wire form (`"publish":
+["topic"]`) canonicalising to the long form (`"factory": "noop",
+"wrap": [...]`) before the handler chain is built.
+
+**Quaternary — Qt QML signal / slot.** Element Observer mechanics.
+Qt's signal/slot system IS the Observer pattern — typed properties
+emit typed change signals that subscribers consume by typed slot
+methods. When the Element Observer surface grows beyond the
+`add_observer(property_name, callback)` shape, Qt's typed signals
+are the next reference.
+
+**Quinary — Phoenix LiveView.** Agent-in-a-different-process pattern.
+Phoenix `phx-click="event_name"` declares an event name on the client
+that the server-side `handle_event/3` callback handles. The
+client-server split, the named-event-over-wire shape, and the typed
+server-side dispatch all parallel this design's
+agent-declares-handler / Hub-dispatches-typed-handler split.
+
+**Not a reference — ImGui.** ImGui is the rendering target for the
+display tier, not a model for the io-model. ImGui is immediate-mode:
+the renderer redraws the entire UI every frame, the application code
+runs every frame, and widgets do not retain state between frames.
+This design is retained-mode and declarative: agents describe the UI
+once, the Hub holds the Element tree until updated, handlers run on
+typed events. The two paradigms are fundamentally different — citing
+ImGui as a reference for the io-model would invite a category error.
+ImGui's role is exclusively in the rendering tier, drawing the scene
+the Hub has assembled.
+
+The ordering matters. When two references suggest different
+resolutions for the same detail, the higher-priority one wins. When
+no listed reference covers a detail, the implementation is free to
+choose — but the chosen shape must be documented in the same commit
+as the choice, so a future reader can tell whether the decision was
+informed by a reference or was a local invention.
+
+## Commit sequence and acceptance
+
+This PR splits into a sequence of rollback-coherent commits. Each
+commit ships a single concern that can be reverted on its own without
+leaving the codebase in an incoherent state. The order is driven by
+dependency: foundation first, then the dispatch machinery, then the
+composite component pattern, then the new wire kind, then the
+cleanup of legacy callers.
+
+Every commit ends with `make check` passing and `make update-oo`
+staged. Tests covering the commit's invariant are added in the same
+commit as the code they verify.
+
+### The commit sequence
+
+1. **Move Hub state into `domain/hub/`; rename `hub.py` → `luxd.py`.**
+   Scope: relocate session indexes, locks, the asyncio loop reference,
+   and the connection registry from `tools/connection.py` into a new
+   `domain/hub/` package. Rename the existing `src/punt_lux/hub.py`
+   process-bootstrap module to `src/punt_lux/luxd.py` and update
+   `[project.scripts]`. Update every import of the moved symbols in
+   the same commit — no shim re-exports.
+   *Rollback coherence:* the move and rename are mechanical; rolling
+   back leaves the file layout that existed before the PR.
+
+2. **Element ABC with event-driven dispatch.** Scope: introduce the
+   `Event` marker Protocol, the `_handlers` registry on the ABC,
+   `add_handler` / `remove_handler` / `fire` methods, and the typed
+   `Handler[E]` callable shape. No Element kinds use it yet — that
+   comes in commits 4 and 5.
+   *Rollback coherence:* the new ABC plumbing is additive; without
+   callers it is dead surface that comes out cleanly.
+
+3. **Handler catalog scaffolding.** Scope: introduce the per-Element
+   typed catalog namespace (`ButtonHandlers`, `DialogHandlers`), the
+   decorator factories (`publish` and friends), the wire-spec decoder
+   that resolves catalog names and decorator chains, and the
+   per-parent verb-vocabulary resolution against `_ACTIONS` mappings.
+   Tests cover the long-form and sugar-form wire shapes round-trip
+   through the decoder.
+   *Rollback coherence:* the catalog has no Element consumers yet,
+   so reverting leaves no orphaned imports.
+
+4. **Button and Dialog migration to the new ABC and the MVC pattern.**
+   Scope: rewrite `ButtonElement` and `DialogElement` to extend the
+   new Element ABC, install handler registries through the catalog
+   decoder, and embody the MVC component shape (`DialogModel` private
+   to `DialogElement`, child Buttons wired through the bound-callback
+   pattern). The existing element implementations are replaced
+   wholesale — no parallel old / new classes.
+   *Rollback coherence:* the Element kinds are the same names from
+   the agent's perspective; reverting reinstates the prior internals
+   without changing the wire surface.
+
+5. **Single `ButtonClicked` event; `Display.interact` validation;
+   ownership check; pump shrinks to wire-shape triage only.** Scope:
+   introduce the typed `ButtonClicked` dataclass with its
+   factory-token guard; the `Display.interact` validation site
+   that takes `HubDisplay` as its sole constructor dependency and
+   checks (in order) `hub_display.is_client(client_id)`,
+   `hub_display.resolve(scene_id, element_id)`,
+   `hub_display.owner_of(...) == client_id`, and the per-kind
+   value-shape match; and the shrunken pump whose only filters are
+   `NON_ELEMENT_ACTIONS` and `scene_id is None` (no `value` check —
+   kind-specific value-shape gating lives entirely inside
+   `Display.interact`'s match branches so future slider, checkbox,
+   and text-edit messages reach the dispatcher). Delete
+   `domain/interaction.py`'s `Interaction` sum type and
+   `ButtonPressed` in the same commit. Every legacy caller migrates
+   to construct `ButtonClicked` through `Display.interact` or to
+   receive it as a typed event argument. No separate `Hub.dispatch`
+   method exists — the path is wire → pump → `Display.interact` →
+   `Element.fire`.
+   *Rollback coherence:* the new validation site, the ownership
+   check, the shrunken pump, and the deleted sum type move together
+   — reverting restores all of them at once.
+
+6. **Agent Subscribe / Publish with `SubscriptionRegistry` and
+   `ObserverMessage`.** Scope: introduce the per-connection-scoped
+   `SubscriptionRegistry`, the Hub's `subscribe` / `unsubscribe` /
+   `publish` methods with snapshot-then-iterate fan-out, and the
+   typed outbound `ObserverMessage` wire kind. Register the new
+   message kind in `MessageRegistry`. Add MCP tool surface for
+   `subscribe` and `publish`.
+   *Rollback coherence:* the registry, the Hub methods, the wire
+   kind, and the MCP tools form one functional unit; partial revert
+   would leave callers without a target.
+
+7. **Delete `DisplayClient.recv()`; migrate every caller to
+   `poll_event`.** Scope: remove the legacy `recv()` method, the
+   combined listener queue it drained, and every test or agent that
+   called it. Replace each call site with `poll_event` (for business
+   events) or with the push path on the bidirectional applet
+   connection. No shim, no alias.
+   *Rollback coherence:* the deletion and the call-site migrations
+   land together — reverting restores both.
+
+8. **Lifecycle wiring and full `HubDisplay`.** Scope: ship the full
+   `HubDisplay` class with index, owner-tracking, clients registry
+   (`register_client` / `is_client`), `apply`, `resolve`,
+   `owner_of`, `drop_connection`. Wire `register_client` into the
+   transport-setup path and `drop_connection` into the
+   connection-close path so a disconnecting connection's client
+   registration is discarded, its Elements are marked `_removed`,
+   the Element Observer cascade prunes the surviving tree, and
+   `SubscriptionRegistry.drop_connection` purges the connection's
+   topic scope. Confirm via tests that an orphan handler firing
+   after its connection is gone is a safe no-op and that
+   `Display.interact` rejects a disconnected `client_id` with
+   `UnknownClientError`.
+   *Rollback coherence:* the disconnect path and the lifecycle
+   invariants form one concern; reverting brings the partial
+   lifecycle that existed before back as a unit.
+
+9. **Interaction trace parity gate.** Scope: a single end-to-end
+   test that constructs an in-memory Hub, installs a Dialog with
+   Confirm / Cancel children, fires a wire `InteractionMessage` for
+   the Confirm click, and asserts every observable downstream
+   effect: the typed `ButtonClicked` event reaches the handler, the
+   `call_model("confirm")` invocation runs against `DialogModel`,
+   `_confirmed = True` is set on the model, the model's `_dismiss`
+   callback flips Element-level `_removed = True` through
+   `Element._mark_removed`, the Observer cascade reaches the parent,
+   the parent prunes the Dialog, and the
+   `Hub.publish("dialog_confirmed", ...)` call queues an
+   `ObserverMessage` to the subscribing connection. The test is the
+   acceptance gate for the PR's behavioral contract.
+   *Rollback coherence:* the test depends on every prior commit;
+   reverting it removes only the gate, not the behavior.
+
+### Acceptance verification map
+
+Each commit's invariant is verified by a specific test or behavior
+check. The map below names each one. `make check` runs all of these
+as part of the standard gate; the explicit listing is for review
+purposes — so a reader can trace each invariant to its verification.
+
+| # | Invariant | Verification |
+|---|-----------|--------------|
+| 1 | Hub state lives in `domain/hub/`; entry point is `luxd.py` | `tests/test_module_layout.py` asserts the package layout; `pyproject.toml`'s `[project.scripts]` parses and the `luxd` script imports cleanly |
+| 2 | Element ABC dispatches typed events to registered handlers | `tests/test_element_abc.py::test_fire_invokes_registered_handler` registers a handler and asserts the event reaches it; a second test asserts a handler that mutates the registry mid-dispatch does not break the in-flight call |
+| 3 | Wire spec → handler chain via catalog and decorators | `tests/test_handler_catalog.py` round-trips both the long form and the sugar form through the decoder; asserts the constructed `Handler[E]` chain calls the inner factory followed by each decorator in order |
+| 4 | Dialog dismisses itself when Confirm is clicked | `tests/test_dialog_element.py::test_confirm_marks_removed` constructs the Dialog through the decoder, fires a click on the Confirm child, asserts `_confirmed` on the model and `_removed` on the owning DialogElement, and that the Element-level Observer notified the parent |
+| 5 | `ButtonClicked` is constructed only by `Display.interact`; validation lives in one site | `tests/test_button_clicked.py::test_direct_construction_raises` calls `ButtonClicked(...)` directly and asserts `TypeError`; `tests/test_display_interact.py` parametrizes the five validation failures (unknown client, unknown scene, unknown element, unauthorized caller, wrong kind / wrong value shape) and asserts the typed error each raises; an additional `tests/test_display_interact.py::test_owner_mismatch_is_unauthorized` installs an Element under connection A and asserts an `Display.interact` call from connection B raises `UnauthorizedInteractionError` and never constructs a `ButtonClicked` |
+| 6 | Per-connection scoping; `ObserverMessage` round-trips on the wire | `tests/test_subscription_registry.py::test_per_connection_scope` subscribes two connections to the same topic name and asserts a publish from one reaches only its own subscribers; `tests/test_observer_message.py` round-trips the wire shape through the `MessageRegistry` |
+| 7 | `poll_event` is the only polling interface; `recv` is gone | `tests/test_display_client.py::test_no_recv_attribute` asserts `hasattr` returns False; `tests/test_display_client.py::test_poll_event_same_connection_delivers` subscribes and publishes on the SAME connection and asserts the payload arrives; `tests/test_display_client.py::test_poll_event_respects_connection_scope` asserts the D9 invariant — connection A subscribes to topic `"T"`; connection B subscribes to `"T"` and publishes `{"k": "other"}`; A's `poll_event("T")` does NOT receive B's payload (cross-connection pub-sub is genuinely absent in PR 4 per D9) |
+| 8 | Disconnect cascades through the Element Observer and drops the topic scope | `tests/test_lifecycle.py::test_disconnect_prunes_owned_elements` installs Elements under a connection, disconnects, asserts the Elements are gone from `HubDisplay`'s index and the parent's `children` tuple shrank; `tests/test_lifecycle.py::test_orphan_handler_publish_is_safe_noop` keeps a registered handler alive after its connection drops and asserts a publish call returns zero subscribers without raising |
+| 9 | End-to-end Dialog interaction trace | `tests/test_interaction_trace.py::test_confirm_click_to_observer_message` runs the full path: wire `InteractionMessage` → `Display.interact` → `ButtonClicked` → `Element.fire` → catalog handler → `DialogModel.confirm` → Observer cascade → parent prune → `Hub.publish` → `ObserverMessage` queued for the subscribing connection |
+
+`make check` is the gate at every commit; the test files above are
+additive at each step. A commit that ships its scope without
+verification — or with verification that does not assert the
+invariant the commit's text claims — is not ready to land.
