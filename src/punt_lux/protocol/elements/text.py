@@ -154,8 +154,8 @@ class TextElement(Element):
         self._tooltip = self._opt_str_or_raise(value, "tooltip")
 
     def _set_color(self, value: object) -> None:
-        """Replace the foreground color (used by ``Element._patch``)."""
-        self._color = self._str_or_raise(value, "color")
+        """Replace the color (NF1: ``null`` coerces to "" matching decoder)."""
+        self._color = "" if value is None else self._str_or_raise(value, "color")
 
     # -- codec delegators (D5) ---------------------------------------------
 

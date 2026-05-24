@@ -403,6 +403,18 @@ def test_text_element_patch_rejects_non_str_content() -> None:
         elem.apply_patch({"content": 42})
 
 
+def test_text_element_patch_accepts_null_color() -> None:
+    """NF1: ``{"color": null}`` in a patch matches the decode contract.
+
+    ``JsonTextDecoder.decode`` coerces a wire ``null`` color to the empty-
+    string "no override" sentinel; ``_set_color`` must do the same so an
+    UpdateMessage carrying ``{"color": null}`` doesn't crash with TypeError.
+    """
+    elem = TextElement(id="t1", content="hi", color="#FF0000")
+    elem.apply_patch({"color": None})
+    assert elem.color == ""
+
+
 def test_basics_codec_helpers_are_gone_from_every_per_kind_module() -> None:
     """PL-PP-1 + PY-OO-7: no module-level `_to_dict_*` / `_from_dict_*` survives.
 
