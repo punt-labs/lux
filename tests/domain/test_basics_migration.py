@@ -389,6 +389,20 @@ def test_element_from_dict_rejects_non_string_tooltip() -> None:
         element_from_dict(payload)
 
 
+def test_text_element_patch_rejects_non_str_content() -> None:
+    """CR2: setter type-narrowing — wire patch with wrong type raises TypeError.
+
+    ``Element.apply_patch`` dispatches JSON-decoded values to ``_set_<field>``;
+    the wire payload is ``object``, so the setter must guard at the
+    boundary and refuse a non-str ``content``.
+    """
+    import pytest
+
+    elem = TextElement(id="t1", content="hello")
+    with pytest.raises(TypeError, match=r"content must be str"):
+        elem.apply_patch({"content": 42})
+
+
 def test_basics_codec_helpers_are_gone_from_every_per_kind_module() -> None:
     """PL-PP-1 + PY-OO-7: no module-level `_to_dict_*` / `_from_dict_*` survives.
 

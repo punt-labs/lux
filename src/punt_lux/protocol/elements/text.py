@@ -120,22 +120,42 @@ class TextElement(Element):
         return self._color
 
     # -- minimal setters for the scene patch path (D6) ---------------------
+    #
+    # ``Element._patch`` dispatches JSON-decoded values straight to these
+    # setters, so each ``value`` arrives as ``object`` and PY-EH-1 demands
+    # boundary validation before we assign to a narrowly-typed attribute.
 
-    def _set_content(self, value: str) -> None:
+    @staticmethod
+    def _str_or_raise(value: object, field: str) -> str:
+        """Return ``value`` as ``str`` or raise ``TypeError`` (PY-EH-1)."""
+        if not isinstance(value, str):
+            msg = f"{field} must be str, got {type(value).__name__}"
+            raise TypeError(msg)
+        return value
+
+    @staticmethod
+    def _opt_str_or_raise(value: object, field: str) -> str | None:
+        """Return ``value`` as ``str | None`` or raise ``TypeError`` (PY-EH-1)."""
+        if value is None or isinstance(value, str):
+            return value
+        msg = f"{field} must be str or None, got {type(value).__name__}"
+        raise TypeError(msg)
+
+    def _set_content(self, value: object) -> None:
         """Replace the text content (used by ``Element._patch``)."""
-        self._content = value
+        self._content = self._str_or_raise(value, "content")
 
-    def _set_style(self, value: str | None) -> None:
+    def _set_style(self, value: object) -> None:
         """Replace the style hint (used by ``Element._patch``)."""
-        self._style = value
+        self._style = self._opt_str_or_raise(value, "style")
 
-    def _set_tooltip(self, value: str | None) -> None:
+    def _set_tooltip(self, value: object) -> None:
         """Replace the tooltip text (used by ``Element._patch``)."""
-        self._tooltip = value
+        self._tooltip = self._opt_str_or_raise(value, "tooltip")
 
-    def _set_color(self, value: str) -> None:
+    def _set_color(self, value: object) -> None:
         """Replace the foreground color (used by ``Element._patch``)."""
-        self._color = value
+        self._color = self._str_or_raise(value, "color")
 
     # -- codec delegators (D5) ---------------------------------------------
 
