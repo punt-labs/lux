@@ -469,15 +469,20 @@ their signatures through PR 3 (`connect`/`close`/`__enter__`/`__exit__`;
 `listener_active`/`ready_message` properties). `tools/connection.py:55-70`
 (`_get_client`) keeps working.
 
-### Internal wiring changes
+### Internal wiring changes (D7 — Connection added, not wired into DisplayClient)
 
-One change: `DisplayClient._send(msg)` (line 378-383) delegates to a
-`Connection` instead of `sock.sendall(wire)`; the backend (Unix
-socket vs in-memory) is the only branch. `SceneMessage` codec
-already handles Text on the wire via `element_to_dict` →
-`JsonTextEncoder` post-PR-3; no `show()` change needed (encoding
-symmetric). `_listener_loop` (line 309) and `InteractionMessage`
-parsing stay verbatim (Observer push lands in PR 4).
+Original design said `DisplayClient._send` delegates to `Connection`.
+Implementation surfaced that production uses length-prefixed framing
+(`encode_frame` HEADER_SIZE+length in `protocol/__init__.py:169`) while
+the spike's `LineSocket` is newline-delimited — flipping would break
+every existing test. **PR 3 resolution:** `DisplayClient` keeps its
+existing `encode_message`/`FrameReader` path. The new `Connection`
+module lands as a transport in `protocol/connection.py` +
+`in_memory_connection.py`, consumed in PR 3 only by
+`test_text_outbound_e2e.py::test_in_memory_backend`. Future PRs migrate
+DisplayClient to `Connection` in a coordinated wire-flip after the
+display server's FrameReader can also flip. `_listener_loop` (line 309)
+and `InteractionMessage` parsing stay verbatim (Observer in PR 4).
 
 ### What stays verbatim
 
@@ -562,26 +567,27 @@ the same commit (Bar §10).
 ### (iv) Connection abstraction + in-memory queue backend + integration test
 
 - **Create:** `src/punt_lux/protocol/connection.py` (LineSocket + helpers
-  lifted from spike `connection.py`), `src/punt_lux/protocol/
-  in_memory_connection.py` (paired-queue InMemoryConnection per §5).
+  lifted from spike `connection.py`, adapted: `__new__` per PY-CC-1,
+  `logger.exception` per PY-CS-11), `src/punt_lux/protocol/in_memory_connection.py`
+  (paired-queue InMemoryConnection per §5).
 - **Tests:** `tests/protocol/test_connection_line_socket.py` (send/recv
   loop, partial-line handling, close), `tests/protocol/test_connection_in_memory.py`
   (paired send/recv across the in-memory backend),
   `tests/integration/test_text_outbound_e2e.py::test_in_memory_backend`
-  — full Text outbound through in-memory Connection (set
-  `LUX_DISPLAY_IN_PROCESS=1`).
+  — exercises the new Connection module end-to-end (does NOT route
+  through DisplayClient — see D7 in §6).
 - **PY-RF-2 consumer:** the integration test exercises Connection.
 
-### (v) Subprocess backend + spawn + lifecycle test
+### (v) Subprocess lifecycle smoke (no DisplayClient changes per D7)
 
-- **Modify:** `src/punt_lux/display_client.py` — `connect()` selects
-  backend (in-memory vs Unix socket). Public API unchanged.
-- **Tests:** `tests/integration/test_text_outbound_e2e.py::test_subprocess_backend`
-  — same Text scene through real Unix-socket subprocess (no
-  `LUX_DISPLAY_IN_PROCESS`); uses `DisplayPaths().ensure()` per existing
-  pattern. `tests/integration/test_subprocess_lifecycle.py` — spawn,
-  send one scene, close cleanly, assert PID file removed.
-- **PY-RF-2 consumer:** the subprocess backend test.
+- **No source changes** — per D7 (§6), DisplayClient keeps its
+  existing path; Connection wire flip is a future coordinated PR.
+- **Tests:** `tests/integration/test_subprocess_lifecycle.py` —
+  spawn display via existing `DisplayPaths().ensure()`, send one
+  Text scene through unchanged DisplayClient path, close, assert PID
+  file removed. Smoke test that Text scenes still flow after commit
+  (iii)'s migration.
+- **PY-RF-2 consumer:** the lifecycle test.
 
 ### (vi) DisplayClient + ImGui paint integration
 
