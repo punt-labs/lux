@@ -148,8 +148,6 @@ def test_spawn_reader_logs_and_terminates_on_malformed_json(
         reader_thread = spawn_reader(reader_socket, handled.append)
         reader_thread.join(timeout=2.0)
 
-    reader_socket.close()
-
     assert not reader_thread.is_alive(), "reader thread did not terminate"
     assert handled == [], "handler must not see lines after a decode failure"
     matching = [
@@ -194,8 +192,6 @@ def test_spawn_reader_continues_after_handler_exception(
         reader_thread = spawn_reader(reader_socket, always_raises)
         reader_thread.join(timeout=2.0)
 
-    reader_socket.close()
-
     assert not reader_thread.is_alive(), "reader thread did not terminate"
     assert call_count[0] == 2, f"handler should fire per payload; got {call_count[0]}"
     handler_records = [
@@ -209,6 +205,52 @@ def test_spawn_reader_continues_after_handler_exception(
     assert len(handler_records) == 2, (
         f"expected two logger.exception entries; got {caplog.records!r}"
     )
+
+
+def test_spawn_reader_closes_line_socket_on_exit() -> None:
+    """CP2: ownership of the LineSocket transfers to the reader thread.
+
+    When the peer EOFs and ``iter_lines`` returns, ``spawn_reader``'s
+    ``finally`` must close the LineSocket so the underlying fd is released
+    without the caller having to do it. Verified by ``send_line`` raising
+    after the reader has terminated — a healthy socket would accept it.
+    """
+    raw_a, raw_b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    reader_socket = LineSocket(raw_b)
+    handled: list[dict[str, object]] = []
+
+    raw_a.shutdown(socket.SHUT_RDWR)
+    raw_a.close()
+
+    reader_thread = spawn_reader(reader_socket, handled.append)
+    reader_thread.join(timeout=2.0)
+
+    assert not reader_thread.is_alive(), "reader thread did not terminate"
+    with pytest.raises(OSError):
+        reader_socket.send_line({"op": "after-close"})
+
+
+def test_spawn_reader_closes_line_socket_after_iter_lines_failure() -> None:
+    """CP2: close also runs when ``iter_lines`` raises, not just on EOF.
+
+    Feeding malformed bytes drives ``iter_lines`` through ``JSONDecodeError``
+    — the outer ``except Exception`` logs it, and the ``finally`` must
+    still close the LineSocket so a failing reader doesn't leak the fd.
+    """
+    raw_a, raw_b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    reader_socket = LineSocket(raw_b)
+    handled: list[dict[str, object]] = []
+
+    raw_a.sendall(b"{not valid json}\n")
+    raw_a.shutdown(socket.SHUT_RDWR)
+    raw_a.close()
+
+    reader_thread = spawn_reader(reader_socket, handled.append)
+    reader_thread.join(timeout=2.0)
+
+    assert not reader_thread.is_alive(), "reader thread did not terminate"
+    with pytest.raises(OSError):
+        reader_socket.send_line({"op": "after-failure"})
 
 
 def test_spawn_reader_dispatches_lines_to_handler(
@@ -240,6 +282,5 @@ def test_spawn_reader_dispatches_lines_to_handler(
         assert done.wait(timeout=2.0), f"reader handled {handled!r}, expected 2"
         client.close()
         reader.join(timeout=2.0)
-        server.close()
 
     assert handled == [{"op": "a"}, {"op": "b"}]
