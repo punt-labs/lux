@@ -62,6 +62,10 @@ class JsonTextDecoder:
     def decode(self, raw: Mapping[str, object]) -> TextElement:
         """Construct a TextElement from a JSON-decoded mapping."""
         ctx = ElementWireContext.for_kind("text")
+        # PR-2 dataclass codec accepted ``{"color": null}`` via
+        # optional_nullable_str; preserve wire backward-compat by
+        # coercing None to the empty-string default.
+        color_raw = ctx.optional_nullable_str(raw, "color")
         return self._cls(
             renderer_factory=self._rf,
             emit=self._emit,
@@ -69,7 +73,7 @@ class JsonTextDecoder:
             content=ctx.require_str(raw, "content"),
             style=ctx.optional_nullable_str(raw, "style"),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),
-            color=ctx.optional_str(raw, "color", default=""),
+            color=color_raw if color_raw is not None else "",
         )
 
 
