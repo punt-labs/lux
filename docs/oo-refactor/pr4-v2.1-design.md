@@ -821,3 +821,233 @@ first and then wires every child controller's typed handler against
 it. Form, Wizard, Inspector, Workspace — each its own component, each
 its own model, each its own verb vocabulary, all reading and writing
 through the same MVC seam.
+
+## ButtonClicked: one event, one validation boundary
+
+`ButtonClicked` is the canonical typed event for a validated button
+press. It has exactly one constructor — the Hub's `Display.interact`
+method — and exactly one validation site — the same method. Everything
+upstream of `Display.interact` is wire-side triage; everything
+downstream is typed handler dispatch. There is no intermediate class
+between the inbound `InteractionMessage` and the `ButtonClicked` the
+dispatcher hands to `Element.fire`.
+
+### The event class
+
+```python
+@dataclass(frozen=True, slots=True)
+class ButtonClicked:
+    """A validated button click. Constructible ONLY by Display.interact."""
+
+    scene_id: SceneId
+    element_id: ElementId
+    owner_id: ConnectionId
+    kind: ClassVar[Literal["button_clicked"]] = "button_clicked"
+
+    def __new__(
+        cls,
+        *,
+        scene_id: SceneId,
+        element_id: ElementId,
+        owner_id: ConnectionId,
+        _token: object,
+    ) -> Self:
+        if _token is not Display._construction_token:
+            msg = (
+                "ButtonClicked must be constructed by Display.interact; "
+                "direct construction is not allowed"
+            )
+            raise TypeError(msg)
+        self = super().__new__(cls)
+        return self
+```
+
+The factory guard is the PY-CC-3 pattern: the class refuses any
+construction path that does not present the token the `Display` class
+holds. Tests that need a `ButtonClicked` get one by calling
+`Display.interact` with a valid `InteractionMessage`, not by
+constructing the event directly. The token is module-private to the
+Hub; no other module can forge it.
+
+The class is frozen and slotted — once constructed, it is an inert
+record of three values plus a `kind` discriminator. Handlers read
+fields; they do not mutate the event.
+
+### The validation site
+
+`Display.interact` is the single function that turns a wire
+`InteractionMessage` into a typed `ButtonClicked`. Every domain check
+that the click is valid happens here, exactly once.
+
+```python
+class Display:
+    """Hub-side Element index, validation site, dispatch entry point."""
+
+    _construction_token: ClassVar[object] = object()
+
+    def interact(
+        self,
+        client_id: ConnectionId,
+        msg: InteractionMessage,
+    ) -> ButtonClicked:
+        """Validate the wire message, construct the typed event, return it.
+
+        Raises on any validation failure — the caller (the pump) has already
+        done wire-side triage, so anything reaching this method is either
+        a valid click or a domain-level bug. Validation failures are not
+        normal outcomes; they are errors that surface immediately.
+        """
+        scene_id = msg.require_scene_id()
+        element_id = ElementId(msg.element_id)
+
+        if client_id not in self._clients:
+            raise UnknownClientError(client_id=client_id)
+        scene = self._scenes.get(scene_id)
+        if scene is None:
+            raise UnknownSceneError(scene_id=scene_id)
+        element = scene.get(element_id)
+        if element is None:
+            raise UnknownElementError(
+                scene_id=scene_id, element_id=element_id,
+            )
+        if element.kind != "button":
+            raise WrongKindError(
+                scene_id=scene_id,
+                element_id=element_id,
+                expected="button",
+                got=element.kind,
+            )
+
+        return ButtonClicked(
+            scene_id=scene_id,
+            element_id=element_id,
+            owner_id=client_id,
+            _token=Display._construction_token,
+        )
+```
+
+The method does four things in order: validate the client exists,
+validate the scene exists, validate the element exists, validate the
+element is the right kind for the action. On success it constructs the
+typed event and returns it. On failure it raises a typed domain error.
+There is no `None` return, no boolean success flag, no error sentinel —
+either the caller gets a typed event or the call raises.
+
+### The pump shrinks to wire-side triage
+
+The component that translates raw wire frames into Hub calls — the
+domain pump — now does only wire-shape filtering. Its previous
+responsibility for intermediate-class construction and partial domain
+reasoning is gone.
+
+```python
+class WirePump:
+    """Wire-side triage. Drops malformed or non-element messages, then
+    hands the surviving message directly to Display.interact."""
+
+    _NON_ELEMENT_ACTIONS: ClassVar[frozenset[str]] = frozenset(
+        {"menu", "frame_close"},
+    )
+
+    def route_interaction(
+        self,
+        client_id: ConnectionId,
+        msg: InteractionMessage,
+    ) -> None:
+        if msg.action in self._NON_ELEMENT_ACTIONS:
+            return
+        if msg.scene_id is None:
+            return
+        if msg.value is not True:
+            return
+
+        event = self._display.interact(client_id, msg)
+        element = self._display.resolve(event.scene_id, event.element_id)
+        element.fire(event)
+```
+
+Three wire-shape filters, then the message goes to `Display.interact`,
+then the typed event goes to `Element.fire`. The pump does no domain
+reasoning, no element resolution, no kind check, no ownership check.
+Those live in `Display.interact` and `Display.resolve` — the methods
+that own the index those checks rely on.
+
+### One validation site, no defense-in-depth
+
+`Display.interact` is the only place a `ButtonClicked` is constructed
+and the only place that validates the inputs that go into it. There is
+no second validation layer in `Element.fire`, no third one in handler
+factories, no fourth one in the catalog. The class's factory guard
+ensures no caller bypasses `Display.interact` to manufacture a synthetic
+event; the validation gate is therefore the construction gate.
+
+Defense-in-depth across multiple validation sites was an artifact of
+the prior arrangement where the wire-side intermediate class and the
+domain-side event both held overlapping field sets and each had to be
+re-checked when crossing the boundary. With a single class constructed
+at a single site, the two checks collapse into the one check that
+matters.
+
+The `ButtonPressed` class is deleted. The `Interaction` sum type and
+its `domain/interaction.py` module are deleted. The
+`_warn_on_error(...)` helper in the pump is deleted. Every legacy
+caller migrates in the same PR — there is no `ButtonPressed` import
+that survives, no `Interaction` reference that lingers, no parallel
+old-and-new code path.
+
+### Future input kinds extend the same dispatch
+
+The `Display.interact` method's structure scales to additional input
+kinds without re-introducing a sum type. Each new input kind adds a
+branch that matches on `msg.action` or another wire-shape
+discriminator, runs its own typed validation, and constructs its own
+typed validated event.
+
+```python
+class Display:
+
+    def interact(
+        self,
+        client_id: ConnectionId,
+        msg: InteractionMessage,
+    ) -> Event:
+        # Resolve the Element first — every input kind needs it.
+        scene_id = msg.require_scene_id()
+        element_id = ElementId(msg.element_id)
+        self._require_known_client(client_id)
+        element = self._require_element(scene_id, element_id)
+
+        if msg.action == "click" and element.kind == "button":
+            return ButtonClicked(
+                scene_id=scene_id,
+                element_id=element_id,
+                owner_id=client_id,
+                _token=Display._construction_token,
+            )
+        if msg.action == "change" and element.kind == "slider":
+            new_value = msg.require_float_value()
+            return SliderChanged(
+                scene_id=scene_id,
+                element_id=element_id,
+                owner_id=client_id,
+                new_value=new_value,
+                _token=Display._construction_token,
+            )
+        # … future input kinds add their own typed branch here.
+
+        raise UnsupportedInteractionError(
+            action=msg.action, kind=element.kind,
+        )
+```
+
+`SliderChanged`, `TextEdited`, `CheckboxToggled` — each is its own
+frozen typed class with its own factory guard, constructed by
+`Display.interact` and dispatched through `Element.fire` against
+handlers registered for its specific type. No intermediate-class sum
+type ever resurfaces. The catalog (`SliderHandlers`, `TextHandlers`,
+etc.) registers typed factories against the typed event class, the
+same way `ButtonHandlers` registers against `ButtonClicked`.
+
+The structure of the validation method grows by one branch per kind.
+The structure of the dispatcher and the handler registry does not
+change at all.
