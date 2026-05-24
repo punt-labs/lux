@@ -1659,3 +1659,115 @@ modify the Hub. Future Hub features (a new Update kind, a new event
 class, a richer subscription rule) modify the Hub; they do not
 modify `luxd.py`. The seam is clean because the two concerns are
 genuinely different.
+
+## Applet transport and reference frameworks
+
+Two cross-cutting items remain. The first is the applet transport —
+its long-term shape, what this PR documents, and what migrates in the
+next PR. The second is the catalog of UI frameworks that informed this
+design and that future implementers should consult when a detail
+surfaces that none of the design decisions fully specifies.
+
+### Applet transport: line-delimited JSON over TCP
+
+The applet wire protocol is line-delimited JSON over **TCP**. The
+choice is deliberate. The system is distributed by design — `luxd`
+runs on one host, an applet may run on another, and the protocol must
+work across machines. AF\_UNIX is acceptable as a local-loopback
+optimization where both ends are on the same host, but it is not the
+architectural intent; the wire shape and connection model do not
+branch on transport.
+
+Applets hold their TCP connection open bidirectionally for the
+connection's lifetime. The same socket carries:
+
+- inbound `subscribe` / `unsubscribe` / `publish` calls from the
+  applet to the Hub,
+- inbound `apply` calls that mutate scene state,
+- outbound `ObserverMessage` deliveries from the Hub to the applet,
+- outbound state-mirror updates if the applet observes a scene.
+
+No request / response close-between-calls, no reconnect-per-message,
+no separate channel for asynchronous notifications. One socket, one
+connection lifetime, both directions. An applet that prefers
+synchronous polling may call `poll_event` over the same socket — the
+default async path is push, polling is a convenience adapter for
+callers that need it.
+
+This document describes the production transport. The actual
+migration of the existing in-tree `LineSocket` from AF\_UNIX to TCP
+happens with the first applet implementation, when the change has a
+concrete consumer and a real cross-host scenario to verify against.
+No transport code changes in PR 4; the design doc just stops
+mis-describing the long-term shape.
+
+The reason for the explicit deferral is alignment with the guiding
+principle. Migrating `LineSocket` without an applet consumer would
+leave a transport with no callers — dead code waiting for the next PR
+to use it. The transport migrates in the same PR that introduces its
+first user, so the change is rollback-coherent: revert the applet,
+revert the transport.
+
+### Reference frameworks
+
+Implementation details that the design decisions do not fully specify
+are resolved by consulting an ordered list of UI frameworks. Each was
+chosen because its shape matches a specific concern of this design;
+none was chosen as a wholesale model.
+
+**Primary — JavaFX FXML + Controller.** The closest single match for
+this design's wire-format-plus-handler-binding shape. FXML resolves
+`onAction="#methodName"` against a typed Controller method at load
+time, fails loudly if the method does not exist, and binds the
+typed reference into the constructed widget tree. The catalog-plus-
+verb-vocabulary pattern this design uses for `call_model` and the
+`_ACTIONS` mapping is the same shape: the wire names a verb, the
+decoder resolves it against the typed verb mapping at decode time,
+the bound reference flows into the constructed Element tree.
+
+**Secondary — SwiftUI.** Typed component composition and
+`@Environment`-provided action vocabularies for descendants. The
+per-parent-component verb vocabulary pattern (where a Button inside a
+Dialog inherits Dialog's verbs and a Button inside a Form inherits
+Form's verbs) is SwiftUI's environment pattern. When a future
+composite Element needs to provide its own descendant vocabulary, the
+SwiftUI environment is the model.
+
+**Tertiary — Vue (template + methods).** Verb-string shorthand
+resolving to typed methods. Vue's `@click="methodName"` shorthand
+canonicalises to a typed call against the component's methods at
+compile time; the parallel here is the sugar wire form (`"publish":
+["topic"]`) canonicalising to the long form (`"factory": "noop",
+"wrap": [...]`) before the handler chain is built.
+
+**Quaternary — Qt QML signal / slot.** Element Observer mechanics.
+Qt's signal/slot system IS the Observer pattern — typed properties
+emit typed change signals that subscribers consume by typed slot
+methods. When the Element Observer surface grows beyond the
+`add_observer(property_name, callback)` shape, Qt's typed signals
+are the next reference.
+
+**Quinary — Phoenix LiveView.** Agent-in-a-different-process pattern.
+Phoenix `phx-click="event_name"` declares an event name on the client
+that the server-side `handle_event/3` callback handles. The
+client-server split, the named-event-over-wire shape, and the typed
+server-side dispatch all parallel this design's
+agent-declares-handler / Hub-dispatches-typed-handler split.
+
+**Not a reference — ImGui.** ImGui is the rendering target for the
+display tier, not a model for the io-model. ImGui is immediate-mode:
+the renderer redraws the entire UI every frame, the application code
+runs every frame, and widgets do not retain state between frames.
+This design is retained-mode and declarative: agents describe the UI
+once, the Hub holds the Element tree until updated, handlers run on
+typed events. The two paradigms are fundamentally different — citing
+ImGui as a reference for the io-model would invite a category error.
+ImGui's role is exclusively in the rendering tier, drawing the scene
+the Hub has assembled.
+
+The ordering matters. When two references suggest different
+resolutions for the same detail, the higher-priority one wins. When
+no listed reference covers a detail, the implementation is free to
+choose — but the chosen shape must be documented in the same commit
+as the choice, so a future reader can tell whether the decision was
+informed by a reference or was a local invention.
