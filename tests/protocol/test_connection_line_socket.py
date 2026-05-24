@@ -253,6 +253,47 @@ def test_spawn_reader_closes_line_socket_after_iter_lines_failure() -> None:
         reader_socket.send_line({"op": "after-failure"})
 
 
+def test_connect_unix_closes_socket_on_unexpected_exception(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """CP3: ``connect_unix`` must release the fd on every non-success exit.
+
+    Round-1 only handled the two retry-eligible races
+    (``FileNotFoundError`` / ``ConnectionRefusedError``). Any other
+    ``OSError`` — ``PermissionError`` being the canonical case —
+    propagated without calling ``sock.close()``, leaking one fd per call.
+    Patch ``socket.socket`` to return a tracked stub whose ``connect``
+    raises ``PermissionError`` and assert (a) the error propagates,
+    (b) the stub's ``close`` was invoked on the way out.
+    """
+    close_calls: list[int] = []
+
+    class _StubSocket:
+        """Minimal ``socket.socket`` stand-in: connect raises, close counts."""
+
+        def __init__(self) -> None:
+            self._id = len(close_calls) + 1
+
+        def connect(self, _addr: str) -> None:
+            msg = "permission denied"
+            raise PermissionError(msg)
+
+        def close(self) -> None:
+            close_calls.append(self._id)
+
+    def _stub_factory(_family: int, _type: int) -> _StubSocket:
+        return _StubSocket()
+
+    monkeypatch.setattr(socket, "socket", _stub_factory)
+
+    with pytest.raises(PermissionError):
+        connect_unix("/unused", retries=3, delay=0.0)
+
+    assert close_calls == [1], (
+        f"expected one close on the first failing attempt; got {close_calls!r}"
+    )
+
+
 def test_spawn_reader_dispatches_lines_to_handler(
     short_socket_path: Path,
 ) -> None:

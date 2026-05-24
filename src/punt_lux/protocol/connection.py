@@ -72,11 +72,9 @@ class LineSocket:
                 if not chunk:
                     return
                 self._recv_buf += chunk
-            line, _, rest = self._recv_buf.partition(b"\n")
-            self._recv_buf = rest
-            if not line:
-                continue
-            yield json.loads(line.decode("utf-8"))
+            line, _, self._recv_buf = self._recv_buf.partition(b"\n")
+            if line:
+                yield json.loads(line.decode("utf-8"))
 
     def close(self) -> None:
         """Shutdown and close the underlying socket."""
@@ -107,18 +105,25 @@ def connect_unix(
     retries: int = _DEFAULT_RETRIES,
     delay: float = _DEFAULT_RETRY_DELAY,
 ) -> LineSocket:
-    """Connect to a Unix socket with brief retry for race-free spawn."""
+    """Connect to a Unix socket with brief retry; close ``sock`` on any failure."""
+    # Non-retry exceptions (PermissionError, generic OSError) propagate after
+    # ``finally`` closes ``sock`` so the fd is never leaked; retry-eligible
+    # races (FileNotFoundError, ConnectionRefusedError) sleep and loop.
     last_err: Exception | None = None
     for _ in range(retries):
         sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        connected = False
         try:
             sock.connect(str(path))
         except (FileNotFoundError, ConnectionRefusedError) as err:
-            sock.close()
             last_err = err
             time.sleep(delay)
         else:
+            connected = True
             return LineSocket(sock)
+        finally:
+            if not connected:
+                sock.close()
     msg = f"could not connect to {path}: {last_err}"
     raise RuntimeError(msg)
 
