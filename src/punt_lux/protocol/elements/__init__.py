@@ -25,6 +25,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any
 
+from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.elements import layout
 
 # _strip_none is re-exported for protocol.messages.scene; lives in
@@ -77,6 +78,8 @@ from punt_lux.protocol.elements.table import (
     register_codecs as _register_table,
 )
 from punt_lux.protocol.elements.text import TextElement
+from punt_lux.protocol.encoder_factory import JsonEncoderFactory
+from punt_lux.protocol.renderers.null import NullRendererFactory
 
 __all__ = [
     "ButtonElement",
@@ -159,13 +162,32 @@ _register_layout(_codec.register)
 _register_graphics(_codec.register)
 _register_table(_codec.register)
 
+# io-model dispatch — Text-only in PR 3 (per pr3-v2.1-design.md §3).
+# The factory is constructed with Hub-tier defaults (NullRendererFactory +
+# no-op emit); production tiers construct their own with the real DI at
+# startup. The module-level instance covers the existing test/agent path
+# that reaches ``element_from_dict`` without explicit DI.
+
+
+def _no_op_emit(_msg: object) -> None:
+    """Module-level sentinel emit channel (PY-DP-9 Null Object)."""
+
+
+_ELEMENT_FACTORY = JsonElementFactory(
+    renderer_factory=NullRendererFactory(),
+    emit=_no_op_emit,
+)
+_ENCODER_FACTORY = JsonEncoderFactory()
+
 
 def _element_to_dict(elem: Element) -> dict[str, Any]:
     """Serialize an Element dataclass to a JSON-compatible dict."""
+    if isinstance(elem, TextElement):
+        # JsonTextEncoder owns tooltip emission for the io-model path.
+        return _ENCODER_FACTORY.encode(elem)
     result = _codec.to_dict(elem)
-    # ``tooltip`` is part of the Element Protocol — every conforming class
-    # has it, so we read the attribute directly instead of via ``getattr``
-    # (PY-TS-10: no ``hasattr``-equivalent dispatch).
+    # The 23 dataclass kinds' per-kind codecs don't emit tooltip; the
+    # Element Protocol guarantees the attribute (PY-TS-10: no hasattr).
     if elem.tooltip is not None:
         result["tooltip"] = elem.tooltip
     return result
@@ -177,8 +199,28 @@ def element_to_dict(elem: Element) -> dict[str, Any]:
 
 
 def element_from_dict(d: dict[str, Any]) -> Element:
-    """Deserialize a dict to the appropriate Element dataclass."""
-    elem = _codec.from_dict(d)
+    """Deserialize a dict to the appropriate Element class.
+
+    Text routes through ``JsonElementFactory`` (io-model path —
+    pr3-v2.1-design.md §3); the other 23 kinds continue through the
+    PR-2 ``ElementCodec``. A missing, empty, or non-string ``kind`` is a
+    ``ValueError`` — mirrors ``ElementCodec.from_dict``'s contract so
+    every element path has the same boundary semantics.
+    """
+    kind = d.get("kind")
+    if not isinstance(kind, str) or not kind:
+        msg = "Element missing or invalid 'kind' field"
+        raise ValueError(msg)
+    if kind == "text":
+        # ``JsonTextDecoder`` already pulls and validates ``tooltip`` from
+        # the wire dict (via ``optional_nullable_str``) — its decoded
+        # element carries the canonical tooltip.  Re-applying the read
+        # here via ``apply_patch`` was a redundant second pass (CR1) so
+        # the ABC branch short-circuits.  The decoder still raises a
+        # typed ``ValueError`` on a non-string tooltip — the boundary
+        # validation contract is preserved.
+        return _ELEMENT_FACTORY.decode(d)
+    elem: Element = _codec.from_dict(d)
     # Copilot CP-5: validate tooltip at the boundary (PY-EH-1).  The
     # codec returns each Element with its declared tooltip default
     # (``None``); the cross-element tooltip read here previously trusted
@@ -188,11 +230,19 @@ def element_from_dict(d: dict[str, Any]) -> Element:
     # tolerated and any other non-str raises a typed ``ValueError``.
     tooltip_ctx = ElementWireContext.for_kind(elem.kind)
     tooltip = tooltip_ctx.optional_nullable_str(d, "tooltip")
-    if tooltip is not None:
-        # Every Element subtype declares ``tooltip: str | None`` — the
-        # Protocol guarantee makes ``replace(elem, tooltip=...)`` safe.
-        elem = replace(elem, tooltip=tooltip)
-    return elem
+    if tooltip is None:
+        return elem
+    # The text branch returned above; ``_codec`` carries only the 23
+    # dataclass-shaped kinds, so the union here excludes ``TextElement``.
+    # The ``isinstance`` guard narrows the union for ``replace`` (whose
+    # type variable cannot bind to the ABC-shaped ``TextElement``) and
+    # documents the dispatch invariant.
+    if isinstance(elem, TextElement):  # pragma: no cover - dispatch invariant
+        msg = "text kind must route through _ELEMENT_FACTORY"
+        raise AssertionError(msg)
+    # Every dataclass Element subtype declares ``tooltip: str | None`` —
+    # the Protocol guarantee makes ``replace(elem, tooltip=...)`` safe.
+    return replace(elem, tooltip=tooltip)
 
 
 # Inject the package-level recursion functions into layout codecs.  Container

@@ -1,9 +1,13 @@
 """Basics-family codec registration — wires each per-kind module's codec.
 
-Per-kind classes live in ``text.py``, ``image.py``, ``separator.py``,
-``progress.py``, ``spinner.py``, ``markdown.py``.  The ``BasicsRegistry``
-class consolidates the six register calls behind a single ``apply``
-method so the package ``__init__`` does not grow each migration PR.
+Per-kind classes live in ``image.py``, ``separator.py``, ``progress.py``,
+``spinner.py``, ``markdown.py``. ``text.py`` is registered separately
+through ``JsonElementFactory`` (PR 3 io-model dispatch — see
+``__init__.py``); the entry is removed here to avoid double registration.
+
+The ``BasicsRegistry`` class consolidates the five remaining register
+calls behind a single ``apply`` method so the package ``__init__`` does
+not grow each migration PR.
 """
 
 from __future__ import annotations
@@ -16,7 +20,6 @@ from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.separator import SeparatorElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
-from punt_lux.protocol.elements.text import TextElement
 
 __all__ = ["BasicsRegistry"]
 
@@ -36,7 +39,6 @@ class BasicsRegistry:
     def apply(self, register: Register) -> None:
         """Register every basics-family element kind's codec."""
         register("image", ImageElement, ImageElement.to_dict, ImageElement.from_dict)
-        register("text", TextElement, TextElement.to_dict, TextElement.from_dict)
         register(
             "separator",
             SeparatorElement,

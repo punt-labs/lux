@@ -7,6 +7,8 @@ as a pure state machine — no ImGui, no sockets, no DisplayServer.
 
 from __future__ import annotations
 
+import pytest
+
 from punt_lux.protocol import (
     ButtonElement,
     InputNumberElement,
@@ -327,8 +329,8 @@ class TestApplyUpdate:
         assert elem.id == "t1"
         assert elem.kind == "text"
 
-    def test_patch_ignores_unknown_fields(self) -> None:
-        """Unknown field names in a patch are silently filtered; valid fields apply."""
+    def test_patch_unknown_fields_raises(self) -> None:
+        """Unknown field names in a patch raise ValueError instead of silent drop."""
         mgr, _ = _make_manager()
         scene = _make_scene(elements=[TextElement(id="t1", content="Hello")])
         mgr.handle_scene(scene, owner_fd=10)
@@ -337,13 +339,11 @@ class TestApplyUpdate:
             scene_id="s1",
             patches=[Patch(id="t1", set={"content": "Updated", "bogus_key": "x"})],
         )
-        mgr.apply_update(update)
+        with pytest.raises(ValueError, match="bogus_key"):
+            mgr.apply_update(update)
 
-        elem = mgr._scenes["s1"].elements[0]
-        assert elem.content == "Updated"  # type: ignore[union-attr]
-
-    def test_patch_all_unknown_fields_is_noop(self) -> None:
-        """A patch containing only unknown fields leaves the element unchanged."""
+    def test_patch_all_unknown_fields_raises(self) -> None:
+        """A patch containing only unknown fields raises ValueError."""
         mgr, _ = _make_manager()
         scene = _make_scene(elements=[TextElement(id="t1", content="Hello")])
         mgr.handle_scene(scene, owner_fd=10)
@@ -352,15 +352,13 @@ class TestApplyUpdate:
             scene_id="s1",
             patches=[Patch(id="t1", set={"nonexistent": "value"})],
         )
-        mgr.apply_update(update)
-
-        elem = mgr._scenes["s1"].elements[0]
-        assert elem.content == "Hello"  # type: ignore[union-attr]
+        with pytest.raises(ValueError, match="nonexistent"):
+            mgr.apply_update(update)
 
     def test_patch_value_on_input_number_writes_widget_state(self) -> None:
         """Regression for code-reviewer IMPORTANT on f3bd2bb.
 
-        InputNumberElement must implement WidgetValueProvider — otherwise a
+        InputNumberElement must provide widget_value() — otherwise a
         ``value`` patch sets WidgetState to ``None`` and the next render crashes
         on ``int(None)`` inside ``InputNumberRenderer._draw_input``.
         """
@@ -400,16 +398,16 @@ class TestApplyUpdate:
     def test_patch_value_on_color_picker_discards_widget_state(self) -> None:
         """Regression for cumulative SFH HIGH finding on PR 2.
 
-        ColorPickerElement intentionally does NOT implement WidgetValueProvider
-        (the renderer caches an ``ImVec4`` whose shape the domain cannot
-        produce).  Before this fix a ``value`` patch wrote ``None`` into
+        ColorPickerElement is intentionally excluded from the widget_value()
+        dispatch (the renderer caches an ``ImVec4`` whose shape the domain
+        cannot produce).  Before this fix a ``value`` patch wrote ``None`` into
         WidgetState; the next render's ``ensure(eid, ImVec4(...))`` returned
         ``None`` (key present), and ``imgui.color_edit3(label, None)`` crashed
         or mis-rendered.
 
-        The contract: patching a value on a class without a
-        WidgetValueProvider implementation must DISCARD the cached entry so
-        the next render re-seeds from the patched element fields.
+        The contract: patching a value on a class excluded from the
+        widget_value() dispatch must DISCARD the cached entry so the next
+        render re-seeds from the patched element fields.
         """
         from punt_lux.protocol.elements.color_picker import ColorPickerElement
 

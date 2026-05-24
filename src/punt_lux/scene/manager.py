@@ -7,18 +7,25 @@ import logging
 from dataclasses import replace
 from typing import Any, Self
 
+from punt_lux.domain.element_abc import Element as ABCElement
 from punt_lux.protocol import (
+    CheckboxElement,
     CollapsingHeaderElement,
+    ComboElement,
     Element,
     GroupElement,
+    InputNumberElement,
+    InputTextElement,
+    RadioElement,
     SceneMessage,
+    SelectableElement,
+    SliderElement,
     TabBarElement,
     UpdateMessage,
     WindowElement,
 )
 from punt_lux.scene.frame import Frame
 from punt_lux.scene.widget_state import WidgetState
-from punt_lux.scene.widget_value_provider import WidgetValueProvider
 from punt_lux.types import OnSceneReplacedFn
 
 # ---------------------------------------------------------------------------
@@ -67,13 +74,25 @@ def _find_element(
 def _widget_value(elem: Element) -> Any:
     """Extract the current widget value from an element for WidgetState.
 
-    Dispatch is structural via the ``WidgetValueProvider`` Protocol — each
-    value-bearing input class owns its own ``widget_value()`` method.
-    Color-picker elements do NOT implement the Protocol on purpose: their
-    renderer initialises widget state with an ``ImVec4`` via ``ensure()``;
-    returning the raw hex string here would corrupt that state.
+    Direct ``isinstance`` dispatch against the seven value-bearing input
+    element classes — each owns a ``widget_value()`` method that returns
+    the field ``SceneManager`` mirrors into ``WidgetState`` after a patch.
+    ``ColorPickerElement`` is intentionally excluded: its renderer seeds
+    ``WidgetState`` with an ``ImVec4`` via ``ensure()``, so returning the
+    raw hex string here would corrupt that state.
     """
-    if isinstance(elem, WidgetValueProvider):
+    if isinstance(
+        elem,
+        (
+            CheckboxElement,
+            ComboElement,
+            InputNumberElement,
+            InputTextElement,
+            RadioElement,
+            SelectableElement,
+            SliderElement,
+        ),
+    ):
         return elem.widget_value()
     return None
 
@@ -274,7 +293,9 @@ class SceneManager:
                         ws.set(eid, None)
                         ws.clear_suffix(f"_{eid}")
             elif patch.set:
-                self._apply_patch_set((parent_list, idx), patch.set, ws)
+                self._apply_patch_set(
+                    (parent_list, idx), patch.set, ws, scene_id=msg.scene_id
+                )
 
     def dismiss_scene(self, scene_id: str) -> None:
         """Remove an unframed scene and all its associated state."""
@@ -395,24 +416,44 @@ class SceneManager:
         location: tuple[list[Element], int],
         fields: dict[str, Any],
         ws: WidgetState | None = None,
+        *,
+        scene_id: str,
     ) -> None:
-        """Apply a set-patch to an element and sync widget state."""
+        """Apply a set-patch to an element and sync widget state.
+
+        Two element shapes coexist during the io-model migration
+        (pr3-v2.1-design.md §4 D6): ABC subclasses (Text in PR 3, more
+        in PRs 4-11) own their patch path via ``_set_<field>`` setters
+        called from ``Element.apply_patch``; PR-2 dataclasses continue
+        through ``dataclasses.replace``. The dispatch branch keeps each
+        shape on its native mutation strategy until PR 12's sweep.
+        """
         parent_list, idx = location
         elem = parent_list[idx]
-        known = {f.name for f in dataclasses.fields(elem)}
+        if isinstance(elem, ABCElement):
+            known = {
+                name.removeprefix("_set_")
+                for name in dir(elem)
+                if name.startswith("_set_") and callable(getattr(elem, name))
+            }
+        else:
+            known = {f.name for f in dataclasses.fields(elem)}
         valid = {
             k: v for k, v in fields.items() if k not in ("id", "kind") and k in known
         }
         unknown = fields.keys() - {"id", "kind"} - valid.keys()
         if unknown:
-            _log.warning(
-                "patch for %s id=%r ignored unknown fields: %s",
-                type(elem).__name__,
-                getattr(elem, "id", None),
-                sorted(unknown),
+            element_id = getattr(elem, "id", None)
+            msg = (
+                f"patch for scene {scene_id!r} element {element_id!r} "
+                f"contains unknown fields: {sorted(unknown)}"
             )
+            raise ValueError(msg)
         if valid:
-            parent_list[idx] = elem = replace(elem, **valid)
+            if isinstance(elem, ABCElement):
+                elem.apply_patch(valid)
+            else:
+                parent_list[idx] = elem = replace(elem, **valid)
         eid = getattr(elem, "id", None)
         has_value_key = valid.keys() & {
             "value",
@@ -422,10 +463,12 @@ class SceneManager:
         if eid is not None and ws is not None and has_value_key:
             new_value = _widget_value(elem)
             if new_value is None:
-                # Element does not expose its widget value via WidgetValueProvider
-                # (e.g. ColorPickerElement — see widget_value_provider.py).  Writing
-                # None would poison ensure() on the next frame; discarding forces
-                # the renderer to re-seed from the patched element fields.
+                # Element is not one of the value-bearing input kinds
+                # (e.g. ColorPickerElement — see ``_widget_value``
+                # docstring above for the kept-out list).  Writing None
+                # would poison ensure() on the next frame; discarding
+                # forces the renderer to re-seed from the patched element
+                # fields.
                 ws.discard(eid)
             else:
                 ws.set(eid, new_value)

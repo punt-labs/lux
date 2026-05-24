@@ -1,0 +1,82 @@
+"""RecordingRenderer + RecordingRendererFactory append JSONL traces.
+
+Per design doc §1 row 8 and §2: the recording surface is the headless
+test fixture for the io-model. Each render/begin/end appends one entry;
+the factory dispatches by inspecting the element's structural ``id``
+and ``kind`` properties (PY-TS-6 — Renderer is a Protocol).
+"""
+
+from __future__ import annotations
+
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+
+import pytest
+
+from punt_lux.protocol.renderers import (
+    RecordingLog,
+    RecordingRenderer,
+    RecordingRendererFactory,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _FakeElement:
+    """Minimal element satisfying the structural ``id`` + ``kind`` contract."""
+
+    id: str
+    kind: str
+
+
+def _log_path(tmp_dir: Path, name: str) -> Path:
+    return tmp_dir / f"{name}.jsonl"
+
+
+def test_recording_log_creates_empty_file_on_construction() -> None:
+    with tempfile.TemporaryDirectory(prefix="lux-rec-") as raw_dir:
+        path = _log_path(Path(raw_dir), "fresh")
+        log = RecordingLog(path)
+        assert log.path.exists()
+        assert log.lines() == ()
+
+
+def test_recording_renderer_render_appends_entry() -> None:
+    with tempfile.TemporaryDirectory(prefix="lux-rec-") as raw_dir:
+        log = RecordingLog(_log_path(Path(raw_dir), "render"))
+        renderer = RecordingRenderer(log, "text", "t1")
+        renderer.render()
+        assert log.lines() == ({"op": "render", "kind": "text", "id": "t1"},)
+
+
+def test_recording_renderer_begin_appends_entry() -> None:
+    with tempfile.TemporaryDirectory(prefix="lux-rec-") as raw_dir:
+        log = RecordingLog(_log_path(Path(raw_dir), "begin"))
+        renderer = RecordingRenderer(log, "group", "g1")
+        renderer.begin()
+        assert log.lines() == ({"op": "begin", "kind": "group", "id": "g1"},)
+
+
+def test_recording_renderer_end_appends_entry() -> None:
+    with tempfile.TemporaryDirectory(prefix="lux-rec-") as raw_dir:
+        log = RecordingLog(_log_path(Path(raw_dir), "end"))
+        renderer = RecordingRenderer(log, "group", "g1")
+        renderer.end()
+        assert log.lines() == ({"op": "end", "kind": "group", "id": "g1"},)
+
+
+def test_recording_renderer_factory_dispatches_by_kind_and_id() -> None:
+    with tempfile.TemporaryDirectory(prefix="lux-rec-") as raw_dir:
+        log = RecordingLog(_log_path(Path(raw_dir), "factory"))
+        factory = RecordingRendererFactory(log)
+        renderer = factory(_FakeElement(id="x", kind="text"))
+        renderer.render()
+        assert log.lines() == ({"op": "render", "kind": "text", "id": "x"},)
+
+
+def test_recording_renderer_factory_raises_on_non_element() -> None:
+    with tempfile.TemporaryDirectory(prefix="lux-rec-") as raw_dir:
+        log = RecordingLog(_log_path(Path(raw_dir), "bad"))
+        factory = RecordingRendererFactory(log)
+        with pytest.raises(TypeError, match="requires elements with str"):
+            factory(object())

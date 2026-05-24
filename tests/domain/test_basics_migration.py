@@ -308,15 +308,33 @@ def test_spinner_rejects_non_string_color() -> None:
 def test_text_rejects_non_string_style() -> None:
     import pytest
 
+    from punt_lux.protocol.elements.text_codec import JsonTextDecoder
+    from punt_lux.protocol.renderers.null import NullRendererFactory
+
+    def _emit(_msg: object) -> None:
+        return None
+
+    decoder = JsonTextDecoder(
+        renderer_factory=NullRendererFactory(), emit=_emit, element_cls=TextElement
+    )
     with pytest.raises(ValueError, match=r"text element.*'style'"):
-        TextElement.from_dict({"id": "t1", "content": "x", "style": 5})
+        decoder.decode({"id": "t1", "content": "x", "style": 5})
 
 
 def test_text_rejects_non_string_id() -> None:
     import pytest
 
+    from punt_lux.protocol.elements.text_codec import JsonTextDecoder
+    from punt_lux.protocol.renderers.null import NullRendererFactory
+
+    def _emit(_msg: object) -> None:
+        return None
+
+    decoder = JsonTextDecoder(
+        renderer_factory=NullRendererFactory(), emit=_emit, element_cls=TextElement
+    )
     with pytest.raises(ValueError, match=r"text element.*'id'"):
-        TextElement.from_dict({"id": 7, "content": "x"})
+        decoder.decode({"id": 7, "content": "x"})
 
 
 def test_separator_rejects_non_string_id() -> None:
@@ -369,6 +387,32 @@ def test_element_from_dict_rejects_non_string_tooltip() -> None:
     payload = {"kind": "text", "id": "t1", "content": "hi", "tooltip": 42}
     with pytest.raises(ValueError, match=r"text element.*'tooltip'"):
         element_from_dict(payload)
+
+
+def test_text_element_patch_rejects_non_str_content() -> None:
+    """CR2: setter type-narrowing — wire patch with wrong type raises TypeError.
+
+    ``Element.apply_patch`` dispatches JSON-decoded values to ``_set_<field>``;
+    the wire payload is ``object``, so the setter must guard at the
+    boundary and refuse a non-str ``content``.
+    """
+    import pytest
+
+    elem = TextElement(id="t1", content="hello")
+    with pytest.raises(TypeError, match=r"content must be str"):
+        elem.apply_patch({"content": 42})
+
+
+def test_text_element_patch_accepts_null_color() -> None:
+    """NF1: ``{"color": null}`` in a patch matches the decode contract.
+
+    ``JsonTextDecoder.decode`` coerces a wire ``null`` color to the empty-
+    string "no override" sentinel; ``_set_color`` must do the same so an
+    UpdateMessage carrying ``{"color": null}`` doesn't crash with TypeError.
+    """
+    elem = TextElement(id="t1", content="hi", color="#FF0000")
+    elem.apply_patch({"color": None})
+    assert elem.color == ""
 
 
 def test_basics_codec_helpers_are_gone_from_every_per_kind_module() -> None:
