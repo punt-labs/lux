@@ -227,6 +227,10 @@ class DisplayServer:
             texture_cache=self._textures,
             # Display-tier emit is no-op per spike display.py:167.
             emit=lambda _msg: None,
+            # ImGuiTextRenderer delegates back to ElementRenderer so the
+            # generic post-processing (styled-text tooltip hover) keeps
+            # working through the io-model dispatch path (Cursor MED, PR #195).
+            element_renderer=self._element_renderer,
         )
 
         # Register display-specific query handlers that need ImGui state.
