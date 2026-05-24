@@ -153,3 +153,176 @@ dispatch loop, the declarative handler catalog and wire format, the
 composite component pattern that DialogElement embodies, the validated
 `ButtonClicked` event and its single construction site, and the Agent
 Subscribe / Publish subsystem with its per-connection scoping rule.
+
+## Element ABC: event-driven dispatch
+
+Every io-model Element kind extends the same ABC. The ABC carries the
+field plumbing introduced in PR 3 — `_renderer_factory`, `_emit`,
+`render()`, the `_children()` hook, `apply_patch()` — and adds a typed
+event-handler registry plus a dispatcher entry point that resolves which
+handlers run for a given event.
+
+### Handler registry API
+
+```python
+class Element(ABC):
+
+    _renderer_factory: RendererFactory
+    _emit: Emit
+    _handlers: dict[type[Event], list[Handler[Event]]]
+
+    def __new__(cls, *, renderer_factory: RendererFactory, emit: Emit) -> Self:
+        self = super().__new__(cls)
+        self._renderer_factory = renderer_factory
+        self._emit = emit
+        self._handlers = {}
+        return self
+
+    def add_handler[E: Event](
+        self,
+        event_type: type[E],
+        handler: Handler[E],
+    ) -> None:
+        """Register a handler for an event type on this Element."""
+        self._handlers.setdefault(event_type, []).append(handler)
+
+    def remove_handler[E: Event](
+        self,
+        event_type: type[E],
+        handler: Handler[E],
+    ) -> None:
+        """Deregister a handler. No-op if not registered."""
+        registered = self._handlers.get(event_type)
+        if registered is None:
+            return
+        try:
+            registered.remove(handler)
+        except ValueError:
+            return
+        if not registered:
+            del self._handlers[event_type]
+
+    def fire[E: Event](self, event: E) -> None:
+        """Dispatch ``event`` to every handler registered for its type
+        on this Element. Handlers are invoked in registration order
+        against a snapshot of the list so a handler that mutates the
+        registry does not affect the in-flight dispatch."""
+        snapshot = tuple(self._handlers.get(type(event), ()))
+        for handler in snapshot:
+            handler(event)
+```
+
+`Handler[E]` is `Callable[[E], None]`. `Event` is the shared marker
+Protocol for every dispatched event class — `ButtonClicked` satisfies
+it, future kinds (`SliderChanged`, `TextEdited`) will satisfy it the
+same way.
+
+Three properties keep the API honest:
+
+- The registry is per-Element. Handler lifetime is the Element's
+  lifetime. When the Element is removed from the scene, its handlers go
+  with it. No external cleanup needed.
+- The registry is typed. `add_handler(ButtonClicked, handler)` expects
+  `handler: Handler[ButtonClicked]`; passing a `Handler[SliderChanged]`
+  is a type error at the call site, not a runtime surprise.
+- Dispatch is snapshot-then-iterate. A handler may add or remove
+  handlers without breaking the iteration that called it.
+
+### Event class hierarchy
+
+```python
+class Event(Protocol):
+    """Marker Protocol for events dispatched through Element.fire."""
+
+@dataclass(frozen=True, slots=True)
+class ButtonClicked:
+    """A validated button click. Constructible ONLY by the Hub's
+    interaction dispatcher (see the ButtonClicked validation section)."""
+    scene_id: SceneId
+    element_id: ElementId
+    owner_id: ConnectionId
+```
+
+Events are frozen, slotted dataclasses with public fields — they are
+inert value records that travel from the dispatcher to handlers. Their
+construction sites are guarded (see the validation section); their
+interior is read-only.
+
+### Dispatcher loop
+
+The Hub's `dispatch` entry point is the bridge between the wire layer
+and the per-Element handler registries:
+
+```python
+async def dispatch(
+    self,
+    connection_id: ConnectionId,
+    msg: InteractionMessage,
+) -> None:
+    """Resolve, validate, construct the typed event, fire handlers."""
+    element = self._resolve(msg.scene_id, msg.element_id)
+    event = self._display.interact(connection_id, msg, element)
+    element.fire(event)
+```
+
+The dispatcher does three things in order:
+
+1. **Resolve** — look up the Element by `(scene_id, element_id)` in the
+   Hub's index. A missing Element raises before any side effect.
+2. **Validate and construct** — `Display.interact` is the single
+   construction site for the typed event (the canonical event class for
+   buttons is `ButtonClicked`; future input kinds add their own typed
+   event class and their own branch in `Display.interact`).
+3. **Fire** — call `Element.fire(event)` to run every registered
+   handler for the event's type.
+
+The dispatcher does not know which handlers exist, what they do, or
+whether any of them publishes a business event. The handler is the
+policy; the dispatcher is the mechanism.
+
+### Wire-to-handler decoding
+
+Handlers are not authored by the agent in Python — the agent ships
+declarative handler specifications on the wire as part of the scene
+definition. Each Element kind defines a per-kind typed catalog of
+handler factories; the decoder canonicalises the wire spec and calls
+the matching factory to produce the `Handler[E]` callable, then calls
+`add_handler(event_type, handler)` on the constructed Element.
+
+The wire and catalog mechanics are the subject of the next section. The
+boundary the Element ABC enforces is narrow: handlers arrive through
+`add_handler`, dispatch happens through `fire`, and the registry is
+inspectable for testing through the same two methods.
+
+### Default behaviors are layered, not built in
+
+The ABC does not provide default handlers. A button that does nothing
+when clicked is a valid button — no implicit `on_click` is registered
+by the ABC. Defaults that an agent expects (a dialog that dismisses on
+its own Cancel button) are wired by the composite Element's own
+construction-time logic, not by the ABC. The split keeps the ABC small
+and the defaults discoverable: the only place that adds a handler is
+either the agent's declarative spec or the component's own decoder.
+
+### Why event-driven, not method-named
+
+Two patterns were available for handler registration:
+
+- Named method override on the Element — the spike's `on_click` shape.
+- Typed event registry with `add_handler` / `remove_handler` — the
+  pattern shipped here.
+
+The event-registry pattern composes better. An Element can carry zero,
+one, or many handlers for the same event type. A button can be both an
+internal dialog-confirm controller and an emitter of a business event
+on the same click. A test can register a probe handler without
+subclassing the Element. The Element ABC stays small and the surface
+the agent reasons about — events and handlers — stays uniform across
+kinds.
+
+The method-override pattern would have forced the ABC to grow per-event
+hooks (`on_click`, `on_change`, `on_select`) and forced composites to
+re-dispatch from their override to their listeners. The event registry
+collapses both responsibilities into one piece of machinery, and the
+catalog (described in the next section) makes the declarative use
+ergonomic.
