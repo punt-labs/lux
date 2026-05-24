@@ -192,3 +192,4 @@
 {"ts":"2026-05-24T12:19:40Z","commit":"9b16a41","files_scored":126,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-05-24T12:39:10Z","commit":"cffb8a5","files_scored":126,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/protocol/renderers/recording.py":{"avg_complexity":[1.55,1.45]}}}
 {"ts":"2026-05-24T12:41:51Z","commit":"a74df6d","files_scored":126,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{}}
+{"ts":"2026-05-24T12:53:56Z","commit":"e0cf58f","files_scored":126,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
