@@ -919,8 +919,16 @@ class ButtonClicked:
             )
             raise TypeError(msg)
         self = super().__new__(cls)
+        object.__setattr__(self, "scene_id", scene_id)
+        object.__setattr__(self, "element_id", element_id)
+        object.__setattr__(self, "owner_id", owner_id)
         return self
 ```
+
+Because the class is `frozen=True`, `__new__` must use `object.__setattr__`
+to populate the slots — the dataclass-synthesized `__setattr__` raises
+`FrozenInstanceError`. The three writes happen after the token check so
+that rejected constructions never produce a half-initialized instance.
 
 The factory guard is the PY-CC-3 pattern: the class refuses any
 construction path that does not present the token the `Display` class
