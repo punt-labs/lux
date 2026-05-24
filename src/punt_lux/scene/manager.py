@@ -7,6 +7,7 @@ import logging
 from dataclasses import replace
 from typing import Any, Self
 
+from punt_lux.domain.element_abc import Element as ABCElement
 from punt_lux.protocol import (
     CollapsingHeaderElement,
     Element,
@@ -396,10 +397,25 @@ class SceneManager:
         fields: dict[str, Any],
         ws: WidgetState | None = None,
     ) -> None:
-        """Apply a set-patch to an element and sync widget state."""
+        """Apply a set-patch to an element and sync widget state.
+
+        Two element shapes coexist during the io-model migration
+        (pr3-v2.1-design.md §4 D6): ABC subclasses (Text in PR 3, more
+        in PRs 4-11) own their patch path via ``_set_<field>`` setters
+        called from ``Element._patch``; PR-2 dataclasses continue
+        through ``dataclasses.replace``. The dispatch branch keeps each
+        shape on its native mutation strategy until PR 12's sweep.
+        """
         parent_list, idx = location
         elem = parent_list[idx]
-        known = {f.name for f in dataclasses.fields(elem)}
+        if isinstance(elem, ABCElement):
+            known = {
+                name.removeprefix("_set_")
+                for name in dir(elem)
+                if name.startswith("_set_") and callable(getattr(elem, name))
+            }
+        else:
+            known = {f.name for f in dataclasses.fields(elem)}
         valid = {
             k: v for k, v in fields.items() if k not in ("id", "kind") and k in known
         }
@@ -412,7 +428,10 @@ class SceneManager:
                 sorted(unknown),
             )
         if valid:
-            parent_list[idx] = elem = replace(elem, **valid)
+            if isinstance(elem, ABCElement):
+                elem.apply_patch(valid)
+            else:
+                parent_list[idx] = elem = replace(elem, **valid)
         eid = getattr(elem, "id", None)
         has_value_key = valid.keys() & {
             "value",
