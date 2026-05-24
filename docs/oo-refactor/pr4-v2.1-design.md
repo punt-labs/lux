@@ -647,14 +647,41 @@ routes an `InteractionMessage(element_id=X, action="click")`:
   callback fires on the listener thread. Load-bearing for the 8
   unmigrated inputs and for any agent that called `client.on_event()`.
   PR 4 does NOT remove this.
-- **New path:** the per-session ABC ButtonElement registry (if X
-  resolves to a Button on the hub-side `hub_display` mirror) ALSO
+- **New path (guarded — see Click-value guard below):** the per-session
+  ABC ButtonElement registry (if X resolves to a Button on the hub-side
+  `hub_display` mirror AND the wire `value` shape is the boolean `True`)
   invokes `elem.on_click()`, which raises `ButtonClickEmitted` through
   `self._emit` → `HubEmitDispatcher.dispatch`. Because dispatch runs on
   the listener thread, the dispatcher uses `loop.call_soon_threadsafe`
   to schedule `Observer.publish("interaction.X", {...})` on the hub's
   event loop. The publish then fans out to subscribers via the asyncio
   `_push` channel.
+
+### Click-value guard (kind AND value shape)
+
+Resolution-by-element-id is necessary but NOT sufficient. The hub-side
+branch above MUST replicate the production
+`DomainPump._is_button_click(msg, elem)` predicate
+(`src/punt_lux/display/domain_pump.py:170-190`) exactly: a click fires
+`on_click()` if and only if BOTH conditions hold —
+
+1. The resolved element is a Button (`elem.kind == "button"`, i.e.
+   `isinstance(elem, ButtonElement)` on the hub-side mirror).
+2. The wire `value` is the boolean `True` (`msg.value is True`, by
+   identity not truthiness — `1`, `"True"`, a non-empty dict are all
+   distinct from boolean `True`).
+
+Without the second guard, a non-click `InteractionMessage` whose
+`element_id` happens to collide with a button in the scene would
+silently fire `on_click()`. PR #187 Bugbot HIGH named the menu-id case:
+menu payloads ship `value={...}` (a dict), not `True`; a menu id
+identical to a button id would have fired a phantom `ButtonPressed` to
+subscribers. The fix landed for `DomainPump.route_interaction` in
+production; the hub-side new path MUST carry the same predicate so the
+io-model surface inherits the same protection rather than reopening the
+defect class. Cite `domain_pump.py:170-190` in code comments; tests
+named in §10 ("Click guard rejects non-True value shapes") assert the
+predicate behavior.
 
 For PR 4 the "hub-side `hub_display`" mirror lives inside the
 session-owning code as a `dict[str, Element]` indexed when `show()`
@@ -727,27 +754,30 @@ crosses the thread / event-loop boundary in the opposite direction from
 1. Subscribe a synthetic cid (`recv-shim-<session>`) to `WILDCARD_TOPIC`.
    The Observer-side `_push` callback for this cid is an async function
    that reconstructs an `InteractionMessage` from the published payload
-   and calls `shim_queue.put(msg)` — `shim_queue` is a
-   `queue.SimpleQueue[Message]` (thread-safe; the listener thread's
-   `_pending` queue is exactly this type).
+   and calls `self._pending.put(msg)` — i.e. it writes into the
+   existing `DisplayClient._pending` queue (`queue.SimpleQueue[Message]`,
+   line 95). There is no separate "shim queue" — the shim and the
+   listener thread share `_pending`. Naming a second queue would imply
+   two stores to drain; only one exists.
 2. Inbound `InteractionMessage` follows the §6 hub-side path (resolve →
    `on_click` → `ButtonClickEmitted` → dispatcher →
    `loop.call_soon_threadsafe` → `Observer.publish`).
 3. The wildcard branch fires the shim's async `_push`, which appends to
-   `shim_queue`.
+   `_pending`.
 4. `DisplayClient.recv()` reads `self._pending.get(timeout=t)` — the
-   same blocking call it has always made. PR 4 widens `_pending` so the
-   shim writes into it too (one queue, two producers: the existing
-   listener thread for non-interaction messages, the shim for
-   interaction messages re-surfaced from Observer). Existing callers
-   see the same `InteractionMessage` shape as before.
+   same blocking call it has always made. PR 4 adds a second producer
+   to `_pending` (the wildcard `_push` writing from the asyncio loop)
+   alongside the existing listener-thread producer for non-interaction
+   messages. Existing callers see the same `InteractionMessage` shape
+   as before.
 
-The shim queue lives in the shim adapter, not in `Observer` — the
-registry only fans out push calls (§4 invariant: it knows nothing about
-buffering). `queue.SimpleQueue.put` is safe from both an async coroutine
-(running on the loop) and a thread; no synchronisation primitive
-needed. Tests verify `recv()` returns the same shape it did pre-PR-4
-(snapshot fixture in commit (v)).
+The shim adapter owns the producer-side wiring (subscribe, decode the
+`observed` envelope back into an `InteractionMessage`, hand to
+`_pending`); `Observer` itself only fans out push calls (§4 invariant:
+it knows nothing about buffering). `queue.SimpleQueue.put` is safe from
+both an async coroutine (running on the loop) and a thread; no
+synchronisation primitive needed. Tests verify `recv()` returns the
+same shape it did pre-PR-4 (snapshot fixture in commit (v)).
 
 ### Deprecation note
 
@@ -907,8 +937,11 @@ silent-failure-hunter + OO ratchet.
   enqueue onto the existing `_pending` queue.
 - **Tests:** `test_button_inbound_e2e.py` (display click →
   `InteractionMessage` → hub resolve → `on_click` → publish → agent
-  push), `test_recv_polling_shim.py` (pre-PR-4 `recv()` callers still
-  receive the same `InteractionMessage` shape).
+  push, AND `test_click_guard_rejects_non_true_value` per §6 click
+  guard: parameterise over `value` shapes `{...}` / `1` / `"True"` /
+  `None` and assert `on_click()` does NOT fire even when `element_id`
+  matches a button), `test_recv_polling_shim.py` (pre-PR-4 `recv()`
+  callers still receive the same `InteractionMessage` shape).
 - **PY-RF-2 consumer:** the e2e test.
 
 ### (vi) End-to-end DialogElement test (R4 ported)
@@ -947,6 +980,7 @@ Per migration-plan.md PR 4 row 223:
 | End-to-end Button click → subscribed agent push works | `tests/integration/test_button_inbound_e2e.py::test_click_emits_observed_push`. |
 | Dialog self-dismiss works end-to-end | `tests/integration/test_dialog_self_dismiss.py::test_click_yes_dismisses_dialog_and_pushes_observed`. |
 | Interaction trace parity passes for Button | `tests/regression/test_interaction_trace_parity.py::test_legacy_and_io_model_traces_match`. |
+| Click guard rejects non-True value shapes (PR #187 Bugbot HIGH precedent) | `tests/integration/test_button_inbound_e2e.py::test_click_guard_rejects_non_true_value` — asserts `on_click()` does NOT fire for `InteractionMessage(action="click", value={...})` (menu payload), `value=1`, `value="True"`, or `value=None` even when `element_id` resolves to a Button. Mirrors `domain_pump.py:170-190` `_is_button_click` predicate. |
 | `recv()` polling shim works (existing agents unbroken) | `tests/integration/test_recv_polling_shim.py::test_recv_returns_interaction_message_via_observer`. |
 | `make check` clean | OO ratchet, mypy/pyright, ruff format + lint, radon CC, pylint design. |
 | Zero `to_dict`/`from_dict` on ButtonElement beyond delegators (D5) | `grep -A 4 "def to_dict\|def from_dict" src/punt_lux/protocol/elements/button.py` shows ≤ 3 lines per body delegating to JsonButtonEncoder/Decoder. |
