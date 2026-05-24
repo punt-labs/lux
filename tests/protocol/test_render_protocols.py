@@ -1,11 +1,10 @@
 """Renderer / RendererFactory / Decoder / Encoder Protocol structural checks.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §7(ii): the spike's four Protocols
-are split across two production modules (``protocol/renderer.py`` for the
-render-side trio, ``protocol/codec_protocols.py`` for the wire-side pair).
-``runtime_checkable`` makes ``isinstance(obj, Protocol)`` valid; assert
-that the built-in Null/Recording renderers structurally satisfy the
-contracts they implement.
+The render-side trio lives in ``protocol/renderer.py``; the wire-side
+pair lives in ``protocol/codec_protocols.py`` (PY-OO-2: one concept per
+module). ``runtime_checkable`` makes ``isinstance(obj, Protocol)`` valid;
+assert that the built-in Raising/Recording factories structurally
+satisfy the contracts they implement.
 """
 
 from __future__ import annotations
@@ -17,20 +16,15 @@ from typing import Self
 from punt_lux.protocol.codec_protocols import Decoder, Encoder
 from punt_lux.protocol.renderer import Renderer, RendererFactory
 from punt_lux.protocol.renderers import (
-    NullRenderer,
-    NullRendererFactory,
+    RaisingRendererFactory,
     RecordingLog,
     RecordingRenderer,
     RecordingRendererFactory,
 )
 
 
-def test_null_renderer_satisfies_renderer_protocol() -> None:
-    assert isinstance(NullRenderer(), Renderer)
-
-
-def test_null_factory_satisfies_renderer_factory_protocol() -> None:
-    assert isinstance(NullRendererFactory(), RendererFactory)
+def test_raising_factory_satisfies_renderer_factory_protocol() -> None:
+    assert isinstance(RaisingRendererFactory(), RendererFactory)
 
 
 def test_recording_renderer_satisfies_renderer_protocol() -> None:

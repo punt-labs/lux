@@ -100,9 +100,15 @@ class InMemoryConnection:
             yield cast("_Frame", item).payload
 
     def close(self) -> None:
-        """Mark this end closed and unblock the peer's ``iter_lines``."""
-        _inbound, outbound, self_closed, _peer_closed = self._endpoint
+        """Mark this end closed and unblock the peer's ``iter_lines``.
+
+        Skips the sentinel ``put`` when the peer has already closed —
+        its ``iter_lines`` has terminated, so an additional ``_CLOSE``
+        would sit orphaned in the queue forever.
+        """
+        _inbound, outbound, self_closed, peer_closed = self._endpoint
         if self_closed.is_set():
             return
         self_closed.set()
-        outbound.put(_CLOSE)
+        if not peer_closed.is_set():
+            outbound.put(_CLOSE)

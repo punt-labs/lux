@@ -1,18 +1,16 @@
 """TextElement — io-model text block on the Element ABC.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §4: rewritten from the PR-2
-frozen dataclass to an ABC subclass with ``__new__``-keyword-only
-construction. Sentinel defaults on ``renderer_factory`` and ``emit``
-(D1) keep the existing keyword call sites compiling; decode through
-``JsonTextDecoder`` always passes real values, so the runtime DI shape
-on the wire path is unchanged.
+ABC subclass with ``__new__``-keyword-only construction. Sentinel
+defaults on ``renderer_factory`` and ``emit`` keep existing keyword
+call sites compiling; decode through ``JsonTextDecoder`` always passes
+real values, so the runtime DI shape on the wire path is unchanged.
 
 The codec body lives in ``text_codec.py`` (``JsonTextEncoder`` /
 ``JsonTextDecoder``); ``to_dict`` and ``from_dict`` remain on the class
-as ≤ 3-line delegators (D5) so the runtime-checkable
+as ≤ 3-line delegators so the runtime-checkable
 ``domain.element.Element`` Protocol stays satisfied.
 
-``apply_patch`` is inherited from ``Element`` ABC (D6); ``_set_<field>``
+``apply_patch`` is inherited from ``Element`` ABC; ``_set_<field>``
 setters cover the patch fields exercised by the scene patch path.
 """
 
@@ -22,7 +20,7 @@ from typing import TYPE_CHECKING, Literal, Self, cast
 
 from punt_lux.domain.element_abc import Element
 from punt_lux.protocol.elements.text_codec import JsonTextDecoder, JsonTextEncoder
-from punt_lux.protocol.renderers.null import NullRendererFactory
+from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -32,13 +30,14 @@ if TYPE_CHECKING:
 __all__ = ["TextElement"]
 
 
-# Module-level sentinels — the Hub-tier null objects (per
-# pr3-v2.1-design.md §4 D1). The decode path through ``JsonTextDecoder``
-# always passes real values; these defaults exist so existing call sites
-# (100+ across tests and apps) that construct ``TextElement(id=..., content=...)``
-# directly keep compiling. PR 12's sweep tightens these back to required
-# kwargs once every family has migrated.
-_NULL_FACTORY: RendererFactory = NullRendererFactory()
+# Module-level sentinels — fail-loud defaults for the direct-construction
+# path. The decode path through ``JsonTextDecoder`` always passes a real
+# tier-specific RendererFactory; these defaults exist so existing keyword
+# call sites that construct ``TextElement(id=..., content=...)`` directly
+# keep compiling. Any accidental ``elem.render()`` on such an instance
+# raises ``RuntimeError`` instead of silently no-oping (a silent paint
+# would hide the bug).
+_RAISING_FACTORY: RendererFactory = RaisingRendererFactory()
 
 
 def _no_emit(_msg: object) -> None:
@@ -70,7 +69,7 @@ class TextElement(Element):
     def __new__(
         cls,
         *,
-        renderer_factory: RendererFactory = _NULL_FACTORY,
+        renderer_factory: RendererFactory = _RAISING_FACTORY,
         emit: Emit = _no_emit,
         id: str,
         content: str,
@@ -167,7 +166,7 @@ class TextElement(Element):
     def from_dict(cls, d: Mapping[str, object]) -> Self:
         """Construct a TextElement from a JSON-decoded mapping."""
         decoder = JsonTextDecoder(
-            renderer_factory=_NULL_FACTORY, emit=_no_emit, element_cls=cls
+            renderer_factory=_RAISING_FACTORY, emit=_no_emit, element_cls=cls
         )
         # ``element_cls=cls`` guarantees the decoder builds the concrete
         # subtype; the decoder's annotation is the supertype TextElement

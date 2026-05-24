@@ -79,7 +79,7 @@ from punt_lux.protocol.elements.table import (
 )
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
-from punt_lux.protocol.renderers.null import NullRendererFactory
+from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 
 __all__ = [
     "ButtonElement",
@@ -163,10 +163,13 @@ _register_graphics(_codec.register)
 _register_table(_codec.register)
 
 # io-model dispatch — Text-only in PR 3 (per pr3-v2.1-design.md §3).
-# The factory is constructed with Hub-tier defaults (NullRendererFactory +
-# no-op emit); production tiers construct their own with the real DI at
-# startup. The module-level instance covers the existing test/agent path
-# that reaches ``element_from_dict`` without explicit DI.
+# The factory is constructed with fail-loud defaults (RaisingRendererFactory
+# + no-op emit); production tiers construct their own factory with the real
+# DI at startup. The module-level instance covers the existing test/agent
+# path that reaches ``element_from_dict`` without explicit DI. A decoded
+# element whose ``.render()`` runs through this default raises
+# ``RuntimeError`` instead of silently no-oping (a silent paint would hide
+# a tier-routing bug).
 
 
 def _no_op_emit(_msg: object) -> None:
@@ -174,7 +177,7 @@ def _no_op_emit(_msg: object) -> None:
 
 
 _ELEMENT_FACTORY = JsonElementFactory(
-    renderer_factory=NullRendererFactory(),
+    renderer_factory=RaisingRendererFactory(),
     emit=_no_op_emit,
 )
 _ENCODER_FACTORY = JsonEncoderFactory()
