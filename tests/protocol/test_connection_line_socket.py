@@ -150,6 +150,52 @@ def test_spawn_reader_logs_and_terminates_on_malformed_json(
     assert "iter_lines terminated unexpectedly" in matching[0].message
 
 
+def test_spawn_reader_continues_after_handler_exception(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """SF10: a handler raising on every payload must be logged and survived.
+
+    The inner ``try/except`` in ``spawn_reader``'s loop is the resilience
+    contract — one misbehaving handler can't take down the reader thread.
+    Send two valid JSON payloads through a real socketpair, fail every
+    handler call, and assert (a) ``logger.exception`` records both
+    failures with the "handler raised" marker, and (b) the thread terminates
+    cleanly once the peer EOFs (so the inner branch did not bubble out).
+    """
+    raw_a, raw_b = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    reader_socket = LineSocket(raw_b)
+    call_count = [0]
+
+    def always_raises(_payload: dict[str, object]) -> None:
+        call_count[0] += 1
+        msg = f"boom #{call_count[0]}"
+        raise ValueError(msg)
+
+    raw_a.sendall(b'{"op": "a"}\n{"op": "b"}\n')
+    raw_a.shutdown(socket.SHUT_RDWR)
+    raw_a.close()
+
+    with caplog.at_level(logging.ERROR, logger="punt_lux.protocol.connection"):
+        reader_thread = spawn_reader(reader_socket, always_raises)
+        reader_thread.join(timeout=2.0)
+
+    reader_socket.close()
+
+    assert not reader_thread.is_alive(), "reader thread did not terminate"
+    assert call_count[0] == 2, f"handler should fire per payload; got {call_count[0]}"
+    handler_records = [
+        r
+        for r in caplog.records
+        if r.name == "punt_lux.protocol.connection"
+        and r.levelno == logging.ERROR
+        and "handler raised" in r.message
+        and r.exc_info is not None
+    ]
+    assert len(handler_records) == 2, (
+        f"expected two logger.exception entries; got {caplog.records!r}"
+    )
+
+
 def test_spawn_reader_dispatches_lines_to_handler() -> None:
     sock_path = _short_socket_path()
     accepted: list[LineSocket] = []
