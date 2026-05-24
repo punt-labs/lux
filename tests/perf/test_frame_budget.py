@@ -1,9 +1,11 @@
 """Frame-budget smoke for the io-model Text render path.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §8: a per-frame smoke that
-exercises the Element ABC template-method ``render()`` over a modest
-scene (10 ``TextElement`` instances) and asserts the mean per-frame
-cost stays under the 50 ms budget (20 fps floor).
+A per-frame smoke that exercises the Element ABC template-method
+``render()`` over a modest scene (10 ``TextElement`` instances) and
+asserts the mean per-frame cost stays under a 2 ms budget. Measured
+cost on the dispatch path is ~0.28 ms/frame; the 2 ms ceiling gives
+roughly 7x headroom for slow CI without letting a 10x algorithmic
+regression slip past.
 
 Uses ``RecordingRenderer`` so timing is deterministic — no GL context,
 no ImGui, no I/O beyond an append-only JSONL log under a tempdir.
@@ -24,14 +26,15 @@ from punt_lux.protocol.renderers import RecordingLog, RecordingRendererFactory
 
 _FRAMES: Final[int] = 60
 _ELEMENTS_PER_FRAME: Final[int] = 10
-_BUDGET_SECONDS: Final[float] = 0.050  # 50 ms / frame == 20 fps floor
+# 2 ms / frame == ~7x headroom over the ~0.28 ms measured dispatch cost.
+_BUDGET_SECONDS: Final[float] = 0.002
 
 
 def _emit(_msg: object) -> None:
     """No-op emit channel for the leaf Text elements."""
 
 
-def test_ten_text_elements_render_under_50ms_per_frame() -> None:
+def test_ten_text_elements_render_under_budget_per_frame() -> None:
     with tempfile.TemporaryDirectory(prefix="lux-perf-") as raw_dir:
         log = RecordingLog(Path(raw_dir) / "frame_budget.jsonl")
         factory = RecordingRendererFactory(log)
@@ -52,7 +55,8 @@ def test_ten_text_elements_render_under_50ms_per_frame() -> None:
         elapsed = time.perf_counter() - start
 
         mean_per_frame = elapsed / _FRAMES
+        budget_ms = _BUDGET_SECONDS * 1000
         assert mean_per_frame < _BUDGET_SECONDS, (
             f"mean per-frame {mean_per_frame * 1000:.2f} ms "
-            f"exceeds 50 ms budget over {_FRAMES} frames"
+            f"exceeds {budget_ms:.0f} ms budget over {_FRAMES} frames"
         )
