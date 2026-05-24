@@ -88,7 +88,7 @@ convention.
 | 7 | `updates.py` `RemoveElement` (35–42) | already in `src/punt_lux/domain/update.py` as `RemoveElement(scene_id, element_id)` | No new file. The spike's `RemoveElement(elem_id)` shape is narrower than production's. DialogElement carries `scene_id` so its `close()` can construct the production shape (§3). |
 | 8 | `updates.py` `ButtonClicked` (49–54) | `src/punt_lux/domain/io_event.py` (NEW) as `ButtonClickEmitted(element_id, action, value)` | Renamed to avoid name collision with the existing `domain.interaction.ButtonClicked` (`scene_id, element_id`). The renamed class is the io-model Event Button raises through `self._emit`; the legacy `domain.interaction.ButtonClicked` continues to feed `Display.interact` until PR 7 deletes the legacy path. |
 | 9 | `hub.py` SubscriptionRegistry (132–166) | `src/punt_lux/iohub/observer.py` (NEW) | Lift adapted to asyncio per §4 (spike uses `threading.Lock` plus blocking line-socket sends; production luxd is asyncio). |
-| 10 | `hub.py` hub\_emit (197–215) + handle\_display\_message (235–255) | `src/punt_lux/iohub/emit_dispatch.py` (NEW) — `HubEmitDispatcher` class | Lives alongside `tools/server.py` per-MCP-session state (constructed once per session, kept in a session-keyed dict); NOT inside `src/punt_lux/hub.py` (the WebSocket gateway is a different responsibility). |
+| 10 | `hub.py` hub\_emit (197–215) + handle\_display\_message (235–255) | `src/punt_lux/iohub/emit_dispatch.py` (NEW) — `HubEmitDispatcher` class | Lives alongside `tools/server.py` per-MCP-session state (constructed once per session, kept in a session-keyed dict); NOT inside `src/punt_lux/hub.py` (the WebSocket gateway is a different responsibility). The hub-side element index (`_hub_display_index` per §6 / §9 (v)) is keyed by `element_id` (NOT by session_key) — see §6 production-tree audit for why: the `DisplayClient._listener_loop` thread has no `ContextVar` and no per-session demultiplex, so the only key the listener thread can use is the wire `element_id` it just received. |
 | 11 | `hub.py` handle\_agent\_message subscribe branch (259–262) | `src/punt_lux/iohub/observer_tools.py` (NEW) + registration call from `tools/server.py` | Subscribe/unsubscribe/publish exposed as MCP tools, additive to the 24 invariant. |
 
 **Module-size check (post-PR 4):** every new file is < 130 LoC and ≤ 3
@@ -184,10 +184,13 @@ diverge — that is exactly the kind of cross-module name shadow PY-CS-7
 exists to prevent.
 
 The io-model Event is therefore named `ButtonClickEmitted` and lives in
-`src/punt_lux/domain/io_event.py` (NEW). It carries the uniform parity
-triple `(element_id, action="click", value=None)` so the §8 parity gate
-compares it against `InteractionMessage(element_id, action, value)` by
-field equality without a case-by-case adapter:
+`src/punt_lux/domain/io_event.py` (NEW). It carries the uniform shape
+`(element_id, action="click", value=None)` so future non-Button event
+classes (slider, input, etc.) populate the same three fields without
+adapter classes. The §8 parity gate compares only the
+`(element_id, action)` pair against `InteractionMessage` — the `value`
+field intentionally differs between paths (`True` on the wire, `None`
+in the io-model) and is excluded from parity:
 
 ```python
 @dataclass(frozen=True, slots=True)
@@ -199,9 +202,10 @@ class ButtonClickEmitted:
 
 `action` and `value` are degenerate constants for the Button case — a
 slider/input event class added later would carry a non-`None` `value`.
-The triple shape stays uniform across event types; the parity gate
-compares `(element_id, action, value)` from both paths without
-case-by-case shape adapters. `ButtonClickEmitted` is the io-model Event
+The three-field shape stays uniform across event types; the parity
+gate (§8) compares only `(element_id, action)` from both paths,
+deliberately omitting `value` to side-step the legacy-wire-vs-io-model
+`True` / `None` mismatch. `ButtonClickEmitted` is the io-model Event
 the ABC Button raises through `self._emit`; the existing
 `domain.interaction.ButtonClicked` keeps feeding the legacy
 `Display.interact` path until PR 7 deletes it.
@@ -316,7 +320,18 @@ class DialogElement(Element):
 ### Bound-callback decode (spike R4 pattern)
 
 `src/punt_lux/protocol/elements/dialog_codec.py` — `JsonDialogDecoder.decode`
-lifted from spike `codec.py:117-145`, threading `scene_id` through:
+lifted from spike `codec.py:117-145`, threading `scene_id` through.
+
+**Note on the pseudo-code below:** the snippet uses bare `str(raw[...])`
+and `raw.get(...)` for brevity to keep the bound-callback shape in
+focus. The shipped decoder MUST use `ElementWireContext.for_kind(...)`
+validators (`require_str`, `optional_*`, etc.) at every wire-boundary
+read — the same convention `JsonTextDecoder` and the existing
+`ButtonElement` codec follow. Bare `str(raw[...])` silently coerces
+wrong types (e.g., `id=123` → `"123"`); `ElementWireContext` raises a
+typed `ValueError` with a precise message instead. Treat the snippet as
+illustrative for the bound-callback dance, not as the on-wire validator
+shape.
 
 ```python
 def decode(self, raw: Mapping[str, object], *, scene_id: SceneId) -> DialogElement:
@@ -627,6 +642,75 @@ publish coroutine on the hub's event loop (captured at dispatcher
 construction time — see §5's `_loop` slot). This is the asyncio API
 designed exactly for "thread produces work, event loop consumes it".
 
+### Production-tree audit corrections (round-4) — session-key routing
+
+Round-3 drafts keyed `_hub_display_index` by `session_key` and looked up
+the per-session index inside `_dispatch_or_buffer`. That is wrong:
+
+- **`DisplayClient` is a module-level singleton** in
+  `src/punt_lux/tools/connection.py:20`: `_client: DisplayClient | None
+  = None`, instantiated once in `_get_client()` (line 64) and reused
+  across every MCP session that the hub multiplexes. There is exactly
+  one `_listener_loop` thread for the whole process.
+- **`_session_key: ContextVar[str]`** (`tools/server.py:108`) is set by
+  `run_mcp_session` per asyncio task (line 143); it is NOT set on the
+  `DisplayClient._listener_thread`. A `ContextVar.get()` from the
+  listener thread returns the default (`"local"`), not the originating
+  session.
+- **`InteractionMessage` carries no session identifier** (verified —
+  `protocol/messages/interaction.py:15-24`: `element_id`, `action`,
+  `type`, `ts`, `value`, `scene_id` — no session/connection key).
+
+Threading a session key through `InteractionMessage` is not viable
+either: it is a wire kind shared by the legacy `Display.interact` path
+that PR 7 owns, and the display end (the source of the wire message)
+does not know which MCP session "owns" any given button. The display
+just sends a click for `element_id=X`; whichever session subscribed to
+`interaction.X` should receive it.
+
+**Resolution:** key `_hub_display_index` by `element_id` directly, with
+session ownership recorded at `show()` time. When `tools/tools.py:show()`
+builds the Element tree for session `S`, every newly-created Button
+registers two facts under the `_client_lock` held by the existing
+`connection.py` global state:
+
+1. `_hub_display_index[element_id] = button_instance` — the global
+   id → Element map the listener thread reads.
+2. `_element_owner[element_id] = session_key` — the global id → owner
+   map so cleanup at `_cleanup_session` can prune entries belonging to
+   the disconnecting session.
+
+The `DisplayClient._listener_loop` then dispatches purely on the wire
+`element_id`: look up `_hub_display_index[msg.element_id]`; if present
+and a Button and the click-value guard passes, call `elem.on_click()`.
+The Button's `_emit` is the `HubEmitDispatcher.dispatch` bound at decode
+time (§5) — the dispatcher carries the owning session's Observer +
+`_loop` references inside its closure, so the publish goes to the
+correct session-keyed Observer without the listener thread ever knowing
+the session.
+
+Element-id collisions across sessions are an existing global-scene-id
+hazard (two sessions calling `show("home", ...)` already collide on the
+display side); PR 4 does not introduce or solve cross-session id
+collision. Last-writer-wins on `_hub_display_index` matches the existing
+last-writer-wins on scene state.
+
+This is strictly additive — no `InteractionMessage` field added, no
+display-side change, no listener-thread `ContextVar` plumbing.
+
+Alternatives rejected:
+
+- **Wrap the listener thread with a per-session ContextVar.** Listener
+  is a singleton; there is no "per-session" listener to bind a
+  ContextVar to.
+- **Add `session_key` to `InteractionMessage`.** Wire-incompatible with
+  the legacy `Display.interact` path that ships the same kind; PR 7
+  owns the wire schema.
+- **Spawn one DisplayClient per MCP session.** Would also spawn one
+  Unix socket connection per session and one listener thread per
+  session; out of scope for PR 4, and the singleton client is the
+  production reality the dispatcher has to integrate with.
+
 ### Pattern source
 
 Spike `hub.py:235-255` `handle_display_message`: on inbound
@@ -647,15 +731,21 @@ routes an `InteractionMessage(element_id=X, action="click")`:
   callback fires on the listener thread. Load-bearing for the 8
   unmigrated inputs and for any agent that called `client.on_event()`.
   PR 4 does NOT remove this.
-- **New path (guarded — see Click-value guard below):** the per-session
-  ABC ButtonElement registry (if X resolves to a Button on the hub-side
-  `hub_display` mirror AND the wire `value` shape is the boolean `True`)
-  invokes `elem.on_click()`, which raises `ButtonClickEmitted` through
-  `self._emit` → `HubEmitDispatcher.dispatch`. Because dispatch runs on
-  the listener thread, the dispatcher uses `loop.call_soon_threadsafe`
-  to schedule `Observer.publish("interaction.X", {...})` on the hub's
-  event loop. The publish then fans out to subscribers via the asyncio
-  `_push` channel.
+- **New path (guarded — see Click-value guard below):** the global
+  `_hub_display_index: dict[str, Element]` (keyed by `element_id`, not
+  by session — see Round-4 audit above) is consulted directly with
+  `msg.element_id`. If the entry exists AND resolves to a Button AND
+  the wire `value` shape is the boolean `True`, the listener invokes
+  `elem.on_click()`, which raises `ButtonClickEmitted` through
+  `self._emit` → `HubEmitDispatcher.dispatch`. The dispatcher captured
+  the owning session's Observer + event loop at decode time (§5), so
+  publish goes to the correct session-keyed Observer without the
+  listener thread ever calling `_session_key.get()`. Because dispatch
+  runs on the listener thread, the dispatcher uses
+  `loop.call_soon_threadsafe` to schedule
+  `Observer.publish("interaction.X", {...})` on the hub's event loop.
+  The publish then fans out to subscribers via the asyncio `_push`
+  channel.
 
 ### Click-value guard (kind AND value shape)
 
@@ -683,12 +773,24 @@ defect class. Cite `domain_pump.py:170-190` in code comments; tests
 named in §10 ("Click guard rejects non-True value shapes") assert the
 predicate behavior.
 
-For PR 4 the "hub-side `hub_display`" mirror lives inside the
-session-owning code as a `dict[str, Element]` indexed when `show()`
-builds the Element tree (per spike `hub.py:91-99`
-`HubDisplay._index`). PR 5 promotes this to a proper HubDisplay
-class. PR 4 ships the minimal indexed dict; the structure is the spike's
-`HubDisplay._by_id` minus the SetProperty branch (PR 5 owns).
+For PR 4 the "hub-side `hub_display`" mirror lives as two module-level
+dicts in `tools/connection.py` (alongside the singleton `_client`):
+
+- `_hub_display_index: dict[str, Element]` — global `element_id` →
+  Element. Populated when `show()` builds the Element tree (per spike
+  `hub.py:91-99` `HubDisplay._index`).
+- `_element_owner: dict[str, str]` — global `element_id` → owning
+  `session_key`. Populated alongside `_hub_display_index` so
+  `_cleanup_session` can drop entries belonging to the disconnecting
+  session.
+
+Both live under the existing `_client_lock` because they are
+write-once-per-`show()` and read-many on the listener thread; the
+existing lock already protects the cross-thread `_client` writes and
+extends naturally to its new neighbours. PR 5 promotes this to a proper
+HubDisplay class. PR 4 ships the minimal indexed dicts; the structure
+is the spike's `HubDisplay._by_id` minus the SetProperty branch (PR 5
+owns).
 
 ### The load-bearing consumer
 
@@ -737,6 +839,61 @@ through `recv()`. Migrating `recv()` to async is a separate concern with
 a long blast radius (every caller would change); PR 4 does not attempt
 it.
 
+### Production-tree audit corrections (round-4) — shared queue is per-process, not per-session
+
+Round-3 drafts implied each MCP session got its own wildcard subscriber
+that enqueued onto "the" `_pending` queue without naming whose. That
+hides a real concurrency bug: `DisplayClient` is a module-level
+singleton (`tools/connection.py:20`), so `DisplayClient._pending` is
+**process-global**. One queue, one consumer-side `recv()` call, every
+session sharing the same FIFO.
+
+If two MCP sessions A and B both registered wildcard subscribers and
+both called `recv()`, whichever session's `_pending.get()` ran first
+would dequeue an `InteractionMessage` destined for *either*
+session — the queue is FIFO across all producers and the consumer side
+has no way to filter. Concurrent agents would steal each other's
+events.
+
+**Resolution:** the shim is a **single per-process subscriber**, not
+one per session. The shim owns exactly one wildcard subscription
+(`cid = "recv-shim"`, no session suffix) and writes every reconstructed
+`InteractionMessage` onto the singleton `DisplayClient._pending`. The
+shim is installed lazily on first `recv()`-using code path (or eagerly
+at `_get_client()` time alongside `_setup_apps`) and lives for the
+lifetime of the singleton client.
+
+This matches the existing `_pending` semantics exactly: before PR 4,
+the listener thread also writes every unrouted `InteractionMessage`
+onto the singleton `_pending`. The shim is just a second producer onto
+the same singleton queue — there was never per-session demultiplex on
+`recv()` to break.
+
+`recv()`-using callers are the pre-PR-4 polling agents (8 unmigrated
+input kinds). They run in the same process as the singleton client and
+have always shared the queue; PR 4 preserves the exact same semantics.
+The OO-correct subscribe-to-`interaction.<id>` path (typed callback,
+no shared queue) is the migration target and is per-session by
+construction (each session's Observer is its own instance — see §4
+and the per-session `_session_observers` dict in §5 / §9 (iii)). The
+shim is deliberately *not* per-session because making it per-session
+would require splitting `_pending` (a singleton-owned queue) and
+rewriting every existing `recv()` caller to address its own session's
+queue — exactly the blast radius PR 4 declines above.
+
+Alternatives rejected:
+
+- **Per-session `_pending` queues.** Requires splitting
+  `DisplayClient._pending` into a session-keyed dict; every existing
+  `recv()` caller would have to address its own queue. Out of scope for
+  PR 4 (the migration target is the typed-subscription path, not the
+  shim).
+- **Per-session shim writing onto the singleton queue.** Reintroduces
+  the cross-session FIFO bug this audit names. Rejected by definition.
+- **Drop the shim and break pre-PR-4 callers.** Out of scope; the shim
+  exists precisely to keep them working through PR 12 (see Deprecation
+  note below).
+
 ### Existing shape
 
 `DisplayClient.recv()` returns the next message from a `_pending`
@@ -746,19 +903,24 @@ registered callback. Tests and agents that pre-date the Observer call
 
 ### PR 4 reimplementation
 
-`recv()` is reimplemented as a polling adapter over the per-session
-Observer using the wildcard subscription form specified in §4. The shim
-crosses the thread / event-loop boundary in the opposite direction from
-§6:
+`recv()` is reimplemented as a polling adapter over a single
+per-process wildcard subscription (see Round-4 audit above for why
+per-process, not per-session). The shim crosses the thread / event-loop
+boundary in the opposite direction from §6:
 
-1. Subscribe a synthetic cid (`recv-shim-<session>`) to `WILDCARD_TOPIC`.
-   The Observer-side `_push` callback for this cid is an async function
-   that reconstructs an `InteractionMessage` from the published payload
-   and calls `self._pending.put(msg)` — i.e. it writes into the
-   existing `DisplayClient._pending` queue (`queue.SimpleQueue[Message]`,
-   line 95). There is no separate "shim queue" — the shim and the
-   listener thread share `_pending`. Naming a second queue would imply
-   two stores to drain; only one exists.
+1. Subscribe a single process-wide synthetic cid (`recv-shim`, no
+   session suffix) to `WILDCARD_TOPIC`. The Observer-side `_push`
+   callback for this cid is an async function that reconstructs an
+   `InteractionMessage` from the published payload and calls
+   `self._pending.put(msg)` — i.e. it writes into the existing
+   singleton `DisplayClient._pending` queue
+   (`queue.SimpleQueue[Message]`, line 95). There is no separate "shim
+   queue" — the shim and the listener thread share `_pending`. Naming a
+   second queue would imply two stores to drain; only one exists.
+   Subscription occurs once on each per-session Observer (the wildcard
+   cid is the same string, registered once per Observer instance — set
+   semantics dedupe within an Observer; the singleton consumer-side
+   `_pending` is what makes the model coherent across sessions).
 2. Inbound `InteractionMessage` follows the §6 hub-side path (resolve →
    `on_click` → `ButtonClickEmitted` → dispatcher →
    `loop.call_soon_threadsafe` → `Observer.publish`).
@@ -793,7 +955,7 @@ consumer has migrated; it stays load-bearing through PRs 5–11.
 ### What it asserts
 
 Per migration-plan PR 4 row 218 commit (vii): a regression test records
-`(element_id, action, value)` triples produced by:
+`(element_id, action)` pairs produced by:
 
 1. The PR-2 baseline path (`Display.interact` → `DomainPump.route_interaction`
    → `ButtonPressed` → legacy `InteractionMessage` on the wire).
@@ -801,19 +963,23 @@ Per migration-plan PR 4 row 218 commit (vii): a regression test records
    the wire → hub-side ABC ButtonElement → `on_click` →
    `ButtonClickEmitted` Event → Observer publish).
 
-Both paths produce the same triple shape because `ButtonClickEmitted`
-carries the same `(element_id, action, value)` fields as
-`InteractionMessage` per §2 — for Button clicks the triple is always
-`(<button_id>, "click", None)` from `ButtonClickEmitted` and
-`(<button_id>, "click", True)` from `InteractionMessage` (the legacy
-wire carries `value=True` per `domain_pump.py:184`); the parity
-assertion normalises both to `(<button_id>, "click")` and compares the
-two-tuple. The parity gate is therefore field-level equality on the same
-positional shape, not a cross-type adapter.
+Parity is defined as `(element_id, action)` only — the two-tuple — not
+a triple. The third "value" field intentionally differs between paths
+(`True` on the legacy wire per `domain_pump.py:184`; `None` on the
+io-model `ButtonClickEmitted`; see §2) and is excluded from the parity
+gate. Comparing only the pair sidesteps the value-shape difference
+while still proving the load-bearing fact: the same Button click
+produces the same `(element_id, action)` on both paths.
 
-The test asserts the two paths produce equivalent traces for Button
-clicks. This is the load-bearing proof that PR 4 has not broken the
-legacy path AND that PR 7's deletion of the legacy path is safe.
+The §2 `ButtonClickEmitted` triple still carries `value` so future
+non-Button event classes (slider, input, etc.) can populate it — but
+the *parity gate* only asserts on the two fields where the two paths
+are required to agree.
+
+The test asserts the two paths produce equivalent `(element_id,
+action)` pairs for Button clicks. This is the load-bearing proof that
+PR 4 has not broken the legacy path AND that PR 7's deletion of the
+legacy path is safe.
 
 ### Implementation
 
@@ -825,9 +991,10 @@ legacy path AND that PR 7's deletion of the legacy path is safe.
    what the listener dispatches.
 3. Records the new trace: same click event, but observed via a subscribed
    `interaction.<id>` topic.
-4. Asserts the recorded triples match by `(element_id, action)` (value is
-   `True` on the wire, `None` on the io-model side — the parity assertion
-   normalises both to "click happened").
+4. Asserts the recorded `(element_id, action)` pairs match exactly
+   between paths. `value` is deliberately not part of the pair (`True`
+   on the wire, `None` on the io-model side — the value-shape
+   difference is documented, not asserted on).
 
 Existing tests in `tests/test_inputs_migration.py` use the legacy path; the
 parity test reuses those fixtures plus a new Observer fixture.
@@ -923,18 +1090,31 @@ silent-failure-hunter + OO ratchet.
 
 ### (v) Hub publishes `interaction.<id>` on routed InteractionMessage + `recv()` polling shim + end-to-end test
 
-- **Modify:** `tools/server.py` — extend the per-session state with the
-  hub-side `_hub_display_index: dict[str, dict[str, Element]]`
-  (session_key → element_id → Element). `show()` populates the index
-  when it builds the Element tree.
+- **Modify:** `tools/connection.py` — add two module-level dicts
+  alongside the singleton `_client`:
+  `_hub_display_index: dict[str, Element]` (global element_id → Element)
+  and `_element_owner: dict[str, str]` (global element_id → session_key
+  for cleanup). Both written under the existing `_client_lock`. Keyed
+  by `element_id` (NOT session) because the listener thread has no
+  ContextVar — see §6 round-4 audit.
+- **Modify:** `tools/tools.py:show()` — populate both dicts when
+  building the Element tree (Button registers `_hub_display_index[id]
+  = button` and `_element_owner[id] = _session_key.get()`).
+- **Modify:** `tools/server.py:_cleanup_session` — prune entries whose
+  `_element_owner[id]` equals the disconnecting session_key.
 - **Modify:** `display_client.py` (`_dispatch_or_buffer`,
   `_listener_loop` integration) — when an `InteractionMessage` arrives
-  AND `element_id` resolves to a Button on the per-session
-  `_hub_display_index`, invoke `elem.on_click()` (the dispatcher does
-  the rest per §5 / §6).
-- **Modify:** wire the polling-shim path per §7 — subscribe a
-  `recv-shim-<session>` cid to `WILDCARD_TOPIC` and have its `_push`
-  enqueue onto the existing `_pending` queue.
+  AND `element_id` resolves to a Button in the global
+  `_hub_display_index` AND the click-value guard passes, invoke
+  `elem.on_click()` (the dispatcher does the rest per §5 / §6). The
+  dispatcher captured the owning session's Observer + loop at decode
+  time, so no session lookup is needed on the listener thread.
+- **Modify:** wire the polling-shim path per §7 — subscribe a single
+  process-wide `recv-shim` cid to `WILDCARD_TOPIC` on each per-session
+  Observer (one cid string, registered per Observer instance) and have
+  its `_push` enqueue onto the singleton `DisplayClient._pending`
+  queue. NOT per-session cid (would not change semantics — same shared
+  queue — but would mislead future readers; see §7 round-4 audit).
 - **Tests:** `test_button_inbound_e2e.py` (display click →
   `InteractionMessage` → hub resolve → `on_click` → publish → agent
   push, AND `test_click_guard_rejects_non_true_value` per §6 click
