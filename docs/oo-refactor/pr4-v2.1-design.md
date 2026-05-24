@@ -259,9 +259,36 @@ class Observer:
     async def unsubscribe(self, topic: str, cid: str) -> None: ...
     async def remove_connection(self, cid: str) -> None: ...
     async def publish(self, topic: str, payload: dict[str, object]) -> int:
-        """Fan out 'observed' envelope to every subscriber.  Per
+        """Fan out 'observed' envelope to every exact-topic subscriber AND
+        every wildcard subscriber whose pattern matches `topic`.  Per
         ARCHITECTURE_NOTES A4: in-process call, wire-output effect."""
 ```
+
+### Wildcard subscriptions (`WILDCARD_TOPIC`)
+
+The spike has no recv-equivalent (`agent.py:48-60` registers one
+exact-match `handle` per topic). Production's load-bearing
+`DisplayClient.recv()` shim (§7) cannot enumerate `interaction.<id>`
+topics ahead of time — element ids are unknown until publish. Observer
+therefore admits one sentinel topic `WILDCARD_TOPIC = "*"` that matches
+every published topic; registry-local, no wire change:
+
+```python
+WILDCARD_TOPIC: Final = "*"
+
+async def publish(self, topic: str, payload: dict[str, object]) -> int:
+    async with self._lock:
+        targets = set(self._by_topic.get(topic, ())) \
+                | set(self._by_topic.get(WILDCARD_TOPIC, ()))
+    for cid in targets:
+        await self._push(cid, {"kind": "observed",
+                                "topic": topic, "payload": payload})
+    return len(targets)
+```
+
+Set-union dedupes a cid subscribed to both `interaction.btn1` and
+`WILDCARD_TOPIC`. Wildcard is reserved for the polling-shim adapter; the
+MCP `subscribe` tool rejects `"*"` so agents must use exact-match topics.
 
 `PushFn` type alias: `Callable[[str, dict[str, object]], Awaitable[None]]`.
 The registry is injected with whatever push channel the surrounding context
@@ -448,26 +475,30 @@ Observer call `recv()` to block until the next InteractionMessage.
 ### PR 4 reimplementation
 
 `recv()` is reimplemented as a polling adapter over the per-session
-Observer. When the listener sees an InteractionMessage, it now ALSO posts an
-`observed` envelope onto the Observer's internal queue under topic
-`interaction.<element_id>` — same payload the MCP `publish` would. The
-`recv()` shim subscribes itself to topic `*` (wildcard) at startup and pulls
-from the same buffer; existing callers see the same InteractionMessage
-instances out of `recv()` as before, but the path now flows through the
-Observer registry.
+Observer using the wildcard subscription form specified in §4:
 
-The `_pending` queue stays as the back-store for legacy non-interaction
-messages (AckMessage, PongMessage, etc.) that do not fit the Observer topic
-model. Tests verify `recv()` returns the same shape it did pre-PR-4
-(snapshot of legacy recv behavior — captured into a test fixture in commit
-(v)).
+1. Subscribe a synthetic cid (`recv-shim-<session>`) to `WILDCARD_TOPIC`.
+   The shim's push callback does not ship bytes — it appends the
+   reconstructed InteractionMessage to an `asyncio.Queue` it owns.
+2. Inbound InteractionMessage follows the §6 hub-side path (resolve →
+   `on_click` → ButtonClicked → dispatcher → `Observer.publish`).
+3. The wildcard branch fires the shim callback, which enqueues.
+4. `DisplayClient.recv()` awaits the queue. Existing callers see the
+   same InteractionMessage shape as before.
+
+The queue lives in the shim, not in `Observer` — the registry only fans
+out push calls (§4 invariant: it knows nothing about buffering). The
+legacy `_pending` queue stays as the back-store for non-interaction
+messages (AckMessage, PongMessage, etc.) that are never published.
+Tests verify `recv()` returns the same shape it did pre-PR-4 (snapshot
+fixture in commit (v)).
 
 ### Deprecation note
 
-`DisplayClient.recv()` gets a docstring `.. deprecated:: PR 4 — use
-client.subscribe('interaction.*') and the listener callback path. The
-polling shim deletes in PR 12 once every consumer has migrated.` The shim
-stays load-bearing through PRs 5–11.
+`DisplayClient.recv()` gets a deprecation docstring directing callers to
+subscribe to the typed `interaction.<id>` topic per agent and consume via
+the listener callback path. The polling shim deletes in PR 12 once every
+consumer has migrated; it stays load-bearing through PRs 5–11.
 
 ---
 
@@ -649,51 +680,42 @@ Per migration-plan.md PR 4 row 223:
 
 ## Section 11 — Open questions for gvr / operator
 
-These are the questions the spike and PR 3 pattern do NOT answer. Each needs
-an explicit ruling before the implementation mission consumes the design.
+Questions the spike and PR 3 pattern do not answer. Each needs an
+explicit ruling before implementation.
 
 ### 1. SubscriptionRegistry concurrency primitive
 
-Spike uses `threading.Lock` plus blocking `LineSocket.send_line` inside
-the lock (`hub.py:154-166`). Production luxd is asyncio. §4 proposes
-`asyncio.Lock` plus an awaitable `PushFn`; the spike's alternative is
-snapshot-under-short-lock then iterate outside the lock.
-
-**Question:** `asyncio.Lock` (per §4) or snapshot-then-iterate (per spike)?
-The difference matters when an agent subscribes/unsubscribes mid-publish.
+Spike uses `threading.Lock` plus blocking send inside the lock
+(`hub.py:154-166`). Production luxd is asyncio; §4 proposes `asyncio.Lock`
+plus awaitable `PushFn`; alternative is snapshot-under-short-lock then
+iterate outside. **Question:** `asyncio.Lock` (per §4) or
+snapshot-then-iterate (per spike)? Matters when subscribe/unsubscribe
+races mid-publish.
 
 ### 2. Observer push wire path
 
-Spike sends `{"kind": "observed", "topic": ..., "payload": ...}` over the
-agent's line socket (`hub.py:162`). Production candidates:
-
-- **(a)** Add `ObservedMessage(topic, payload)` to `MessageRegistry`; ship
-  on the existing length-prefixed wire. Pro: zero new transport. Con:
-  registers a logically different layer in the same dispatcher.
-- **(b)** Reuse `InteractionMessage` as the carrier — Observer `publish`
-  for `interaction.<id>` synthesizes one and posts it from the hub side.
-  Pro: zero new wire types. Con: only works for `interaction.*` topics.
-
-D7 said "reuse the existing wire". §4 / §6 propose (a). (b) is the
-minimum-delta option.
-
-**Question:** (a) or (b)? djb's trust input applies if (a) lands —
-boundary validation on the new type.
+Spike sends `{kind: observed, topic, payload}` over the agent socket
+(`hub.py:162`). Production candidates:
+**(a)** Add `ObservedMessage(topic, payload)` to `MessageRegistry`; ship
+on the existing wire. Pro: zero new transport. Con: registers a
+logically different layer in the same dispatcher.
+**(b)** Reuse `InteractionMessage` as carrier; `publish` for
+`interaction.<id>` synthesizes one from the hub. Pro: zero new wire
+types. Con: only works for `interaction.*` topics.
+D7 said "reuse the existing wire"; §4/§6 propose (a); (b) is the
+minimum-delta option. **Question:** (a) or (b)? djb's trust input
+applies if (a) lands.
 
 ### 3. Hub-side HubDisplay mirror
 
-§6 proposes a minimal `dict[str, Element]` inside the session-owning code
-so PR 4's resolve path works. The spike's full HubDisplay class
-(`hub.py:49-123`) ships its `accept` branch in PR 5 with the in-fabric
-update path.
-
-**Question:** minimal dict in PR 4 (recommended — ships exactly what PR 4
-needs), or full HubDisplay class now (saves PR 5 wiring; adds untested
-code)?
+§6 proposes a minimal `dict[str, Element]` in the session-owning code so
+PR 4's resolve path works. The spike's full HubDisplay class
+(`hub.py:49-123`) ships its `accept` branch in PR 5. **Question:**
+minimal dict in PR 4 (recommended), or full HubDisplay class now (saves
+PR 5 wiring; adds untested code)?
 
 ### 4. Trust model documentation patch
 
-§4 lands a "Trust model" subsection in `docs/architecture/io-model.md`
-documenting "any agent may subscribe/publish on any topic; topic ACLs
-deferred". **Question:** OK to land in commit (ii) (recommended — small,
-in-scope), or separate doc PR?
+§4 lands a "Trust model" subsection in `docs/architecture/io-model.md`.
+**Question:** OK to land in commit (ii) (recommended), or separate doc
+PR?
