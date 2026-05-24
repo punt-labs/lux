@@ -16,6 +16,8 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import pytest
+
 from punt_lux.protocol.connection import (
     LineSocket,
     connect_unix,
@@ -24,7 +26,7 @@ from punt_lux.protocol.connection import (
 )
 
 if TYPE_CHECKING:
-    import pytest
+    from collections.abc import Iterator
 
 
 def _accept_one(server_sock: socket.socket) -> LineSocket:
@@ -33,13 +35,24 @@ def _accept_one(server_sock: socket.socket) -> LineSocket:
     return LineSocket(conn)
 
 
-def _short_socket_path() -> Path:
-    """Return a Unix-socket path short enough for the macOS ~104-char limit."""
-    return Path(tempfile.mkdtemp(prefix="lux-ls-")) / "s.sock"
+@pytest.fixture
+def short_socket_path() -> Iterator[Path]:
+    """Yield a Unix-socket path short enough for the macOS ~104-char limit.
+
+    ``tempfile.TemporaryDirectory(prefix="lux-ls-")`` lands the directory
+    under ``$TMPDIR`` (typically ``/var/folders/.../T/``) so the resulting
+    ``.../s.sock`` stays well under the ``AF_UNIX`` 104-char ceiling, and
+    the context manager removes the directory on test exit — replacing the
+    earlier ``tempfile.mkdtemp`` helper that leaked one directory per call.
+    """
+    with tempfile.TemporaryDirectory(prefix="lux-ls-") as d:
+        yield Path(d) / "s.sock"
 
 
-def test_send_recv_round_trip_carries_dicts_unchanged() -> None:
-    sock_path = _short_socket_path()
+def test_send_recv_round_trip_carries_dicts_unchanged(
+    short_socket_path: Path,
+) -> None:
+    sock_path = short_socket_path
     accepted: list[LineSocket] = []
 
     with listen_unix(sock_path) as server_sock:
@@ -84,8 +97,10 @@ def test_iter_lines_reassembles_partial_chunks() -> None:
     ]
 
 
-def test_iter_lines_returns_when_peer_closes() -> None:
-    sock_path = _short_socket_path()
+def test_iter_lines_returns_when_peer_closes(
+    short_socket_path: Path,
+) -> None:
+    sock_path = short_socket_path
     accepted: list[LineSocket] = []
 
     with listen_unix(sock_path) as server_sock:
@@ -196,8 +211,10 @@ def test_spawn_reader_continues_after_handler_exception(
     )
 
 
-def test_spawn_reader_dispatches_lines_to_handler() -> None:
-    sock_path = _short_socket_path()
+def test_spawn_reader_dispatches_lines_to_handler(
+    short_socket_path: Path,
+) -> None:
+    sock_path = short_socket_path
     accepted: list[LineSocket] = []
     handled: list[dict[str, object]] = []
     done = threading.Event()
