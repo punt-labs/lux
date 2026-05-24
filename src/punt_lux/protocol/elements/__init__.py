@@ -213,9 +213,15 @@ def element_from_dict(d: dict[str, Any]) -> Element:
         msg = "Element missing or invalid 'kind' field"
         raise ValueError(msg)
     if kind == "text":
-        elem: Element = _ELEMENT_FACTORY.decode(d)
-    else:
-        elem = _codec.from_dict(d)
+        # ``JsonTextDecoder`` already pulls and validates ``tooltip`` from
+        # the wire dict (via ``optional_nullable_str``) — its decoded
+        # element carries the canonical tooltip.  Re-applying the read
+        # here via ``apply_patch`` was a redundant second pass (CR1) so
+        # the ABC branch short-circuits.  The decoder still raises a
+        # typed ``ValueError`` on a non-string tooltip — the boundary
+        # validation contract is preserved.
+        return _ELEMENT_FACTORY.decode(d)
+    elem: Element = _codec.from_dict(d)
     # Copilot CP-5: validate tooltip at the boundary (PY-EH-1).  The
     # codec returns each Element with its declared tooltip default
     # (``None``); the cross-element tooltip read here previously trusted
@@ -227,13 +233,14 @@ def element_from_dict(d: dict[str, Any]) -> Element:
     tooltip = tooltip_ctx.optional_nullable_str(d, "tooltip")
     if tooltip is None:
         return elem
-    if isinstance(elem, TextElement):
-        # ABC-shaped TextElement: mutate in place via the public patch
-        # method (D6). The JsonTextDecoder already pulled tooltip from
-        # ``d``; we re-apply it here so the validated value wins on the
-        # boundary.
-        elem.apply_patch({"tooltip": tooltip})
-        return elem
+    # The text branch returned above; ``_codec`` carries only the 23
+    # dataclass-shaped kinds, so the union here excludes ``TextElement``.
+    # The ``isinstance`` guard narrows the union for ``replace`` (whose
+    # type variable cannot bind to the ABC-shaped ``TextElement``) and
+    # documents the dispatch invariant.
+    if isinstance(elem, TextElement):  # pragma: no cover - dispatch invariant
+        msg = "text kind must route through _ELEMENT_FACTORY"
+        raise AssertionError(msg)
     # Every dataclass Element subtype declares ``tooltip: str | None`` —
     # the Protocol guarantee makes ``replace(elem, tooltip=...)`` safe.
     return replace(elem, tooltip=tooltip)
