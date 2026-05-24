@@ -1771,3 +1771,139 @@ no listed reference covers a detail, the implementation is free to
 choose — but the chosen shape must be documented in the same commit
 as the choice, so a future reader can tell whether the decision was
 informed by a reference or was a local invention.
+
+## Commit sequence and acceptance
+
+This PR splits into a sequence of rollback-coherent commits. Each
+commit ships a single concern that can be reverted on its own without
+leaving the codebase in an incoherent state. The order is driven by
+dependency: foundation first, then the dispatch machinery, then the
+composite component pattern, then the new wire kind, then the
+cleanup of legacy callers.
+
+Every commit ends with `make check` passing and `make update-oo`
+staged. Tests covering the commit's invariant are added in the same
+commit as the code they verify.
+
+### The commit sequence
+
+1. **Move Hub state into `domain/hub/`; rename `hub.py` → `luxd.py`.**
+   Scope: relocate session indexes, locks, the asyncio loop reference,
+   and the connection registry from `tools/connection.py` into a new
+   `domain/hub/` package. Rename the existing `src/punt_lux/hub.py`
+   process-bootstrap module to `src/punt_lux/luxd.py` and update
+   `[project.scripts]`. Update every import of the moved symbols in
+   the same commit — no shim re-exports.
+   *Rollback coherence:* the move and rename are mechanical; rolling
+   back leaves the file layout that existed before the PR.
+
+2. **Element ABC with event-driven dispatch.** Scope: introduce the
+   `Event` marker Protocol, the `_handlers` registry on the ABC,
+   `add_handler` / `remove_handler` / `fire` methods, and the typed
+   `Handler[E]` callable shape. No Element kinds use it yet — that
+   comes in commits 4 and 5.
+   *Rollback coherence:* the new ABC plumbing is additive; without
+   callers it is dead surface that comes out cleanly.
+
+3. **Handler catalog scaffolding.** Scope: introduce the per-Element
+   typed catalog namespace (`ButtonHandlers`, `DialogHandlers`), the
+   decorator factories (`publish` and friends), the wire-spec decoder
+   that resolves catalog names and decorator chains, and the
+   per-parent verb-vocabulary resolution against `_ACTIONS` mappings.
+   Tests cover the long-form and sugar-form wire shapes round-trip
+   through the decoder.
+   *Rollback coherence:* the catalog has no Element consumers yet,
+   so reverting leaves no orphaned imports.
+
+4. **Button and Dialog migration to the new ABC and the MVC pattern.**
+   Scope: rewrite `ButtonElement` and `DialogElement` to extend the
+   new Element ABC, install handler registries through the catalog
+   decoder, and embody the MVC component shape (`DialogModel` private
+   to `DialogElement`, child Buttons wired through the bound-callback
+   pattern). The existing element implementations are replaced
+   wholesale — no parallel old / new classes.
+   *Rollback coherence:* the Element kinds are the same names from
+   the agent's perspective; reverting reinstates the prior internals
+   without changing the wire surface.
+
+5. **Single `ButtonClicked` event; `Display.interact` validation.**
+   Scope: introduce the typed `ButtonClicked` dataclass with its
+   factory-token guard, the `Display.interact` validation site, and
+   the shrunken pump that drops wire-shape triage straight into
+   `interact`. Delete `domain/interaction.py`'s `Interaction` sum
+   type and `ButtonPressed` in the same commit. Every legacy caller
+   migrates to construct `ButtonClicked` through `Display.interact`
+   or to receive it as a typed event argument.
+   *Rollback coherence:* the new validation site and the deleted
+   sum type move together — reverting restores both at once.
+
+6. **Agent Subscribe / Publish with `SubscriptionRegistry` and
+   `ObserverMessage`.** Scope: introduce the per-connection-scoped
+   `SubscriptionRegistry`, the Hub's `subscribe` / `unsubscribe` /
+   `publish` methods with snapshot-then-iterate fan-out, and the
+   typed outbound `ObserverMessage` wire kind. Register the new
+   message kind in `MessageRegistry`. Add MCP tool surface for
+   `subscribe` and `publish`.
+   *Rollback coherence:* the registry, the Hub methods, the wire
+   kind, and the MCP tools form one functional unit; partial revert
+   would leave callers without a target.
+
+7. **Delete `DisplayClient.recv()`; migrate every caller to
+   `poll_event`.** Scope: remove the legacy `recv()` method, the
+   combined listener queue it drained, and every test or agent that
+   called it. Replace each call site with `poll_event` (for business
+   events) or with the push path on the bidirectional applet
+   connection. No shim, no alias.
+   *Rollback coherence:* the deletion and the call-site migrations
+   land together — reverting restores both.
+
+8. **Lifecycle wiring and full `HubDisplay`.** Scope: ship the full
+   `HubDisplay` class with index, owner-tracking, `apply`,
+   `resolve`, `drop_connection`. Wire `drop_connection` into the
+   connection-close path so a disconnecting connection's Elements
+   are marked `_removed`, the Element Observer cascade prunes the
+   surviving tree, and `SubscriptionRegistry.drop_connection`
+   purges the connection's topic scope. Confirm via tests that an
+   orphan handler firing after its connection is gone is a safe
+   no-op.
+   *Rollback coherence:* the disconnect path and the lifecycle
+   invariants form one concern; reverting brings the partial
+   lifecycle that existed before back as a unit.
+
+9. **Interaction trace parity gate.** Scope: a single end-to-end
+   test that constructs an in-memory Hub, installs a Dialog with
+   Confirm / Cancel children, fires a wire `InteractionMessage` for
+   the Confirm click, and asserts every observable downstream
+   effect: the typed `ButtonClicked` event reaches the handler, the
+   `call_model("confirm")` invocation runs against `DialogModel`,
+   `_confirmed = True` is set, `_removed = True` propagates through
+   the Observer, the parent prunes the Dialog, and the
+   `Hub.publish("dialog_confirmed", ...)` call queues an
+   `ObserverMessage` to the subscribing connection. The test is the
+   acceptance gate for the PR's behavioral contract.
+   *Rollback coherence:* the test depends on every prior commit;
+   reverting it removes only the gate, not the behavior.
+
+### Acceptance verification map
+
+Each commit's invariant is verified by a specific test or behavior
+check. The map below names each one. `make check` runs all of these
+as part of the standard gate; the explicit listing is for review
+purposes — so a reader can trace each invariant to its verification.
+
+| # | Invariant | Verification |
+|---|-----------|--------------|
+| 1 | Hub state lives in `domain/hub/`; entry point is `luxd.py` | `tests/test_module_layout.py` asserts the package layout; `pyproject.toml`'s `[project.scripts]` parses and the `luxd` script imports cleanly |
+| 2 | Element ABC dispatches typed events to registered handlers | `tests/test_element_abc.py::test_fire_invokes_registered_handler` registers a handler and asserts the event reaches it; a second test asserts a handler that mutates the registry mid-dispatch does not break the in-flight call |
+| 3 | Wire spec → handler chain via catalog and decorators | `tests/test_handler_catalog.py` round-trips both the long form and the sugar form through the decoder; asserts the constructed `Handler[E]` chain calls the inner factory followed by each decorator in order |
+| 4 | Dialog dismisses itself when Confirm is clicked | `tests/test_dialog_element.py::test_confirm_marks_removed` constructs the Dialog through the decoder, fires a click on the Confirm child, asserts `_confirmed` and `_removed` on the model and that the Observer notified the parent |
+| 5 | `ButtonClicked` is constructed only by `Display.interact`; validation lives in one site | `tests/test_button_clicked.py::test_direct_construction_raises` calls `ButtonClicked(...)` directly and asserts `TypeError`; `tests/test_display_interact.py` parametrizes the four validation failures (unknown client, unknown scene, unknown element, wrong kind) and asserts the typed error each raises |
+| 6 | Per-connection scoping; `ObserverMessage` round-trips on the wire | `tests/test_subscription_registry.py::test_per_connection_scope` subscribes two connections to the same topic name and asserts a publish from one reaches only its own subscribers; `tests/test_observer_message.py` round-trips the wire shape through the `MessageRegistry` |
+| 7 | `poll_event` is the only polling interface; `recv` is gone | `tests/test_display_client.py::test_no_recv_attribute` asserts `hasattr` returns False; `tests/test_display_client.py::test_poll_event_returns_payload` subscribes, publishes from another connection-handle, asserts the payload arrives |
+| 8 | Disconnect cascades through the Element Observer and drops the topic scope | `tests/test_lifecycle.py::test_disconnect_prunes_owned_elements` installs Elements under a connection, disconnects, asserts the Elements are gone from `HubDisplay`'s index and the parent's `children` tuple shrank; `tests/test_lifecycle.py::test_orphan_handler_publish_is_safe_noop` keeps a registered handler alive after its connection drops and asserts a publish call returns zero subscribers without raising |
+| 9 | End-to-end Dialog interaction trace | `tests/test_interaction_trace.py::test_confirm_click_to_observer_message` runs the full path: wire `InteractionMessage` → `Display.interact` → `ButtonClicked` → `Element.fire` → catalog handler → `DialogModel.confirm` → Observer cascade → parent prune → `Hub.publish` → `ObserverMessage` queued for the subscribing connection |
+
+`make check` is the gate at every commit; the test files above are
+additive at each step. A commit that ships its scope without
+verification — or with verification that does not assert the
+invariant the commit's text claims — is not ready to land.
