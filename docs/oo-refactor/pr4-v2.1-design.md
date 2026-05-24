@@ -903,9 +903,14 @@ that the click is valid happens here, exactly once.
 
 ```python
 class Display:
-    """Hub-side Element index, validation site, dispatch entry point."""
+    """Validation site and dispatch entry point. The Element index
+    lives on HubDisplay; Display borrows it through a constructor
+    dependency rather than maintaining a parallel copy."""
 
     _construction_token: ClassVar[object] = object()
+
+    def __init__(self, hub_display: HubDisplay) -> None:
+        self._hub_display = hub_display
 
     def interact(
         self,
@@ -924,14 +929,7 @@ class Display:
 
         if client_id not in self._clients:
             raise UnknownClientError(client_id=client_id)
-        scene = self._scenes.get(scene_id)
-        if scene is None:
-            raise UnknownSceneError(scene_id=scene_id)
-        element = scene.get(element_id)
-        if element is None:
-            raise UnknownElementError(
-                scene_id=scene_id, element_id=element_id,
-            )
+        element = self._hub_display.resolve(scene_id, element_id)
         if element.kind != "button":
             raise WrongKindError(
                 scene_id=scene_id,
@@ -948,12 +946,21 @@ class Display:
         )
 ```
 
-The method does four things in order: validate the client exists,
-validate the scene exists, validate the element exists, validate the
-element is the right kind for the action. On success it constructs the
-typed event and returns it. On failure it raises a typed domain error.
-There is no `None` return, no boolean success flag, no error sentinel —
-either the caller gets a typed event or the call raises.
+The method does three things in order: validate the client exists, ask
+`HubDisplay` to resolve `(scene_id, element_id)` to an `Element` (which
+raises `UnknownSceneError` or `UnknownElementError` on miss), validate
+the element is the right kind for the action. On success it constructs
+the typed event and returns it. On failure it raises a typed domain
+error. There is no `None` return, no boolean success flag, no error
+sentinel — either the caller gets a typed event or the call raises.
+
+`HubDisplay` is the single authoritative index of Elements by
+`(scene_id, element_id)`. `Display` does not maintain its own
+`_scenes` dict; that would be a parallel index, exactly the kind of
+duplication the guiding principle rules out. `Display` takes
+`HubDisplay` as a constructor dependency and reads through it for
+every validation lookup. One index, one owner, every consumer goes
+through the same surface.
 
 ### The pump shrinks to wire-side triage
 
@@ -984,15 +991,17 @@ class WirePump:
             return
 
         event = self._display.interact(client_id, msg)
-        element = self._display.resolve(event.scene_id, event.element_id)
+        element = self._hub_display.resolve(event.scene_id, event.element_id)
         element.fire(event)
 ```
 
 Three wire-shape filters, then the message goes to `Display.interact`,
 then the typed event goes to `Element.fire`. The pump does no domain
 reasoning, no element resolution, no kind check, no ownership check.
-Those live in `Display.interact` and `Display.resolve` — the methods
-that own the index those checks rely on.
+Those live in `Display.interact` (validation) and `HubDisplay.resolve`
+(index lookup) — the same `HubDisplay` instance `Display` borrows for
+its own validation. The pump's post-validation re-resolution uses the
+same authority, not a parallel one.
 
 ### One validation site, no defense-in-depth
 
@@ -1037,7 +1046,7 @@ class Display:
         scene_id = msg.require_scene_id()
         element_id = ElementId(msg.element_id)
         self._require_known_client(client_id)
-        element = self._require_element(scene_id, element_id)
+        element = self._hub_display.resolve(scene_id, element_id)
 
         if msg.action == "click" and element.kind == "button":
             return ButtonClicked(
