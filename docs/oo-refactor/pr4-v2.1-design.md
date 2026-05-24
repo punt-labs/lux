@@ -519,3 +519,305 @@ expression; the decoder constructs an inline handler from it; the
 decorator chain wraps it the same way. That capability is not in PR 4
 scope. The catalog model is built to accept it without restructuring
 when the trust model for executing agent-authored code is ready.
+
+## Composite Elements as MVC components
+
+A `DialogElement` is more than a panel with buttons inside. It is a
+self-contained component with its own model, its own view, and its own
+controllers — the classic Model-View-Controller split, contained within
+a single Element kind. Future composites (`FormElement`, `WizardElement`,
+the inspector, the workspace) follow the same pattern. The component
+is the unit of encapsulation; nothing outside the component touches its
+model.
+
+The component embodies the boundary the io-model needs: when an agent
+defines a Dialog with Confirm and Cancel buttons, the agent declares
+what each button means in the Dialog's vocabulary — and that's the end
+of the agent's involvement in the Dialog's behavior. The component
+wires its own controllers, dispatches its own state changes, and
+notifies its parent through the Element Observer subsystem when its
+visible state changes.
+
+### Model — the component's private state
+
+`DialogModel` is the Dialog's internal state. It holds the properties
+the Dialog cares about and the methods that mutate them. The model is
+an implementation detail of the `DialogElement` component — no code
+outside the component constructs it directly, references it by name,
+or invokes its methods through any path other than the typed verb
+mapping the model itself exposes.
+
+```python
+class DialogModel:
+    """The Dialog's private state. Owned by DialogElement."""
+
+    _ACTIONS: ClassVar[Mapping[str, Callable[["DialogModel"], None]]] = {
+        "confirm": lambda self: self.confirm(),
+        "cancel":  lambda self: self.cancel(),
+        "close":   lambda self: self.close(),
+        "dismiss": lambda self: self.cancel(),
+    }
+
+    _visible: bool
+    _removed: bool
+    _confirmed: bool
+    _observers: list[Callable[[str], None]]
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._visible = True
+        self._removed = False
+        self._confirmed = False
+        self._observers = []
+        return self
+
+    def confirm(self) -> None:
+        """Record confirmation and mark the dialog removed."""
+        self._confirmed = True
+        self._mark_removed()
+
+    def cancel(self) -> None:
+        """Mark the dialog removed without recording confirmation."""
+        self._mark_removed()
+
+    def close(self) -> None:
+        """Mark the dialog removed (semantic alias for an unspecified close)."""
+        self._mark_removed()
+
+    def invoke(self, action: str) -> None:
+        """Dispatch a verb name from the typed action mapping."""
+        action_fn = self._ACTIONS.get(action)
+        if action_fn is None:
+            raise ValueError(
+                f"unknown dialog action: {action!r} "
+                f"(expected one of {sorted(self._ACTIONS)})"
+            )
+        action_fn(self)
+
+    def add_observer(self, observer: Callable[[str], None]) -> None:
+        """Register a property-change observer (used by DialogElement)."""
+        self._observers.append(observer)
+
+    def _mark_removed(self) -> None:
+        if self._removed:
+            return
+        self._removed = True
+        self._visible = False
+        for observer in tuple(self._observers):
+            observer("removed")
+```
+
+`_ACTIONS` is the typed mapping the wire-level verb vocabulary
+resolves against (introduced in the catalog section). `add_observer`
+is the Element Observer hook the Dialog's parent composite registers
+through.
+
+### View — DialogElement reads model state to render
+
+`DialogElement` is the Element kind. Its render path reads the model;
+it does not write the model. The view is a function of state.
+
+```python
+class DialogElement(Element):
+    """A composite Element whose state is owned by DialogModel."""
+
+    _id: ElementId
+    _model: DialogModel
+    _children_tuple: tuple[Element, ...]
+
+    def __new__(
+        cls,
+        *,
+        renderer_factory: RendererFactory,
+        emit: Emit,
+        id: ElementId,
+        model: DialogModel,
+    ) -> Self:
+        self = super().__new__(cls, renderer_factory=renderer_factory, emit=emit)
+        self._id = id
+        self._model = model
+        self._children_tuple = ()
+        return self
+
+    @property
+    def id(self) -> ElementId:
+        return self._id
+
+    @property
+    def visible(self) -> bool:
+        return self._model._visible
+
+    @property
+    def removed(self) -> bool:
+        return self._model._removed
+
+    def _children(self) -> tuple[Element, ...]:
+        return self._children_tuple
+
+    def _install_children(self, children: tuple[Element, ...]) -> None:
+        """Decoder-only seam: install children after the Dialog is fully
+        constructed and its model exists, so child Buttons can bind to it."""
+        self._children_tuple = children
+```
+
+The Dialog exposes `visible` and `removed` as read-only properties
+backed by the model. Renderers and parent composites observe through
+the public surface; the model stays private.
+
+### Controllers — child Buttons reference the model
+
+Each child Button in the Dialog is a controller for one of the model's
+actions. The wire spec the agent ships says only "this button's click
+means 'confirm'"; the decoder wires the Button to the Dialog's model
+through the bound-callback pattern.
+
+```python
+class JsonDialogDecoder:
+    """Decoder for DialogElement wire payloads."""
+
+    def decode(self, raw: Mapping[str, object]) -> DialogElement:
+        # 1. Construct the model first so child Buttons can bind to it.
+        model = DialogModel()
+
+        # 2. Construct the Dialog element with the model installed.
+        dialog = DialogElement(
+            renderer_factory=self._renderer_factory,
+            emit=self._emit,
+            id=ElementId(self._require_string(raw, "id")),
+            model=model,
+        )
+
+        # 3. Decode each child Button. The Button's click-handler factory
+        #    is ButtonHandlers.call_model, with the verb name as its only
+        #    wire parameter. The factory closes over the model the decoder
+        #    has just constructed.
+        children = tuple(
+            self._button_decoder.decode_for_parent(child_raw, owner_model=model)
+            for child_raw in self._require_children(raw)
+        )
+
+        # 4. Install the wired children.
+        dialog._install_children(children)
+        return dialog
+```
+
+The Button's decoder receives `owner_model=model` and uses it when it
+builds the typed `Handler[ButtonClicked]` from the `call_model` factory
+in the catalog. By the time the Dialog is returned from `decode`, every
+child Button's click handler already holds a reference to the right
+model and the right verb. No runtime late-binding, no string lookup
+against `getattr`. The wire defines the verb; the decoder resolves it.
+
+This is the same shape as JavaFX FXML's controller binding: at load
+time the FXML parser resolves `onAction="#confirm"` against the
+Controller's `@FXML` methods. Loud at load, silent and typed at run.
+
+### Element Observer — intra-Hub property propagation
+
+When the user clicks Confirm, the controller runs
+`model.invoke("confirm")`, which calls `self.confirm()` on the model,
+which sets `_confirmed = True` and `_removed = True`, which notifies
+the model's observers. The Dialog's parent composite is one of those
+observers. On `"removed"`, the parent prunes the Dialog out of its
+children tuple.
+
+```python
+class PanelElement(Element):
+    """A composite that observes its children's removal."""
+
+    def _install_children(self, children: tuple[Element, ...]) -> None:
+        for child in children:
+            if isinstance(child, DialogElement):
+                child._model.add_observer(
+                    lambda prop, _c=child: self._on_child_property(prop, _c)
+                )
+        self._children_tuple = children
+
+    def _on_child_property(self, prop: str, child: Element) -> None:
+        if prop == "removed":
+            self._children_tuple = tuple(
+                c for c in self._children_tuple if c is not child
+            )
+```
+
+This is the Element Observer subsystem in action: a property on one
+Element changes, an observer registered by the parent runs, and the
+parent updates its own state. Standard Swing/Cocoa/Qt mechanics. Every
+Element kind that holds mutable property state offers the same
+`add_observer` hook; `visible` and `enabled` propagate the same way in
+future Layout work.
+
+The same machinery handles connection teardown: when a connection
+disconnects, the Hub marks every Element owned by that connection with
+`_removed = True`. The notifications cascade up to each parent's
+observer; parents prune; the scene shrinks naturally.
+
+### Element Observer is not Agent Subscribe
+
+The Element Observer subsystem and the Agent Subscribe / Publish
+subsystem are two different mechanisms with two different lifecycles.
+They share no machinery. The Element Observer is in-process,
+property-typed, and registered by parents on their direct children.
+The Agent Subscribe registry is connection-scoped, topic-named, and
+serves cross-process pub/sub for agents and applets.
+
+| Concern | Element Observer | Agent Subscribe |
+|---|---|---|
+| Scope | Intra-Hub, intra-component | Cross-process |
+| Key | Property name on an Element | Topic name in a connection's scope |
+| Registration | Parent registers on child | Connection subscribes to its own scope |
+| Cleanup | Element death drops observers | Connection disconnect drops the scope |
+| Wire involvement | None — process-local references | Outbound `ObserverMessage` over the wire |
+| Trust model | None — every observer is in-process | Per-connection scoping (covered later) |
+
+A DialogElement's self-dismiss is intra-component coordination: the
+controller mutates the model, the model notifies the observer, the
+observer prunes. No topic name is invented; no pub-sub message crosses
+a process boundary. Pub-sub is reserved for cross-component business
+events — "work.saved", "scene.dismissed-by-agent" — where the producer
+and the consumer live in different connections, different processes,
+or different machines.
+
+Conflating the two subsystems is the easy mistake. The discipline that
+prevents it is one rule: intra-component coordination is Observer;
+cross-component / cross-process is Pub-Sub. If a DialogElement
+publishes a topic, the topic is a business event for outside
+consumers, not the means by which the Dialog dismisses itself.
+
+### The bound-callback pattern at the boundary
+
+The agent's declaration is small and declarative:
+
+```jsonc
+{
+  "kind": "dialog",
+  "id": "save_confirm",
+  "children": [
+    {"kind": "button", "id": "ok",     "label": "OK",
+     "on": [{"event": "click", "factory": "call_model", "method": "confirm"}]},
+    {"kind": "button", "id": "cancel", "label": "Cancel",
+     "on": [{"event": "click", "factory": "call_model", "method": "cancel"}]}
+  ]
+}
+```
+
+The agent says "this button means confirm." It does not say "when this
+button is clicked, mark the Dialog's model `_confirmed = True` and
+notify the Dialog's parent through the Observer." That sentence is the
+component's documented behavior, expressed once in the Dialog's
+`DialogModel.confirm` method, resolved at decode time against the
+Dialog's typed verb mapping, and bound into each child Button's
+typed handler.
+
+By the time the user clicks, every reference is resolved, every type
+is checked, every dispatch is a method call on an object the decoder
+constructed. The wire is data. The component is code. The decoder is
+the seam.
+
+Future composite Elements follow the same template: a private model
+that publishes a typed verb mapping, a view-side Element class that
+reads model state, a controller-side decoder that constructs the model
+first and then wires every child controller's typed handler against
+it. Form, Wizard, Inspector, Workspace — each its own component, each
+its own model, each its own verb vocabulary, all reading and writing
+through the same MVC seam.
