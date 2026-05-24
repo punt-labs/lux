@@ -28,6 +28,7 @@ from punt_lux.display.element_renderer import ElementRenderer
 from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.macos import hide_from_dock_and_cmd_tab
 from punt_lux.display.menu_manager import MenuManager
+from punt_lux.display.renderers.imgui import ImGuiRendererFactory
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.domain.display import Display
@@ -63,6 +64,7 @@ from punt_lux.protocol import (
     UnknownMessage,
     UpdateMessage,
 )
+from punt_lux.protocol.elements import Element
 from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.progress import ProgressElement
@@ -137,6 +139,7 @@ class DisplayServer:
     _query_dispatcher: QueryDispatcher
     _display_paths: DisplayPaths
     _element_renderer: ElementRenderer
+    _imgui_renderer_factory: ImGuiRendererFactory
 
     def __new__(
         cls,
@@ -218,6 +221,12 @@ class DisplayServer:
             table_renderer=self._table_renderer,
             emit_event=self._emit_event,
             check_dirty_window=self._check_dirty_window,
+        )
+        self._imgui_renderer_factory = ImGuiRendererFactory(
+            widget_state=self._widget_state,
+            texture_cache=self._textures,
+            # Display-tier emit is no-op per spike display.py:167.
+            emit=lambda _msg: None,
         )
 
         # Register display-specific query handlers that need ImGui state.
@@ -1367,6 +1376,13 @@ class DisplayServer:
         self._element_renderer.current_scene_id = scene_id
         scene = frame.scenes[scene_id]
         for elem in scene.elements:
+            self._paint_element(elem)
+
+    def _paint_element(self, elem: Element) -> None:
+        """Dispatch one element to its renderer (PR-3 ImGui factory or PR-2 path)."""
+        if isinstance(elem, TextElement):
+            self._imgui_renderer_factory(elem).render()
+        else:
             self._element_renderer.render_element(elem)
 
     def _close_frame(self, frame_id: str, *, notify: bool = True) -> None:
@@ -1409,7 +1425,10 @@ class DisplayServer:
 
             imgui.separator_text(scene.title)
         for elem in scene.elements:
-            self._element_renderer.render_element(elem)
+            if isinstance(elem, TextElement):
+                self._imgui_renderer_factory(elem).render()
+            else:
+                self._element_renderer.render_element(elem)
 
     # Element rendering delegated to ElementRenderer -- see element_renderer.py.
 
