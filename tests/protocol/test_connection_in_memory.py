@@ -50,6 +50,23 @@ def test_send_after_close_raises() -> None:
     b.close()
 
 
+def test_send_after_peer_close_raises() -> None:
+    """Writing to a peer that already called ``close`` must raise.
+
+    Regression for SF2: previously, ``send_line`` only checked the
+    local ``_closed`` flag, so a still-open end could enqueue frames
+    onto a queue no one would ever drain — the equivalent of writing
+    to a closed socket and getting silent success.
+    """
+    a, b = InMemoryConnection.paired()
+    b.close()
+
+    with pytest.raises(RuntimeError, match="peer closed"):
+        a.send_line({"op": "noop"})
+
+    a.close()
+
+
 def test_iter_lines_blocks_until_peer_sends() -> None:
     a, b = InMemoryConnection.paired()
     received: list[dict[str, object]] = []

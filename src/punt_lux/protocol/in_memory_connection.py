@@ -2,24 +2,18 @@
 
 Per docs/oo-refactor/pr3-v2.1-design.md §5: the in-memory backend for
 ``LUX_DISPLAY_IN_PROCESS=1`` tests. Exposes the same ``send_line`` /
-``iter_lines`` / ``close`` shape as ``LineSocket`` so consumers don't
-branch on backend.
-
-Built around two ``queue.SimpleQueue`` instances — one carries
-hub→client lines, the other carries client→hub. ``paired()`` returns
-the two ends already wired so a test can drive both sides in-process
-without crossing a socket.
+``iter_lines`` / ``close`` shape as ``LineSocket``.
 
 D7 (design §6): PR 3 consumes this only from
-``tests/integration/test_text_outbound_e2e.py``; ``DisplayClient`` stays
-on its existing length-prefixed wire path until a coordinated flip.
+``tests/integration/test_text_outbound_e2e.py``.
 """
 
 from __future__ import annotations
 
 import queue
+import threading
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Final, Self, cast
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -36,76 +30,79 @@ class _Frame:
     payload: dict[str, object]
 
 
-@dataclass(frozen=True, slots=True)
-class _Close:
-    """Sentinel that signals the peer has closed; reader should stop."""
+# Identity-compared sentinel placed on the queue when an end closes.
+# A module-level singleton lets ``iter(queue.get, _CLOSE)`` terminate
+# without an extra branch, and keeps the module under three classes
+# (PY-OO-2) alongside ``_Frame`` and ``InMemoryConnection``.
+_CLOSE: Final[object] = object()
 
 
-type _Item = _Frame | _Close
+type _Item = _Frame | object
+type _Endpoint = tuple[
+    queue.SimpleQueue[_Item],  # inbound
+    queue.SimpleQueue[_Item],  # outbound
+    threading.Event,  # self_closed
+    threading.Event,  # peer_closed
+]
 
 
 class InMemoryConnection:
     """Paired-queue duplex matching the ``LineSocket`` shape.
 
-    Each end owns an inbound and an outbound queue. ``send_line`` puts
-    onto the outbound queue (the peer's inbound); ``iter_lines`` drains
-    the inbound queue until the peer's ``close`` enqueues the close
-    sentinel.
+    ``send_line`` raises if either end is closed — including the peer.
+    A peer-side close arms ``peer_closed`` so the next ``send_line``
+    fails loud instead of silently accumulating frames no one will
+    read. Construct via ``InMemoryConnection.paired()``.
 
-    Construct via ``InMemoryConnection.paired()`` rather than directly;
-    the paired factory wires the two queues so the ends share them in
-    mirrored roles.
+    The constructor takes a single ``_Endpoint`` tuple — four wires
+    that bind one end of the duplex: inbound queue, outbound queue,
+    and two ``threading.Event`` flags. This end's ``self_closed`` IS
+    the other end's ``peer_closed``, so close-detection is symmetric.
     """
 
-    _inbound: queue.SimpleQueue[_Item]
-    _outbound: queue.SimpleQueue[_Item]
-    _closed: bool
+    _endpoint: _Endpoint
 
-    def __new__(
-        cls,
-        inbound: queue.SimpleQueue[_Item],
-        outbound: queue.SimpleQueue[_Item],
-    ) -> Self:
+    def __new__(cls, endpoint: _Endpoint) -> Self:
         self = super().__new__(cls)
-        self._inbound = inbound
-        self._outbound = outbound
-        self._closed = False
+        self._endpoint = endpoint
         return self
 
     @classmethod
     def paired(cls) -> tuple[Self, Self]:
-        """Return two ends of one in-process duplex.
-
-        ``a.send_line`` puts onto ``b.iter_lines``'s queue, and vice
-        versa. Either end's ``close`` terminates the other's iteration.
-        """
-        hub_to_client: queue.SimpleQueue[_Item] = queue.SimpleQueue()
-        client_to_hub: queue.SimpleQueue[_Item] = queue.SimpleQueue()
-        a = cls(inbound=hub_to_client, outbound=client_to_hub)
-        b = cls(inbound=client_to_hub, outbound=hub_to_client)
-        return a, b
+        """Return two ends of one in-process duplex."""
+        a_closed = threading.Event()
+        b_closed = threading.Event()
+        h2c: queue.SimpleQueue[_Item] = queue.SimpleQueue()
+        c2h: queue.SimpleQueue[_Item] = queue.SimpleQueue()
+        return cls((h2c, c2h, a_closed, b_closed)), cls((c2h, h2c, b_closed, a_closed))
 
     def send_line(self, payload: WireDict) -> None:
-        """Enqueue ``payload`` for the peer's ``iter_lines``."""
-        if self._closed:
-            msg = "send on closed InMemoryConnection"
-            raise RuntimeError(msg)
-        self._outbound.put(_Frame(payload=payload))
+        """Enqueue ``payload`` for the peer's ``iter_lines``.
+
+        Raises ``RuntimeError`` if this end is closed or if the peer
+        has closed — sending into a queue no one will drain is a bug.
+        """
+        _inbound, outbound, self_closed, peer_closed = self._endpoint
+        if self_closed.is_set():
+            raise RuntimeError("send on closed InMemoryConnection")
+        if peer_closed.is_set():
+            raise RuntimeError("peer closed InMemoryConnection")
+        outbound.put(_Frame(payload=payload))
 
     def iter_lines(self) -> Iterator[WireDict]:
-        """Yield payloads until the peer closes the connection."""
-        while True:
-            item = self._inbound.get()
-            if isinstance(item, _Close):
-                return
-            yield item.payload
+        """Yield payloads until the peer closes the connection.
+
+        ``iter(callable, sentinel)`` stops on the identity-matching
+        ``_CLOSE`` sentinel, so every yielded item is a ``_Frame``.
+        """
+        inbound = self._endpoint[0]
+        for item in iter(inbound.get, _CLOSE):
+            yield cast("_Frame", item).payload
 
     def close(self) -> None:
         """Mark this end closed and unblock the peer's ``iter_lines``."""
-        if self._closed:
+        _inbound, outbound, self_closed, _peer_closed = self._endpoint
+        if self_closed.is_set():
             return
-        self._closed = True
-        # Tell the peer's reader to stop. The peer iterates ``_inbound``,
-        # which is THIS end's outbound queue — that's why we put the
-        # sentinel on ``_outbound``.
-        self._outbound.put(_Close())
+        self_closed.set()
+        outbound.put(_CLOSE)
