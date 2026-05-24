@@ -56,7 +56,7 @@ dev = [
 
 [project.scripts]
 lux = "punt_lux.__main__:app"
-luxd = "punt_lux.hub:main"
+luxd = "punt_lux.luxd:main"
 
 [project.urls]
 Homepage = "https://github.com/punt-labs/lux"
@@ -133,7 +133,7 @@ ignore = [
 "src/punt_lux/display/macos.py" = ["PLC0415"]
 "src/punt_lux/cli.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/show.py" = ["T20", "FBT", "PLC0415"]
-"src/punt_lux/hub.py" = ["PLC0415"]
+"src/punt_lux/luxd.py" = ["PLC0415"]
 "src/punt_lux/tools/server.py" = ["PLC0415"]
 "src/punt_lux/tools/__init__.py" = ["PLC0415"]
 # Element classes use `id` as a keyword/field name throughout the protocol —

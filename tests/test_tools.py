@@ -386,7 +386,7 @@ def _mock_client() -> MagicMock:
 
 
 class TestSetMenuTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_set_menu_returns_ok(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -399,7 +399,7 @@ class TestSetMenuTool:
 
 class TestSetThemeTool:
     @patch.object(DisplayPaths, "is_running", return_value=True)
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_set_theme_returns_theme_name(
         self, mock_get: MagicMock, _mock_running: MagicMock
     ) -> None:
@@ -418,7 +418,7 @@ class TestSetThemeTool:
 
 
 class TestShowTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_show_returns_ack(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.show.return_value = AckMessage(scene_id="s1", ts=time.time())
@@ -428,7 +428,7 @@ class TestShowTool:
         assert result == "ack:s1"
         client.show.assert_called_once()
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_show_timeout(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.show.return_value = None
@@ -439,7 +439,7 @@ class TestShowTool:
 
 
 class TestShowTableTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_show_table_minimal(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.show.return_value = AckMessage(scene_id="t1", ts=time.time())
@@ -458,7 +458,7 @@ class TestShowTableTool:
         assert elements[0].columns == ["Name", "Score"]
         assert elements[0].flags == ["borders", "row_bg"]
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_show_table_with_filters_and_detail(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.show.return_value = AckMessage(scene_id="t2", ts=time.time())
@@ -488,7 +488,7 @@ class TestShowTableTool:
         assert table.detail is not None
         assert table.detail.fields == ["ID", "Status"]
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_show_table_custom_flags(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.show.return_value = AckMessage(scene_id="t3", ts=time.time())
@@ -505,7 +505,7 @@ class TestShowTableTool:
 
 
 class TestShowDashboardTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_dashboard_metrics_only(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.show.return_value = AckMessage(scene_id="d1", ts=time.time())
@@ -525,7 +525,7 @@ class TestShowDashboardTool:
         assert elements[0].kind == "group"
         assert len(elements[0].children) == 2
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_dashboard_all_sections(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.show.return_value = AckMessage(scene_id="d2", ts=time.time())
@@ -552,7 +552,7 @@ class TestShowDashboardTool:
         assert "table" in kinds  # table
         assert kinds.count("separator") == 2
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_dashboard_empty(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.show.return_value = AckMessage(scene_id="d3", ts=time.time())
@@ -564,7 +564,7 @@ class TestShowDashboardTool:
 
 
 class TestUpdateTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_update_returns_ack(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.update.return_value = AckMessage(scene_id="s1", ts=time.time())
@@ -573,7 +573,7 @@ class TestUpdateTool:
         result = update("s1", [{"id": "t1", "set": {"content": "New"}}])
         assert result == "ack:s1"
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_update_timeout(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.update.return_value = None
@@ -584,7 +584,7 @@ class TestUpdateTool:
 
 
 class TestClearTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_clear_returns_cleared(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -599,7 +599,7 @@ class TestClearTool:
 
 class TestPingTool:
     @patch("punt_lux.tools.tools.time")
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_returns_rtt(
         self,
@@ -616,7 +616,7 @@ class TestPingTool:
         result = ping()
         assert result == "pong rtt=0.042s"
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_timeout(self, mock_running: MagicMock, mock_get: MagicMock) -> None:
         client = _mock_client()
@@ -628,7 +628,7 @@ class TestPingTool:
 
 
 class TestRecvTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_recv_interaction(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.recv.return_value = InteractionMessage(
@@ -641,7 +641,7 @@ class TestRecvTool:
         assert "b1" in result
         assert "click" in result
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_recv_none(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.recv.return_value = None
@@ -664,7 +664,7 @@ class TestDisplayModeTool:
 
 
 class TestSetDisplayModeTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_set_display_mode_y(self, mock_get: MagicMock, tmp_path: Path) -> None:
         mock_get.return_value = _mock_client()
         assert set_display_mode("y", repo=str(tmp_path)) == "display:on"
@@ -683,12 +683,18 @@ class TestSetDisplayModeTool:
 
 class TestDisplayModeRepoArg:
     def test_set_then_read_roundtrip_in_repo(self, tmp_path: Path) -> None:
-        with patch("punt_lux.tools.tools._get_client", return_value=_mock_client()):
+        with patch(
+            "punt_lux.domain.hub.clients.client_registry.get",
+            return_value=_mock_client(),
+        ):
             assert set_display_mode("y", repo=str(tmp_path)) == "display:on"
         assert (tmp_path / ".punt-labs" / "lux.md").exists()
         assert display_mode(repo=str(tmp_path)) == "display:on"
 
-        with patch("punt_lux.tools.tools._get_client", return_value=_mock_client()):
+        with patch(
+            "punt_lux.domain.hub.clients.client_registry.get",
+            return_value=_mock_client(),
+        ):
             assert set_display_mode("n", repo=str(tmp_path)) == "display:off"
         assert display_mode(repo=str(tmp_path)) == "display:off"
 
@@ -697,7 +703,10 @@ class TestDisplayModeRepoArg:
         repo_b = tmp_path / "b"
         repo_a.mkdir()
         repo_b.mkdir()
-        with patch("punt_lux.tools.tools._get_client", return_value=_mock_client()):
+        with patch(
+            "punt_lux.domain.hub.clients.client_registry.get",
+            return_value=_mock_client(),
+        ):
             set_display_mode("y", repo=str(repo_a))
         set_display_mode("n", repo=str(repo_b))
         assert display_mode(repo=str(repo_a)) == "display:on"
@@ -727,7 +736,7 @@ class TestDisplayModeRepoArg:
 
 
 class TestClearNoAutoSpawn:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=False)
     def test_clear_returns_not_running_when_display_off(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -737,7 +746,7 @@ class TestClearNoAutoSpawn:
         assert result == "not running"
         mock_get.assert_not_called()
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_clear_calls_client_when_running(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -751,7 +760,7 @@ class TestClearNoAutoSpawn:
 
 
 class TestPingNoAutoSpawn:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=False)
     def test_ping_not_running(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -762,7 +771,7 @@ class TestPingNoAutoSpawn:
         mock_get.assert_not_called()
 
     @patch("punt_lux.tools.tools.time")
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_returns_rtt_when_running(
         self,
@@ -781,7 +790,7 @@ class TestPingNoAutoSpawn:
 
 
 class TestInspectSceneTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=False)
     def test_inspect_scene_not_running(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -791,7 +800,7 @@ class TestInspectSceneTool:
         assert result == "not running"
         mock_get.assert_not_called()
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_inspect_scene_returns_elements(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -810,7 +819,7 @@ class TestInspectSceneTool:
         assert '"scene_id": "s1"' in result
         assert '"content": "hello"' in result
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_inspect_scene_not_found(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -825,7 +834,7 @@ class TestInspectSceneTool:
         result = inspect_scene("missing")
         assert result == "error: Scene 'missing' not found"
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_inspect_scene_timeout(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -839,7 +848,7 @@ class TestInspectSceneTool:
 
 
 class TestListScenesTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=False)
     def test_list_scenes_not_running(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -849,7 +858,7 @@ class TestListScenesTool:
         assert result == "not running"
         mock_get.assert_not_called()
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_list_scenes_returns_data(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -871,7 +880,7 @@ class TestListScenesTool:
         assert '"scene_id": "s1"' in result
         assert '"frame_id": "f1"' in result
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_list_scenes_timeout(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -883,7 +892,7 @@ class TestListScenesTool:
         result = list_scenes()
         assert result == "timeout"
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_list_scenes_empty(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -901,7 +910,7 @@ class TestListScenesTool:
 
 
 class TestScreenshotTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=False)
     def test_screenshot_not_running(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -911,7 +920,7 @@ class TestScreenshotTool:
         assert result == "not running"
         mock_get.assert_not_called()
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_screenshot_returns_path(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -926,7 +935,7 @@ class TestScreenshotTool:
         result = screenshot()
         assert result == "/tmp/lux-screenshot-abc.png"
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_screenshot_error(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -941,7 +950,7 @@ class TestScreenshotTool:
         result = screenshot()
         assert result == "error: OpenGL not available"
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_screenshot_timeout(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -980,7 +989,7 @@ class TestCleanupSession:
 
 
 class TestRegisterToolSessionTracking:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_tracks_in_session_menus(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -991,7 +1000,7 @@ class TestRegisterToolSessionTracking:
         # Cleanup
         _session_menus.pop("local", None)
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_tracks_under_custom_session_key(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client

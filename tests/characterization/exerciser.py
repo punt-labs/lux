@@ -229,17 +229,16 @@ class ToolExerciser:
             raise ToolCallError(msg)
 
         stub_client = _StubClient(client_spec)
-        # Tools fall into two families that look up DisplayClient through
-        # different module attributes: the hand-written @mcp.tool ones go
-        # through ``tools.tools._get_client``, while the @_query_tool
-        # decorator in connection.py closes over ``connection._get_client``.
-        # Both must be patched or the stub is bypassed for the @_query_tool
-        # family (list_clients, get_display_info, etc.).
+        # All tools resolve the DisplayClient through the Hub-side
+        # ClientRegistry singleton in ``punt_lux.domain.hub``. Patching
+        # ``client_registry.get`` substitutes the stub for every tool —
+        # both hand-written @mcp.tool ones and the @_query_tool decorator
+        # family — without two separate patches.
         stubs: list[contextlib.AbstractContextManager[Any]] = [
             mock.patch.object(DisplayPaths, "is_running", return_value=running),
-            mock.patch("punt_lux.tools.tools._get_client", return_value=stub_client),
             mock.patch(
-                "punt_lux.tools.connection._get_client", return_value=stub_client
+                "punt_lux.domain.hub.clients.client_registry.get",
+                return_value=stub_client,
             ),
         ]
         now = setup.get("time")

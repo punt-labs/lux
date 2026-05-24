@@ -9,18 +9,14 @@ from pathlib import Path
 from typing import Any
 
 from punt_lux.config import ConfigManager
+from punt_lux.domain.hub import client_registry
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     InteractionMessage,
     Patch,
     element_from_dict,
 )
-from punt_lux.tools.connection import (
-    _client_lock,
-    _get_client,
-    _query_tool,
-    _with_reconnect,
-)
+from punt_lux.tools.connection import _query_tool
 from punt_lux.tools.server import (
     _session_key,
     _session_menus,
@@ -139,7 +135,7 @@ def show(
         return f"error: frame_layout must be 'tab' or 'stack', got {frame_layout!r}"
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         ack = client.show(
             scene_id,
             typed_elements,
@@ -155,7 +151,7 @@ def show(
             return "timeout"
         return f"ack:{ack.scene_id}"
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -402,13 +398,13 @@ def update(
     ]
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         ack = client.update(scene_id, typed_patches)
         if ack is None:
             return "timeout"
         return f"ack:{ack.scene_id}"
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -424,11 +420,11 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
     """
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         client.set_menu(menus)
         return "ok"
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -453,14 +449,14 @@ def register_tool(
         item["icon"] = icon
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         client.register_menu_item(item)
-        with _client_lock:
+        with client_registry.lock:
             key = _session_key.get()
             _session_menus.setdefault(key, []).append(tool_id)
         return f"registered:{tool_id}"
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -478,7 +474,7 @@ def set_theme(theme: str) -> str:
         return "not running"
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         response = client.query("set_theme", {"theme": theme})
         if response is None:
             return "timeout"
@@ -486,7 +482,7 @@ def set_theme(theme: str) -> str:
             return f"error: {response.error}"
         return f"theme:{response.result.get('theme', theme)}"
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -519,7 +515,7 @@ def set_window_settings(
         return "not running"
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         response = client.query("set_window_settings", params)
         if response is None:
             return "timeout"
@@ -527,7 +523,7 @@ def set_window_settings(
             return f"error: {response.error}"
         return json.dumps(response.result, indent=2)
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @_query_tool(
@@ -555,11 +551,11 @@ def clear() -> str:
         return "not running"
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         client.clear()
         return "cleared"
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -569,7 +565,7 @@ def ping() -> str:
         return "not running"
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         pong = client.ping()
         if pong is None:
             return "timeout"
@@ -578,7 +574,7 @@ def ping() -> str:
             return f"pong rtt={rtt:.3f}s"
         return "pong"
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -593,7 +589,7 @@ def inspect_scene(scene_id: str) -> str:
         return "not running"
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         response = client.query("inspect_scene", {"scene_id": scene_id})
         if response is None:
             return "timeout"
@@ -601,7 +597,7 @@ def inspect_scene(scene_id: str) -> str:
             return f"error: {response.error}"
         return json.dumps(response.result, indent=2)
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -617,13 +613,13 @@ def list_scenes() -> str:
         return "not running"
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         response = client.query("list_scenes")
         if response is None:
             return "timeout"
         return json.dumps(response.result, indent=2)
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -638,7 +634,7 @@ def screenshot() -> str:
         return "not running"
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         response = client.query("screenshot")
         if response is None:
             return "timeout"
@@ -646,7 +642,7 @@ def screenshot() -> str:
             return f"error: {response.error}"
         return str(response.result.get("path", ""))
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @_query_tool(
@@ -740,7 +736,7 @@ def set_display_mode(mode: str, repo: str) -> str:
     _config_manager_for(repo).write_field("display", mode)
     if mode == "y":
         try:
-            _get_client()
+            client_registry.get()
         except (RuntimeError, OSError, ValueError, KeyError):
             logger.warning(
                 "Eager connect on set_display_mode=y failed; "
@@ -781,7 +777,7 @@ def recv(timeout: float = 1.0) -> str:
     """
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         msg = client.recv(timeout=timeout)
         if msg is None:
             return "none"
@@ -792,4 +788,4 @@ def recv(timeout: float = 1.0) -> str:
             )
         return f"event:{type(msg).__name__}"
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)

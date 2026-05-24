@@ -1,7 +1,9 @@
-"""WebSocket session hub for luxd.
+"""luxd — the Lux daemon process entry point.
 
-Multiplexes MCP sessions onto a single display connection. Each WebSocket
-connection is one Claude Code session, identified by ?session_key=<pid>.
+Boots the WebSocket session hub: multiplexes MCP sessions onto a single
+display connection. Each WebSocket connection is one Claude Code session,
+identified by ``?session_key=<pid>``. Domain state lives in
+``punt_lux.domain.hub``; this module is the transport bootstrapper.
 """
 
 from __future__ import annotations

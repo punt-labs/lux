@@ -1,4 +1,4 @@
-"""Tests for punt_lux.hub -- WebSocket session hub."""
+"""Tests for punt_lux.luxd -- WebSocket session hub process entry point."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import pytest
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from punt_lux.hub import _active_sessions, build_app
+from punt_lux.luxd import _active_sessions, build_app
 
 
 class TestHealthRoute:

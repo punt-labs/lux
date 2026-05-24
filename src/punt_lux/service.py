@@ -19,7 +19,7 @@ from punt_lux._backends import (
     SystemdBackend,
     has_linger,
 )
-from punt_lux.hub import DEFAULT_HUB_PORT
+from punt_lux.luxd import DEFAULT_HUB_PORT
 
 logger = logging.getLogger(__name__)
 

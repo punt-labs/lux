@@ -25,14 +25,12 @@ logger = logging.getLogger(__name__)
 
 async def _retry_eager_connect() -> None:
     """Background retries for eager display connect."""
-    # Import here to break circular dependency: connection imports server.mcp,
-    # and server.lifespan uses connection._get_client.
-    from punt_lux.tools.connection import _get_client
+    from punt_lux.domain.hub import client_registry
 
     for delay in (2.0, 5.0, 10.0):
         await asyncio.sleep(delay)
         try:
-            await asyncio.to_thread(_get_client)
+            await asyncio.to_thread(client_registry.get)
             logger.info("Eager connect retry succeeded")
             return
         except Exception:  # noqa: BLE001
@@ -43,11 +41,11 @@ async def _retry_eager_connect() -> None:
 async def _lifespan(_server: FastMCP) -> AsyncGenerator[None]:
     """Eager-connect to the display server when display=y.
 
-    Runs ``_get_client()`` in a thread so the blocking socket connect
-    and potential ``ensure_display()`` auto-spawn don't stall the
-    async event loop.
+    Runs ``client_registry.get()`` in a thread so the blocking socket
+    connect and potential ``ensure_display()`` auto-spawn don't stall
+    the async event loop.
     """
-    from punt_lux.tools.connection import _get_client
+    from punt_lux.domain.hub import client_registry
 
     config_mgr = ConfigManager()
     try:
@@ -61,7 +59,7 @@ async def _lifespan(_server: FastMCP) -> AsyncGenerator[None]:
     if cfg.display == "y":
         try:
             logger.info("display=y, eagerly connecting to display server")
-            await asyncio.to_thread(_get_client)
+            await asyncio.to_thread(client_registry.get)
         except Exception:  # noqa: BLE001 — best-effort startup
             logger.warning(
                 "Eager connect failed; scheduling retries",
@@ -118,9 +116,9 @@ def _cleanup_session(session_key: str) -> None:
     menu cleanup logs and skips.  The display server handles per-client
     cleanup on disconnect anyway.
     """
-    from punt_lux.tools.connection import _client_lock
+    from punt_lux.domain.hub import client_registry
 
-    with _client_lock:
+    with client_registry.lock:
         items = _session_menus.pop(session_key, [])
     if items:
         logger.debug(
