@@ -133,11 +133,19 @@ def spawn_reader(
     """Run a daemon thread that reads lines and dispatches to ``handler``."""
 
     def loop() -> None:
-        for payload in line_socket.iter_lines():
-            try:
-                handler(payload)
-            except Exception:
-                logger.exception("line-socket reader: handler raised")
+        # Outer guard surfaces failures in ``iter_lines`` itself —
+        # JSONDecodeError on malformed input, OSError /
+        # ConnectionResetError on a torn-down socket, UnicodeDecodeError
+        # on non-utf-8 bytes. Without it the daemon thread terminates
+        # silently and the hub goes deaf with no log line.
+        try:
+            for payload in line_socket.iter_lines():
+                try:
+                    handler(payload)
+                except Exception:
+                    logger.exception("line-socket reader: handler raised")
+        except Exception:
+            logger.exception("line-socket reader: iter_lines terminated unexpectedly")
 
     t = threading.Thread(target=loop, name="line-socket-reader", daemon=True)
     t.start()
