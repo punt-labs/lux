@@ -649,8 +649,8 @@ Per migration-plan.md PR 3 row 208 ("Acceptance"):
 |---|---|
 | `make snapshot-parity` passes for Text wire bytes | Replays PR-0 characterization snapshots for `show()` calls containing Text; byte-compares serialized `SceneMessage`. §4 PY-TS-14 cleanups are byte-equivalent (absent `style`/`color` stripped in both encoders). |
 | `make check` clean | OO ratchet, mypy/pyright, ruff format + lint, radon CC, pylint design. |
-| Text e2e through Connection in both backends | `tests/integration/test_text_outbound_e2e.py::{test_in_memory_backend,test_subprocess_backend}`. |
-| Loose perf smoke at 50ms/frame for 10 Text | `tests/perf/test_frame_budget.py::test_text_10_elements_under_50ms`. |
+| Text e2e through Connection in both backends | `tests/integration/test_text_outbound_e2e.py::test_in_memory_backend` (in-process backend) and `tests/integration/test_subprocess_lifecycle.py::test_text_scene_survives_subprocess_lifecycle` (subprocess backend smoke). |
+| Loose perf smoke at 50ms/frame for 10 Text | `tests/perf/test_frame_budget.py::test_ten_text_elements_render_under_50ms_per_frame`. |
 | All 29 MCP tools continue to work | Manual smoke per §6 inner-loop step 5; `test_text_outbound_e2e` covers `show` with Text; other 28 grep clean (next row). |
 | `to_dict`/`from_dict` on `TextElement` delegator-only (D5) | `grep -A 4 "def to_dict\|def from_dict" src/punt_lux/protocol/elements/text.py` shows ≤ 3 lines per body delegating to `JsonTextEncoder`/`Decoder`. |
 | Zero `WidgetValueProvider` references | `grep -rn "WidgetValueProvider" src/punt_lux/ tests/` returns zero lines. |

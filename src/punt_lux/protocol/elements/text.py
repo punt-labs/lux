@@ -12,7 +12,7 @@ The codec body lives in ``text_codec.py`` (``JsonTextEncoder`` /
 as ≤ 3-line delegators (D5) so the runtime-checkable
 ``domain.element.Element`` Protocol stays satisfied.
 
-``_patch`` is inherited from ``Element`` ABC (D6); ``_set_<field>``
+``apply_patch`` is inherited from ``Element`` ABC (D6); ``_set_<field>``
 setters cover the patch fields exercised by the scene patch path.
 """
 
@@ -121,7 +121,7 @@ class TextElement(Element):
 
     # -- minimal setters for the scene patch path (D6) ---------------------
     #
-    # ``Element._patch`` dispatches JSON-decoded values straight to these
+    # ``Element.apply_patch`` dispatches JSON-decoded values straight to these
     # setters, so each ``value`` arrives as ``object`` and PY-EH-1 demands
     # boundary validation before we assign to a narrowly-typed attribute.
 
@@ -142,15 +142,15 @@ class TextElement(Element):
         raise TypeError(msg)
 
     def _set_content(self, value: object) -> None:
-        """Replace the text content (used by ``Element._patch``)."""
+        """Replace the text content (used by ``Element.apply_patch``)."""
         self._content = self._str_or_raise(value, "content")
 
     def _set_style(self, value: object) -> None:
-        """Replace the style hint (used by ``Element._patch``)."""
+        """Replace the style hint (used by ``Element.apply_patch``)."""
         self._style = self._opt_str_or_raise(value, "style")
 
     def _set_tooltip(self, value: object) -> None:
-        """Replace the tooltip text (used by ``Element._patch``)."""
+        """Replace the tooltip text (used by ``Element.apply_patch``)."""
         self._tooltip = self._opt_str_or_raise(value, "tooltip")
 
     def _set_color(self, value: object) -> None:

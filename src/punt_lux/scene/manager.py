@@ -424,7 +424,7 @@ class SceneManager:
         Two element shapes coexist during the io-model migration
         (pr3-v2.1-design.md §4 D6): ABC subclasses (Text in PR 3, more
         in PRs 4-11) own their patch path via ``_set_<field>`` setters
-        called from ``Element._patch``; PR-2 dataclasses continue
+        called from ``Element.apply_patch``; PR-2 dataclasses continue
         through ``dataclasses.replace``. The dispatch branch keeps each
         shape on its native mutation strategy until PR 12's sweep.
         """
@@ -464,8 +464,8 @@ class SceneManager:
             new_value = _widget_value(elem)
             if new_value is None:
                 # Element is not one of the value-bearing input kinds
-                # (e.g. ColorPickerElement — see _VALUE_BEARING_ELEMENTS
-                # docstring at the top of this module).  Writing None
+                # (e.g. ColorPickerElement — see ``_widget_value``
+                # docstring above for the kept-out list).  Writing None
                 # would poison ensure() on the next frame; discarding
                 # forces the renderer to re-seed from the patched element
                 # fields.
