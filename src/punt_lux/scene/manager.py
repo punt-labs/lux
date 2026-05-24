@@ -293,7 +293,9 @@ class SceneManager:
                         ws.set(eid, None)
                         ws.clear_suffix(f"_{eid}")
             elif patch.set:
-                self._apply_patch_set((parent_list, idx), patch.set, ws)
+                self._apply_patch_set(
+                    (parent_list, idx), patch.set, ws, scene_id=msg.scene_id
+                )
 
     def dismiss_scene(self, scene_id: str) -> None:
         """Remove an unframed scene and all its associated state."""
@@ -414,6 +416,8 @@ class SceneManager:
         location: tuple[list[Element], int],
         fields: dict[str, Any],
         ws: WidgetState | None = None,
+        *,
+        scene_id: str,
     ) -> None:
         """Apply a set-patch to an element and sync widget state.
 
@@ -439,12 +443,12 @@ class SceneManager:
         }
         unknown = fields.keys() - {"id", "kind"} - valid.keys()
         if unknown:
-            _log.warning(
-                "patch for %s id=%r ignored unknown fields: %s",
-                type(elem).__name__,
-                getattr(elem, "id", None),
-                sorted(unknown),
+            element_id = getattr(elem, "id", None)
+            msg = (
+                f"patch for scene {scene_id!r} element {element_id!r} "
+                f"contains unknown fields: {sorted(unknown)}"
             )
+            raise ValueError(msg)
         if valid:
             if isinstance(elem, ABCElement):
                 elem.apply_patch(valid)

@@ -7,6 +7,8 @@ as a pure state machine — no ImGui, no sockets, no DisplayServer.
 
 from __future__ import annotations
 
+import pytest
+
 from punt_lux.protocol import (
     ButtonElement,
     InputNumberElement,
@@ -327,8 +329,8 @@ class TestApplyUpdate:
         assert elem.id == "t1"
         assert elem.kind == "text"
 
-    def test_patch_ignores_unknown_fields(self) -> None:
-        """Unknown field names in a patch are silently filtered; valid fields apply."""
+    def test_patch_unknown_fields_raises(self) -> None:
+        """Unknown field names in a patch raise ValueError instead of silent drop."""
         mgr, _ = _make_manager()
         scene = _make_scene(elements=[TextElement(id="t1", content="Hello")])
         mgr.handle_scene(scene, owner_fd=10)
@@ -337,13 +339,11 @@ class TestApplyUpdate:
             scene_id="s1",
             patches=[Patch(id="t1", set={"content": "Updated", "bogus_key": "x"})],
         )
-        mgr.apply_update(update)
+        with pytest.raises(ValueError, match="bogus_key"):
+            mgr.apply_update(update)
 
-        elem = mgr._scenes["s1"].elements[0]
-        assert elem.content == "Updated"  # type: ignore[union-attr]
-
-    def test_patch_all_unknown_fields_is_noop(self) -> None:
-        """A patch containing only unknown fields leaves the element unchanged."""
+    def test_patch_all_unknown_fields_raises(self) -> None:
+        """A patch containing only unknown fields raises ValueError."""
         mgr, _ = _make_manager()
         scene = _make_scene(elements=[TextElement(id="t1", content="Hello")])
         mgr.handle_scene(scene, owner_fd=10)
@@ -352,10 +352,8 @@ class TestApplyUpdate:
             scene_id="s1",
             patches=[Patch(id="t1", set={"nonexistent": "value"})],
         )
-        mgr.apply_update(update)
-
-        elem = mgr._scenes["s1"].elements[0]
-        assert elem.content == "Hello"  # type: ignore[union-attr]
+        with pytest.raises(ValueError, match="nonexistent"):
+            mgr.apply_update(update)
 
     def test_patch_value_on_input_number_writes_widget_state(self) -> None:
         """Regression for code-reviewer IMPORTANT on f3bd2bb.
