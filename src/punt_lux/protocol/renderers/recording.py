@@ -13,6 +13,8 @@ import json
 from pathlib import Path
 from typing import Self
 
+from punt_lux.domain.element import Element
+
 __all__ = ["RecordingLog", "RecordingRenderer", "RecordingRendererFactory"]
 
 
@@ -86,11 +88,12 @@ class RecordingRenderer:
 
 
 class RecordingRendererFactory:
-    """Factory that returns a RecordingRenderer for any element with id+kind.
+    """Factory that returns a RecordingRenderer for any ``Element``.
 
-    Reads ``elem.kind`` and ``elem.id`` structurally (PY-TS-6); any
-    element conforming to the domain Element Protocol satisfies the
-    contract.
+    Dispatches via ``isinstance(elem, Element)`` against the
+    runtime-checkable domain Protocol (PY-TS-10): the Protocol already
+    declares ``id`` and ``kind`` properties, so any conforming element
+    satisfies the contract.
     """
 
     _log: RecordingLog
@@ -106,12 +109,10 @@ class RecordingRendererFactory:
         return self._log
 
     def __call__(self, elem: object) -> RecordingRenderer:
-        kind = getattr(elem, "kind", None)
-        elem_id = getattr(elem, "id", None)
-        if not isinstance(kind, str) or not isinstance(elem_id, str):
+        if not isinstance(elem, Element):
             msg = (
-                "RecordingRendererFactory requires elements with str 'kind' "
-                f"and 'id'; got {type(elem).__name__}"
+                "RecordingRendererFactory requires an Element with 'id' "
+                f"and 'kind' properties; got {type(elem).__name__}"
             )
             raise TypeError(msg)
-        return RecordingRenderer(self._log, kind, elem_id)
+        return RecordingRenderer(self._log, elem.kind, elem.id)

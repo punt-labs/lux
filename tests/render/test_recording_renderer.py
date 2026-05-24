@@ -2,15 +2,17 @@
 
 Per design doc §1 row 8 and §2: the recording surface is the headless
 test fixture for the io-model. Each render/begin/end appends one entry;
-the factory dispatches by inspecting the element's structural ``id``
-and ``kind`` properties (PY-TS-6 — Renderer is a Protocol).
+the factory dispatches by ``isinstance(elem, Element)`` against the
+runtime-checkable domain Protocol (PY-TS-10 — no hasattr dispatch).
 """
 
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Self
 
 import pytest
 
@@ -23,10 +25,20 @@ from punt_lux.protocol.renderers import (
 
 @dataclass(frozen=True, slots=True)
 class _FakeElement:
-    """Minimal element satisfying the structural ``id`` + ``kind`` contract."""
+    """Minimal element satisfying the domain ``Element`` Protocol."""
 
     id: str
     kind: str
+    tooltip: str | None = None
+
+    def to_dict(self) -> dict[str, object]:
+        """Return the wire form — minimal id+kind suffices for the factory."""
+        return {"id": self.id, "kind": self.kind}
+
+    @classmethod
+    def from_dict(cls, d: Mapping[str, object]) -> Self:
+        """Reconstruct from ``to_dict`` output — symmetric with the encoder."""
+        return cls(id=str(d["id"]), kind=str(d["kind"]))
 
 
 def _log_path(tmp_dir: Path, name: str) -> Path:
@@ -78,5 +90,5 @@ def test_recording_renderer_factory_raises_on_non_element() -> None:
     with tempfile.TemporaryDirectory(prefix="lux-rec-") as raw_dir:
         log = RecordingLog(_log_path(Path(raw_dir), "bad"))
         factory = RecordingRendererFactory(log)
-        with pytest.raises(TypeError, match="requires elements with str"):
+        with pytest.raises(TypeError, match="requires an Element"):
             factory(object())
