@@ -309,13 +309,13 @@ def test_text_rejects_non_string_style() -> None:
     import pytest
 
     from punt_lux.protocol.elements.text_codec import JsonTextDecoder
-    from punt_lux.protocol.renderers.null import NullRendererFactory
+    from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 
     def _emit(_msg: object) -> None:
         return None
 
     decoder = JsonTextDecoder(
-        renderer_factory=NullRendererFactory(), emit=_emit, element_cls=TextElement
+        renderer_factory=RaisingRendererFactory(), emit=_emit, element_cls=TextElement
     )
     with pytest.raises(ValueError, match=r"text element.*'style'"):
         decoder.decode({"id": "t1", "content": "x", "style": 5})
@@ -325,13 +325,13 @@ def test_text_rejects_non_string_id() -> None:
     import pytest
 
     from punt_lux.protocol.elements.text_codec import JsonTextDecoder
-    from punt_lux.protocol.renderers.null import NullRendererFactory
+    from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 
     def _emit(_msg: object) -> None:
         return None
 
     decoder = JsonTextDecoder(
-        renderer_factory=NullRendererFactory(), emit=_emit, element_cls=TextElement
+        renderer_factory=RaisingRendererFactory(), emit=_emit, element_cls=TextElement
     )
     with pytest.raises(ValueError, match=r"text element.*'id'"):
         decoder.decode({"id": 7, "content": "x"})

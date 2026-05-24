@@ -1,5 +1,5 @@
 {
-  "src/punt_lux/__init__.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/__init__.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -12,7 +12,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/__main__.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/__main__.py": {
     "method_ratio": 0.043,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.72,
@@ -25,7 +25,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/_backends.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/_backends.py": {
     "method_ratio": 0.95,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.4,
@@ -38,7 +38,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/apps/__init__.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/apps/__init__.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -51,7 +51,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/apps/_beads_payload.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/apps/_beads_payload.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -64,7 +64,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/apps/beads.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/apps/beads.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -77,7 +77,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/client.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/client.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -90,7 +90,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/config.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/config.py": {
     "method_ratio": 0.833,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.67,
@@ -103,7 +103,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/__init__.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/__init__.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -116,7 +116,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/domain_pump.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/domain_pump.py": {
     "method_ratio": 0.857,
     "encapsulation_ratio": 1.0,
     "avg_params": 2.0,
@@ -129,7 +129,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/element_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/element_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 2.0,
@@ -142,7 +142,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/idle_screen.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/idle_screen.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 6.5,
@@ -155,7 +155,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/macos.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/macos.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -168,7 +168,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/menu_manager.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/menu_manager.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.34,
@@ -181,7 +181,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/__init__.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/__init__.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -194,7 +194,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/_arrow.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/_arrow.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -207,7 +207,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/_color.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/_color.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -220,7 +220,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/button_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/button_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -233,7 +233,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/checkbox_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/checkbox_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -246,7 +246,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/color_picker_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/color_picker_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.33,
@@ -259,7 +259,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/combo_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/combo_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -272,7 +272,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/image_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/image_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -285,7 +285,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/imgui/__init__.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/imgui/__init__.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -298,7 +298,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/imgui/factory.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/imgui/factory.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.83,
@@ -311,7 +311,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/imgui/text.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/imgui/text.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -324,7 +324,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/input_number_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/input_number_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.43,
@@ -337,7 +337,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/input_text_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/input_text_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -350,7 +350,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/markdown_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/markdown_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -363,7 +363,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/progress_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/progress_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -376,7 +376,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/radio_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/radio_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -389,7 +389,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/selectable_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/selectable_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -402,7 +402,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/separator_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/separator_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -415,7 +415,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/slider_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/slider_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -428,7 +428,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/spinner_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/spinner_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.67,
@@ -441,7 +441,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/renderers/text_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/text_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.67,
@@ -454,7 +454,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/server.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/server.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.95,
@@ -467,7 +467,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/table_renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/table_renderer.py": {
     "method_ratio": 0.611,
     "encapsulation_ratio": 1.0,
     "avg_params": 3.5,
@@ -480,7 +480,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display/texture_cache.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/texture_cache.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -493,7 +493,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/display_client.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display_client.py": {
     "method_ratio": 0.97,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.36,
@@ -506,7 +506,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/domain/__init__.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/__init__.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -519,7 +519,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/domain/_display_helpers.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/_display_helpers.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.5,
@@ -532,7 +532,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/domain/_typing.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/_typing.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.75,
@@ -545,7 +545,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/domain/_wire_fields.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/_wire_fields.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -558,7 +558,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/domain/display.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/display.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.19,
@@ -571,7 +571,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/domain/element.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/element.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.2,
@@ -584,7 +584,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/domain/element_abc.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/element_abc.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.75,
@@ -597,7 +597,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/domain/error.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/error.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -610,7 +610,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/domain/event.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/event.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -623,7 +623,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/domain/ids.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/ids.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -636,7 +636,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/domain/interaction.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/interaction.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -649,7 +649,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/domain/interaction_event.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/interaction_event.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -662,7 +662,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/domain/ownership.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/ownership.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -675,7 +675,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/domain/snapshot.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/snapshot.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.8,
@@ -688,7 +688,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/domain/subscription.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/subscription.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.33,
@@ -701,7 +701,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/domain/update.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/update.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.67,
@@ -714,7 +714,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/hooks.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/hooks.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -727,7 +727,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/hub.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/hub.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.11,
@@ -740,7 +740,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/paths.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/paths.py": {
     "method_ratio": 0.625,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.12,
@@ -753,7 +753,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/__init__.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/__init__.py": {
     "method_ratio": 0.455,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.91,
@@ -766,7 +766,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/codec_protocols.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/codec_protocols.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -779,7 +779,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/connection.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/connection.py": {
     "method_ratio": 0.571,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -792,7 +792,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/element_factory.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/element_factory.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.5,
@@ -805,20 +805,20 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/__init__.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/__init__.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
     "max_complexity": 6.0,
     "avg_complexity": 2.75,
-    "module_size": 223.0,
+    "module_size": 226.0,
     "classes_per_module": 0.0,
     "class_to_func_ratio": 0.0,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/_util.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/_util.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -831,7 +831,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/basics.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/basics.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -844,7 +844,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/button.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/button.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -857,7 +857,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/checkbox.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/checkbox.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.33,
@@ -870,7 +870,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/codec.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/codec.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.2,
@@ -883,7 +883,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/color_picker.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/color_picker.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -896,7 +896,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/combo.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/combo.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.33,
@@ -909,7 +909,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/draw_bounds.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/draw_bounds.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.43,
@@ -922,7 +922,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/draw_command_kind.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/draw_command_kind.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -935,7 +935,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/draw_commands_curve.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/draw_commands_curve.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -948,7 +948,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/draw_commands_line.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/draw_commands_line.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.8,
@@ -961,7 +961,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/draw_commands_shape.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/draw_commands_shape.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -974,7 +974,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/draw_commands_text.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/draw_commands_text.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -987,7 +987,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/draw_decoder.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/draw_decoder.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.14,
@@ -1000,7 +1000,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/draw_values.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/draw_values.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.55,
@@ -1013,7 +1013,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/draw_wire.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/draw_wire.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.9,
@@ -1026,7 +1026,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/element_wire.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/element_wire.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 2.27,
@@ -1039,7 +1039,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/graphics.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/graphics.py": {
     "method_ratio": 0.5,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -1052,7 +1052,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/image.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/image.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.33,
@@ -1065,7 +1065,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/input_number.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/input_number.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.33,
@@ -1078,7 +1078,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/input_text.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/input_text.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.33,
@@ -1091,7 +1091,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/inputs.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/inputs.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -1104,7 +1104,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/layout.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/layout.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.94,
@@ -1117,7 +1117,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/markdown.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/markdown.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -1130,7 +1130,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/patch.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/patch.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -1143,7 +1143,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/plot_element.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/plot_element.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -1156,7 +1156,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/progress.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/progress.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -1169,7 +1169,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/radio.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/radio.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.33,
@@ -1182,7 +1182,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/selectable.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/selectable.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.33,
@@ -1195,7 +1195,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/separator.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/separator.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -1208,7 +1208,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/slider.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/slider.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.33,
@@ -1221,7 +1221,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/spinner.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/spinner.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -1234,7 +1234,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/table.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/table.py": {
     "method_ratio": 0.364,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.73,
@@ -1247,20 +1247,20 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/text.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/text.py": {
     "method_ratio": 0.938,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.06,
     "max_complexity": 3.0,
     "avg_complexity": 1.19,
-    "module_size": 139.0,
+    "module_size": 138.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 0.5,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/elements/text_codec.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/text_codec.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.25,
@@ -1273,7 +1273,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/encoder_factory.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/encoder_factory.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.5,
@@ -1286,7 +1286,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/in_memory_connection.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/in_memory_connection.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.4,
@@ -1299,7 +1299,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/messages/__init__.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/messages/__init__.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -1312,7 +1312,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/messages/interaction.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/messages/interaction.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -1325,7 +1325,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/messages/introspect.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/messages/introspect.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -1338,7 +1338,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/messages/lifecycle.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/messages/lifecycle.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.07,
@@ -1351,7 +1351,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/messages/menu.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/messages/menu.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -1364,7 +1364,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/messages/registry.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/messages/registry.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -1377,7 +1377,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/messages/scene.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/messages/scene.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.0,
@@ -1390,7 +1390,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/renderer.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.25,
@@ -1403,33 +1403,33 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/renderers/__init__.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/renderers/__init__.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
     "max_complexity": 0.0,
     "avg_complexity": 0.0,
-    "module_size": 21.0,
+    "module_size": 23.0,
     "classes_per_module": 0.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/renderers/null.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/renderers/raising.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 0.17,
+    "avg_params": 0.5,
     "max_complexity": 1.0,
     "avg_complexity": 1.0,
     "module_size": 34.0,
-    "classes_per_module": 2.0,
+    "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/protocol/renderers/recording.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/renderers/recording.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.64,
@@ -1442,7 +1442,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/query_dispatcher.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/query_dispatcher.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.45,
@@ -1455,7 +1455,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/remote.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/remote.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.62,
@@ -1468,7 +1468,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/runtime.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/runtime.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.91,
@@ -1481,7 +1481,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/scene/__init__.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/scene/__init__.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -1494,7 +1494,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/scene/frame.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/scene/frame.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.94,
@@ -1507,7 +1507,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/scene/manager.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/scene/manager.py": {
     "method_ratio": 0.857,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.96,
@@ -1520,7 +1520,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/scene/widget_state.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/scene/widget_state.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.14,
@@ -1533,7 +1533,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/service.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/service.py": {
     "method_ratio": 0.875,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -1546,7 +1546,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/show.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/show.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 2.0,
@@ -1559,7 +1559,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/socket_server.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/socket_server.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.79,
@@ -1572,7 +1572,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/tools/__init__.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/tools/__init__.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,
@@ -1585,7 +1585,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/tools/connection.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/tools/connection.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.67,
@@ -1598,7 +1598,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/tools/server.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/tools/server.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.25,
@@ -1611,7 +1611,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/tools/tools.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/tools/tools.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 1.3,
@@ -1624,7 +1624,7 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
-  "src/punt_lux/types.py": {
+  "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/types.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.0,

@@ -183,3 +183,5 @@
 {"ts":"2026-05-24T03:44:43Z","commit":"3d919b0","files_scored":126,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-05-24T03:49:14Z","commit":"5518124","files_scored":126,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
 {"ts":"2026-05-24T03:55:15Z","commit":"5518124","files_scored":126,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-05-24T12:00:22Z","commit":"40b4ef3","files_scored":126,"files_improved":2,"files_regressed":2,"verdict":"fail","deltas":{"src/punt_lux/protocol/elements/text.py":{"module_size":[139.0,138.0]},"src/punt_lux/protocol/renderers/raising.py":{"method_ratio":[0.0,1.0],"encapsulation_ratio":[0.0,1.0],"avg_params":[0.0,0.5],"max_complexity":[0.0,1.0],"avg_complexity":[0.0,1.0],"module_size":[0.0,34.0],"classes_per_module":[0.0,1.0],"class_to_func_ratio":[0.0,1.0],"init_violations":[0.0,0.0],"public_attr_violations":[0.0,0.0],"future_annotations":[0.0,1.0]}}}
+{"ts":"2026-05-24T12:02:47Z","commit":"40b4ef3","files_scored":126,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
