@@ -1454,3 +1454,208 @@ Three categories of legacy caller migrate in the same PR:
 The deletion is total. The class no longer exposes a method named
 `recv`. The wire listener no longer maintains a combined queue. The
 client's polling interface is `poll_event` and only `poll_event`.
+
+## Process entry point and HubDisplay
+
+The Hub described in the previous sections — its state, its dispatcher,
+its subscription registry — runs inside a single process. That process
+needs a binary entry point: the script `pyproject.toml` lists under
+`[project.scripts]`, the `main()` function that boots the asyncio loop
+and serves connections, the bootstrapper that knows nothing about
+domain logic. That entry point belongs in its own module, named for
+what it is.
+
+### The luxd module is the process bootstrapper
+
+The process entry point lives at `src/punt_lux/luxd.py`. The module's
+job is to start the daemon — parse CLI arguments, bind the display
+transport, open the applet TCP listener, install the in-process MCP
+tool surface, run the asyncio loop until shutdown. It contains no
+domain logic; the domain lives in `domain/hub/`.
+
+```toml
+# pyproject.toml — [project.scripts]
+luxd = "punt_lux.luxd:main"
+```
+
+The name `luxd` is intentional. The conceptual Hub — the object that
+owns scene state, dispatches interactions, and runs the subscription
+registry — is `domain/hub/`. The process that hosts the Hub is `luxd`.
+Naming the entry-point module `hub.py` conflated the two; the
+conceptual Hub is not a process, and the process is not the conceptual
+Hub.
+
+```python
+# src/punt_lux/luxd.py
+"""luxd — the Lux daemon. Process entry point.
+
+Boots the asyncio loop, binds the display transport, opens the applet
+TCP listener, installs the in-process MCP tool surface, runs until
+shutdown. Domain logic lives in ``punt_lux.domain.hub``.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+
+from punt_lux.domain.hub import Hub
+from punt_lux.applet import serve_applets
+from punt_lux.tools import install_mcp_tools
+
+
+def main() -> None:
+    """Parse arguments, boot the daemon, run until shutdown."""
+    args = _parse_args()
+    hub = Hub.new(...)
+    install_mcp_tools(hub)
+    asyncio.run(_serve(hub, args))
+
+
+async def _serve(hub: Hub, args: argparse.Namespace) -> None:
+    """Run the display transport, applet listener, and MCP loop concurrently."""
+    ...
+```
+
+The module is small. The asyncio plumbing, the argument parser, the
+process-lifecycle hooks all live here; nothing else does.
+
+### HubDisplay lands complete
+
+`HubDisplay` is the Hub-side index of every Element by
+`(scene_id, element_id)`, plus the owner-tracking metadata that makes
+disconnect cleanup correct. It ships complete — every method the
+dispatcher, the applier, and the disconnect path need is defined in
+the same PR that introduces the dispatcher and the applier.
+
+A minimal placeholder would force callers to test against a partial
+surface in this PR and a different surface in the next. That is the
+kind of churn the guiding principle exists to prevent. The full class
+ships once.
+
+```python
+class HubDisplay:
+    """Hub-side authoritative index of Elements by (scene_id, element_id)."""
+
+    _by_scene: dict[SceneId, dict[ElementId, Element]]
+    _owners: dict[tuple[SceneId, ElementId], ConnectionId]
+    _scene_owners: dict[SceneId, ConnectionId]
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._by_scene = {}
+        self._owners = {}
+        self._scene_owners = {}
+        return self
+
+    def apply(
+        self,
+        connection_id: ConnectionId,
+        update: AddElement | SetProperty | RemoveElement,
+    ) -> None:
+        """Commit a state change to the index. Owner is the caller."""
+        match update:
+            case AddElement(scene_id=sid, parent_id=None, element=elem):
+                self._install_scene(sid, elem, owner=connection_id)
+            case AddElement(scene_id=sid, parent_id=pid, element=elem):
+                self._install_child(sid, pid, elem, owner=connection_id)
+            case SetProperty(scene_id=sid, element_id=eid, field=field, value=value):
+                self._set_property(sid, eid, field, value)
+            case RemoveElement(scene_id=sid, element_id=eid):
+                self._remove_subtree(sid, eid)
+
+    def resolve(
+        self,
+        scene_id: SceneId,
+        element_id: ElementId,
+    ) -> Element:
+        """Return the Element. Raise UnknownElementError if absent."""
+        scene = self._by_scene.get(scene_id)
+        if scene is None:
+            raise UnknownSceneError(scene_id=scene_id)
+        element = scene.get(element_id)
+        if element is None:
+            raise UnknownElementError(
+                scene_id=scene_id, element_id=element_id,
+            )
+        return element
+
+    def owner_of(
+        self,
+        scene_id: SceneId,
+        element_id: ElementId,
+    ) -> ConnectionId:
+        """Return the connection that installed the Element."""
+        return self._owners[(scene_id, element_id)]
+
+    def elements_owned_by(
+        self,
+        connection_id: ConnectionId,
+    ) -> tuple[tuple[SceneId, ElementId], ...]:
+        """Return every (scene, element) pair this connection installed."""
+        return tuple(
+            key for key, owner in self._owners.items()
+            if owner == connection_id
+        )
+
+    def drop_connection(self, connection_id: ConnectionId) -> None:
+        """Remove every Element this connection installed, propagating Observer."""
+        for scene_id, element_id in self.elements_owned_by(connection_id):
+            self._remove_subtree(scene_id, element_id)
+        for scene_id in tuple(
+            sid for sid, owner in self._scene_owners.items()
+            if owner == connection_id
+        ):
+            self._by_scene.pop(scene_id, None)
+            self._scene_owners.pop(scene_id, None)
+```
+
+Three responsibilities, all owned by this one class:
+
+- **Index** — the nested `_by_scene` dict resolves `(scene_id,
+  element_id)` lookups in `O(1)`. Every Element the Hub knows about
+  lives in this index; no other module holds an authoritative
+  reference.
+- **Owner tracking** — every Element has a `ConnectionId` that
+  installed it. The dispatcher uses this for ownership checks; the
+  disconnect path uses it to find every Element a closing connection
+  installed so it can mark them `_removed` and trigger the Element
+  Observer cascade described earlier.
+- **Cleanup** — `drop_connection` is the disconnect hook. It walks
+  the connection's owned Elements, removes each one, and lets the
+  Element Observer propagation prune the surviving tree.
+
+The `apply` method dispatches on the typed `Update` sum: a
+whole-scene `AddElement` installs a new tree; a child `AddElement`
+appends under an existing parent; `SetProperty` mutates a single
+field; `RemoveElement` walks the subtree. The pattern-match shape
+keeps the dispatch local and the cases exhaustive.
+
+The class is the only place that mutates the index. The dispatcher
+calls `resolve` (read-only) before handing the Element to `fire`; the
+in-process MCP tools call `apply` to commit updates; the disconnect
+path calls `drop_connection`. No third caller reaches into
+`_by_scene` directly. The fields stay private; the operations stay
+typed.
+
+### Why the conceptual Hub and the process entry point are separate
+
+The Hub is the asyncio-resident object that owns state and dispatches
+events. It can be tested without binding a socket, without starting
+uvicorn, without parsing arguments — every test in the suite
+constructs a `Hub.new(...)` and exercises its methods directly. That
+is possible because the Hub is just an object, not a process.
+
+`luxd.py` is the process. Its job is to take a fresh Hub, wire it to
+the transports it needs (display, applet, MCP), and run the loop. The
+process is hard to test in isolation — it owns sockets, signal
+handlers, the asyncio loop itself — and it does not need to be tested
+that way. The Hub is the testable surface.
+
+Splitting these two responsibilities into two modules keeps each one
+small. Future transports (HTTP, gRPC, anything) add another adapter
+in their own package and wire it in `luxd.py`'s startup; they do not
+modify the Hub. Future Hub features (a new Update kind, a new event
+class, a richer subscription rule) modify the Hub; they do not
+modify `luxd.py`. The seam is clean because the two concerns are
+genuinely different.
