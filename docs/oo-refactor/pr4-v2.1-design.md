@@ -121,12 +121,27 @@ class ButtonElement(Element):
 
 ### ButtonClicked Event (where it lives)
 
-Spike's ButtonClicked is `updates.py:49-54`. Production puts it in
-`domain/events.py` (NEW) with `element_id: str`. The Hub emit dispatcher
-match-dispatches on this type to the publish branch (§5). Production's
-`InteractionMessage` (load-bearing for legacy 8 inputs) carries
-`(element_id, action, value)`; ButtonClicked is the io-model Event the ABC
-Button raises through `self._emit`. They coexist until PR 7.
+Spike's ButtonClicked is `updates.py:49-54` and carries `elem_id: str`
+only — its wire payload (`codec.py:312-313`) is `{"elem_id": eid}`.
+Production puts it in `domain/events.py` (NEW), but extends the shape so
+the parity gate (§8) compares a uniform `(element_id, action, value)`
+triple against `InteractionMessage`:
+
+```python
+@dataclass(frozen=True, slots=True)
+class ButtonClicked:
+    element_id: str
+    action: Literal["click"] = "click"        # constant for Button
+    value: None = None                         # constant for Button
+```
+
+`action` and `value` are degenerate constants for the Button case — a
+slider/input event class added later would carry a non-`None` `value`.
+The triple shape stays uniform across event types; the parity gate
+compares `(element_id, action, value)` from both paths without
+case-by-case shape adapters. ButtonClicked is the io-model Event the ABC
+Button raises through `self._emit`; legacy `InteractionMessage` (load-
+bearing for the 8 unmigrated inputs) coexists until PR 7.
 
 ### What's deleted from `protocol/elements/button.py`
 
@@ -515,6 +530,12 @@ Per migration-plan PR 4 row 218 commit (vii): a regression test records
    wire → hub-side ABC ButtonElement → `on_click` → ButtonClicked Event →
    Observer publish).
 
+Both paths produce the same triple shape because ButtonClicked carries
+the same `(element_id, action, value)` fields as `InteractionMessage`
+per §2 — for Button clicks the triple is always
+`(<button_id>, "click", None)`. The parity gate is therefore field-level
+equality on the same dataclass shape, not a cross-type adapter.
+
 The test asserts the two paths produce equivalent traces for Button clicks.
 This is the load-bearing proof that PR 4 has not broken the legacy path AND
 that PR 7's deletion of the legacy path is safe.
@@ -566,8 +587,8 @@ silent-failure-hunter + OO ratchet.
 
 - **Modify:** `protocol/updates.py` — add `RemoveElement` dataclass; extend
   `Update` type alias to `AddElement` plus `RemoveElement`.
-- **Create:** `domain/events.py` — `ButtonClicked(element_id: str)` frozen
-  dataclass.
+- **Create:** `domain/events.py` — `ButtonClicked` frozen dataclass per
+  §2 (triple shape `(element_id, action="click", value=None)`).
 - **Create:** `domain/observer.py` — Observer class per §4.
 - **Create:** `hub/emit_dispatch.py` — HubEmitDispatcher per §5.
 - **Create:** `hub/__init__.py` with `__all__ = ["HubEmitDispatcher"]`.
