@@ -933,11 +933,21 @@ The class is frozen and slotted — once constructed, it is an inert
 record of three values plus a `kind` discriminator. Handlers read
 fields; they do not mutate the event.
 
-### The validation site
+### The domain-validation site
 
 `Display.interact` is the single function that turns a wire
-`InteractionMessage` into a typed `ButtonClicked`. Every domain check
-that the click is valid happens here, exactly once.
+`InteractionMessage` into a typed `ButtonClicked`. It owns *domain*
+validation — client existence, scene/element resolution, element
+kind. Wire-shape triage (non-element actions, missing `scene_id`,
+non-`True` `value`) is a separate concern that the pump owns at the
+wire boundary before the message reaches `Display.interact`. There
+are two layers because there are two failure modes: wire-shape
+mismatches arrive constantly during normal operation (menu clicks,
+frame closes, sliders en route) and are dropped silently; domain
+failures should never happen on a well-formed click and surface as
+typed errors. The single-site claim is about *domain* validation —
+one place to check identity, one place to construct the event, no
+re-validation downstream.
 
 ```python
 class Display:
@@ -955,12 +965,18 @@ class Display:
         client_id: ConnectionId,
         msg: InteractionMessage,
     ) -> ButtonClicked:
-        """Validate the wire message, construct the typed event, return it.
+        """Domain-validate the message, construct the typed event, return it.
 
-        Raises on any validation failure — the caller (the pump) has already
-        done wire-side triage, so anything reaching this method is either
-        a valid click or a domain-level bug. Validation failures are not
-        normal outcomes; they are errors that surface immediately.
+        Callers must pass a wire-shape-valid message: ``msg.action`` is an
+        element action (not ``"menu"`` or ``"frame_close"``), ``msg.scene_id``
+        is not ``None``, and ``msg.value is True``. The pump enforces those
+        wire-shape preconditions before invoking this method; direct callers
+        (test code, future server-side click synthesis) must do the same.
+
+        Raises ``UnknownClientError`` / ``UnknownSceneError`` /
+        ``UnknownElementError`` / ``WrongKindError`` on any domain
+        validation failure. Domain failures are not normal outcomes; they
+        are errors that surface immediately.
         """
         scene_id = msg.require_scene_id()
         element_id = ElementId(msg.element_id)
@@ -984,13 +1000,16 @@ class Display:
         )
 ```
 
-The method does three things in order: validate the client exists, ask
-`HubDisplay` to resolve `(scene_id, element_id)` to an `Element` (which
-raises `UnknownSceneError` or `UnknownElementError` on miss), validate
-the element is the right kind for the action. On success it constructs
-the typed event and returns it. On failure it raises a typed domain
-error. There is no `None` return, no boolean success flag, no error
-sentinel — either the caller gets a typed event or the call raises.
+The method does three domain checks in order: validate the client
+exists, ask `HubDisplay` to resolve `(scene_id, element_id)` to an
+`Element` (which raises `UnknownSceneError` or `UnknownElementError`
+on miss), validate the element is the right kind for the action. On
+success it constructs the typed event and returns it. On failure it
+raises a typed domain error. There is no `None` return, no boolean
+success flag, no error sentinel — either the caller gets a typed
+event or the call raises. The wire-shape preconditions named in the
+docstring are not re-checked here; the pump owns them at the wire
+boundary, and direct callers carry the same obligation.
 
 `HubDisplay` is the single authoritative index of Elements by
 `(scene_id, element_id)`. `Display` does not maintain its own
@@ -1036,26 +1055,37 @@ class WirePump:
 Three wire-shape filters, then the message goes to `Display.interact`,
 then the typed event goes to `Element.fire`. The pump does no domain
 reasoning, no element resolution, no kind check, no ownership check.
-Those live in `Display.interact` (validation) and `HubDisplay.resolve`
-(index lookup) — the same `HubDisplay` instance `Display` borrows for
-its own validation. The pump's post-validation re-resolution uses the
-same authority, not a parallel one.
+Those live in `Display.interact` (domain validation) and
+`HubDisplay.resolve` (index lookup) — the same `HubDisplay` instance
+`Display` borrows for its own domain validation. The pump's
+post-validation re-resolution uses the same authority, not a
+parallel one.
 
-### One validation site, no defense-in-depth
+### One domain-validation site, no defense-in-depth
 
 `Display.interact` is the only place a `ButtonClicked` is constructed
-and the only place that validates the inputs that go into it. There is
-no second validation layer in `Element.fire`, no third one in handler
+and the only place domain validation runs. There is no second
+domain-validation layer in `Element.fire`, no third one in handler
 factories, no fourth one in the catalog. The class's factory guard
 ensures no caller bypasses `Display.interact` to manufacture a synthetic
-event; the validation gate is therefore the construction gate.
+event; the domain-validation gate is therefore the construction gate.
 
-Defense-in-depth across multiple validation sites was an artifact of
-the prior arrangement where the wire-side intermediate class and the
-domain-side event both held overlapping field sets and each had to be
-re-checked when crossing the boundary. With a single class constructed
-at a single site, the two checks collapse into the one check that
-matters.
+Wire-shape triage is a separate layer that lives at the wire boundary
+in `WirePump.route_interaction` — non-element actions, missing
+`scene_id`, non-`True` `value`. The pump drops shape-mismatched
+messages silently because they arrive constantly during normal
+operation (menu clicks, frame closes, sliders en route to their own
+dispatch). By the time a message reaches `Display.interact`, it has
+already passed wire-shape gating; `Display.interact` only ever sees
+candidates that *could* be a domain-valid click. Two layers, two
+failure modes, one site per layer.
+
+Defense-in-depth across multiple *domain* validation sites was an
+artifact of the prior arrangement where the wire-side intermediate
+class and the domain-side event both held overlapping field sets and
+each had to be re-checked when crossing the boundary. With a single
+class constructed at a single site, the two domain checks collapse
+into the one check that matters.
 
 The `ButtonPressed` class is deleted. The `Interaction` sum type and
 its `domain/interaction.py` module are deleted. The
