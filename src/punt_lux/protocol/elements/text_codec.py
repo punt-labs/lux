@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
+from punt_lux.protocol.elements._util import strip_none
 from punt_lux.protocol.elements.element_wire import ElementWireContext
 
 if TYPE_CHECKING:
@@ -80,10 +81,8 @@ class JsonTextDecoder:
 class JsonTextEncoder:
     """Encode a ``TextElement`` to its JSON-compatible wire dict.
 
-    Stateless — instances hold no surface context. ``style``, ``tooltip``,
-    and ``color`` are omitted when absent (style/tooltip are ``None``,
-    color is the empty-string default) so the wire shape matches the
-    PR-2 dataclass codec byte-for-byte.
+    Stateless. ``style``, ``tooltip``, and ``color`` are omitted when
+    absent so the wire shape matches the PR-2 dataclass codec byte-for-byte.
     """
 
     __slots__ = ()
@@ -93,13 +92,14 @@ class JsonTextEncoder:
 
     def encode(self, elem: TextElement) -> dict[str, object]:
         """Serialize a TextElement to a JSON-compatible dict."""
-        out: dict[str, object] = {
-            "kind": elem.kind,
-            "id": elem.id,
-            "content": elem.content,
-        }
-        if elem.style is not None:
-            out["style"] = elem.style
-        if elem.color:
-            out["color"] = elem.color
-        return out
+        # ``color`` "" (D4 sentinel) flattens to None so strip_none drops it.
+        return strip_none(
+            {
+                "kind": elem.kind,
+                "id": elem.id,
+                "content": elem.content,
+                "style": elem.style,
+                "tooltip": elem.tooltip,
+                "color": elem.color or None,
+            }
+        )

@@ -183,12 +183,11 @@ _ENCODER_FACTORY = JsonEncoderFactory()
 def _element_to_dict(elem: Element) -> dict[str, Any]:
     """Serialize an Element dataclass to a JSON-compatible dict."""
     if isinstance(elem, TextElement):
-        result = _ENCODER_FACTORY.encode(elem)
-    else:
-        result = _codec.to_dict(elem)
-    # ``tooltip`` is part of the Element Protocol — every conforming class
-    # has it, so we read the attribute directly instead of via ``getattr``
-    # (PY-TS-10: no ``hasattr``-equivalent dispatch).
+        # JsonTextEncoder owns tooltip emission for the io-model path.
+        return _ENCODER_FACTORY.encode(elem)
+    result = _codec.to_dict(elem)
+    # The 23 dataclass kinds' per-kind codecs don't emit tooltip; the
+    # Element Protocol guarantees the attribute (PY-TS-10: no hasattr).
     if elem.tooltip is not None:
         result["tooltip"] = elem.tooltip
     return result
