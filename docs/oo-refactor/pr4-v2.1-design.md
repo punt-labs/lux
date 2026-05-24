@@ -1318,3 +1318,139 @@ reference list to scan, no global registry to update. The
 per-connection outer key was chosen precisely so that disconnect
 cleanup is `O(1)` against the data structure, not `O(number of
 topics)` or `O(number of handlers)`.
+
+## Lifecycle
+
+Two registries hold state that outlives a single interaction: the
+per-Element handler registry (on every Element instance) and the
+per-connection subscription registry (on the Hub). They are
+lifecycle-independent. Each owns its own cleanup path; neither calls
+into the other.
+
+The correctness argument for the design rests on this independence. A
+handler that fires after the subscriber it would have notified is gone
+has no observable effect — the publish it makes goes into an empty
+subscriber snapshot and the call returns zero. An Element handler that
+references a model the model's component owns dies when the component
+dies; the Element's `_handlers` dict goes out of scope with the
+Element. Neither path leaks state past its owner's lifetime.
+
+### Element handlers die with the Element
+
+Handlers live on Element instances. The handler registry is a field on
+the `Element` ABC — `_handlers: dict[type[Event], list[Handler[Event]]]`
+— populated by the decoder at construction time. When the Element is
+removed from a scene, its `_handlers` dict is dropped along with every
+other field on the instance.
+
+Removal of an Element happens through one of three paths, all of which
+end up at the same place:
+
+- An agent issues a `RemoveElement` update. The Hub looks up the
+  Element, removes it from the scene's index, and drops the only
+  reference the Hub holds. The Element becomes garbage.
+- An Observer-propagated property change fires `_removed = True` on a
+  component's model. The component's parent observes the change and
+  prunes the component from its children tuple. The same drop happens.
+- A connection disconnects. The Hub iterates every Element the
+  disconnecting connection owns, marks each one `_removed`, and lets
+  the Observer cascade prune up the tree.
+
+In all three paths, the handler registry follows the Element. No
+external bookkeeping tracks handlers separately. No registry needs to
+be updated when an Element disappears.
+
+### Subscriptions die with the connection
+
+Subscriptions live in the Hub's `SubscriptionRegistry`, keyed by
+`ConnectionId` at the outer level. When a connection disconnects, the
+Hub calls `SubscriptionRegistry.drop_connection(connection_id)`, which
+removes the inner dict for that connection from the outer dict. Every
+topic the connection had registered and every handler in those topics
+is gone in one operation.
+
+This cleanup runs unconditionally on disconnect. It does not depend on
+whether the connection held any Elements, whether any of those
+Elements had handlers, or whether any of those handlers had been bound
+through `publish`. The subscription registry is the only place
+connection-scoped state lives; dropping it is the only cleanup the
+disconnect path needs.
+
+### Disconnect needs no handler cleanup
+
+When a connection disconnects, the Hub does not walk Elements to find
+handlers and uninstall them. The two registries' independence makes
+this safe by construction.
+
+Consider the case the handler walk would have addressed: a connection
+disconnects, but its scene survives (different ownership, persisted
+across the disconnect). The Elements in that scene have handlers
+registered against them. Those handlers may include `publish` calls
+into topics the disconnecting connection had subscribed to.
+
+The disconnect path drops the connection's subscription scope. The
+Elements stay. Their handlers stay registered. If one of those
+handlers fires later — because some other connection's click reaches
+the surviving Element — the handler runs and may call `Hub.publish` on
+the disconnected connection's topic. The publish takes a snapshot of
+the topic's subscribers in the disconnected connection's scope; the
+scope is gone, the snapshot is empty, the call returns zero. No
+observable effect, no error, no leak.
+
+This is the safe no-op property. Orphan handlers that outlive the
+connection whose subscriptions they would have driven simply do
+nothing useful. They do not crash, they do not leak, they do not block
+further publishes. The independence of the two registries is what
+makes this trivial — the publish path does not need to know whether
+the topic's owning connection still exists; it only needs to know what
+subscribers are in the snapshot, and an empty snapshot is the right
+answer.
+
+### DisplayClient.recv is deleted in PR 4
+
+The legacy `DisplayClient.recv()` method is removed in PR 4. Every
+caller migrates to the new per-connection business-event poller in the
+same PR. No shim wraps the new poller for old callers; no
+backwards-compatible wrapper carries the old name. After PR 4 the
+codebase has one polling interface, with one set of semantics.
+
+The old method returned any wire `Message` from the client's combined
+listener queue. The new method returns only payloads from `Hub.publish`
+calls scoped to the calling connection — typed business events, not
+raw wire frames.
+
+```python
+class DisplayClient:
+
+    def poll_event(self, timeout: float) -> Mapping[str, object]:
+        """Block for the next business event delivered to this connection.
+
+        Returns the payload of the next ``ObserverMessage`` whose topic
+        the connection is subscribed to. Raises ``TimeoutError`` if no
+        message arrives within ``timeout`` seconds.
+        """
+```
+
+The signature reflects the new model. The return type is the payload
+itself — a typed `Mapping[str, object]` — not an `ObserverMessage` or
+a `Message | None`. Absence is signalled by `TimeoutError`, not by a
+sentinel return value; the caller's contract is to either receive a
+payload or raise.
+
+Three categories of legacy caller migrate in the same PR:
+
+- Tests that called `recv()` to verify a click roundtripped through the
+  client receive a payload from `poll_event` whose shape matches the
+  topic they subscribed to. The migration is one line at the call site
+  and one assertion-shape change.
+- Tests that called `recv()` to drain the listener queue (rather than
+  to assert on payload contents) are deleted — the new model has no
+  combined queue to drain.
+- Agents and applets that polled `recv()` for any-wire-message
+  behavior migrate to either `poll_event` (for business events) or to
+  the new push path on the bidirectional applet connection (for the
+  default async case described in the process topology section).
+
+The deletion is total. The class no longer exposes a method named
+`recv`. The wire listener no longer maintains a combined queue. The
+client's polling interface is `poll_event` and only `poll_event`.
