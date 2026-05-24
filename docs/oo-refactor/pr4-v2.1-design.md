@@ -110,10 +110,17 @@ The Hub's public surface is small and uniform across transports:
   the caller's subscribers (scoping rules described in the Agent
   Subscribe section).
 - `apply(connection_id, update)` — mutate authoritative scene state.
-- `dispatch(connection_id, interaction)` — resolve an Element by
-  `(scene_id, element_id)`, validate, fire matching handlers.
 - `poll(connection_id, timeout)` — block for the next queued business
   event for this connection.
+
+Interaction routing is not a Hub method adapters call directly. A
+wire `InteractionMessage` arriving on a transport flows through
+`WirePump.route_interaction`, which calls `Display.interact` to
+domain-validate and construct the typed event, which is fired through
+`Element.fire` on the resolved Element. The pump, `Display`, and
+`HubDisplay` are wired together at `luxd.py` startup; adapters hand
+inbound wire messages to the pump and never touch dispatch state
+themselves.
 
 Adapters in `tools/` and `applet/` register and deregister connections
 on transport setup and teardown. Everything else is a Hub call.
@@ -273,37 +280,42 @@ inert value records that travel from the dispatcher to handlers. Their
 construction sites are guarded (see the validation section); their
 interior is read-only.
 
-### Dispatcher loop
+### Dispatcher path
 
-The Hub's `dispatch` entry point is the bridge between the wire layer
-and the per-Element handler registries:
+The path from a wire `InteractionMessage` to a fired handler is a
+single line: `WirePump.route_interaction` does wire-shape triage,
+`Display.interact` does domain validation and constructs the typed
+event, `Element.fire` runs the handlers. There is no separate
+`Hub.dispatch` method. The pump is the bridge between the wire layer
+and the per-Element handler registries; `Display.interact` is the
+single domain-validation site; `Element.fire` is the single dispatch
+site. Each layer owns one concern and calls exactly one downstream
+layer.
 
-```python
-async def dispatch(
-    self,
-    connection_id: ConnectionId,
-    msg: InteractionMessage,
-) -> None:
-    """Resolve, validate, construct the typed event, fire handlers."""
-    element = self._resolve(msg.scene_id, msg.element_id)
-    event = self._display.interact(connection_id, msg, element)
-    element.fire(event)
-```
+The three layers in order:
 
-The dispatcher does three things in order:
+1. **Wire-shape triage** — `WirePump.route_interaction` drops messages
+   that cannot possibly be a domain-valid element interaction:
+   non-element actions (menu, frame chrome) and messages with no
+   `scene_id`. No kind-specific value check happens here; the wire
+   shape of `value` is checked per-kind inside `Display.interact`.
+2. **Domain validation and construction** — `Display.interact` is the
+   single construction site for the typed event. It checks that the
+   caller is a registered client, that `(scene_id, element_id)`
+   resolves, that the caller owns the element, and that the resolved
+   Element kind matches the wire `value` shape. On success it
+   constructs the typed event (`ButtonClicked` for a button click;
+   future input kinds add their own typed event class and their own
+   branch in `Display.interact`).
+3. **Fire** — `Element.fire(event)` runs every registered handler for
+   the event's type on the resolved Element.
 
-1. **Resolve** — look up the Element by `(scene_id, element_id)` in the
-   Hub's index. A missing Element raises before any side effect.
-2. **Validate and construct** — `Display.interact` is the single
-   construction site for the typed event (the canonical event class for
-   buttons is `ButtonClicked`; future input kinds add their own typed
-   event class and their own branch in `Display.interact`).
-3. **Fire** — call `Element.fire(event)` to run every registered
-   handler for the event's type.
-
-The dispatcher does not know which handlers exist, what they do, or
-whether any of them publishes a business event. The handler is the
-policy; the dispatcher is the mechanism.
+The pump does not know which handlers exist; `Display.interact` does
+not know how `value` arrived on the wire; `Element.fire` does not
+know whether the event was constructed by the dispatcher or by a
+test. Each layer is the mechanism for one concern; nothing in any
+layer is policy. The full sketch lives in the ButtonClicked
+validation section below.
 
 ### Wire-to-handler decoding
 
@@ -945,23 +957,26 @@ fields; they do not mutate the event.
 
 `Display.interact` is the single function that turns a wire
 `InteractionMessage` into a typed `ButtonClicked`. It owns *domain*
-validation — client existence, scene/element resolution, element
-kind. Wire-shape triage (non-element actions, missing `scene_id`,
-non-`True` `value`) is a separate concern that the pump owns at the
-wire boundary before the message reaches `Display.interact`. There
-are two layers because there are two failure modes: wire-shape
-mismatches arrive constantly during normal operation (menu clicks,
-frame closes, sliders en route) and are dropped silently; domain
-failures should never happen on a well-formed click and surface as
-typed errors. The single-site claim is about *domain* validation —
-one place to check identity, one place to construct the event, no
+validation — client existence, scene/element resolution, ownership,
+and the per-kind value-shape gate that confirms a `button` Element
+saw a click (`value is True`) rather than a slider drag or a text
+edit. Wire-shape triage (non-element actions, missing `scene_id`) is
+a separate concern that the pump owns at the wire boundary before
+the message reaches `Display.interact`. There are two layers because
+there are two failure modes: wire-shape mismatches arrive constantly
+during normal operation (menu clicks, frame closes) and are dropped
+silently; domain failures should never happen on a well-formed
+interaction and surface as typed errors. The single-site claim is
+about *domain* validation — one place to check identity, ownership,
+and per-kind value shape, one place to construct the event, no
 re-validation downstream.
 
 ```python
 class Display:
     """Validation site and dispatch entry point. The Element index
-    lives on HubDisplay; Display borrows it through a constructor
-    dependency rather than maintaining a parallel copy."""
+    and the clients registry both live on HubDisplay; Display borrows
+    HubDisplay through a constructor dependency rather than
+    maintaining parallel copies of either."""
 
     _construction_token: ClassVar[object] = object()
 
@@ -976,56 +991,85 @@ class Display:
         """Domain-validate the message, construct the typed event, return it.
 
         Callers must pass a wire-shape-valid message: ``msg.action`` is an
-        element action (not ``"menu"`` or ``"frame_close"``), ``msg.scene_id``
-        is not ``None``, and ``msg.value is True``. The pump enforces those
+        element action (not ``"menu"`` or ``"frame_close"``) and
+        ``msg.scene_id`` is not ``None``. The pump enforces those
         wire-shape preconditions before invoking this method; direct callers
         (test code, future server-side click synthesis) must do the same.
+        The per-kind ``value``-shape gate (a click is ``value is True``, a
+        slider change is ``isinstance(value, float)``, and so on) is the
+        responsibility of this method, not the pump.
 
         Raises ``UnknownClientError`` / ``UnknownSceneError`` /
-        ``UnknownElementError`` / ``WrongKindError`` on any domain
-        validation failure. Domain failures are not normal outcomes; they
-        are errors that surface immediately.
+        ``UnknownElementError`` / ``UnauthorizedInteractionError`` /
+        ``WrongKindError`` on any domain validation failure. Domain
+        failures are not normal outcomes; they are errors that surface
+        immediately.
         """
         scene_id = msg.require_scene_id()
         element_id = ElementId(msg.element_id)
 
-        if client_id not in self._clients:
+        if not self._hub_display.is_client(client_id):
             raise UnknownClientError(client_id=client_id)
         element = self._hub_display.resolve(scene_id, element_id)
-        if element.kind != "button":
-            raise WrongKindError(
+        if self._hub_display.owner_of(scene_id, element_id) != client_id:
+            raise UnauthorizedInteractionError(
                 scene_id=scene_id,
                 element_id=element_id,
-                expected="button",
-                got=element.kind,
+                caller=client_id,
             )
 
-        return ButtonClicked(
-            scene_id=scene_id,
-            element_id=element_id,
-            owner_id=client_id,
-            _token=Display._construction_token,
-        )
+        match element.kind, msg.value:
+            case "button", True:
+                return ButtonClicked(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    owner_id=client_id,
+                    _token=Display._construction_token,
+                )
+            case "button", _:
+                raise WrongKindError(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    expected="button",
+                    got=f"button with value {msg.value!r}",
+                )
+            case _, _:
+                raise WrongKindError(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    expected="button",
+                    got=element.kind,
+                )
 ```
 
-The method does three domain checks in order: validate the client
-exists, ask `HubDisplay` to resolve `(scene_id, element_id)` to an
-`Element` (which raises `UnknownSceneError` or `UnknownElementError`
-on miss), validate the element is the right kind for the action. On
-success it constructs the typed event and returns it. On failure it
+The method does four domain checks in order: validate the client is
+registered (`hub_display.is_client(client_id)`); ask `HubDisplay` to
+resolve `(scene_id, element_id)` to an `Element` (which raises
+`UnknownSceneError` or `UnknownElementError` on miss); validate that
+the caller owns the element by comparing `client_id` to
+`hub_display.owner_of(scene_id, element_id)`; and dispatch on the
+resolved Element kind plus the wire `value` shape to construct the
+typed event. On success it returns the typed event. On failure it
 raises a typed domain error. There is no `None` return, no boolean
 success flag, no error sentinel — either the caller gets a typed
 event or the call raises. The wire-shape preconditions named in the
 docstring are not re-checked here; the pump owns them at the wire
 boundary, and direct callers carry the same obligation.
 
-`HubDisplay` is the single authoritative index of Elements by
-`(scene_id, element_id)`. `Display` does not maintain its own
-`_scenes` dict; that would be a parallel index, exactly the kind of
-duplication the guiding principle rules out. `Display` takes
-`HubDisplay` as a constructor dependency and reads through it for
-every validation lookup. One index, one owner, every consumer goes
-through the same surface.
+The ownership check closes a trust-model gap: without it, any
+registered connection could fire a click against another
+connection's element merely by knowing the `(scene_id, element_id)`
+pair. With it, the per-connection scoping that `SubscriptionRegistry`
+enforces for pub-sub extends to interaction dispatch as well — a
+connection can only drive interactions on elements it installed.
+
+`HubDisplay` is the single authoritative store for both the Element
+index and the clients registry. `Display` does not maintain its own
+`_scenes` dict or its own `_clients` set; those would be parallel
+state, exactly the kind of duplication the guiding principle rules
+out. `Display` takes `HubDisplay` as a constructor dependency and
+reads through it for every validation lookup. One index, one clients
+registry, one owner, every consumer goes through the same surface.
 
 ### The pump shrinks to wire-side triage
 
@@ -1036,8 +1080,9 @@ reasoning is gone.
 
 ```python
 class WirePump:
-    """Wire-side triage. Drops malformed or non-element messages, then
-    hands the surviving message directly to Display.interact."""
+    """Wire-side triage. Drops messages that cannot possibly be a
+    domain-valid element interaction, then hands the survivor directly
+    to Display.interact."""
 
     _NON_ELEMENT_ACTIONS: ClassVar[frozenset[str]] = frozenset(
         {"menu", "frame_close"},
@@ -1052,22 +1097,27 @@ class WirePump:
             return
         if msg.scene_id is None:
             return
-        if msg.value is not True:
-            return
 
         event = self._display.interact(client_id, msg)
         element = self._hub_display.resolve(event.scene_id, event.element_id)
         element.fire(event)
 ```
 
-Three wire-shape filters, then the message goes to `Display.interact`,
+Two wire-shape filters, then the message goes to `Display.interact`,
 then the typed event goes to `Element.fire`. The pump does no domain
-reasoning, no element resolution, no kind check, no ownership check.
-Those live in `Display.interact` (domain validation) and
-`HubDisplay.resolve` (index lookup) — the same `HubDisplay` instance
-`Display` borrows for its own domain validation. The pump's
-post-validation re-resolution uses the same authority, not a
-parallel one.
+reasoning, no element resolution, no kind check, no ownership check,
+and no kind-specific value-shape check. The first two live in
+`Display.interact` (domain validation), the third lives in
+`HubDisplay.resolve` (index lookup), and the value-shape gate is one
+of the per-kind branches inside `Display.interact`. `WirePump` does
+not filter on `msg.value` — a slider drag arrives with a `float`, a
+checkbox toggle with a `bool`, a text edit with a `str`, and each
+must reach `Display.interact` to be matched against the resolved
+Element kind. A blanket `value is not True` drop in the pump would
+discard every future non-button input before the dispatcher ever saw
+it. The pump's post-validation re-resolution uses the same
+`HubDisplay` instance `Display` borrows for its own domain
+validation — one authority, not a parallel one.
 
 ### One domain-validation site, no defense-in-depth
 
@@ -1079,13 +1129,15 @@ ensures no caller bypasses `Display.interact` to manufacture a synthetic
 event; the domain-validation gate is therefore the construction gate.
 
 Wire-shape triage is a separate layer that lives at the wire boundary
-in `WirePump.route_interaction` — non-element actions, missing
-`scene_id`, non-`True` `value`. The pump drops shape-mismatched
-messages silently because they arrive constantly during normal
-operation (menu clicks, frame closes, sliders en route to their own
-dispatch). By the time a message reaches `Display.interact`, it has
-already passed wire-shape gating; `Display.interact` only ever sees
-candidates that *could* be a domain-valid click. Two layers, two
+in `WirePump.route_interaction` — non-element actions and missing
+`scene_id`. The pump drops shape-mismatched messages silently because
+they arrive constantly during normal operation (menu clicks, frame
+closes). It does NOT filter on `msg.value`; the per-kind value-shape
+gate (`value is True` for a button, `isinstance(value, float)` for a
+slider, etc.) is one of the match branches inside `Display.interact`.
+By the time a message reaches `Display.interact`, it has passed
+wire-shape gating; `Display.interact` then validates identity,
+ownership, and per-kind value shape in one go. Two layers, two
 failure modes, one site per layer.
 
 Defense-in-depth across multiple *domain* validation sites was an
@@ -1105,16 +1157,24 @@ old-and-new code path.
 ### Future input kinds extend the same dispatch
 
 The `Display.interact` method's structure scales to additional input
-kinds without re-introducing a sum type. Each new input kind adds a
-branch that matches on the Element's `kind` plus the wire `value`'s
-shape, runs its own typed validation, and constructs its own typed
-validated event. The discriminator is the resolved Element kind plus
-the value shape, not the `msg.action` string — `action` carries the
-agent-supplied action name (`elem.action or elem.id` for buttons),
-which varies per element and cannot be a fixed verb. A button click
-is `kind == "button" and value is True`; a slider change is
-`kind == "slider" and isinstance(value, float)`; future input kinds
-follow the same `kind + value-shape` pattern.
+kinds without re-introducing a sum type and without pushing any
+per-kind logic back into the pump. Each new input kind adds a branch
+inside `Display.interact` that matches on the resolved Element's
+`kind` plus the wire `value`'s shape, runs its own typed validation,
+and constructs its own typed validated event. The discriminator is
+the resolved Element kind plus the value shape, not the `msg.action`
+string — `action` carries the agent-supplied action name
+(`elem.action or elem.id` for buttons), which varies per element and
+cannot be a fixed verb. A button click is `kind == "button" and value
+is True`; a slider change is `kind == "slider" and isinstance(value,
+float)`; future input kinds follow the same `kind + value-shape`
+pattern.
+
+The same client-existence, element-resolution, and ownership checks
+that gate a button click gate every other interaction — they are
+fixed prefix steps shared by every branch, not per-kind logic. The
+per-kind value-shape gate lives entirely in the match branches; the
+pump never inspects `msg.value`.
 
 ```python
 class Display:
@@ -1124,32 +1184,50 @@ class Display:
         client_id: ConnectionId,
         msg: InteractionMessage,
     ) -> Event:
-        # Resolve the Element first — every input kind needs it.
         scene_id = msg.require_scene_id()
         element_id = ElementId(msg.element_id)
-        self._require_known_client(client_id)
+
+        # Fixed prefix: identity, resolution, ownership.
+        if not self._hub_display.is_client(client_id):
+            raise UnknownClientError(client_id=client_id)
         element = self._hub_display.resolve(scene_id, element_id)
-
-        if element.kind == "button" and msg.value is True:
-            return ButtonClicked(
+        if self._hub_display.owner_of(scene_id, element_id) != client_id:
+            raise UnauthorizedInteractionError(
                 scene_id=scene_id,
                 element_id=element_id,
-                owner_id=client_id,
-                _token=Display._construction_token,
+                caller=client_id,
             )
-        if element.kind == "slider" and isinstance(msg.value, float):
-            return SliderChanged(
-                scene_id=scene_id,
-                element_id=element_id,
-                owner_id=client_id,
-                new_value=msg.value,
-                _token=Display._construction_token,
-            )
-        # … future input kinds add their own typed branch here.
 
-        raise UnsupportedInteractionError(
-            action=msg.action, kind=element.kind,
-        )
+        # Per-kind value-shape dispatch.
+        match element.kind, msg.value:
+            case "button", True:
+                return ButtonClicked(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    owner_id=client_id,
+                    _token=Display._construction_token,
+                )
+            case "slider", float() as new_value:
+                return SliderChanged(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    owner_id=client_id,
+                    new_value=new_value,
+                    _token=Display._construction_token,
+                )
+            case "checkbox", bool() as checked:
+                return CheckboxToggled(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    owner_id=client_id,
+                    checked=checked,
+                    _token=Display._construction_token,
+                )
+            # … future input kinds add their own typed branch here.
+            case _:
+                raise UnsupportedInteractionError(
+                    action=msg.action, kind=element.kind,
+                )
 ```
 
 `SliderChanged`, `TextEdited`, `CheckboxToggled` — each is its own
@@ -1644,11 +1722,13 @@ process-lifecycle hooks all live here; nothing else does.
 
 ### HubDisplay lands complete
 
-`HubDisplay` is the Hub-side index of every Element by
-`(scene_id, element_id)`, plus the owner-tracking metadata that makes
-disconnect cleanup correct. It ships complete — every method the
-dispatcher, the applier, and the disconnect path need is defined in
-the same PR that introduces the dispatcher and the applier.
+`HubDisplay` is the Hub-side authoritative store: the index of every
+Element by `(scene_id, element_id)`, the owner-tracking metadata that
+makes disconnect cleanup correct, and the clients registry that
+`Display.interact` checks for caller identity. It ships complete —
+every method the dispatcher, the applier, and the disconnect path
+need is defined in the same PR that introduces the dispatcher and
+the applier.
 
 A minimal placeholder would force callers to test against a partial
 surface in this PR and a different surface in the next. That is the
@@ -1657,18 +1737,29 @@ ships once.
 
 ```python
 class HubDisplay:
-    """Hub-side authoritative index of Elements by (scene_id, element_id)."""
+    """Hub-side authoritative store of Elements, owners, and clients."""
 
     _by_scene: dict[SceneId, dict[ElementId, Element]]
     _owners: dict[tuple[SceneId, ElementId], ConnectionId]
     _scene_owners: dict[SceneId, ConnectionId]
+    _clients: set[ConnectionId]
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._by_scene = {}
         self._owners = {}
         self._scene_owners = {}
+        self._clients = set()
         return self
+
+    def register_client(self, connection_id: ConnectionId) -> None:
+        """Mark a connection as a known client. Called by adapters on
+        transport setup."""
+        self._clients.add(connection_id)
+
+    def is_client(self, connection_id: ConnectionId) -> bool:
+        """Return True if the connection is currently registered."""
+        return connection_id in self._clients
 
     def apply(
         self,
@@ -1721,8 +1812,9 @@ class HubDisplay:
         )
 
     def drop_connection(self, connection_id: ConnectionId) -> None:
-        """Mark the connection's owned roots removed; the Element
-        Observer cascade prunes the rest."""
+        """Mark the connection's owned roots removed and forget the
+        client registration; the Element Observer cascade prunes the rest."""
+        self._clients.discard(connection_id)
         for root in self._owned_roots(connection_id):
             root._mark_removed()
 ```
@@ -1747,20 +1839,26 @@ parents would never see their children disappear, leaving their own
 children tuples stale even as the Hub index drained. The cascade is
 the propagation mechanism; `drop_connection` is its trigger.
 
-Three responsibilities, all owned by this one class:
+Four responsibilities, all owned by this one class:
 
 - **Index** — the nested `_by_scene` dict resolves `(scene_id,
   element_id)` lookups in `O(1)`. Every Element the Hub knows about
   lives in this index; no other module holds an authoritative
   reference.
 - **Owner tracking** — every Element has a `ConnectionId` that
-  installed it. The dispatcher uses this for ownership checks; the
-  disconnect path uses it to find every connection-owned root so it
-  can mark each one `_removed` and let the Element Observer cascade
-  unwind the rest of the tree.
+  installed it. `Display.interact` uses `owner_of` for the ownership
+  check that gates every interaction; the disconnect path uses
+  ownership to find every connection-owned root so it can mark each
+  one `_removed` and let the Element Observer cascade unwind the rest
+  of the tree.
+- **Clients registry** — `register_client` / `is_client` track which
+  `ConnectionId`s are currently bound to an open transport.
+  `Display.interact` calls `is_client` as its first domain check; no
+  other module maintains a parallel set of "known clients."
 - **Cleanup trigger** — `drop_connection` is the disconnect hook. It
-  marks the owned roots `_removed`; the Observer cascade prunes
-  children, parents, and the index entries.
+  discards the client registration and marks the owned roots
+  `_removed`; the Observer cascade prunes children, parents, and the
+  index entries.
 
 The `apply` method dispatches on the typed `Update` sum: a
 whole-scene `AddElement` installs a new tree; a child `AddElement`
@@ -1768,12 +1866,13 @@ appends under an existing parent; `SetProperty` mutates a single
 field; `RemoveElement` walks the subtree. The pattern-match shape
 keeps the dispatch local and the cases exhaustive.
 
-The class is the only place that mutates the index. The dispatcher
-calls `resolve` (read-only) before handing the Element to `fire`; the
-in-process MCP tools call `apply` to commit updates; the disconnect
-path calls `drop_connection`. No third caller reaches into
-`_by_scene` directly. The fields stay private; the operations stay
-typed.
+The class is the only place that mutates the index or the clients
+set. `Display.interact` calls `is_client`, `resolve`, and `owner_of`
+(all read-only) before handing the Element to `fire`; the in-process
+MCP tools call `apply` to commit updates; the connection adapters
+call `register_client` on transport setup and `drop_connection` on
+teardown. No other caller reaches into `_by_scene` or `_clients`
+directly. The fields stay private; the operations stay typed.
 
 ### Why the conceptual Hub and the process entry point are separate
 
@@ -1963,16 +2062,28 @@ commit as the code they verify.
    the agent's perspective; reverting reinstates the prior internals
    without changing the wire surface.
 
-5. **Single `ButtonClicked` event; `Display.interact` validation.**
-   Scope: introduce the typed `ButtonClicked` dataclass with its
-   factory-token guard, the `Display.interact` validation site, and
-   the shrunken pump that drops wire-shape triage straight into
-   `interact`. Delete `domain/interaction.py`'s `Interaction` sum
-   type and `ButtonPressed` in the same commit. Every legacy caller
-   migrates to construct `ButtonClicked` through `Display.interact`
-   or to receive it as a typed event argument.
-   *Rollback coherence:* the new validation site and the deleted
-   sum type move together — reverting restores both at once.
+5. **Single `ButtonClicked` event; `Display.interact` validation;
+   ownership check; pump shrinks to wire-shape triage only.** Scope:
+   introduce the typed `ButtonClicked` dataclass with its
+   factory-token guard; the `Display.interact` validation site
+   that takes `HubDisplay` as its sole constructor dependency and
+   checks (in order) `hub_display.is_client(client_id)`,
+   `hub_display.resolve(scene_id, element_id)`,
+   `hub_display.owner_of(...) == client_id`, and the per-kind
+   value-shape match; and the shrunken pump whose only filters are
+   `NON_ELEMENT_ACTIONS` and `scene_id is None` (no `value` check —
+   kind-specific value-shape gating lives entirely inside
+   `Display.interact`'s match branches so future slider, checkbox,
+   and text-edit messages reach the dispatcher). Delete
+   `domain/interaction.py`'s `Interaction` sum type and
+   `ButtonPressed` in the same commit. Every legacy caller migrates
+   to construct `ButtonClicked` through `Display.interact` or to
+   receive it as a typed event argument. No separate `Hub.dispatch`
+   method exists — the path is wire → pump → `Display.interact` →
+   `Element.fire`.
+   *Rollback coherence:* the new validation site, the ownership
+   check, the shrunken pump, and the deleted sum type move together
+   — reverting restores all of them at once.
 
 6. **Agent Subscribe / Publish with `SubscriptionRegistry` and
    `ObserverMessage`.** Scope: introduce the per-connection-scoped
@@ -1995,14 +2106,18 @@ commit as the code they verify.
    land together — reverting restores both.
 
 8. **Lifecycle wiring and full `HubDisplay`.** Scope: ship the full
-   `HubDisplay` class with index, owner-tracking, `apply`,
-   `resolve`, `drop_connection`. Wire `drop_connection` into the
-   connection-close path so a disconnecting connection's Elements
-   are marked `_removed`, the Element Observer cascade prunes the
-   surviving tree, and `SubscriptionRegistry.drop_connection`
-   purges the connection's topic scope. Confirm via tests that an
-   orphan handler firing after its connection is gone is a safe
-   no-op.
+   `HubDisplay` class with index, owner-tracking, clients registry
+   (`register_client` / `is_client`), `apply`, `resolve`,
+   `owner_of`, `drop_connection`. Wire `register_client` into the
+   transport-setup path and `drop_connection` into the
+   connection-close path so a disconnecting connection's client
+   registration is discarded, its Elements are marked `_removed`,
+   the Element Observer cascade prunes the surviving tree, and
+   `SubscriptionRegistry.drop_connection` purges the connection's
+   topic scope. Confirm via tests that an orphan handler firing
+   after its connection is gone is a safe no-op and that
+   `Display.interact` rejects a disconnected `client_id` with
+   `UnknownClientError`.
    *Rollback coherence:* the disconnect path and the lifecycle
    invariants form one concern; reverting brings the partial
    lifecycle that existed before back as a unit.
@@ -2036,7 +2151,7 @@ purposes — so a reader can trace each invariant to its verification.
 | 2 | Element ABC dispatches typed events to registered handlers | `tests/test_element_abc.py::test_fire_invokes_registered_handler` registers a handler and asserts the event reaches it; a second test asserts a handler that mutates the registry mid-dispatch does not break the in-flight call |
 | 3 | Wire spec → handler chain via catalog and decorators | `tests/test_handler_catalog.py` round-trips both the long form and the sugar form through the decoder; asserts the constructed `Handler[E]` chain calls the inner factory followed by each decorator in order |
 | 4 | Dialog dismisses itself when Confirm is clicked | `tests/test_dialog_element.py::test_confirm_marks_removed` constructs the Dialog through the decoder, fires a click on the Confirm child, asserts `_confirmed` on the model and `_removed` on the owning DialogElement, and that the Element-level Observer notified the parent |
-| 5 | `ButtonClicked` is constructed only by `Display.interact`; validation lives in one site | `tests/test_button_clicked.py::test_direct_construction_raises` calls `ButtonClicked(...)` directly and asserts `TypeError`; `tests/test_display_interact.py` parametrizes the four validation failures (unknown client, unknown scene, unknown element, wrong kind) and asserts the typed error each raises |
+| 5 | `ButtonClicked` is constructed only by `Display.interact`; validation lives in one site | `tests/test_button_clicked.py::test_direct_construction_raises` calls `ButtonClicked(...)` directly and asserts `TypeError`; `tests/test_display_interact.py` parametrizes the five validation failures (unknown client, unknown scene, unknown element, unauthorized caller, wrong kind / wrong value shape) and asserts the typed error each raises; an additional `tests/test_display_interact.py::test_owner_mismatch_is_unauthorized` installs an Element under connection A and asserts an `Display.interact` call from connection B raises `UnauthorizedInteractionError` and never constructs a `ButtonClicked` |
 | 6 | Per-connection scoping; `ObserverMessage` round-trips on the wire | `tests/test_subscription_registry.py::test_per_connection_scope` subscribes two connections to the same topic name and asserts a publish from one reaches only its own subscribers; `tests/test_observer_message.py` round-trips the wire shape through the `MessageRegistry` |
 | 7 | `poll_event` is the only polling interface; `recv` is gone | `tests/test_display_client.py::test_no_recv_attribute` asserts `hasattr` returns False; `tests/test_display_client.py::test_poll_event_same_connection_delivers` subscribes and publishes on the SAME connection and asserts the payload arrives; `tests/test_display_client.py::test_poll_event_respects_connection_scope` asserts the D9 invariant — connection A subscribes to topic `"T"`; connection B subscribes to `"T"` and publishes `{"k": "other"}`; A's `poll_event("T")` does NOT receive B's payload (cross-connection pub-sub is genuinely absent in PR 4 per D9) |
 | 8 | Disconnect cascades through the Element Observer and drops the topic scope | `tests/test_lifecycle.py::test_disconnect_prunes_owned_elements` installs Elements under a connection, disconnects, asserts the Elements are gone from `HubDisplay`'s index and the parent's `children` tuple shrank; `tests/test_lifecycle.py::test_orphan_handler_publish_is_safe_noop` keeps a registered handler alive after its connection drops and asserts a publish call returns zero subscribers without raising |
