@@ -1051,3 +1051,270 @@ same way `ButtonHandlers` registers against `ButtonClicked`.
 The structure of the validation method grows by one branch per kind.
 The structure of the dispatcher and the handler registry does not
 change at all.
+
+## Agent Subscribe and Publish
+
+The Agent Subscribe / Publish subsystem is the cross-process pub-sub
+mechanism the Hub offers to agents and applets. A connection registers
+interest in a topic; another call on the same connection publishes a
+payload to that topic; subscribers receive the payload as a typed
+outbound `ObserverMessage` over their wire.
+
+This subsystem is entirely separate from the Element Observer subsystem
+described earlier. The Element Observer is intra-Hub, in-process,
+property-typed, and registered by parent composites on their direct
+children. The Agent Subscribe registry is cross-process, topic-named,
+and lives at the boundary where the Hub talks to remote connections.
+The two share no machinery, no data structures, no lifecycle. Intra-
+component coordination uses the Observer; cross-component and cross-
+process business events use Subscribe and Publish.
+
+### The subscription registry
+
+```python
+class SubscriptionRegistry:
+    """Per-connection topic registry. Snapshot-then-iterate for publish."""
+
+    _by_connection: dict[ConnectionId, dict[Topic, set[Handler]]]
+    _lock: threading.Lock
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._by_connection = {}
+        self._lock = threading.Lock()
+        return self
+
+    def subscribe(
+        self,
+        connection_id: ConnectionId,
+        topic: Topic,
+        handler: Handler,
+    ) -> None:
+        with self._lock:
+            scope = self._by_connection.setdefault(connection_id, {})
+            scope.setdefault(topic, set()).add(handler)
+
+    def unsubscribe(
+        self,
+        connection_id: ConnectionId,
+        topic: Topic,
+        handler: Handler,
+    ) -> None:
+        with self._lock:
+            scope = self._by_connection.get(connection_id)
+            if scope is None:
+                return
+            handlers = scope.get(topic)
+            if handlers is None:
+                return
+            handlers.discard(handler)
+            if not handlers:
+                del scope[topic]
+
+    def snapshot_subscribers(
+        self,
+        connection_id: ConnectionId,
+        topic: Topic,
+    ) -> tuple[Handler, ...]:
+        with self._lock:
+            scope = self._by_connection.get(connection_id, {})
+            return tuple(scope.get(topic, ()))
+
+    def drop_connection(self, connection_id: ConnectionId) -> None:
+        with self._lock:
+            self._by_connection.pop(connection_id, None)
+```
+
+The outer key is `ConnectionId`. The inner key is `Topic`. The value is
+a set of handlers — typically a one-element set holding the outbound-
+message writer for the subscribing connection itself. The shape
+`dict[ConnectionId, dict[Topic, set[Handler]]]` makes per-connection
+scoping a property of the data structure: cleanup of a disconnected
+connection is one `dict.pop`, and no topic registration leaks across
+connections by construction.
+
+### The Hub's subscribe, unsubscribe, and publish
+
+The Hub exposes three operations, all of them connection-scoped:
+
+```python
+class Hub:
+
+    def subscribe(
+        self,
+        connection_id: ConnectionId,
+        topic: Topic,
+    ) -> None:
+        """Register the caller's connection for ``topic``.
+
+        Declaration is implicit — calling subscribe with a topic the
+        connection has not used before adds it to the connection's scope.
+        """
+        handler = self._writer_for(connection_id)
+        self._subscriptions.subscribe(connection_id, topic, handler)
+
+    def unsubscribe(
+        self,
+        connection_id: ConnectionId,
+        topic: Topic,
+    ) -> None:
+        """Drop the caller's subscription to ``topic``. No-op if absent."""
+        handler = self._writer_for(connection_id)
+        self._subscriptions.unsubscribe(connection_id, topic, handler)
+
+    def publish(
+        self,
+        connection_id: ConnectionId,
+        topic: Topic,
+        payload: Mapping[str, object],
+    ) -> int:
+        """Fan ``payload`` out to ``topic``'s subscribers in the caller's scope.
+
+        Returns the number of subscribers that received the message.
+        Subscribers are snapshotted under a short lock, then iterated
+        outside the lock to avoid serializing publishes against each
+        other and against subscribe / unsubscribe.
+        """
+        message = ObserverMessage(topic=topic, payload=payload)
+        subscribers = self._subscriptions.snapshot_subscribers(
+            connection_id, topic,
+        )
+        for handler in subscribers:
+            handler(message)
+        return len(subscribers)
+```
+
+The three operations share one rule: every call is scoped to the
+`connection_id` of the caller. A subscription registered by connection
+A is visible only to connection A. A publish issued by connection A is
+delivered only to subscribers within connection A's own scope.
+
+### Per-connection topic scoping
+
+A connection can subscribe and publish only within its own scope. The
+trust model is the simplest possible: no connection can see, subscribe
+to, or publish into another connection's topics. Topic name collisions
+across connections do not matter — connection A's `work.saved` and
+connection B's `work.saved` are different scopes, holding different
+subscriber sets, fanning out different payloads.
+
+Declaration is implicit. There is no separate `declare_topic` step. The
+first `subscribe` or `publish` for a topic name within a connection's
+scope is the declaration. Subsequent calls on the same name add to the
+existing scope.
+
+Cross-connection pub-sub is not possible in PR 4. A future capability
+that allows agent-to-agent or applet-to-applet topic sharing would be
+a new feature with its own access-control rule, not a fix to the
+per-connection trust model. The mechanism for cross-connection pub-sub
+is genuinely absent: there is no path through the registry, the Hub
+methods, or the wire format that could deliver one connection's
+publish to another connection's subscriber.
+
+### The ObserverMessage wire kind
+
+When `Hub.publish` fans a payload out to a connection's subscribers,
+each subscriber receives the payload as a typed `ObserverMessage` on
+its outbound wire.
+
+```python
+@dataclass(frozen=True, slots=True)
+class ObserverMessage:
+    """Outbound wire kind delivered to a connection on its subscribed topics."""
+
+    topic: Topic
+    payload: Mapping[str, object]
+    kind: ClassVar[Literal["observer"]] = "observer"
+
+    def to_wire(self) -> Mapping[str, object]:
+        return {
+            "kind": self.kind,
+            "topic": self.topic,
+            "payload": self.payload,
+        }
+
+    @classmethod
+    def from_wire(cls, raw: Mapping[str, object]) -> Self:
+        ...
+```
+
+A concrete wire frame looks like this:
+
+```jsonc
+{
+  "kind": "observer",
+  "topic": "work.saved",
+  "payload": {"element_id": "save_btn", "ts": "2026-05-24T17:00:00Z"}
+}
+```
+
+`ObserverMessage` joins the existing `MessageRegistry` alongside
+`InteractionMessage`, `SceneMessage`, and the lifecycle kinds. The
+registry maps `kind` strings to typed message classes; the decoder
+dispatches on `kind`; encoders serialize via `to_wire`. No agent code
+ever constructs `ObserverMessage` directly — the Hub constructs the
+message inside `publish` and hands the writer the typed value.
+
+`InteractionMessage` is not reused for the outbound direction.
+`InteractionMessage` is by name and by content an inbound message —
+display tier or agent tier sending an event into the Hub. Reusing the
+same class for outbound delivery would collapse two unrelated concepts
+under one name and force every wire reader to disambiguate direction
+from context. `ObserverMessage` is its own type, with its own
+serialization, its own decoder, and its own dispatch path.
+
+### Concurrency: snapshot-then-iterate
+
+The registry's lock is held only long enough to mutate the data
+structure or copy a subscriber set. The publish fan-out iterates the
+snapshot outside the lock.
+
+```python
+def publish(
+    self,
+    connection_id: ConnectionId,
+    topic: Topic,
+    payload: Mapping[str, object],
+) -> int:
+    message = ObserverMessage(topic=topic, payload=payload)
+    subscribers = self._subscriptions.snapshot_subscribers(
+        connection_id, topic,
+    )            # short lock: copy the set, release.
+    for handler in subscribers:
+        handler(message)   # iterates outside the lock.
+    return len(subscribers)
+```
+
+The alternative — holding the lock across the entire publish-and-send
+loop — serializes publishes against each other and against
+subscribe / unsubscribe. A slow subscriber stalls every other publish
+on every other topic. Snapshot-then-iterate eliminates that coupling:
+two concurrent publishes on different topics never wait for each
+other, and a subscriber added in the middle of a publish cycle simply
+joins the next snapshot.
+
+The price is that a subscriber removed mid-publish may still receive
+one final message — the snapshot was taken before the removal. This is
+the same well-understood eventual-consistency behavior every snapshot-
+based observer pattern carries; subscribers that need stricter
+delivery semantics gate on the topic from inside the handler.
+
+### Cleanup on disconnect
+
+When a connection closes — whether the MCP session ends, the TCP
+applet hangs up, or the Hub forcibly evicts the connection — the
+registry drops the entire inner dict for that `ConnectionId`:
+
+```python
+class Hub:
+
+    def on_disconnect(self, connection_id: ConnectionId) -> None:
+        self._subscriptions.drop_connection(connection_id)
+```
+
+One `dict.pop` removes every topic and every handler that the
+connection registered. There is no per-topic cleanup walk, no handler
+reference list to scan, no global registry to update. The
+per-connection outer key was chosen precisely so that disconnect
+cleanup is `O(1)` against the data structure, not `O(number of
+topics)` or `O(number of handlers)`.
