@@ -1638,16 +1638,29 @@ class HubDisplay:
         )
 
     def drop_connection(self, connection_id: ConnectionId) -> None:
-        """Remove every Element this connection installed, propagating Observer."""
-        for scene_id, element_id in self.elements_owned_by(connection_id):
-            self._remove_subtree(scene_id, element_id)
-        for scene_id in tuple(
-            sid for sid, owner in self._scene_owners.items()
-            if owner == connection_id
-        ):
-            self._by_scene.pop(scene_id, None)
-            self._scene_owners.pop(scene_id, None)
+        """Mark the connection's owned roots ``_removed``; the Element
+        Observer cascade prunes the rest."""
+        for root in self._owned_roots(connection_id):
+            root._removed = True
 ```
+
+`drop_connection` does one thing: mark the connection-owned root
+Elements `_removed = True`. A "root" is an Element whose parent is the
+scene root rather than another Element — i.e., an Element installed via
+`AddElement(parent_id=None)`. The Element Observer cascade does the
+rest of the work. Each scene-root container is observing its children;
+when a child flips `_removed = True`, the container's observer fires
+and performs the same two-step prune any other removal does — drop the
+child from its own children tuple AND call
+`HubDisplay.apply(RemoveElement(...))` to clear the index entry. That
+removal mutates the child, the child's children observe in turn, and
+the cascade walks the tree from leaves back up.
+
+`drop_connection` does NOT walk the subtree itself. A direct
+`_remove_subtree` loop would bypass the Observer cascade entirely —
+parents would never see their children disappear, leaving their own
+children tuples stale even as the Hub index drained. The cascade is
+the propagation mechanism; `drop_connection` is its trigger.
 
 Three responsibilities, all owned by this one class:
 
@@ -1657,12 +1670,12 @@ Three responsibilities, all owned by this one class:
   reference.
 - **Owner tracking** — every Element has a `ConnectionId` that
   installed it. The dispatcher uses this for ownership checks; the
-  disconnect path uses it to find every Element a closing connection
-  installed so it can mark them `_removed` and trigger the Element
-  Observer cascade described earlier.
-- **Cleanup** — `drop_connection` is the disconnect hook. It walks
-  the connection's owned Elements, removes each one, and lets the
-  Element Observer propagation prune the surviving tree.
+  disconnect path uses it to find every connection-owned root so it
+  can mark each one `_removed` and let the Element Observer cascade
+  unwind the rest of the tree.
+- **Cleanup trigger** — `drop_connection` is the disconnect hook. It
+  marks the owned roots `_removed`; the Observer cascade prunes
+  children, parents, and the index entries.
 
 The `apply` method dispatches on the typed `Update` sum: a
 whole-scene `AddElement` installs a new tree; a child `AddElement`
