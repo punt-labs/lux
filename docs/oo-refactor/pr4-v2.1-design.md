@@ -1030,9 +1030,15 @@ old-and-new code path.
 
 The `Display.interact` method's structure scales to additional input
 kinds without re-introducing a sum type. Each new input kind adds a
-branch that matches on `msg.action` or another wire-shape
-discriminator, runs its own typed validation, and constructs its own
-typed validated event.
+branch that matches on the Element's `kind` plus the wire `value`'s
+shape, runs its own typed validation, and constructs its own typed
+validated event. The discriminator is the resolved Element kind plus
+the value shape, not the `msg.action` string — `action` carries the
+agent-supplied action name (`elem.action or elem.id` for buttons),
+which varies per element and cannot be a fixed verb. A button click
+is `kind == "button" and value is True`; a slider change is
+`kind == "slider" and isinstance(value, float)`; future input kinds
+follow the same `kind + value-shape` pattern.
 
 ```python
 class Display:
@@ -1048,20 +1054,19 @@ class Display:
         self._require_known_client(client_id)
         element = self._hub_display.resolve(scene_id, element_id)
 
-        if msg.action == "click" and element.kind == "button":
+        if element.kind == "button" and msg.value is True:
             return ButtonClicked(
                 scene_id=scene_id,
                 element_id=element_id,
                 owner_id=client_id,
                 _token=Display._construction_token,
             )
-        if msg.action == "change" and element.kind == "slider":
-            new_value = msg.require_float_value()
+        if element.kind == "slider" and isinstance(msg.value, float):
             return SliderChanged(
                 scene_id=scene_id,
                 element_id=element_id,
                 owner_id=client_id,
-                new_value=new_value,
+                new_value=msg.value,
                 _token=Display._construction_token,
             )
         # … future input kinds add their own typed branch here.
