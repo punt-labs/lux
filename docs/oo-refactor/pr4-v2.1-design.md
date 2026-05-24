@@ -722,8 +722,14 @@ When the user clicks Confirm, the controller runs
 `model.invoke("confirm")`, which calls `self.confirm()` on the model,
 which sets `_confirmed = True` and `_removed = True`, which notifies
 the model's observers. The Dialog's parent composite is one of those
-observers. On `"removed"`, the parent prunes the Dialog out of its
-children tuple.
+observers. On `"removed"`, the parent performs the same drop an
+agent-issued `RemoveElement` would: it prunes the Dialog out of its
+own children tuple AND calls `HubDisplay.apply(RemoveElement(...))`
+so the Hub's `(scene_id, element_id)` index drops the entry too.
+Skipping either half leaves the system inconsistent — local-only
+pruning leaks an orphan in the Hub index that still resolves to a
+tree the parent no longer holds; Hub-only removal leaves a dangling
+reference in the parent's children tuple.
 
 ```python
 class PanelElement(Element):
@@ -739,22 +745,34 @@ class PanelElement(Element):
 
     def _on_child_property(self, prop: str, child: Element) -> None:
         if prop == "removed":
+            # 1. Local prune from this parent's children tuple.
             self._children_tuple = tuple(
                 c for c in self._children_tuple if c is not child
+            )
+            # 2. Hub-side drop — same operation an agent-issued
+            #    RemoveElement would invoke. Keeps the (scene_id,
+            #    element_id) index consistent with the local view.
+            self._hub_display.apply(
+                self._owner_connection_id,
+                RemoveElement(scene_id=self._scene_id, element_id=child.id),
             )
 ```
 
 This is the Element Observer subsystem in action: a property on one
 Element changes, an observer registered by the parent runs, and the
-parent updates its own state. Standard Swing/Cocoa/Qt mechanics. Every
-Element kind that holds mutable property state offers the same
-`add_observer` hook; `visible` and `enabled` propagate the same way in
-future Layout work.
+parent updates its own state — both its own children tuple and the
+Hub's authoritative index. Standard Swing/Cocoa/Qt mechanics, with
+the extra discipline that the Hub index is part of the parent's
+"state" for cascade purposes. Every Element kind that holds mutable
+property state offers the same `add_observer` hook; `visible` and
+`enabled` propagate the same way in future Layout work (without the
+Hub-index call — only `removed` mutates the index).
 
 The same machinery handles connection teardown: when a connection
 disconnects, the Hub marks every Element owned by that connection with
 `_removed = True`. The notifications cascade up to each parent's
-observer; parents prune; the scene shrinks naturally.
+observer; parents prune both halves; the scene shrinks naturally and
+the Hub index shrinks with it.
 
 ### Element Observer is not Agent Subscribe
 
@@ -1355,10 +1373,18 @@ end up at the same place:
   reference the Hub holds. The Element becomes garbage.
 - An Observer-propagated property change fires `_removed = True` on a
   component's model. The component's parent observes the change and
-  prunes the component from its children tuple. The same drop happens.
+  performs the same drop: it prunes the component from its own
+  children tuple AND calls
+  `HubDisplay.apply(connection_id, RemoveElement(scene_id, child_id))`
+  to clear the Hub's `(scene_id, element_id)` index entry. Both
+  operations are required — local pruning alone leaves an orphan
+  index entry that still resolves to a tree the parent no longer
+  holds.
 - A connection disconnects. The Hub iterates every Element the
   disconnecting connection owns, marks each one `_removed`, and lets
-  the Observer cascade prune up the tree.
+  the Observer cascade prune up the tree. The cascade follows the
+  same shape: each parent's observer prunes its own children tuple
+  and calls `HubDisplay.apply(...RemoveElement...)`.
 
 In all three paths, the handler registry follows the Element. No
 external bookkeeping tracks handlers separately. No registry needs to
