@@ -9,17 +9,23 @@ from typing import Any, Self
 
 from punt_lux.domain.element_abc import Element as ABCElement
 from punt_lux.protocol import (
+    CheckboxElement,
     CollapsingHeaderElement,
+    ComboElement,
     Element,
     GroupElement,
+    InputNumberElement,
+    InputTextElement,
+    RadioElement,
     SceneMessage,
+    SelectableElement,
+    SliderElement,
     TabBarElement,
     UpdateMessage,
     WindowElement,
 )
 from punt_lux.scene.frame import Frame
 from punt_lux.scene.widget_state import WidgetState
-from punt_lux.scene.widget_value_provider import WidgetValueProvider
 from punt_lux.types import OnSceneReplacedFn
 
 # ---------------------------------------------------------------------------
@@ -68,13 +74,25 @@ def _find_element(
 def _widget_value(elem: Element) -> Any:
     """Extract the current widget value from an element for WidgetState.
 
-    Dispatch is structural via the ``WidgetValueProvider`` Protocol — each
-    value-bearing input class owns its own ``widget_value()`` method.
-    Color-picker elements do NOT implement the Protocol on purpose: their
-    renderer initialises widget state with an ``ImVec4`` via ``ensure()``;
-    returning the raw hex string here would corrupt that state.
+    Direct ``isinstance`` dispatch against the seven value-bearing input
+    element classes — each owns a ``widget_value()`` method that returns
+    the field ``SceneManager`` mirrors into ``WidgetState`` after a patch.
+    ``ColorPickerElement`` is intentionally excluded: its renderer seeds
+    ``WidgetState`` with an ``ImVec4`` via ``ensure()``, so returning the
+    raw hex string here would corrupt that state.
     """
-    if isinstance(elem, WidgetValueProvider):
+    if isinstance(
+        elem,
+        (
+            CheckboxElement,
+            ComboElement,
+            InputNumberElement,
+            InputTextElement,
+            RadioElement,
+            SelectableElement,
+            SliderElement,
+        ),
+    ):
         return elem.widget_value()
     return None
 
@@ -441,10 +459,12 @@ class SceneManager:
         if eid is not None and ws is not None and has_value_key:
             new_value = _widget_value(elem)
             if new_value is None:
-                # Element does not expose its widget value via WidgetValueProvider
-                # (e.g. ColorPickerElement — see widget_value_provider.py).  Writing
-                # None would poison ensure() on the next frame; discarding forces
-                # the renderer to re-seed from the patched element fields.
+                # Element is not one of the value-bearing input kinds
+                # (e.g. ColorPickerElement — see _VALUE_BEARING_ELEMENTS
+                # docstring at the top of this module).  Writing None
+                # would poison ensure() on the next frame; discarding
+                # forces the renderer to re-seed from the patched element
+                # fields.
                 ws.discard(eid)
             else:
                 ws.set(eid, new_value)
