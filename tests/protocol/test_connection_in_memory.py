@@ -67,6 +67,30 @@ def test_send_after_peer_close_raises() -> None:
     a.close()
 
 
+def test_symmetric_close_leaves_no_orphan_sentinels() -> None:
+    """After both ends close, neither queue may hold a stray sentinel.
+
+    Each ``close()`` used to enqueue a ``_CLOSE`` sentinel
+    unconditionally. When both ends close, the second end's sentinel
+    landed in a queue whose reader had already terminated — a slow leak
+    of one sentinel per symmetric close. ``close()`` now checks
+    ``peer_closed`` before the ``put``, so the second sentinel is
+    skipped.
+    """
+    a, b = InMemoryConnection.paired()
+
+    # Drain iter_lines on each end before symmetric close.
+    a.close()
+    list(b.iter_lines())
+    b.close()
+
+    # Inspect the inbound queues directly — both must be empty.
+    a_inbound = a._endpoint[0]
+    b_inbound = b._endpoint[0]
+    assert a_inbound.qsize() == 0
+    assert b_inbound.qsize() == 0
+
+
 def test_iter_lines_blocks_until_peer_sends() -> None:
     a, b = InMemoryConnection.paired()
     received: list[dict[str, object]] = []
