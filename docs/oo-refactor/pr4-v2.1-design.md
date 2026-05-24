@@ -170,12 +170,16 @@ class Element(ABC):
     _renderer_factory: RendererFactory
     _emit: Emit
     _handlers: dict[type[Event], list[Handler[Event]]]
+    _removed: bool
+    _observers: list[Callable[[str], None]]
 
     def __new__(cls, *, renderer_factory: RendererFactory, emit: Emit) -> Self:
         self = super().__new__(cls)
         self._renderer_factory = renderer_factory
         self._emit = emit
         self._handlers = {}
+        self._removed = False
+        self._observers = []
         return self
 
     def add_handler[E: Event](
@@ -210,6 +214,27 @@ class Element(ABC):
         snapshot = tuple(self._handlers.get(type(event), ()))
         for handler in snapshot:
             handler(event)
+
+    def add_observer(self, observer: Callable[[str], None]) -> None:
+        """Register a property-change observer. Used by parent
+        composites to react to children flipping ``_removed`` (and,
+        in future, ``_visible`` / ``_enabled``)."""
+        self._observers.append(observer)
+
+    @property
+    def removed(self) -> bool:
+        return self._removed
+
+    def _mark_removed(self) -> None:
+        """Flip ``_removed`` and notify observers. Idempotent — a second
+        call is a no-op. This is the single mechanism for marking any
+        Element removed; the three removal paths (agent ``RemoveElement``,
+        component self-dismiss, connection disconnect) all reach it."""
+        if self._removed:
+            return
+        self._removed = True
+        for observer in tuple(self._observers):
+            observer("removed")
 ```
 
 `Handler[E]` is `Callable[[E], None]`. `Event` is the shared marker
@@ -553,7 +578,15 @@ mapping the model itself exposes.
 
 ```python
 class DialogModel:
-    """The Dialog's private state. Owned by DialogElement."""
+    """The Dialog's private state. Owned by DialogElement.
+
+    Holds only the Dialog-specific properties (``_visible``,
+    ``_confirmed``). The ``_removed`` flag and observer cascade live on
+    the Element ABC — confirm/cancel/close set the model's own state,
+    then invoke the ``_on_dismiss`` callback the DialogElement
+    installed at construction. That callback calls
+    ``Element._mark_removed`` on the owning Element, which is the one
+    place ``_removed`` is set and the one place observers fire."""
 
     _ACTIONS: ClassVar[Mapping[str, Callable[["DialogModel"], None]]] = {
         "confirm": lambda self: self.confirm(),
@@ -563,30 +596,28 @@ class DialogModel:
     }
 
     _visible: bool
-    _removed: bool
     _confirmed: bool
-    _observers: list[Callable[[str], None]]
+    _on_dismiss: Callable[[], None]
 
-    def __new__(cls) -> Self:
+    def __new__(cls, *, on_dismiss: Callable[[], None]) -> Self:
         self = super().__new__(cls)
         self._visible = True
-        self._removed = False
         self._confirmed = False
-        self._observers = []
+        self._on_dismiss = on_dismiss
         return self
 
     def confirm(self) -> None:
-        """Record confirmation and mark the dialog removed."""
+        """Record confirmation and dismiss the dialog."""
         self._confirmed = True
-        self._mark_removed()
+        self._dismiss()
 
     def cancel(self) -> None:
-        """Mark the dialog removed without recording confirmation."""
-        self._mark_removed()
+        """Dismiss the dialog without recording confirmation."""
+        self._dismiss()
 
     def close(self) -> None:
-        """Mark the dialog removed (semantic alias for an unspecified close)."""
-        self._mark_removed()
+        """Dismiss the dialog (semantic alias for an unspecified close)."""
+        self._dismiss()
 
     def invoke(self, action: str) -> None:
         """Dispatch a verb name from the typed action mapping."""
@@ -598,23 +629,21 @@ class DialogModel:
             )
         action_fn(self)
 
-    def add_observer(self, observer: Callable[[str], None]) -> None:
-        """Register a property-change observer (used by DialogElement)."""
-        self._observers.append(observer)
-
-    def _mark_removed(self) -> None:
-        if self._removed:
-            return
-        self._removed = True
+    def _dismiss(self) -> None:
+        """Drop visibility and ask the owning Element to mark itself
+        removed. Idempotency lives on ``Element._mark_removed`` — a
+        second dismiss is a harmless no-op there."""
         self._visible = False
-        for observer in tuple(self._observers):
-            observer("removed")
+        self._on_dismiss()
 ```
 
 `_ACTIONS` is the typed mapping the wire-level verb vocabulary
-resolves against (introduced in the catalog section). `add_observer`
-is the Element Observer hook the Dialog's parent composite registers
-through.
+resolves against (introduced in the catalog section). The model
+exposes no observer hook of its own — the Element Observer hook the
+Dialog's parent composite registers through lives on the Element
+ABC (`Element.add_observer`), and the model reaches it indirectly by
+invoking `_on_dismiss`, which the decoder bound to the owning
+`DialogElement._mark_removed`.
 
 ### View — DialogElement reads model state to render
 
@@ -635,11 +664,9 @@ class DialogElement(Element):
         renderer_factory: RendererFactory,
         emit: Emit,
         id: ElementId,
-        model: DialogModel,
     ) -> Self:
         self = super().__new__(cls, renderer_factory=renderer_factory, emit=emit)
         self._id = id
-        self._model = model
         self._children_tuple = ()
         return self
 
@@ -651,22 +678,25 @@ class DialogElement(Element):
     def visible(self) -> bool:
         return self._model._visible
 
-    @property
-    def removed(self) -> bool:
-        return self._model._removed
-
     def _children(self) -> tuple[Element, ...]:
         return self._children_tuple
 
+    def _install_model(self, model: DialogModel) -> None:
+        """Decoder-only seam: install the model once it is constructed
+        with ``on_dismiss=self._mark_removed`` bound."""
+        self._model = model
+
     def _install_children(self, children: tuple[Element, ...]) -> None:
-        """Decoder-only seam: install children after the Dialog is fully
-        constructed and its model exists, so child Buttons can bind to it."""
+        """Decoder-only seam: install children after the model exists,
+        so child Buttons can bind to it."""
         self._children_tuple = children
 ```
 
-The Dialog exposes `visible` and `removed` as read-only properties
-backed by the model. Renderers and parent composites observe through
-the public surface; the model stays private.
+The Dialog exposes `visible` as a read-only property backed by the
+model. The `removed` property is inherited from the Element ABC and
+reflects the single Element-level `_removed` flag — every removal
+path (agent `RemoveElement`, the component's own dismiss, connection
+disconnect) flips that one flag through `Element._mark_removed`.
 
 ### Controllers — child Buttons reference the model
 
@@ -680,16 +710,20 @@ class JsonDialogDecoder:
     """Decoder for DialogElement wire payloads."""
 
     def decode(self, raw: Mapping[str, object]) -> DialogElement:
-        # 1. Construct the model first so child Buttons can bind to it.
-        model = DialogModel()
-
-        # 2. Construct the Dialog element with the model installed.
+        # 1. Construct the Dialog element first so its `_mark_removed`
+        #    method exists to be bound into the model's `on_dismiss`.
         dialog = DialogElement(
             renderer_factory=self._renderer_factory,
             emit=self._emit,
             id=ElementId(self._require_string(raw, "id")),
-            model=model,
         )
+
+        # 2. Construct the model with its dismiss callback bound to the
+        #    Dialog's Element-level `_mark_removed`. Confirm/cancel/close
+        #    on the model now route through the one Element-level
+        #    `_removed` flag and the one Element-level observer cascade.
+        model = DialogModel(on_dismiss=dialog._mark_removed)
+        dialog._install_model(model)
 
         # 3. Decode each child Button. The Button's click-handler factory
         #    is ButtonHandlers.call_model, with the verb name as its only
@@ -720,8 +754,10 @@ Controller's `@FXML` methods. Loud at load, silent and typed at run.
 
 When the user clicks Confirm, the controller runs
 `model.invoke("confirm")`, which calls `self.confirm()` on the model,
-which sets `_confirmed = True` and `_removed = True`, which notifies
-the model's observers. The Dialog's parent composite is one of those
+which sets `_confirmed = True` and invokes `_on_dismiss`. The dismiss
+callback is `dialog._mark_removed` — the Element-ABC method that
+flips `_removed = True` on the DialogElement itself and notifies the
+Element's observers. The Dialog's parent composite is one of those
 observers. On `"removed"`, the parent performs the same drop an
 agent-issued `RemoveElement` would: it prunes the Dialog out of its
 own children tuple AND calls `HubDisplay.apply(RemoveElement(...))`
@@ -737,10 +773,9 @@ class PanelElement(Element):
 
     def _install_children(self, children: tuple[Element, ...]) -> None:
         for child in children:
-            if isinstance(child, DialogElement):
-                child._model.add_observer(
-                    lambda prop, _c=child: self._on_child_property(prop, _c)
-                )
+            child.add_observer(
+                lambda prop, _c=child: self._on_child_property(prop, _c)
+            )
         self._children_tuple = children
 
     def _on_child_property(self, prop: str, child: Element) -> None:
@@ -763,16 +798,19 @@ Element changes, an observer registered by the parent runs, and the
 parent updates its own state — both its own children tuple and the
 Hub's authoritative index. Standard Swing/Cocoa/Qt mechanics, with
 the extra discipline that the Hub index is part of the parent's
-"state" for cascade purposes. Every Element kind that holds mutable
-property state offers the same `add_observer` hook; `visible` and
-`enabled` propagate the same way in future Layout work (without the
-Hub-index call — only `removed` mutates the index).
+"state" for cascade purposes. The `add_observer` hook lives on the
+Element ABC, so every Element kind exposes it identically; `visible`
+and `enabled` will propagate the same way in future Layout work
+(without the Hub-index call — only `removed` mutates the index).
 
 The same machinery handles connection teardown: when a connection
-disconnects, the Hub marks every Element owned by that connection with
-`_removed = True`. The notifications cascade up to each parent's
-observer; parents prune both halves; the scene shrinks naturally and
-the Hub index shrinks with it.
+disconnects, the Hub calls `_mark_removed` on every root Element the
+connection owns. The Element-level notifications cascade up to each
+parent's observer; parents prune both halves; the scene shrinks
+naturally and the Hub index shrinks with it. All three removal paths
+— agent `RemoveElement`, component self-dismiss, connection
+disconnect — flip the same Element-level `_removed` flag through the
+same `_mark_removed` method and fire the same observer cascade.
 
 ### Element Observer is not Agent Subscribe
 
@@ -1385,8 +1423,10 @@ end up at the same place:
 - An agent issues a `RemoveElement` update. The Hub looks up the
   Element, removes it from the scene's index, and drops the only
   reference the Hub holds. The Element becomes garbage.
-- An Observer-propagated property change fires `_removed = True` on a
-  component's model. The component's parent observes the change and
+- A component dismisses itself. The component's model calls back
+  into the owning Element's `_mark_removed`, which flips the
+  Element-level `_removed = True` and notifies the Element's
+  observers. The parent composite is one of those observers and
   performs the same drop: it prunes the component from its own
   children tuple AND calls
   `HubDisplay.apply(connection_id, RemoveElement(scene_id, child_id))`
@@ -1395,10 +1435,10 @@ end up at the same place:
   index entry that still resolves to a tree the parent no longer
   holds.
 - A connection disconnects. The Hub iterates every Element the
-  disconnecting connection owns, marks each one `_removed`, and lets
-  the Observer cascade prune up the tree. The cascade follows the
-  same shape: each parent's observer prunes its own children tuple
-  and calls `HubDisplay.apply(...RemoveElement...)`.
+  disconnecting connection owns and calls `_mark_removed` on each
+  root, which flips Element-level `_removed = True` and fires the
+  observer cascade. Each parent's observer prunes its own children
+  tuple and calls `HubDisplay.apply(...RemoveElement...)`.
 
 In all three paths, the handler registry follows the Element. No
 external bookkeeping tracks handlers separately. No registry needs to
@@ -1643,23 +1683,25 @@ class HubDisplay:
         )
 
     def drop_connection(self, connection_id: ConnectionId) -> None:
-        """Mark the connection's owned roots ``_removed``; the Element
+        """Mark the connection's owned roots removed; the Element
         Observer cascade prunes the rest."""
         for root in self._owned_roots(connection_id):
-            root._removed = True
+            root._mark_removed()
 ```
 
-`drop_connection` does one thing: mark the connection-owned root
-Elements `_removed = True`. A "root" is an Element whose parent is the
-scene root rather than another Element — i.e., an Element installed via
-`AddElement(parent_id=None)`. The Element Observer cascade does the
-rest of the work. Each scene-root container is observing its children;
-when a child flips `_removed = True`, the container's observer fires
-and performs the same two-step prune any other removal does — drop the
-child from its own children tuple AND call
-`HubDisplay.apply(RemoveElement(...))` to clear the index entry. That
-removal mutates the child, the child's children observe in turn, and
-the cascade walks the tree from leaves back up.
+`drop_connection` does one thing: call `Element._mark_removed` on
+every root Element the connection owns. A "root" is an Element whose
+parent is the scene root rather than another Element — i.e., an
+Element installed via `AddElement(parent_id=None)`. `_mark_removed`
+is the single Element-ABC method that flips `_removed = True` and
+fires the observer cascade; the disconnect path uses the same
+mechanism as every other removal. Each scene-root container is
+observing its children; when a child flips `_removed = True`, the
+container's observer fires and performs the same two-step prune any
+other removal does — drop the child from its own children tuple AND
+call `HubDisplay.apply(RemoveElement(...))` to clear the index entry.
+That removal mutates the child, the child's children observe in turn,
+and the cascade walks the tree from leaves back up.
 
 `drop_connection` does NOT walk the subtree itself. A direct
 `_remove_subtree` loop would bypass the Observer cascade entirely —
@@ -1933,8 +1975,10 @@ commit as the code they verify.
    the Confirm click, and asserts every observable downstream
    effect: the typed `ButtonClicked` event reaches the handler, the
    `call_model("confirm")` invocation runs against `DialogModel`,
-   `_confirmed = True` is set, `_removed = True` propagates through
-   the Observer, the parent prunes the Dialog, and the
+   `_confirmed = True` is set on the model, the model's `_dismiss`
+   callback flips Element-level `_removed = True` through
+   `Element._mark_removed`, the Observer cascade reaches the parent,
+   the parent prunes the Dialog, and the
    `Hub.publish("dialog_confirmed", ...)` call queues an
    `ObserverMessage` to the subscribing connection. The test is the
    acceptance gate for the PR's behavioral contract.
@@ -1953,7 +1997,7 @@ purposes — so a reader can trace each invariant to its verification.
 | 1 | Hub state lives in `domain/hub/`; entry point is `luxd.py` | `tests/test_module_layout.py` asserts the package layout; `pyproject.toml`'s `[project.scripts]` parses and the `luxd` script imports cleanly |
 | 2 | Element ABC dispatches typed events to registered handlers | `tests/test_element_abc.py::test_fire_invokes_registered_handler` registers a handler and asserts the event reaches it; a second test asserts a handler that mutates the registry mid-dispatch does not break the in-flight call |
 | 3 | Wire spec → handler chain via catalog and decorators | `tests/test_handler_catalog.py` round-trips both the long form and the sugar form through the decoder; asserts the constructed `Handler[E]` chain calls the inner factory followed by each decorator in order |
-| 4 | Dialog dismisses itself when Confirm is clicked | `tests/test_dialog_element.py::test_confirm_marks_removed` constructs the Dialog through the decoder, fires a click on the Confirm child, asserts `_confirmed` and `_removed` on the model and that the Observer notified the parent |
+| 4 | Dialog dismisses itself when Confirm is clicked | `tests/test_dialog_element.py::test_confirm_marks_removed` constructs the Dialog through the decoder, fires a click on the Confirm child, asserts `_confirmed` on the model and `_removed` on the owning DialogElement, and that the Element-level Observer notified the parent |
 | 5 | `ButtonClicked` is constructed only by `Display.interact`; validation lives in one site | `tests/test_button_clicked.py::test_direct_construction_raises` calls `ButtonClicked(...)` directly and asserts `TypeError`; `tests/test_display_interact.py` parametrizes the four validation failures (unknown client, unknown scene, unknown element, wrong kind) and asserts the typed error each raises |
 | 6 | Per-connection scoping; `ObserverMessage` round-trips on the wire | `tests/test_subscription_registry.py::test_per_connection_scope` subscribes two connections to the same topic name and asserts a publish from one reaches only its own subscribers; `tests/test_observer_message.py` round-trips the wire shape through the `MessageRegistry` |
 | 7 | `poll_event` is the only polling interface; `recv` is gone | `tests/test_display_client.py::test_no_recv_attribute` asserts `hasattr` returns False; `tests/test_display_client.py::test_poll_event_returns_payload` subscribes, publishes from another connection-handle, asserts the payload arrives |
