@@ -326,3 +326,196 @@ re-dispatch from their override to their listeners. The event registry
 collapses both responsibilities into one piece of machinery, and the
 catalog (described in the next section) makes the declarative use
 ergonomic.
+
+## Declarative handler catalog and wire format
+
+Agents do not author handlers as Python code crossing the wire. Every
+handler an Element runs is produced by a per-kind catalog of typed
+factory methods that the Element class itself publishes. The agent
+picks a catalog entry by name and supplies declarative parameters; the
+decoder constructs the typed `Handler[E]` callable and registers it
+through `add_handler`. No code travels from the agent to the Hub.
+
+This mirrors how SwiftUI exposes environment-provided actions to
+descendant views, how Vue resolves `@click="methodName"` against the
+component's defined methods, and how JavaFX FXML's `onAction="#method"`
+binds to the Controller's typed method at load time. The wire is data;
+the catalog is the bounded vocabulary the wire may name.
+
+### Per-Element catalog of handler factories
+
+Each Element class publishes a catalog as a small typed namespace of
+static factory methods. The factories are typed against the Element's
+own event class — `ButtonHandlers`'s factories return
+`Handler[ButtonClicked]`; a future `SliderHandlers` will return
+`Handler[SliderChanged]`. The decoder routes wire factory specs to the
+right catalog by the Element kind it is decoding for.
+
+```python
+class ButtonHandlers:
+    """Catalog of declarative handler factories for ButtonElement."""
+
+    @staticmethod
+    def noop() -> Handler[ButtonClicked]:
+        """Return a handler that does nothing.
+
+        Used as the inner handler for clicks that exist only to fire
+        decorator side effects (publish, log, etc.). A button that
+        publishes a topic and does nothing else wraps ``noop()``.
+        """
+        def _handler(event: ButtonClicked) -> None:
+            return None
+        return _handler
+
+    @staticmethod
+    def call_model(method: str) -> Handler[ButtonClicked]:
+        """Invoke a named method on the button's parent-component model.
+
+        The parent-component model reference is set by the parent's
+        decoder at construction time. The method name is the only wire
+        parameter; the agent never sees the model object.
+        """
+        def _handler(event: ButtonClicked) -> None:
+            event.button.owner_model.invoke(method)
+        return _handler
+```
+
+`ButtonHandlers` is a namespace, not an instantiable class — every
+member is a `@staticmethod` whose return type is the typed handler the
+ABC expects. The decoder calls `ButtonHandlers.noop()` or
+`ButtonHandlers.call_model("confirm")` based on the wire factory name
+and parameters; the typed return propagates all the way to
+`add_handler(ButtonClicked, handler)`.
+
+### Decorators compose declaratively
+
+Behavior that wraps any inner handler — publishing a business topic
+after the inner runs, logging the event, throttling repeat firings —
+is expressed as a decorator factory. Each decorator factory has the
+same shape: `Callable[[Handler[E]], Handler[E]]`. Type-preserving in
+the event class, so the chain remains type-safe end to end.
+
+```python
+def publish(topics: tuple[str, ...]) -> Callable[
+    [Handler[ButtonClicked]],
+    Handler[ButtonClicked],
+]:
+    """Wrap a handler so it publishes the listed topics after the inner runs."""
+    def _decorator(inner: Handler[ButtonClicked]) -> Handler[ButtonClicked]:
+        def _wrapped(event: ButtonClicked) -> None:
+            inner(event)
+            for topic in topics:
+                _hub.publish(event.owner_id, topic, _payload_of(event))
+        return _wrapped
+    return _decorator
+```
+
+A single handler that opens a dialog AND publishes "work.saved" is
+`publish(("work.saved",))(open_dialog_handler)`. Combinatorial cost
+stays bounded: `N` factories times `M` decorators yields `N + M`
+definitions, not `N * M`.
+
+### Wire format — long form, then sugar
+
+The long form is explicit and uniform: an event name, a factory name,
+factory parameters, and an ordered list of decorator wrappers applied
+inner-first.
+
+```jsonc
+{"event": "click",
+ "factory": "noop",
+ "wrap": [{"decorator": "publish", "topics": ["work.saved"]}]}
+```
+
+The decoder reads this verbatim: look up `"noop"` in `ButtonHandlers`,
+call it with no params, then apply each entry in `"wrap"` outermost
+last (so the first listed decorator sees the agent's inner handler,
+each subsequent decorator wraps the prior result). The final
+`Handler[ButtonClicked]` lands on the Element via `add_handler`.
+
+The common case — fire a business topic with nothing else attached —
+gets a sugar shorthand the decoder canonicalises to the long form
+before constructing the chain:
+
+```jsonc
+{"event": "click", "publish": ["work.saved"]}
+```
+
+After canonicalisation, both wire shapes produce the same long-form
+record:
+
+```jsonc
+{"event": "click",
+ "factory": "noop",
+ "wrap": [{"decorator": "publish", "topics": ["work.saved"]}]}
+```
+
+Sugar is one canonical rewrite per recognised key (`publish`, future
+`call_model`, etc.). The long form remains the authority — every wire
+spec is canonicalised first, then dispatched to the catalog and
+decorator chain through a single code path.
+
+### Per-parent-component verb vocabularies
+
+A `Button` inside a `Dialog` and a `Button` inside a `Form` share the
+same Element kind but answer to different verbs. Each composite Element
+publishes a typed action mapping — the verbs its child controllers may
+invoke against its model:
+
+```python
+class DialogModel:
+    """Component-local model that exposes a typed verb mapping."""
+
+    _ACTIONS: ClassVar[Mapping[str, Callable[["DialogModel"], None]]] = {
+        "confirm": lambda self: self.confirm(),
+        "cancel":  lambda self: self.cancel(),
+        "close":   lambda self: self.close(),
+        "dismiss": lambda self: self.cancel(),  # alias
+    }
+
+    def invoke(self, action: str) -> None:
+        action_fn = self._ACTIONS.get(action)
+        if action_fn is None:
+            raise ValueError(
+                f"unknown dialog action: {action!r} "
+                f"(expected one of {sorted(self._ACTIONS)})"
+            )
+        action_fn(self)
+```
+
+A future `FormModel` publishes its own vocabulary — `submit`, `reset`,
+`validate` — through the same `_ACTIONS` shape.
+
+When the decoder processes a child `Button` whose wire spec carries
+`{event: "click", factory: "call_model", method: "confirm"}`, it looks
+up `"confirm"` in the parent component's published verb mapping at
+decode time. An unrecognised verb fails loudly at decode, not at click.
+Mirrors SwiftUI's `@Environment`-provided actions, Vue's
+provide/inject, and JavaFX FXML's load-time controller binding.
+
+### No `getattr`, no `hasattr` — typed mappings throughout
+
+The catalog and the verb mappings replace every introspection-based
+dispatch the spike used. The decoder looks up a factory name in a
+`Mapping[str, Callable[..., Handler[E]]]`; the verb dispatcher looks
+up a verb name in `Mapping[str, Callable[[Model], None]]`; the ABC's
+`add_handler` takes a typed `event_type` and a typed `handler`.
+`isinstance` is the only runtime type check the dispatcher performs,
+and it runs against published Protocols and concrete event classes.
+
+This matters because the wire is the agent's surface. Every name the
+agent may use is enumerated in the Element kind's catalog and its
+parent composite's verb mapping. If the name is unknown, the decoder
+fails before any handler is registered. The Hub never executes wire
+content as Python; the only Python that runs in response to a click is
+a factory the Element kind itself ships, possibly wrapped by decorators
+the Hub itself ships.
+
+### Inline-code escape hatch is out of scope
+
+A future kind of catalog entry — `{factory: "inline", source: "..."}`
+— is forward-compatible with this shape. The agent ships a Python
+expression; the decoder constructs an inline handler from it; the
+decorator chain wraps it the same way. That capability is not in PR 4
+scope. The catalog model is built to accept it without restructuring
+when the trust model for executing agent-authored code is ready.
