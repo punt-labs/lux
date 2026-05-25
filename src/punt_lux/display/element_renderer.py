@@ -135,7 +135,7 @@ class ElementRenderer:
         self._progress_renderer = ProgressRenderer()
         self._spinner_renderer = SpinnerRenderer()
         self._markdown_renderer = MarkdownRenderer()
-        self._button_renderer = ButtonRenderer(emit_event)
+        self._button_renderer = ButtonRenderer()
         self._slider_renderer = SliderRenderer(widget_state, emit_event)
         self._checkbox_renderer = CheckboxRenderer(widget_state, emit_event)
         self._combo_renderer = ComboRenderer(widget_state, emit_event)

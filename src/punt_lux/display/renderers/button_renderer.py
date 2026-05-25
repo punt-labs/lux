@@ -4,15 +4,13 @@
 from __future__ import annotations
 
 import logging
-import time
 from typing import Self
 
 from imgui_bundle import imgui
 
 from punt_lux.display.renderers._arrow import ArrowDirections
+from punt_lux.domain.display_interaction import DisplayInteraction
 from punt_lux.protocol.elements.button import ButtonElement
-from punt_lux.protocol.messages.interaction import InteractionMessage
-from punt_lux.types import EmitEventFn
 
 __all__ = ["ButtonRenderer"]
 
@@ -20,32 +18,29 @@ _log = logging.getLogger(__name__)
 
 
 class ButtonRenderer:
-    """Render a ButtonElement, handling arrow / small / disabled variants."""
+    """Render a ButtonElement, handling arrow / small / disabled variants.
 
-    _emit_event: EmitEventFn
+    On click, calls ``elem.fire(DisplayInteraction(...))`` which
+    triggers the ``remote_dispatch`` handler installed by the
+    display-side factory. The handler sends an ``InteractionMessage``
+    to the Hub over the socket. The renderer no longer constructs
+    ``InteractionMessage`` directly — distribution is the handler's
+    concern (D21).
+    """
+
     _arrows: ArrowDirections
 
-    def __new__(cls, emit_event: EmitEventFn) -> Self:
+    def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._emit_event = emit_event
         self._arrows = ArrowDirections()
         return self
 
     def render(self, elem: ButtonElement) -> None:
-        action = elem.action or elem.id
         if elem.disabled:
             imgui.begin_disabled()
         clicked = self._click_button(elem)
         if clicked:
-            _log.warning("BUTTON-DIAG clicked id=%s action=%s", elem.id, action)
-            self._emit_event(
-                InteractionMessage(
-                    element_id=elem.id,
-                    action=action,
-                    ts=time.time(),
-                    value=True,
-                )
-            )
+            elem.fire(DisplayInteraction(element_id=elem.id))
         if elem.disabled:
             imgui.end_disabled()
 

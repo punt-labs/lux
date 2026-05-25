@@ -775,17 +775,16 @@ class DisplayServer:
         }
 
     def _emit_event(self, event: InteractionMessage) -> None:
-        """Stamp scene_id, route domain-eligible events to the pump, and queue.
+        """Stamp scene_id and queue for delivery to the Hub.
 
-        PR 2: wire-side button clicks mirror through ``DomainPump.route_interaction``
-        before joining the queue so the domain Display sees the same user-driven
-        event the wire-side subscribers do.  Non-button interactions (slider,
-        checkbox, …) flow through the queue unchanged until their own
-        Interaction variants ship in later PRs.
+        D21: the display no longer dispatches interactions locally via
+        ``DomainPump.route_interaction``. The ``remote_dispatch``
+        handler on each element sends the ``InteractionMessage`` to
+        the Hub, where the real handler fires. This method is the
+        socket-send path the ``remote_dispatch`` closure captures.
         """
         if event.scene_id is None:
             event = dataclasses.replace(event, scene_id=self._current_scene_id)
-        self._domain_pump.route_interaction(event)
         self._event_queue.append(event)
 
     # -- Tier 3 write handlers ------------------------------------------------
