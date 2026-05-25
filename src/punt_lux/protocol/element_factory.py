@@ -16,6 +16,7 @@ directive bans.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Self
@@ -41,6 +42,7 @@ if TYPE_CHECKING:
 
 __all__ = ["JsonElementFactory"]
 
+_log = logging.getLogger(__name__)
 
 _ABC_KINDS = frozenset({"text", "button", "dialog"})
 
@@ -110,6 +112,7 @@ class JsonElementFactory:
         if kind == "text":
             return self._text_decoder.decode(raw)
         if kind == "button":
+            raw = self._canonicalize_top_level_publish(raw)
             elem = self._button_decoder.decode(raw)
             self._install_remote_dispatch(elem)
             return elem
@@ -120,6 +123,32 @@ class JsonElementFactory:
         msg = f"JsonElementFactory has no decoder for kind={kind!r}"
         raise ValueError(msg)
 
+    @staticmethod
+    def _canonicalize_top_level_publish(
+        raw: Mapping[str, object],
+    ) -> Mapping[str, object]:
+        """Promote top-level ``publish`` sugar to a ``handlers`` entry.
+
+        Wire sugar: ``{"kind": "button", "publish": ["topic1"]}``
+        Canonical:  ``{"kind": "button", "handlers": [{"event": "click",
+                       "factory": "noop", "wrap": [{"decorator": "publish",
+                       "topics": ["topic1"]}]}]}``
+
+        If the raw dict already has a ``handlers`` key, returns unchanged.
+        """
+        publish = raw.get("publish")
+        if publish is None or "handlers" in raw:
+            return raw
+        handler_spec: dict[str, object] = {
+            "event": "click",
+            "factory": "noop",
+            "wrap": [{"decorator": "publish", "topics": publish}],
+        }
+        merged = dict(raw)
+        merged["handlers"] = [handler_spec]
+        del merged["publish"]
+        return merged
+
     def _install_remote_dispatch(self, elem: AbcElement) -> None:
         """Install a remote_dispatch handler if this factory is display-side."""
         if self._display_send is None:
@@ -128,6 +157,11 @@ class JsonElementFactory:
         from punt_lux.domain.handlers.remote_dispatch import remote_dispatch
 
         action = getattr(elem, "action", None) or elem.id
+        _log.debug(
+            "install remote_dispatch element_id=%s action=%s event=DisplayInteraction",
+            elem.id,
+            action,
+        )
         elem.add_handler(
             DisplayInteraction,
             remote_dispatch(self._display_send, elem.id, action),

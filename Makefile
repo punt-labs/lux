@@ -80,7 +80,7 @@ restart: install ## Install + restart luxd and display (full reload cycle)
 		kill $$(cat $(LUX_PID_FILE)) 2>/dev/null || true; \
 		rm -f $(LUX_PID_FILE); \
 	else \
-		pkill -f "luxd --port $(LUX_PORT)" 2>/dev/null || true; \
+		pkill -f "luxd.*--port $(LUX_PORT)" 2>/dev/null || true; \
 	fi
 	@# Kill old display
 	@if [ -f $(DISPLAY_PID_FILE) ]; then \
@@ -90,8 +90,8 @@ restart: install ## Install + restart luxd and display (full reload cycle)
 		pkill -f "^Lux$$" 2>/dev/null || true; \
 	fi
 	@sleep 1
-	@# Start luxd
-	@luxd --port $(LUX_PORT) & echo $$! > $(LUX_PID_FILE)
+	@# Start luxd (stderr → .tmp/luxd.log for diagnostics; DEBUG for hub dispatch)
+	@PYTHONUNBUFFERED=1 luxd --port $(LUX_PORT) 2>.tmp/luxd.log & echo $$! > $(LUX_PID_FILE)
 	@sleep 1
 	@# Start display
 	@lux display & echo $$! > $(DISPLAY_PID_FILE)
@@ -104,12 +104,12 @@ reload: install ## Install + restart luxd only (display keeps running)
 		kill $$(cat $(LUX_PID_FILE)) 2>/dev/null || true; \
 		rm -f $(LUX_PID_FILE); \
 	else \
-		pkill -f "luxd --port $(LUX_PORT)" 2>/dev/null || true; \
+		pkill -f "luxd.*--port $(LUX_PORT)" 2>/dev/null || true; \
 	fi
 	@sleep 1
-	@luxd --port $(LUX_PORT) & echo $$! > $(LUX_PID_FILE)
+	@luxd --port $(LUX_PORT) 2>.tmp/luxd.log & echo $$! > $(LUX_PID_FILE)
 	@sleep 1
-	@echo "luxd pid=$$(cat $(LUX_PID_FILE)) port=$(LUX_PORT)"
+	@echo "luxd pid=$$(cat $(LUX_PID_FILE)) port=$(LUX_PORT) log=.tmp/luxd.log"
 
 clean: ## Remove build artifacts
 	rm -rf dist/ .tmp/

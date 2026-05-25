@@ -40,6 +40,7 @@ class ButtonRenderer:
             imgui.begin_disabled()
         clicked = self._click_button(elem)
         if clicked:
+            _log.debug("button fire element_id=%s", elem.id)
             elem.fire(DisplayInteraction(element_id=elem.id))
         if elem.disabled:
             imgui.end_disabled()

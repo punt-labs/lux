@@ -603,12 +603,17 @@ class ElementRenderer:
 
     def _render_dialog(self, elem: Element) -> None:
         """Paint a DialogElement frame and recurse into its child Buttons."""
+        import logging
+        _dlog = logging.getLogger("lux.render.dialog")
         from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
         from punt_lux.protocol.elements.dialog import DialogElement
 
+        _dlog.warning("_render_dialog called for %s type=%s", elem.id, type(elem).__name__)
         if not isinstance(elem, DialogElement):
+            _dlog.warning("NOT a DialogElement — falling through as unsupported")
             msg = f"_render_dialog expected DialogElement; got {type(elem).__name__}"
             raise TypeError(msg)
+        _dlog.warning("DialogElement confirmed, visible=%s children=%d", elem.visible, len(elem.children))
         ImGuiDialogRenderer(elem, self._widget_state, self._button_renderer).render()
 
     # -- draw element rendering ------------------------------------------------

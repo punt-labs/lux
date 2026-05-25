@@ -430,6 +430,12 @@ class DisplayClient:
             if cb is None:
                 fallback = self._fallback_interaction_handler
                 if fallback is not None:
+                    logger.debug(
+                        "dispatch fallback element_id=%s action=%s scene_id=%s",
+                        msg.element_id,
+                        msg.action,
+                        msg.scene_id,
+                    )
                     try:
                         fallback(msg)
                     except Exception:

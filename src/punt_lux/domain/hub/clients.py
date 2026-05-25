@@ -112,24 +112,58 @@ class ClientRegistry:
 
         scene_id = msg.scene_id
         element_id = msg.element_id
+        logger.debug(
+            "hub dispatch received scene_id=%s element_id=%s",
+            scene_id,
+            element_id,
+        )
         if scene_id is None or element_id is None:
+            logger.warning(
+                "hub dispatch missing ids scene_id=%s element_id=%s",
+                scene_id,
+                element_id,
+            )
             return
         try:
             element = hub_display.resolve(SceneId(scene_id), ElementId(element_id))
-        except (KeyError, LookupError):
-            logger.debug(
-                "Hub dispatch: element %s not in HubDisplay for scene %s",
-                element_id,
+        except (KeyError, LookupError) as exc:
+            logger.warning(
+                "hub dispatch resolve failed scene_id=%s element_id=%s: %s",
                 scene_id,
+                element_id,
+                exc,
             )
             return
+        logger.debug(
+            "hub dispatch resolved element_id=%s type=%s is_abc=%s",
+            element_id,
+            type(element).__name__,
+            isinstance(element, ElementABC),
+        )
         if not isinstance(element, ElementABC):
+            logger.warning(
+                "hub dispatch type mismatch element_id=%s type=%s",
+                element_id,
+                type(element).__name__,
+            )
             return
+        handler_count = len(element._handlers.get(ButtonClicked, []))
+        logger.warning(
+            "HUB-DISPATCH: element=%s ButtonClicked_handlers=%d all_handlers=%s",
+            element_id,
+            handler_count,
+            {k.__name__: len(v) for k, v in element._handlers.items()},
+        )
         event = ButtonClicked(
             scene_id=SceneId(scene_id),
             element_id=ElementId(element_id),
             owner_id=ClientId("display-fallback"),
             _token=BUTTON_CLICKED_TOKEN,
+        )
+        logger.warning(
+            "HUB-DISPATCH: firing element_id=%s scene_id=%s",
+            element_id,
+            scene_id,
         )
         element.fire(event)
 

@@ -785,6 +785,12 @@ class DisplayServer:
         """
         if event.scene_id is None:
             event = dataclasses.replace(event, scene_id=self._current_scene_id)
+        logger.debug(
+            "_emit_event queued element_id=%s action=%s scene_id=%s",
+            event.element_id,
+            event.action,
+            event.scene_id,
+        )
         self._event_queue.append(event)
 
     # -- Tier 3 write handlers ------------------------------------------------
