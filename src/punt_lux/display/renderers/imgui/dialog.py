@@ -83,8 +83,8 @@ class ImGuiDialogRenderer:
 
         # Default p_open=None hides the close-X — the dialog dismisses
         # through the DialogModel via child Button handlers, not through
-        # the popup chrome. The next frame's was_open && !visible branch
-        # below catches any user-driven close (Esc) and clears the latch.
+        # the popup chrome. The post-popup branch catches any user-driven
+        # close (Esc, click-outside) and syncs both latch and model.
         visible, _p_open = imgui.begin_popup_modal(popup_id)
         if visible:
             for child in self._elem.children:
@@ -92,8 +92,22 @@ class ImGuiDialogRenderer:
             imgui.end_popup()
 
         if was_open and not visible:
-            self._widget_state.set(open_key, self._CLOSED)
-            self._widget_state.set(dismiss_key, self._OPEN)
+            self._handle_external_close(open_key, dismiss_key)
+
+    def _handle_external_close(self, open_key: str, dismiss_key: str) -> None:
+        """Sync widget-state latches and model after an ImGui-driven close.
+
+        ImGui closes the popup itself when the user presses Escape or
+        clicks outside. Pressing Escape on a modal IS a dismiss action;
+        the model's ``close()`` triggers its observer cascade
+        (``mark_removed`` → parent composites) so the rest of the system
+        sees the dismissal. Without this, ``model._visible`` stays True
+        while the popup is gone — state drift.
+        """
+        self._widget_state.set(open_key, self._CLOSED)
+        self._widget_state.set(dismiss_key, self._OPEN)
+        if self._elem.visible:
+            self._elem.model.close()
 
     def _render_child(self, child: object) -> None:
         """Dispatch one dialog child to its renderer.

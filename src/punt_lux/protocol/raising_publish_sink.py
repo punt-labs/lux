@@ -6,9 +6,18 @@ When an Element is decoded outside a real tier (the legacy
 wired to receive ``publish`` decorator fan-out. The decoders still
 demand a ``PublishSink`` — silently dropping the publish path is
 banned. ``RaisingPublishSink`` is the boundary safety net: explicit to
-construct, loud to call. A decode-then-click flow that reaches this
-sink surfaces the missing Hub wiring as a ``RuntimeError`` instead of
-swallowing the message.
+construct, loud to call.
+
+When called, the sink raises ``RuntimeError`` naming the originating
+decode path. The exception does NOT propagate to the caller of
+``Element.fire`` (e.g. a click handler) — ``Element.fire`` is a
+fan-out boundary and catches every handler exception, routing it to
+``logger.exception`` so one bad subscriber cannot stop delivery to the
+others. The raise is therefore the audit trail, not the control-flow
+signal: the publish never reaches ``Hub.publish``, which is the whole
+point of the safety net, and the missing Hub wiring shows up in the
+logs instead of corrupting the message bus by silently dropping or
+misrouting the message.
 
 Tier code (luxd hub, MCP server) constructs its own ``JsonElementFactory``
 with the Hub-bound sink; this class is only the no-tier fallback.
