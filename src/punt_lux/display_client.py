@@ -10,9 +10,9 @@ Supports push-based event handling via :meth:`on_event` and
 :class:`InteractionMessage` frames with a matching ``(element_id, action)``
 callback are dispatched on the listener thread; acks, pongs, and query
 responses route to dedicated queues consumed by :meth:`show`, :meth:`ping`,
-and :meth:`query`.  Inbound :class:`ObserverMessage` payloads — fan-outs
-from ``Hub.publish`` calls scoped to this connection — queue for
-:meth:`poll_event`, the per-connection business-event poller.
+and :meth:`query`.  Inbound :class:`ObserverMessage` frames — fan-outs
+from ``Hub.publish`` calls scoped to this connection — queue as
+:class:`PolledEvent` records for :meth:`poll_event`.
 
 Usage::
 
@@ -20,7 +20,7 @@ Usage::
 
     with DisplayClient() as client:
         client.show("s1", elements=[TextElement(id="t1", content="Hello")])
-        payload = client.poll_event(timeout=1.0)
+        event = client.poll_event(timeout=1.0)  # event.topic, event.payload
 """
 
 from __future__ import annotations
@@ -37,6 +37,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self
 
 from punt_lux.paths import DisplayPaths
+from punt_lux.polled_event import PolledEvent
 from punt_lux.protocol import (
     AckMessage,
     ClearMessage,
@@ -60,8 +61,6 @@ from punt_lux.protocol import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from punt_lux.protocol import Element, Message, Patch
 
 logger = logging.getLogger(__name__)
@@ -106,7 +105,7 @@ class DisplayClient:
     _ack_queue: queue.SimpleQueue[AckMessage]
     _pong_queue: queue.SimpleQueue[PongMessage]
     _query_queue: queue.SimpleQueue[QueryResponse]
-    _event_queue: queue.SimpleQueue[Mapping[str, Any]]
+    _event_queue: queue.SimpleQueue[PolledEvent]
 
     def __new__(
         cls,
@@ -377,7 +376,7 @@ class DisplayClient:
                 )
             return
         if isinstance(msg, ObserverMessage):
-            self._event_queue.put(msg.payload)
+            self._event_queue.put(PolledEvent(topic=msg.topic, payload=msg.payload))
             return
         if isinstance(msg, AckMessage):
             self._ack_queue.put(msg)
@@ -591,16 +590,13 @@ class DisplayClient:
 
     # -- receiving ---------------------------------------------------------
 
-    def poll_event(self, timeout: float | None = None) -> Mapping[str, object]:
-        """Block for the next business event delivered to this connection.
+    def poll_event(self, timeout: float | None = None) -> PolledEvent:
+        """Block for the next subscribed business event on this connection.
 
-        Returns the payload of the next ``ObserverMessage`` whose topic
-        the connection is subscribed to.  Raises ``TimeoutError`` if no
-        message arrives within ``timeout`` seconds.  ``timeout`` defaults
-        to the client's ``recv_timeout``.
-
-        Requires the listener to be active — observer messages are
-        delivered push-style and have no inline polling fallback.
+        Returns a :class:`PolledEvent` (topic + payload) from the next
+        ``ObserverMessage``.  Raises ``TimeoutError`` after ``timeout``
+        seconds (default: ``recv_timeout``).  Requires an active listener
+        — observer messages are push-only with no inline polling fallback.
         """
         self._require_connected()
         if not self.listener_active:

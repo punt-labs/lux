@@ -810,8 +810,9 @@ class TestBackgroundListener:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.connect()
             client.start_listener()
-            payload = client.poll_event(timeout=2.0)
-            assert payload == {"id": "save_btn"}
+            event = client.poll_event(timeout=2.0)
+            assert event.topic == "work.saved"
+            assert event.payload == {"id": "save_btn"}
             client.close()
         finally:
             if server_conn:
