@@ -273,3 +273,6 @@
 {"ts":"2026-05-25T16:23:17Z","commit":"7d78567","files_scored":159,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-05-25T16:23:35Z","commit":"7d78567","files_scored":159,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-05-25T16:24:12Z","commit":"7d78567","files_scored":159,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-05-25T19:42:38Z","commit":"4bb74cb","files_scored":158,"files_improved":1,"files_regressed":7,"verdict":"fail","deltas":{"src/punt_lux/tracing.py":{"method_ratio":[0.0,0.0],"encapsulation_ratio":[0.0,1.0],"avg_params":[0.0,0.5],"max_complexity":[0.0,1.0],"avg_complexity":[0.0,1.0],"module_size":[0.0,26.0],"classes_per_module":[0.0,0.0],"class_to_func_ratio":[0.0,0.0],"init_violations":[0.0,0.0],"public_attr_violations":[0.0,0.0],"future_annotations":[0.0,1.0]}}}
+{"ts":"2026-05-25T19:42:59Z","commit":"4bb74cb","files_scored":158,"files_improved":0,"files_regressed":7,"verdict":"fail","deltas":{}}
+{"ts":"2026-05-25T19:43:14Z","commit":"4bb74cb","files_scored":158,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}

@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Self
 
 from punt_lux.apps.beads import BeadsBrowser
 from punt_lux.display_client import DisplayClient
+from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
     from punt_lux.protocol import RemoteEventHandlerInvocation
@@ -95,6 +96,7 @@ class ClientRegistry:
         self._apps_registered_for = id(client)
 
     @staticmethod
+    @trace
     def _hub_interaction_dispatch(msg: RemoteEventHandlerInvocation) -> None:
         """Route display-side clicks through Hub-side element dispatch.
 

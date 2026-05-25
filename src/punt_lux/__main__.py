@@ -95,9 +95,13 @@ def display(
     log_path = dp.log_path
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
+    import os
+
+    raw_level = os.environ.get("LUX_LOG_LEVEL", "INFO").upper()
+    log_level = getattr(logging, raw_level, logging.INFO)
     logging.basicConfig(
         filename=str(log_path),
-        level=logging.INFO,
+        level=log_level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
         datefmt="%H:%M:%S",
     )

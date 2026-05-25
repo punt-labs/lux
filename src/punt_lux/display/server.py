@@ -76,6 +76,7 @@ from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.query_dispatcher import QueryDispatcher
 from punt_lux.scene import Frame, SceneManager, WidgetState
 from punt_lux.socket_server import SocketServer
+from punt_lux.tracing import trace
 
 # Element kinds with a per-class renderer in ``display.renderers``.
 # Scenes containing only these kinds route through ``Display.apply``
@@ -774,6 +775,7 @@ class DisplayServer:
             "available": [str(t) for t in self._themes],
         }
 
+    @trace
     def _emit_event(self, event: RemoteEventHandlerInvocation) -> None:
         """Stamp scene_id and queue for delivery to the Hub.
 
@@ -1416,6 +1418,7 @@ class DisplayServer:
         for elem in scene.elements:
             self._paint_element(elem)
 
+    @trace
     def _paint_element(self, elem: Element) -> None:
         """Dispatch one element to its renderer (PR-3 ImGui factory or PR-2 path)."""
         if isinstance(elem, TextElement):

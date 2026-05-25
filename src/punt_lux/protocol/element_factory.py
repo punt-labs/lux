@@ -32,6 +32,7 @@ from punt_lux.protocol.elements.text_codec import JsonTextDecoder
 from punt_lux.protocol.standalone_button_handler import (
     build_standalone_button_handler_decoder,
 )
+from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -107,6 +108,7 @@ class JsonElementFactory:
         )
         return self
 
+    @trace
     def decode(self, raw: Mapping[str, object]) -> AbcElement:
         """Dispatch by ``raw["kind"]`` to the per-kind ABC decoder."""
         kind = raw.get("kind")
@@ -114,13 +116,13 @@ class JsonElementFactory:
             return self._text_decoder.decode(raw)
         if kind == "button":
             raw = self._canonicalize_button_sugar(raw)
-            elem = self._button_decoder.decode(raw)
-            self._wrap_handlers_for_remote(elem)
-            return elem
+            btn = self._button_decoder.decode(raw)
+            self._wrap_handlers_for_remote(btn)
+            return btn
         if kind == "dialog":
-            elem = self._dialog_decoder.decode(raw)
-            self._wrap_handlers_for_remote_on_children(elem)
-            return elem
+            dlg = self._dialog_decoder.decode(raw)
+            self._wrap_handlers_for_remote_on_children(dlg)
+            return dlg
         msg = f"JsonElementFactory has no decoder for kind={kind!r}"
         raise ValueError(msg)
 

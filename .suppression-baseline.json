@@ -1,86 +1,86 @@
 {
-  "total": 118,
+  "total": 119,
   "by_category": {
     "noqa": 38,
-    "type_ignore": 8,
+    "type_ignore": 9,
     "pylint_disable": 2,
     "pyright_ignore": 11,
     "per_file_ignores": 59
   },
   "by_file": {
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/__main__.py": {
+    "src/punt_lux/__main__.py": {
       "noqa": 6,
       "pyright_ignore": 2
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/_backends.py": {
+    "src/punt_lux/_backends.py": {
       "pylint_disable": 2
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/apps/_beads_payload.py": {
+    "src/punt_lux/apps/_beads_payload.py": {
       "noqa": 1,
       "type_ignore": 1
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/element_renderer.py": {
+    "src/punt_lux/display/element_renderer.py": {
       "noqa": 2
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/macos.py": {
+    "src/punt_lux/display/macos.py": {
       "type_ignore": 1,
       "pyright_ignore": 1
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/menu_manager.py": {
+    "src/punt_lux/display/menu_manager.py": {
       "noqa": 13
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/renderers/imgui/dialog.py": {
+    "src/punt_lux/display/renderers/imgui/dialog.py": {
       "noqa": 1
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/display/server.py": {
+    "src/punt_lux/display/server.py": {
       "noqa": 2,
       "type_ignore": 2,
       "pyright_ignore": 1
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/domain/hub/hub_display.py": {
+    "src/punt_lux/domain/hub/hub_display.py": {
       "noqa": 1
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/luxd.py": {
+    "src/punt_lux/luxd.py": {
       "noqa": 1,
       "type_ignore": 1
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/paths.py": {
+    "src/punt_lux/paths.py": {
       "noqa": 2
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/elements/layout.py": {
+    "src/punt_lux/protocol/elements/layout.py": {
       "type_ignore": 1
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/messages/lifecycle.py": {
+    "src/punt_lux/protocol/messages/lifecycle.py": {
       "noqa": 1
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/messages/menu.py": {
+    "src/punt_lux/protocol/messages/menu.py": {
       "type_ignore": 1
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/protocol/messages/scene.py": {
+    "src/punt_lux/protocol/messages/scene.py": {
       "pyright_ignore": 1
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/query_dispatcher.py": {
+    "src/punt_lux/query_dispatcher.py": {
       "noqa": 1
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/remote.py": {
+    "src/punt_lux/remote.py": {
       "pyright_ignore": 5
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/scene/manager.py": {
+    "src/punt_lux/scene/manager.py": {
       "noqa": 1
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/socket_server.py": {
+    "src/punt_lux/socket_server.py": {
       "noqa": 2
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/tools/connection.py": {
+    "src/punt_lux/tools/connection.py": {
       "pyright_ignore": 1
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/tools/server.py": {
+    "src/punt_lux/tools/server.py": {
       "noqa": 2
     },
-    "/Users/jfreeman/Coding/punt-labs/lux/src/punt_lux/tools/tools.py": {
+    "src/punt_lux/tools/tools.py": {
       "noqa": 2,
-      "type_ignore": 1
+      "type_ignore": 2
     }
   },
-  "updated_at": "2026-05-25T16:39:50Z"
+  "updated_at": "2026-05-25T19:43:25Z"
 }

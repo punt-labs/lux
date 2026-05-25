@@ -1,5 +1,10 @@
 # Concept: Self-Extending Display Server
 
+> **Status: Not approved alternative concept.**
+> This document is not the canonical Lux architecture, is not an approved
+> plan, and is not under active development. Do not use it to guide
+> implementation. See `docs/architecture/overview.md` for the current design.
+>
 > Captured from a design conversation between Jim Freeman and Claude Agento,
 > April 2026. This is a concept exploration, not a specification or roadmap.
 > Ideas here may inform future work but do not represent committed plans.

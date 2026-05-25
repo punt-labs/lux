@@ -30,6 +30,8 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Self, cast
 
+from punt_lux.tracing import trace
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
@@ -146,6 +148,7 @@ class Element(ABC):
         if not bucket:
             del self._handlers[cast("type[Event]", event_type)]
 
+    @trace
     def fire(self, event: Event) -> None:
         """Dispatch ``event`` to every handler registered for its type.
 
