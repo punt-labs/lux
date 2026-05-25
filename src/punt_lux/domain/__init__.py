@@ -15,11 +15,13 @@ Updates to Events.
 from __future__ import annotations
 
 from punt_lux.domain.element import Element
-from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.domain.ids import ClientId, ConnectionId, ElementId, SceneId, Topic
 
 __all__ = [
     "ClientId",
+    "ConnectionId",
     "Element",
     "ElementId",
     "SceneId",
+    "Topic",
 ]

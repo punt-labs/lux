@@ -56,6 +56,10 @@ from punt_lux.protocol.messages.menu import (
     ThemeMessage,
     register_codecs as _register_menu,
 )
+from punt_lux.protocol.messages.observer import (
+    ObserverMessage,
+    register_codecs as _register_observer,
+)
 from punt_lux.protocol.messages.registry import MessageRegistry
 from punt_lux.protocol.messages.scene import (
     ClearMessage,
@@ -79,6 +83,7 @@ __all__ = [
     "MenuMessage",
     "Message",
     "MessageRegistry",
+    "ObserverMessage",
     "PingMessage",
     "PongMessage",
     "QueryRequest",
@@ -116,6 +121,7 @@ DisplayMessage = (
     ReadyMessage
     | AckMessage
     | InteractionMessage
+    | ObserverMessage
     | PongMessage
     | IntrospectResponse
     | ListScenesResponse
@@ -135,6 +141,7 @@ _register_lifecycle(_registry.register)
 _register_interaction(_registry.register)
 _register_menu(_registry.register)
 _register_introspect(_registry.register)
+_register_observer(_registry.register)
 
 
 def message_to_dict(msg: Message) -> dict[str, Any]:

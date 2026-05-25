@@ -827,12 +827,43 @@ INTERACTION_SCENARIOS: tuple[Scenario, ...] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# Pub-sub scenarios — Agent Subscribe / Publish tools (subscribe, unsubscribe,
+# publish). The tools operate on the Hub's in-process SubscriptionRegistry;
+# the stub setup only needs to override the session_key ContextVar so each
+# scenario runs against a fresh per-connection scope.
+# ---------------------------------------------------------------------------
+
+
+PUBSUB_SCENARIOS: tuple[Scenario, ...] = (
+    Scenario(
+        name="subscribe-ok",
+        tool="subscribe",
+        inputs={"topic": "work.saved"},
+        setup={"display_running": False, "session_key": "corpus-subscribe-ok"},
+    ),
+    Scenario(
+        name="unsubscribe-unknown",
+        tool="unsubscribe",
+        inputs={"topic": "ghost"},
+        setup={"display_running": False, "session_key": "corpus-unsubscribe-unknown"},
+    ),
+    Scenario(
+        name="publish-no-subscribers",
+        tool="publish",
+        inputs={"topic": "no.one.listening", "payload": {"id": "btn1"}},
+        setup={"display_running": False, "session_key": "corpus-publish-empty"},
+    ),
+)
+
+
 SCENARIOS: tuple[Scenario, ...] = (
     LIFECYCLE_SCENARIOS
     + COMPOSITION_SCENARIOS
     + INTROSPECTION_SCENARIOS
     + CONTROL_SCENARIOS
     + INTERACTION_SCENARIOS
+    + PUBSUB_SCENARIOS
 )
 
 

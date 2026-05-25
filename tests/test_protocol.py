@@ -1944,6 +1944,7 @@ class TestMessageRegistry:
             "ready",
             "ack",
             "interaction",
+            "observer",
             "pong",
             "unknown",
         }

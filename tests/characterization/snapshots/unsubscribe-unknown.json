@@ -1,0 +1,14 @@
+{
+  "inputs": [
+    [
+      "topic",
+      "ghost"
+    ]
+  ],
+  "response": "unsubscribed:ghost",
+  "setup": {
+    "display_running": false,
+    "session_key": "corpus-unsubscribe-unknown"
+  },
+  "tool": "unsubscribe"
+}

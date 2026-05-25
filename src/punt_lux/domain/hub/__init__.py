@@ -9,5 +9,14 @@ transport adapter that calls into this package; no state lives there.
 from __future__ import annotations
 
 from punt_lux.domain.hub.clients import ClientRegistry, client_registry
+from punt_lux.domain.hub.hub import Hub, hub
+from punt_lux.domain.hub.subscription_registry import Handler, SubscriptionRegistry
 
-__all__ = ["ClientRegistry", "client_registry"]
+__all__ = [
+    "ClientRegistry",
+    "Handler",
+    "Hub",
+    "SubscriptionRegistry",
+    "client_registry",
+    "hub",
+]

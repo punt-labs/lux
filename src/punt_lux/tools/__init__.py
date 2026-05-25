@@ -22,7 +22,7 @@ from punt_lux.tools.server import (
     run_mcp_session,
 )
 
-# Importing tools.py registers all 29 MCP tools on the `mcp` instance.
+# Importing tools.py registers all 29 display MCP tools on the `mcp` instance.
 from punt_lux.tools.tools import (
     clear,
     display_mode,
@@ -50,6 +50,13 @@ from punt_lux.tools.tools import (
     update,
 )
 
+# Importing subscribe_tools.py registers Agent Subscribe / Publish tools.
+from punt_lux.tools.subscribe_tools import (
+    publish,
+    subscribe,
+    unsubscribe,
+)
+
 __all__ = [
     "clear",
     "display_mode",
@@ -64,6 +71,7 @@ __all__ = [
     "list_scenes",
     "mcp",
     "ping",
+    "publish",
     "recv",
     "register_tool",
     "run_mcp_session",
@@ -76,5 +84,7 @@ __all__ = [
     "show",
     "show_dashboard",
     "show_table",
+    "subscribe",
+    "unsubscribe",
     "update",
 ]
