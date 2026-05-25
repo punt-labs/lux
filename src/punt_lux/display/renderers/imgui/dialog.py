@@ -61,6 +61,8 @@ class ImGuiDialogRenderer:
 
     def render(self) -> None:
         """Paint the dialog frame and recurse into its child Buttons."""
+        import logging
+        _diag = logging.getLogger("lux.dialog.diag")
         eid = self._elem.id
         title = self._elem.title or eid
         popup_id = f"{title}##{eid}"
@@ -74,24 +76,35 @@ class ImGuiDialogRenderer:
             if was_open or dismissed:
                 self._widget_state.set(open_key, self._CLOSED)
                 self._widget_state.set(dismiss_key, self._CLOSED)
+            _diag.warning("DIALOG-DIAG eid=%s NOT_VISIBLE; was_open=%s dismissed=%s", eid, was_open, dismissed)
             return
 
         if not was_open and not dismissed:
             imgui.open_popup(popup_id)
             self._widget_state.set(open_key, self._OPEN)
             was_open = True
+            _diag.warning("DIALOG-DIAG eid=%s open_popup called", eid)
 
-        # Default p_open=None hides the close-X — the dialog dismisses
-        # through the DialogModel via child Button handlers, not through
-        # the popup chrome. The post-popup branch catches any user-driven
-        # close (Esc, click-outside) and syncs both latch and model.
-        visible, _p_open = imgui.begin_popup_modal(popup_id)
+        # ``p_open=True`` matches the working ``ElementRenderer._render_modal``
+        # pattern. With ``p_open=None`` the ImGui backend renders the popup
+        # frame but never marks it as the active popup window, so child
+        # widgets (Buttons, in this dialog's case) don't pick up mouse
+        # focus and clicks silently no-op. Passing a bool also enables the
+        # close-X chrome; the post-popup branch routes any user-driven
+        # close (X, Esc, click-outside) through the DialogModel so the
+        # observer cascade still fires.
+        visible, _p_open = imgui.begin_popup_modal(popup_id, True)  # noqa: FBT003
+        _diag.warning(
+            "DIALOG-DIAG eid=%s was_open=%s visible=%s p_open=%s n_children=%d",
+            eid, was_open, visible, _p_open, len(self._elem.children),
+        )
         if visible:
             for child in self._elem.children:
                 self._render_child(child)
             imgui.end_popup()
 
         if was_open and not visible:
+            _diag.warning("DIALOG-DIAG eid=%s EXTERNAL_CLOSE fired", eid)
             self._handle_external_close(open_key, dismiss_key)
 
     def _handle_external_close(self, open_key: str, dismiss_key: str) -> None:

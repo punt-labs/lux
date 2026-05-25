@@ -37,6 +37,7 @@ class ButtonRenderer:
             imgui.begin_disabled()
         clicked = self._click_button(elem)
         if clicked:
+            _log.warning("BUTTON-DIAG clicked id=%s action=%s", elem.id, action)
             self._emit_event(
                 InteractionMessage(
                     element_id=elem.id,
