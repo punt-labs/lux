@@ -16,10 +16,11 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import cast
 
+from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.element_abc import Element as DomainElement
 from punt_lux.domain.handlers.decorators import PublishSink
 from punt_lux.protocol.element_factory import JsonElementFactory
-from punt_lux.protocol.elements import element_from_dict
+from punt_lux.protocol.elements import build_element_codec
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.in_memory_connection import InMemoryConnection
@@ -31,7 +32,9 @@ def _no_publish(_topic: str, _payload: Mapping[str, object]) -> None:
 
 
 def test_text_dict_decodes_to_domain_element_abc_subclass() -> None:
-    elem = element_from_dict({"kind": "text", "id": "t1", "content": "Hello"})
+    elem = agent_element_factory().element_from_dict(
+        {"kind": "text", "id": "t1", "content": "Hello"}
+    )
     assert isinstance(elem, DomainElement)
 
 
@@ -60,7 +63,7 @@ def test_in_memory_backend() -> None:
     hub.close()
 
     assert received == [payload]
-    elem = element_from_dict(received[0])
+    elem = agent_element_factory().element_from_dict(received[0])
     assert isinstance(elem, DomainElement)
 
 
@@ -82,6 +85,7 @@ def test_in_memory_backend_roundtrip_with_factories() -> None:
             renderer_factory=hub_factory,
             emit=lambda _m: None,
             publish_sink=cast("PublishSink", _no_publish),
+            codec=build_element_codec(),
         )
 
         original = TextElement(id="t1", content="Hello")

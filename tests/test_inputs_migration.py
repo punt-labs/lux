@@ -4,7 +4,7 @@ Each commit in the inputs migration adds one class to the matrix below.
 Per the migration plan, every kind must satisfy:
 
 1. ``isinstance(elem, Element)`` is True against the domain Protocol.
-2. ``element_from_dict({...})`` returns the typed class via the per-kind
+2. ``factory.element_from_dict({...})`` returns the typed class via the per-kind
    ``from_dict`` classmethod — no module-level helpers.
 3. ``Display.apply(client, AddElement(scene, elem))`` returns ElementAdded
    and the snapshot reflects the element.
@@ -23,6 +23,7 @@ from pathlib import Path
 
 import pytest
 
+from punt_lux.display_client import agent_element_factory
 from punt_lux.domain import ElementId, SceneId
 from punt_lux.domain.display import Display
 from punt_lux.domain.element import Element
@@ -40,7 +41,6 @@ from punt_lux.protocol import (
     RadioElement,
     SelectableElement,
     SliderElement,
-    element_from_dict,
     element_to_dict,
 )
 from punt_lux.protocol.messages.interaction import InteractionMessage
@@ -91,7 +91,7 @@ def test_button_from_dict_round_trip() -> None:
         "disabled": True,
         "small": True,
     }
-    elem = element_from_dict(payload)
+    elem = agent_element_factory().element_from_dict(payload)
     assert isinstance(elem, ButtonElement)
     assert elem.action == "submit"
     assert elem.disabled is True
@@ -102,7 +102,7 @@ def test_slider_round_trip_with_integer_flag() -> None:
     elem = SliderElement(id="s1", label="N", value=5.0, min=0.0, max=10.0, integer=True)
     payload = element_to_dict(elem)
     assert payload["integer"] is True
-    restored = element_from_dict(payload)
+    restored = agent_element_factory().element_from_dict(payload)
     assert isinstance(restored, SliderElement)
     assert restored.integer is True
 
@@ -116,7 +116,7 @@ def test_checkbox_round_trip() -> None:
         "label": "Active",
         "value": True,
     }
-    restored = element_from_dict(payload)
+    restored = agent_element_factory().element_from_dict(payload)
     assert isinstance(restored, CheckboxElement)
     assert restored.value is True
 
@@ -125,7 +125,7 @@ def test_combo_round_trip_with_items() -> None:
     elem = ComboElement(id="co1", label="Pick", items=["x", "y", "z"], selected=2)
     payload = element_to_dict(elem)
     assert payload["items"] == ["x", "y", "z"]
-    restored = element_from_dict(payload)
+    restored = agent_element_factory().element_from_dict(payload)
     assert isinstance(restored, ComboElement)
     assert restored.selected == 2
 
@@ -134,7 +134,9 @@ def test_input_text_round_trip_strips_empty_hint() -> None:
     elem = InputTextElement(id="it1", label="Name", value="Ada")
     payload = element_to_dict(elem)
     assert "hint" not in payload
-    restored = element_from_dict({**payload, "hint": "type a name"})
+    restored = agent_element_factory().element_from_dict(
+        {**payload, "hint": "type a name"}
+    )
     assert isinstance(restored, InputTextElement)
     assert restored.hint == "type a name"
 
@@ -145,7 +147,7 @@ def test_input_number_emits_optional_bounds_only_when_set() -> None:
     assert payload["min"] == 0.0
     assert payload["max"] == 100.0
     assert payload["step"] == 1.0
-    restored = element_from_dict(payload)
+    restored = agent_element_factory().element_from_dict(payload)
     assert isinstance(restored, InputNumberElement)
     assert restored.min == 0.0
 
@@ -162,7 +164,7 @@ def test_radio_round_trip() -> None:
     elem = RadioElement(id="r1", label="Mode", items=["fast", "slow"], selected=1)
     payload = element_to_dict(elem)
     assert payload["items"] == ["fast", "slow"]
-    restored = element_from_dict(payload)
+    restored = agent_element_factory().element_from_dict(payload)
     assert isinstance(restored, RadioElement)
     assert restored.selected == 1
 
@@ -174,7 +176,7 @@ def test_color_picker_round_trip_alpha_and_picker() -> None:
     payload = element_to_dict(elem)
     assert payload["alpha"] is True
     assert payload["picker"] is True
-    restored = element_from_dict(payload)
+    restored = agent_element_factory().element_from_dict(payload)
     assert isinstance(restored, ColorPickerElement)
     assert restored.value == "#FF8080AA"
 
@@ -376,7 +378,7 @@ def test_input_text_round_trip_through_element_from_dict() -> None:
         "value": "Ada",
         "hint": "type something",
     }
-    elem = element_from_dict(payload)
+    elem = agent_element_factory().element_from_dict(payload)
     assert isinstance(elem, InputTextElement)
     assert elem.value == "Ada"
     assert elem.hint == "type something"

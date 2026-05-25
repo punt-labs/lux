@@ -9,12 +9,10 @@ from pathlib import Path
 from typing import Any
 
 from punt_lux.config import ConfigManager
+from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.hub import client_registry
 from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import (
-    Patch,
-    element_from_dict,
-)
+from punt_lux.protocol import Patch
 from punt_lux.tools.connection import _query_tool
 from punt_lux.tools.server import (
     _session_key,
@@ -124,7 +122,8 @@ def show(
     if frame_title is None:
         frame_title = title or scene_id
 
-    typed_elements = [element_from_dict(e) for e in elements]
+    factory = agent_element_factory()
+    typed_elements = [factory.element_from_dict(e) for e in elements]
     size_tuple: tuple[int, int] | None = None
     if frame_size is not None:
         if len(frame_size) != 2:

@@ -18,7 +18,7 @@ from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
-from punt_lux.protocol.elements import element_from_dict
+from punt_lux.display_client import agent_element_factory
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.messages.interaction import InteractionMessage
 from punt_lux.scene.widget_state import WidgetState
@@ -65,7 +65,9 @@ def test_decoded_text_routes_to_imgui_text_renderer() -> None:
         emit=_emit,
         element_renderer=element_renderer,
     )
-    elem = element_from_dict({"kind": "text", "id": "t1", "content": "Hello"})
+    elem = agent_element_factory().element_from_dict(
+        {"kind": "text", "id": "t1", "content": "Hello"}
+    )
     assert isinstance(elem, TextElement)
     renderer = factory(elem)
     assert isinstance(renderer, ImGuiTextRenderer)

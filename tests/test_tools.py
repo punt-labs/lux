@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from punt_lux.display_client import agent_element_factory
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
@@ -30,7 +31,6 @@ from punt_lux.protocol import (
     TableElement,
     TreeElement,
     WindowElement,
-    element_from_dict,
 )
 from punt_lux.tools import (
     clear,
@@ -58,87 +58,93 @@ from punt_lux.tools.server import (
 
 class TestElementFromDict:
     def test_text_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "text", "id": "t1", "content": "Hello", "style": "heading"}
         )
         assert elem.kind == "text"
         assert elem.id == "t1"
 
     def test_button_element(self) -> None:
-        elem = element_from_dict({"kind": "button", "id": "b1", "label": "Click"})
+        elem = agent_element_factory().element_from_dict(
+            {"kind": "button", "id": "b1", "label": "Click"}
+        )
         assert elem.kind == "button"
 
     def test_image_element(self) -> None:
-        elem = element_from_dict({"kind": "image", "id": "i1", "path": "/img.png"})
+        elem = agent_element_factory().element_from_dict(
+            {"kind": "image", "id": "i1", "path": "/img.png"}
+        )
         assert elem.kind == "image"
 
     def test_separator_element(self) -> None:
-        elem = element_from_dict({"kind": "separator"})
+        elem = agent_element_factory().element_from_dict({"kind": "separator"})
         assert elem.kind == "separator"
 
     def test_missing_kind_raises(self) -> None:
         with pytest.raises(ValueError, match="kind"):
-            element_from_dict({"id": "t1", "content": "Hi"})
+            agent_element_factory().element_from_dict({"id": "t1", "content": "Hi"})
 
     def test_text_missing_content_raises(self) -> None:
         # PY-EH-8 / Bug-H + SFH-NEW-1: required wire fields raise a typed
         # ValueError naming the kind and field, no silent default.
         with pytest.raises(ValueError, match=r"text element.*'content'"):
-            element_from_dict({"kind": "text", "id": "t1"})
+            agent_element_factory().element_from_dict({"kind": "text", "id": "t1"})
 
     def test_button_defaults_label_to_empty(self) -> None:
-        elem = element_from_dict({"kind": "button", "id": "b1"})
-        assert elem.label == ""  # type: ignore[union-attr]
+        elem = agent_element_factory().element_from_dict({"kind": "button", "id": "b1"})
+        assert elem.label == ""
 
     def test_slider_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "slider", "id": "sl1", "label": "Vol", "value": 50.0}
         )
         assert elem.kind == "slider"
         assert elem.id == "sl1"
 
     def test_slider_defaults(self) -> None:
-        elem = element_from_dict({"kind": "slider", "id": "sl1"})
+        elem = agent_element_factory().element_from_dict(
+            {"kind": "slider", "id": "sl1"}
+        )
         assert isinstance(elem, SliderElement)
         assert elem.label == ""
         assert elem.value == 0.0
 
     def test_checkbox_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "checkbox", "id": "cb1", "label": "On", "value": True}
         )
         assert isinstance(elem, CheckboxElement)
         assert elem.value is True
 
     def test_combo_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "combo", "id": "co1", "label": "Pick", "items": ["A", "B"]}
         )
         assert isinstance(elem, ComboElement)
         assert elem.items == ["A", "B"]
 
     def test_input_text_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "input_text", "id": "it1", "label": "Name", "hint": "who?"}
         )
         assert isinstance(elem, InputTextElement)
         assert elem.hint == "who?"
 
     def test_radio_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "radio", "id": "r1", "label": "Opt", "items": ["X", "Y"]}
         )
         assert elem.kind == "radio"
 
     def test_color_picker_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "color_picker", "id": "cp1", "label": "Bg", "value": "#FF0000"}
         )
         assert isinstance(elem, ColorPickerElement)
         assert elem.value == "#FF0000"
 
     def test_draw_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {
                 "kind": "draw",
                 "id": "d1",
@@ -151,14 +157,14 @@ class TestElementFromDict:
         assert len(elem.commands) == 1
 
     def test_draw_element_defaults(self) -> None:
-        elem = element_from_dict({"kind": "draw", "id": "d1"})
+        elem = agent_element_factory().element_from_dict({"kind": "draw", "id": "d1"})
         assert isinstance(elem, DrawElement)
         assert elem.width == 400
         assert elem.height == 300
         assert elem.commands == ()
 
     def test_group_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {
                 "kind": "group",
                 "id": "g1",
@@ -171,13 +177,13 @@ class TestElementFromDict:
         assert len(elem.children) == 1
 
     def test_group_defaults(self) -> None:
-        elem = element_from_dict({"kind": "group", "id": "g1"})
+        elem = agent_element_factory().element_from_dict({"kind": "group", "id": "g1"})
         assert isinstance(elem, GroupElement)
         assert elem.layout == "rows"
         assert elem.children == []
 
     def test_tab_bar_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {
                 "kind": "tab_bar",
                 "id": "tb1",
@@ -194,7 +200,7 @@ class TestElementFromDict:
         assert elem.tabs[0]["label"] == "A"
 
     def test_collapsing_header_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {
                 "kind": "collapsing_header",
                 "id": "ch1",
@@ -209,7 +215,7 @@ class TestElementFromDict:
         assert len(elem.children) == 1
 
     def test_window_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {
                 "kind": "window",
                 "id": "w1",
@@ -225,7 +231,7 @@ class TestElementFromDict:
         assert len(elem.children) == 1
 
     def test_window_defaults(self) -> None:
-        elem = element_from_dict({"kind": "window", "id": "w1"})
+        elem = agent_element_factory().element_from_dict({"kind": "window", "id": "w1"})
         assert isinstance(elem, WindowElement)
         assert elem.title == ""
         assert elem.width == 300.0
@@ -233,7 +239,7 @@ class TestElementFromDict:
         assert elem.children == []
 
     def test_selectable_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "selectable", "id": "s1", "label": "Item", "selected": True}
         )
         assert isinstance(elem, SelectableElement)
@@ -241,13 +247,15 @@ class TestElementFromDict:
         assert elem.selected is True
 
     def test_selectable_defaults(self) -> None:
-        elem = element_from_dict({"kind": "selectable", "id": "s1"})
+        elem = agent_element_factory().element_from_dict(
+            {"kind": "selectable", "id": "s1"}
+        )
         assert isinstance(elem, SelectableElement)
         assert elem.label == ""
         assert elem.selected is False
 
     def test_tree_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {
                 "kind": "tree",
                 "id": "tr1",
@@ -262,13 +270,13 @@ class TestElementFromDict:
         assert len(elem.nodes) == 1
 
     def test_tree_defaults(self) -> None:
-        elem = element_from_dict({"kind": "tree", "id": "tr1"})
+        elem = agent_element_factory().element_from_dict({"kind": "tree", "id": "tr1"})
         assert isinstance(elem, TreeElement)
         assert elem.label == ""
         assert elem.nodes == []
 
     def test_table_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {
                 "kind": "table",
                 "id": "tbl1",
@@ -283,14 +291,16 @@ class TestElementFromDict:
         assert "resizable" in elem.flags
 
     def test_table_defaults(self) -> None:
-        elem = element_from_dict({"kind": "table", "id": "tbl1"})
+        elem = agent_element_factory().element_from_dict(
+            {"kind": "table", "id": "tbl1"}
+        )
         assert isinstance(elem, TableElement)
         assert elem.columns == []
         assert elem.rows == []
         assert elem.flags == ["borders", "row_bg"]
 
     def test_plot_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {
                 "kind": "plot",
                 "id": "p1",
@@ -308,7 +318,7 @@ class TestElementFromDict:
         assert len(elem.series) == 1
 
     def test_plot_defaults(self) -> None:
-        elem = element_from_dict({"kind": "plot", "id": "p1"})
+        elem = agent_element_factory().element_from_dict({"kind": "plot", "id": "p1"})
         assert isinstance(elem, PlotElement)
         assert elem.title == ""
         assert elem.x_label == ""
@@ -318,7 +328,7 @@ class TestElementFromDict:
         assert elem.series == []
 
     def test_progress_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "progress", "id": "pg1", "fraction": 0.75, "label": "75%"}
         )
         assert isinstance(elem, ProgressElement)
@@ -329,15 +339,17 @@ class TestElementFromDict:
         # PY-EH-8 / Bug-H + SFH-NEW-1: required wire fields raise a typed
         # ValueError naming the kind and field, no silent default.
         with pytest.raises(ValueError, match=r"progress element.*'fraction'"):
-            element_from_dict({"kind": "progress", "id": "pg1"})
+            agent_element_factory().element_from_dict({"kind": "progress", "id": "pg1"})
 
     def test_progress_label_optional(self) -> None:
-        elem = element_from_dict({"kind": "progress", "id": "pg1", "fraction": 0.0})
+        elem = agent_element_factory().element_from_dict(
+            {"kind": "progress", "id": "pg1", "fraction": 0.0}
+        )
         assert isinstance(elem, ProgressElement)
         assert elem.label == ""
 
     def test_spinner_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "spinner", "id": "sp1", "label": "Wait", "radius": 20.0}
         )
         assert isinstance(elem, SpinnerElement)
@@ -345,13 +357,15 @@ class TestElementFromDict:
         assert elem.radius == 20.0
 
     def test_spinner_defaults(self) -> None:
-        elem = element_from_dict({"kind": "spinner", "id": "sp1"})
+        elem = agent_element_factory().element_from_dict(
+            {"kind": "spinner", "id": "sp1"}
+        )
         assert isinstance(elem, SpinnerElement)
         assert elem.radius == 16.0
         assert elem.color == "#3399FF"
 
     def test_markdown_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "markdown", "id": "md1", "content": "**bold**"}
         )
         assert isinstance(elem, MarkdownElement)
@@ -361,21 +375,23 @@ class TestElementFromDict:
         # PY-EH-8 / Bug-H + SFH-NEW-1: required wire fields raise a typed
         # ValueError naming the kind and field, no silent default.
         with pytest.raises(ValueError, match=r"markdown element.*'content'"):
-            element_from_dict({"kind": "markdown", "id": "md1"})
+            agent_element_factory().element_from_dict({"kind": "markdown", "id": "md1"})
 
     def test_tooltip_from_dict(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "text", "id": "t1", "content": "hi", "tooltip": "help"}
         )
         assert elem.tooltip == "help"
 
     def test_tooltip_default_none(self) -> None:
-        elem = element_from_dict({"kind": "text", "id": "t1", "content": "hi"})
+        elem = agent_element_factory().element_from_dict(
+            {"kind": "text", "id": "t1", "content": "hi"}
+        )
         assert elem.tooltip is None
 
     def test_unknown_kind_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown element kind"):
-            element_from_dict({"kind": "bogus", "id": "x"})
+            agent_element_factory().element_from_dict({"kind": "bogus", "id": "x"})
 
 
 def _mock_client() -> MagicMock:

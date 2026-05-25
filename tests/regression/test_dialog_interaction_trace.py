@@ -32,9 +32,8 @@ from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId, Topic
 from punt_lux.domain.update import AddElement, RemoveElement
-from punt_lux.protocol import elements as elements_pkg
 from punt_lux.protocol.element_factory import JsonElementFactory
-from punt_lux.protocol.elements import element_from_dict
+from punt_lux.protocol.elements import build_element_codec
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder
 from punt_lux.protocol.messages.interaction import InteractionMessage
@@ -408,10 +407,9 @@ def test_confirm_click_traces_through_module_level_element_from_dict(
         renderer_factory=RaisingRendererFactory(),
         emit=_noop_emit,
         publish_sink=cast("PublishSink", _PublishSinkAdapter(_publish_sink)),
+        codec=build_element_codec(),
     )
-    monkeypatch.setattr(elements_pkg, "_ELEMENT_FACTORY", test_factory)
-
-    decoded = element_from_dict(dict(_dialog_wire_spec()))
+    decoded = test_factory.element_from_dict(dict(_dialog_wire_spec()))
     assert isinstance(decoded, DialogElement)
     dialog = decoded
 

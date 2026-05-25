@@ -11,7 +11,7 @@ from punt_lux.protocol.elements import (
     Patch,
     _element_to_dict,
     _strip_none,
-    element_from_dict,
+    layout as _layout,
 )
 from punt_lux.protocol.elements.patch import _patch_from_dict, _patch_to_dict
 
@@ -97,7 +97,12 @@ def _clear_to_dict(m: ClearMessage) -> dict[str, Any]:
 
 
 def _scene_from_dict(d: dict[str, Any]) -> SceneMessage:
-    elements = [element_from_dict(e) for e in d.get("elements", [])]
+    # Recurse via the layout dispatcher — each tier installs its
+    # JsonElementFactory.element_from_dict there at startup. No module
+    # default: a tier that forgets to install gets a ``RuntimeError``
+    # naming the fix instead of silently dispatching with the wrong DI.
+    recurse = _layout.from_dict_dispatcher()
+    elements = [recurse(e) for e in d.get("elements", [])]
     raw_frame_size = d.get("frame_size")
     frame_size = _parse_frame_size(raw_frame_size) if raw_frame_size else None
     raw_flags = d.get("frame_flags")

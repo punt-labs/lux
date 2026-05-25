@@ -32,9 +32,9 @@ import select
 import socket
 import threading
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Self
+from typing import TYPE_CHECKING, Any, Literal, Self, cast
 
 from punt_lux.paths import DisplayPaths
 from punt_lux.polled_event import PolledEvent
@@ -59,11 +59,77 @@ from punt_lux.protocol import (
     recv_message,
     send_message,
 )
+from punt_lux.protocol.element_factory import JsonElementFactory
+from punt_lux.protocol.elements import build_element_codec, layout as _element_layout
+from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 
 if TYPE_CHECKING:
     from punt_lux.protocol import Element, Message, Patch
 
 logger = logging.getLogger(__name__)
+
+
+class NoOpAgentSideSink:
+    """Explicit no-op publish sink for agent-side wire decode.
+
+    Agent-side decoders never receive publish-bearing wire elements —
+    publish decorators only fire inside the luxd Hub. This sink is
+    constructed by the agent-side tier boundary (DisplayClient,
+    tools.show, beads app) and threaded into a per-tier
+    :class:`JsonElementFactory` so any decode-time publish (which would
+    indicate a misrouted Hub element) silently no-ops rather than
+    raising — agent-side validation focuses on schema integrity, not
+    on Hub-only side effects.
+
+    Display-tier code (luxd) reuses this same sink today because the
+    display process has no Hub wired in yet. Once a real Hub flows
+    through the display tier, that consumer constructs its own
+    Hub-bound sink instead.
+    """
+
+    __slots__ = ()
+
+    def __new__(cls) -> Self:
+        return super().__new__(cls)
+
+    def __call__(self, _topic: str, _payload: Mapping[str, object]) -> None:
+        """Drop the publish — agent-side has no Hub to deliver it to."""
+
+
+def no_op_emit(_msg: object) -> None:
+    """Sentinel emit channel for agent-side / display-tier decode — Null Object."""
+
+
+def _build_agent_side_factory() -> JsonElementFactory:
+    """Build the agent-side :class:`JsonElementFactory` for wire decode.
+
+    Constructed lazily at module load so any code path that decodes a
+    wire dict on the agent side (DisplayClient.recv, tools.show
+    validation, beads.build_elements) routes through one shared
+    factory. ``RaisingRendererFactory`` makes any accidental
+    ``elem.render()`` from the agent tier loud; ``_NoOpAgentSideSink``
+    drops publishes that the agent has no Hub to deliver to.
+    """
+    return JsonElementFactory(
+        renderer_factory=RaisingRendererFactory(),
+        emit=no_op_emit,
+        publish_sink=cast("Any", NoOpAgentSideSink()),
+        codec=build_element_codec(),
+    )
+
+
+# Agent-side tier-boundary factory. The decode-side container recursion
+# is installed once at import time so every agent-side decode path
+# (DisplayClient inbound, tools.show validation, beads app, scene
+# message decode in ``recv_message`` / ``FrameReader.drain_typed``)
+# routes through this factory's bound method.
+_AGENT_FACTORY: JsonElementFactory = _build_agent_side_factory()
+_element_layout.install_from_dict(_AGENT_FACTORY.element_from_dict)
+
+
+def agent_element_factory() -> JsonElementFactory:
+    """Return the shared agent-side :class:`JsonElementFactory`."""
+    return _AGENT_FACTORY
 
 
 def _drain_queue(q: queue.SimpleQueue[Any]) -> None:

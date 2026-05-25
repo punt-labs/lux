@@ -4,13 +4,67 @@ from __future__ import annotations
 
 import socket
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Self, cast
 
 import pytest
 
+from punt_lux.protocol.element_factory import JsonElementFactory
+from punt_lux.protocol.elements import build_element_codec
+from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+
 if TYPE_CHECKING:
     from collections.abc import Generator
+
+
+class _TestRecordingSink:
+    """Publish sink that records every ``(topic, payload)`` for assertions.
+
+    Tests that need to assert no-publish (or to inspect what was
+    published during decode) construct one of these and read
+    ``self.calls``. Lives in ``tests/`` because production code has no
+    business knowing about recording sinks.
+    """
+
+    __slots__ = ("calls",)
+
+    calls: list[tuple[str, Mapping[str, object]]]
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self.calls = []
+        return self
+
+    def __call__(self, topic: str, payload: Mapping[str, object]) -> None:
+        """Record the publish — tests assert on ``self.calls``."""
+        self.calls.append((topic, payload))
+
+
+def _build_test_factory(sink: _TestRecordingSink | None = None) -> JsonElementFactory:
+    """Build a :class:`JsonElementFactory` wired with a recording sink."""
+
+    def _no_op_emit(_msg: object) -> None:
+        """Emit channel that drops events — tests don't assert against it."""
+
+    return JsonElementFactory(
+        renderer_factory=RaisingRendererFactory(),
+        emit=_no_op_emit,
+        publish_sink=cast("Any", sink or _TestRecordingSink()),
+        codec=build_element_codec(),
+    )
+
+
+@pytest.fixture
+def element_factory() -> JsonElementFactory:
+    """Return a :class:`JsonElementFactory` wired with a recording sink."""
+    return _build_test_factory()
+
+
+@pytest.fixture
+def recording_sink() -> _TestRecordingSink:
+    """Return a fresh :class:`_TestRecordingSink` for direct construction."""
+    return _TestRecordingSink()
 
 
 # ---------------------------------------------------------------------------

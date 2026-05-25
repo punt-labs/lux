@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from punt_lux.display_client import agent_element_factory
 from punt_lux.protocol import (
     AckMessage,
     ButtonElement,
@@ -58,7 +59,6 @@ from punt_lux.protocol import (
     UpdateMessage,
     WindowElement,
     decode_frame,
-    element_from_dict,
     encode_frame,
     encode_message,
     message_from_dict,
@@ -1459,7 +1459,7 @@ class TestSerialization:
             "step": 0.01,
             "format": "%.2f",
         }
-        e = element_from_dict(d)
+        e = agent_element_factory().element_from_dict(d)
         assert isinstance(e, InputNumberElement)
         assert e.value == 9.99
         assert e.min == 0
@@ -1470,14 +1470,14 @@ class TestSerialization:
 
     def test_input_number_from_dict_integer(self):
         d = {"kind": "input_number", "id": "qty", "label": "Qty", "integer": True}
-        e = element_from_dict(d)
+        e = agent_element_factory().element_from_dict(d)
         assert isinstance(e, InputNumberElement)
         assert e.integer
         assert e.value == 0.0
 
     def test_input_number_from_dict_defaults(self):
         d = {"kind": "input_number", "id": "x", "label": "X"}
-        e = element_from_dict(d)
+        e = agent_element_factory().element_from_dict(d)
         assert isinstance(e, InputNumberElement)
         assert e.min is None
         assert e.max is None
@@ -1485,20 +1485,20 @@ class TestSerialization:
 
     def test_button_from_dict_arrow(self):
         d = {"kind": "button", "id": "b1", "label": "Prev", "arrow": "left"}
-        e = element_from_dict(d)
+        e = agent_element_factory().element_from_dict(d)
         assert isinstance(e, ButtonElement)
         assert e.arrow == "left"
         assert not e.small
 
     def test_button_from_dict_small(self):
         d = {"kind": "button", "id": "b2", "label": "Save", "small": True}
-        e = element_from_dict(d)
+        e = agent_element_factory().element_from_dict(d)
         assert isinstance(e, ButtonElement)
         assert e.small
 
     def test_button_from_dict_backwards_compat(self):
         d = {"kind": "button", "id": "b3", "label": "OK"}
-        e = element_from_dict(d)
+        e = agent_element_factory().element_from_dict(d)
         assert isinstance(e, ButtonElement)
         assert e.arrow is None
         assert not e.small
@@ -1511,20 +1511,20 @@ class TestSerialization:
             "value": "#FF0000FF",
             "alpha": True,
         }
-        e = element_from_dict(d)
+        e = agent_element_factory().element_from_dict(d)
         assert isinstance(e, ColorPickerElement)
         assert e.alpha
         assert not e.picker
 
     def test_color_picker_from_dict_picker(self):
         d = {"kind": "color_picker", "id": "cp2", "label": "Accent", "picker": True}
-        e = element_from_dict(d)
+        e = agent_element_factory().element_from_dict(d)
         assert isinstance(e, ColorPickerElement)
         assert e.picker
 
     def test_color_picker_from_dict_backwards_compat(self):
         d = {"kind": "color_picker", "id": "cp3", "label": "Color"}
-        e = element_from_dict(d)
+        e = agent_element_factory().element_from_dict(d)
         assert isinstance(e, ColorPickerElement)
         assert not e.alpha
         assert not e.picker
@@ -1540,7 +1540,7 @@ class TestSerialization:
                 {"kind": "button", "id": "b1", "label": "Yes"},
             ],
         }
-        e = element_from_dict(d)
+        e = agent_element_factory().element_from_dict(d)
         assert isinstance(e, ModalElement)
         assert e.title == "Confirm"
         assert e.open is True
@@ -1550,7 +1550,7 @@ class TestSerialization:
 
     def test_modal_from_dict_defaults(self):
         d = {"kind": "modal", "id": "m2"}
-        e = element_from_dict(d)
+        e = agent_element_factory().element_from_dict(d)
         assert isinstance(e, ModalElement)
         assert e.title == ""
         assert e.open is True

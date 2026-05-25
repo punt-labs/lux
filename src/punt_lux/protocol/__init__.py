@@ -42,7 +42,6 @@ from punt_lux.protocol.elements import (
     TextElement,
     TreeElement,
     WindowElement,
-    element_from_dict,
     element_to_dict,
 )
 from punt_lux.protocol.messages import (
@@ -136,7 +135,6 @@ __all__ = [
     "UpdateMessage",
     "WindowElement",
     "decode_frame",
-    "element_from_dict",
     "element_to_dict",
     "encode_frame",
     "encode_message",
