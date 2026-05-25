@@ -34,6 +34,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Self
 
+from punt_lux.domain.composite import Composite
 from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.child_index import ChildIndex
@@ -130,13 +131,17 @@ class HubDisplay:
         connection_id: ConnectionId,
         update: AddElement | SetProperty | RemoveElement,
     ) -> None:
-        """Commit a state change to the index. Owner is the caller."""
+        """Commit a state change to the index. Owner is the caller.
+
+        ``AddElement`` installs the root and then recurses into composite
+        children using the Composite Protocol — the same structural-typing
+        gate the display-side pump uses. Click resolution downstream is
+        keyed by ``(scene, element_id)``; a child Button buried in a
+        Dialog is reachable only if its row sits in the index.
+        """
         match update:
             case AddElement(scene_id=sid, parent_id=pid, element=elem):
-                if pid is None:
-                    self._install_scene(sid, elem, owner=connection_id)
-                else:
-                    self._install_child(sid, pid, elem, owner=connection_id)
+                self._install_subtree(sid, elem, parent_id=pid, owner=connection_id)
             case SetProperty(scene_id=sid, element_id=eid, field=field, value=value):
                 self._set_property(sid, eid, field, value)
             case RemoveElement(scene_id=sid, element_id=eid):
@@ -183,6 +188,34 @@ class HubDisplay:
             )
 
     # -- private helpers ---------------------------------------------------
+
+    def _install_subtree(
+        self,
+        scene_id: SceneId,
+        element: WireElement,
+        *,
+        parent_id: ElementId | None,
+        owner: ConnectionId,
+    ) -> None:
+        """Install ``element`` and recurse into composite children.
+
+        Single entry point shared by both the root and child branches —
+        the display-side ``DomainPump._install_subtree`` follows the
+        same Composite-Protocol recursion shape so the two stores stay
+        in lockstep. Without recursion, a Dialog whose Buttons live in
+        ``children`` would land in the index alone; subsequent clicks
+        would route to elements ``resolve`` cannot find.
+        """
+        if parent_id is None:
+            self._install_scene(scene_id, element, owner=owner)
+        else:
+            self._install_child(scene_id, parent_id, element, owner=owner)
+        if isinstance(element, Composite):
+            element_id = ElementId(element.id)
+            for child in element.children:
+                self._install_subtree(
+                    scene_id, child, parent_id=element_id, owner=owner
+                )
 
     def _install_scene(
         self, scene_id: SceneId, element: WireElement, *, owner: ConnectionId
