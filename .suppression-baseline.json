@@ -34,7 +34,7 @@
       "type_ignore": 2,
       "pyright_ignore": 1
     },
-    "src/punt_lux/hub.py": {
+    "src/punt_lux/luxd.py": {
       "noqa": 1,
       "type_ignore": 1
     },
