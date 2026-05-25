@@ -83,8 +83,8 @@ class ElementRenderer:
     _emit_event: EmitEventFn
     _current_scene_id: str | None
     _check_dirty_window: DirtyWindowFn
-    # Per-kind renderer classes for the basics + inputs families (PR 1 + PR 2).
-    # Other families still go through ``_RENDERERS`` until their PRs land.
+    # Per-kind renderer classes for the basics + inputs families.
+    # Other families still go through ``_RENDERERS`` until extracted.
     _text_renderer: TextRenderer
     _image_renderer: ImageRenderer
     _separator_renderer: SeparatorRenderer
@@ -111,6 +111,7 @@ class ElementRenderer:
         "table": "_render_table",
         "plot": "_render_plot",
         "modal": "_render_modal",
+        "dialog": "_render_dialog",
     }
 
     def __new__(
@@ -597,6 +598,18 @@ class ElementRenderer:
                     value=None,
                 )
             )
+
+    # -- dialog rendering ------------------------------------------------------
+
+    def _render_dialog(self, elem: Element) -> None:
+        """Paint a DialogElement frame and recurse into its child Buttons."""
+        from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
+        from punt_lux.protocol.elements.dialog import DialogElement
+
+        if not isinstance(elem, DialogElement):
+            msg = f"_render_dialog expected DialogElement; got {type(elem).__name__}"
+            raise TypeError(msg)
+        ImGuiDialogRenderer(elem, self._widget_state, self._button_renderer).render()
 
     # -- draw element rendering ------------------------------------------------
 
