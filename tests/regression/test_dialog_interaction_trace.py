@@ -1,28 +1,28 @@
 """End-to-end interaction-trace parity gate for the Dialog Confirm click.
 
-This test pins the full causal chain that PR 4 stands up: a wire
-``InteractionMessage`` for the Confirm child of a ``DialogElement``
-flows through ``Display.interact`` into a typed ``ButtonClicked``,
-into the catalog handler the wire decoder installed, into
-``DialogModel.confirm`` which flips ``_confirmed = True`` and invokes
-the bound ``on_dismiss`` callback that calls ``Element.mark_removed``
-on the owning ``DialogElement``. The Element-level Observer cascade
-notifies the parent composite (which prunes its children tuple) AND
-the HubDisplay root observer (which drops the dialog from the index).
-The same click's decorator chain publishes ``"dialog_confirmed"``
-through the Hub, which fans an ``ObserverMessage`` out to the
-subscribing connection's writer.
+This test pins the full causal chain: a wire ``InteractionMessage``
+for the Confirm child of a ``DialogElement`` flows through
+``Display.interact`` into a typed ``ButtonClicked``, into the catalog
+handler the wire decoder installed, into ``DialogModel.confirm`` which
+flips ``_confirmed = True`` and invokes the bound ``on_dismiss``
+callback that calls ``Element.mark_removed`` on the owning
+``DialogElement``. The Element-level Observer cascade notifies the
+parent composite (which prunes its children tuple) AND the HubDisplay
+root observer (which drops the dialog from the index). The same
+click's decorator chain publishes ``"dialog_confirmed"`` through the
+Hub, which fans an ``ObserverMessage`` out to the subscribing
+connection's writer.
 
 Every assertion below pins one observable downstream effect. A
-failure of any single assertion is a real regression in one of the
-prior commits — the test does not exist to make any of them pass; it
-exists to make every one of them visible together.
+failure of any single assertion is a real regression — the test does
+not exist to make any of them pass; it exists to make every one of
+them visible together.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Self, cast
+from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.domain.display import Display
 from punt_lux.domain.element import Element as WireElement
@@ -32,11 +32,17 @@ from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId, Topic
 from punt_lux.domain.update import AddElement, RemoveElement
+from punt_lux.protocol import elements as elements_pkg
+from punt_lux.protocol.element_factory import JsonElementFactory
+from punt_lux.protocol.elements import element_from_dict
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder
 from punt_lux.protocol.messages.interaction import InteractionMessage
 from punt_lux.protocol.messages.observer import ObserverMessage
 from punt_lux.protocol.renderers import RaisingRendererFactory
+
+if TYPE_CHECKING:
+    import pytest
 
 _SCENE = SceneId("save-confirm-scene")
 _PANEL_ID = ElementId("root-panel")
@@ -114,12 +120,11 @@ class _ChildPropertyObserver:
 class _Panel(AbcElement):
     """Test-local composite that observes its children for self-removal.
 
-    Mirrors the ``PanelElement`` shape documented in pr4-v2.1-design.md
-    §"Element Observer — intra-Hub property propagation": when a child
-    flips ``_removed``, the parent prunes it from its own children
-    tuple AND drops it from the Hub-side index via
-    ``HubDisplay.apply(RemoveElement(...))``. The dual prune keeps the
-    parent's local view and the Hub's authoritative index in lockstep.
+    Mirrors the ``PanelElement`` shape: when a child flips ``_removed``,
+    the parent prunes it from its own children tuple AND drops it from
+    the Hub-side index via ``HubDisplay.apply(RemoveElement(...))``.
+    The dual prune keeps the parent's local view and the Hub's
+    authoritative index in lockstep.
     """
 
     _id: str
@@ -365,3 +370,99 @@ def _assert_dialog_dropped_from_hub_index(hub_display: HubDisplay) -> None:
         return
     msg = "expected dialog to be dropped from HubDisplay index after dismiss"
     raise AssertionError(msg)
+
+
+def test_confirm_click_traces_through_module_level_element_from_dict(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Sibling parity gate using the module-level ``element_from_dict`` path.
+
+    The earlier test constructs ``JsonDialogDecoder`` directly with a
+    test-local publish sink. Production code routes wire dicts through
+    ``element_from_dict``, which dispatches via the module-level
+    ``_ELEMENT_FACTORY``. This sibling swaps that factory for one wired
+    with the test's publish sink, then exercises the full trace so any
+    future production-vs-test divergence (renderer factory wiring,
+    publish-sink contract, kind dispatch) surfaces here.
+    """
+    hub = Hub()
+    hub_display = HubDisplay()
+    display = Display()
+
+    client_id = display.connect_client(name="parity-agent-module")
+    connection_id = ConnectionId(str(client_id))
+    hub_display.register_client(connection_id)
+
+    received: list[ObserverMessage] = []
+
+    def _writer(message: ObserverMessage) -> None:
+        received.append(message)
+
+    hub.register_writer(connection_id, _writer)
+    hub.subscribe(connection_id, _TOPIC)
+
+    def _publish_sink(topic: str, payload: Mapping[str, object]) -> None:
+        hub.publish(connection_id, Topic(topic), payload)
+
+    test_factory = JsonElementFactory(
+        renderer_factory=RaisingRendererFactory(),
+        emit=_noop_emit,
+        publish_sink=cast("PublishSink", _PublishSinkAdapter(_publish_sink)),
+    )
+    monkeypatch.setattr(elements_pkg, "_ELEMENT_FACTORY", test_factory)
+
+    decoded = element_from_dict(dict(_dialog_wire_spec()))
+    assert isinstance(decoded, DialogElement)
+    dialog = decoded
+
+    panel = _Panel(
+        id=str(_PANEL_ID),
+        hub_display=hub_display,
+        scene_id=_SCENE,
+        owner_connection_id=connection_id,
+    )
+    panel.install_children((dialog,))
+
+    display.add_scene(_SCENE)
+    display.apply(
+        client_id,
+        AddElement(scene_id=_SCENE, element=_as_wire(panel), parent_id=None),
+    )
+    display.apply(
+        client_id,
+        AddElement(scene_id=_SCENE, element=_as_wire(dialog), parent_id=_PANEL_ID),
+    )
+    ok_button = dialog.children[0]
+    cancel_button = dialog.children[1]
+    display.apply(
+        client_id,
+        AddElement(scene_id=_SCENE, element=_as_wire(ok_button), parent_id=_DIALOG_ID),
+    )
+    display.apply(
+        client_id,
+        AddElement(
+            scene_id=_SCENE, element=_as_wire(cancel_button), parent_id=_DIALOG_ID
+        ),
+    )
+    hub_display.apply(
+        connection_id,
+        AddElement(scene_id=_SCENE, element=_as_wire(dialog), parent_id=None),
+    )
+
+    click = InteractionMessage(
+        element_id=str(_OK_BUTTON_ID),
+        action="click",
+        scene_id=str(_SCENE),
+        value=True,
+    )
+    event = display.interact(client_id, click)
+
+    assert event.scene_id == _SCENE
+    assert event.element_id == _OK_BUTTON_ID
+    assert dialog.confirmed is True
+    assert dialog.removed is True
+    assert panel.children == ()
+    _assert_dialog_dropped_from_hub_index(hub_display)
+    assert len(received) == 1
+    assert received[0].topic == str(_TOPIC)
+    assert received[0].payload == {}
