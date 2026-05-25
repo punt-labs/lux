@@ -91,7 +91,46 @@ class ClientRegistry:
             return
         client.declare_menu_item({"id": "app-beads", "label": "Beads Browser"})
         client.on_event("app-beads", "menu", self._on_beads_browser)
+        client._fallback_interaction_handler = self._hub_interaction_fallback
         self._apps_registered_for = id(client)
+
+    @staticmethod
+    def _hub_interaction_fallback(msg: InteractionMessage) -> None:
+        """Route unmatched interactions through Hub-side element dispatch.
+
+        When the display sends a click InteractionMessage and no
+        per-element callback is registered, this fallback resolves
+        the element from HubDisplay and fires its registered handlers.
+        The handlers were wired by hub_element_factory with a real
+        HubPublishSink, so publish decorators reach Hub.publish.
+        """
+        from punt_lux.domain.element_abc import Element as ElementABC
+        from punt_lux.domain.hub import hub_display
+        from punt_lux.domain.ids import ClientId, ElementId, SceneId
+        from punt_lux.domain.interaction import BUTTON_CLICKED_TOKEN, ButtonClicked
+
+        scene_id = msg.scene_id
+        element_id = msg.element_id
+        if scene_id is None or element_id is None:
+            return
+        try:
+            element = hub_display.resolve(SceneId(scene_id), ElementId(element_id))
+        except (KeyError, LookupError):
+            logger.debug(
+                "Fallback: element %s not in HubDisplay for scene %s",
+                element_id,
+                scene_id,
+            )
+            return
+        if not isinstance(element, ElementABC):
+            return
+        event = ButtonClicked(
+            scene_id=SceneId(scene_id),
+            element_id=ElementId(element_id),
+            owner_id=ClientId("display-fallback"),
+            _token=BUTTON_CLICKED_TOKEN,
+        )
+        element.fire(event)
 
     def _on_beads_browser(self, _msg: InteractionMessage) -> None:
         """Open Beads Browser in a daemon thread; log render failures."""

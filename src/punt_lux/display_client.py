@@ -166,6 +166,7 @@ class DisplayClient:
     _registered_menu_items: list[dict[str, Any]]
     _lock: threading.Lock
     _callbacks: dict[tuple[str, str], Callable[[InteractionMessage], None]]
+    _fallback_interaction_handler: Callable[[InteractionMessage], None] | None
     _listener_thread: threading.Thread | None
     _listener_stop: threading.Event
     _ack_queue: queue.SimpleQueue[AckMessage]
@@ -195,6 +196,7 @@ class DisplayClient:
         # Push-based event handling state
         self._lock = threading.Lock()
         self._callbacks = {}
+        self._fallback_interaction_handler = None
         self._listener_thread = None
         self._listener_stop = threading.Event()
         self._ack_queue = queue.SimpleQueue()
@@ -426,11 +428,22 @@ class DisplayClient:
             with self._lock:
                 cb = self._callbacks.get(key)
             if cb is None:
-                logger.debug(
-                    "Dropping interaction with no callback: %s:%s",
-                    msg.element_id,
-                    msg.action,
-                )
+                fallback = self._fallback_interaction_handler
+                if fallback is not None:
+                    try:
+                        fallback(msg)
+                    except Exception:
+                        logger.exception(
+                            "Fallback handler error for %s:%s",
+                            msg.element_id,
+                            msg.action,
+                        )
+                else:
+                    logger.debug(
+                        "Dropping interaction with no callback: %s:%s",
+                        msg.element_id,
+                        msg.action,
+                    )
                 return
             try:
                 cb(msg)
