@@ -23,11 +23,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, Self, cast
 
 from punt_lux.domain.element_abc import Element
+from punt_lux.domain.handlers.decorators import PublishSink
 from punt_lux.protocol.elements.button_codec import (
     JsonButtonDecoder,
     JsonButtonEncoder,
 )
+from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from punt_lux.protocol.standalone_button_handler import (
+    build_standalone_button_handler_decoder,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -186,8 +191,21 @@ class ButtonElement(Element):
 
     @classmethod
     def from_dict(cls, d: Mapping[str, object]) -> Self:
-        """Construct a ButtonElement from a JSON-decoded mapping."""
+        """Construct a ButtonElement from a JSON-decoded mapping.
+
+        Wires a noop-only handler decoder so test/agent callers that
+        decode a Button with no ``handlers`` work without a real publish
+        bus. A spec carrying a ``handlers[].wrap`` entry that invokes
+        the publish decorator raises at click time through the
+        ``RaisingPublishSink`` — the directive bans silent swallowing
+        of decorator side effects.
+        """
         decoder = JsonButtonDecoder(
-            renderer_factory=_RAISING_FACTORY, emit=_no_emit, element_cls=cls
+            renderer_factory=_RAISING_FACTORY,
+            emit=_no_emit,
+            element_cls=cls,
+            handler_decoder=build_standalone_button_handler_decoder(
+                cast("PublishSink", RaisingPublishSink("ButtonElement.from_dict")),
+            ),
         )
         return cast("Self", decoder.decode(d))

@@ -23,8 +23,9 @@ the ``element_to_dict`` / ``element_from_dict`` dispatchers.
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any
+from typing import Any, cast
 
+from punt_lux.domain.handlers.decorators import PublishSink
 from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.elements import layout
 
@@ -80,6 +81,7 @@ from punt_lux.protocol.elements.table import (
 )
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
+from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 
 __all__ = [
@@ -165,23 +167,22 @@ _register_layout(_codec.register)
 _register_graphics(_codec.register)
 _register_table(_codec.register)
 
-# io-model dispatch — Text-only in PR 3 (per pr3-v2.1-design.md §3).
-# The factory is constructed with fail-loud defaults (RaisingRendererFactory
-# + no-op emit); production tiers construct their own factory with the real
-# DI at startup. The module-level instance covers the existing test/agent
-# path that reaches ``element_from_dict`` without explicit DI. A decoded
-# element whose ``.render()`` runs through this default raises
-# ``RuntimeError`` instead of silently no-oping (a silent paint would hide
-# a tier-routing bug).
+# Module-level factory uses fail-loud defaults so the test/agent
+# ``element_from_dict`` path works without tier DI: ``RaisingRendererFactory``
+# raises on ``.render()`` and ``RaisingPublishSink`` raises on ``__call__``.
+# Production tiers construct their own factory with real DI.
 
 
 def _no_op_emit(_msg: object) -> None:
-    """Module-level sentinel emit channel (PY-DP-9 Null Object)."""
+    """Sentinel emit channel — Null Object."""
 
 
 _ELEMENT_FACTORY = JsonElementFactory(
     renderer_factory=RaisingRendererFactory(),
     emit=_no_op_emit,
+    publish_sink=cast(
+        "PublishSink", RaisingPublishSink("module-level element_from_dict")
+    ),
 )
 _ENCODER_FACTORY = JsonEncoderFactory()
 

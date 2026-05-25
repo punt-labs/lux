@@ -8,8 +8,11 @@ configured to resolve ``call_model`` verbs against the dialog's model
 through ``BoundVerb.resolve_against``.
 
 Failures are loud and at decode time: an unknown verb, a malformed
-handler spec, or a missing ``id`` raise ``ValueError`` before the
-dialog is added to the scene — no late binding, no runtime surprise.
+handler spec, a missing ``id``, or — critically — a missing
+``publish_sink`` at decoder construction all raise before the dialog
+is added to the scene. There is no silent sink: the decoder refuses to
+construct without a real publish channel, so a wire spec carrying a
+``publish`` decorator can never silently land in a void.
 """
 
 from __future__ import annotations
@@ -36,31 +39,18 @@ if TYPE_CHECKING:
 __all__ = ["JsonDialogDecoder", "JsonDialogEncoder"]
 
 
-class _SilentPublishSink:
-    """No-op sink used when no real publish-bus is wired into the decoder.
-
-    The dialog's child buttons may still declare ``publish: [...]`` sugar
-    even when no business-bus is attached (tests, headless decode). The
-    silent sink lets the decoder build the decorator chain without
-    requiring a real Hub publish callback at decode time.
-    """
-
-    __slots__ = ()
-
-    def __new__(cls) -> Self:
-        return super().__new__(cls)
-
-    def __call__(self, _topic: str, _payload: Mapping[str, object]) -> None:
-        return None
-
-
 class JsonDialogDecoder:
     """Decode a wire dict to a fully-constructed ``DialogElement``.
 
     Constructed once per tier with that tier's ``renderer_factory``,
-    ``emit``, and (optionally) a ``PublishSink``. Each ``decode`` call
-    builds the dialog element, then walks the ``children`` list and
-    decodes each as a Button against the dialog's model.
+    ``emit``, and a real ``PublishSink``. The sink is REQUIRED — a
+    decoder without a sink cannot honour a child Button's ``publish``
+    decorator, and the directive bans silent fallbacks. Construction
+    raises ``TypeError`` if any required arg is missing.
+
+    Each ``decode`` call builds the dialog element, then walks the
+    ``children`` list and decodes each as a Button against the
+    dialog's model.
     """
 
     _rf: RendererFactory
@@ -74,18 +64,13 @@ class JsonDialogDecoder:
         renderer_factory: RendererFactory,
         emit: Emit,
         element_cls: type[DialogElement],
-        publish_sink: PublishSink | None = None,
+        publish_sink: PublishSink,
     ) -> Self:
         self = super().__new__(cls)
         self._rf = renderer_factory
         self._emit = emit
         self._cls = element_cls
-        sink: PublishSink = (
-            publish_sink
-            if publish_sink is not None
-            else cast("PublishSink", _SilentPublishSink())
-        )
-        self._sink = sink
+        self._sink = publish_sink
         return self
 
     def decode(self, raw: Mapping[str, object]) -> DialogElement:

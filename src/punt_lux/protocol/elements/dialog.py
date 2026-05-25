@@ -26,10 +26,12 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, ClassVar, Literal, Self, cast
 
 from punt_lux.domain.element_abc import Element
+from punt_lux.domain.handlers.decorators import PublishSink
 from punt_lux.protocol.elements.dialog_codec import (
     JsonDialogDecoder,
     JsonDialogEncoder,
 )
+from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 
 if TYPE_CHECKING:
@@ -251,10 +253,22 @@ class DialogElement(Element):
 
     @classmethod
     def from_dict(cls, d: Mapping[str, object]) -> Self:
-        """Construct a DialogElement from a JSON-decoded mapping."""
+        """Construct a DialogElement from a JSON-decoded mapping.
+
+        Wires a ``RaisingPublishSink`` so callers that don't supply a
+        real Hub sink (legacy ``element_from_dict`` agent path, ad-hoc
+        decode in tests) still get a well-typed dialog. A child Button
+        whose decorator chain invokes ``publish`` raises ``RuntimeError``
+        at click time — the directive bans silent swallowing of the
+        publish path. Tests that exercise publish must construct
+        ``JsonDialogDecoder`` directly with a real sink.
+        """
         decoder = JsonDialogDecoder(
             renderer_factory=_RAISING_FACTORY,
             emit=_no_emit,
             element_cls=cls,
+            publish_sink=cast(
+                "PublishSink", RaisingPublishSink("DialogElement.from_dict")
+            ),
         )
         return cast("Self", decoder.decode(d))

@@ -1,28 +1,33 @@
 """Text outbound end-to-end — io-model dispatch from wire dict to ABC-shaped Element.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §7(iii): commit (iii) routes Text
-through ``JsonElementFactory`` so ``element_from_dict`` returns an
-ABC-shaped ``TextElement`` bound to its tier's renderer factory + emit.
-
-Commit (iv) adds ``test_in_memory_backend``: drive a Text wire payload
-across the new ``InMemoryConnection`` paired-queue duplex (per §5 + D7)
-without touching ``DisplayClient``. Verifies the new transport carries
-the same dict shape ``element_from_dict`` accepts.
+Routes Text through ``JsonElementFactory`` so ``element_from_dict``
+returns an ABC-shaped ``TextElement`` bound to its tier's renderer
+factory and emit. The in-memory backend test drives a Text wire payload
+across the ``InMemoryConnection`` paired-queue duplex without touching
+``DisplayClient``, verifying the new transport carries the same dict
+shape ``element_from_dict`` accepts.
 """
 
 from __future__ import annotations
 
 import tempfile
 import threading
+from collections.abc import Mapping
 from pathlib import Path
+from typing import cast
 
 from punt_lux.domain.element_abc import Element as DomainElement
+from punt_lux.domain.handlers.decorators import PublishSink
 from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.elements import element_from_dict
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.in_memory_connection import InMemoryConnection
 from punt_lux.protocol.renderers.recording import RecordingLog, RecordingRendererFactory
+
+
+def _no_publish(_topic: str, _payload: Mapping[str, object]) -> None:
+    """Test-local publish sink — Text decode never invokes it."""
 
 
 def test_text_dict_decodes_to_domain_element_abc_subclass() -> None:
@@ -33,11 +38,11 @@ def test_text_dict_decodes_to_domain_element_abc_subclass() -> None:
 def test_in_memory_backend() -> None:
     """A Text wire dict travels client → hub end through InMemoryConnection.
 
-    Per §5: the io-model in-memory backend exposes the same
-    ``send_line`` / ``iter_lines`` / ``close`` shape as ``LineSocket``.
-    Per D7 (§6): this test exercises the new Connection module directly;
-    it does NOT route through ``DisplayClient`` (which keeps its existing
-    length-prefixed framing until a coordinated cross-tier flip).
+    The in-memory backend exposes the same ``send_line`` / ``iter_lines``
+    / ``close`` shape as ``LineSocket``. This test exercises the
+    Connection module directly; it does NOT route through
+    ``DisplayClient`` (which keeps its existing length-prefixed framing
+    until a coordinated cross-tier flip).
     """
     client, hub = InMemoryConnection.paired()
     received: list[dict[str, object]] = []
@@ -73,7 +78,11 @@ def test_in_memory_backend_roundtrip_with_factories() -> None:
     with tempfile.TemporaryDirectory(prefix="lux-") as raw_dir:
         log = RecordingLog(Path(raw_dir) / "trace.jsonl")
         hub_factory = RecordingRendererFactory(log)
-        decoder = JsonElementFactory(renderer_factory=hub_factory, emit=lambda _m: None)
+        decoder = JsonElementFactory(
+            renderer_factory=hub_factory,
+            emit=lambda _m: None,
+            publish_sink=cast("PublishSink", _no_publish),
+        )
 
         original = TextElement(id="t1", content="Hello")
         encoded = JsonEncoderFactory().encode(original)
