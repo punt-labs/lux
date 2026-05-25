@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Self
 
+from punt_lux.domain.hub.ownership_error import HubOwnershipError
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 
 __all__ = ["OwnerTracker"]
@@ -38,7 +39,12 @@ class OwnerTracker:
         self._owners[(scene_id, element_id)] = owner
 
     def get(self, scene_id: SceneId, element_id: ElementId) -> ConnectionId | None:
-        """Return the recorded owner, or ``None`` if the element is unowned."""
+        """Return the recorded owner, or ``None`` if the element is unowned.
+
+        ``None`` is the documented absence contract — the caller decides
+        whether absence is fatal (``owner_of``) or benign (the ownership
+        check passes through to the not-found path).
+        """
         return self._owners.get((scene_id, element_id))
 
     def discard(self, scene_id: SceneId, element_id: ElementId) -> None:
@@ -52,4 +58,26 @@ class OwnerTracker:
         """Return every ``(scene, element)`` pair this connection installed."""
         return tuple(
             key for key, owner in self._owners.items() if owner == connection_id
+        )
+
+    def require_ownership(
+        self,
+        scene_id: SceneId,
+        element_id: ElementId,
+        attempting: ConnectionId,
+    ) -> None:
+        """Raise ``HubOwnershipError`` if ``attempting`` is not the owner.
+
+        Unknown elements pass silently — the downstream lookup raises
+        ``UnknownElementError`` from the storage layer, keeping the
+        not-found and not-owner vocabularies distinct.
+        """
+        owner = self._owners.get((scene_id, element_id))
+        if owner is None or owner == attempting:
+            return
+        raise HubOwnershipError(
+            scene_id=scene_id,
+            element_id=element_id,
+            attempting=attempting,
+            owning=owner,
         )

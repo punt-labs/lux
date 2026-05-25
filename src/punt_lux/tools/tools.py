@@ -13,7 +13,7 @@ from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub_display
 from punt_lux.domain.ids import ConnectionId, SceneId
-from punt_lux.domain.update import AddElement
+from punt_lux.domain.update import AddElement, RemoveElement
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import Element as WireElement, Patch
 from punt_lux.tools.connection import _query_tool
@@ -166,6 +166,12 @@ def _index_scene_in_hub(scene_id: str, typed_elements: list[WireElement]) -> Non
     Protocol recursion inside ``HubDisplay.apply`` walks each root's
     descendants automatically.
 
+    A re-show of the same ``scene_id`` first removes every element this
+    connection previously installed in that scene; without that sweep,
+    the Hub mirror would accumulate stale entries that point at widgets
+    the display has already replaced. The render side is single-frame
+    state — the mirror must match.
+
     Every wire element class structurally satisfies the
     :class:`DomainElement` Protocol — same ``id`` / ``kind`` /
     ``to_dict`` / ``from_dict`` shape — but mypy does not infer the
@@ -175,6 +181,12 @@ def _index_scene_in_hub(scene_id: str, typed_elements: list[WireElement]) -> Non
     connection_id = ConnectionId(_session_key.get())
     hub_display.register_client(connection_id)
     scene = SceneId(scene_id)
+    for prior_scene, prior_element in hub_display.elements_owned_by(connection_id):
+        if prior_scene == scene:
+            hub_display.apply(
+                connection_id,
+                RemoveElement(scene_id=prior_scene, element_id=prior_element),
+            )
     for element in typed_elements:
         hub_display.apply(
             connection_id,

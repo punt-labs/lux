@@ -45,6 +45,7 @@ from punt_lux.domain.hub.element_index import (
 )
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.owner_tracker import OwnerTracker
+from punt_lux.domain.hub.ownership_error import HubOwnershipError
 from punt_lux.domain.hub.root_registry import RootRegistry
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
@@ -52,7 +53,13 @@ from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-__all__ = ["HubDisplay", "UnknownElementError", "UnknownSceneError", "hub_display"]
+__all__ = [
+    "HubDisplay",
+    "HubOwnershipError",
+    "UnknownElementError",
+    "UnknownSceneError",
+    "hub_display",
+]
 
 _log = logging.getLogger(__name__)
 
@@ -138,14 +145,45 @@ class HubDisplay:
         gate the display-side pump uses. Click resolution downstream is
         keyed by ``(scene, element_id)``; a child Button buried in a
         Dialog is reachable only if its row sits in the index.
+
+        ``SetProperty`` and ``RemoveElement`` are mutations against an
+        already-installed element and require the caller to own that
+        element. The check mirrors ``Display.apply``'s ownership
+        enforcement so a misbehaving client cannot mutate or evict
+        another client's state from the Hub mirror.
         """
         match update:
             case AddElement(scene_id=sid, parent_id=pid, element=elem):
                 self._install_subtree(sid, elem, parent_id=pid, owner=connection_id)
             case SetProperty(scene_id=sid, element_id=eid, field=field, value=value):
+                self._require_ownership(sid, eid, connection_id)
                 self._set_property(sid, eid, field, value)
             case RemoveElement(scene_id=sid, element_id=eid):
+                self._require_ownership(sid, eid, connection_id)
                 self._remove_subtree(sid, eid)
+
+    def _require_ownership(
+        self,
+        scene_id: SceneId,
+        element_id: ElementId,
+        attempting: ConnectionId,
+    ) -> None:
+        """Raise ``HubOwnershipError`` if ``attempting`` is not the owner.
+
+        Unknown elements fall through to the underlying mutation path,
+        where ``ElementIndex.lookup`` raises ``UnknownElementError`` —
+        keeping the not-found and not-owner error vocabularies distinct.
+        """
+        owner = self._owners.get(scene_id, element_id)
+        if owner is None:
+            return
+        if owner != attempting:
+            raise HubOwnershipError(
+                scene_id=scene_id,
+                element_id=element_id,
+                attempting=attempting,
+                owning=owner,
+            )
 
     # -- cleanup trigger ---------------------------------------------------
 
