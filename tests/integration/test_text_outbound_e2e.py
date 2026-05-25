@@ -94,6 +94,7 @@ def test_in_memory_backend_roundtrip_with_factories() -> None:
 
         assert len(received) == 1
         decoded = decoder.decode(received[0])
+        assert isinstance(decoded, TextElement)
 
         assert decoded.id == original.id
         assert decoded.content == original.content

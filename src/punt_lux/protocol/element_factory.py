@@ -4,14 +4,20 @@ The io-model inbound dispatcher. One instance per tier (constructed at
 startup with that tier's ``RendererFactory`` + ``Emit``); each
 ``decode(raw)`` call routes to the per-kind decoder for ``raw["kind"]``.
 
-Currently ships Text-only dispatch. Additional kinds register as their
-decoders migrate from the legacy ``ElementCodec`` path to the io-model.
+Ships Text, Button, and Dialog dispatch. Additional kinds register as
+their decoders migrate from the legacy ``ElementCodec`` path to the
+io-model.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
+from punt_lux.domain.element_abc import Element as AbcElement
+from punt_lux.protocol.elements.button import ButtonElement
+from punt_lux.protocol.elements.button_codec import JsonButtonDecoder
+from punt_lux.protocol.elements.dialog import DialogElement
+from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.text_codec import JsonTextDecoder
 
@@ -40,6 +46,8 @@ class JsonElementFactory:
     _rf: RendererFactory
     _emit: Emit
     _text_decoder: JsonTextDecoder
+    _button_decoder: JsonButtonDecoder
+    _dialog_decoder: JsonDialogDecoder
 
     def __new__(cls, *, renderer_factory: RendererFactory, emit: Emit) -> Self:
         self = super().__new__(cls)
@@ -50,12 +58,26 @@ class JsonElementFactory:
             emit=emit,
             element_cls=TextElement,
         )
+        self._button_decoder = JsonButtonDecoder(
+            renderer_factory=renderer_factory,
+            emit=emit,
+            element_cls=ButtonElement,
+        )
+        self._dialog_decoder = JsonDialogDecoder(
+            renderer_factory=renderer_factory,
+            emit=emit,
+            element_cls=DialogElement,
+        )
         return self
 
-    def decode(self, raw: Mapping[str, object]) -> TextElement:
+    def decode(self, raw: Mapping[str, object]) -> AbcElement:
         """Dispatch by ``raw["kind"]`` to the per-kind decoder."""
         kind = raw.get("kind")
         if kind == "text":
             return self._text_decoder.decode(raw)
+        if kind == "button":
+            return self._button_decoder.decode(raw)
+        if kind == "dialog":
+            return self._dialog_decoder.decode(raw)
         msg = f"JsonElementFactory has no decoder for kind={kind!r}"
         raise ValueError(msg)
