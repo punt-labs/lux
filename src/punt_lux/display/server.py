@@ -230,6 +230,7 @@ class DisplayServer:
             emit=no_op_emit,
             publish_sink=cast("Any", NoOpAgentSideSink()),
             codec=build_element_codec(),
+            display_send=self._emit_event,
         )
         _element_layout.install_from_dict(self._luxd_factory.element_from_dict)
         self._event_queue = []
