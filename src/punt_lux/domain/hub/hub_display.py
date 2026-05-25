@@ -158,19 +158,29 @@ class HubDisplay:
         """
         self._clients.discard(connection_id)
         for scene_id, element_id in self._owners.keys_for(connection_id):
-            try:
-                root = self._roots.get(scene_id, element_id)
-                if root is not None:
-                    root.mark_removed()
-                else:
-                    self._remove_subtree(scene_id, element_id)
-            except Exception:  # noqa: BLE001 — fan-out cleanup boundary; continue past failure
-                _log.exception(
-                    "drop_connection: cleanup failed for root %s in scene %s (conn %s)",
-                    element_id,
-                    scene_id,
-                    connection_id,
-                )
+            if self._children.is_root(scene_id, element_id):
+                self._drop_root(scene_id, element_id, connection_id)
+
+    def _drop_root(
+        self,
+        scene_id: SceneId,
+        element_id: ElementId,
+        connection_id: ConnectionId,
+    ) -> None:
+        """Tear down one scene-root; logs and swallows per-root failures."""
+        try:
+            root = self._roots.get(scene_id, element_id)
+            if root is not None:
+                root.mark_removed()
+            else:
+                self._remove_subtree(scene_id, element_id)
+        except Exception:  # noqa: BLE001 — fan-out cleanup boundary; continue past failure
+            _log.exception(
+                "drop_connection: cleanup failed for root %s in scene %s (conn %s)",
+                element_id,
+                scene_id,
+                connection_id,
+            )
 
     # -- private helpers ---------------------------------------------------
 
