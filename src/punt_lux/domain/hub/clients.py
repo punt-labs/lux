@@ -91,18 +91,19 @@ class ClientRegistry:
             return
         client.declare_menu_item({"id": "app-beads", "label": "Beads Browser"})
         client.on_event("app-beads", "menu", self._on_beads_browser)
-        client._fallback_interaction_handler = self._hub_interaction_fallback
+        client._fallback_interaction_handler = self._hub_interaction_dispatch
         self._apps_registered_for = id(client)
 
     @staticmethod
-    def _hub_interaction_fallback(msg: InteractionMessage) -> None:
-        """Route unmatched interactions through Hub-side element dispatch.
+    def _hub_interaction_dispatch(msg: InteractionMessage) -> None:
+        """Route display-side clicks through Hub-side element dispatch.
 
-        When the display sends a click InteractionMessage and no
-        per-element callback is registered, this fallback resolves
-        the element from HubDisplay and fires its registered handlers.
-        The handlers were wired by hub_element_factory with a real
-        HubPublishSink, so publish decorators reach Hub.publish.
+        D21: the display wraps every handler in ``remote_dispatch``,
+        which sends an ``InteractionMessage`` to the Hub. This method
+        receives that message, resolves the element from ``HubDisplay``,
+        constructs a ``ButtonClicked`` with the factory token, and
+        fires the Hub-side handlers (which have real
+        ``HubPublishSink``).
         """
         from punt_lux.domain.element_abc import Element as ElementABC
         from punt_lux.domain.hub import hub_display
@@ -117,7 +118,7 @@ class ClientRegistry:
             element = hub_display.resolve(SceneId(scene_id), ElementId(element_id))
         except (KeyError, LookupError):
             logger.debug(
-                "Fallback: element %s not in HubDisplay for scene %s",
+                "Hub dispatch: element %s not in HubDisplay for scene %s",
                 element_id,
                 scene_id,
             )

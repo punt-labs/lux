@@ -159,44 +159,9 @@ class DomainPump:
     # ``Display.interact``.
     _NON_ELEMENT_ACTIONS: ClassVar[frozenset[str]] = frozenset({"menu", "frame_close"})
 
-    def route_interaction(self, msg: InteractionMessage) -> None:
-        """Forward a wire ``InteractionMessage`` to ``Display.interact``.
-
-        The pump performs wire-shape triage only: drop messages targeting
-        display chrome rather than a scene element, drop messages with
-        no scene id. Everything else hands straight to
-        ``Display.interact`` — the single domain-validation site. Domain
-        failures surface as ``InteractionError`` subclasses; the pump
-        catches and logs them so a single bad wire frame cannot tear down
-        the listener thread. Catches the broad ``Exception`` boundary so
-        a buggy handler (third-party callback, malformed agent code) also
-        cannot tear down the listener — the pump is a system-boundary.
-        """
-        if msg.action in self._NON_ELEMENT_ACTIONS:
-            return
-        if msg.scene_id is None:
-            _log.warning(
-                "dropping interaction with no scene_id: element=%s action=%s",
-                msg.element_id,
-                msg.action,
-            )
-            return
-        try:
-            self._display.interact(self._client_id, msg)
-        except InteractionError as exc:
-            _log.warning(
-                "domain Display refused interact(scene=%s, element=%s): %s",
-                msg.scene_id,
-                msg.element_id,
-                exc,
-            )
-        except Exception:  # noqa: BLE001 — pump is a system-boundary listener
-            _log.exception(
-                "handler raised processing interact(scene=%s, element=%s, action=%s)",
-                msg.scene_id,
-                msg.element_id,
-                msg.action,
-            )
+    # route_interaction removed by D21: the display no longer dispatches
+    # interactions locally. The remote_dispatch handler on each element
+    # sends InteractionMessages to the Hub, where the real handler fires.
 
 
 def _warn_on_error(
