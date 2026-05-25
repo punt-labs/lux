@@ -1949,6 +1949,19 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_lux/tools/hub_factory.py": {
+    "method_ratio": 0.5,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 1.25,
+    "max_complexity": 1.0,
+    "avg_complexity": 1.0,
+    "module_size": 58.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 0.333,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_lux/tools/inbox.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
@@ -1994,7 +2007,7 @@
     "avg_params": 1.36,
     "max_complexity": 10.0,
     "avg_complexity": 2.94,
-    "module_size": 691.0,
+    "module_size": 692.0,
     "classes_per_module": 0.0,
     "class_to_func_ratio": 0.0,
     "init_violations": 0.0,

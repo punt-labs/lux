@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any, cast
 
 from punt_lux.config import ConfigManager
-from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub_display
 from punt_lux.domain.ids import ConnectionId, SceneId
@@ -17,6 +16,7 @@ from punt_lux.domain.update import AddElement, RemoveElement
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import Element as WireElement, Patch
 from punt_lux.tools.connection import _query_tool
+from punt_lux.tools.hub_factory import hub_element_factory
 from punt_lux.tools.server import (
     _session_key,
     _session_menus,
@@ -125,7 +125,8 @@ def show(
     if frame_title is None:
         frame_title = title or scene_id
 
-    factory = agent_element_factory()
+    connection_id = ConnectionId(_session_key.get())
+    factory = hub_element_factory(connection_id)
     typed_elements: list[WireElement] = [factory.element_from_dict(e) for e in elements]
     size_tuple: tuple[int, int] | None = None
     if frame_size is not None:
