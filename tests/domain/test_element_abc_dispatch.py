@@ -152,3 +152,17 @@ def test_observer_added_after_mark_removed_is_not_notified_on_repeat() -> None:
     elem.add_observer(late.append)
     elem.mark_removed()  # idempotent — no fresh notification fires
     assert late == []
+
+
+def test_mark_removed_isolates_per_observer_exceptions() -> None:
+    elem = _Leaf()
+    after: list[str] = []
+
+    def boom(_change: str) -> None:
+        raise RuntimeError("subscriber blew up")
+
+    elem.add_observer(boom)
+    elem.add_observer(after.append)
+    elem.mark_removed()
+    assert elem.removed is True
+    assert after == ["removed"]

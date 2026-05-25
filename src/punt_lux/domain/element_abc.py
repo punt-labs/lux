@@ -186,9 +186,22 @@ class Element(ABC):
         The single mechanism for marking any Element removed; all three
         removal paths (agent ``RemoveElement``, component self-dismiss,
         connection disconnect) reach it.
+
+        Observers run against a snapshot of the list so a callback that
+        mutates the registry mid-dispatch cannot affect the in-flight
+        call. A callback that raises is logged with full traceback and
+        the remaining observers still run — removal is a fan-out
+        boundary where one bad subscriber must not strand the others
+        (PY-EH-6 system-boundary exemption).
         """
         if self._removed:
             return
         self._removed = True
         for observer in tuple(self._observers):
-            observer("removed")
+            try:
+                observer("removed")
+            except Exception:
+                logger.exception(
+                    "observer raised on removed for element %s",
+                    self.id,
+                )
