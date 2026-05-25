@@ -247,7 +247,10 @@ def test_button_click_routes_through_display_to_element_handlers() -> None:
     button.add_handler(ButtonClicked, observed_b.append)
 
     msg = RemoteEventHandlerInvocation(
-        element_id="b1", action="b1", value=True, scene_id="s1",
+        element_id="b1",
+        action="b1",
+        value=True,
+        scene_id="s1",
     )
     click_event = display.interact(alice, msg)
 

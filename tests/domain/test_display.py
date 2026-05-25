@@ -580,7 +580,8 @@ def test_snapshot_is_a_point_in_time_view() -> None:
 
 
 def _click_msg(
-    scene_id: str, element_id: str,
+    scene_id: str,
+    element_id: str,
 ) -> RemoteEventHandlerInvocation:
     """Build an inbound wire-shape-valid button-click invocation."""
     return RemoteEventHandlerInvocation(
@@ -759,7 +760,10 @@ def test_interact_raises_wrong_kind_for_non_true_value_on_button() -> None:
         ),
     )
     msg = RemoteEventHandlerInvocation(
-        element_id="b1", action="b1", value=False, scene_id="s1",
+        element_id="b1",
+        action="b1",
+        value=False,
+        scene_id="s1",
     )
 
     with pytest.raises(WrongKindError):

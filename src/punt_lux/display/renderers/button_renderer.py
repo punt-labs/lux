@@ -9,7 +9,8 @@ from typing import Self
 from imgui_bundle import imgui
 
 from punt_lux.display.renderers._arrow import ArrowDirections
-from punt_lux.domain.display_interaction import DisplayInteraction
+from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.protocol.elements.button import ButtonElement
 
 __all__ = ["ButtonRenderer"]
@@ -20,12 +21,12 @@ _log = logging.getLogger(__name__)
 class ButtonRenderer:
     """Render a ButtonElement, handling arrow / small / disabled variants.
 
-    On click, calls ``elem.fire(DisplayInteraction(...))`` which
-    triggers the ``remote_dispatch`` handler installed by the
-    display-side factory. The handler sends an ``RemoteEventHandlerInvocation``
-    to the Hub over the socket. The renderer no longer constructs
-    ``RemoteEventHandlerInvocation`` directly — distribution is the handler's
-    concern (D21).
+    On click, fires ``ButtonClicked`` through the element's handler
+    registry. On the display side, handlers are wrapped by
+    ``remote_dispatch`` (installed by the display-side factory) which
+    sends a ``RemoteEventHandlerInvocation`` to the Hub over the socket
+    instead of executing the real handler body. On the Hub side, the
+    same handlers run unwrapped.
     """
 
     _arrows: ArrowDirections
@@ -41,7 +42,13 @@ class ButtonRenderer:
         clicked = self._click_button(elem)
         if clicked:
             _log.debug("button fire element_id=%s", elem.id)
-            elem.fire(DisplayInteraction(element_id=elem.id))
+            elem.fire(
+                ButtonClicked(
+                    scene_id=SceneId("__display__"),
+                    element_id=ElementId(elem.id),
+                    owner_id=ClientId("__display__"),
+                )
+            )
         if elem.disabled:
             imgui.end_disabled()
 

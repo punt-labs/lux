@@ -29,7 +29,7 @@ from punt_lux.domain.event import (
     Event,
 )
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import BUTTON_CLICKED_TOKEN, ButtonClicked
+from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.domain.interaction_errors import (
     ElementDismissedError,
     UnauthorizedInteractionError,
@@ -228,7 +228,9 @@ class Display:
     # -- interact -----------------------------------------------------------
 
     def interact(
-        self, client_id: ClientId, msg: RemoteEventHandlerInvocation,
+        self,
+        client_id: ClientId,
+        msg: RemoteEventHandlerInvocation,
     ) -> ButtonClicked:
         """Validate the wire message, construct the typed event, fire it.
 
@@ -250,8 +252,7 @@ class Display:
         wire_scene = msg.scene_id
         if wire_scene is None:
             msg_text = (
-                "RemoteEventHandlerInvocation.scene_id"
-                " must be set before interact()"
+                "RemoteEventHandlerInvocation.scene_id must be set before interact()"
             )
             raise ValueError(msg_text)
         scene_id = SceneId(wire_scene)
@@ -339,7 +340,6 @@ class Display:
             scene_id=scene_id,
             element_id=element_id,
             owner_id=owner_id,
-            _token=BUTTON_CLICKED_TOKEN,
         )
 
     # -- per-Update handlers ------------------------------------------------

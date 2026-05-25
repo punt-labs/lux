@@ -604,6 +604,7 @@ class ElementRenderer:
     def _render_dialog(self, elem: Element) -> None:
         """Paint a DialogElement frame and recurse into its child Buttons."""
         import logging
+
         _dlog = logging.getLogger("lux.render.dialog")
         from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
         from punt_lux.protocol.elements.dialog import DialogElement

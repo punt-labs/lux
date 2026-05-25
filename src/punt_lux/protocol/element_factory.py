@@ -19,7 +19,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from dataclasses import replace
-from typing import TYPE_CHECKING, Any, Self
+from typing import TYPE_CHECKING, Any, Self, cast
 
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.protocol.elements.button import ButtonElement
@@ -36,6 +36,7 @@ from punt_lux.protocol.standalone_button_handler import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from punt_lux.domain.event_protocol import Event, Handler
     from punt_lux.domain.handlers.decorators import PublishSink
     from punt_lux.protocol.elements.codec import ElementCodec
     from punt_lux.protocol.renderer import Emit, RendererFactory
@@ -114,11 +115,11 @@ class JsonElementFactory:
         if kind == "button":
             raw = self._canonicalize_button_sugar(raw)
             elem = self._button_decoder.decode(raw)
-            self._install_remote_dispatch(elem)
+            self._wrap_handlers_for_remote(elem)
             return elem
         if kind == "dialog":
             elem = self._dialog_decoder.decode(raw)
-            self._install_remote_dispatch_on_children(elem)
+            self._wrap_handlers_for_remote_on_children(elem)
             return elem
         msg = f"JsonElementFactory has no decoder for kind={kind!r}"
         raise ValueError(msg)
@@ -161,26 +162,37 @@ class JsonElementFactory:
         merged.pop("publish", None)
         return merged
 
-    def _install_remote_dispatch(self, elem: AbcElement) -> None:
-        """Install a remote_dispatch handler if this factory is display-side."""
+    def _wrap_handlers_for_remote(self, elem: AbcElement) -> None:
+        """Replace existing ButtonClicked handlers with remote_dispatch wrappers.
+
+        On the display side, each handler is replaced by a closure that
+        sends an ``RemoteEventHandlerInvocation`` to the Hub instead of
+        executing the handler body locally. On the Hub side (where
+        ``_display_send`` is ``None``), this method is a no-op — handlers
+        run unwrapped.
+        """
         if self._display_send is None:
             return
-        from punt_lux.domain.display_interaction import DisplayInteraction
         from punt_lux.domain.handlers.remote_dispatch import remote_dispatch
+        from punt_lux.domain.interaction import ButtonClicked
 
+        handlers = elem._handlers.get(ButtonClicked, [])
+        if not handlers:
+            return
         action = getattr(elem, "action", None) or elem.id
         _log.debug(
-            "install remote_dispatch element_id=%s action=%s event=DisplayInteraction",
+            "wrap_handlers_for_remote element_id=%s action=%s handlers=%d",
             elem.id,
             action,
+            len(handlers),
         )
-        elem.add_handler(
-            DisplayInteraction,
-            remote_dispatch(self._display_send, elem.id, action),
-        )
+        elem._handlers[ButtonClicked] = [
+            cast("Handler[Event]", remote_dispatch(self._display_send, elem.id, action))
+            for _ in handlers
+        ]
 
-    def _install_remote_dispatch_on_children(self, elem: AbcElement) -> None:
-        """Install remote_dispatch on a composite's children recursively."""
+    def _wrap_handlers_for_remote_on_children(self, elem: AbcElement) -> None:
+        """Wrap handlers on a composite's children for remote dispatch."""
         if self._display_send is None:
             return
         from punt_lux.domain.composite import Composite
@@ -188,7 +200,7 @@ class JsonElementFactory:
         if isinstance(elem, Composite):
             for child in elem.children:
                 if isinstance(child, AbcElement):
-                    self._install_remote_dispatch(child)
+                    self._wrap_handlers_for_remote(child)
 
     def element_from_dict(self, d: dict[str, Any]) -> Any:
         """Deserialize a wire dict to the appropriate Element class.

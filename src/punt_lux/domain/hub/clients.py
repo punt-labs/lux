@@ -108,7 +108,7 @@ class ClientRegistry:
         from punt_lux.domain.element_abc import Element as ElementABC
         from punt_lux.domain.hub import hub_display
         from punt_lux.domain.ids import ClientId, ElementId, SceneId
-        from punt_lux.domain.interaction import BUTTON_CLICKED_TOKEN, ButtonClicked
+        from punt_lux.domain.interaction import ButtonClicked
 
         scene_id = msg.scene_id
         element_id = msg.element_id
@@ -148,8 +148,8 @@ class ClientRegistry:
             )
             return
         handler_count = len(element._handlers.get(ButtonClicked, []))
-        logger.warning(
-            "HUB-DISPATCH: element=%s ButtonClicked_handlers=%d all_handlers=%s",
+        logger.debug(
+            "hub dispatch element=%s ButtonClicked_handlers=%d all_handlers=%s",
             element_id,
             handler_count,
             {k.__name__: len(v) for k, v in element._handlers.items()},
@@ -158,10 +158,9 @@ class ClientRegistry:
             scene_id=SceneId(scene_id),
             element_id=ElementId(element_id),
             owner_id=ClientId("display-fallback"),
-            _token=BUTTON_CLICKED_TOKEN,
         )
-        logger.warning(
-            "HUB-DISPATCH: firing element_id=%s scene_id=%s",
+        logger.debug(
+            "hub dispatch firing element_id=%s scene_id=%s",
             element_id,
             scene_id,
         )

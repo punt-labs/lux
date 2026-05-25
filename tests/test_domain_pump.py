@@ -101,7 +101,7 @@ def test_route_empty_elements_on_fresh_scene_is_safe(pump: DomainPump) -> None:
 # tests/domain/test_hub_interaction_dispatch.py.
 
 
-    # frame_close and no-scene-id tests also removed with route_interaction.
+# frame_close and no-scene-id tests also removed with route_interaction.
 
 
 def test_route_multiple_anonymous_separators(
