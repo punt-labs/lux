@@ -50,6 +50,10 @@ class RaisingPublishSink:
         self._origin = origin
         return self
 
+    def __reduce__(self) -> tuple[object, ...]:
+        """Support native serialization for Hub-to-Display transport."""
+        return (RaisingPublishSink, (self._origin,))
+
     def __call__(self, topic: str, _payload: Mapping[str, object]) -> None:
         msg = (
             f"{self._origin} path published to topic={topic!r} without a real "

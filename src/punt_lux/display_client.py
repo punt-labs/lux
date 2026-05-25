@@ -320,6 +320,17 @@ class DisplayClient:
 
     # -- callback registration ---------------------------------------------
 
+    def set_fallback_handler(
+        self,
+        handler: Callable[[RemoteEventHandlerInvocation], None],
+    ) -> None:
+        """Install a fallback handler for unmatched interaction events.
+
+        Called by the Hub to route display-side clicks through Hub-side
+        element dispatch when no ``(element_id, action)`` callback matches.
+        """
+        self._fallback_interaction_handler = handler
+
     def on_event(
         self,
         element_id: str,

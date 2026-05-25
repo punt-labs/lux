@@ -92,7 +92,7 @@ class ClientRegistry:
             return
         client.declare_menu_item({"id": "app-beads", "label": "Beads Browser"})
         client.on_event("app-beads", "menu", self._on_beads_browser)
-        client._fallback_interaction_handler = self._hub_interaction_dispatch
+        client.set_fallback_handler(self._hub_interaction_dispatch)
         self._apps_registered_for = id(client)
 
     @staticmethod
@@ -119,10 +119,9 @@ class ClientRegistry:
             scene_id,
             element_id,
         )
-        if scene_id is None or element_id is None:
+        if scene_id is None:
             logger.warning(
-                "hub dispatch missing ids scene_id=%s element_id=%s",
-                scene_id,
+                "hub dispatch missing scene_id for element_id=%s",
                 element_id,
             )
             return
@@ -149,12 +148,12 @@ class ClientRegistry:
                 type(element).__name__,
             )
             return
-        handler_count = len(element._handlers.get(ButtonClicked, []))
+        handler_count = element.handler_count(ButtonClicked)
         logger.debug(
             "hub dispatch element=%s ButtonClicked_handlers=%d all_handlers=%s",
             element_id,
             handler_count,
-            {k.__name__: len(v) for k, v in element._handlers.items()},
+            element.handler_summary(),
         )
         event = ButtonClicked(
             scene_id=SceneId(scene_id),
@@ -178,7 +177,7 @@ class ClientRegistry:
             client = _cr.get()
             client.show_async(
                 scene_id,
-                elements=remaining,
+                elements=remaining,  # type: ignore[arg-type]  # WireElement ≅ Element union
                 frame_id=scene_id,
             )
             logger.debug(

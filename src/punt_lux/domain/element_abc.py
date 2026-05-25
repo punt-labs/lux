@@ -36,6 +36,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from punt_lux.domain.event_protocol import Event, Handler
+    from punt_lux.protocol.messages.remote_invocation import (
+        RemoteEventHandlerInvocation,
+    )
     from punt_lux.protocol.renderer import Emit, RendererFactory
 
 __all__ = ["Element"]
@@ -71,6 +74,20 @@ class Element(ABC):
         self._removed = False
         self._observers = []
         return self
+
+    def __reduce__(self) -> tuple[object, ...]:
+        """Support native serialization for Hub-to-Display transport.
+
+        Returns a (callable, args, state) triple so the deserializer
+        can reconstruct via ``object.__new__`` (bypassing the ABC's
+        keyword-only ``__new__``) then restore state via ``__setstate__``.
+        """
+        return (object.__new__, (type(self),), self.__dict__.copy())
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        """Restore instance state after native deserialization."""
+        for key, value in state.items():
+            object.__setattr__(self, key, value)
 
     @property
     @abstractmethod
@@ -169,6 +186,38 @@ class Element(ABC):
                     type(event).__name__,
                     self.id,
                 )
+
+    def handler_count(self, event_type: type[Event]) -> int:
+        """Return the number of handlers registered for ``event_type``."""
+        return len(self._handlers.get(event_type, ()))
+
+    def handler_summary(self) -> dict[str, int]:
+        """Return a name-to-count mapping of all registered handler types."""
+        return {k.__name__: len(v) for k, v in self._handlers.items()}
+
+    def wrap_handlers_for_remote(
+        self,
+        send_fn: Callable[[RemoteEventHandlerInvocation], None],
+    ) -> None:
+        """Replace all ButtonClicked handlers with remote_dispatch wrappers.
+
+        Recurses into children via ``_children()``. Every ``ButtonElement``
+        in the subtree gets a single ``remote_dispatch`` handler regardless
+        of how many handlers the Hub side installed — the Display only
+        needs to send the invocation message, not replay the full handler
+        chain.
+        """
+        from punt_lux.domain.handlers.remote_dispatch import remote_dispatch
+        from punt_lux.domain.interaction import ButtonClicked
+        from punt_lux.protocol.elements.button import ButtonElement
+
+        if isinstance(self, ButtonElement):
+            action = getattr(self, "action", None) or self.id
+            self._handlers[ButtonClicked] = [
+                cast("Handler[Event]", remote_dispatch(send_fn, self.id, action))
+            ]
+        for child in self._children():
+            child.wrap_handlers_for_remote(send_fn)
 
     def add_observer(self, observer: Callable[[str], None]) -> None:
         """Register a property-change observer.

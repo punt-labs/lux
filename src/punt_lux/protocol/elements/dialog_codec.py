@@ -122,7 +122,7 @@ class JsonDialogDecoder:
         """Promote top-level ``click`` and ``publish`` sugar on a child button."""
         from punt_lux.protocol.element_factory import JsonElementFactory
 
-        return JsonElementFactory._canonicalize_button_sugar(raw)
+        return JsonElementFactory.canonicalize_button_sugar(raw)
 
     def _build_button_decoder(self, model: DialogModel) -> JsonButtonDecoder:
         """Build a per-dialog Button decoder bound to ``model``'s verbs."""

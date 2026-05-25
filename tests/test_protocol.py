@@ -780,13 +780,24 @@ class TestSerialization:
         e = ButtonElement(id="b1", label="X", disabled=True)
         scene = SceneMessage(id="s1", elements=[e])
         d = message_to_dict(scene)
-        assert d["elements"][0]["disabled"] is True
+        # ABC elements use native serialization — roundtrip preserves fields
+        assert "_pickled" in d["elements"][0]
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        btn = restored.elements[0]
+        assert isinstance(btn, ButtonElement)
+        assert btn.disabled is True
 
     def test_button_disabled_false_excluded(self):
         e = ButtonElement(id="b1", label="X", disabled=False)
         scene = SceneMessage(id="s1", elements=[e])
         d = message_to_dict(scene)
-        assert "disabled" not in d["elements"][0]
+        # ABC elements use native serialization — roundtrip preserves fields
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        btn = restored.elements[0]
+        assert isinstance(btn, ButtonElement)
+        assert btn.disabled is False
 
     def test_slider_roundtrip(self):
         e = SliderElement(id="sl1", label="Vol", value=50.0, min=0.0, max=100.0)
@@ -1272,16 +1283,23 @@ class TestSerialization:
         e = TextElement(id="t1", content="hover me", tooltip="help")
         scene = SceneMessage(id="s1", elements=[e])
         d = message_to_dict(scene)
-        assert d["elements"][0]["tooltip"] == "help"
+        # ABC elements use native serialization — roundtrip preserves fields
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
-        assert restored.elements[0].tooltip == "help"
+        txt = restored.elements[0]
+        assert isinstance(txt, TextElement)
+        assert txt.tooltip == "help"
 
     def test_tooltip_excluded_when_none(self):
         e = TextElement(id="t1", content="no tip")
         scene = SceneMessage(id="s1", elements=[e])
         d = message_to_dict(scene)
-        assert "tooltip" not in d["elements"][0]
+        # ABC elements use native serialization — roundtrip preserves fields
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        txt = restored.elements[0]
+        assert isinstance(txt, TextElement)
+        assert txt.tooltip is None
 
     def test_collapsing_header_default_open_excluded_when_false(self):
         e = CollapsingHeaderElement(id="ch1", label="Section")

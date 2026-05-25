@@ -75,6 +75,15 @@ class DialogModel:
         self._on_dismiss = on_dismiss
         return self
 
+    def __reduce__(self) -> tuple[object, ...]:
+        """Support native serialization for Hub-to-Display transport."""
+        return (object.__new__, (type(self),), self.__dict__.copy())
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        """Restore instance state after native deserialization."""
+        for key, value in state.items():
+            object.__setattr__(self, key, value)
+
     @property
     def visible(self) -> bool:
         """Return whether the dialog should currently be drawn."""

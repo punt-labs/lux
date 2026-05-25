@@ -231,7 +231,6 @@ class DisplayServer:
             emit=no_op_emit,
             publish_sink=cast("Any", NoOpAgentSideSink()),
             codec=build_element_codec(),
-            display_send=self._emit_event,
         )
         _element_layout.install_from_dict(self._luxd_factory.element_from_dict)
         self._event_queue = []
@@ -887,6 +886,7 @@ class DisplayServer:
             fd = sock.fileno()
         except OSError:
             return
+        self._wrap_abc_elements(msg)
         self._scene_manager.handle_scene(msg, fd)
         self._route_to_domain_display(msg)
         ack = AckMessage(scene_id=msg.id, ts=time.time())
@@ -900,12 +900,28 @@ class DisplayServer:
             fd = sock.fileno()
         except OSError:
             return
+        self._wrap_abc_elements(msg)
         self._scene_manager.handle_framed_scene(msg, fd)
         self._route_to_domain_display(msg)
         ack = AckMessage(scene_id=msg.id, ts=time.time())
         self._socket_server.send_to_client(sock, ack)
         if self._test_auto_click:
             self._auto_click_buttons(msg)
+
+    def _wrap_abc_elements(self, msg: SceneMessage) -> None:
+        """Install remote_dispatch handlers on deserialized ABC elements.
+
+        After native deserialization, ABC elements carry their Hub-side
+        handlers. This method replaces them with ``remote_dispatch``
+        wrappers so clicks route back to the Hub instead of executing
+        locally. Must run BEFORE ``_route_to_domain_display`` so the
+        DomainPump sees wrapped elements.
+        """
+        from punt_lux.domain.element_abc import Element as AbcElement
+
+        for elem in msg.elements:
+            if isinstance(elem, AbcElement):
+                elem.wrap_handlers_for_remote(self._emit_event)
 
     def _route_to_domain_display(self, msg: SceneMessage) -> None:
         """Mirror basics-only scenes through Display.apply (PR 1 dual-write)."""
