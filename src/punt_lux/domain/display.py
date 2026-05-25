@@ -14,8 +14,7 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Self, assert_never
 
-from punt_lux.domain._display_helpers import DisplayHelpers
-from punt_lux.domain._typing import replace_field, value_matches
+from punt_lux.domain._typing import field_info, replace_field, value_matches
 from punt_lux.domain.element_abc import Element as ElementABC
 from punt_lux.domain.error import (
     DuplicateIdError,
@@ -49,7 +48,7 @@ if TYPE_CHECKING:
 
 __all__ = ["Display", "EventCallback", "Result"]
 
-_log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 type EventCallback = Callable[[Event], None]
 type Result = Event | Error
@@ -157,13 +156,21 @@ class Display:
     def _emit(self, event: Event) -> None:
         """Fan an event out to every subscriber.
 
-        Subscriber contract: callbacks must not raise.  If one does, the
-        exception propagates up through ``apply`` — the state mutation
-        has already happened but the caller will observe the raise.
-        Callers that need isolation wrap their callback themselves.
+        Subscriber contract: callbacks should not raise.  A misbehaving
+        subscriber is isolated so the remaining subscribers still see
+        the event — the alternative (propagation) would let one bad
+        listener block fan-out for everyone else after the state
+        mutation has already happened.
         """
         for sub in list(self._subscribers):
-            sub(event)
+            try:
+                sub(event)
+            except Exception:
+                logger.exception(
+                    "event subscriber raised; isolating to protect fan-out: %r",
+                    sub,
+                )
+                continue
 
     # -- snapshot -----------------------------------------------------------
 
@@ -187,14 +194,14 @@ class Display:
             # Unknown client encoded as OwnershipError: one error vocabulary.
             return OwnershipError(
                 scene_id=update.scene_id,
-                element_id=DisplayHelpers.update_target_id(update),
+                element_id=update.target_id,
                 attempting_client_id=client_id,
                 owning_client_id=ClientId(""),
             )
         if update.scene_id not in self._scenes:
             return UnknownElementError(
                 scene_id=update.scene_id,
-                element_id=DisplayHelpers.update_target_id(update),
+                element_id=update.target_id,
             )
         # PY-EH-8: assert_never makes the type checker fail when a new Update
         # kind lands without a branch instead of silently returning None.
@@ -335,7 +342,7 @@ class Display:
         if owner_check is not None:
             return owner_check
         elem = self._scenes[update.scene_id][update.element_id]
-        info = DisplayHelpers.field_info(elem, update.field)
+        info = field_info(elem, update.field)
         if info is None:
             return PropertyTypeError(
                 scene_id=update.scene_id,

@@ -213,3 +213,6 @@
 {"ts":"2026-05-25T02:29:16Z","commit":"d98ad7b","files_scored":149,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{}}
 {"ts":"2026-05-25T02:48:59Z","commit":"2275dca","files_scored":149,"files_improved":0,"files_regressed":4,"verdict":"fail","deltas":{}}
 {"ts":"2026-05-25T02:49:05Z","commit":"2275dca","files_scored":149,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-05-25T03:00:19Z","commit":"8a15380","files_scored":148,"files_improved":1,"files_regressed":4,"verdict":"fail","deltas":{"src/punt_lux/tools/subscribe_tools.py":{"module_size":[69.0,68.0]}}}
+{"ts":"2026-05-25T03:02:11Z","commit":"8a15380","files_scored":148,"files_improved":0,"files_regressed":4,"verdict":"fail","deltas":{}}
+{"ts":"2026-05-25T03:02:49Z","commit":"8a15380","files_scored":148,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}

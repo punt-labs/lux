@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
-from typing import Any, Literal, cast
+from typing import Literal, cast
 
 __all__ = [
     "ObserverMessage",
@@ -26,11 +26,13 @@ class ObserverMessage:
     """
 
     topic: str
-    payload: Mapping[str, Any]
+    # open-ended agent payload; no fixed schema — `object` keeps the wire
+    # boundary honest (PY-TS-14) instead of laundering it as ``Any``.
+    payload: Mapping[str, object]
     type: Literal["observer"] = "observer"
 
 
-def _observer_to_dict(msg: ObserverMessage) -> dict[str, Any]:
+def _observer_to_dict(msg: ObserverMessage) -> dict[str, object]:
     return {
         "type": msg.type,
         "topic": msg.topic,
@@ -38,18 +40,17 @@ def _observer_to_dict(msg: ObserverMessage) -> dict[str, Any]:
     }
 
 
-def _observer_from_dict(d: dict[str, Any]) -> ObserverMessage:
+def _observer_from_dict(d: dict[str, object]) -> ObserverMessage:
     raw_payload = d.get("payload", {})
-    payload: dict[str, Any] = (
-        cast("dict[str, Any]", raw_payload) if isinstance(raw_payload, dict) else {}
+    payload: dict[str, object] = (
+        cast("dict[str, object]", raw_payload) if isinstance(raw_payload, dict) else {}
     )
-    return ObserverMessage(topic=d["topic"], payload=payload)
+    return ObserverMessage(topic=cast("str", d["topic"]), payload=payload)
 
 
-_Register = Callable[
-    [str, type, Callable[..., dict[str, Any]], Callable[[dict[str, Any]], Any]],
-    None,
-]
+_ToDict = Callable[..., dict[str, object]]
+_FromDict = Callable[[dict[str, object]], object]
+_Register = Callable[[str, type, _ToDict, _FromDict], None]
 
 
 def register_codecs(register: _Register) -> None:

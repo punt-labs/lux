@@ -135,7 +135,7 @@ async def run_mcp_session(
 ) -> None:
     """Run an MCP session on the given read/write streams.
 
-    Called by hub.py for each WebSocket connection.
+    Called by ``luxd.py`` for each WebSocket connection.
     Sets ``_session_key`` ContextVar for per-session state isolation.
     """
     token = _session_key.set(session_key)

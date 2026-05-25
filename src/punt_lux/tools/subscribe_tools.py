@@ -8,7 +8,6 @@ the session's writer registration live in :mod:`punt_lux.tools.inbox`.
 from __future__ import annotations
 
 import json
-from typing import Any
 
 from punt_lux.domain.hub import hub
 from punt_lux.domain.ids import ConnectionId, Topic
@@ -56,7 +55,7 @@ def unsubscribe(topic: str) -> str:
 
 
 @mcp.tool()
-def publish(topic: str, payload: dict[str, Any] | None = None) -> str:
+def publish(topic: str, payload: dict[str, object] | None = None) -> str:
     """Fan ``payload`` out to ``topic``'s subscribers in the caller's scope.
 
     Returns ``"delivered:<count>"`` — the number of in-scope subscribers

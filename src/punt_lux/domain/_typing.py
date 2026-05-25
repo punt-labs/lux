@@ -14,9 +14,29 @@ from typing import Any, cast, get_args, get_origin
 
 from punt_lux.domain.element import Element
 
+
+def field_info(elem: Element, field: str) -> tuple[str, tuple[type, ...]] | None:
+    """Return (declared-name, runtime-types) for a dataclass field, or None."""
+    # PY-EH-5: gate on is_dataclass rather than swallowing TypeError from
+    # dataclasses.fields(); cast to Any so the TypeGuard narrows from the
+    # widest type (Element is a Protocol).
+    elem_any = cast("Any", elem)
+    if not dataclasses.is_dataclass(elem_any):
+        return None
+    field_names = {f.name for f in dataclasses.fields(elem_any)}
+    if field not in field_names:
+        return None
+    hints = typing.get_type_hints(type(elem))
+    annotation = hints.get(field)
+    if annotation is None:
+        return None
+    return annotation_name(annotation), annotation_runtime_types(annotation)
+
+
 __all__ = [
     "annotation_name",
     "annotation_runtime_types",
+    "field_info",
     "replace_field",
     "value_matches",
 ]
