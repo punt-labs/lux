@@ -37,7 +37,7 @@ from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 if TYPE_CHECKING:
     from punt_lux.protocol.renderer import Emit, RendererFactory
 
-__all__ = ["DialogElement", "DialogModel"]
+__all__ = ["DialogElement"]
 
 
 _RAISING_FACTORY: RendererFactory = RaisingRendererFactory()
