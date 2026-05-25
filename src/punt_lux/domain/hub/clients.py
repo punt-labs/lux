@@ -65,12 +65,7 @@ class ClientRegistry:
             return self._client
 
     def with_reconnect[T](self, fn: Callable[[], T]) -> T:
-        """Run ``fn`` with one automatic reconnect on ``OSError``.
-
-        Catches socket failures (broken pipe, reset, bad fd), closes
-        the stale socket, reconnects the same client instance under
-        ``_lock``, and retries ``fn`` exactly once.
-        """
+        """Run ``fn``; on ``OSError`` close, reconnect, restart listener, retry once."""
         try:
             return fn()
         except OSError as exc:
@@ -83,6 +78,7 @@ class ClientRegistry:
                     self._client.close()
                     try:
                         self._client.connect()
+                        self._client.start_listener()
                     except (OSError, RuntimeError) as reconnect_exc:
                         msg = f"Reconnect failed after connection loss: {reconnect_exc}"
                         raise RuntimeError(msg) from exc
