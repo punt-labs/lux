@@ -11,7 +11,7 @@ from __future__ import annotations
 import queue
 import threading
 
-from punt_lux.domain.hub import hub
+from punt_lux.domain.hub import hub, hub_display
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.protocol.messages.observer import ObserverMessage
 
@@ -33,12 +33,10 @@ _inboxes_lock = threading.Lock()
 def inbox_for(connection_id: ConnectionId) -> queue.SimpleQueue[ObserverMessage]:
     """Return (creating if needed) the connection's inbox queue."""
     with _inboxes_lock:
-        existing = _inboxes.get(connection_id)
-        if existing is not None:
+        if (existing := _inboxes.get(connection_id)) is not None:
             return existing
-        fresh: queue.SimpleQueue[ObserverMessage] = queue.SimpleQueue()
-        _inboxes[connection_id] = fresh
-        return fresh
+        _inboxes[connection_id] = queue.SimpleQueue()
+        return _inboxes[connection_id]
 
 
 def drain_inbox(connection_id: ConnectionId) -> tuple[ObserverMessage, ...]:
@@ -66,7 +64,8 @@ def next_event(connection_id: ConnectionId, timeout: float) -> ObserverMessage |
 
 
 def ensure_writer(connection_id: ConnectionId) -> None:
-    """Bind an inbox-putting writer for this connection on first use."""
+    """Bind an inbox writer and register the client; idempotent."""
+    hub_display.register_client(connection_id)
     if hub.has_writer(connection_id):
         return
     inbox = inbox_for(connection_id)

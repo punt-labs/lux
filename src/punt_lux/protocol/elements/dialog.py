@@ -10,12 +10,12 @@ A DialogElement is the canonical example of the MVC component pattern:
   controllers to the Composite render loop.
 - The child Buttons are the controllers. The wire decoder
   (``JsonDialogDecoder``) constructs the model first, binds
-  ``model.on_dismiss`` to the dialog's own ``_mark_removed``, then
+  ``model.on_dismiss`` to the dialog's own ``mark_removed``, then
   decodes each child Button with a ``HandlerDecoder`` that closes over
   the model — so a child Button's ``call_model`` factory resolves the
   wire verb against the model's vocabulary at decode time.
 
-The model's ``_dismiss`` reaches the Element ABC's ``_mark_removed``
+The model's ``_dismiss`` reaches the Element ABC's ``mark_removed``
 through the bound callback; the Element ABC's observer cascade is what
 notifies the dialog's parent composite that the dialog is gone.
 """
@@ -51,7 +51,7 @@ class DialogModel:
     Owned by ``DialogElement`` — no code outside the dialog component
     constructs this or invokes its methods except through the typed
     verb dispatcher ``invoke``. ``_dismiss`` reaches the Element ABC's
-    ``_mark_removed`` via the ``on_dismiss`` callback installed at
+    ``mark_removed`` via the ``on_dismiss`` callback installed at
     construction time.
     """
 
@@ -123,7 +123,7 @@ class DialogElement(Element):
     The dialog renders only while the model reports ``visible``. The
     Element ABC's ``_removed`` flag and observer cascade carry removal
     upward; the model invokes ``on_dismiss`` (bound at construction time
-    to ``self._mark_removed``) to flip ``_removed``.
+    to ``self.mark_removed``) to flip ``_removed``.
     """
 
     _id: str
@@ -148,10 +148,10 @@ class DialogElement(Element):
         self._tooltip = tooltip
         self._children_tuple = ()
         self._kind = "dialog"
-        # ``on_dismiss`` binds to this Element's _mark_removed so the
+        # ``on_dismiss`` binds to this Element's mark_removed so the
         # single removal mechanism (agent RemoveElement, model dismiss,
         # connection disconnect) all converge.
-        self._model = DialogModel(on_dismiss=self._mark_removed)
+        self._model = DialogModel(on_dismiss=self.mark_removed)
         return self
 
     # -- read-only accessors -----------------------------------------------

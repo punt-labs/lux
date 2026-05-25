@@ -8,7 +8,7 @@ The dispatch surface lives on the Element ABC:
   against a snapshot of the handler list so mutations during dispatch
   cannot affect the in-flight call.
 
-The Observer surface — ``add_observer``, ``removed``, ``_mark_removed`` —
+The Observer surface — ``add_observer``, ``removed``, ``mark_removed`` —
 is the single channel parent composites use to react to a child element
 being removed.
 """
@@ -118,7 +118,7 @@ def test_handler_mutating_registry_during_fire_does_not_affect_in_flight_call() 
 def test_mark_removed_flips_removed_from_false_to_true() -> None:
     elem = _Leaf()
     before = elem.removed
-    elem._mark_removed()
+    elem.mark_removed()
     after = elem.removed
     assert before is False
     assert after is True
@@ -128,7 +128,7 @@ def test_mark_removed_notifies_observers() -> None:
     elem = _Leaf()
     notifications: list[str] = []
     elem.add_observer(notifications.append)
-    elem._mark_removed()
+    elem.mark_removed()
     assert notifications == ["removed"]
 
 
@@ -136,15 +136,15 @@ def test_mark_removed_is_idempotent() -> None:
     elem = _Leaf()
     notifications: list[str] = []
     elem.add_observer(notifications.append)
-    elem._mark_removed()
-    elem._mark_removed()
+    elem.mark_removed()
+    elem.mark_removed()
     assert notifications == ["removed"]
 
 
 def test_observer_added_after_mark_removed_is_not_notified_on_repeat() -> None:
     elem = _Leaf()
-    elem._mark_removed()
+    elem.mark_removed()
     late: list[str] = []
     elem.add_observer(late.append)
-    elem._mark_removed()  # idempotent — no fresh notification fires
+    elem.mark_removed()  # idempotent — no fresh notification fires
     assert late == []

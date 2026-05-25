@@ -93,6 +93,15 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
         logger.exception("MCP WebSocket error: session_key=%s", session_key)
     finally:
         _active_sessions.discard(session_key)
+        # Connection close: cascade cleanup runs through the hub
+        # lifecycle module — drops the HubDisplay client registration,
+        # marks every owned root removed (the Element Observer cascade
+        # prunes the rest), purges the connection's topic scope, and
+        # unbinds its outbound writer.
+        from punt_lux.domain.hub import disconnect_connection
+        from punt_lux.domain.ids import ConnectionId
+
+        disconnect_connection(ConnectionId(session_key))
         logger.info("MCP WebSocket disconnected: session_key=%s", session_key)
 
 

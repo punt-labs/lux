@@ -13,10 +13,10 @@ The ABC carries:
   cannot affect the in-flight call. The registry is the single dispatch
   site downstream of ``Display.interact``.
 - A small property-observer surface — ``_removed``, ``_observers``,
-  ``add_observer``, ``_mark_removed`` — used by parent composites to
+  ``add_observer``, ``mark_removed`` — used by parent composites to
   react to a child element being removed (agent ``RemoveElement``,
   component self-dismiss, or connection disconnect all route through
-  the one ``_mark_removed`` method).
+  the one ``mark_removed`` method).
 
 The PR-1 ``domain.element.Element`` Protocol is the **structural** contract
 for wire dataclasses and continues to type the PR-2 element kinds. This
@@ -162,7 +162,7 @@ class Element(ABC):
         """Whether this Element has been marked removed from its scene."""
         return self._removed
 
-    def _mark_removed(self) -> None:
+    def mark_removed(self) -> None:
         """Flip ``_removed`` to True and notify observers. Idempotent.
 
         The single mechanism for marking any Element removed; all three

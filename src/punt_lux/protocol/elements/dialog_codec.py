@@ -2,7 +2,7 @@
 
 The dialog decoder is the canonical example of the bound-callback
 pattern for composite Elements: it constructs the ``DialogElement``
-(which constructs its model with ``on_dismiss=self._mark_removed``),
+(which constructs its model with ``on_dismiss=self.mark_removed``),
 then decodes each child Button with a per-dialog ``HandlerDecoder``
 configured to resolve ``call_model`` verbs against the dialog's model
 through ``BoundVerb.resolve_against``.
