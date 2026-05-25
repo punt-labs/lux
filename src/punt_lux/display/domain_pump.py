@@ -6,6 +6,7 @@ import dataclasses
 import logging
 from typing import Any, ClassVar, Self, cast
 
+from punt_lux.domain.composite import Composite
 from punt_lux.domain.display import Display, Result
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.event import (
@@ -36,15 +37,14 @@ class DomainPump:
     """Mirror native-kind SceneMessages into a domain Display.
 
     "Native" = element kinds with their own per-class renderer in
-    ``display.renderers``.  PR 1 shipped six (basics: Text, Image,
-    Separator, Progress, Spinner, Markdown); PR 2 widens the set to
-    fifteen by adding the nine inputs (Button, Slider, Checkbox, Combo,
-    InputText, InputNumber, Radio, ColorPicker, Selectable).
+    ``display.renderers`` — currently the six basics (Text, Image,
+    Separator, Progress, Spinner, Markdown) plus the nine inputs (Button,
+    Slider, Checkbox, Combo, InputText, InputNumber, Radio, ColorPicker,
+    Selectable).
 
     A scene containing only native kinds is routed through ``Display.apply``;
     a scene containing any non-native kind is skipped (mixed-scene rule —
-    SceneManager owns those until subsequent PRs migrate the remaining
-    families).
+    SceneManager owns those families until they too gain native renderers).
     """
 
     _display: Display
@@ -69,7 +69,7 @@ class DomainPump:
         # scene from the new path.  An EMPTY element list must still clear
         # the scene — agents re-send empty scenes to clear the surface, and
         # skipping the clear lets the domain Display retain stale elements
-        # while SceneManager drops them (Copilot CP-2).
+        # while SceneManager drops them.
         if any(not isinstance(elem, self._native_kinds) for elem in msg.elements):
             return
         scene_id = SceneId(msg.id)
@@ -79,20 +79,41 @@ class DomainPump:
             # cast: isinstance check above narrowed the element to a native
             # kind, every one of which satisfies the domain Element Protocol.
             domain_elem = self._with_unique_id(cast("DomainElement", elem), index=index)
-            result = self._display.apply(
-                self._client_id,
-                AddElement(
-                    scene_id=scene_id,
-                    element=domain_elem,
-                    parent_id=None,
-                ),
-            )
-            _warn_on_error(
-                result,
+            self._install_subtree(scene_id, domain_elem, parent_id=None)
+
+    def _install_subtree(
+        self,
+        scene_id: SceneId,
+        element: DomainElement,
+        *,
+        parent_id: ElementId | None,
+    ) -> None:
+        """Apply AddElement for ``element``, then recurse into composites.
+
+        Composite Elements expose ``children`` (structural Protocol);
+        every child resolves through the same ``Display.apply`` gate so
+        click resolution on a dialog's child Button finds it in the
+        Display's index. Non-composite elements have no children — the
+        ``isinstance(Composite)`` branch is skipped.
+        """
+        result = self._display.apply(
+            self._client_id,
+            AddElement(
                 scene_id=scene_id,
-                element_id=ElementId(domain_elem.id),
-                op="add",
-            )
+                element=element,
+                parent_id=parent_id,
+            ),
+        )
+        _warn_on_error(
+            result,
+            scene_id=scene_id,
+            element_id=ElementId(element.id),
+            op="add",
+        )
+        if isinstance(element, Composite):
+            element_id = ElementId(element.id)
+            for child in element.children:
+                self._install_subtree(scene_id, child, parent_id=element_id)
 
     @staticmethod
     def _with_unique_id(elem: DomainElement, *, index: int) -> DomainElement:
