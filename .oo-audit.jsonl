@@ -232,3 +232,6 @@
 {"ts":"2026-05-25T04:29:33Z","commit":"b52b47b","files_scored":151,"files_improved":0,"files_regressed":3,"verdict":"fail","deltas":{}}
 {"ts":"2026-05-25T04:30:30Z","commit":"b52b47b","files_scored":151,"files_improved":0,"files_regressed":3,"verdict":"fail","deltas":{}}
 {"ts":"2026-05-25T04:30:43Z","commit":"b52b47b","files_scored":151,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-05-25T04:39:20Z","commit":"202b080","files_scored":152,"files_improved":1,"files_regressed":1,"verdict":"fail","deltas":{"src/punt_lux/domain/hub/child_index.py":{"method_ratio":[0.0,1.0],"encapsulation_ratio":[0.0,1.0],"avg_params":[0.0,1.8],"max_complexity":[0.0,4.0],"avg_complexity":[0.0,2.0],"module_size":[0.0,72.0],"classes_per_module":[0.0,1.0],"class_to_func_ratio":[0.0,1.0],"init_violations":[0.0,0.0],"public_attr_violations":[0.0,0.0],"future_annotations":[0.0,1.0]}}}
+{"ts":"2026-05-25T04:40:26Z","commit":"202b080","files_scored":152,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
+{"ts":"2026-05-25T04:40:37Z","commit":"202b080","files_scored":152,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}

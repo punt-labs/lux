@@ -1,7 +1,7 @@
 """HubDisplay — facade over the Hub-side Element/owner/client store.
 
 ``HubDisplay`` is the single public surface the rest of the system
-talks to for Hub-side scene state. Internally it composes four typed
+talks to for Hub-side scene state. Internally it composes five typed
 collaborators, each with one responsibility:
 
 - ``ElementIndex`` (`element_index.py`) — ``(scene_id, element_id) →
@@ -12,6 +12,9 @@ collaborators, each with one responsibility:
 - ``RootRegistry`` (`root_registry.py`) — ``(scene_id, element_id) →
   AbcElement`` for scene-root ABC Elements that participate in the
   property-Observer cascade.
+- ``ChildIndex`` (`child_index.py`) — parent → children edges captured
+  at install time so cascade removal can drop every descendant from the
+  storage layer in one walk.
 - ``HubClientRegistry`` (`hub_clients.py`) — set of connections
   currently registered as Hub clients.
 
@@ -20,7 +23,10 @@ collaborators. ``drop_connection`` flips ``mark_removed`` on each
 ABC-root the connection owned; the Observer cascade prunes the rest of
 the tree, ending with the parent composite calling
 ``apply(RemoveElement(...))``, which clears the index entry and fires
-the next layer of observers.
+the next layer of observers. Wire-only (non-ABC) roots have no cascade
+to drive removal — ``drop_connection`` removes them directly through
+``_remove_subtree``, which walks the ``ChildIndex`` to drop every
+descendant.
 """
 
 from __future__ import annotations
@@ -30,6 +36,7 @@ from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.element_abc import Element as AbcElement
+from punt_lux.domain.hub.child_index import ChildIndex
 from punt_lux.domain.hub.element_index import (
     ElementIndex,
     UnknownElementError,
@@ -70,6 +77,7 @@ class HubDisplay:
     _index: ElementIndex
     _owners: OwnerTracker
     _roots: RootRegistry
+    _children: ChildIndex
     _clients: HubClientRegistry
 
     def __new__(cls) -> Self:
@@ -77,6 +85,7 @@ class HubDisplay:
         self._index = ElementIndex()
         self._owners = OwnerTracker()
         self._roots = RootRegistry()
+        self._children = ChildIndex()
         self._clients = HubClientRegistry()
         return self
 
@@ -187,11 +196,15 @@ class HubDisplay:
         """Install ``element`` under ``parent_id``.
 
         Index-only wiring; the parent-as-observer is the parent
-        composite's responsibility, not HubDisplay's.
+        composite's responsibility, not HubDisplay's. The parent →
+        child edge is recorded so cascade removal can drop the
+        descendant from storage even when the parent has no observer
+        (wire-only subtrees).
         """
         element_id = ElementId(element.id)
         self._index.install_child(scene_id, parent_id, element_id, element)
         self._owners.record(scene_id, element_id, owner)
+        self._children.record(scene_id, parent_id, element_id)
 
     def _set_property(
         self,
@@ -215,18 +228,25 @@ class HubDisplay:
         element.apply_patch({field: value})
 
     def _remove_subtree(self, scene_id: SceneId, element_id: ElementId) -> None:
-        """Clear the element from index, owners, and root registry.
+        """Clear the element and every descendant from storage.
 
-        Index-side cleanup only. The Observer cascade has already pruned
-        (or is in the process of pruning) the parent composite's
-        children tuple — this method clears the storage so future
-        ``resolve`` calls fail loud. The cascade walks children via
-        their parent observers; HubDisplay does not enumerate
-        descendants here.
+        Walks the ``ChildIndex`` to enumerate descendants in install
+        order, then drops each in turn. For ABC subtrees the Observer
+        cascade has already pruned the parent composite's children
+        tuple; for wire-only subtrees no cascade exists, so this walk
+        is the sole removal path. Either way, storage cleanup runs
+        here so future ``resolve`` calls fail loud.
         """
+        for descendant_id in self._children.descendants(scene_id, element_id):
+            self._drop_storage(scene_id, descendant_id)
+        self._drop_storage(scene_id, element_id)
+
+    def _drop_storage(self, scene_id: SceneId, element_id: ElementId) -> None:
+        """Drop one element from every storage collaborator. Idempotent."""
         self._index.discard(scene_id, element_id)
         self._owners.discard(scene_id, element_id)
         self._roots.discard(scene_id, element_id)
+        self._children.discard(scene_id, element_id)
 
     def _root_observer_for(
         self, scene_id: SceneId, element_id: ElementId
