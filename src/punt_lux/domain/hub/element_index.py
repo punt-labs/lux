@@ -92,6 +92,19 @@ class ElementIndex:
             raise UnknownElementError(scene_id=scene_id, element_id=element_id)
         return element
 
+    def scene_roots(self, scene_id: SceneId) -> list[WireElement]:
+        """Return all root elements for a scene (non-removed only)."""
+        scene = self._by_scene.get(scene_id)
+        if scene is None:
+            return []
+        from punt_lux.domain.element_abc import Element as ElementABC
+
+        return [
+            elem
+            for elem in scene.values()
+            if not (isinstance(elem, ElementABC) and elem.removed)
+        ]
+
     def discard(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Remove an indexed element. No-op if absent.
 

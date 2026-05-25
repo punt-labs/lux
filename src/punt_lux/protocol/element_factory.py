@@ -112,7 +112,7 @@ class JsonElementFactory:
         if kind == "text":
             return self._text_decoder.decode(raw)
         if kind == "button":
-            raw = self._canonicalize_top_level_publish(raw)
+            raw = self._canonicalize_button_sugar(raw)
             elem = self._button_decoder.decode(raw)
             self._install_remote_dispatch(elem)
             return elem
@@ -124,29 +124,41 @@ class JsonElementFactory:
         raise ValueError(msg)
 
     @staticmethod
-    def _canonicalize_top_level_publish(
+    def _canonicalize_button_sugar(
         raw: Mapping[str, object],
     ) -> Mapping[str, object]:
-        """Promote top-level ``publish`` sugar to a ``handlers`` entry.
+        """Promote top-level ``click`` and ``publish`` sugar to ``handlers``.
 
-        Wire sugar: ``{"kind": "button", "publish": ["topic1"]}``
-        Canonical:  ``{"kind": "button", "handlers": [{"event": "click",
-                       "factory": "noop", "wrap": [{"decorator": "publish",
-                       "topics": ["topic1"]}]}]}``
+        Wire sugar examples:
+          ``{"click": "confirm", "publish": ["topic"]}``
+          ``{"publish": ["topic"]}``  (no click verb → noop factory)
+          ``{"click": "cancel"}``     (no publish → no decorator)
 
         If the raw dict already has a ``handlers`` key, returns unchanged.
         """
+        click = raw.get("click")
         publish = raw.get("publish")
-        if publish is None or "handlers" in raw:
+        if click is None and publish is None:
             return raw
+        if "handlers" in raw:
+            return raw
+        factory = "call_model" if click else "noop"
+        params: dict[str, object] = {}
+        if click:
+            params["verb"] = click
+        wrap: list[dict[str, object]] = []
+        if publish:
+            wrap.append({"decorator": "publish", "topics": publish})
         handler_spec: dict[str, object] = {
             "event": "click",
-            "factory": "noop",
-            "wrap": [{"decorator": "publish", "topics": publish}],
+            "factory": factory,
+            **params,
+            "wrap": wrap,
         }
         merged = dict(raw)
         merged["handlers"] = [handler_spec]
-        del merged["publish"]
+        merged.pop("click", None)
+        merged.pop("publish", None)
         return merged
 
     def _install_remote_dispatch(self, elem: AbcElement) -> None:

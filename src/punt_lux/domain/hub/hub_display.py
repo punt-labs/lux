@@ -109,6 +109,10 @@ class HubDisplay:
 
     # -- index access ------------------------------------------------------
 
+    def scene_roots(self, scene_id: SceneId) -> list[WireElement]:
+        """Return non-removed root elements for a scene."""
+        return self._index.scene_roots(scene_id)
+
     def resolve(self, scene_id: SceneId, element_id: ElementId) -> WireElement:
         """Return the indexed Element or raise ``UnknownElementError``."""
         return self._index.lookup(scene_id, element_id)

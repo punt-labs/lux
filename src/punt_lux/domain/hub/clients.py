@@ -167,6 +167,27 @@ class ClientRegistry:
         )
         element.fire(event)
 
+        # Master→slave replication: if the handler mutated the scene
+        # (e.g., dialog dismissed itself via mark_removed), re-push
+        # the full scene tree to the Display. ImGui handles the diff.
+        remaining = hub_display.scene_roots(SceneId(scene_id))
+        from punt_lux.domain.hub import client_registry as _cr
+
+        try:
+            client = _cr.get()
+            client.show_async(
+                scene_id,
+                elements=remaining,
+                frame_id=scene_id,
+            )
+            logger.debug(
+                "hub dispatch re-pushed scene=%s elements=%d",
+                scene_id,
+                len(remaining),
+            )
+        except Exception:
+            logger.exception("hub dispatch scene re-push failed for %s", scene_id)
+
     def _on_beads_browser(self, _msg: InteractionMessage) -> None:
         """Open Beads Browser in a daemon thread; log render failures."""
         if (client := self._client) is None:
