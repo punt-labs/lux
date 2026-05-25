@@ -3,13 +3,16 @@
 Provides :class:`DisplayClient`, a context-manager that connects to the Lux
 display server over a Unix domain socket, waits for the ``ReadyMessage``
 handshake, and exposes typed methods for sending scenes, updates, clears,
-and pings.  Receives ack, interaction, window, and pong events.
+and pings.  Receives ack, pong, and observer events.
 
 Supports push-based event handling via :meth:`on_event` and
 :meth:`start_listener`.  When the background listener is active, incoming
-messages with registered callbacks are dispatched automatically; unmatched
-interactions are buffered for :meth:`recv`, while acks and pongs route to
-dedicated queues consumed by :meth:`show` and :meth:`ping`.
+:class:`InteractionMessage` frames with a matching ``(element_id, action)``
+callback are dispatched on the listener thread; acks, pongs, and query
+responses route to dedicated queues consumed by :meth:`show`, :meth:`ping`,
+and :meth:`query`.  Inbound :class:`ObserverMessage` payloads — fan-outs
+from ``Hub.publish`` calls scoped to this connection — queue for
+:meth:`poll_event`, the per-connection business-event poller.
 
 Usage::
 
@@ -17,7 +20,7 @@ Usage::
 
     with DisplayClient() as client:
         client.show("s1", elements=[TextElement(id="t1", content="Hello")])
-        event = client.recv()
+        payload = client.poll_event(timeout=1.0)
 """
 
 from __future__ import annotations
@@ -41,6 +44,7 @@ from punt_lux.protocol import (
     FrameReader,
     InteractionMessage,
     MenuMessage,
+    ObserverMessage,
     PingMessage,
     PongMessage,
     QueryRequest,
@@ -56,6 +60,8 @@ from punt_lux.protocol import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from punt_lux.protocol import Element, Message, Patch
 
 logger = logging.getLogger(__name__)
@@ -92,7 +98,6 @@ class DisplayClient:
     _recv_timeout: float
     _sock: socket.socket | None
     _ready: ReadyMessage | None
-    _pending: queue.SimpleQueue[Message]
     _registered_menu_items: list[dict[str, Any]]
     _lock: threading.Lock
     _callbacks: dict[tuple[str, str], Callable[[InteractionMessage], None]]
@@ -101,6 +106,7 @@ class DisplayClient:
     _ack_queue: queue.SimpleQueue[AckMessage]
     _pong_queue: queue.SimpleQueue[PongMessage]
     _query_queue: queue.SimpleQueue[QueryResponse]
+    _event_queue: queue.SimpleQueue[Mapping[str, Any]]
 
     def __new__(
         cls,
@@ -119,7 +125,6 @@ class DisplayClient:
         self._recv_timeout = recv_timeout
         self._sock = None
         self._ready = None
-        self._pending = queue.SimpleQueue()
         self._registered_menu_items = []
 
         # Push-based event handling state
@@ -130,6 +135,7 @@ class DisplayClient:
         self._ack_queue = queue.SimpleQueue()
         self._pong_queue = queue.SimpleQueue()
         self._query_queue = queue.SimpleQueue()
+        self._event_queue = queue.SimpleQueue()
         return self
 
     # -- context manager ---------------------------------------------------
@@ -240,10 +246,10 @@ class DisplayClient:
             self._ready = None
             # Queues may still receive items from a dying listener;
             # stragglers are harmless — the queue itself will be GC'd.
-            _drain_queue(self._pending)
             _drain_queue(self._ack_queue)
             _drain_queue(self._pong_queue)
             _drain_queue(self._query_queue)
+            _drain_queue(self._event_queue)
 
     # -- callback registration ---------------------------------------------
 
@@ -279,8 +285,13 @@ class DisplayClient:
         """Start the background listener thread.
 
         The listener reads incoming messages from the socket and
-        dispatches interaction events to registered callbacks.
-        Unmatched events go to ``_pending``; acks go to ``_ack_queue``.
+        dispatches them by kind: ``InteractionMessage`` runs the
+        registered ``(element_id, action)`` callback (unmatched
+        interactions are dropped); ``ObserverMessage`` payloads queue
+        for :meth:`poll_event`; ``AckMessage``, ``PongMessage``, and
+        ``QueryResponse`` route to their per-type queues for
+        :meth:`show`, :meth:`ping`, and :meth:`query`.  Other message
+        kinds are dropped with a debug log.
 
         Safe to call multiple times — no-ops if already running.
         """
@@ -332,30 +343,42 @@ class DisplayClient:
                 break
             reader.feed(data)
             for msg in reader.drain_typed():
-                self._dispatch_or_buffer(msg)
+                self._dispatch(msg)
 
-    def _dispatch_or_buffer(self, msg: Message) -> None:
-        """Route a message to the right destination.
+    def _dispatch(self, msg: Message) -> None:
+        """Route a message to its typed destination.
 
-        Interaction events with a registered callback are dispatched
-        immediately on the listener thread.  Acks and pongs go to
-        dedicated queues; everything else goes to the general pending
-        queue for :meth:`recv`.
+        ``InteractionMessage`` runs the registered callback for its
+        ``(element_id, action)`` pair; unmatched interactions are
+        dropped with a debug log.  ``ObserverMessage`` payloads queue
+        for :meth:`poll_event`.  ``AckMessage``, ``PongMessage``, and
+        ``QueryResponse`` route to the per-type queues consumed by
+        :meth:`show`, :meth:`ping`, and :meth:`query`.  Other message
+        kinds are dropped with a debug log.
         """
         if isinstance(msg, InteractionMessage):
             key = (msg.element_id, msg.action)
             with self._lock:
                 cb = self._callbacks.get(key)
-            if cb is not None:
-                try:
-                    cb(msg)
-                except Exception:
-                    logger.exception(
-                        "Callback error for %s:%s (event consumed)",
-                        msg.element_id,
-                        msg.action,
-                    )
+            if cb is None:
+                logger.debug(
+                    "Dropping interaction with no callback: %s:%s",
+                    msg.element_id,
+                    msg.action,
+                )
                 return
+            try:
+                cb(msg)
+            except Exception:
+                logger.exception(
+                    "Callback error for %s:%s (event consumed)",
+                    msg.element_id,
+                    msg.action,
+                )
+            return
+        if isinstance(msg, ObserverMessage):
+            self._event_queue.put(msg.payload)
+            return
         if isinstance(msg, AckMessage):
             self._ack_queue.put(msg)
             return
@@ -365,7 +388,7 @@ class DisplayClient:
         if isinstance(msg, QueryResponse):
             self._query_queue.put(msg)
             return
-        self._pending.put(msg)
+        logger.debug("Dropping unhandled message: %s", type(msg).__name__)
 
     # -- sending -----------------------------------------------------------
 
@@ -530,7 +553,11 @@ class DisplayClient:
                 return None
             if isinstance(received, PongMessage):
                 return received
-            self._pending.put(received)
+            # Non-pong frames arriving without an active listener have
+            # no consumer to route them — the polling interfaces
+            # (poll_event, _recv_ack, query) each block on their own
+            # typed queue and are not fed by inline ping reads.
+            logger.debug("ping: dropping interleaved %s frame", type(received).__name__)
 
     def query(
         self,
@@ -558,35 +585,45 @@ class DisplayClient:
                 return None
             if isinstance(received, QueryResponse):
                 return received
-            self._pending.put(received)
+            logger.debug(
+                "query: dropping interleaved %s frame", type(received).__name__
+            )
 
     # -- receiving ---------------------------------------------------------
 
-    def recv(self, timeout: float | None = None) -> Message | None:
-        """Receive the next message from the display.
+    def poll_event(self, timeout: float | None = None) -> Mapping[str, Any]:
+        """Block for the next business event delivered to this connection.
 
-        Thread-safe.  When the listener is active, blocks on the
-        ``_pending`` queue.  When inactive, reads directly from the
-        socket.  Returns ``None`` on timeout.
+        Returns the payload of the next ``ObserverMessage`` whose topic
+        the connection is subscribed to.  Raises ``TimeoutError`` if no
+        message arrives within ``timeout`` seconds.  ``timeout`` defaults
+        to the client's ``recv_timeout``.
+
+        Requires the listener to be active — observer messages are
+        delivered push-style and have no inline polling fallback.
         """
+        self._require_connected()
+        if not self.listener_active:
+            err = (
+                "poll_event requires an active listener — "
+                "call start_listener() after connect()"
+            )
+            raise RuntimeError(err)
         t = timeout if timeout is not None else self._recv_timeout
-        if self.listener_active:
-            try:
-                return self._pending.get(timeout=t)
-            except queue.Empty:
-                return None
         try:
-            return self._pending.get_nowait()
-        except queue.Empty:
-            pass
-        sock = self._require_connected()
-        return recv_message(sock, timeout=t)
+            return self._event_queue.get(timeout=t)
+        except queue.Empty as exc:
+            err = f"no business event arrived within {t}s"
+            raise TimeoutError(err) from exc
 
     def _recv_ack(self) -> AckMessage | None:
-        """Receive expecting an AckMessage.  Buffers non-ack messages.
+        """Receive expecting an AckMessage.  Drops interleaved frames.
 
         Thread-safe.  When the listener is active, blocks on
-        ``_ack_queue``.  When inactive, reads directly from the socket.
+        ``_ack_queue``.  When inactive, reads directly from the socket
+        and drops any non-ack frame that arrives in the meantime —
+        each typed reader (poll_event / ping / query) owns its own
+        path, so there is no shared backlog to push into.
 
         Raises RuntimeError if called from the listener thread (would
         deadlock because the listener is the only ack producer).
@@ -594,7 +631,7 @@ class DisplayClient:
         t = self._listener_thread
         if t is not None and t is threading.current_thread():
             err = (
-                "Cannot call blocking recv from the listener thread — "
+                "Cannot call blocking _recv_ack from the listener thread — "
                 "use show_async() / update_async() instead"
             )
             raise RuntimeError(err)
@@ -614,4 +651,4 @@ class DisplayClient:
                 return None
             if isinstance(msg, AckMessage):
                 return msg
-            self._pending.put(msg)
+            logger.debug("_recv_ack: dropping interleaved %s frame", type(msg).__name__)

@@ -786,24 +786,21 @@ INTERACTION_SCENARIOS: tuple[Scenario, ...] = (
         name="recv-empty",
         tool="recv",
         inputs={"timeout": 0.1},
-        setup={"display_running": True, "client": {"recv": {"return": None}}},
+        setup={"inbox_empty": True},
     ),
     Scenario(
         name="recv-button-click",
         tool="recv",
         inputs={"timeout": 1.0},
         setup={
-            "display_running": True,
-            "client": {
-                "recv": {
-                    "return": {
-                        "element_id": "btn-submit",
-                        "action": "click",
-                        "ts": 1000.0,
-                        "value": True,
-                    }
-                }
-            },
+            "inbox_event": {
+                "topic": "ui.button.click",
+                "payload": {
+                    "element_id": "btn-submit",
+                    "action": "click",
+                    "value": True,
+                },
+            }
         },
     ),
     Scenario(
@@ -811,17 +808,14 @@ INTERACTION_SCENARIOS: tuple[Scenario, ...] = (
         tool="recv",
         inputs={"timeout": 1.0},
         setup={
-            "display_running": True,
-            "client": {
-                "recv": {
-                    "return": {
-                        "element_id": "slider-temp",
-                        "action": "changed",
-                        "ts": 1000.0,
-                        "value": 42.5,
-                    }
-                }
-            },
+            "inbox_event": {
+                "topic": "ui.slider.changed",
+                "payload": {
+                    "element_id": "slider-temp",
+                    "action": "changed",
+                    "value": 42.5,
+                },
+            }
         },
     ),
 )

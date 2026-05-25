@@ -1,72 +1,29 @@
 """MCP tool surface for Agent Subscribe / Publish.
 
-Three tools — ``subscribe``, ``unsubscribe``, ``publish`` — each scoped
-to the calling MCP session's ``ConnectionId``. The session's writer is
-an in-memory deque the Hub fans out to; downstream commits replace it
-with the connection's outbound wire writer.
+Four tools — ``subscribe``, ``unsubscribe``, ``publish``, ``recv`` — each
+scoped to the calling MCP session's ``ConnectionId``. Inbox queueing and
+the session's writer registration live in :mod:`punt_lux.tools.inbox`.
 """
 
 from __future__ import annotations
 
-import threading
-from collections import deque
+import json
 from typing import Any
 
 from punt_lux.domain.hub import hub
 from punt_lux.domain.ids import ConnectionId, Topic
-from punt_lux.protocol.messages.observer import ObserverMessage
+from punt_lux.tools.inbox import drain_inbox, ensure_writer, inbox_for, next_event
 from punt_lux.tools.server import _session_key, mcp
 
 __all__ = [
     "drain_inbox",
     "inbox_for",
+    "next_event",
     "publish",
+    "recv",
     "subscribe",
     "unsubscribe",
 ]
-
-
-# Per-connection inbox queues. The Hub's writer for an MCP connection
-# appends ObserverMessages here; a subsequent recv() (lands in commit 7)
-# drains them. The lock guards concurrent append / drain across the
-# lifespan thread and tool threads — deque.append is atomic, but
-# allocation of a new deque on first subscribe is not.
-_inboxes: dict[ConnectionId, deque[ObserverMessage]] = {}
-_inboxes_lock = threading.Lock()
-
-
-def inbox_for(connection_id: ConnectionId) -> deque[ObserverMessage]:
-    """Return (creating if needed) the connection's inbox queue."""
-    with _inboxes_lock:
-        existing = _inboxes.get(connection_id)
-        if existing is not None:
-            return existing
-        fresh: deque[ObserverMessage] = deque()
-        _inboxes[connection_id] = fresh
-        return fresh
-
-
-def drain_inbox(connection_id: ConnectionId) -> tuple[ObserverMessage, ...]:
-    """Snapshot then clear the connection's inbox; used by recv()-style polls."""
-    with _inboxes_lock:
-        inbox = _inboxes.get(connection_id)
-        if inbox is None:
-            return ()
-        drained = tuple(inbox)
-        inbox.clear()
-        return drained
-
-
-def _ensure_writer(connection_id: ConnectionId) -> None:
-    """Bind an inbox-appending writer for this connection on first use."""
-    if hub.has_writer(connection_id):
-        return
-    inbox = inbox_for(connection_id)
-
-    def _writer(message: ObserverMessage) -> None:
-        inbox.append(message)
-
-    hub.register_writer(connection_id, _writer)
 
 
 def _connection_id() -> ConnectionId:
@@ -83,7 +40,7 @@ def subscribe(topic: str) -> str:
     scope declares it. Subscriptions never cross sessions.
     """
     connection_id = _connection_id()
-    _ensure_writer(connection_id)
+    ensure_writer(connection_id)
     hub.subscribe(connection_id, Topic(topic))
     return f"subscribed:{topic}"
 
@@ -107,6 +64,24 @@ def publish(topic: str, payload: dict[str, Any] | None = None) -> str:
     ``"delivered:0"`` and is otherwise a no-op.
     """
     connection_id = _connection_id()
-    _ensure_writer(connection_id)
+    ensure_writer(connection_id)
     delivered = hub.publish(connection_id, Topic(topic), payload or {})
     return f"delivered:{delivered}"
+
+
+@mcp.tool()
+def recv(timeout: float = 1.0) -> str:
+    """Block for the next business event delivered to the calling session.
+
+    Returns ``"event:<topic>:<json-payload>"`` for a published event the
+    session is subscribed to, or ``"none"`` if no event arrives within
+    ``timeout`` seconds. Events come from ``Hub.publish`` calls scoped
+    to this session (see ``subscribe`` / ``publish``); UI wire frames
+    (button clicks, slider drags) are not delivered here.
+    """
+    connection_id = _connection_id()
+    ensure_writer(connection_id)
+    message = next_event(connection_id, timeout=timeout)
+    if message is None:
+        return "none"
+    return f"event:{message.topic}:{json.dumps(dict(message.payload), sort_keys=True)}"

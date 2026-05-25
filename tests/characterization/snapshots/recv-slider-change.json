@@ -5,19 +5,16 @@
       1.0
     ]
   ],
-  "response": "interaction:element=slider-temp,action=changed,value=42.5",
+  "response": "event:ui.slider.changed:{\"action\": \"changed\", \"element_id\": \"slider-temp\", \"value\": 42.5}",
   "setup": {
-    "client": {
-      "recv": {
-        "return": {
-          "action": "changed",
-          "element_id": "slider-temp",
-          "ts": 1000.0,
-          "value": 42.5
-        }
-      }
-    },
-    "display_running": true
+    "inbox_event": {
+      "payload": {
+        "action": "changed",
+        "element_id": "slider-temp",
+        "value": 42.5
+      },
+      "topic": "ui.slider.changed"
+    }
   },
   "tool": "recv"
 }

@@ -7,12 +7,7 @@
   ],
   "response": "none",
   "setup": {
-    "client": {
-      "recv": {
-        "return": null
-      }
-    },
-    "display_running": true
+    "inbox_empty": true
   },
   "tool": "recv"
 }

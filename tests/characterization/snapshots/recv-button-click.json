@@ -5,19 +5,16 @@
       1.0
     ]
   ],
-  "response": "interaction:element=btn-submit,action=click,value=True",
+  "response": "event:ui.button.click:{\"action\": \"click\", \"element_id\": \"btn-submit\", \"value\": true}",
   "setup": {
-    "client": {
-      "recv": {
-        "return": {
-          "action": "click",
-          "element_id": "btn-submit",
-          "ts": 1000.0,
-          "value": true
-        }
-      }
-    },
-    "display_running": true
+    "inbox_event": {
+      "payload": {
+        "action": "click",
+        "element_id": "btn-submit",
+        "value": true
+      },
+      "topic": "ui.button.click"
+    }
   },
   "tool": "recv"
 }

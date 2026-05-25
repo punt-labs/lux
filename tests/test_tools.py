@@ -18,7 +18,6 @@ from punt_lux.protocol import (
     DrawElement,
     GroupElement,
     InputTextElement,
-    InteractionMessage,
     MarkdownElement,
     PlotElement,
     PongMessage,
@@ -628,25 +627,24 @@ class TestPingTool:
 
 
 class TestRecvTool:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_recv_interaction(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        client.recv.return_value = InteractionMessage(
-            element_id="b1", action="click", ts=time.time(), value=True
+    @patch("punt_lux.tools.subscribe_tools.ensure_writer", return_value=None)
+    @patch("punt_lux.tools.subscribe_tools.next_event")
+    def test_recv_business_event(
+        self, mock_next: MagicMock, _mock_writer: MagicMock
+    ) -> None:
+        from punt_lux.protocol.messages.observer import ObserverMessage
+
+        mock_next.return_value = ObserverMessage(
+            topic="work.saved",
+            payload={"id": "save_btn"},
         )
-        mock_get.return_value = client
 
         result = recv(timeout=1.0)
-        assert "interaction" in result
-        assert "b1" in result
-        assert "click" in result
+        assert result == 'event:work.saved:{"id": "save_btn"}'
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_recv_none(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        client.recv.return_value = None
-        mock_get.return_value = client
-
+    @patch("punt_lux.tools.subscribe_tools.ensure_writer", return_value=None)
+    @patch("punt_lux.tools.subscribe_tools.next_event", return_value=None)
+    def test_recv_none(self, _mock_next: MagicMock, _mock_writer: MagicMock) -> None:
         result = recv(timeout=0.1)
         assert result == "none"
 

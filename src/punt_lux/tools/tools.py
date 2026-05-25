@@ -12,7 +12,6 @@ from punt_lux.config import ConfigManager
 from punt_lux.domain.hub import client_registry
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
-    InteractionMessage,
     Patch,
     element_from_dict,
 )
@@ -767,25 +766,3 @@ def list_recent_events(count: int = 50) -> dict[str, Any] | None:
 def list_errors(count: int = 20) -> dict[str, Any] | None:
     """Return the last N display-side errors."""
     return {"count": count}
-
-
-@mcp.tool()
-def recv(timeout: float = 1.0) -> str:
-    """Receive the next event from the display (e.g., button clicks).
-
-    Returns a description of the event or "none" if no event within timeout.
-    """
-
-    def _call() -> str:
-        client = client_registry.get()
-        msg = client.recv(timeout=timeout)
-        if msg is None:
-            return "none"
-        if isinstance(msg, InteractionMessage):
-            return (
-                f"interaction:element={msg.element_id},"
-                f"action={msg.action},value={msg.value}"
-            )
-        return f"event:{type(msg).__name__}"
-
-    return client_registry.with_reconnect(_call)

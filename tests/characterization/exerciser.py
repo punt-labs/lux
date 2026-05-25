@@ -25,8 +25,11 @@ A ``setup`` dict has this shape::
             "show":   {"return": {...}},        # AckMessage payload or None
             "update": {"return": {...}},
             "ping":   {"return": {...}},
-            "recv":   {"return": {...}},
             "query":  {"method": "...", "result": {...}, "error": "..."},
+        },
+        "inbox_event": {                        # observer payload for ``recv``
+            "topic": "...",
+            "payload": {...},
         },
     }
 
@@ -47,10 +50,10 @@ from punt_lux import tools as tools_pkg
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
-    InteractionMessage,
     PongMessage,
     QueryResponse,
 )
+from punt_lux.protocol.messages.observer import ObserverMessage
 from punt_lux.tools.server import _session_key
 
 __all__ = ["ToolCallError", "ToolExerciser"]
@@ -113,19 +116,6 @@ class _StubClient:
         if ret is None:
             return None
         return PongMessage(ts=float(ret["ts"]), display_ts=float(ret["display_ts"]))
-
-    def recv(self, timeout: float = 1.0) -> InteractionMessage | None:
-        del timeout
-        cfg = self._require_spec("recv")
-        ret = cfg.get("return")
-        if ret is None:
-            return None
-        return InteractionMessage(
-            element_id=str(ret["element_id"]),
-            action=str(ret["action"]),
-            ts=float(ret["ts"]),
-            value=ret.get("value"),
-        )
 
     def set_menu(self, _menus: object) -> None:
         self._require_spec("set_menu")
@@ -244,6 +234,46 @@ class ToolExerciser:
         now = setup.get("time")
         if isinstance(now, int | float):
             stubs.append(mock.patch("punt_lux.tools.tools.time", _StubTime(float(now))))
+
+        inbox_event = setup.get("inbox_event")
+        inbox_empty = setup.get("inbox_empty")
+        if inbox_event is not None or inbox_empty:
+            stubs.append(
+                mock.patch(
+                    "punt_lux.tools.subscribe_tools.ensure_writer",
+                    return_value=None,
+                )
+            )
+        if inbox_event is not None:
+            if not isinstance(inbox_event, Mapping):
+                msg = (
+                    "setup.inbox_event must be a mapping; "
+                    f"got {type(inbox_event).__name__}"
+                )
+                raise ToolCallError(msg)
+            payload_obj = inbox_event.get("payload", {})
+            if not isinstance(payload_obj, Mapping):
+                msg = (
+                    "setup.inbox_event.payload must be a mapping; "
+                    f"got {type(payload_obj).__name__}"
+                )
+                raise ToolCallError(msg)
+            stubs.append(
+                mock.patch(
+                    "punt_lux.tools.subscribe_tools.next_event",
+                    return_value=ObserverMessage(
+                        topic=str(inbox_event["topic"]),
+                        payload=dict(payload_obj),
+                    ),
+                )
+            )
+        elif inbox_empty:
+            stubs.append(
+                mock.patch(
+                    "punt_lux.tools.subscribe_tools.next_event",
+                    return_value=None,
+                )
+            )
 
         session = setup.get("session_key")
         token = _session_key.set(str(session)) if session is not None else None
