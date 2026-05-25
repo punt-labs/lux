@@ -17,6 +17,7 @@ from punt_lux.protocol.messages.observer import ObserverMessage
 
 __all__ = [
     "drain_inbox",
+    "drop_session",
     "ensure_writer",
     "inbox_for",
     "next_event",
@@ -74,3 +75,14 @@ def ensure_writer(connection_id: ConnectionId) -> None:
         inbox.put(message)
 
     hub.register_writer(connection_id, _writer)
+
+
+def drop_session(connection_id: ConnectionId) -> None:
+    """Release the session's inbox queue. Idempotent.
+
+    Called from the connection-disconnect cascade so the queue is not
+    leaked when the WebSocket closes. Subsequent ``inbox_for`` calls for
+    the same id create a fresh queue.
+    """
+    with _inboxes_lock:
+        _inboxes.pop(connection_id, None)

@@ -100,8 +100,9 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
         # unbinds its outbound writer.
         from punt_lux.domain.hub import disconnect_connection
         from punt_lux.domain.ids import ConnectionId
+        from punt_lux.tools.inbox import drop_session
 
-        disconnect_connection(ConnectionId(session_key))
+        disconnect_connection(ConnectionId(session_key), drop_session)
         logger.info("MCP WebSocket disconnected: session_key=%s", session_key)
 
 
