@@ -484,6 +484,46 @@ class TestErrorHandling:
         with pytest.raises(RuntimeError, match="Not connected"):
             client.poll_event()
 
+    def test_poll_event_after_listener_exit_raises_timeout(self) -> None:
+        """A listener that started and exited surfaces as TimeoutError.
+
+        The gate is ``_listener_thread is not None`` (it was started),
+        not ``is_alive()`` — an exited listener is the no-event-arrived
+        case with a clearer message, not a misuse RuntimeError.
+        """
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
+                dead = threading.Thread(target=lambda: None)
+                dead.start()
+                dead.join()
+                client._listener_thread = dead
+                with pytest.raises(TimeoutError, match="listener thread has exited"):
+                    client.poll_event(timeout=0.1)
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
     def test_close_without_connect_is_noop(self) -> None:
         """Calling close() without connecting doesn't crash."""
         client = DisplayClient(auto_spawn=False)

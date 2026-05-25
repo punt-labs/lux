@@ -19,7 +19,7 @@ from typing import ClassVar, Literal, Self
 
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 
-__all__ = ["BUTTON_CLICKED_TOKEN", "ButtonClicked"]
+__all__ = ["ButtonClicked"]
 
 
 # Module-private sentinel — the single object ``ButtonClicked.__new__``

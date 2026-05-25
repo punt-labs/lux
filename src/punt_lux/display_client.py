@@ -661,11 +661,19 @@ class DisplayClient:
 
         Returns a :class:`PolledEvent` (topic + payload) from the next
         ``ObserverMessage``.  Raises ``TimeoutError`` after ``timeout``
-        seconds (default: ``recv_timeout``).  Requires an active listener
-        — observer messages are push-only with no inline polling fallback.
+        seconds (default: ``recv_timeout``).  Requires the listener to
+        have been started — observer messages are push-only with no
+        inline polling fallback.
+
+        Gates on ``_listener_thread is not None`` rather than ``is_alive()``
+        so a listener that started and has since exited still surfaces as
+        a ``TimeoutError`` (with a message naming the exit) instead of a
+        ``RuntimeError`` complaining the listener was never started. The
+        caller's contract is the same in both cases — the next event did
+        not arrive in time — and the exit reason belongs in the message.
         """
         self._require_connected()
-        if not self.listener_active:
+        if self._listener_thread is None:
             err = (
                 "poll_event requires an active listener — "
                 "call start_listener() after connect()"
@@ -675,7 +683,13 @@ class DisplayClient:
         try:
             return self._event_queue.get(timeout=t)
         except queue.Empty as exc:
-            err = f"no business event arrived within {t}s"
+            if not self._listener_thread.is_alive():
+                err = (
+                    f"no business event arrived within {t}s "
+                    "and the listener thread has exited"
+                )
+            else:
+                err = f"no business event arrived within {t}s"
             raise TimeoutError(err) from exc
 
     def _recv_ack(self) -> AckMessage | None:
