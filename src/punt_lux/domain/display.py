@@ -31,6 +31,7 @@ from punt_lux.domain.event import (
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import BUTTON_CLICKED_TOKEN, ButtonClicked
 from punt_lux.domain.interaction_errors import (
+    ElementDismissedError,
     UnauthorizedInteractionError,
     UnknownClientError,
     UnknownInteractionElementError,
@@ -84,6 +85,11 @@ class Display:
     _clients: dict[ClientId, str]
     _scenes: dict[SceneId, dict[ElementId, Element]]
     _owners: dict[tuple[SceneId, ElementId], ClientId]
+    # Child element -> parent element within a scene. Top-level elements
+    # are absent from the map (no entry = no parent). Lets ``interact``
+    # walk ancestors to reject clicks on a child whose composite parent
+    # has been dismissed via ``mark_removed``.
+    _parents: dict[tuple[SceneId, ElementId], ElementId]
     _subscribers: list[EventCallback]
     _next_client_index: itertools.count[int]
 
@@ -92,6 +98,7 @@ class Display:
         self._clients = {}
         self._scenes = {}
         self._owners = {}
+        self._parents = {}
         self._subscribers = []
         self._next_client_index = itertools.count(1)
         return self
@@ -119,6 +126,7 @@ class Display:
         for scene_id, element_id in owned:
             self._scenes[scene_id].pop(element_id, None)
             del self._owners[(scene_id, element_id)]
+            self._parents.pop((scene_id, element_id), None)
             ev = ElementRemoved(
                 scene_id=scene_id, element_id=element_id, owner_id=client_id
             )
@@ -254,6 +262,13 @@ class Display:
             raise UnauthorizedInteractionError(
                 scene_id=scene_id, element_id=element_id, caller=client_id
             )
+        dismissed = self._dismissed_ancestor(scene_id, element_id)
+        if dismissed is not None:
+            raise ElementDismissedError(
+                scene_id=scene_id,
+                element_id=element_id,
+                dismissed_id=dismissed,
+            )
         event = self._build_event(
             element=element,
             scene_id=scene_id,
@@ -264,6 +279,25 @@ class Display:
         if isinstance(element, ElementABC):
             element.fire(event)
         return event
+
+    def _dismissed_ancestor(
+        self, scene_id: SceneId, element_id: ElementId
+    ) -> ElementId | None:
+        """Return the closest self-or-ancestor whose ``removed`` flag is set.
+
+        Only ABC Elements carry ``removed``; wire dataclasses are frozen
+        and never marked individually. The walk includes the target
+        itself and terminates at a top-level element (no ``_parents``
+        entry) or a missing parent.
+        """
+        scene = self._scenes[scene_id]
+        current_id: ElementId | None = element_id
+        while current_id is not None:
+            elem: object = scene.get(current_id)
+            if isinstance(elem, ElementABC) and elem.removed:
+                return current_id
+            current_id = self._parents.get((scene_id, current_id))
+        return None
 
     @staticmethod
     def _build_event(
@@ -310,6 +344,8 @@ class Display:
             return DuplicateIdError(scene_id=update.scene_id, element_id=element_id)
         scene[element_id] = update.element
         self._owners[(update.scene_id, element_id)] = client_id
+        if update.parent_id is not None:
+            self._parents[(update.scene_id, element_id)] = update.parent_id
         event = ElementAdded(
             scene_id=update.scene_id,
             element_id=element_id,
@@ -327,6 +363,7 @@ class Display:
             return owner_check
         del self._scenes[update.scene_id][update.element_id]
         del self._owners[(update.scene_id, update.element_id)]
+        self._parents.pop((update.scene_id, update.element_id), None)
         event = ElementRemoved(
             scene_id=update.scene_id,
             element_id=update.element_id,

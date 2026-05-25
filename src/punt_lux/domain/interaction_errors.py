@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 
 __all__ = [
+    "ElementDismissedError",
     "InteractionError",
     "UnauthorizedInteractionError",
     "UnknownClientError",
@@ -86,6 +87,32 @@ class UnauthorizedInteractionError(InteractionError):
         return (
             f"client {self.caller!r} cannot interact with element "
             f"{self.element_id!r} in scene {self.scene_id!r}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ElementDismissedError(InteractionError):
+    """Interaction targeted an element (or descendant of one) marked removed.
+
+    Carried up so the caller can distinguish a stale wire click against a
+    just-dismissed dialog from a click that targets a genuinely missing
+    element. ``dismissed_id`` names the closest ancestor (possibly the
+    target itself) whose ``removed`` flag is set.
+    """
+
+    scene_id: SceneId
+    element_id: ElementId
+    dismissed_id: ElementId
+
+    def __str__(self) -> str:
+        if self.dismissed_id == self.element_id:
+            return (
+                f"element {self.element_id!r} in scene {self.scene_id!r} "
+                "has been dismissed"
+            )
+        return (
+            f"element {self.element_id!r} in scene {self.scene_id!r}: "
+            f"ancestor {self.dismissed_id!r} has been dismissed"
         )
 
 

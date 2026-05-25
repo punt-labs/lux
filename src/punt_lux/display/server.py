@@ -65,6 +65,7 @@ from punt_lux.protocol import (
     UpdateMessage,
 )
 from punt_lux.protocol.elements import Element
+from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.progress import ProgressElement
@@ -99,7 +100,11 @@ _INPUTS_KINDS: tuple[type, ...] = (
     ColorPickerElement,
     SelectableElement,
 )
-_NATIVE_KINDS: tuple[type, ...] = _BASICS_KINDS + _INPUTS_KINDS
+# Composite kinds. The pump's _install_subtree recursively installs each
+# child; the top-level composite must appear in _NATIVE_KINDS so route()'s
+# mixed-scene gate admits the scene.
+_COMPOSITE_KINDS: tuple[type, ...] = (DialogElement,)
+_NATIVE_KINDS: tuple[type, ...] = _BASICS_KINDS + _INPUTS_KINDS + _COMPOSITE_KINDS
 
 if TYPE_CHECKING:
     from punt_lux.protocol import Message
