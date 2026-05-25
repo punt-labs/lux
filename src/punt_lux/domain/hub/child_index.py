@@ -64,10 +64,12 @@ class ChildIndex:
         stack: list[ElementId] = [element_id]
         while stack:
             current = stack.pop()
+            if current != element_id:
+                result.append(current)
             children = self._children.get((scene_id, current), ())
-            for child in children:
-                result.append(child)
-                stack.append(child)
+            # Push in reverse so the first-installed child is popped first,
+            # yielding install-order DFS.
+            stack.extend(reversed(children))
         return tuple(result)
 
     def discard(self, scene_id: SceneId, element_id: ElementId) -> None:

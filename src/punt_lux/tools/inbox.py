@@ -41,15 +41,21 @@ def inbox_for(connection_id: ConnectionId) -> queue.SimpleQueue[ObserverMessage]
 
 
 def drain_inbox(connection_id: ConnectionId) -> tuple[ObserverMessage, ...]:
-    """Snapshot then clear the connection's inbox; used by tests."""
+    """Snapshot then clear the connection's inbox; used by tests.
+
+    Swaps the live queue with a fresh empty one under the lock so a
+    concurrent producer's ``put`` lands in the new queue, never racing
+    with the drain loop on the snapshot.
+    """
     with _inboxes_lock:
-        inbox = _inboxes.get(connection_id)
-    if inbox is None:
-        return ()
+        old = _inboxes.get(connection_id)
+        if old is None:
+            return ()
+        _inboxes[connection_id] = queue.SimpleQueue()
     drained: list[ObserverMessage] = []
     while True:
         try:
-            drained.append(inbox.get_nowait())
+            drained.append(old.get_nowait())
         except queue.Empty:
             break
     return tuple(drained)
@@ -69,10 +75,13 @@ def ensure_writer(connection_id: ConnectionId) -> None:
     hub_display.register_client(connection_id)
     if hub.has_writer(connection_id):
         return
-    inbox = inbox_for(connection_id)
+    # Ensure the inbox exists; the writer resolves the live queue per
+    # call so a ``drain_inbox`` swap doesn't strand messages on the old
+    # queue instance.
+    inbox_for(connection_id)
 
     def _writer(message: ObserverMessage) -> None:
-        inbox.put(message)
+        inbox_for(connection_id).put(message)
 
     hub.register_writer(connection_id, _writer)
 
