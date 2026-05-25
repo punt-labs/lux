@@ -591,7 +591,7 @@ class DisplayClient:
 
     # -- receiving ---------------------------------------------------------
 
-    def poll_event(self, timeout: float | None = None) -> Mapping[str, Any]:
+    def poll_event(self, timeout: float | None = None) -> Mapping[str, object]:
         """Block for the next business event delivered to this connection.
 
         Returns the payload of the next ``ObserverMessage`` whose topic

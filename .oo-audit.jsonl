@@ -216,3 +216,6 @@
 {"ts":"2026-05-25T03:00:19Z","commit":"8a15380","files_scored":148,"files_improved":1,"files_regressed":4,"verdict":"fail","deltas":{"src/punt_lux/tools/subscribe_tools.py":{"module_size":[69.0,68.0]}}}
 {"ts":"2026-05-25T03:02:11Z","commit":"8a15380","files_scored":148,"files_improved":0,"files_regressed":4,"verdict":"fail","deltas":{}}
 {"ts":"2026-05-25T03:02:49Z","commit":"8a15380","files_scored":148,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-05-25T03:08:23Z","commit":"43081cb","files_scored":148,"files_improved":0,"files_regressed":3,"verdict":"fail","deltas":{}}
+{"ts":"2026-05-25T03:08:39Z","commit":"43081cb","files_scored":148,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-05-25T03:18:09Z","commit":"43081cb","files_scored":148,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/protocol/messages/observer.py":{"method_ratio":[0.0,0.667],"avg_params":[1.0,0.67],"module_size":[50.0,48.0],"class_to_func_ratio":[0.25,0.5]}}}

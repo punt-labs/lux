@@ -142,15 +142,26 @@ class HubDisplay:
         cascade and leaves parent composites' children tuples stale.
         Only ABC Elements participate in the cascade; wire-dataclass
         roots have no observer registry and are dropped by direct index
-        cleanup at ``_remove_subtree`` time.
+        cleanup at ``_remove_subtree`` time. Per-root cleanup is
+        best-effort: a failure on one root is logged and the loop
+        continues so a single misbehaving subtree cannot strand the
+        rest of the connection's state.
         """
         self._clients.discard(connection_id)
         for scene_id, element_id in self._owners.keys_for(connection_id):
-            root = self._roots.get(scene_id, element_id)
-            if root is not None:
-                root.mark_removed()
-            else:
-                self._remove_subtree(scene_id, element_id)
+            try:
+                root = self._roots.get(scene_id, element_id)
+                if root is not None:
+                    root.mark_removed()
+                else:
+                    self._remove_subtree(scene_id, element_id)
+            except Exception:  # noqa: BLE001 — fan-out cleanup boundary; continue past failure
+                _log.exception(
+                    "drop_connection: cleanup failed for root %s in scene %s (conn %s)",
+                    element_id,
+                    scene_id,
+                    connection_id,
+                )
 
     # -- private helpers ---------------------------------------------------
 

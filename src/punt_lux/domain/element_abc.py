@@ -151,11 +151,21 @@ class Element(ABC):
 
         Handlers are invoked in registration order against a snapshot of
         the list so a handler that mutates the registry mid-dispatch
-        cannot affect the in-flight call.
+        cannot affect the in-flight call. A handler that raises is
+        logged with full traceback; remaining handlers still run — this
+        is a fan-out boundary where one bad subscriber must not stop
+        delivery to the others (PY-EH-6 system-boundary exemption).
         """
         snapshot = tuple(self._handlers.get(type(event), ()))
         for handler in snapshot:
-            handler(event)
+            try:
+                handler(event)
+            except Exception:
+                logger.exception(
+                    "handler raised on %s for element %s",
+                    type(event).__name__,
+                    self.id,
+                )
 
     def add_observer(self, observer: Callable[[str], None]) -> None:
         """Register a property-change observer.
