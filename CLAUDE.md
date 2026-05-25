@@ -197,24 +197,23 @@ Execute after every agent delegation that produces sizeable code changes. Do not
 2. **`make check`** — must pass before proceeding. Zero exceptions.
 3. **`make install`** — builds wheel and installs it locally. `make check` passing is not installation. **After installing, restart `luxd`** — the running hub loads code at startup and will serve the old version until restarted. Tests that exercise MCP tools or the display pipeline are testing the old code if the hub is stale. Restart with `lux ensure-hub --restart` (if registered as a service) or kill and relaunch manually.
 4. **`make test`** against the installed artifact — not from source. If no test covers the changed code, write one before marking this step complete.
-5. **Exercise manually** — before running, write expected output for each case. After running, compare actual to expected; differences are bugs. Cover: one invalid or malformed input, one case where a dependency is unavailable or returns an error, one boundary condition. Paste the actual output.
-6. **`/feature-dev:code-reviewer`** on the mission diff.
-7. **`/pr-review-toolkit:silent-failure-hunter`** on the mission diff.
-8. **Fix every finding.** To dismiss one: document (a) the exact finding, (b) the specific reason it does not apply, (c) the code reference. "Pre-existing", "by design", "intentional", and "expected" are not reasons.
-9. **Re-run both agents.** Exit the fix loop on the first round that produces no findings.
-10. **Commit.**
+5. **Exercise via introspection + operator confirmation** — write expected output BEFORE running. Drive the feature through its real entry point (MCP tool, CLI command, button click in the lux window). Capture what the running system did via the introspection APIs (`inspect_scene`, `list_scenes`, `list_recent_events`, `list_errors`, `screenshot`, `list_menus`, `list_clients`, `get_display_info`). Compare actual to expected. **Ask the operator to confirm.** Cover one invalid input, one missing-dependency case, one boundary condition. Synthetic tests that exercise a dispatcher in-process do not substitute for running the feature.
+6. **Local review** — run the applicable agents (2–6 by scope per Phase 5 in `punt-labs/CLAUDE.md`). Always-on pair: `pr-review-toolkit:code-reviewer` + `pr-review-toolkit:silent-failure-hunter`. Add `type-design-analyzer` for new types, `comment-analyzer` for significant doc changes, `pr-test-analyzer` for test restructures, `code-simplifier` after the others are clean.
+7. **Fix every finding.** To dismiss one: document (a) the exact finding, (b) the specific reason it does not apply, (c) the code reference. "Pre-existing", "by design", "intentional", and "expected" are not reasons.
+8. **Re-run agents.** Exit the fix loop on the first round that produces no findings on any selected agent.
+9. **Commit.**
 
 ### Outer loop — one PR (one rollback-coherent unit)
 
 After all missions for the feature complete and each has passed its inner loop:
 
 1. **`make check`** on the full accumulated diff.
-2. **Both local review agents** on the complete diff — cross-mission issues only appear at this level.
+2. **All applicable local review agents** on the complete diff (2–6 by scope per Phase 5 in `punt-labs/CLAUDE.md`) — cross-mission issues only appear at this level.
 3. **Fix all findings** using the same documentation standard.
 4. **Human IDE review** of the full diff — the only human review in the process. Resolve all findings before proceeding.
-5. **`make install`** then restart `luxd` (`lux ensure-hub --restart`), then run the complete user-facing workflow end-to-end, including at least one path through a dependency. Paste actual output and verify the changed code was exercised.
+5. **`make install`** then restart `luxd` (`lux ensure-hub --restart`), then run the complete user-facing workflow end-to-end through its real entry point. Capture system state via the lux introspection APIs (`inspect_scene`, `list_recent_events`, `list_errors`, `screenshot`, etc.) and **ask the operator to confirm** the observed behavior matches the expected outcome written down before running. Verify the changed code was exercised — not just the surrounding scaffolding.
 6. **Re-run agents** until clean.
-7. **Open PR.** A PR opened before step 6 is clean is a procedural violation.
+7. **Open PR.** A PR opened before step 6 is clean is a procedural violation. The PR description includes the manual-verification playbook: commands run + introspection captures + operator-confirmation outcome.
 
 ### PR boundaries
 
