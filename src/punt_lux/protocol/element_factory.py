@@ -16,6 +16,7 @@ directive bans.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Self
 
@@ -64,6 +65,7 @@ class JsonElementFactory:
     _emit: Emit
     _sink: PublishSink
     _codec: ElementCodec
+    _display_send: Callable[[Any], None] | None
     _text_decoder: JsonTextDecoder
     _button_decoder: JsonButtonDecoder
     _dialog_decoder: JsonDialogDecoder
@@ -75,12 +77,14 @@ class JsonElementFactory:
         emit: Emit,
         publish_sink: PublishSink,
         codec: ElementCodec,
+        display_send: Callable[[Any], None] | None = None,
     ) -> Self:
         self = super().__new__(cls)
         self._rf = renderer_factory
         self._emit = emit
         self._sink = publish_sink
         self._codec = codec
+        self._display_send = display_send
         self._text_decoder = JsonTextDecoder(
             renderer_factory=renderer_factory,
             emit=emit,
@@ -106,11 +110,39 @@ class JsonElementFactory:
         if kind == "text":
             return self._text_decoder.decode(raw)
         if kind == "button":
-            return self._button_decoder.decode(raw)
+            elem = self._button_decoder.decode(raw)
+            self._install_remote_dispatch(elem)
+            return elem
         if kind == "dialog":
-            return self._dialog_decoder.decode(raw)
+            elem = self._dialog_decoder.decode(raw)
+            self._install_remote_dispatch_on_children(elem)
+            return elem
         msg = f"JsonElementFactory has no decoder for kind={kind!r}"
         raise ValueError(msg)
+
+    def _install_remote_dispatch(self, elem: AbcElement) -> None:
+        """Install a remote_dispatch handler if this factory is display-side."""
+        if self._display_send is None:
+            return
+        from punt_lux.domain.display_interaction import DisplayInteraction
+        from punt_lux.domain.handlers.remote_dispatch import remote_dispatch
+
+        action = getattr(elem, "action", None) or elem.id
+        elem.add_handler(
+            DisplayInteraction,
+            remote_dispatch(self._display_send, elem.id, action),
+        )
+
+    def _install_remote_dispatch_on_children(self, elem: AbcElement) -> None:
+        """Install remote_dispatch on a composite's children recursively."""
+        if self._display_send is None:
+            return
+        from punt_lux.domain.composite import Composite
+
+        if isinstance(elem, Composite):
+            for child in elem.children:
+                if isinstance(child, AbcElement):
+                    self._install_remote_dispatch(child)
 
     def element_from_dict(self, d: dict[str, Any]) -> Any:
         """Deserialize a wire dict to the appropriate Element class.
