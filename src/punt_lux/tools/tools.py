@@ -6,13 +6,16 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from punt_lux.config import ConfigManager
 from punt_lux.display_client import agent_element_factory
-from punt_lux.domain.hub import client_registry
+from punt_lux.domain.element import Element as DomainElement
+from punt_lux.domain.hub import client_registry, hub_display
+from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.update import AddElement
 from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import Patch
+from punt_lux.protocol import Element as WireElement, Patch
 from punt_lux.tools.connection import _query_tool
 from punt_lux.tools.server import (
     _session_key,
@@ -123,7 +126,7 @@ def show(
         frame_title = title or scene_id
 
     factory = agent_element_factory()
-    typed_elements = [factory.element_from_dict(e) for e in elements]
+    typed_elements: list[WireElement] = [factory.element_from_dict(e) for e in elements]
     size_tuple: tuple[int, int] | None = None
     if frame_size is not None:
         if len(frame_size) != 2:
@@ -147,9 +150,40 @@ def show(
         )
         if ack is None:
             return "timeout"
+        _index_scene_in_hub(scene_id, typed_elements)
         return f"ack:{ack.scene_id}"
 
     return client_registry.with_reconnect(_call)
+
+
+def _index_scene_in_hub(scene_id: str, typed_elements: list[WireElement]) -> None:
+    """Mirror the displayed scene into the HubDisplay element index.
+
+    Without this, click resolution and connection-scoped cleanup are
+    blind to anything ``show`` put on screen — ``Display.interact``
+    rejects every interaction whose target was installed via ``show``,
+    and ``drop_connection`` leaks the scene's roots. The Composite
+    Protocol recursion inside ``HubDisplay.apply`` walks each root's
+    descendants automatically.
+
+    Every wire element class structurally satisfies the
+    :class:`DomainElement` Protocol — same ``id`` / ``kind`` /
+    ``to_dict`` / ``from_dict`` shape — but mypy does not infer the
+    Protocol match from the wire union, so we cast at the call site
+    (the display-side ``DomainPump`` carries the same cast).
+    """
+    connection_id = ConnectionId(_session_key.get())
+    hub_display.register_client(connection_id)
+    scene = SceneId(scene_id)
+    for element in typed_elements:
+        hub_display.apply(
+            connection_id,
+            AddElement(
+                scene_id=scene,
+                element=cast("DomainElement", element),
+                parent_id=None,
+            ),
+        )
 
 
 @mcp.tool()
