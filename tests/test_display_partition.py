@@ -24,10 +24,10 @@ from punt_lux.protocol import (
     ClearMessage,
     ConnectMessage,
     FrameReader,
-    InteractionMessage,
     Patch,
     PingMessage,
     RegisterMenuMessage,
+    RemoteEventHandlerInvocation,
     SceneMessage,
     SeparatorElement,
     TextElement,
@@ -185,7 +185,7 @@ class TestDisconnectClientPartitions:
         _register(server, sock)
         _inject_scene(server, _scene_with("s1", TextElement(id="t1", content="A")))
         server._event_queue.append(
-            InteractionMessage(element_id="t1", action="click", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="t1", action="click", ts=1.0)
         )
         server._socket_server.remove_client(sock)
         assert len(server._scene_manager._scenes) > 0
@@ -243,7 +243,7 @@ class TestReceiveScenePartitions:
         old_scene = _scene_with("s1", ButtonElement(id="b1", label="Old"))
         server._handle_message(sock, old_scene)
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="click", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
         )
         assert len(server._event_queue) == 1
 
@@ -328,7 +328,7 @@ class TestClearScenePartitions:
             _scene_with("s1", ButtonElement(id="b1", label="X")),
         )
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="click", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
         )
         server._handle_message(sock, ClearMessage())
         assert len(server._event_queue) == 0
@@ -384,7 +384,7 @@ class TestRemoveElementPartitions:
             ),
         )
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="click", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
         )
         server._scene_manager.apply_update(
             UpdateMessage(scene_id="s1", patches=[Patch(id="b1", remove=True)])
@@ -439,7 +439,9 @@ class TestButtonClickPartitions:
         server = _server()
         _inject_scene(server, _scene_with("s1", ButtonElement(id="b1", label="Go")))
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="b1", action="b1", ts=1.0, value=True
+            )
         )
         assert len(server._event_queue) == 1
         assert server._event_queue[0].element_id == "b1"
@@ -456,10 +458,14 @@ class TestButtonClickPartitions:
             ),
         )
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="b1", action="b1", ts=1.0, value=True
+            )
         )
         server._event_queue.append(
-            InteractionMessage(element_id="b2", action="b2", ts=2.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="b2", action="b2", ts=2.0, value=True
+            )
         )
         assert len(server._event_queue) == 2
         elem_ids = {e.element_id for e in server._event_queue}
@@ -479,14 +485,20 @@ class TestButtonClickPartitions:
         )
         # Pre-fill to maxEvents-1 = 2
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="b1", action="b1", ts=1.0, value=True
+            )
         )
         server._event_queue.append(
-            InteractionMessage(element_id="b2", action="b2", ts=2.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="b2", action="b2", ts=2.0, value=True
+            )
         )
         # One more fills to maxEvents=3
         server._event_queue.append(
-            InteractionMessage(element_id="b3", action="b3", ts=3.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="b3", action="b3", ts=3.0, value=True
+            )
         )
         assert len(server._event_queue) == 3  # at max
 
@@ -526,10 +538,14 @@ class TestButtonClickPartitions:
         server = _server()
         _inject_scene(server, _scene_with("s1", ButtonElement(id="b1", label="X")))
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="b1", action="b1", ts=1.0, value=True
+            )
         )
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="b1", ts=2.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="b1", action="b1", ts=2.0, value=True
+            )
         )
         # Concrete: list preserves both. Spec: set collapses to {b1}.
         # This is a known abstraction gap (set vs list).
@@ -551,7 +567,7 @@ class TestFlushEventsPartitions:
         _register(server, sock)
         _inject_scene(server, _scene_with("s1", ButtonElement(id="b1", label="X")))
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="click", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
         )
         server._flush_events()
         assert len(server._event_queue) == 0
@@ -697,7 +713,7 @@ class TestShutdownPartitions:
         _register(server, _sock(fd=20))
         _inject_scene(server, _scene_with("s1", TextElement(id="t1", content="A")))
         server._event_queue.append(
-            InteractionMessage(element_id="t1", action="click", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="t1", action="click", ts=1.0)
         )
         # Simulate shutdown (partial — no socket/file cleanup)
         for client in list(server._socket_server.clients):
@@ -774,7 +790,7 @@ class TestInvariantPartitions:
         server._handle_message(sock, scene)
         assert len(server._scene_manager._scenes) > 0
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="b1", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="b1", action="b1", ts=1.0)
         )
         s1_elems = server._scene_manager._scenes["s1"].elements
         scene_elem_ids = {e.id for e in s1_elems if e.id}
@@ -789,7 +805,7 @@ class TestInvariantPartitions:
             sock, _scene_with("s1", ButtonElement(id="b1", label="Old"))
         )
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="b1", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="b1", action="b1", ts=1.0)
         )
         # Replace s1 with new content that lacks b1
         server._handle_message(
@@ -890,7 +906,7 @@ class TestCreateFramePartitions:
             _framed_scene("s1", "f1", ButtonElement(id="b1", label="Old")),
         )
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="clicked", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="b1", action="clicked", ts=1.0)
         )
         server._handle_message(
             sock,
@@ -1243,7 +1259,7 @@ class TestFrameStaleEventDrainPartitions:
             _framed_scene("s1", "f1", ButtonElement(id="b1", label="X")),
         )
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="clicked", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="b1", action="clicked", ts=1.0)
         )
 
         server._close_frame("f1")

@@ -7,7 +7,7 @@ and pings.  Receives ack, pong, and observer events.
 
 Supports push-based event handling via :meth:`on_event` and
 :meth:`start_listener`.  When the background listener is active, incoming
-:class:`InteractionMessage` frames with a matching ``(element_id, action)``
+:class:`RemoteEventHandlerInvocation` frames with a matching ``(element_id, action)``
 callback are dispatched on the listener thread; acks, pongs, and query
 responses route to dedicated queues consumed by :meth:`show`, :meth:`ping`,
 and :meth:`query`.  Inbound :class:`ObserverMessage` frames — fan-outs
@@ -43,7 +43,6 @@ from punt_lux.protocol import (
     ClearMessage,
     ConnectMessage,
     FrameReader,
-    InteractionMessage,
     MenuMessage,
     ObserverMessage,
     PingMessage,
@@ -52,6 +51,7 @@ from punt_lux.protocol import (
     QueryResponse,
     ReadyMessage,
     RegisterMenuMessage,
+    RemoteEventHandlerInvocation,
     SceneMessage,
     ThemeMessage,
     UpdateMessage,
@@ -165,8 +165,8 @@ class DisplayClient:
     _ready: ReadyMessage | None
     _registered_menu_items: list[dict[str, Any]]
     _lock: threading.Lock
-    _callbacks: dict[tuple[str, str], Callable[[InteractionMessage], None]]
-    _fallback_interaction_handler: Callable[[InteractionMessage], None] | None
+    _callbacks: dict[tuple[str, str], Callable[[RemoteEventHandlerInvocation], None]]
+    _fallback_interaction_handler: Callable[[RemoteEventHandlerInvocation], None] | None
     _listener_thread: threading.Thread | None
     _listener_stop: threading.Event
     _ack_queue: queue.SimpleQueue[AckMessage]
@@ -324,7 +324,7 @@ class DisplayClient:
         self,
         element_id: str,
         action: str,
-        callback: Callable[[InteractionMessage], None],
+        callback: Callable[[RemoteEventHandlerInvocation], None],
     ) -> None:
         """Register a callback for ``(element_id, action)`` events.
 
@@ -352,7 +352,7 @@ class DisplayClient:
         """Start the background listener thread.
 
         The listener reads incoming messages from the socket and
-        dispatches them by kind: ``InteractionMessage`` runs the
+        dispatches them by kind: ``RemoteEventHandlerInvocation`` runs the
         registered ``(element_id, action)`` callback (unmatched
         interactions are dropped); ``ObserverMessage`` payloads queue
         for :meth:`poll_event`; ``AckMessage``, ``PongMessage``, and
@@ -415,7 +415,7 @@ class DisplayClient:
     def _dispatch(self, msg: Message) -> None:
         """Route a message to its typed destination.
 
-        ``InteractionMessage`` runs the registered callback for its
+        ``RemoteEventHandlerInvocation`` runs the registered callback for its
         ``(element_id, action)`` pair; unmatched interactions are
         dropped with a debug log.  ``ObserverMessage`` payloads queue
         for :meth:`poll_event`.  ``AckMessage``, ``PongMessage``, and
@@ -423,7 +423,7 @@ class DisplayClient:
         :meth:`show`, :meth:`ping`, and :meth:`query`.  Other message
         kinds are dropped with a debug log.
         """
-        if isinstance(msg, InteractionMessage):
+        if isinstance(msg, RemoteEventHandlerInvocation):
             key = (msg.element_id, msg.action)
             with self._lock:
                 cb = self._callbacks.get(key)

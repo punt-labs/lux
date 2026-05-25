@@ -43,7 +43,7 @@ from punt_lux.protocol import (
     SliderElement,
     element_to_dict,
 )
-from punt_lux.protocol.messages.interaction import InteractionMessage
+from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 
 # -- Element Protocol conformance ------------------------------------------
 
@@ -227,7 +227,7 @@ def test_every_inputs_kind_flows_through_display_apply() -> None:
 def test_button_click_routes_through_display_to_element_handlers() -> None:
     """Contract: construct Display, AddElement Button, simulate click, observe event.
 
-    A wire ``InteractionMessage`` passed to ``Display.interact`` lands on
+    A wire ``RemoteEventHandlerInvocation`` passed to ``Display.interact`` lands on
     the resolved Element's handler registry — every registered handler
     fires exactly once, snapshot remains unchanged.
     """
@@ -246,7 +246,9 @@ def test_button_click_routes_through_display_to_element_handlers() -> None:
     button.add_handler(ButtonClicked, observed_a.append)
     button.add_handler(ButtonClicked, observed_b.append)
 
-    msg = InteractionMessage(element_id="b1", action="b1", value=True, scene_id="s1")
+    msg = RemoteEventHandlerInvocation(
+        element_id="b1", action="b1", value=True, scene_id="s1",
+    )
     click_event = display.interact(alice, msg)
 
     assert isinstance(click_event, ButtonClicked)

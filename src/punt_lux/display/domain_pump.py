@@ -15,9 +15,8 @@ from punt_lux.domain.event import (
     ElementUpdated,
 )
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction_errors import InteractionError
 from punt_lux.domain.update import AddElement, RemoveElement
-from punt_lux.protocol import InteractionMessage, SceneMessage
+from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.text import TextElement
@@ -161,7 +160,7 @@ class DomainPump:
 
     # route_interaction removed by D21: the display no longer dispatches
     # interactions locally. The remote_dispatch handler on each element
-    # sends InteractionMessages to the Hub, where the real handler fires.
+    # sends RemoteEventHandlerInvocations to the Hub, where the real handler fires.
 
 
 def _warn_on_error(

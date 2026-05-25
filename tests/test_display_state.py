@@ -15,11 +15,11 @@ from punt_lux.protocol import (
     ButtonElement,
     ClearMessage,
     Element,
-    InteractionMessage,
     MenuMessage,
     Patch,
     PingMessage,
     RegisterMenuMessage,
+    RemoteEventHandlerInvocation,
     SceneMessage,
     SeparatorElement,
     TextElement,
@@ -75,7 +75,7 @@ class TestEmitEvent:
         server = _make_server()
         server._current_scene_id = "s1"
 
-        event = InteractionMessage(element_id="b1", action="click", ts=1.0)
+        event = RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
         assert event.scene_id is None
 
         server._emit_event(event)
@@ -91,7 +91,7 @@ class TestEmitEvent:
         server = _make_server()
         server._current_scene_id = "s1"
 
-        event = InteractionMessage(
+        event = RemoteEventHandlerInvocation(
             element_id="b1", action="click", ts=1.0, scene_id="s2"
         )
         server._emit_event(event)
@@ -143,7 +143,9 @@ class TestEventQueueOnSceneChange:
         # Set up a scene via handle_message
         server._handle_message(sock, _make_scene())
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="b1", action="b1", ts=1.0, value=True
+            )
         )
         assert len(server._event_queue) == 1
 
@@ -169,11 +171,15 @@ class TestEventQueueOnSceneChange:
         server._handle_message(sock, first)
         # Event for b2 (will be removed in replacement)
         server._event_queue.append(
-            InteractionMessage(element_id="b2", action="b2", ts=1.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="b2", action="b2", ts=1.0, value=True
+            )
         )
         # Event for b1 (will survive in replacement)
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="b1", action="b1", ts=1.0, value=True
+            )
         )
         assert len(server._event_queue) == 2
 
@@ -189,7 +195,9 @@ class TestEventQueueOnSceneChange:
 
         server._handle_message(sock, _make_scene())
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="b1", action="b1", ts=1.0, value=True
+            )
         )
 
         server._handle_message(sock, ClearMessage())
@@ -203,7 +211,9 @@ class TestEventQueueOnSceneChange:
 
         server._handle_message(sock, _make_scene())
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="b1", action="b1", ts=1.0, value=True
+            )
         )
 
         server._handle_message(sock, PingMessage(ts=1.0))
@@ -470,7 +480,7 @@ class TestFlushEvents:
         sock = _mock_sock()
         server._socket_server.clients.append(sock)
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="click", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
         )
 
         server._flush_events()
@@ -480,7 +490,7 @@ class TestFlushEvents:
     def test_flush_clears_queue_even_without_clients(self) -> None:
         server = _make_server()
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="click", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
         )
 
         server._flush_events()
@@ -507,7 +517,7 @@ class TestFlushEvents:
         server._socket_server._fd_to_client[20] = other
         server._menu_manager.menu_owners["tool_a"] = 10
         server._event_queue.append(
-            InteractionMessage(
+            RemoteEventHandlerInvocation(
                 element_id="tool_a",
                 action="menu",
                 ts=1.0,
@@ -529,7 +539,7 @@ class TestFlushEvents:
         server._socket_server._fd_to_client[10] = sock1
         server._socket_server._fd_to_client[20] = sock2
         server._event_queue.append(
-            InteractionMessage(element_id="button_x", action="click", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="button_x", action="click", ts=1.0)
         )
 
         server._flush_events()
@@ -547,7 +557,7 @@ class TestFlushEvents:
         server._socket_server._fd_to_client[20] = sock2
         server._menu_manager.menu_owners["button_x"] = 10
         server._event_queue.append(
-            InteractionMessage(element_id="button_x", action="click", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="button_x", action="click", ts=1.0)
         )
 
         server._flush_events()
@@ -565,7 +575,7 @@ class TestFlushEvents:
         server._socket_server._fd_to_client[20] = sock2
         server._menu_manager.menu_owners["tool_a"] = 10
         server._event_queue.append(
-            InteractionMessage(
+            RemoteEventHandlerInvocation(
                 element_id="tool_a",
                 action="menu",
                 ts=1.0,
@@ -586,7 +596,7 @@ class TestFlushEvents:
         server._socket_server._fd_to_client[20] = other
         server._menu_manager.menu_owners["tool_a"] = 10  # fd 10 not in _fd_to_client
         server._event_queue.append(
-            InteractionMessage(
+            RemoteEventHandlerInvocation(
                 element_id="tool_a",
                 action="menu",
                 ts=1.0,
@@ -903,10 +913,14 @@ class TestMultiScene:
 
         # Queue events for s1's elements
         server._event_queue.append(
-            InteractionMessage(element_id="s1_btn", action="s1_btn", ts=1.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="s1_btn", action="s1_btn", ts=1.0, value=True
+            )
         )
         server._event_queue.append(
-            InteractionMessage(element_id="s1_txt", action="s1_txt", ts=1.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="s1_txt", action="s1_txt", ts=1.0, value=True
+            )
         )
         assert len(server._event_queue) == 2
 
@@ -937,10 +951,14 @@ class TestMultiScene:
 
         # Events from both scenes
         server._event_queue.append(
-            InteractionMessage(element_id="btn_s1", action="btn_s1", ts=1.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="btn_s1", action="btn_s1", ts=1.0, value=True
+            )
         )
         server._event_queue.append(
-            InteractionMessage(element_id="btn_s2", action="btn_s2", ts=1.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="btn_s2", action="btn_s2", ts=1.0, value=True
+            )
         )
 
         # Dismiss s1 — only s1's events drained
@@ -975,12 +993,14 @@ class TestMultiScene:
 
         # Events for shared and unique IDs
         server._event_queue.append(
-            InteractionMessage(
+            RemoteEventHandlerInvocation(
                 element_id="shared_btn", action="click", ts=1.0, value=True
             )
         )
         server._event_queue.append(
-            InteractionMessage(element_id="s1_only", action="click", ts=1.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="s1_only", action="click", ts=1.0, value=True
+            )
         )
 
         # Dismiss s1 — shared_btn survives in s2, s1_only does not

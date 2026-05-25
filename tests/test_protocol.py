@@ -22,7 +22,6 @@ from punt_lux.protocol import (
     ImageElement,
     InputNumberElement,
     InputTextElement,
-    InteractionMessage,
     IntrospectRequest,
     IntrospectResponse,
     ListScenesRequest,
@@ -41,6 +40,7 @@ from punt_lux.protocol import (
     RadioElement,
     ReadyMessage,
     RegisterMenuMessage,
+    RemoteEventHandlerInvocation,
     SceneMessage,
     ScreenshotRequest,
     ScreenshotResponse,
@@ -454,7 +454,7 @@ class TestMessages:
         assert msg.error == "bad scene"
 
     def test_interaction_message(self):
-        msg = InteractionMessage(element_id="b1", action="click", value=42)
+        msg = RemoteEventHandlerInvocation(element_id="b1", action="click", value=42)
         assert msg.value == 42
 
     def test_pong_message(self):
@@ -707,10 +707,10 @@ class TestSerialization:
                 id="AckMessage",
             ),
             pytest.param(
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id="b1", action="click", value=42, scene_id="s1"
                 ),
-                id="InteractionMessage",
+                id="RemoteEventHandlerInvocation",
             ),
             pytest.param(PongMessage(ts=1.0, display_ts=2.0), id="PongMessage"),
             pytest.param(
@@ -1943,7 +1943,7 @@ class TestMessageRegistry:
             "query_response",
             "ready",
             "ack",
-            "interaction",
+            "remote_invocation",
             "observer",
             "pong",
             "unknown",

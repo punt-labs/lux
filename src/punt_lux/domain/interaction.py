@@ -7,7 +7,7 @@ boundary raises ``TypeError``.
 
 Upstream of ``Display.interact`` lives wire-shape triage in the pump;
 downstream lives typed handler dispatch through ``Element.fire``. No
-intermediate sum type stands between the inbound ``InteractionMessage``
+intermediate sum type stands between the inbound ``RemoteEventHandlerInvocation``
 and the ``ButtonClicked`` the dispatcher hands to the per-Element handler
 registry.
 """

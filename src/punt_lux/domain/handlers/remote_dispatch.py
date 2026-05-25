@@ -18,7 +18,7 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-from punt_lux.protocol.messages.interaction import InteractionMessage
+from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -29,7 +29,7 @@ __all__ = ["remote_dispatch"]
 
 _log = logging.getLogger(__name__)
 
-type SendFn = Callable[[InteractionMessage], None]
+type SendFn = Callable[[RemoteEventHandlerInvocation], None]
 
 
 def remote_dispatch(
@@ -40,7 +40,7 @@ def remote_dispatch(
     """Return a handler that routes the event to the Hub via ``send``.
 
     The returned callable satisfies ``Handler[E]`` — it accepts the
-    event and sends an ``InteractionMessage`` over the socket instead
+    event and sends an ``RemoteEventHandlerInvocation`` over the socket instead
     of executing catalog logic locally. The Hub receives the message,
     resolves the element from ``HubDisplay``, and fires the real
     (unwrapped) handler.
@@ -53,7 +53,7 @@ def remote_dispatch(
     element_id:
         The element this handler is bound to.
     action:
-        The action string for the ``InteractionMessage``
+        The action string for the ``RemoteEventHandlerInvocation``
         (typically ``element_id`` or a catalog-derived name).
     """
 
@@ -64,7 +64,7 @@ def remote_dispatch(
             action,
         )
         send(
-            InteractionMessage(
+            RemoteEventHandlerInvocation(
                 element_id=element_id,
                 action=action,
                 ts=time.time(),

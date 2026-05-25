@@ -9,7 +9,7 @@ from typing import Self
 from imgui_bundle import imgui
 
 from punt_lux.protocol.elements.input_number import InputNumberElement
-from punt_lux.protocol.messages.interaction import InteractionMessage
+from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.scene import WidgetState
 from punt_lux.types import EmitEventFn
 
@@ -45,7 +45,7 @@ class InputNumberRenderer:
         if changed:
             self._widget_state.set(eid, result)
             self._emit_event(
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id=eid,
                     action="changed",
                     ts=time.time(),

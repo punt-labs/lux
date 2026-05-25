@@ -37,7 +37,7 @@ from punt_lux.domain.interaction_errors import (
 from punt_lux.domain.ownership import OwnershipError
 from punt_lux.domain.snapshot import SceneSnapshot
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
-from punt_lux.protocol.messages.interaction import InteractionMessage
+from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 
 
 def _button(snap: SceneSnapshot, eid: ElementId) -> _Button:
@@ -579,9 +579,11 @@ def test_snapshot_is_a_point_in_time_view() -> None:
 # -- Display.interact ------------------------------------------------------
 
 
-def _click_msg(scene_id: str, element_id: str) -> InteractionMessage:
-    """Build an inbound wire-shape-valid button-click ``InteractionMessage``."""
-    return InteractionMessage(
+def _click_msg(
+    scene_id: str, element_id: str,
+) -> RemoteEventHandlerInvocation:
+    """Build an inbound wire-shape-valid button-click invocation."""
+    return RemoteEventHandlerInvocation(
         element_id=element_id,
         action=element_id,
         value=True,
@@ -756,7 +758,9 @@ def test_interact_raises_wrong_kind_for_non_true_value_on_button() -> None:
             element=_Button(id=ElementId("b1"), label="OK"),
         ),
     )
-    msg = InteractionMessage(element_id="b1", action="b1", value=False, scene_id="s1")
+    msg = RemoteEventHandlerInvocation(
+        element_id="b1", action="b1", value=False, scene_id="s1",
+    )
 
     with pytest.raises(WrongKindError):
         display.interact(alice, msg)

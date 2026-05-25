@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import Any
 
 from punt_lux.display.menu_manager import MenuManager
-from punt_lux.protocol import InteractionMessage
+from punt_lux.protocol import RemoteEventHandlerInvocation
 
 
-def _noop_emit(event: InteractionMessage) -> None:
+def _noop_emit(event: RemoteEventHandlerInvocation) -> None:
     pass
 
 

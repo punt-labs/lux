@@ -2,13 +2,13 @@
 
 No factory-token guard. Constructed by the display-side renderer when
 ImGui detects a click. The ``remote_dispatch`` handler receives this
-event and sends an ``InteractionMessage`` to the Hub over the socket.
+event and sends an ``RemoteEventHandlerInvocation`` to the Hub over the socket.
 The Hub constructs the real ``ButtonClicked`` (with the factory token)
 on its side.
 
 This event exists so the display-side ``element.fire()`` call has a
 typed event to pass. The Hub never sees ``DisplayInteraction`` — only
-``InteractionMessage`` crosses the wire.
+``RemoteEventHandlerInvocation`` crosses the wire.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ class DisplayInteraction:
 
     Carries only the ``element_id`` — enough for the
     ``remote_dispatch`` handler to construct the outbound
-    ``InteractionMessage``. No ``owner_id``, no ``scene_id``
+    ``RemoteEventHandlerInvocation``. No ``owner_id``, no ``scene_id``
     (the send function stamps ``scene_id`` downstream).
     """
 

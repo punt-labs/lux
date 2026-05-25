@@ -7,7 +7,7 @@ Two invariants verified here:
   and returns zero. The independence of the per-Element handler
   registry and the per-connection subscription registry is what makes
   this trivial.
-- ``Display.interact`` rejects a wire ``InteractionMessage`` whose
+- ``Display.interact`` rejects a wire ``RemoteEventHandlerInvocation`` whose
   ``client_id`` has been dropped from the clients registry with
   ``UnknownClientError`` — the disconnect path's call to
   ``HubDisplay.drop_connection`` (and the parallel
@@ -28,8 +28,8 @@ from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId, Topic
 from punt_lux.domain.interaction_errors import UnknownClientError
 from punt_lux.domain.update import AddElement
-from punt_lux.protocol.messages.interaction import InteractionMessage
 from punt_lux.protocol.messages.observer import ObserverMessage
+from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 
 
 @dataclass(frozen=True, slots=True)
@@ -106,7 +106,7 @@ def test_display_interact_rejects_disconnected_client_with_unknown_client_error(
     assert not display.is_client(client_id)
     assert hub_display.elements_owned_by(connection_id) == ()
 
-    msg = InteractionMessage(
+    msg = RemoteEventHandlerInvocation(
         element_id=str(element_id),
         action="click",
         scene_id=str(scene_id),

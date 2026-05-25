@@ -22,9 +22,9 @@ class ButtonRenderer:
 
     On click, calls ``elem.fire(DisplayInteraction(...))`` which
     triggers the ``remote_dispatch`` handler installed by the
-    display-side factory. The handler sends an ``InteractionMessage``
+    display-side factory. The handler sends an ``RemoteEventHandlerInvocation``
     to the Hub over the socket. The renderer no longer constructs
-    ``InteractionMessage`` directly — distribution is the handler's
+    ``RemoteEventHandlerInvocation`` directly — distribution is the handler's
     concern (D21).
     """
 

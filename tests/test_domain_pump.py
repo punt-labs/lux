@@ -14,11 +14,9 @@ import pytest
 from punt_lux.display.domain_pump import DomainPump
 from punt_lux.domain.display import Display
 from punt_lux.domain.ids import ElementId, SceneId
-from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.protocol import (
     ButtonElement,
     GroupElement,
-    InteractionMessage,
     SceneMessage,
     SeparatorElement,
     SliderElement,
@@ -98,7 +96,7 @@ def test_route_empty_elements_on_fresh_scene_is_safe(pump: DomainPump) -> None:
 
 # -- route_interaction removed by D21 ------------------------------------
 # Display no longer dispatches interactions locally. The remote_dispatch
-# handler on each element sends InteractionMessages to the Hub, where
+# handler on each element sends RemoteEventHandlerInvocations to the Hub, where
 # the real handler fires. Tests for the Hub-side dispatch path live in
 # tests/domain/test_hub_interaction_dispatch.py.
 

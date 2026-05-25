@@ -18,7 +18,7 @@ from punt_lux.apps.beads import BeadsBrowser
 from punt_lux.display_client import DisplayClient
 
 if TYPE_CHECKING:
-    from punt_lux.protocol import InteractionMessage
+    from punt_lux.protocol import RemoteEventHandlerInvocation
 
 logger = logging.getLogger(__name__)
 
@@ -95,11 +95,11 @@ class ClientRegistry:
         self._apps_registered_for = id(client)
 
     @staticmethod
-    def _hub_interaction_dispatch(msg: InteractionMessage) -> None:
+    def _hub_interaction_dispatch(msg: RemoteEventHandlerInvocation) -> None:
         """Route display-side clicks through Hub-side element dispatch.
 
         D21: the display wraps every handler in ``remote_dispatch``,
-        which sends an ``InteractionMessage`` to the Hub. This method
+        which sends an ``RemoteEventHandlerInvocation`` to the Hub. This method
         receives that message, resolves the element from ``HubDisplay``,
         constructs a ``ButtonClicked`` with the factory token, and
         fires the Hub-side handlers (which have real
@@ -188,7 +188,7 @@ class ClientRegistry:
         except Exception:
             logger.exception("hub dispatch scene re-push failed for %s", scene_id)
 
-    def _on_beads_browser(self, _msg: InteractionMessage) -> None:
+    def _on_beads_browser(self, _msg: RemoteEventHandlerInvocation) -> None:
         """Open Beads Browser in a daemon thread; log render failures."""
         if (client := self._client) is None:
             logger.warning("_on_beads_browser: client is None, ignoring menu click")

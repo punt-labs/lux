@@ -6,7 +6,8 @@ helpers:
 - ``scene``: scene replacement and incremental patches (Scene, Update, Clear)
 - ``lifecycle``: connection handshake and heartbeat (Ready, Connect, Ack, Ping,
   Pong, Unknown)
-- ``interaction``: user-driven element events (Interaction)
+- ``remote_invocation``: handler invocations for remote execution
+  (RemoteEventHandlerInvocation)
 - ``menu``: display configuration (Menu, RegisterMenu, Theme)
 - ``introspect``: request/response pairs (Introspect, ListScenes, Screenshot,
   Query)
@@ -25,10 +26,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from punt_lux.protocol.messages.interaction import (
-    InteractionMessage,
-    register_codecs as _register_interaction,
-)
 from punt_lux.protocol.messages.introspect import (
     IntrospectRequest,
     IntrospectResponse,
@@ -61,6 +58,10 @@ from punt_lux.protocol.messages.observer import (
     register_codecs as _register_observer,
 )
 from punt_lux.protocol.messages.registry import MessageRegistry
+from punt_lux.protocol.messages.remote_invocation import (
+    RemoteEventHandlerInvocation,
+    register_codecs as _register_remote_invocation,
+)
 from punt_lux.protocol.messages.scene import (
     ClearMessage,
     SceneMessage,
@@ -75,7 +76,6 @@ __all__ = [
     "ClientMessage",
     "ConnectMessage",
     "DisplayMessage",
-    "InteractionMessage",
     "IntrospectRequest",
     "IntrospectResponse",
     "ListScenesRequest",
@@ -90,6 +90,7 @@ __all__ = [
     "QueryResponse",
     "ReadyMessage",
     "RegisterMenuMessage",
+    "RemoteEventHandlerInvocation",
     "SceneMessage",
     "ScreenshotRequest",
     "ScreenshotResponse",
@@ -120,7 +121,7 @@ ClientMessage = (
 DisplayMessage = (
     ReadyMessage
     | AckMessage
-    | InteractionMessage
+    | RemoteEventHandlerInvocation
     | ObserverMessage
     | PongMessage
     | IntrospectResponse
@@ -138,7 +139,7 @@ _registry = MessageRegistry()
 
 _register_scene(_registry.register)
 _register_lifecycle(_registry.register)
-_register_interaction(_registry.register)
+_register_remote_invocation(_registry.register)
 _register_menu(_registry.register)
 _register_introspect(_registry.register)
 _register_observer(_registry.register)

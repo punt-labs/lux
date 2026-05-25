@@ -1,7 +1,7 @@
 """Typed exceptions ``Display.interact`` raises on domain-validation failure.
 
 These exceptions are the *output* of the domain validation site for a wire
-``InteractionMessage``. ``Display.interact`` catches none of them; the
+``RemoteEventHandlerInvocation``. ``Display.interact`` catches none of them; the
 caller is responsible for translating them to whatever log / wire payload
 shape the boundary needs.
 
@@ -10,7 +10,7 @@ dataclass response types ``Display.apply`` *returns* (the success-or-error
 union). The two error families are deliberately separate: ``apply``
 returns errors as values because every Update's outcome is one of a
 discriminated union; ``interact`` raises because every wire-shape-valid
-``InteractionMessage`` is meant to land on a real Element, and a domain
+``RemoteEventHandlerInvocation`` is meant to land on a real Element, and a domain
 mismatch is an exceptional condition, not a normal value.
 """
 

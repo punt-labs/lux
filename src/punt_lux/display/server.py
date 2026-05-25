@@ -44,7 +44,6 @@ from punt_lux.protocol import (
     ConnectMessage,
     InputNumberElement,
     InputTextElement,
-    InteractionMessage,
     IntrospectRequest,
     IntrospectResponse,
     ListScenesRequest,
@@ -55,6 +54,7 @@ from punt_lux.protocol import (
     QueryRequest,
     RadioElement,
     RegisterMenuMessage,
+    RemoteEventHandlerInvocation,
     SceneMessage,
     ScreenshotRequest,
     ScreenshotResponse,
@@ -127,7 +127,7 @@ class DisplayServer:
     _domain_display: Display
     _domain_client_id: ClientId
     _domain_pump: DomainPump
-    _event_queue: list[InteractionMessage]
+    _event_queue: list[RemoteEventHandlerInvocation]
     _textures: TextureCache
     _table_renderer: TableRenderer
     _widget_state: WidgetState
@@ -774,12 +774,12 @@ class DisplayServer:
             "available": [str(t) for t in self._themes],
         }
 
-    def _emit_event(self, event: InteractionMessage) -> None:
+    def _emit_event(self, event: RemoteEventHandlerInvocation) -> None:
         """Stamp scene_id and queue for delivery to the Hub.
 
         D21: the display no longer dispatches interactions locally via
         ``DomainPump.route_interaction``. The ``remote_dispatch``
-        handler on each element sends the ``InteractionMessage`` to
+        handler on each element sends the ``RemoteEventHandlerInvocation`` to
         the Hub, where the real handler fires. This method is the
         socket-send path the ``remote_dispatch`` closure captures.
         """
@@ -933,7 +933,7 @@ class DisplayServer:
                 eid: str = getattr(elem, "id", "")
                 action: str = getattr(elem, "action", None) or eid
                 self._emit_event(
-                    InteractionMessage(
+                    RemoteEventHandlerInvocation(
                         element_id=eid,
                         action=action,
                         ts=time.time(),
@@ -943,7 +943,7 @@ class DisplayServer:
             elif isinstance(elem, SliderElement):
                 val: int | float = int(elem.value) if elem.integer else elem.value
                 self._emit_event(
-                    InteractionMessage(
+                    RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
                         ts=time.time(),
@@ -952,7 +952,7 @@ class DisplayServer:
                 )
             elif isinstance(elem, CheckboxElement):
                 self._emit_event(
-                    InteractionMessage(
+                    RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
                         ts=time.time(),
@@ -966,7 +966,7 @@ class DisplayServer:
                     else ""
                 )
                 self._emit_event(
-                    InteractionMessage(
+                    RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
                         ts=time.time(),
@@ -975,7 +975,7 @@ class DisplayServer:
                 )
             elif isinstance(elem, InputTextElement):
                 self._emit_event(
-                    InteractionMessage(
+                    RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
                         ts=time.time(),
@@ -989,7 +989,7 @@ class DisplayServer:
                     else ""
                 )
                 self._emit_event(
-                    InteractionMessage(
+                    RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
                         ts=time.time(),
@@ -998,7 +998,7 @@ class DisplayServer:
                 )
             elif isinstance(elem, ColorPickerElement):
                 self._emit_event(
-                    InteractionMessage(
+                    RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
                         ts=time.time(),
@@ -1007,7 +1007,7 @@ class DisplayServer:
                 )
             elif isinstance(elem, SelectableElement):
                 self._emit_event(
-                    InteractionMessage(
+                    RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="clicked",
                         ts=time.time(),
@@ -1406,7 +1406,7 @@ class DisplayServer:
             self._table_renderer.widget_state = ws
             self._element_renderer.widget_state = ws
         # Bugbot HIGH (PR #187): _emit_event stamps scene_id from
-        # ``self._current_scene_id`` for any InteractionMessage whose scene_id
+        # ``self._current_scene_id`` for any RemoteEventHandlerInvocation whose scene_id
         # is None — without this assignment, clicks inside framed scenes
         # carried whatever ``_render_scene_tab`` last set (stale or None),
         # so ``DomainPump.route_interaction`` silently dropped them.
@@ -1437,7 +1437,7 @@ class DisplayServer:
         owner_fds = set(frame.owner_fds) if frame is not None else set()
         self._scene_manager.close_frame(frame_id)
         if notify and owner_fds:
-            close_event = InteractionMessage(
+            close_event = RemoteEventHandlerInvocation(
                 element_id=frame_id,
                 action="frame_close",
                 ts=time.time(),

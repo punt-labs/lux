@@ -9,7 +9,7 @@ import time
 from collections.abc import Callable
 from typing import Any, Self
 
-from punt_lux.protocol import InteractionMessage
+from punt_lux.protocol import RemoteEventHandlerInvocation
 
 logger = logging.getLogger(__name__)
 
@@ -21,7 +21,7 @@ class MenuManager:
     not own the state those callbacks mutate.
     """
 
-    _emit_event: Callable[[InteractionMessage], None]
+    _emit_event: Callable[[RemoteEventHandlerInvocation], None]
     _on_theme_selected: Callable[[str], None]
     _on_decorated_toggled: Callable[[bool], None]
     _on_opacity_changed: Callable[[float], None]
@@ -45,7 +45,7 @@ class MenuManager:
     def __new__(
         cls,
         *,
-        emit_event: Callable[[InteractionMessage], None],
+        emit_event: Callable[[RemoteEventHandlerInvocation], None],
         on_theme_selected: Callable[[str], None],
         on_decorated_toggled: Callable[[bool], None],
         on_opacity_changed: Callable[[float], None],
@@ -310,7 +310,7 @@ class MenuManager:
                     )
                     if clicked and isinstance(item.get("id"), str):
                         self._emit_event(
-                            InteractionMessage(
+                            RemoteEventHandlerInvocation(
                                 element_id=item["id"],
                                 action="menu",
                                 ts=time.time(),
@@ -474,7 +474,7 @@ class MenuManager:
         )
         if clicked and isinstance(item.get("id"), str):
             self._emit_event(
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id=item["id"],
                     action="menu",
                     ts=time.time(),

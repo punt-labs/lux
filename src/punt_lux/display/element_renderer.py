@@ -33,7 +33,7 @@ from punt_lux.display.texture_cache import TextureCache
 from punt_lux.protocol import (
     CollapsingHeaderElement,
     GroupElement,
-    InteractionMessage,
+    RemoteEventHandlerInvocation,
     TabBarElement,
     WindowElement,
 )
@@ -492,7 +492,7 @@ class ElementRenderer:
 
     def _emit_node_click(self, tree_id: str, node_id: str, label: str) -> None:
         self._emit_event(
-            InteractionMessage(
+            RemoteEventHandlerInvocation(
                 element_id=tree_id,
                 action="node_clicked",
                 ts=time.time(),
@@ -591,7 +591,7 @@ class ElementRenderer:
             self._widget_state.set(open_key, self._MODAL_CLOSED)
             self._widget_state.set(dismiss_key, self._MODAL_OPEN)
             self._emit_event(
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id=eid,
                     action="closed",
                     ts=time.time(),
@@ -608,12 +608,20 @@ class ElementRenderer:
         from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
         from punt_lux.protocol.elements.dialog import DialogElement
 
-        _dlog.warning("_render_dialog called for %s type=%s", elem.id, type(elem).__name__)
+        _dlog.warning(
+            "_render_dialog called for %s type=%s",
+            elem.id,
+            type(elem).__name__,
+        )
         if not isinstance(elem, DialogElement):
             _dlog.warning("NOT a DialogElement — falling through as unsupported")
             msg = f"_render_dialog expected DialogElement; got {type(elem).__name__}"
             raise TypeError(msg)
-        _dlog.warning("DialogElement confirmed, visible=%s children=%d", elem.visible, len(elem.children))
+        _dlog.warning(
+            "DialogElement confirmed, visible=%s children=%d",
+            elem.visible,
+            len(elem.children),
+        )
         ImGuiDialogRenderer(elem, self._widget_state, self._button_renderer).render()
 
     # -- draw element rendering ------------------------------------------------
