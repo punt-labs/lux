@@ -1,7 +1,9 @@
-"""WebSocket session hub for luxd.
+"""luxd — the Lux daemon process entry point.
 
-Multiplexes MCP sessions onto a single display connection. Each WebSocket
-connection is one Claude Code session, identified by ?session_key=<pid>.
+Boots the WebSocket session hub: multiplexes MCP sessions onto a single
+display connection. Each WebSocket connection is one Claude Code session,
+identified by ``?session_key=<pid>``. Domain state lives in
+``punt_lux.domain.hub``; this module is the transport bootstrapper.
 """
 
 from __future__ import annotations
@@ -91,6 +93,16 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
         logger.exception("MCP WebSocket error: session_key=%s", session_key)
     finally:
         _active_sessions.discard(session_key)
+        # Connection close: cascade cleanup runs through the hub
+        # lifecycle module — drops the HubDisplay client registration,
+        # marks every owned root removed (the Element Observer cascade
+        # prunes the rest), purges the connection's topic scope, and
+        # unbinds its outbound writer.
+        from punt_lux.domain.hub import disconnect_connection
+        from punt_lux.domain.ids import ConnectionId
+        from punt_lux.tools.inbox import drop_session
+
+        disconnect_connection(ConnectionId(session_key), drop_session)
         logger.info("MCP WebSocket disconnected: session_key=%s", session_key)
 
 

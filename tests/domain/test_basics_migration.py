@@ -4,7 +4,7 @@ Each commit in the basics migration adds one class to the matrix below.
 Per the migration plan, every kind must satisfy:
 
 1. ``isinstance(elem, Element)`` is True against the domain Protocol.
-2. ``element_from_dict({...})`` returns the typed class with no helpers.
+2. ``factory.element_from_dict({...})`` returns the typed class with no helpers.
 3. ``Display.apply(client, AddElement(scene, elem))`` returns ElementAdded
    and the snapshot reflects the element.
 4. Wire round-trip: ``element_to_dict(elem)`` produces byte-identical
@@ -16,6 +16,7 @@ Spinner, Markdown.
 
 from __future__ import annotations
 
+from punt_lux.display_client import agent_element_factory
 from punt_lux.domain import ElementId, SceneId
 from punt_lux.domain.display import Display
 from punt_lux.domain.element import Element
@@ -28,7 +29,6 @@ from punt_lux.protocol import (
     SeparatorElement,
     SpinnerElement,
     TextElement,
-    element_from_dict,
     element_to_dict,
 )
 
@@ -73,7 +73,7 @@ def test_text_element_from_dict_round_trips_via_class_method() -> None:
         "style": "caption",
         "color": "#888888",
     }
-    elem = element_from_dict(payload)
+    elem = agent_element_factory().element_from_dict(payload)
     assert isinstance(elem, TextElement)
     assert elem.id == "t1"
     assert elem.content == "hello"
@@ -88,7 +88,7 @@ def test_text_element_from_dict_accepts_arbitrary_style_string() -> None:
     so accepting any string here is byte-compatible with the pre-migration codec.
     """
     payload = {"kind": "text", "id": "t1", "content": "hi", "style": "fancy"}
-    elem = element_from_dict(payload)
+    elem = agent_element_factory().element_from_dict(payload)
     assert isinstance(elem, TextElement)
     assert elem.style == "fancy"
 
@@ -100,7 +100,7 @@ def test_text_element_wire_path_through_display_apply() -> None:
     display.add_scene(SceneId("s1"))
 
     wire = {"kind": "text", "id": "t1", "content": "hello"}
-    elem = element_from_dict(wire)
+    elem = agent_element_factory().element_from_dict(wire)
     assert isinstance(elem, TextElement)
 
     result = display.apply(client, AddElement(scene_id=SceneId("s1"), element=elem))
@@ -122,7 +122,7 @@ def test_image_element_satisfies_protocol_and_round_trips() -> None:
     payload = element_to_dict(elem)
     assert payload["kind"] == "image"
     assert payload["path"] == "/tmp/a.png"
-    restored = element_from_dict(payload)
+    restored = agent_element_factory().element_from_dict(payload)
     assert isinstance(restored, ImageElement)
     assert restored.width == 10
 
@@ -140,7 +140,9 @@ def test_separator_element_round_trip() -> None:
     assert isinstance(elem, Element)
     payload = element_to_dict(elem)
     assert payload == {"kind": "separator", "id": "s1"}
-    restored = element_from_dict({"kind": "separator", "id": "s1"})
+    restored = agent_element_factory().element_from_dict(
+        {"kind": "separator", "id": "s1"}
+    )
     assert isinstance(restored, SeparatorElement)
     assert restored.id == "s1"
 
@@ -157,7 +159,7 @@ def test_progress_element_round_trip() -> None:
     payload = element_to_dict(elem)
     assert payload["fraction"] == 0.42
     assert payload["label"] == "Loading"
-    restored = element_from_dict(payload)
+    restored = agent_element_factory().element_from_dict(payload)
     assert isinstance(restored, ProgressElement)
     assert restored.fraction == 0.42
 
@@ -168,7 +170,7 @@ def test_spinner_element_round_trip() -> None:
     payload = element_to_dict(elem)
     assert payload["radius"] == 20.0
     assert payload["color"] == "#FF00FF"
-    restored = element_from_dict(payload)
+    restored = agent_element_factory().element_from_dict(payload)
     assert isinstance(restored, SpinnerElement)
     assert restored.color == "#FF00FF"
 
@@ -178,7 +180,7 @@ def test_markdown_element_round_trip() -> None:
     assert isinstance(elem, Element)
     payload = element_to_dict(elem)
     assert payload == {"kind": "markdown", "id": "md1", "content": "# Hi"}
-    restored = element_from_dict(payload)
+    restored = agent_element_factory().element_from_dict(payload)
     assert isinstance(restored, MarkdownElement)
     assert restored.content == "# Hi"
 
@@ -368,14 +370,14 @@ def test_markdown_rejects_non_string_content() -> None:
 def test_element_from_dict_accepts_null_tooltip() -> None:
     """Copilot CP-5: ``{"tooltip": null}`` is equivalent to omitting the field."""
     payload = {"kind": "text", "id": "t1", "content": "hi", "tooltip": None}
-    elem = element_from_dict(payload)
+    elem = agent_element_factory().element_from_dict(payload)
     assert isinstance(elem, TextElement)
     assert elem.tooltip is None
 
 
 def test_element_from_dict_accepts_string_tooltip() -> None:
     payload = {"kind": "text", "id": "t1", "content": "hi", "tooltip": "hover me"}
-    elem = element_from_dict(payload)
+    elem = agent_element_factory().element_from_dict(payload)
     assert isinstance(elem, TextElement)
     assert elem.tooltip == "hover me"
 
@@ -386,7 +388,7 @@ def test_element_from_dict_rejects_non_string_tooltip() -> None:
 
     payload = {"kind": "text", "id": "t1", "content": "hi", "tooltip": 42}
     with pytest.raises(ValueError, match=r"text element.*'tooltip'"):
-        element_from_dict(payload)
+        agent_element_factory().element_from_dict(payload)
 
 
 def test_text_element_patch_rejects_non_str_content() -> None:

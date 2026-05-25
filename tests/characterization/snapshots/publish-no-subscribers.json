@@ -1,0 +1,20 @@
+{
+  "inputs": [
+    [
+      "payload",
+      {
+        "id": "btn1"
+      }
+    ],
+    [
+      "topic",
+      "no.one.listening"
+    ]
+  ],
+  "response": "delivered:0",
+  "setup": {
+    "display_running": false,
+    "session_key": "corpus-publish-empty"
+  },
+  "tool": "publish"
+}

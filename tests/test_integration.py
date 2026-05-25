@@ -290,8 +290,8 @@ class TestGracefulDisconnection:
             _cleanup(short_dir, server_conn)
 
     @pytest.mark.integration
-    def test_server_close_client_recv_returns_none(self) -> None:
-        """After server closes its socket, client.recv() returns None."""
+    def test_server_close_client_poll_event_times_out(self) -> None:
+        """After server closes, poll_event raises TimeoutError (no events arrive)."""
         short_dir, sock_path = _short_sock_path()
         server_conn: socket.socket | None = None
         ready_event = threading.Event()
@@ -314,9 +314,10 @@ class TestGracefulDisconnection:
             with DisplayClient(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
+                client.start_listener()
                 client_connected.set()
-                msg = client.recv(timeout=2.0)
-                assert msg is None
+                with pytest.raises(TimeoutError):
+                    client.poll_event(timeout=2.0)
         finally:
             _cleanup(short_dir, server_conn)
             t.join(timeout=5)

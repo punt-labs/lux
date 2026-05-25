@@ -42,7 +42,6 @@ from punt_lux.protocol.elements import (
     TextElement,
     TreeElement,
     WindowElement,
-    element_from_dict,
     element_to_dict,
 )
 from punt_lux.protocol.messages import (
@@ -59,6 +58,7 @@ from punt_lux.protocol.messages import (
     ListScenesResponse,
     MenuMessage,
     Message,
+    ObserverMessage,
     PingMessage,
     PongMessage,
     QueryRequest,
@@ -106,6 +106,7 @@ __all__ = [
     "MenuMessage",
     "Message",
     "ModalElement",
+    "ObserverMessage",
     "Patch",
     "PingMessage",
     "PlotElement",
@@ -134,7 +135,6 @@ __all__ = [
     "UpdateMessage",
     "WindowElement",
     "decode_frame",
-    "element_from_dict",
     "element_to_dict",
     "encode_frame",
     "encode_message",

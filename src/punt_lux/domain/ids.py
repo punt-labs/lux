@@ -6,8 +6,10 @@ from typing import NewType
 
 __all__ = [
     "ClientId",
+    "ConnectionId",
     "ElementId",
     "SceneId",
+    "Topic",
 ]
 
 
@@ -18,3 +20,10 @@ __all__ = [
 ClientId = NewType("ClientId", str)
 SceneId = NewType("SceneId", str)
 ElementId = NewType("ElementId", str)
+
+# ConnectionId names a single live wire — an MCP session or an applet
+# TCP connection. Subscriptions, queued messages, and writer registrations
+# are all scoped by ConnectionId. Topic names the symbolic channel within
+# a connection's scope on which a publish fans out to its subscribers.
+ConnectionId = NewType("ConnectionId", str)
+Topic = NewType("Topic", str)

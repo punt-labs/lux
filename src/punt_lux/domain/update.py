@@ -45,6 +45,11 @@ class AddElement:
     parent_id: ElementId | None = None
     kind: ClassVar[Literal["add_element"]] = "add_element"
 
+    @property
+    def target_id(self) -> ElementId:
+        """The ElementId this Update operates on (for error reporting)."""
+        return ElementId(self.element.id)
+
     def to_dict(self) -> dict[str, object]:
         payload: dict[str, object] = {
             "kind": self.kind,
@@ -78,6 +83,11 @@ class RemoveElement:
     element_id: ElementId
     kind: ClassVar[Literal["remove_element"]] = "remove_element"
 
+    @property
+    def target_id(self) -> ElementId:
+        """The ElementId this Update operates on (for error reporting)."""
+        return self.element_id
+
     def to_dict(self) -> dict[str, object]:
         return {
             "kind": self.kind,
@@ -103,6 +113,11 @@ class SetProperty:
     field: str
     value: object
     kind: ClassVar[Literal["set_property"]] = "set_property"
+
+    @property
+    def target_id(self) -> ElementId:
+        """The ElementId this Update operates on (for error reporting)."""
+        return self.element_id
 
     def to_dict(self) -> dict[str, object]:
         return {

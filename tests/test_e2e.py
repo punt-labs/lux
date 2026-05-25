@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -139,10 +140,20 @@ class TestWalkingSkeleton:
         try:
             _wait_for_socket(sock_path, proc)
 
-            with DisplayClient(
-                sock_path, auto_spawn=False, connect_timeout=5.0
-            ) as client:
-                # Send scene with 2 buttons
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=5.0)
+            events: list[InteractionMessage] = []
+            done = threading.Event()
+
+            def _on_click(msg: InteractionMessage) -> None:
+                events.append(msg)
+                if len(events) == 2:
+                    done.set()
+
+            client.on_event("btn-a", "alpha", _on_click)
+            client.on_event("btn-b", "beta", _on_click)
+            try:
+                client.connect()
+                client.start_listener()
                 ack = client.show(
                     "e2e-click-test",
                     elements=[
@@ -153,17 +164,12 @@ class TestWalkingSkeleton:
                 )
                 assert ack is not None
 
-                # Receive the auto-fired interaction events
-                events: list[InteractionMessage] = []
-                for _ in range(2):
-                    msg = client.recv(timeout=5.0)
-                    assert msg is not None, "Expected interaction event"
-                    assert isinstance(msg, InteractionMessage)
-                    events.append(msg)
-
+                assert done.wait(timeout=10.0), "Expected 2 interaction events"
                 actions = {e.action for e in events}
                 assert actions == {"alpha", "beta"}
                 assert all(e.value is True for e in events)
+            finally:
+                client.close()
         finally:
             _terminate(proc)
             shutil.rmtree(short_dir, ignore_errors=True)

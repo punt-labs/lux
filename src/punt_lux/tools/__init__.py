@@ -1,10 +1,9 @@
 """Lux MCP server — expose display tools to AI agents.
 
-Provides FastMCP tools: ``show``, ``show_table``, ``show_dashboard``,
-``update``, ``clear``, ``ping``, and ``recv``.
-Uses :class:`DisplayClient` under the hood with lazy connection on first call.
-
-Run via stdio transport::
+Display tools (``show``, ``update``, ``ping``, ...) use
+:class:`DisplayClient`; Agent Subscribe tools (``subscribe``,
+``unsubscribe``, ``publish``, ``recv``) route through the in-process
+Hub scoped to the calling session. Run via stdio transport::
 
     lux serve
 """
@@ -22,7 +21,6 @@ from punt_lux.tools.server import (
     run_mcp_session,
 )
 
-# Importing tools.py registers all 29 MCP tools on the `mcp` instance.
 from punt_lux.tools.tools import (
     clear,
     display_mode,
@@ -36,7 +34,6 @@ from punt_lux.tools.tools import (
     list_recent_events,
     list_scenes,
     ping,
-    recv,
     register_tool,
     screenshot,
     set_display_mode,
@@ -48,6 +45,15 @@ from punt_lux.tools.tools import (
     show_dashboard,
     show_table,
     update,
+)
+
+# Importing subscribe_tools.py registers Agent Subscribe / Publish tools
+# including the per-session business-event poller (``recv``).
+from punt_lux.tools.subscribe_tools import (
+    publish,
+    recv,
+    subscribe,
+    unsubscribe,
 )
 
 __all__ = [
@@ -64,6 +70,7 @@ __all__ = [
     "list_scenes",
     "mcp",
     "ping",
+    "publish",
     "recv",
     "register_tool",
     "run_mcp_session",
@@ -76,5 +83,7 @@ __all__ = [
     "show",
     "show_dashboard",
     "show_table",
+    "subscribe",
+    "unsubscribe",
     "update",
 ]

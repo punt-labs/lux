@@ -8,6 +8,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from punt_lux.display_client import agent_element_factory
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
@@ -18,7 +19,6 @@ from punt_lux.protocol import (
     DrawElement,
     GroupElement,
     InputTextElement,
-    InteractionMessage,
     MarkdownElement,
     PlotElement,
     PongMessage,
@@ -31,7 +31,6 @@ from punt_lux.protocol import (
     TableElement,
     TreeElement,
     WindowElement,
-    element_from_dict,
 )
 from punt_lux.tools import (
     clear,
@@ -59,87 +58,93 @@ from punt_lux.tools.server import (
 
 class TestElementFromDict:
     def test_text_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "text", "id": "t1", "content": "Hello", "style": "heading"}
         )
         assert elem.kind == "text"
         assert elem.id == "t1"
 
     def test_button_element(self) -> None:
-        elem = element_from_dict({"kind": "button", "id": "b1", "label": "Click"})
+        elem = agent_element_factory().element_from_dict(
+            {"kind": "button", "id": "b1", "label": "Click"}
+        )
         assert elem.kind == "button"
 
     def test_image_element(self) -> None:
-        elem = element_from_dict({"kind": "image", "id": "i1", "path": "/img.png"})
+        elem = agent_element_factory().element_from_dict(
+            {"kind": "image", "id": "i1", "path": "/img.png"}
+        )
         assert elem.kind == "image"
 
     def test_separator_element(self) -> None:
-        elem = element_from_dict({"kind": "separator"})
+        elem = agent_element_factory().element_from_dict({"kind": "separator"})
         assert elem.kind == "separator"
 
     def test_missing_kind_raises(self) -> None:
         with pytest.raises(ValueError, match="kind"):
-            element_from_dict({"id": "t1", "content": "Hi"})
+            agent_element_factory().element_from_dict({"id": "t1", "content": "Hi"})
 
     def test_text_missing_content_raises(self) -> None:
         # PY-EH-8 / Bug-H + SFH-NEW-1: required wire fields raise a typed
         # ValueError naming the kind and field, no silent default.
         with pytest.raises(ValueError, match=r"text element.*'content'"):
-            element_from_dict({"kind": "text", "id": "t1"})
+            agent_element_factory().element_from_dict({"kind": "text", "id": "t1"})
 
     def test_button_defaults_label_to_empty(self) -> None:
-        elem = element_from_dict({"kind": "button", "id": "b1"})
-        assert elem.label == ""  # type: ignore[union-attr]
+        elem = agent_element_factory().element_from_dict({"kind": "button", "id": "b1"})
+        assert elem.label == ""
 
     def test_slider_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "slider", "id": "sl1", "label": "Vol", "value": 50.0}
         )
         assert elem.kind == "slider"
         assert elem.id == "sl1"
 
     def test_slider_defaults(self) -> None:
-        elem = element_from_dict({"kind": "slider", "id": "sl1"})
+        elem = agent_element_factory().element_from_dict(
+            {"kind": "slider", "id": "sl1"}
+        )
         assert isinstance(elem, SliderElement)
         assert elem.label == ""
         assert elem.value == 0.0
 
     def test_checkbox_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "checkbox", "id": "cb1", "label": "On", "value": True}
         )
         assert isinstance(elem, CheckboxElement)
         assert elem.value is True
 
     def test_combo_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "combo", "id": "co1", "label": "Pick", "items": ["A", "B"]}
         )
         assert isinstance(elem, ComboElement)
         assert elem.items == ["A", "B"]
 
     def test_input_text_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "input_text", "id": "it1", "label": "Name", "hint": "who?"}
         )
         assert isinstance(elem, InputTextElement)
         assert elem.hint == "who?"
 
     def test_radio_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "radio", "id": "r1", "label": "Opt", "items": ["X", "Y"]}
         )
         assert elem.kind == "radio"
 
     def test_color_picker_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "color_picker", "id": "cp1", "label": "Bg", "value": "#FF0000"}
         )
         assert isinstance(elem, ColorPickerElement)
         assert elem.value == "#FF0000"
 
     def test_draw_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {
                 "kind": "draw",
                 "id": "d1",
@@ -152,14 +157,14 @@ class TestElementFromDict:
         assert len(elem.commands) == 1
 
     def test_draw_element_defaults(self) -> None:
-        elem = element_from_dict({"kind": "draw", "id": "d1"})
+        elem = agent_element_factory().element_from_dict({"kind": "draw", "id": "d1"})
         assert isinstance(elem, DrawElement)
         assert elem.width == 400
         assert elem.height == 300
         assert elem.commands == ()
 
     def test_group_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {
                 "kind": "group",
                 "id": "g1",
@@ -172,13 +177,13 @@ class TestElementFromDict:
         assert len(elem.children) == 1
 
     def test_group_defaults(self) -> None:
-        elem = element_from_dict({"kind": "group", "id": "g1"})
+        elem = agent_element_factory().element_from_dict({"kind": "group", "id": "g1"})
         assert isinstance(elem, GroupElement)
         assert elem.layout == "rows"
         assert elem.children == []
 
     def test_tab_bar_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {
                 "kind": "tab_bar",
                 "id": "tb1",
@@ -195,7 +200,7 @@ class TestElementFromDict:
         assert elem.tabs[0]["label"] == "A"
 
     def test_collapsing_header_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {
                 "kind": "collapsing_header",
                 "id": "ch1",
@@ -210,7 +215,7 @@ class TestElementFromDict:
         assert len(elem.children) == 1
 
     def test_window_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {
                 "kind": "window",
                 "id": "w1",
@@ -226,7 +231,7 @@ class TestElementFromDict:
         assert len(elem.children) == 1
 
     def test_window_defaults(self) -> None:
-        elem = element_from_dict({"kind": "window", "id": "w1"})
+        elem = agent_element_factory().element_from_dict({"kind": "window", "id": "w1"})
         assert isinstance(elem, WindowElement)
         assert elem.title == ""
         assert elem.width == 300.0
@@ -234,7 +239,7 @@ class TestElementFromDict:
         assert elem.children == []
 
     def test_selectable_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "selectable", "id": "s1", "label": "Item", "selected": True}
         )
         assert isinstance(elem, SelectableElement)
@@ -242,13 +247,15 @@ class TestElementFromDict:
         assert elem.selected is True
 
     def test_selectable_defaults(self) -> None:
-        elem = element_from_dict({"kind": "selectable", "id": "s1"})
+        elem = agent_element_factory().element_from_dict(
+            {"kind": "selectable", "id": "s1"}
+        )
         assert isinstance(elem, SelectableElement)
         assert elem.label == ""
         assert elem.selected is False
 
     def test_tree_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {
                 "kind": "tree",
                 "id": "tr1",
@@ -263,13 +270,13 @@ class TestElementFromDict:
         assert len(elem.nodes) == 1
 
     def test_tree_defaults(self) -> None:
-        elem = element_from_dict({"kind": "tree", "id": "tr1"})
+        elem = agent_element_factory().element_from_dict({"kind": "tree", "id": "tr1"})
         assert isinstance(elem, TreeElement)
         assert elem.label == ""
         assert elem.nodes == []
 
     def test_table_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {
                 "kind": "table",
                 "id": "tbl1",
@@ -284,14 +291,16 @@ class TestElementFromDict:
         assert "resizable" in elem.flags
 
     def test_table_defaults(self) -> None:
-        elem = element_from_dict({"kind": "table", "id": "tbl1"})
+        elem = agent_element_factory().element_from_dict(
+            {"kind": "table", "id": "tbl1"}
+        )
         assert isinstance(elem, TableElement)
         assert elem.columns == []
         assert elem.rows == []
         assert elem.flags == ["borders", "row_bg"]
 
     def test_plot_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {
                 "kind": "plot",
                 "id": "p1",
@@ -309,7 +318,7 @@ class TestElementFromDict:
         assert len(elem.series) == 1
 
     def test_plot_defaults(self) -> None:
-        elem = element_from_dict({"kind": "plot", "id": "p1"})
+        elem = agent_element_factory().element_from_dict({"kind": "plot", "id": "p1"})
         assert isinstance(elem, PlotElement)
         assert elem.title == ""
         assert elem.x_label == ""
@@ -319,7 +328,7 @@ class TestElementFromDict:
         assert elem.series == []
 
     def test_progress_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "progress", "id": "pg1", "fraction": 0.75, "label": "75%"}
         )
         assert isinstance(elem, ProgressElement)
@@ -330,15 +339,17 @@ class TestElementFromDict:
         # PY-EH-8 / Bug-H + SFH-NEW-1: required wire fields raise a typed
         # ValueError naming the kind and field, no silent default.
         with pytest.raises(ValueError, match=r"progress element.*'fraction'"):
-            element_from_dict({"kind": "progress", "id": "pg1"})
+            agent_element_factory().element_from_dict({"kind": "progress", "id": "pg1"})
 
     def test_progress_label_optional(self) -> None:
-        elem = element_from_dict({"kind": "progress", "id": "pg1", "fraction": 0.0})
+        elem = agent_element_factory().element_from_dict(
+            {"kind": "progress", "id": "pg1", "fraction": 0.0}
+        )
         assert isinstance(elem, ProgressElement)
         assert elem.label == ""
 
     def test_spinner_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "spinner", "id": "sp1", "label": "Wait", "radius": 20.0}
         )
         assert isinstance(elem, SpinnerElement)
@@ -346,13 +357,15 @@ class TestElementFromDict:
         assert elem.radius == 20.0
 
     def test_spinner_defaults(self) -> None:
-        elem = element_from_dict({"kind": "spinner", "id": "sp1"})
+        elem = agent_element_factory().element_from_dict(
+            {"kind": "spinner", "id": "sp1"}
+        )
         assert isinstance(elem, SpinnerElement)
         assert elem.radius == 16.0
         assert elem.color == "#3399FF"
 
     def test_markdown_element(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "markdown", "id": "md1", "content": "**bold**"}
         )
         assert isinstance(elem, MarkdownElement)
@@ -362,21 +375,23 @@ class TestElementFromDict:
         # PY-EH-8 / Bug-H + SFH-NEW-1: required wire fields raise a typed
         # ValueError naming the kind and field, no silent default.
         with pytest.raises(ValueError, match=r"markdown element.*'content'"):
-            element_from_dict({"kind": "markdown", "id": "md1"})
+            agent_element_factory().element_from_dict({"kind": "markdown", "id": "md1"})
 
     def test_tooltip_from_dict(self) -> None:
-        elem = element_from_dict(
+        elem = agent_element_factory().element_from_dict(
             {"kind": "text", "id": "t1", "content": "hi", "tooltip": "help"}
         )
         assert elem.tooltip == "help"
 
     def test_tooltip_default_none(self) -> None:
-        elem = element_from_dict({"kind": "text", "id": "t1", "content": "hi"})
+        elem = agent_element_factory().element_from_dict(
+            {"kind": "text", "id": "t1", "content": "hi"}
+        )
         assert elem.tooltip is None
 
     def test_unknown_kind_raises(self) -> None:
         with pytest.raises(ValueError, match="Unknown element kind"):
-            element_from_dict({"kind": "bogus", "id": "x"})
+            agent_element_factory().element_from_dict({"kind": "bogus", "id": "x"})
 
 
 def _mock_client() -> MagicMock:
@@ -386,7 +401,7 @@ def _mock_client() -> MagicMock:
 
 
 class TestSetMenuTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_set_menu_returns_ok(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -399,7 +414,7 @@ class TestSetMenuTool:
 
 class TestSetThemeTool:
     @patch.object(DisplayPaths, "is_running", return_value=True)
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_set_theme_returns_theme_name(
         self, mock_get: MagicMock, _mock_running: MagicMock
     ) -> None:
@@ -418,7 +433,7 @@ class TestSetThemeTool:
 
 
 class TestShowTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_show_returns_ack(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.show.return_value = AckMessage(scene_id="s1", ts=time.time())
@@ -428,7 +443,7 @@ class TestShowTool:
         assert result == "ack:s1"
         client.show.assert_called_once()
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_show_timeout(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.show.return_value = None
@@ -439,7 +454,7 @@ class TestShowTool:
 
 
 class TestShowTableTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_show_table_minimal(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.show.return_value = AckMessage(scene_id="t1", ts=time.time())
@@ -458,7 +473,7 @@ class TestShowTableTool:
         assert elements[0].columns == ["Name", "Score"]
         assert elements[0].flags == ["borders", "row_bg"]
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_show_table_with_filters_and_detail(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.show.return_value = AckMessage(scene_id="t2", ts=time.time())
@@ -488,7 +503,7 @@ class TestShowTableTool:
         assert table.detail is not None
         assert table.detail.fields == ["ID", "Status"]
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_show_table_custom_flags(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.show.return_value = AckMessage(scene_id="t3", ts=time.time())
@@ -505,7 +520,7 @@ class TestShowTableTool:
 
 
 class TestShowDashboardTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_dashboard_metrics_only(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.show.return_value = AckMessage(scene_id="d1", ts=time.time())
@@ -525,7 +540,7 @@ class TestShowDashboardTool:
         assert elements[0].kind == "group"
         assert len(elements[0].children) == 2
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_dashboard_all_sections(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.show.return_value = AckMessage(scene_id="d2", ts=time.time())
@@ -552,7 +567,7 @@ class TestShowDashboardTool:
         assert "table" in kinds  # table
         assert kinds.count("separator") == 2
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_dashboard_empty(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.show.return_value = AckMessage(scene_id="d3", ts=time.time())
@@ -564,7 +579,7 @@ class TestShowDashboardTool:
 
 
 class TestUpdateTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_update_returns_ack(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.update.return_value = AckMessage(scene_id="s1", ts=time.time())
@@ -573,7 +588,7 @@ class TestUpdateTool:
         result = update("s1", [{"id": "t1", "set": {"content": "New"}}])
         assert result == "ack:s1"
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_update_timeout(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         client.update.return_value = None
@@ -584,7 +599,7 @@ class TestUpdateTool:
 
 
 class TestClearTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_clear_returns_cleared(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -599,7 +614,7 @@ class TestClearTool:
 
 class TestPingTool:
     @patch("punt_lux.tools.tools.time")
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_returns_rtt(
         self,
@@ -616,7 +631,7 @@ class TestPingTool:
         result = ping()
         assert result == "pong rtt=0.042s"
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_timeout(self, mock_running: MagicMock, mock_get: MagicMock) -> None:
         client = _mock_client()
@@ -628,25 +643,24 @@ class TestPingTool:
 
 
 class TestRecvTool:
-    @patch("punt_lux.tools.tools._get_client")
-    def test_recv_interaction(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        client.recv.return_value = InteractionMessage(
-            element_id="b1", action="click", ts=time.time(), value=True
+    @patch("punt_lux.tools.subscribe_tools.ensure_writer", return_value=None)
+    @patch("punt_lux.tools.subscribe_tools.next_event")
+    def test_recv_business_event(
+        self, mock_next: MagicMock, _mock_writer: MagicMock
+    ) -> None:
+        from punt_lux.protocol.messages.observer import ObserverMessage
+
+        mock_next.return_value = ObserverMessage(
+            topic="work.saved",
+            payload={"id": "save_btn"},
         )
-        mock_get.return_value = client
 
         result = recv(timeout=1.0)
-        assert "interaction" in result
-        assert "b1" in result
-        assert "click" in result
+        assert result == 'event:work.saved:{"id": "save_btn"}'
 
-    @patch("punt_lux.tools.tools._get_client")
-    def test_recv_none(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        client.recv.return_value = None
-        mock_get.return_value = client
-
+    @patch("punt_lux.tools.subscribe_tools.ensure_writer", return_value=None)
+    @patch("punt_lux.tools.subscribe_tools.next_event", return_value=None)
+    def test_recv_none(self, _mock_next: MagicMock, _mock_writer: MagicMock) -> None:
         result = recv(timeout=0.1)
         assert result == "none"
 
@@ -664,7 +678,7 @@ class TestDisplayModeTool:
 
 
 class TestSetDisplayModeTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_set_display_mode_y(self, mock_get: MagicMock, tmp_path: Path) -> None:
         mock_get.return_value = _mock_client()
         assert set_display_mode("y", repo=str(tmp_path)) == "display:on"
@@ -683,12 +697,18 @@ class TestSetDisplayModeTool:
 
 class TestDisplayModeRepoArg:
     def test_set_then_read_roundtrip_in_repo(self, tmp_path: Path) -> None:
-        with patch("punt_lux.tools.tools._get_client", return_value=_mock_client()):
+        with patch(
+            "punt_lux.domain.hub.clients.client_registry.get",
+            return_value=_mock_client(),
+        ):
             assert set_display_mode("y", repo=str(tmp_path)) == "display:on"
         assert (tmp_path / ".punt-labs" / "lux.md").exists()
         assert display_mode(repo=str(tmp_path)) == "display:on"
 
-        with patch("punt_lux.tools.tools._get_client", return_value=_mock_client()):
+        with patch(
+            "punt_lux.domain.hub.clients.client_registry.get",
+            return_value=_mock_client(),
+        ):
             assert set_display_mode("n", repo=str(tmp_path)) == "display:off"
         assert display_mode(repo=str(tmp_path)) == "display:off"
 
@@ -697,7 +717,10 @@ class TestDisplayModeRepoArg:
         repo_b = tmp_path / "b"
         repo_a.mkdir()
         repo_b.mkdir()
-        with patch("punt_lux.tools.tools._get_client", return_value=_mock_client()):
+        with patch(
+            "punt_lux.domain.hub.clients.client_registry.get",
+            return_value=_mock_client(),
+        ):
             set_display_mode("y", repo=str(repo_a))
         set_display_mode("n", repo=str(repo_b))
         assert display_mode(repo=str(repo_a)) == "display:on"
@@ -727,7 +750,7 @@ class TestDisplayModeRepoArg:
 
 
 class TestClearNoAutoSpawn:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=False)
     def test_clear_returns_not_running_when_display_off(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -737,7 +760,7 @@ class TestClearNoAutoSpawn:
         assert result == "not running"
         mock_get.assert_not_called()
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_clear_calls_client_when_running(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -751,7 +774,7 @@ class TestClearNoAutoSpawn:
 
 
 class TestPingNoAutoSpawn:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=False)
     def test_ping_not_running(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -762,7 +785,7 @@ class TestPingNoAutoSpawn:
         mock_get.assert_not_called()
 
     @patch("punt_lux.tools.tools.time")
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_returns_rtt_when_running(
         self,
@@ -781,7 +804,7 @@ class TestPingNoAutoSpawn:
 
 
 class TestInspectSceneTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=False)
     def test_inspect_scene_not_running(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -791,7 +814,7 @@ class TestInspectSceneTool:
         assert result == "not running"
         mock_get.assert_not_called()
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_inspect_scene_returns_elements(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -810,7 +833,7 @@ class TestInspectSceneTool:
         assert '"scene_id": "s1"' in result
         assert '"content": "hello"' in result
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_inspect_scene_not_found(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -825,7 +848,7 @@ class TestInspectSceneTool:
         result = inspect_scene("missing")
         assert result == "error: Scene 'missing' not found"
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_inspect_scene_timeout(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -839,7 +862,7 @@ class TestInspectSceneTool:
 
 
 class TestListScenesTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=False)
     def test_list_scenes_not_running(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -849,7 +872,7 @@ class TestListScenesTool:
         assert result == "not running"
         mock_get.assert_not_called()
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_list_scenes_returns_data(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -871,7 +894,7 @@ class TestListScenesTool:
         assert '"scene_id": "s1"' in result
         assert '"frame_id": "f1"' in result
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_list_scenes_timeout(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -883,7 +906,7 @@ class TestListScenesTool:
         result = list_scenes()
         assert result == "timeout"
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_list_scenes_empty(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -901,7 +924,7 @@ class TestListScenesTool:
 
 
 class TestScreenshotTool:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=False)
     def test_screenshot_not_running(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -911,7 +934,7 @@ class TestScreenshotTool:
         assert result == "not running"
         mock_get.assert_not_called()
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_screenshot_returns_path(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -926,7 +949,7 @@ class TestScreenshotTool:
         result = screenshot()
         assert result == "/tmp/lux-screenshot-abc.png"
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_screenshot_error(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -941,7 +964,7 @@ class TestScreenshotTool:
         result = screenshot()
         assert result == "error: OpenGL not available"
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_screenshot_timeout(
         self, mock_running: MagicMock, mock_get: MagicMock
@@ -980,7 +1003,7 @@ class TestCleanupSession:
 
 
 class TestRegisterToolSessionTracking:
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_tracks_in_session_menus(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
@@ -991,7 +1014,7 @@ class TestRegisterToolSessionTracking:
         # Cleanup
         _session_menus.pop("local", None)
 
-    @patch("punt_lux.tools.tools._get_client")
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_tracks_under_custom_session_key(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client

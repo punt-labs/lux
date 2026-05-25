@@ -6,7 +6,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from punt_lux.apps._beads_payload import BeadsLoader, BeadsPayloadBuilder
-from punt_lux.protocol import Element, TextElement, element_from_dict
+from punt_lux.display_client import agent_element_factory
+from punt_lux.protocol import Element, TextElement
 
 if TYPE_CHECKING:
     from punt_lux.display_client import DisplayClient
@@ -65,7 +66,7 @@ class BeadsBrowser:
         if not issues:
             return [TextElement(id="empty", content="No active issues.")]
         payload = self.build_payload(issues)
-        table = element_from_dict(
+        table = agent_element_factory().element_from_dict(
             {
                 "kind": "table",
                 "id": "table",

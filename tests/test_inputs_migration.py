@@ -4,7 +4,7 @@ Each commit in the inputs migration adds one class to the matrix below.
 Per the migration plan, every kind must satisfy:
 
 1. ``isinstance(elem, Element)`` is True against the domain Protocol.
-2. ``element_from_dict({...})`` returns the typed class via the per-kind
+2. ``factory.element_from_dict({...})`` returns the typed class via the per-kind
    ``from_dict`` classmethod — no module-level helpers.
 3. ``Display.apply(client, AddElement(scene, elem))`` returns ElementAdded
    and the snapshot reflects the element.
@@ -23,10 +23,12 @@ from pathlib import Path
 
 import pytest
 
+from punt_lux.display_client import agent_element_factory
 from punt_lux.domain import ElementId, SceneId
 from punt_lux.domain.display import Display
 from punt_lux.domain.element import Element
-from punt_lux.domain.event import ButtonPressed, ElementAdded, Event
+from punt_lux.domain.event import ElementAdded
+from punt_lux.domain.event_protocol import Event as DomainEvent
 from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.domain.update import AddElement
 from punt_lux.protocol import (
@@ -39,9 +41,9 @@ from punt_lux.protocol import (
     RadioElement,
     SelectableElement,
     SliderElement,
-    element_from_dict,
     element_to_dict,
 )
+from punt_lux.protocol.messages.interaction import InteractionMessage
 
 # -- Element Protocol conformance ------------------------------------------
 
@@ -89,7 +91,7 @@ def test_button_from_dict_round_trip() -> None:
         "disabled": True,
         "small": True,
     }
-    elem = element_from_dict(payload)
+    elem = agent_element_factory().element_from_dict(payload)
     assert isinstance(elem, ButtonElement)
     assert elem.action == "submit"
     assert elem.disabled is True
@@ -100,7 +102,7 @@ def test_slider_round_trip_with_integer_flag() -> None:
     elem = SliderElement(id="s1", label="N", value=5.0, min=0.0, max=10.0, integer=True)
     payload = element_to_dict(elem)
     assert payload["integer"] is True
-    restored = element_from_dict(payload)
+    restored = agent_element_factory().element_from_dict(payload)
     assert isinstance(restored, SliderElement)
     assert restored.integer is True
 
@@ -114,7 +116,7 @@ def test_checkbox_round_trip() -> None:
         "label": "Active",
         "value": True,
     }
-    restored = element_from_dict(payload)
+    restored = agent_element_factory().element_from_dict(payload)
     assert isinstance(restored, CheckboxElement)
     assert restored.value is True
 
@@ -123,7 +125,7 @@ def test_combo_round_trip_with_items() -> None:
     elem = ComboElement(id="co1", label="Pick", items=["x", "y", "z"], selected=2)
     payload = element_to_dict(elem)
     assert payload["items"] == ["x", "y", "z"]
-    restored = element_from_dict(payload)
+    restored = agent_element_factory().element_from_dict(payload)
     assert isinstance(restored, ComboElement)
     assert restored.selected == 2
 
@@ -132,7 +134,9 @@ def test_input_text_round_trip_strips_empty_hint() -> None:
     elem = InputTextElement(id="it1", label="Name", value="Ada")
     payload = element_to_dict(elem)
     assert "hint" not in payload
-    restored = element_from_dict({**payload, "hint": "type a name"})
+    restored = agent_element_factory().element_from_dict(
+        {**payload, "hint": "type a name"}
+    )
     assert isinstance(restored, InputTextElement)
     assert restored.hint == "type a name"
 
@@ -143,7 +147,7 @@ def test_input_number_emits_optional_bounds_only_when_set() -> None:
     assert payload["min"] == 0.0
     assert payload["max"] == 100.0
     assert payload["step"] == 1.0
-    restored = element_from_dict(payload)
+    restored = agent_element_factory().element_from_dict(payload)
     assert isinstance(restored, InputNumberElement)
     assert restored.min == 0.0
 
@@ -160,7 +164,7 @@ def test_radio_round_trip() -> None:
     elem = RadioElement(id="r1", label="Mode", items=["fast", "slow"], selected=1)
     payload = element_to_dict(elem)
     assert payload["items"] == ["fast", "slow"]
-    restored = element_from_dict(payload)
+    restored = agent_element_factory().element_from_dict(payload)
     assert isinstance(restored, RadioElement)
     assert restored.selected == 1
 
@@ -172,7 +176,7 @@ def test_color_picker_round_trip_alpha_and_picker() -> None:
     payload = element_to_dict(elem)
     assert payload["alpha"] is True
     assert payload["picker"] is True
-    restored = element_from_dict(payload)
+    restored = agent_element_factory().element_from_dict(payload)
     assert isinstance(restored, ColorPickerElement)
     assert restored.value == "#FF8080AA"
 
@@ -220,45 +224,37 @@ def test_every_inputs_kind_flows_through_display_apply() -> None:
 # -- Button-interaction-routing (contract acceptance from PR 1) -----------
 
 
-def test_button_click_routes_through_display_to_every_subscriber() -> None:
-    """Contract: construct Display, AddElement Button, simulate click, observe Event.
+def test_button_click_routes_through_display_to_element_handlers() -> None:
+    """Contract: construct Display, AddElement Button, simulate click, observe event.
 
-    Deferred from PR 1's basics acceptance.  Realises the minimum-correct
-    shape: a wire-equivalent ``ButtonClicked`` interaction passed to
-    ``Display.interact`` reaches every subscriber without state
-    inconsistency.
+    A wire ``InteractionMessage`` passed to ``Display.interact`` lands on
+    the resolved Element's handler registry — every registered handler
+    fires exactly once, snapshot remains unchanged.
     """
     display = Display()
     alice = display.connect_client(name="alice")
     display.add_scene(SceneId("s1"))
 
-    # AddElement for a ButtonElement.
     button = ButtonElement(id="b1", label="OK")
     add_result = display.apply(
         alice, AddElement(scene_id=SceneId("s1"), element=button)
     )
     assert isinstance(add_result, ElementAdded)
 
-    # Two subscribers — both must observe the click.
-    sub_a: list[Event] = []
-    sub_b: list[Event] = []
-    display.subscribe(sub_a.append)
-    display.subscribe(sub_b.append)
+    observed_a: list[DomainEvent] = []
+    observed_b: list[DomainEvent] = []
+    button.add_handler(ButtonClicked, observed_a.append)
+    button.add_handler(ButtonClicked, observed_b.append)
 
-    # Simulate a click.
-    click_result = display.interact(
-        alice, ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("b1"))
-    )
-    assert isinstance(click_result, ButtonPressed)
+    msg = InteractionMessage(element_id="b1", action="b1", value=True, scene_id="s1")
+    click_event = display.interact(alice, msg)
 
-    # Both subscribers saw the same ButtonPressed; nothing else.
-    assert sub_a == sub_b
-    button_events = [ev for ev in sub_a if isinstance(ev, ButtonPressed)]
-    assert len(button_events) == 1
-    assert button_events[0].element_id == ElementId("b1")
-    assert button_events[0].owner_id == alice
+    assert isinstance(click_event, ButtonClicked)
+    assert click_event.element_id == ElementId("b1")
+    assert click_event.owner_id == alice
+    assert observed_a == [click_event]
+    assert observed_b == [click_event]
 
-    # State consistency: snapshot is unchanged by the interaction.
     snap = display.snapshot(SceneId("s1"))
     stored = snap.element(ElementId("b1"))
     assert isinstance(stored, ButtonElement)
@@ -382,7 +378,7 @@ def test_input_text_round_trip_through_element_from_dict() -> None:
         "value": "Ada",
         "hint": "type something",
     }
-    elem = element_from_dict(payload)
+    elem = agent_element_factory().element_from_dict(payload)
     assert isinstance(elem, InputTextElement)
     assert elem.value == "Ada"
     assert elem.hint == "type something"

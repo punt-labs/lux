@@ -786,24 +786,21 @@ INTERACTION_SCENARIOS: tuple[Scenario, ...] = (
         name="recv-empty",
         tool="recv",
         inputs={"timeout": 0.1},
-        setup={"display_running": True, "client": {"recv": {"return": None}}},
+        setup={"inbox_empty": True},
     ),
     Scenario(
         name="recv-button-click",
         tool="recv",
         inputs={"timeout": 1.0},
         setup={
-            "display_running": True,
-            "client": {
-                "recv": {
-                    "return": {
-                        "element_id": "btn-submit",
-                        "action": "click",
-                        "ts": 1000.0,
-                        "value": True,
-                    }
-                }
-            },
+            "inbox_event": {
+                "topic": "ui.button.click",
+                "payload": {
+                    "element_id": "btn-submit",
+                    "action": "click",
+                    "value": True,
+                },
+            }
         },
     ),
     Scenario(
@@ -811,18 +808,45 @@ INTERACTION_SCENARIOS: tuple[Scenario, ...] = (
         tool="recv",
         inputs={"timeout": 1.0},
         setup={
-            "display_running": True,
-            "client": {
-                "recv": {
-                    "return": {
-                        "element_id": "slider-temp",
-                        "action": "changed",
-                        "ts": 1000.0,
-                        "value": 42.5,
-                    }
-                }
-            },
+            "inbox_event": {
+                "topic": "ui.slider.changed",
+                "payload": {
+                    "element_id": "slider-temp",
+                    "action": "changed",
+                    "value": 42.5,
+                },
+            }
         },
+    ),
+)
+
+
+# ---------------------------------------------------------------------------
+# Pub-sub scenarios — Agent Subscribe / Publish tools (subscribe, unsubscribe,
+# publish). The tools operate on the Hub's in-process SubscriptionRegistry;
+# the stub setup only needs to override the session_key ContextVar so each
+# scenario runs against a fresh per-connection scope.
+# ---------------------------------------------------------------------------
+
+
+PUBSUB_SCENARIOS: tuple[Scenario, ...] = (
+    Scenario(
+        name="subscribe-ok",
+        tool="subscribe",
+        inputs={"topic": "work.saved"},
+        setup={"display_running": False, "session_key": "corpus-subscribe-ok"},
+    ),
+    Scenario(
+        name="unsubscribe-unknown",
+        tool="unsubscribe",
+        inputs={"topic": "ghost"},
+        setup={"display_running": False, "session_key": "corpus-unsubscribe-unknown"},
+    ),
+    Scenario(
+        name="publish-no-subscribers",
+        tool="publish",
+        inputs={"topic": "no.one.listening", "payload": {"id": "btn1"}},
+        setup={"display_running": False, "session_key": "corpus-publish-empty"},
     ),
 )
 
@@ -833,6 +857,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     + INTROSPECTION_SCENARIOS
     + CONTROL_SCENARIOS
     + INTERACTION_SCENARIOS
+    + PUBSUB_SCENARIOS
 )
 
 

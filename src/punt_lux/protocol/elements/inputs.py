@@ -1,17 +1,20 @@
 """Inputs-family codec registration — wires each per-kind module's codec.
 
-Per-kind classes live in ``button.py``, ``slider.py``, ``checkbox.py``,
-``combo.py``, ``input_text.py``, ``input_number.py``, ``radio.py``,
-``color_picker.py``, ``selectable.py``.  The ``InputsRegistry`` class
-consolidates the nine register calls behind a single ``apply`` method so
-the package ``__init__`` does not grow each migration PR.
+Per-kind classes live in ``slider.py``, ``checkbox.py``, ``combo.py``,
+``input_text.py``, ``input_number.py``, ``radio.py``, ``color_picker.py``,
+``selectable.py``.  ``button.py`` is registered separately through
+``JsonElementFactory`` (PR 4 io-model dispatch — see ``__init__.py``);
+the entry is removed here to avoid double registration.
+
+The ``InputsRegistry`` class consolidates the eight remaining register
+calls behind a single ``apply`` method so the package ``__init__`` does
+not grow each migration PR.
 """
 
 from __future__ import annotations
 
 from typing import Self
 
-from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.codec import Register
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
@@ -39,9 +42,6 @@ class InputsRegistry:
 
     def apply(self, register: Register) -> None:
         """Register every inputs-family element kind's codec."""
-        register(
-            "button", ButtonElement, ButtonElement.to_dict, ButtonElement.from_dict
-        )
         register(
             "slider", SliderElement, SliderElement.to_dict, SliderElement.from_dict
         )

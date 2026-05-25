@@ -9,7 +9,6 @@ from punt_lux.domain.error import (
     UnknownElementError,
 )
 from punt_lux.domain.event import (
-    ButtonPressed,
     ElementAdded,
     ElementRemoved,
     ElementUpdated,
@@ -57,20 +56,6 @@ def test_element_updated_carries_old_and_new_values() -> None:
     payload = ev.to_dict()
     assert payload["old_value"] == "before"
     assert payload["new_value"] == "after"
-
-
-def test_button_pressed_serializes() -> None:
-    ev = ButtonPressed(
-        scene_id=SceneId("s1"),
-        element_id=ElementId("b1"),
-        owner_id=ClientId("alice"),
-    )
-    assert ev.to_dict() == {
-        "kind": "button_pressed",
-        "scene_id": "s1",
-        "element_id": "b1",
-        "owner_id": "alice",
-    }
 
 
 def test_ownership_error_distinguishes_attempter_and_owner() -> None:

@@ -6,21 +6,17 @@ import json
 import logging
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from punt_lux.config import ConfigManager
+from punt_lux.domain.element import Element as DomainElement
+from punt_lux.domain.hub import client_registry, hub_display
+from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.update import AddElement, RemoveElement
 from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import (
-    InteractionMessage,
-    Patch,
-    element_from_dict,
-)
-from punt_lux.tools.connection import (
-    _client_lock,
-    _get_client,
-    _query_tool,
-    _with_reconnect,
-)
+from punt_lux.protocol import Element as WireElement, Patch
+from punt_lux.tools.connection import _query_tool
+from punt_lux.tools.hub_factory import hub_element_factory
 from punt_lux.tools.server import (
     _session_key,
     _session_menus,
@@ -129,7 +125,9 @@ def show(
     if frame_title is None:
         frame_title = title or scene_id
 
-    typed_elements = [element_from_dict(e) for e in elements]
+    connection_id = ConnectionId(_session_key.get())
+    factory = hub_element_factory(connection_id)
+    typed_elements: list[WireElement] = [factory.element_from_dict(e) for e in elements]
     size_tuple: tuple[int, int] | None = None
     if frame_size is not None:
         if len(frame_size) != 2:
@@ -139,7 +137,7 @@ def show(
         return f"error: frame_layout must be 'tab' or 'stack', got {frame_layout!r}"
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         ack = client.show(
             scene_id,
             typed_elements,
@@ -153,9 +151,52 @@ def show(
         )
         if ack is None:
             return "timeout"
+        _index_scene_in_hub(scene_id, typed_elements)
         return f"ack:{ack.scene_id}"
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
+
+
+def _index_scene_in_hub(scene_id: str, typed_elements: list[WireElement]) -> None:
+    """Mirror the displayed scene into the HubDisplay element index.
+
+    Without this, click resolution and connection-scoped cleanup are
+    blind to anything ``show`` put on screen — ``Display.interact``
+    rejects every interaction whose target was installed via ``show``,
+    and ``drop_connection`` leaks the scene's roots. The Composite
+    Protocol recursion inside ``HubDisplay.apply`` walks each root's
+    descendants automatically.
+
+    A re-show of the same ``scene_id`` first removes every element this
+    connection previously installed in that scene; without that sweep,
+    the Hub mirror would accumulate stale entries that point at widgets
+    the display has already replaced. The render side is single-frame
+    state — the mirror must match.
+
+    Every wire element class structurally satisfies the
+    :class:`DomainElement` Protocol — same ``id`` / ``kind`` /
+    ``to_dict`` / ``from_dict`` shape — but mypy does not infer the
+    Protocol match from the wire union, so we cast at the call site
+    (the display-side ``DomainPump`` carries the same cast).
+    """
+    connection_id = ConnectionId(_session_key.get())
+    hub_display.register_client(connection_id)
+    scene = SceneId(scene_id)
+    for prior_scene, prior_element in hub_display.elements_owned_by(connection_id):
+        if prior_scene == scene:
+            hub_display.apply(
+                connection_id,
+                RemoveElement(scene_id=prior_scene, element_id=prior_element),
+            )
+    for element in typed_elements:
+        hub_display.apply(
+            connection_id,
+            AddElement(
+                scene_id=scene,
+                element=cast("DomainElement", element),
+                parent_id=None,
+            ),
+        )
 
 
 @mcp.tool()
@@ -402,13 +443,13 @@ def update(
     ]
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         ack = client.update(scene_id, typed_patches)
         if ack is None:
             return "timeout"
         return f"ack:{ack.scene_id}"
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -424,11 +465,11 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
     """
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         client.set_menu(menus)
         return "ok"
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -453,14 +494,14 @@ def register_tool(
         item["icon"] = icon
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         client.register_menu_item(item)
-        with _client_lock:
+        with client_registry.lock:
             key = _session_key.get()
             _session_menus.setdefault(key, []).append(tool_id)
         return f"registered:{tool_id}"
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -478,7 +519,7 @@ def set_theme(theme: str) -> str:
         return "not running"
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         response = client.query("set_theme", {"theme": theme})
         if response is None:
             return "timeout"
@@ -486,7 +527,7 @@ def set_theme(theme: str) -> str:
             return f"error: {response.error}"
         return f"theme:{response.result.get('theme', theme)}"
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -519,7 +560,7 @@ def set_window_settings(
         return "not running"
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         response = client.query("set_window_settings", params)
         if response is None:
             return "timeout"
@@ -527,7 +568,7 @@ def set_window_settings(
             return f"error: {response.error}"
         return json.dumps(response.result, indent=2)
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @_query_tool(
@@ -555,11 +596,11 @@ def clear() -> str:
         return "not running"
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         client.clear()
         return "cleared"
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -569,7 +610,7 @@ def ping() -> str:
         return "not running"
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         pong = client.ping()
         if pong is None:
             return "timeout"
@@ -578,7 +619,7 @@ def ping() -> str:
             return f"pong rtt={rtt:.3f}s"
         return "pong"
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -593,7 +634,7 @@ def inspect_scene(scene_id: str) -> str:
         return "not running"
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         response = client.query("inspect_scene", {"scene_id": scene_id})
         if response is None:
             return "timeout"
@@ -601,7 +642,7 @@ def inspect_scene(scene_id: str) -> str:
             return f"error: {response.error}"
         return json.dumps(response.result, indent=2)
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -617,13 +658,13 @@ def list_scenes() -> str:
         return "not running"
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         response = client.query("list_scenes")
         if response is None:
             return "timeout"
         return json.dumps(response.result, indent=2)
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @mcp.tool()
@@ -638,7 +679,7 @@ def screenshot() -> str:
         return "not running"
 
     def _call() -> str:
-        client = _get_client()
+        client = client_registry.get()
         response = client.query("screenshot")
         if response is None:
             return "timeout"
@@ -646,7 +687,7 @@ def screenshot() -> str:
             return f"error: {response.error}"
         return str(response.result.get("path", ""))
 
-    return _with_reconnect(_call)
+    return client_registry.with_reconnect(_call)
 
 
 @_query_tool(
@@ -740,7 +781,7 @@ def set_display_mode(mode: str, repo: str) -> str:
     _config_manager_for(repo).write_field("display", mode)
     if mode == "y":
         try:
-            _get_client()
+            client_registry.get()
         except (RuntimeError, OSError, ValueError, KeyError):
             logger.warning(
                 "Eager connect on set_display_mode=y failed; "
@@ -771,25 +812,3 @@ def list_recent_events(count: int = 50) -> dict[str, Any] | None:
 def list_errors(count: int = 20) -> dict[str, Any] | None:
     """Return the last N display-side errors."""
     return {"count": count}
-
-
-@mcp.tool()
-def recv(timeout: float = 1.0) -> str:
-    """Receive the next event from the display (e.g., button clicks).
-
-    Returns a description of the event or "none" if no event within timeout.
-    """
-
-    def _call() -> str:
-        client = _get_client()
-        msg = client.recv(timeout=timeout)
-        if msg is None:
-            return "none"
-        if isinstance(msg, InteractionMessage):
-            return (
-                f"interaction:element={msg.element_id},"
-                f"action={msg.action},value={msg.value}"
-            )
-        return f"event:{type(msg).__name__}"
-
-    return _with_reconnect(_call)

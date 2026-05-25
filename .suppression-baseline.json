@@ -1,7 +1,7 @@
 {
-  "total": 112,
+  "total": 114,
   "by_category": {
-    "noqa": 36,
+    "noqa": 38,
     "type_ignore": 8,
     "pylint_disable": 2,
     "pyright_ignore": 11,
@@ -19,6 +19,9 @@
       "noqa": 1,
       "type_ignore": 1
     },
+    "src/punt_lux/display/domain_pump.py": {
+      "noqa": 1
+    },
     "src/punt_lux/display/element_renderer.py": {
       "noqa": 2
     },
@@ -34,7 +37,10 @@
       "type_ignore": 2,
       "pyright_ignore": 1
     },
-    "src/punt_lux/hub.py": {
+    "src/punt_lux/domain/hub/hub_display.py": {
+      "noqa": 1
+    },
+    "src/punt_lux/luxd.py": {
       "noqa": 1,
       "type_ignore": 1
     },
@@ -76,5 +82,5 @@
       "type_ignore": 1
     }
   },
-  "updated_at": "2026-05-23T23:17:39Z"
+  "updated_at": "2026-05-25T03:10:31Z"
 }

@@ -22,7 +22,6 @@ from punt_lux.protocol import (
     RegisterMenuMessage,
     SceneMessage,
     TextElement,
-    UnknownMessage,
     UpdateMessage,
     encode_frame,
     recv_message,
@@ -216,8 +215,8 @@ class TestSendMessages:
 
             shutil.rmtree(short_dir, ignore_errors=True)
 
-    def test_show_buffers_interleaved_event(self, tmp_path: Path) -> None:
-        """show() returns AckMessage even when a non-ack arrives first."""
+    def test_show_drops_interleaved_event(self, tmp_path: Path) -> None:
+        """show() returns AckMessage; interleaved non-ack frames are dropped."""
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
@@ -231,7 +230,9 @@ class TestSendMessages:
             assert server_conn is not None
             msg = recv_message(server_conn, timeout=5)
             assert isinstance(msg, SceneMessage)
-            # Send an interaction *before* the ack
+            # Send an interaction *before* the ack; without an active
+            # listener and no registered callback there is no consumer,
+            # so the new model drops it and proceeds to the ack.
             send_message(
                 server_conn,
                 InteractionMessage(
@@ -254,10 +255,6 @@ class TestSendMessages:
                 )
                 assert ack is not None
                 assert ack.scene_id == "s1"
-                # The interleaved interaction should be buffered for recv()
-                buffered = client.recv(timeout=0.5)
-                assert isinstance(buffered, InteractionMessage)
-                assert buffered.element_id == "b1"
         finally:
             if server_conn:
                 server_conn.close()
@@ -385,14 +382,16 @@ class TestSendMessages:
 
 
 class TestRecvEvents:
-    def test_recv_interaction(self, tmp_path: Path) -> None:
-        """recv() returns InteractionMessage sent by display."""
+    def test_interaction_dispatched_to_callback(self, tmp_path: Path) -> None:
+        """InteractionMessage delivery runs the registered on_event callback."""
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
         sock_path = Path(short_dir) / "d.sock"
         ready_event = threading.Event()
         server_conn: socket.socket | None = None
+        received: list[InteractionMessage] = []
+        done = threading.Event()
 
         def serve() -> None:
             nonlocal server_conn
@@ -411,13 +410,21 @@ class TestRecvEvents:
         ready_event.wait(timeout=5)
 
         try:
-            with DisplayClient(
-                sock_path, auto_spawn=False, connect_timeout=2.0
-            ) as client:
-                msg = client.recv(timeout=2.0)
-                assert isinstance(msg, InteractionMessage)
-                assert msg.element_id == "b1"
-                assert msg.action == "click"
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+
+            def _cb(msg: InteractionMessage) -> None:
+                received.append(msg)
+                done.set()
+
+            client.on_event("b1", "click", _cb)
+            try:
+                client.connect()
+                client.start_listener()
+                assert done.wait(timeout=2.0), "Callback never fired"
+                assert received[0].element_id == "b1"
+                assert received[0].action == "click"
+            finally:
+                client.close()
         finally:
             if server_conn:
                 server_conn.close()
@@ -426,8 +433,8 @@ class TestRecvEvents:
 
             shutil.rmtree(short_dir, ignore_errors=True)
 
-    def test_recv_timeout_returns_none(self, tmp_path: Path) -> None:
-        """recv() returns None on timeout."""
+    def test_poll_event_timeout_raises(self, tmp_path: Path) -> None:
+        """poll_event() raises TimeoutError when no event arrives in time."""
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
@@ -447,8 +454,9 @@ class TestRecvEvents:
             with DisplayClient(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                msg = client.recv(timeout=0.2)
-                assert msg is None
+                client.start_listener()
+                with pytest.raises(TimeoutError):
+                    client.poll_event(timeout=0.2)
         finally:
             if server_conn:
                 server_conn.close()
@@ -470,11 +478,51 @@ class TestErrorHandling:
         with pytest.raises(RuntimeError, match="Not connected"):
             client.show("s1", elements=[])
 
-    def test_recv_without_connect_raises(self) -> None:
-        """Calling recv() before connect() raises RuntimeError."""
+    def test_poll_event_without_connect_raises(self) -> None:
+        """Calling poll_event() before connect() raises RuntimeError."""
         client = DisplayClient(auto_spawn=False)
         with pytest.raises(RuntimeError, match="Not connected"):
-            client.recv()
+            client.poll_event()
+
+    def test_poll_event_after_listener_exit_raises_timeout(self) -> None:
+        """A listener that started and exited surfaces as TimeoutError.
+
+        The gate is ``_listener_thread is not None`` (it was started),
+        not ``is_alive()`` — an exited listener is the no-event-arrived
+        case with a clearer message, not a misuse RuntimeError.
+        """
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            with DisplayClient(
+                sock_path, auto_spawn=False, connect_timeout=2.0
+            ) as client:
+                dead = threading.Thread(target=lambda: None)
+                dead.start()
+                dead.join()
+                client._listener_thread = dead
+                with pytest.raises(TimeoutError, match="listener thread has exited"):
+                    client.poll_event(timeout=0.1)
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
 
     def test_close_without_connect_is_noop(self) -> None:
         """Calling close() without connecting doesn't crash."""
@@ -726,8 +774,8 @@ class TestBackgroundListener:
 
             shutil.rmtree(short_dir, ignore_errors=True)
 
-    def test_unmatched_events_go_to_pending(self) -> None:
-        """Events without a callback are available via recv()."""
+    def test_unmatched_interaction_and_unknown_are_dropped(self) -> None:
+        """Unmatched interactions and unknown frames are dropped, not buffered."""
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
@@ -740,14 +788,15 @@ class TestBackgroundListener:
             server_conn = _mini_display(sock_path, ready_event)
             assert server_conn is not None
             time.sleep(0.1)
-            # Send an interaction with no callback registered
+            # An interaction whose (element_id, action) has no callback.
             send_message(
                 server_conn,
                 InteractionMessage(
                     element_id="other", action="click", ts=time.time(), value=True
                 ),
             )
-            # Send an unknown message type (falls through to pending queue)
+            # An unknown message type. Both fall through the dispatcher
+            # without filling any queue, so poll_event sees nothing.
             server_conn.sendall(encode_frame({"type": "custom_event", "data": "hello"}))
 
         t = threading.Thread(target=serve, daemon=True)
@@ -758,12 +807,52 @@ class TestBackgroundListener:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.connect()
             client.start_listener()
-            # Both should arrive in _pending via recv()
-            msg1 = client.recv(timeout=2.0)
-            assert isinstance(msg1, InteractionMessage)
-            assert msg1.element_id == "other"
-            msg2 = client.recv(timeout=2.0)
-            assert isinstance(msg2, UnknownMessage)
+            # Listener has had time to drain both frames; poll_event sees
+            # no business event and times out.
+            time.sleep(0.3)
+            with pytest.raises(TimeoutError):
+                client.poll_event(timeout=0.2)
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
+    def test_observer_message_routes_to_poll_event(self) -> None:
+        """ObserverMessage payloads queue for poll_event consumption."""
+        import tempfile
+
+        from punt_lux.protocol import ObserverMessage
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            time.sleep(0.1)
+            send_message(
+                server_conn,
+                ObserverMessage(topic="work.saved", payload={"id": "save_btn"}),
+            )
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client.connect()
+            client.start_listener()
+            event = client.poll_event(timeout=2.0)
+            assert event.topic == "work.saved"
+            assert event.payload == {"id": "save_btn"}
             client.close()
         finally:
             if server_conn:
@@ -937,8 +1026,13 @@ class TestBackgroundListener:
 
             shutil.rmtree(short_dir, ignore_errors=True)
 
-    def test_action_mismatch_goes_to_pending(self) -> None:
-        """Callback keyed on (id, 'click') ignores (id, 'changed') events."""
+    def test_action_mismatch_is_dropped(self) -> None:
+        """Callback keyed on (id, 'click') ignores (id, 'changed') events.
+
+        The unmatched 'changed' event is dropped (no combined queue
+        survives in the new dispatch model); only the matching 'click'
+        runs the registered callback.
+        """
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
@@ -990,10 +1084,9 @@ class TestBackgroundListener:
             assert len(click_received) == 1
             assert click_received[0].action == "click"
 
-            # The "changed" event should be in _pending
-            msg = client.recv(timeout=1.0)
-            assert isinstance(msg, InteractionMessage)
-            assert msg.action == "changed"
+            # The "changed" event was dropped; no business event is queued.
+            with pytest.raises(TimeoutError):
+                client.poll_event(timeout=0.2)
             client.close()
         finally:
             if server_conn:
@@ -1083,8 +1176,8 @@ class TestBackgroundListener:
 
             shutil.rmtree(short_dir, ignore_errors=True)
 
-    def test_recv_timeout_with_listener(self) -> None:
-        """recv() returns None on timeout when listener is active."""
+    def test_poll_event_timeout_with_listener(self) -> None:
+        """poll_event() raises TimeoutError when no event arrives via listener."""
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
@@ -1104,8 +1197,8 @@ class TestBackgroundListener:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.connect()
             client.start_listener()
-            msg = client.recv(timeout=0.2)
-            assert msg is None
+            with pytest.raises(TimeoutError):
+                client.poll_event(timeout=0.2)
             client.close()
         finally:
             if server_conn:

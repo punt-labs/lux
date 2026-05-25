@@ -1,34 +1,44 @@
 """Element ABC with template-method ``render()`` + ``_children()`` hook.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §1 row 1 and the spike at
-``spikes/io_model_v1/src/lux_spike/element.py``:
+The ABC carries:
 
-- ``render()`` is the template method on the ABC, **never** overridden.
-- ``_children()`` is the hook composites override to return their children.
-- ``renderer_factory`` + ``emit`` are injected at construction (DI per DES-032).
-- ``apply_patch()`` is the template for scene-graph in-place mutation;
-  the default implementation walks the patch dict calling ``_set_<key>``
-  per entry. Used by ``SceneManager._apply_patch_set`` for ABC elements
-  (D6 from the amended design).
+- ``render()`` — template method per Composite pattern; never overridden.
+- ``_children()`` — hook composites override to return their children.
+- ``renderer_factory`` + ``emit`` — injected at construction.
+- ``apply_patch()`` — template for scene-graph in-place mutation; the
+  default walks the patch dict calling ``_set_<key>`` per entry.
+- A per-Element handler registry keyed by ``Event`` subclass, with
+  ``add_handler`` / ``remove_handler`` / ``fire`` methods. The dispatch
+  loop snapshots the handler list so a handler that mutates the registry
+  cannot affect the in-flight call. The registry is the single dispatch
+  site downstream of ``Display.interact``.
+- A small property-observer surface — ``_removed``, ``_observers``,
+  ``add_observer``, ``mark_removed`` — used by parent composites to
+  react to a child element being removed (agent ``RemoveElement``,
+  component self-dismiss, or connection disconnect all route through
+  the one ``mark_removed`` method).
 
 The PR-1 ``domain.element.Element`` Protocol is the **structural** contract
-for wire dataclasses and continues to type the 23 PR-2 element kinds. This
-ABC is the **behavioral** contract for io-model element kinds — Text in
-PR 3, Button/Panel/Dialog in PR 4. Both names coexist; the file names
-keep them visually distinct.
+for wire dataclasses and continues to type the PR-2 element kinds. This
+ABC is the **behavioral** contract for io-model element kinds. Both names
+coexist; the file names keep them visually distinct.
 """
 
 from __future__ import annotations
 
-from abc import ABC
-from typing import TYPE_CHECKING, Self
+import logging
+from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING, Self, cast
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping
 
+    from punt_lux.domain.event_protocol import Event, Handler
     from punt_lux.protocol.renderer import Emit, RendererFactory
 
 __all__ = ["Element"]
+
+logger = logging.getLogger(__name__)
 
 
 class Element(ABC):
@@ -42,6 +52,9 @@ class Element(ABC):
 
     _renderer_factory: RendererFactory
     _emit: Emit
+    _handlers: dict[type[Event], list[Handler[Event]]]
+    _removed: bool
+    _observers: list[Callable[[str], None]]
 
     def __new__(
         cls,
@@ -52,7 +65,15 @@ class Element(ABC):
         self = super().__new__(cls)
         self._renderer_factory = renderer_factory
         self._emit = emit
+        self._handlers = {}
+        self._removed = False
+        self._observers = []
         return self
+
+    @property
+    @abstractmethod
+    def id(self) -> str:
+        """Return the element's stable identity within its enclosing Scene."""
 
     def render(self) -> None:
         """Template method per Composite pattern. NEVER overridden."""
@@ -99,3 +120,88 @@ class Element(ABC):
                 raise AttributeError(msg)
             setter(value)
         return self
+
+    def add_handler[E: Event](
+        self,
+        event_type: type[E],
+        handler: Handler[E],
+    ) -> None:
+        """Register a handler for ``event_type`` on this Element."""
+        bucket = self._handlers.setdefault(cast("type[Event]", event_type), [])
+        bucket.append(cast("Handler[Event]", handler))
+
+    def remove_handler[E: Event](
+        self,
+        event_type: type[E],
+        handler: Handler[E],
+    ) -> None:
+        """Deregister a handler for ``event_type``. No-op if not present."""
+        bucket = self._handlers.get(cast("type[Event]", event_type))
+        if bucket is None:
+            return
+        try:
+            bucket.remove(cast("Handler[Event]", handler))
+        except ValueError:
+            return
+        if not bucket:
+            del self._handlers[cast("type[Event]", event_type)]
+
+    def fire(self, event: Event) -> None:
+        """Dispatch ``event`` to every handler registered for its type.
+
+        Handlers are invoked in registration order against a snapshot of
+        the list so a handler that mutates the registry mid-dispatch
+        cannot affect the in-flight call. A handler that raises is
+        logged with full traceback; remaining handlers still run — this
+        is a fan-out boundary where one bad subscriber must not stop
+        delivery to the others (PY-EH-6 system-boundary exemption).
+        """
+        snapshot = tuple(self._handlers.get(type(event), ()))
+        for handler in snapshot:
+            try:
+                handler(event)
+            except Exception:
+                logger.exception(
+                    "handler raised on %s for element %s",
+                    type(event).__name__,
+                    self.id,
+                )
+
+    def add_observer(self, observer: Callable[[str], None]) -> None:
+        """Register a property-change observer.
+
+        Parent composites use this to react to children flipping
+        ``_removed`` (and, in future, ``_visible`` / ``_enabled``).
+        """
+        self._observers.append(observer)
+
+    @property
+    def removed(self) -> bool:
+        """Whether this Element has been marked removed from its scene."""
+        return self._removed
+
+    def mark_removed(self) -> None:
+        """Flip ``_removed`` to True and notify observers. Idempotent.
+
+        The single mechanism for marking any Element removed; all three
+        removal paths (agent ``RemoveElement``, component self-dismiss,
+        connection disconnect) reach it.
+
+        Observers run against a snapshot of the list so a callback that
+        mutates the registry mid-dispatch cannot affect the in-flight
+        call. A callback that raises is logged with full traceback and
+        the remaining observers still run — removal is a fan-out
+        boundary where one bad subscriber must not strand the others
+        (PY-EH-6 system-boundary exemption).
+        """
+        if self._removed:
+            return
+        self._removed = True
+        for observer in tuple(self._observers):
+            try:
+                observer("removed")
+            except Exception:
+                logger.exception(
+                    "observer raised on removed for element %s",
+                    self.id,
+                )

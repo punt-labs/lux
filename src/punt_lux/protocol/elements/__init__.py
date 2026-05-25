@@ -15,17 +15,19 @@ table that maps wire ``kind`` strings to (class, to_dict, from_dict)
 triples.  Tests can construct isolated codecs; the production codec is
 the module-level ``_codec`` instance populated at import time.
 
-This ``__init__`` is the package surface: it re-exports every public name,
-assembles the ``Element`` union from per-family contributions, and provides
-the ``element_to_dict`` / ``element_from_dict`` dispatchers.
+This ``__init__`` is the package surface: it re-exports every public
+name, assembles the ``Element`` union from per-family contributions, and
+provides the ``element_to_dict`` dispatcher. Decoding lives on
+:class:`JsonElementFactory` — every tier constructs one at startup with
+its own ``RendererFactory`` / ``Emit`` / ``PublishSink`` and calls
+``factory.element_from_dict(d)``. ``build_element_codec()`` returns the
+shared ``ElementCodec`` instance every factory uses for non-ABC kinds.
 """
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import Any
 
-from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.elements import layout
 
 # _strip_none is re-exported for protocol.messages.scene; lives in
@@ -37,7 +39,7 @@ from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.codec import ElementCodec
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.combo import ComboElement
-from punt_lux.protocol.elements.element_wire import ElementWireContext
+from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.graphics import (
     DrawElement,
     PlotElement,
@@ -79,7 +81,6 @@ from punt_lux.protocol.elements.table import (
 )
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
-from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 
 __all__ = [
     "ButtonElement",
@@ -87,8 +88,10 @@ __all__ = [
     "CollapsingHeaderElement",
     "ColorPickerElement",
     "ComboElement",
+    "DialogElement",
     "DrawElement",
     "Element",
+    "ElementCodec",
     "GroupElement",
     "ImageElement",
     "InputNumberElement",
@@ -114,7 +117,7 @@ __all__ = [
     "_patch_from_dict",
     "_patch_to_dict",
     "_strip_none",
-    "element_from_dict",
+    "build_element_codec",
     "element_to_dict",
 ]
 # The four underscore-prefixed names above are package-internal API:
@@ -128,6 +131,7 @@ Element = (
     ImageElement
     | TextElement
     | ButtonElement
+    | DialogElement
     | SeparatorElement
     | SliderElement
     | CheckboxElement
@@ -152,45 +156,38 @@ Element = (
 )
 
 
-# Module-level dispatch codec, populated at import time.  Tests that need
-# isolation construct their own ElementCodec instance directly via the
-# codec sub-module.
-_codec = ElementCodec()
-BasicsRegistry().apply(_codec.register)
-InputsRegistry().apply(_codec.register)
-_register_layout(_codec.register)
-_register_graphics(_codec.register)
-_register_table(_codec.register)
+def build_element_codec() -> ElementCodec:
+    """Return a fresh :class:`ElementCodec` with every kind registered.
 
-# io-model dispatch — Text-only in PR 3 (per pr3-v2.1-design.md §3).
-# The factory is constructed with fail-loud defaults (RaisingRendererFactory
-# + no-op emit); production tiers construct their own factory with the real
-# DI at startup. The module-level instance covers the existing test/agent
-# path that reaches ``element_from_dict`` without explicit DI. A decoded
-# element whose ``.render()`` runs through this default raises
-# ``RuntimeError`` instead of silently no-oping (a silent paint would hide
-# a tier-routing bug).
+    Each :class:`JsonElementFactory` owns its own codec instance — the
+    codec carries no DI, but binding a separate instance per factory
+    keeps factory construction self-contained.
+    """
+    codec = ElementCodec()
+    BasicsRegistry().apply(codec.register)
+    InputsRegistry().apply(codec.register)
+    _register_layout(codec.register)
+    _register_graphics(codec.register)
+    _register_table(codec.register)
+    return codec
 
 
-def _no_op_emit(_msg: object) -> None:
-    """Module-level sentinel emit channel (PY-DP-9 Null Object)."""
-
-
-_ELEMENT_FACTORY = JsonElementFactory(
-    renderer_factory=RaisingRendererFactory(),
-    emit=_no_op_emit,
-)
+# Module-level codec used for the encode (to_dict) side, which has no
+# DI dependency. The decode side (from_dict) lives on
+# :class:`JsonElementFactory` so the tier-injected ``PublishSink`` /
+# ``RendererFactory`` / ``Emit`` flow into every decoded element.
+_to_dict_codec: ElementCodec = build_element_codec()
 _ENCODER_FACTORY = JsonEncoderFactory()
 
 
 def _element_to_dict(elem: Element) -> dict[str, Any]:
     """Serialize an Element dataclass to a JSON-compatible dict."""
-    if isinstance(elem, TextElement):
-        # JsonTextEncoder owns tooltip emission for the io-model path.
+    if isinstance(elem, TextElement | ButtonElement | DialogElement):
+        # Each io-model encoder owns its own tooltip emission.
         return _ENCODER_FACTORY.encode(elem)
-    result = _codec.to_dict(elem)
-    # The 23 dataclass kinds' per-kind codecs don't emit tooltip; the
-    # Element Protocol guarantees the attribute (PY-TS-10: no hasattr).
+    result = _to_dict_codec.to_dict(elem)
+    # The remaining dataclass kinds' per-kind codecs don't emit tooltip;
+    # the Element Protocol guarantees the attribute (PY-TS-10: no hasattr).
     if elem.tooltip is not None:
         result["tooltip"] = elem.tooltip
     return result
@@ -201,54 +198,9 @@ def element_to_dict(elem: Element) -> dict[str, Any]:
     return _element_to_dict(elem)
 
 
-def element_from_dict(d: dict[str, Any]) -> Element:
-    """Deserialize a dict to the appropriate Element class.
-
-    Text routes through ``JsonElementFactory`` (io-model path —
-    pr3-v2.1-design.md §3); the other 23 kinds continue through the
-    PR-2 ``ElementCodec``. A missing, empty, or non-string ``kind`` is a
-    ``ValueError`` — mirrors ``ElementCodec.from_dict``'s contract so
-    every element path has the same boundary semantics.
-    """
-    kind = d.get("kind")
-    if not isinstance(kind, str) or not kind:
-        msg = "Element missing or invalid 'kind' field"
-        raise ValueError(msg)
-    if kind == "text":
-        # ``JsonTextDecoder`` already pulls and validates ``tooltip`` from
-        # the wire dict (via ``optional_nullable_str``) — its decoded
-        # element carries the canonical tooltip.  Re-applying the read
-        # here via ``apply_patch`` was a redundant second pass (CR1) so
-        # the ABC branch short-circuits.  The decoder still raises a
-        # typed ``ValueError`` on a non-string tooltip — the boundary
-        # validation contract is preserved.
-        return _ELEMENT_FACTORY.decode(d)
-    elem: Element = _codec.from_dict(d)
-    # Copilot CP-5: validate tooltip at the boundary (PY-EH-1).  The
-    # codec returns each Element with its declared tooltip default
-    # (``None``); the cross-element tooltip read here previously trusted
-    # whatever value the wire carried and forwarded non-str into
-    # renderers via ``dataclasses.replace``.  Route the read through
-    # ``ElementWireContext.optional_nullable_str`` so explicit null is
-    # tolerated and any other non-str raises a typed ``ValueError``.
-    tooltip_ctx = ElementWireContext.for_kind(elem.kind)
-    tooltip = tooltip_ctx.optional_nullable_str(d, "tooltip")
-    if tooltip is None:
-        return elem
-    # The text branch returned above; ``_codec`` carries only the 23
-    # dataclass-shaped kinds, so the union here excludes ``TextElement``.
-    # The ``isinstance`` guard narrows the union for ``replace`` (whose
-    # type variable cannot bind to the ABC-shaped ``TextElement``) and
-    # documents the dispatch invariant.
-    if isinstance(elem, TextElement):  # pragma: no cover - dispatch invariant
-        msg = "text kind must route through _ELEMENT_FACTORY"
-        raise AssertionError(msg)
-    # Every dataclass Element subtype declares ``tooltip: str | None`` —
-    # the Protocol guarantee makes ``replace(elem, tooltip=...)`` safe.
-    return replace(elem, tooltip=tooltip)
-
-
-# Inject the package-level recursion functions into layout codecs.  Container
-# elements (Group, Window, TabBar, …) call back into the dispatcher; layout.py
-# cannot import them eagerly because the aggregator depends on layout.py.
-layout.install_dispatchers(_element_to_dict, element_from_dict)
+# Encode-side container recursion has no factory dependency. Install
+# once at import time. Decode-side recursion is injected per-tier by
+# the tier-boundary code: each tier calls
+# ``layout.install_from_dict(factory.element_from_dict)`` after
+# constructing its :class:`JsonElementFactory`.
+layout.install_to_dict(_element_to_dict)

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal, cast
+from typing import Any, Literal, Self, cast
 
 from punt_lux.protocol.elements.codec import Register
 
@@ -15,6 +15,10 @@ __all__ = [
     "TabBarElement",
     "TreeElement",
     "WindowElement",
+    "from_dict_dispatcher",
+    "install_dispatchers",
+    "install_from_dict",
+    "install_to_dict",
     "register_codecs",
 ]
 
@@ -123,47 +127,122 @@ class ModalElement:
 
 
 # Container codecs recurse via the package-level dispatcher in
-# protocol/elements/__init__.py. Importing element_to_dict / element_from_dict
-# at module import time would create a circular import — the aggregator
-# imports this module to build the union and dispatch tables, so this module
-# cannot import the dispatchers eagerly. The aggregator calls
-# ``install_dispatchers()`` once at import time to inject the recursion
-# functions, after which the codec functions resolve them at call time.
+# protocol/elements/__init__.py. Importing element_to_dict /
+# JsonElementFactory.element_from_dict at module import time would
+# create a circular import — the aggregator imports this module to
+# build the union and dispatch tables, so this module cannot import the
+# dispatchers eagerly. The aggregator calls ``install_to_dict()`` once
+# at import time with the encode-side function; each tier calls
+# ``install_from_dict()`` at startup with its
+# :meth:`JsonElementFactory.element_from_dict` bound method.
 _RecurseToDict = Callable[[Any], dict[str, Any]]
 _RecurseFromDict = Callable[[dict[str, Any]], Any]
 
 
-# Package-level recursion functions, installed by elements/__init__.py
-# after the package's top-level dispatchers (element_to_dict / element_from_dict)
-# are defined. Container codecs in this module must recurse via these, not
-# import directly — that would create a circular package import.
-_to_dict_fn: _RecurseToDict | None = None
-_from_dict_fn: _RecurseFromDict | None = None
+class _DispatcherRegistry:
+    """Holds the package-level encode/decode container recursion targets.
+
+    A single shared instance lives at module scope. Encapsulating the
+    two pointers in a class (instead of bare module-level globals)
+    avoids the ``global`` statement and the corresponding
+    ``PLW0603`` suppressions while preserving the install-once semantics
+    container codecs need.
+    """
+
+    _to_dict: _RecurseToDict | None
+    _from_dict: _RecurseFromDict | None
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._to_dict = None
+        self._from_dict = None
+        return self
+
+    def install_to_dict(self, to_dict: _RecurseToDict) -> None:
+        """Bind the encode-side container recursion function."""
+        self._to_dict = to_dict
+
+    def install_from_dict(self, from_dict: _RecurseFromDict) -> None:
+        """Bind the decode-side container recursion function."""
+        self._from_dict = from_dict
+
+    @property
+    def to_dict(self) -> _RecurseToDict:
+        """Return the encode-side recursion function, or raise."""
+        if self._to_dict is None:
+            msg = "layout codecs used before encode dispatcher installed"
+            raise RuntimeError(msg)
+        return self._to_dict
+
+    @property
+    def from_dict(self) -> _RecurseFromDict:
+        """Return the decode-side recursion function, or raise."""
+        if self._from_dict is None:
+            msg = (
+                "layout codecs used before decode dispatcher installed — "
+                "construct a JsonElementFactory at tier startup and call "
+                "layout.install_from_dict(factory.element_from_dict)"
+            )
+            raise RuntimeError(msg)
+        return self._from_dict
+
+
+_dispatchers = _DispatcherRegistry()
+
+
+def install_to_dict(to_dict: _RecurseToDict) -> None:
+    """Inject the encode-side container recursion function.
+
+    The encode side has no DI dependency — :mod:`elements` calls this
+    once at import time with the module-level ``_element_to_dict``.
+    """
+    _dispatchers.install_to_dict(to_dict)
+
+
+def install_from_dict(from_dict: _RecurseFromDict) -> None:
+    """Inject the decode-side container recursion function.
+
+    Each tier calls this once at startup with its
+    :meth:`JsonElementFactory.element_from_dict` bound method, so the
+    layout container codecs route child decode through the same
+    tier-injected DI as the parent. No module-level default exists —
+    a tier that forgets to install gets a ``RuntimeError`` from
+    :func:`_from_dict_dispatch` on the first container decode.
+    """
+    _dispatchers.install_from_dict(from_dict)
 
 
 def install_dispatchers(
     to_dict: _RecurseToDict,
     from_dict: _RecurseFromDict,
 ) -> None:
-    """Inject package-level dispatchers used by container codecs."""
-    # Install-once module state, set from elements/__init__.py
-    global _to_dict_fn, _from_dict_fn
-    _to_dict_fn = to_dict
-    _from_dict_fn = from_dict
+    """Inject both encode and decode container dispatchers (legacy helper).
+
+    Prefer :func:`install_to_dict` and :func:`install_from_dict`
+    individually — the two halves have different lifecycles (encode is
+    install-once at import; decode is install-per-tier at startup).
+    Kept for backward compatibility within the elements package.
+    """
+    install_to_dict(to_dict)
+    install_from_dict(from_dict)
 
 
 def _to_dict_dispatch() -> _RecurseToDict:
-    if _to_dict_fn is None:
-        msg = "layout codecs used before dispatchers installed"
-        raise RuntimeError(msg)
-    return _to_dict_fn
+    return _dispatchers.to_dict
 
 
 def _from_dict_dispatch() -> _RecurseFromDict:
-    if _from_dict_fn is None:
-        msg = "layout codecs used before dispatchers installed"
-        raise RuntimeError(msg)
-    return _from_dict_fn
+    return _dispatchers.from_dict
+
+
+def from_dict_dispatcher() -> _RecurseFromDict:
+    """Return the installed decode-side recursion function.
+
+    Public sibling of :func:`_from_dict_dispatch` exposed so sibling
+    protocol modules (e.g. :mod:`protocol.messages.scene`) can recurse
+    via the same per-tier factory without reaching into private state.
+    """
+    return _dispatchers.from_dict
 
 
 def _group_to_dict(elem: GroupElement) -> dict[str, Any]:

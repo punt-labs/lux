@@ -19,7 +19,7 @@ import platform
 import socket
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Self
+from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 
 from PIL import Image
 
@@ -65,12 +65,14 @@ from punt_lux.protocol import (
     UpdateMessage,
 )
 from punt_lux.protocol.elements import Element
+from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.separator import SeparatorElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.protocol.elements.text import TextElement
+from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.query_dispatcher import QueryDispatcher
 from punt_lux.scene import Frame, SceneManager, WidgetState
 from punt_lux.socket_server import SocketServer
@@ -99,7 +101,11 @@ _INPUTS_KINDS: tuple[type, ...] = (
     ColorPickerElement,
     SelectableElement,
 )
-_NATIVE_KINDS: tuple[type, ...] = _BASICS_KINDS + _INPUTS_KINDS
+# Composite kinds. The pump's _install_subtree recursively installs each
+# child; the top-level composite must appear in _NATIVE_KINDS so route()'s
+# mixed-scene gate admits the scene.
+_COMPOSITE_KINDS: tuple[type, ...] = (DialogElement,)
+_NATIVE_KINDS: tuple[type, ...] = _BASICS_KINDS + _INPUTS_KINDS + _COMPOSITE_KINDS
 
 if TYPE_CHECKING:
     from punt_lux.protocol import Message
@@ -140,6 +146,7 @@ class DisplayServer:
     _display_paths: DisplayPaths
     _element_renderer: ElementRenderer
     _imgui_renderer_factory: ImGuiRendererFactory
+    _luxd_factory: Any  # JsonElementFactory, declared Any to avoid an import cycle
 
     def __new__(
         cls,
@@ -204,6 +211,27 @@ class DisplayServer:
             on_client_disconnected=self._on_client_disconnected,
             on_error=self._query_dispatcher.record_error,
         )
+        # Install the luxd-tier element factory so inbound scene
+        # decoding (via reader.drain_typed → _scene_from_dict →
+        # layout._from_dict_dispatch) routes through a real factory.
+        # Once a real Hub is wired into the display tier, the
+        # publish_sink here will become hub.publish; for now the no-op
+        # sink matches the current display-only behavior (the display
+        # tier doesn't fan out wire-decoded publishes).
+        from punt_lux.display_client import NoOpAgentSideSink, no_op_emit
+        from punt_lux.protocol.element_factory import JsonElementFactory
+        from punt_lux.protocol.elements import (
+            build_element_codec,
+            layout as _element_layout,
+        )
+
+        self._luxd_factory = JsonElementFactory(
+            renderer_factory=RaisingRendererFactory(),
+            emit=no_op_emit,
+            publish_sink=cast("Any", NoOpAgentSideSink()),
+            codec=build_element_codec(),
+        )
+        _element_layout.install_from_dict(self._luxd_factory.element_from_dict)
         self._event_queue = []
         self._textures = TextureCache()
         self._widget_state = WidgetState()  # active scene's state (swapped)

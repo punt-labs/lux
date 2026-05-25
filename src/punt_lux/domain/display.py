@@ -12,11 +12,10 @@ import contextlib
 import itertools
 import logging
 from collections.abc import Callable
-from typing import Self, assert_never
+from typing import TYPE_CHECKING, Self, assert_never
 
-from punt_lux.domain._display_helpers import DisplayHelpers
-from punt_lux.domain._typing import replace_field, value_matches
-from punt_lux.domain.element import Element
+from punt_lux.domain._typing import field_info, replace_field, value_matches
+from punt_lux.domain.element_abc import Element as ElementABC
 from punt_lux.domain.error import (
     DuplicateIdError,
     Error,
@@ -24,22 +23,33 @@ from punt_lux.domain.error import (
     UnknownElementError,
 )
 from punt_lux.domain.event import (
-    ButtonPressed,
     ElementAdded,
     ElementRemoved,
     ElementUpdated,
     Event,
 )
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import ButtonClicked, Interaction
+from punt_lux.domain.interaction import BUTTON_CLICKED_TOKEN, ButtonClicked
+from punt_lux.domain.interaction_errors import (
+    ElementDismissedError,
+    UnauthorizedInteractionError,
+    UnknownClientError,
+    UnknownInteractionElementError,
+    UnknownInteractionSceneError,
+    WrongKindError,
+)
 from punt_lux.domain.ownership import OwnershipError
 from punt_lux.domain.snapshot import SceneSnapshot
 from punt_lux.domain.subscription import Subscription
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty, Update
 
+if TYPE_CHECKING:
+    from punt_lux.domain.element import Element
+    from punt_lux.protocol.messages.interaction import InteractionMessage
+
 __all__ = ["Display", "EventCallback", "Result"]
 
-_log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 
 type EventCallback = Callable[[Event], None]
 type Result = Event | Error
@@ -60,11 +70,26 @@ class Display:
       returns a typed ``Error`` and emits no event.  On success it
       mutates, emits one ``Event`` to every subscriber, and returns
       that same ``Event``.  Never returns ``None`` (PY-EH-8).
+
+    Interaction discipline:
+      ``interact`` is the single domain-validation site for a wire
+      ``InteractionMessage``. It either constructs a typed event (today
+      only ``ButtonClicked``) via the module-private factory token,
+      fires it through the resolved Element's handler registry, and
+      returns the event; or it raises a typed ``InteractionError``
+      subclass on validation failure. The ``element.fire`` call is the
+      single dispatch site downstream of ``Display.interact`` — handlers
+      run exactly once, on validated input.
     """
 
     _clients: dict[ClientId, str]
     _scenes: dict[SceneId, dict[ElementId, Element]]
     _owners: dict[tuple[SceneId, ElementId], ClientId]
+    # Child element -> parent element within a scene. Top-level elements
+    # are absent from the map (no entry = no parent). Lets ``interact``
+    # walk ancestors to reject clicks on a child whose composite parent
+    # has been dismissed via ``mark_removed``.
+    _parents: dict[tuple[SceneId, ElementId], ElementId]
     _subscribers: list[EventCallback]
     _next_client_index: itertools.count[int]
 
@@ -73,6 +98,7 @@ class Display:
         self._clients = {}
         self._scenes = {}
         self._owners = {}
+        self._parents = {}
         self._subscribers = []
         self._next_client_index = itertools.count(1)
         return self
@@ -100,6 +126,7 @@ class Display:
         for scene_id, element_id in owned:
             self._scenes[scene_id].pop(element_id, None)
             del self._owners[(scene_id, element_id)]
+            self._parents.pop((scene_id, element_id), None)
             ev = ElementRemoved(
                 scene_id=scene_id, element_id=element_id, owner_id=client_id
             )
@@ -118,6 +145,10 @@ class Display:
     def client_ids(self) -> frozenset[ClientId]:
         return frozenset(self._clients)
 
+    def is_client(self, client_id: ClientId) -> bool:
+        """Return whether ``client_id`` is currently registered."""
+        return client_id in self._clients
+
     # -- pub/sub ------------------------------------------------------------
 
     def subscribe(self, callback: EventCallback) -> Subscription:
@@ -133,13 +164,21 @@ class Display:
     def _emit(self, event: Event) -> None:
         """Fan an event out to every subscriber.
 
-        Subscriber contract: callbacks must not raise.  If one does, the
-        exception propagates up through ``apply`` — the state mutation
-        has already happened but the caller will observe the raise.
-        Callers that need isolation wrap their callback themselves.
+        Subscriber contract: callbacks should not raise.  A misbehaving
+        subscriber is isolated so the remaining subscribers still see
+        the event — the alternative (propagation) would let one bad
+        listener block fan-out for everyone else after the state
+        mutation has already happened.
         """
         for sub in list(self._subscribers):
-            sub(event)
+            try:
+                sub(event)
+            except Exception:
+                logger.exception(
+                    "event subscriber raised; isolating to protect fan-out: %r",
+                    sub,
+                )
+                continue
 
     # -- snapshot -----------------------------------------------------------
 
@@ -163,14 +202,14 @@ class Display:
             # Unknown client encoded as OwnershipError: one error vocabulary.
             return OwnershipError(
                 scene_id=update.scene_id,
-                element_id=DisplayHelpers.update_target_id(update),
+                element_id=update.target_id,
                 attempting_client_id=client_id,
                 owning_client_id=ClientId(""),
             )
         if update.scene_id not in self._scenes:
             return UnknownElementError(
                 scene_id=update.scene_id,
-                element_id=DisplayHelpers.update_target_id(update),
+                element_id=update.target_id,
             )
         # PY-EH-8: assert_never makes the type checker fail when a new Update
         # kind lands without a branch instead of silently returning None.
@@ -186,51 +225,115 @@ class Display:
 
     # -- interact -----------------------------------------------------------
 
-    def interact(self, client_id: ClientId, interaction: Interaction) -> Result:
-        """Validate user Interaction, emit Event on success — never returns None."""
-        if client_id not in self._clients:
-            return OwnershipError(
-                scene_id=interaction.scene_id,
-                element_id=interaction.element_id,
-                attempting_client_id=client_id,
-                owning_client_id=ClientId(""),
+    def interact(self, client_id: ClientId, msg: InteractionMessage) -> ButtonClicked:
+        """Validate the wire message, construct the typed event, fire it.
+
+        Callers must pass a wire-shape-valid message: ``msg.action`` is
+        an element action (not ``"menu"`` or ``"frame_close"``) and
+        ``msg.scene_id`` is not ``None``. The pump enforces those
+        wire-shape preconditions before invoking this method; direct
+        callers must do the same.
+
+        Raises ``UnknownClientError`` / ``UnknownInteractionSceneError``
+        / ``UnknownInteractionElementError`` /
+        ``UnauthorizedInteractionError`` / ``WrongKindError`` on any
+        domain validation failure. Returns the constructed
+        ``ButtonClicked`` after dispatching it through the resolved
+        Element's handler registry.
+        """
+        if not self.is_client(client_id):
+            raise UnknownClientError(client_id=client_id)
+        wire_scene = msg.scene_id
+        if wire_scene is None:
+            msg_text = "InteractionMessage.scene_id must be set before interact()"
+            raise ValueError(msg_text)
+        scene_id = SceneId(wire_scene)
+        element_id = ElementId(msg.element_id)
+        scene = self._scenes.get(scene_id)
+        if scene is None:
+            raise UnknownInteractionSceneError(scene_id=scene_id)
+        element = scene.get(element_id)
+        if element is None:
+            raise UnknownInteractionElementError(
+                scene_id=scene_id, element_id=element_id
             )
-        if interaction.scene_id not in self._scenes:
-            return UnknownElementError(
-                scene_id=interaction.scene_id,
-                element_id=interaction.element_id,
+        owner = self._owners.get((scene_id, element_id))
+        if owner != client_id:
+            raise UnauthorizedInteractionError(
+                scene_id=scene_id, element_id=element_id, caller=client_id
             )
-        match interaction:
-            case ButtonClicked():
-                owner_check = self._require_ownership(
-                    client_id, interaction.scene_id, interaction.element_id
-                )
-                if owner_check is not None:
-                    return owner_check
-                # Bugbot MED (PR #187): ButtonClicked targeting a non-button
-                # element (slider, checkbox, …) would still emit ButtonPressed
-                # without this kind check — a domain-level Protocol violation.
-                # The pump's _is_button_click already filters at the wire
-                # boundary; this is defense-in-depth for any direct caller
-                # (test code, future server-side synthesis).
-                elem = self._scenes[interaction.scene_id][interaction.element_id]
-                if elem.kind != "button":
-                    return PropertyTypeError(
-                        scene_id=interaction.scene_id,
-                        element_id=interaction.element_id,
-                        field="kind",
-                        expected_type="button",
-                        got_value=elem.kind,
-                    )
-                event = ButtonPressed(
-                    scene_id=interaction.scene_id,
-                    element_id=interaction.element_id,
-                    owner_id=client_id,
-                )
-                self._emit(event)
-                return event
-            case _:
-                assert_never(interaction)
+        dismissed = self._dismissed_ancestor(scene_id, element_id)
+        if dismissed is not None:
+            raise ElementDismissedError(
+                scene_id=scene_id,
+                element_id=element_id,
+                dismissed_id=dismissed,
+            )
+        event = self._build_event(
+            element=element,
+            scene_id=scene_id,
+            element_id=element_id,
+            owner_id=client_id,
+            value=msg.value,
+        )
+        if isinstance(element, ElementABC):
+            element.fire(event)
+        return event
+
+    def _dismissed_ancestor(
+        self, scene_id: SceneId, element_id: ElementId
+    ) -> ElementId | None:
+        """Return the closest self-or-ancestor whose ``removed`` flag is set.
+
+        Only ABC Elements carry ``removed``; wire dataclasses are frozen
+        and never marked individually. The walk includes the target
+        itself and terminates at a top-level element (no ``_parents``
+        entry) or a missing parent.
+        """
+        scene = self._scenes[scene_id]
+        current_id: ElementId | None = element_id
+        while current_id is not None:
+            elem: object = scene.get(current_id)
+            if isinstance(elem, ElementABC) and elem.removed:
+                return current_id
+            current_id = self._parents.get((scene_id, current_id))
+        return None
+
+    @staticmethod
+    def _build_event(
+        *,
+        element: Element,
+        scene_id: SceneId,
+        element_id: ElementId,
+        owner_id: ClientId,
+        value: object,
+    ) -> ButtonClicked:
+        """Construct the typed event for ``element``'s kind + wire ``value``.
+
+        Currently only ``button`` + ``value is True`` produces a typed
+        event. Other kinds raise ``WrongKindError`` (future PRs add
+        their own typed events here).
+        """
+        if element.kind != "button":
+            raise WrongKindError(
+                scene_id=scene_id,
+                element_id=element_id,
+                expected="button",
+                got=element.kind,
+            )
+        if value is not True:
+            raise WrongKindError(
+                scene_id=scene_id,
+                element_id=element_id,
+                expected="button click (value is True)",
+                got=f"value={value!r}",
+            )
+        return ButtonClicked(
+            scene_id=scene_id,
+            element_id=element_id,
+            owner_id=owner_id,
+            _token=BUTTON_CLICKED_TOKEN,
+        )
 
     # -- per-Update handlers ------------------------------------------------
 
@@ -241,6 +344,8 @@ class Display:
             return DuplicateIdError(scene_id=update.scene_id, element_id=element_id)
         scene[element_id] = update.element
         self._owners[(update.scene_id, element_id)] = client_id
+        if update.parent_id is not None:
+            self._parents[(update.scene_id, element_id)] = update.parent_id
         event = ElementAdded(
             scene_id=update.scene_id,
             element_id=element_id,
@@ -258,6 +363,7 @@ class Display:
             return owner_check
         del self._scenes[update.scene_id][update.element_id]
         del self._owners[(update.scene_id, update.element_id)]
+        self._parents.pop((update.scene_id, update.element_id), None)
         event = ElementRemoved(
             scene_id=update.scene_id,
             element_id=update.element_id,
@@ -273,7 +379,7 @@ class Display:
         if owner_check is not None:
             return owner_check
         elem = self._scenes[update.scene_id][update.element_id]
-        info = DisplayHelpers.field_info(elem, update.field)
+        info = field_info(elem, update.field)
         if info is None:
             return PropertyTypeError(
                 scene_id=update.scene_id,
