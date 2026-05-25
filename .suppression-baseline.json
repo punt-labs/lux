@@ -1,7 +1,7 @@
 {
-  "total": 112,
+  "total": 113,
   "by_category": {
-    "noqa": 36,
+    "noqa": 37,
     "type_ignore": 8,
     "pylint_disable": 2,
     "pyright_ignore": 11,
@@ -18,6 +18,9 @@
     "src/punt_lux/apps/_beads_payload.py": {
       "noqa": 1,
       "type_ignore": 1
+    },
+    "src/punt_lux/display/domain_pump.py": {
+      "noqa": 1
     },
     "src/punt_lux/display/element_renderer.py": {
       "noqa": 2
@@ -76,5 +79,5 @@
       "type_ignore": 1
     }
   },
-  "updated_at": "2026-05-23T23:17:39Z"
+  "updated_at": "2026-05-25T02:44:50Z"
 }

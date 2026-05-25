@@ -15,6 +15,7 @@ to parent composites. The two share no machinery.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.hub.subscription_registry import Handler, SubscriptionRegistry
@@ -25,6 +26,8 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
 __all__ = ["Hub", "hub"]
+
+logger = logging.getLogger(__name__)
 
 
 class Hub:
@@ -91,16 +94,29 @@ class Hub:
     ) -> int:
         """Fan ``payload`` out to ``topic``'s subscribers in the caller's scope.
 
-        Returns the number of subscribers that received the message.
-        Snapshot-then-iterate: the registry takes the lock just long
-        enough to copy the subscriber set, releases, then the Hub
-        iterates outside the lock to invoke each handler.
+        Returns the number of subscribers that actually received the
+        message. Snapshot-then-iterate: the registry takes the lock just
+        long enough to copy the subscriber set, releases, then the Hub
+        iterates outside the lock to invoke each handler. A handler that
+        raises is logged and skipped; one bad subscriber must not abort
+        fan-out to the remaining well-behaved subscribers.
         """
         message = ObserverMessage(topic=topic, payload=payload)
         subscribers = self._subscriptions.snapshot_subscribers(connection_id, topic)
+        delivered = 0
         for handler in subscribers:
-            handler(message)
-        return len(subscribers)
+            try:
+                handler(message)
+            except Exception:
+                logger.exception(
+                    "subscriber raised handling publish "
+                    "(connection=%s, topic=%s); continuing fan-out",
+                    connection_id,
+                    topic,
+                )
+                continue
+            delivered += 1
+        return delivered
 
     def on_disconnect(self, connection_id: ConnectionId) -> None:
         """Cascade cleanup: drop all subscriptions and the writer binding."""

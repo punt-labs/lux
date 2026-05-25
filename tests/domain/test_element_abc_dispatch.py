@@ -52,6 +52,10 @@ class _Leaf(Element):
             cls, renderer_factory=RaisingRendererFactory(), emit=_emit
         )
 
+    @property
+    def id(self) -> str:
+        return "leaf"
+
 
 def test_fire_dispatches_to_registered_handler_for_its_type() -> None:
     elem = _Leaf()

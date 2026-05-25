@@ -25,6 +25,7 @@ the next layer of observers.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.element import Element as WireElement
@@ -44,6 +45,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 __all__ = ["HubDisplay", "UnknownElementError", "UnknownSceneError", "hub_display"]
+
+_log = logging.getLogger(__name__)
 
 
 class HubDisplay:

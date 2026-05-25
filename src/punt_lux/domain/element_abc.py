@@ -26,7 +26,8 @@ coexist; the file names keep them visually distinct.
 
 from __future__ import annotations
 
-from abc import ABC
+import logging
+from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Self, cast
 
 if TYPE_CHECKING:
@@ -36,6 +37,8 @@ if TYPE_CHECKING:
     from punt_lux.protocol.renderer import Emit, RendererFactory
 
 __all__ = ["Element"]
+
+logger = logging.getLogger(__name__)
 
 
 class Element(ABC):
@@ -66,6 +69,11 @@ class Element(ABC):
         self._removed = False
         self._observers = []
         return self
+
+    @property
+    @abstractmethod
+    def id(self) -> str:
+        """Return the element's stable identity within its enclosing Scene."""
 
     def render(self) -> None:
         """Template method per Composite pattern. NEVER overridden."""

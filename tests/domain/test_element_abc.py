@@ -70,6 +70,10 @@ class _Leaf(Element):
         return self
 
     @property
+    def id(self) -> str:
+        return self._tag
+
+    @property
     def tag(self) -> str:
         return self._tag
 
@@ -91,6 +95,10 @@ class _Composite(Element):
         self._tag = tag
         self._kids = children
         return self
+
+    @property
+    def id(self) -> str:
+        return self._tag
 
     @property
     def tag(self) -> str:
