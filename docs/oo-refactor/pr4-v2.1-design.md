@@ -561,6 +561,93 @@ decorator chain wraps it the same way. That capability is not in PR 4
 scope. The catalog model is built to accept it without restructuring
 when the trust model for executing agent-authored code is ready.
 
+## Two-tier handler dispatch: the remote-dispatch decorator
+
+The Hub and Display are separate processes. Both decode elements from
+the wire. Both hold handler registrations produced by the same catalog
+factories. But the handlers contain Hub-side operations — model
+mutation, `Hub.publish`, Observer cascade — that cannot execute in the
+Display process.
+
+The solution: the Display wraps every handler in a **remote-dispatch
+decorator** that routes execution to the Hub instead of running the
+handler body locally. The decorator encapsulates the distribution
+concern. Handler code, `element.fire()`, `addHandler/removeHandler`,
+and the catalog factories are identical on both sides.
+
+### How it works
+
+Hub side — handlers execute locally:
+
+```text
+button click → element.fire(ButtonClicked)
+  → call_model("confirm")        — mutates DialogModel
+  → publish(["item.deleted"])     — fans out via Hub.publish
+  → Observer cascade              — parent prunes dismissed dialog
+```
+
+Display side — handlers route to Hub:
+
+```text
+button click → element.fire(ButtonClicked)
+  → remote_dispatch(call_model("confirm"))
+      → serializes event as InteractionMessage
+      → sends to Hub over socket
+      → Hub resolves element, fires the REAL handler
+```
+
+The Display-side `element.fire()` call is real — the handler fires.
+But the wrapped handler's body is "send to Hub," not "execute catalog
+logic." The Hub receives the event, resolves the element from
+`HubDisplay`, and fires the unwrapped handler with the real
+`HubPublishSink`.
+
+### The decorator shape
+
+```python
+def remote_dispatch(
+    inner: Handler[E],
+    send: Callable[[InteractionMessage], None],
+) -> Handler[E]:
+    """Wrap a handler so it routes to the Hub instead of executing."""
+    def _wrapper(event: E) -> None:
+        send(InteractionMessage(
+            element_id=event.element_id,
+            action=type(event).__name__,
+            ts=time.time(),
+            value=True,
+        ))
+    return _wrapper
+```
+
+The Display-side factory applies this decorator to every handler at
+decode time. The `send` callable is the Display's socket-write path
+(the same path `ButtonRenderer._emit_event` uses today).
+
+### What this replaces
+
+The Display-side `DomainPump.route_interaction` call in `_emit_event`
+is removed — the handler wrapper IS the routing. The Display-side
+`NoOpAgentSideSink` on the factory is replaced by the remote-dispatch
+decorator on each handler. The publish-sink concern moves from the
+factory level to the per-handler wrapper level.
+
+### Pre-optimization and post-optimization
+
+The default is that every handler routes to the Hub. This is simple
+and correct. As an optimization, specific handlers can be flagged for
+local execution on the Display (for example, closing a popup for
+immediate visual feedback). The decorator can check a flag and either
+route or execute locally. That optimization is not in PR 4 scope.
+
+### Why this simplifies ButtonClicked
+
+`ButtonClicked` reads naturally: a click fires the button's handler.
+Whether the handler executes locally or remotely is the decorator's
+concern, not the caller's. The renderer does not need to know about
+`InteractionMessage` — it calls `element.fire(ButtonClicked(...))`.
+The handler decides what happens next.
+
 ## Composite Elements as MVC components
 
 A `DialogElement` is more than a panel with buttons inside. It is a
