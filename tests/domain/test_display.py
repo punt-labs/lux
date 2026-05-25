@@ -11,7 +11,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, Self
 
-from punt_lux.domain import ElementId, SceneId
+import pytest
+
+from punt_lux.domain import ClientId, ElementId, SceneId
 from punt_lux.domain.display import Display
 from punt_lux.domain.error import (
     DuplicateIdError,
@@ -19,16 +21,23 @@ from punt_lux.domain.error import (
     UnknownElementError,
 )
 from punt_lux.domain.event import (
-    ButtonPressed,
     ElementAdded,
     ElementRemoved,
     ElementUpdated,
     Event,
 )
 from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.domain.interaction_errors import (
+    UnauthorizedInteractionError,
+    UnknownClientError,
+    UnknownInteractionElementError,
+    UnknownInteractionSceneError,
+    WrongKindError,
+)
 from punt_lux.domain.ownership import OwnershipError
 from punt_lux.domain.snapshot import SceneSnapshot
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
+from punt_lux.protocol.messages.interaction import InteractionMessage
 
 
 def _button(snap: SceneSnapshot, eid: ElementId) -> _Button:
@@ -570,8 +579,43 @@ def test_snapshot_is_a_point_in_time_view() -> None:
 # -- Display.interact ------------------------------------------------------
 
 
-def test_interact_button_emits_button_pressed_to_subscriber() -> None:
-    """Acceptance: a click on a Button reaches every subscriber as ButtonPressed."""
+def _click_msg(scene_id: str, element_id: str) -> InteractionMessage:
+    """Build an inbound wire-shape-valid button-click ``InteractionMessage``."""
+    return InteractionMessage(
+        element_id=element_id,
+        action=element_id,
+        value=True,
+        scene_id=scene_id,
+    )
+
+
+def test_interact_button_returns_typed_button_clicked() -> None:
+    """A click on a Button yields a ``ButtonClicked`` carrying the owner."""
+    display = Display()
+    alice = display.connect_client(name="alice")
+    display.add_scene(SceneId("s1"))
+    display.apply(
+        alice,
+        AddElement(
+            scene_id=SceneId("s1"),
+            element=_Button(id=ElementId("b1"), label="OK"),
+        ),
+    )
+
+    event = display.interact(alice, _click_msg("s1", "b1"))
+
+    assert isinstance(event, ButtonClicked)
+    assert event.owner_id == alice
+    assert event.element_id == ElementId("b1")
+    assert event.scene_id == SceneId("s1")
+
+
+def test_interact_does_not_fan_out_through_apply_subscribers() -> None:
+    """``Display.interact`` runs through ``Element.fire``, not ``_emit``.
+
+    Apply-side subscribers are for state-mutation events only; user
+    interactions land on the per-Element handler registry.
+    """
     display = Display()
     alice = display.connect_client(name="alice")
     display.add_scene(SceneId("s1"))
@@ -585,51 +629,44 @@ def test_interact_button_emits_button_pressed_to_subscriber() -> None:
     observed: list[Event] = []
     display.subscribe(observed.append)
 
-    result = display.interact(
-        alice, ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("b1"))
-    )
+    display.interact(alice, _click_msg("s1", "b1"))
 
-    assert isinstance(result, ButtonPressed)
-    assert result.owner_id == alice
-    assert result.element_id == ElementId("b1")
-    assert [type(ev) for ev in observed] == [ButtonPressed]
+    assert observed == []
 
 
-def test_interact_returns_unknown_element_error_for_missing_element() -> None:
+def test_interact_raises_unknown_interaction_element_for_missing_element() -> None:
     display = Display()
     alice = display.connect_client(name="alice")
     display.add_scene(SceneId("s1"))
-    # Note: no AddElement — element_id "ghost" doesn't exist.
 
-    result = display.interact(
-        alice, ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("ghost"))
-    )
-    assert isinstance(result, UnknownElementError)
+    with pytest.raises(UnknownInteractionElementError) as exc_info:
+        display.interact(alice, _click_msg("s1", "ghost"))
+
+    assert exc_info.value.scene_id == SceneId("s1")
+    assert exc_info.value.element_id == ElementId("ghost")
 
 
-def test_interact_returns_unknown_element_error_for_missing_scene() -> None:
+def test_interact_raises_unknown_interaction_scene_for_missing_scene() -> None:
     display = Display()
     alice = display.connect_client(name="alice")
 
-    result = display.interact(
-        alice, ButtonClicked(scene_id=SceneId("no-such"), element_id=ElementId("b1"))
-    )
-    assert isinstance(result, UnknownElementError)
+    with pytest.raises(UnknownInteractionSceneError) as exc_info:
+        display.interact(alice, _click_msg("no-such", "b1"))
+
+    assert exc_info.value.scene_id == SceneId("no-such")
 
 
-def test_interact_returns_ownership_error_for_unknown_client() -> None:
-    from punt_lux.domain import ClientId
-
+def test_interact_raises_unknown_client_error_for_unknown_caller() -> None:
     display = Display()
     display.add_scene(SceneId("s1"))
-    result = display.interact(
-        ClientId("not-registered"),
-        ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("b1")),
-    )
-    assert isinstance(result, OwnershipError)
+
+    with pytest.raises(UnknownClientError) as exc_info:
+        display.interact(ClientId("not-registered"), _click_msg("s1", "b1"))
+
+    assert exc_info.value.client_id == ClientId("not-registered")
 
 
-def test_interact_returns_ownership_error_when_client_does_not_own_element() -> None:
+def test_interact_raises_unauthorized_when_caller_does_not_own_element() -> None:
     display = Display()
     alice = display.connect_client(name="alice")
     bob = display.connect_client(name="bob")
@@ -642,20 +679,15 @@ def test_interact_returns_ownership_error_when_client_does_not_own_element() -> 
         ),
     )
 
-    result = display.interact(
-        bob, ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("b1"))
-    )
-    assert isinstance(result, OwnershipError)
-    assert result.attempting_client_id == bob
-    assert result.owning_client_id == alice
+    with pytest.raises(UnauthorizedInteractionError) as exc_info:
+        display.interact(bob, _click_msg("s1", "b1"))
+
+    assert exc_info.value.caller == bob
+    assert exc_info.value.element_id == ElementId("b1")
 
 
 def test_interact_validation_precedes_mutation() -> None:
-    """PY-EH-1: unauthorized click leaves snapshot unchanged.
-
-    A failing ``interact`` returns an Error and the element state in the
-    snapshot is identical before and after — interact never mutates.
-    """
+    """PY-EH-1: an unauthorized click leaves the snapshot unchanged."""
     display = Display()
     alice = display.connect_client(name="alice")
     bob = display.connect_client(name="bob")
@@ -669,42 +701,15 @@ def test_interact_validation_precedes_mutation() -> None:
     )
     before = display.snapshot(SceneId("s1"))
 
-    result = display.interact(
-        bob, ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("b1"))
-    )
-    assert isinstance(result, OwnershipError)
+    with pytest.raises(UnauthorizedInteractionError):
+        display.interact(bob, _click_msg("s1", "b1"))
+
     after = display.snapshot(SceneId("s1"))
     assert _button(before, ElementId("b1")) == _button(after, ElementId("b1"))
 
 
-def test_interact_does_not_emit_event_on_failure() -> None:
-    display = Display()
-    alice = display.connect_client(name="alice")
-    bob = display.connect_client(name="bob")
-    display.add_scene(SceneId("s1"))
-    display.apply(
-        alice,
-        AddElement(
-            scene_id=SceneId("s1"),
-            element=_Button(id=ElementId("b1"), label="OK"),
-        ),
-    )
-    observed: list[Event] = []
-    display.subscribe(observed.append)
-
-    # ownership failure — no event should fire
-    display.interact(
-        bob, ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("b1"))
-    )
-    assert observed == []
-
-
-def test_interact_button_clicked_on_non_button_returns_property_type_error() -> None:
-    """Bugbot MED (PR #187): a ButtonClicked targeting a non-button element
-    (e.g. a slider whose id collides with a button id elsewhere) must NOT
-    emit ButtonPressed.  Defense-in-depth at the domain boundary — the
-    pump's wire-side filter is the first line; this is the second.
-    """
+def test_interact_raises_wrong_kind_for_non_button_element() -> None:
+    """A button-shaped click on a non-button element raises ``WrongKindError``."""
 
     @dataclass(frozen=True, slots=True)
     class _Slider:
@@ -731,16 +736,27 @@ def test_interact_button_clicked_on_non_button_returns_property_type_error() -> 
             element=_Slider(id=ElementId("s1elem"), label="Vol"),
         ),
     )
-    observed: list[Event] = []
-    display.subscribe(observed.append)
 
-    result = display.interact(
+    with pytest.raises(WrongKindError) as exc_info:
+        display.interact(alice, _click_msg("s1", "s1elem"))
+
+    assert exc_info.value.expected == "button"
+    assert exc_info.value.got == "slider"
+
+
+def test_interact_raises_wrong_kind_for_non_true_value_on_button() -> None:
+    """A button element addressed with ``value=False`` raises ``WrongKindError``."""
+    display = Display()
+    alice = display.connect_client(name="alice")
+    display.add_scene(SceneId("s1"))
+    display.apply(
         alice,
-        ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("s1elem")),
+        AddElement(
+            scene_id=SceneId("s1"),
+            element=_Button(id=ElementId("b1"), label="OK"),
+        ),
     )
+    msg = InteractionMessage(element_id="b1", action="b1", value=False, scene_id="s1")
 
-    assert isinstance(result, PropertyTypeError)
-    assert result.field == "kind"
-    assert result.expected_type == "button"
-    assert result.got_value == "slider"
-    assert observed == []  # no event fired
+    with pytest.raises(WrongKindError):
+        display.interact(alice, msg)

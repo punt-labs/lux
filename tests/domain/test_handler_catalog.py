@@ -19,13 +19,18 @@ from punt_lux.domain.handlers import (
     PublishDecorator,
 )
 from punt_lux.domain.handlers.verb_vocabulary import VerbVocabulary
-from punt_lux.domain.ids import ElementId, SceneId
-from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.domain.interaction import BUTTON_CLICKED_TOKEN, ButtonClicked
 
 
 def _make_click() -> ButtonClicked:
     """Return a sample ButtonClicked event for handler dispatch tests."""
-    return ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("btn"))
+    return ButtonClicked(
+        scene_id=SceneId("s1"),
+        element_id=ElementId("btn"),
+        owner_id=ClientId("test"),
+        _token=BUTTON_CLICKED_TOKEN,
+    )
 
 
 class _RecordingModel:

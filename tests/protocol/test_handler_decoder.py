@@ -14,8 +14,8 @@ from typing import Self
 
 from punt_lux.domain.event_protocol import Handler
 from punt_lux.domain.handlers import ButtonHandlers, DecoratorRegistry
-from punt_lux.domain.ids import ElementId, SceneId
-from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.domain.interaction import BUTTON_CLICKED_TOKEN, ButtonClicked
 from punt_lux.protocol.handler_decoder import (
     FactoryRegistry,
     HandlerDecoder,
@@ -25,7 +25,12 @@ from punt_lux.protocol.handler_decoder import (
 
 def _make_click() -> ButtonClicked:
     """Return a sample ButtonClicked event for handler dispatch tests."""
-    return ButtonClicked(scene_id=SceneId("s1"), element_id=ElementId("btn"))
+    return ButtonClicked(
+        scene_id=SceneId("s1"),
+        element_id=ElementId("btn"),
+        owner_id=ClientId("test"),
+        _token=BUTTON_CLICKED_TOKEN,
+    )
 
 
 class _RecordingSink:

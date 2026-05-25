@@ -9,19 +9,27 @@ from typing import Any, ClassVar, Self, cast
 from punt_lux.domain.display import Display, Result
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.event import (
-    ButtonPressed,
     ElementAdded,
     ElementRemoved,
     ElementUpdated,
 )
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.domain.interaction_errors import InteractionError
 from punt_lux.domain.update import AddElement, RemoveElement
 from punt_lux.protocol import InteractionMessage, SceneMessage
+from punt_lux.protocol.elements.button import ButtonElement
+from punt_lux.protocol.elements.dialog import DialogElement
+from punt_lux.protocol.elements.text import TextElement
 
 __all__ = ["DomainPump"]
 
 _log = logging.getLogger(__name__)
+
+# io-model element kinds that route through the new ABC-based ``apply``
+# path. ABC elements carry runtime state (renderer factory, emit, handler
+# registry) and cannot pass through dataclasses.replace, which the basic
+# native-kind path uses for anonymous-id synthesis.
+_ABC_TYPES: tuple[type, ...] = (TextElement, ButtonElement, DialogElement)
 
 
 class DomainPump:
@@ -97,8 +105,14 @@ class DomainPump:
         """
         if elem.id:
             return elem
+        if isinstance(elem, _ABC_TYPES):
+            msg = (
+                f"io-model element of kind={elem.kind!r} requires an explicit id "
+                "(anonymous-id synthesis only supports dataclass elements)"
+            )
+            raise ValueError(msg)
         # Element Protocol is opaque to dataclasses.replace's TypeVar; every
-        # native element is a frozen dataclass with `id`.
+        # native dataclass element is a frozen dataclass with `id`.
         replaced = dataclasses.replace(cast("Any", elem), id=f"{elem.kind}:{index}")
         return cast("DomainElement", replaced)
 
@@ -119,75 +133,35 @@ class DomainPump:
 
     # Wire actions that do NOT target a scene element — emitted by display
     # chrome (menu bar, frame close button) rather than by an Element
-    # renderer.  They flow through the wire event queue but have no domain
-    # equivalent; the pump skips them BEFORE the element-existence check so
-    # they don't trip the SFH-M1 divergence warning (Bugbot MED on PR #187).
+    # renderer.  They flow through the wire event queue but have no
+    # corresponding scene element; the pump drops them before invoking
+    # ``Display.interact``.
     _NON_ELEMENT_ACTIONS: ClassVar[frozenset[str]] = frozenset({"menu", "frame_close"})
 
     def route_interaction(self, msg: InteractionMessage) -> None:
-        """Translate a wire ``InteractionMessage`` into a domain ``Interaction``.
+        """Forward a wire ``InteractionMessage`` to ``Display.interact``.
 
-        PR 2: only button clicks have a corresponding domain Interaction.
-        ButtonRenderer emits InteractionMessage with ``value=True`` and an
-        action equal to the button's ``elem.action or elem.id``.  Display
-        chrome (menu, frame close) emits InteractionMessages with no
-        scene-element backing; those skip the pump entirely.  Scenes that
-        don't live in the domain Display (mixed-scene case) are skipped
-        silently — ``Display.interact`` would return ``UnknownElementError``
-        and the warning would be noise rather than signal.  An element id
-        missing from a scene the domain DOES track is the opposite — a
-        divergence signal worth logging (SFH M1).
-
-        Messages from non-button element sources (slider, checkbox, …) are
-        skipped here pending their own Interaction variants in later PRs.
+        The pump performs wire-shape triage only: drop messages targeting
+        display chrome rather than a scene element, drop messages with
+        no scene id. Everything else hands straight to
+        ``Display.interact`` — the single domain-validation site. Domain
+        failures surface as ``InteractionError`` subclasses; the pump
+        catches and logs them so a single bad wire frame cannot tear down
+        the listener thread.
         """
         if msg.action in self._NON_ELEMENT_ACTIONS:
             return
         if msg.scene_id is None:
             return
-        scene_id = SceneId(msg.scene_id)
         try:
-            snap = self._display.snapshot(scene_id)
-        except KeyError:
-            return
-        element_id = ElementId(msg.element_id)
-        if element_id not in snap.element_ids:
+            self._display.interact(self._client_id, msg)
+        except InteractionError as exc:
             _log.warning(
-                "interaction targets unknown element scene=%s element=%s",
-                scene_id,
-                element_id,
+                "domain Display refused interact(scene=%s, element=%s): %s",
+                msg.scene_id,
+                msg.element_id,
+                exc,
             )
-            return
-        if not self._is_button_click(msg, snap.element(element_id)):
-            return
-        result = self._display.interact(
-            self._client_id,
-            ButtonClicked(scene_id=scene_id, element_id=element_id),
-        )
-        _warn_on_error(result, scene_id=scene_id, element_id=element_id, op="interact")
-
-    @staticmethod
-    def _is_button_click(msg: InteractionMessage, elem: DomainElement) -> bool:
-        """Return True if the wire ``InteractionMessage`` describes a button click.
-
-        Resolution is by element kind AND wire value shape.  ButtonRenderer's
-        wire-side emit always sets ``value=True`` (boolean ``True``); any
-        other shape — dict (menu payload), str (input value), int — is from
-        a different source and MUST NOT route as a ButtonPressed even if
-        ``element_id`` happens to match a button in the scene.  Bugbot HIGH
-        on PR #187 named the menu-id-collides-with-button-id case: without
-        the ``msg.value is True`` guard a menu selection whose id matched a
-        real button would have fired a phantom ButtonPressed to subscribers.
-        """
-        if elem.kind != "button":
-            return False
-        if msg.value is not True:
-            _log.warning(
-                "button interaction value=%r is not True (boolean); not a click",
-                msg.value,
-            )
-            return False
-        return True
 
 
 def _warn_on_error(
@@ -197,16 +171,8 @@ def _warn_on_error(
     element_id: ElementId,
     op: str,
 ) -> None:
-    """Log a domain Display refusal with full context.
-
-    Used for both ``Display.apply(...)`` (add / remove / set) and
-    ``Display.interact(...)`` (button click).  The ``op`` parameter names
-    the operation so the warning stays accurate as new variants land.
-    """
-    # The Event type alias isn't isinstance-checkable; spell the concretes.
-    if isinstance(
-        result, ElementAdded | ElementRemoved | ElementUpdated | ButtonPressed
-    ):
+    """Log a domain Display refusal with full context for ``apply`` results."""
+    if isinstance(result, ElementAdded | ElementRemoved | ElementUpdated):
         return
     _log.warning(
         "domain Display refused %s(scene=%s, element=%s): %s — %r",
