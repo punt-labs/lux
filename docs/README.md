@@ -8,7 +8,6 @@ Lux has documentation for:
 - the target architecture
 - coding standards
 - formal models
-- migration history
 - alternative concepts
 
 These are not the same thing.
@@ -57,22 +56,11 @@ This is the current/intermediate system view, not the rewrite target.
 These are formal or appendix-style documents. They are useful, but they are
 not the main narrative architecture set.
 
-## Historical / Migration Material
+## Historical Material
 
-- [architecture/luxd-impl.md](./architecture/luxd-impl.md)
-- [architecture/archive/](./architecture/archive)
-- [oo-refactor/README.md](./oo-refactor/README.md)
-
-These are unmaintained historical materials kept only while useful content is
-being harvested into the canonical docs. Do not start here for architecture
-intent, do not cite them as authority, and do not extend them.
-
-## Proof Points, Not Product Docs
-
-- [../spikes/io_model_v1/README.md](../spikes/io_model_v1/README.md)
-
-Use these to understand what was prototyped or validated. Do not treat them as
-the product's canonical architecture.
+Older migration notes, archived io-model drafts, and spike proof points were
+removed from the live docs tree to reduce confusion. If you need that material,
+recover it from git history instead of treating it as current guidance.
 
 ## Alternative Concepts
 

@@ -1,6 +1,15 @@
 # Lux Design Decision Log
 
-This file is the authoritative record of design decisions, prior approaches, and their outcomes. **Every design change must be logged here before implementation.**
+> **Status:** historical decision log and rationale record. It is not the
+> canonical architecture source. For architecture intent, start with
+> `docs/architecture/target/target.md` for the rewrite target,
+> `docs/architecture/system.tex` for the prior/current system view, and
+> `docs/standards/python-oo.md` for implementation rules. Some entries below
+> reference documents that have been removed from the working tree; use git
+> history if you need them.
+
+This file records design decisions, prior approaches, and their outcomes. Use
+it as background and rationale, not as the primary architecture guide.
 
 ## Rules
 
