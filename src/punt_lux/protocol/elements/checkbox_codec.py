@@ -14,17 +14,44 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements._util import strip_none
 from punt_lux.protocol.elements.element_wire import ElementWireContext
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from punt_lux.domain.interaction import ValueChanged
     from punt_lux.protocol.elements.checkbox import CheckboxElement
     from punt_lux.protocol.renderer import Emit, RendererFactory
 
 __all__ = ["JsonCheckboxDecoder", "JsonCheckboxEncoder"]
+
+
+class _UpdateValueHandler:
+    """Serializable handler that updates a checkbox's value on toggle.
+
+    On the Hub side, this handler runs when ``ValueChanged`` fires —
+    updating the authoritative state via ``apply_patch``. On the
+    Display side, ``wrap_handlers_for_remote`` wraps it in a
+    ``RemoteDispatchGroup`` that sends the interaction to the Hub.
+    """
+
+    _elem: CheckboxElement
+
+    def __new__(cls, elem: CheckboxElement) -> Self:
+        self = super().__new__(cls)
+        self._elem = elem
+        return self
+
+    def __reduce__(self) -> tuple[object, ...]:
+        return (object.__new__, (type(self),), {"_elem": self._elem})
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        for key, value in state.items():
+            object.__setattr__(self, key, value)
+
+    def __call__(self, event: ValueChanged) -> None:
+        self._elem.apply_patch({"value": event.value})
 
 
 class JsonCheckboxDecoder:
@@ -62,6 +89,8 @@ class JsonCheckboxDecoder:
         Display side. Buttons get handlers from the wire JSON; for
         checkboxes the "forward value changes" behavior is implicit.
         """
+        from punt_lux.domain.interaction import ValueChanged  # noqa: PLC0415
+
         ctx = ElementWireContext.for_kind("checkbox")
         elem = self._cls(
             renderer_factory=self._rf,
@@ -71,11 +100,7 @@ class JsonCheckboxDecoder:
             value=ctx.optional_bool(raw, "value", default=False),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),
         )
-
-        def _on_value_changed(event: ValueChanged) -> None:
-            elem.apply_patch({"value": event.value})
-
-        elem.add_handler(ValueChanged, _on_value_changed)
+        elem.add_handler(ValueChanged, _UpdateValueHandler(elem))
         return elem
 
 
