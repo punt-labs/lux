@@ -20,6 +20,7 @@ import time
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
+from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -89,6 +90,7 @@ class RemoteDispatchGroup:
         """Return the original handlers this group wraps."""
         return self._original_handlers
 
+    @trace
     def __call__(self, event: Event) -> None:
         # Lazy import avoids circular dependency; interaction.py
         # imports nothing from this module so the cycle is clean.

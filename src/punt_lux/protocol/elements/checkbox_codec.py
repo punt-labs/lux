@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Self
 
 from punt_lux.protocol.elements._util import strip_none
 from punt_lux.protocol.elements.element_wire import ElementWireContext
+from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -50,6 +51,7 @@ class _UpdateValueHandler:
         for key, value in state.items():
             object.__setattr__(self, key, value)
 
+    @trace
     def __call__(self, event: ValueChanged) -> None:
         self._elem.apply_patch({"value": event.value})
 
@@ -81,6 +83,7 @@ class JsonCheckboxDecoder:
         self._cls = element_cls
         return self
 
+    @trace
     def decode(self, raw: Mapping[str, object]) -> CheckboxElement:
         """Construct a CheckboxElement from a JSON-decoded mapping.
 

@@ -209,6 +209,7 @@ class Element(ABC):
             for event_type, handlers in self._handlers.items()
         }
 
+    @trace
     def wrap_handlers_for_remote(
         self,
         send_fn: Callable[[RemoteEventHandlerInvocation], None],
