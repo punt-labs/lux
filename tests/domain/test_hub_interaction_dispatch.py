@@ -113,28 +113,50 @@ def test_hub_interaction_dispatch_non_abc_element_returns_silently(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """When the resolved element is a wire dataclass (not ABC) the dispatch returns."""
+    from collections.abc import Mapping
+    from dataclasses import dataclass
+    from typing import Literal, Self
+
     import punt_lux.domain.hub as hub_module
+
+    @dataclass(frozen=True, slots=True)
+    class _WireLeaf:
+        id: str
+        kind: Literal["leaf"] = "leaf"
+        tooltip: str | None = None
+
+        def to_dict(self) -> dict[str, object]:
+            return {"id": self.id, "kind": self.kind}
+
+        @classmethod
+        def from_dict(cls, d: Mapping[str, object]) -> Self:
+            return cls(id=str(d["id"]))
 
     isolated_display = HubDisplay()
     scene_id = SceneId("scene")
     owner = ConnectionId("agent")
     isolated_display.register_client(owner)
-    wire_button = ButtonElement(id="btn", label="Wire")
+    wire_leaf = _WireLeaf(id="leaf")
     isolated_display.apply(
         owner,
-        AddElement(scene_id=scene_id, element=wire_button, parent_id=None),
+        AddElement(scene_id=scene_id, element=wire_leaf, parent_id=None),
     )
+
+    fake_registry = SimpleNamespace(get=MagicMock())
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
+    monkeypatch.setattr(hub_module, "client_registry", fake_registry)
 
     clients_module.ClientRegistry._hub_interaction_dispatch(
         RemoteEventHandlerInvocation(
             scene_id="scene",
-            element_id="btn",
+            element_id="leaf",
             action="click",
             ts=1.0,
             value=True,
         )
     )
+
+    fake_registry.get.assert_not_called()
 
 
 def test_hub_interaction_dispatch_scene_repush_failure_does_not_crash(
