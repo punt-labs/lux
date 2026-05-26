@@ -205,18 +205,19 @@ class Element(ABC):
         self,
         send_fn: Callable[[RemoteEventHandlerInvocation], None],
     ) -> None:
-        """Wrap each ButtonClicked bucket in one remote-dispatch group.
+        """Wrap each event bucket in one remote-dispatch group.
 
         Recurses into children via ``_children()``. Each handler on a
-        ``ButtonElement`` stays part of the original semantic handler
-        chain, but the Display-side transport wrapper batches that one
-        button-click bucket into one ``RemoteEventHandlerInvocation``.
-        The Hub replays the full original handler chain once on its
-        authoritative copy.
+        ``ButtonElement`` or ``CheckboxElement`` stays part of the
+        original semantic handler chain, but the Display-side transport
+        wrapper batches each event bucket into one
+        ``RemoteEventHandlerInvocation``. The Hub replays the full
+        original handler chain once on its authoritative copy.
         """
         from punt_lux.domain.handlers.remote_dispatch import RemoteDispatchGroup
-        from punt_lux.domain.interaction import ButtonClicked
+        from punt_lux.domain.interaction import ButtonClicked, ValueChanged
         from punt_lux.protocol.elements.button import ButtonElement
+        from punt_lux.protocol.elements.checkbox import CheckboxElement
 
         if isinstance(self, ButtonElement):
             action = self.action or self.id
@@ -230,8 +231,26 @@ class Element(ABC):
                     send=send_fn,
                     element_id=self.id,
                     action=action,
+                    event_kind="button_clicked",
                 )
                 self._handlers[ButtonClicked] = [
+                    cast("Handler[Event]", grouped),
+                ]
+        if isinstance(self, CheckboxElement):
+            action = self.action or self.id
+            value_handlers = self._handlers.get(ValueChanged, ())
+            if value_handlers and not (
+                len(value_handlers) == 1
+                and self._is_remote_dispatch_group(value_handlers[0])
+            ):
+                grouped = RemoteDispatchGroup(
+                    handlers=tuple(value_handlers),
+                    send=send_fn,
+                    element_id=self.id,
+                    action=action,
+                    event_kind="value_changed",
+                )
+                self._handlers[ValueChanged] = [
                     cast("Handler[Event]", grouped),
                 ]
         for child in self._children():
