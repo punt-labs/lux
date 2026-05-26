@@ -454,6 +454,8 @@ class DisplayServer:
 
     def _on_post_init(self) -> None:
         """Called once the OpenGL context is ready."""
+        import signal
+
         from imgui_bundle import hello_imgui, imgui
 
         # Ensure docking is enabled (drag-merge frames into tabs).
@@ -465,6 +467,8 @@ class DisplayServer:
         self._themes = list(hello_imgui.ImGuiTheme_)
         self._socket_server.setup(self._socket_path)
         self._display_paths.write_pid()
+
+        signal.signal(signal.SIGTERM, self._handle_sigterm)
 
         logger.info("Display server listening on %s", self._socket_path)
 
@@ -548,6 +552,11 @@ class DisplayServer:
     def _request_fit_all(self) -> None:
         """Callback for MenuManager: request fit-all layout."""
         self._fit_all_frames = True
+
+    def _handle_sigterm(self, _signum: int, _frame: object) -> None:
+        """SIGTERM handler — clean up PID file and exit."""
+        self._on_exit()
+        raise SystemExit(0)
 
     def _on_exit(self) -> None:
         """Called before the window closes."""
