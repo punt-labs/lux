@@ -19,6 +19,10 @@ from dataclasses import dataclass
 from typing import Self
 
 from punt_lux.domain.element_abc import Element
+from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.protocol import RemoteEventHandlerInvocation
+from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.renderers import RaisingRendererFactory
 
 
@@ -166,3 +170,110 @@ def test_mark_removed_isolates_per_observer_exceptions() -> None:
     elem.mark_removed()
     assert elem.removed is True
     assert after == ["removed"]
+
+
+def test_remote_dispatch_group_rejects_empty_handlers() -> None:
+    """``RemoteDispatchGroup`` requires at least one handler."""
+    import pytest
+
+    from punt_lux.domain.handlers.remote_dispatch import RemoteDispatchGroup
+
+    with pytest.raises(ValueError, match="at least one handler"):
+        RemoteDispatchGroup(
+            handlers=(),
+            send=lambda _msg: None,
+            element_id="btn",
+            action="click",
+        )
+
+
+def test_wrap_handlers_for_remote_groups_button_click_handlers() -> None:
+    button = ButtonElement(id="confirm", label="Confirm")
+    local_runs: list[str] = []
+    sent: list[RemoteEventHandlerInvocation] = []
+
+    def _first(_event: ButtonClicked) -> None:
+        local_runs.append("first")
+
+    def _second(_event: ButtonClicked) -> None:
+        local_runs.append("second")
+
+    button.add_handler(ButtonClicked, _first)
+    button.add_handler(ButtonClicked, _second)
+
+    button.wrap_handlers_for_remote(sent.append)
+
+    assert button.handler_count(ButtonClicked) == 2
+    assert button.handler_summary() == {"ButtonClicked": 2}
+
+    button.fire(
+        ButtonClicked(
+            scene_id=SceneId("dialog"),
+            element_id=ElementId("confirm"),
+            owner_id=ClientId("display"),
+        )
+    )
+
+    assert local_runs == []
+    assert len(sent) == 1
+    assert sent[0].element_id == "confirm"
+    assert sent[0].action == "confirm"
+    assert sent[0].value is True
+
+
+def test_wrap_handlers_for_remote_recurses_into_composite_children() -> None:
+    """Child buttons inside a composite get wrapped; the parent does not."""
+    from punt_lux.protocol.elements.dialog import DialogElement
+
+    dialog = DialogElement(id="dlg", title="Confirm")
+    child_button = ButtonElement(id="child-btn", label="OK")
+    child_button.add_handler(ButtonClicked, lambda _e: None)
+    dialog.install_children((child_button,))
+
+    sent: list[RemoteEventHandlerInvocation] = []
+    dialog.wrap_handlers_for_remote(sent.append)
+
+    assert child_button.handler_count(ButtonClicked) == 1
+    child_button.fire(
+        ButtonClicked(
+            scene_id=SceneId("s"),
+            element_id=ElementId("child-btn"),
+            owner_id=ClientId("display"),
+        )
+    )
+    assert len(sent) == 1
+    assert sent[0].element_id == "child-btn"
+
+
+def test_wrap_handlers_for_remote_is_noop_for_non_button() -> None:
+    """Calling ``wrap_handlers_for_remote`` on a non-button leaf is a no-op."""
+    leaf = _Leaf()
+    leaf.add_handler(_Click, lambda _e: None)
+    sent: list[RemoteEventHandlerInvocation] = []
+    leaf.wrap_handlers_for_remote(sent.append)
+    seen: list[_Click] = []
+    leaf.add_handler(_Click, seen.append)
+    leaf.fire(_Click(button="left"))
+    assert len(sent) == 0
+    assert len(seen) == 1
+
+
+def test_wrap_handlers_for_remote_is_idempotent_for_button_bucket() -> None:
+    button = ButtonElement(id="confirm", label="Confirm")
+    sent: list[RemoteEventHandlerInvocation] = []
+    button.add_handler(ButtonClicked, lambda _event: None)
+    button.add_handler(ButtonClicked, lambda _event: None)
+
+    button.wrap_handlers_for_remote(sent.append)
+    button.wrap_handlers_for_remote(sent.append)
+
+    button.fire(
+        ButtonClicked(
+            scene_id=SceneId("dialog"),
+            element_id=ElementId("confirm"),
+            owner_id=ClientId("display"),
+        )
+    )
+
+    assert button.handler_count(ButtonClicked) == 2
+    assert len(sent) == 1

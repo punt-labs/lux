@@ -219,6 +219,9 @@ Bootstrap (first time only): run `make update-oo` to create the initial baseline
 
 **Verify outputs, not just metrics.** After writing a file, open it and read the content. `make check` passing does not mean the feature works — it means the code compiles and tests pass. Those are necessary but not sufficient.
 
+- **Read `Makefile` before code changes.** Do this early in every coding session in Lux. Do not guess what the repo’s gates are, do not assume another repo’s workflow applies here, and do not substitute ad-hoc `pytest`, `ruff`, or `mypy` commands for the repo-defined workflow until you have read the Make targets.
+- **Run the full quality gate on every code change.** In Lux that means `make check`. Focused commands are fine while iterating, but you are not done, and you must not report a code change as complete, until `make check` passes. If `make check` fails anywhere, fix the failure or explicitly report the remaining blocker.
+
 - `make check-oo` — OO ratchet against baseline.
 - `make update-oo` — update baseline and append to audit log after improvements.
 - `make report` — full diagnostics including per-file OO breakdown.
@@ -298,12 +301,13 @@ Two nested loops govern all code changes. See `punt-kit/standards/pr-review.md` 
 
 Execute after every agent delegation that produces sizeable code changes. Do not start the next mission until this loop is complete — starting without local review is a procedural violation.
 
-1. **Delegate** to the right ethos specialist (see pairing table above). Do not use bare `Agent()` for implementation work.
-2. **`make check`** — must pass before proceeding. Zero exceptions.
-3. **`make restart`** — builds, installs, and restarts BOTH luxd AND the display. This is the ONLY correct way to pick up code changes. `launchctl kickstart` restarts luxd but leaves the display running stale code — the display is a separate process (PID visible in `make restart` output). `lux ensure-hub --restart` also only restarts luxd. Never use either for code iteration; always `make restart`.
-4. **`make test`** against the installed artifact — not from source. If no test covers the changed code, write one before marking this step complete.
-5. **Exercise via introspection + operator confirmation** — write expected output BEFORE running. Drive the feature through its real entry point (MCP tool, CLI command, button click in the lux window). Capture what the running system did via the introspection APIs (`inspect_scene`, `list_scenes`, `list_recent_events`, `list_errors`, `screenshot`, `list_menus`, `list_clients`, `get_display_info`). Compare actual to expected. **Ask the operator to confirm.** Cover one invalid input, one missing-dependency case, one boundary condition. Synthetic tests that exercise a dispatcher in-process do not substitute for running the feature. **Exception: docs-only changes (CLAUDE.md, ADRs, READMEs) have no entry point to run; markdownlint pass + read-through is the verification.**
-6. **Local review** — run the applicable agents, 2–6 by scope.
+1. **Read `Makefile` first** and identify the repo-defined gate chain before you start coding. In Lux, assume `make check` is mandatory unless the user explicitly scoped the work to docs-only changes.
+2. **Delegate** to the right ethos specialist (see pairing table above). Do not use bare `Agent()` for implementation work.
+3. **`make check`** — must pass before proceeding. Zero exceptions. This is the authoritative all-gates target for code changes.
+4. **`make restart`** — builds, installs, and restarts BOTH luxd AND the display. This is the ONLY correct way to pick up code changes. `launchctl kickstart` restarts luxd but leaves the display running stale code — the display is a separate process (PID visible in `make restart` output). `lux ensure-hub --restart` also only restarts luxd. Never use either for code iteration; always `make restart`.
+5. **`make test`** against the installed artifact — not from source. If no test covers the changed code, write one before marking this step complete.
+6. **Exercise via introspection + operator confirmation** — write expected output BEFORE running. Drive the feature through its real entry point (MCP tool, CLI command, button click in the lux window). Capture what the running system did via the introspection APIs (`inspect_scene`, `list_scenes`, `list_recent_events`, `list_errors`, `screenshot`, `list_menus`, `list_clients`, `get_display_info`). Compare actual to expected. **Ask the operator to confirm.** Cover one invalid input, one missing-dependency case, one boundary condition. Synthetic tests that exercise a dispatcher in-process do not substitute for running the feature. **Exception: docs-only changes (CLAUDE.md, ADRs, READMEs) have no entry point to run; markdownlint pass + read-through is the verification.**
+7. **Local review** — run the applicable agents, 2–6 by scope.
 
    | Agent | When |
    |---|---|
@@ -315,9 +319,9 @@ Execute after every agent delegation that produces sizeable code changes. Do not
    | `pr-review-toolkit:code-simplifier` | After the others are clean — catches unused abstraction / dead code |
 
    Trivial fix (≤1 file, no new types): 2. Single-feature change: 3–4. Cross-cutting refactor: 5–6.
-7. **Fix every finding.** To dismiss one: document (a) the exact finding, (b) the specific reason it does not apply, (c) the code reference. "Pre-existing", "by design", "intentional", and "expected" are not reasons.
-8. **Re-run agents.** Exit the fix loop on the first round that produces no findings on any selected agent.
-9. **Commit.**
+8. **Fix every finding.** To dismiss one: document (a) the exact finding, (b) the specific reason it does not apply, (c) the code reference. "Pre-existing", "by design", "intentional", and "expected" are not reasons.
+9. **Re-run agents.** Exit the fix loop on the first round that produces no findings on any selected agent.
+10. **Commit.**
 
 ### Outer loop — one PR (one rollback-coherent unit)
 
@@ -348,7 +352,7 @@ Release scripts: `scripts/release-plugin.sh` (swap `lux-dev` → `lux`), `script
 - `docs/architecture/target/target.md` — **start here**; canonical design target for the rewrite
 - `docs/README.md` — docs map and conflict triage
 - `docs/standards/python-oo.md` — mandatory OO implementation standard and ratchet policy
-- `DESIGN.md` — ADR log. Read before proposing changes to settled architecture.
+- `DESIGN.md` — ADR log (36 entries, ~3,400 lines). **Do not read start to finish** — the accumulated historical detail confuses agents. Search or grep for a specific `DES-NNN` entry when you need the rationale behind a settled decision. Append new ADRs at the end; do not reorganize or summarize existing entries.
 - `docs/architecture/target/topology.md` — process topology target
 - `docs/architecture/target/ui-model.md` — authoritative UI model target
 - `docs/architecture/target/introspection-api.md` — introspection and control surface

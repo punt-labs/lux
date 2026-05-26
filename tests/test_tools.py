@@ -9,6 +9,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from punt_lux.display_client import agent_element_factory
+from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.ids import ElementId, SceneId
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
@@ -451,6 +453,43 @@ class TestShowTool:
 
         result = show("s1", [{"kind": "text", "id": "t1", "content": "Hi"}])
         assert result == "timeout"
+
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_show_installs_scene_in_hub_before_display_send(
+        self,
+        mock_get: MagicMock,
+    ) -> None:
+        client = _mock_client()
+        isolated_display = HubDisplay()
+
+        def _assert_hub_installed(*_args: object, **_kwargs: object) -> AckMessage:
+            installed = isolated_display.resolve(SceneId("s1"), ElementId("t1"))
+            assert installed.id == "t1"
+            return AckMessage(scene_id="s1", ts=time.time())
+
+        client.show.side_effect = _assert_hub_installed
+        mock_get.return_value = client
+
+        with patch("punt_lux.tools.tools.hub_display", isolated_display):
+            result = show("s1", [{"kind": "text", "id": "t1", "content": "Hi"}])
+
+        assert result == "ack:s1"
+
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_show_timeout_keeps_authoritative_hub_scene(
+        self,
+        mock_get: MagicMock,
+    ) -> None:
+        client = _mock_client()
+        client.show.return_value = None
+        mock_get.return_value = client
+        isolated_display = HubDisplay()
+
+        with patch("punt_lux.tools.tools.hub_display", isolated_display):
+            result = show("s1", [{"kind": "text", "id": "t1", "content": "Hi"}])
+
+        assert result == "timeout"
+        assert isolated_display.resolve(SceneId("s1"), ElementId("t1")).id == "t1"
 
 
 class TestShowTableTool:

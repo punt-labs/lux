@@ -215,21 +215,24 @@ class DisplayServer:
         # Install the luxd-tier element factory so inbound scene
         # decoding (via reader.drain_typed → _scene_from_dict →
         # layout._from_dict_dispatch) routes through a real factory.
-        # Once a real Hub is wired into the display tier, the
-        # publish_sink here will become hub.publish; for now the no-op
-        # sink matches the current display-only behavior (the display
-        # tier doesn't fan out wire-decoded publishes).
-        from punt_lux.display_client import NoOpAgentSideSink, no_op_emit
+        # The Display is not allowed to own business publish behavior;
+        # if a handler ever runs locally before remote wrapping, that
+        # path must fail loudly instead of silently dropping the publish.
+        from punt_lux.display_client import no_op_emit
         from punt_lux.protocol.element_factory import JsonElementFactory
         from punt_lux.protocol.elements import (
             build_element_codec,
             layout as _element_layout,
         )
+        from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
 
         self._luxd_factory = JsonElementFactory(
             renderer_factory=RaisingRendererFactory(),
             emit=no_op_emit,
-            publish_sink=cast("Any", NoOpAgentSideSink()),
+            publish_sink=cast(
+                "Any",
+                RaisingPublishSink("DisplayServer._luxd_factory"),
+            ),
             codec=build_element_codec(),
         )
         _element_layout.install_from_dict(self._luxd_factory.element_from_dict)

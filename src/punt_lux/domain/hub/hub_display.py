@@ -51,7 +51,7 @@ from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
 __all__ = [
     "HubDisplay",
@@ -135,6 +135,32 @@ class HubDisplay:
         """Return every ``(scene, element)`` pair this connection installed."""
         return self._owners.keys_for(connection_id)
 
+    def replace_scene(
+        self,
+        connection_id: ConnectionId,
+        scene_id: SceneId,
+        roots: Sequence[WireElement],
+    ) -> None:
+        """Replace ``scene_id`` for ``connection_id`` with ``roots``.
+
+        The Hub stays authoritative: a re-show first removes every root
+        this connection previously owned in the scene, then installs the
+        new roots through the normal ``apply(AddElement(...))`` path so
+        ownership, root observers, and child indexes are rebuilt in one
+        place.
+        """
+        self.register_client(connection_id)
+        for root_id in self._owned_roots_in_scene(connection_id, scene_id):
+            self.apply(
+                connection_id,
+                RemoveElement(scene_id=scene_id, element_id=root_id),
+            )
+        for root in roots:
+            self.apply(
+                connection_id,
+                AddElement(scene_id=scene_id, element=root, parent_id=None),
+            )
+
     # -- apply -------------------------------------------------------------
 
     def apply(
@@ -188,6 +214,19 @@ class HubDisplay:
                 attempting=attempting,
                 owning=owner,
             )
+
+    def _owned_roots_in_scene(
+        self,
+        connection_id: ConnectionId,
+        scene_id: SceneId,
+    ) -> tuple[ElementId, ...]:
+        """Return the scene-root ids this connection currently owns."""
+        return tuple(
+            element_id
+            for owned_scene, element_id in self._owners.keys_for(connection_id)
+            if owned_scene == scene_id
+            and self._children.is_root(owned_scene, element_id)
+        )
 
     # -- cleanup trigger ---------------------------------------------------
 

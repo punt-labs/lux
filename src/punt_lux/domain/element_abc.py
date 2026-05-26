@@ -189,38 +189,72 @@ class Element(ABC):
 
     def handler_count(self, event_type: type[Event]) -> int:
         """Return the number of handlers registered for ``event_type``."""
-        return len(self._handlers.get(event_type, ()))
+        bucket = self._handlers.get(event_type, ())
+        return sum(self._logical_handler_count(handler) for handler in bucket)
 
     def handler_summary(self) -> dict[str, int]:
         """Return a name-to-count mapping of all registered handler types."""
-        return {k.__name__: len(v) for k, v in self._handlers.items()}
+        return {
+            event_type.__name__: sum(
+                self._logical_handler_count(handler) for handler in handlers
+            )
+            for event_type, handlers in self._handlers.items()
+        }
 
     def wrap_handlers_for_remote(
         self,
         send_fn: Callable[[RemoteEventHandlerInvocation], None],
     ) -> None:
-        """Replace each ButtonClicked handler with a remote_dispatch wrapper.
+        """Wrap each ButtonClicked bucket in one remote-dispatch group.
 
         Recurses into children via ``_children()``. Each handler on a
-        ``ButtonElement`` is individually wrapped so the Display sends one
-        ``RemoteEventHandlerInvocation`` per handler per click. The Hub
-        replays the full handler chain on its authoritative copy.
+        ``ButtonElement`` stays part of the original semantic handler
+        chain, but the Display-side transport wrapper batches that one
+        button-click bucket into one ``RemoteEventHandlerInvocation``.
+        The Hub replays the full original handler chain once on its
+        authoritative copy.
         """
-        from punt_lux.domain.handlers.remote_dispatch import remote_dispatch
+        from punt_lux.domain.handlers.remote_dispatch import RemoteDispatchGroup
         from punt_lux.domain.interaction import ButtonClicked
         from punt_lux.protocol.elements.button import ButtonElement
 
         if isinstance(self, ButtonElement):
-            action = getattr(self, "action", None) or self.id
-            self._handlers[ButtonClicked] = [
-                cast(
-                    "Handler[Event]",
-                    remote_dispatch(handler, send_fn, self.id, action),
+            action = self.action or self.id
+            button_handlers = self._handlers.get(ButtonClicked, ())
+            if button_handlers and not (
+                len(button_handlers) == 1
+                and self._is_remote_dispatch_group(button_handlers[0])
+            ):
+                grouped = RemoteDispatchGroup(
+                    handlers=tuple(
+                        cast("Handler[ButtonClicked]", handler)
+                        for handler in button_handlers
+                    ),
+                    send=send_fn,
+                    element_id=self.id,
+                    action=action,
                 )
-                for handler in self._handlers.get(ButtonClicked, ())
-            ]
+                self._handlers[ButtonClicked] = [
+                    cast("Handler[Event]", grouped),
+                ]
         for child in self._children():
             child.wrap_handlers_for_remote(send_fn)
+
+    @staticmethod
+    def _logical_handler_count(handler: object) -> int:
+        """Return the logical handler count represented by ``handler``."""
+        from punt_lux.domain.handlers.remote_dispatch import RemoteDispatchGroup
+
+        if isinstance(handler, RemoteDispatchGroup):
+            return handler.wrapped_count
+        return 1
+
+    @staticmethod
+    def _is_remote_dispatch_group(handler: object) -> bool:
+        """Return True when ``handler`` is the grouped remote wrapper."""
+        from punt_lux.domain.handlers.remote_dispatch import RemoteDispatchGroup
+
+        return isinstance(handler, RemoteDispatchGroup)
 
     def add_observer(self, observer: Callable[[str], None]) -> None:
         """Register a property-change observer.
