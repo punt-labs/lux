@@ -14,12 +14,12 @@ from punt_lux.display_client import DisplayClient
 from punt_lux.protocol import (
     AckMessage,
     ClearMessage,
-    InteractionMessage,
     Patch,
     PingMessage,
     PongMessage,
     ReadyMessage,
     RegisterMenuMessage,
+    RemoteEventHandlerInvocation,
     SceneMessage,
     TextElement,
     UpdateMessage,
@@ -235,7 +235,7 @@ class TestSendMessages:
             # so the new model drops it and proceeds to the ack.
             send_message(
                 server_conn,
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id="b1", action="click", ts=time.time(), value=True
                 ),
             )
@@ -383,14 +383,14 @@ class TestSendMessages:
 
 class TestRecvEvents:
     def test_interaction_dispatched_to_callback(self, tmp_path: Path) -> None:
-        """InteractionMessage delivery runs the registered on_event callback."""
+        """Invocation delivery runs the registered on_event callback."""
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
         sock_path = Path(short_dir) / "d.sock"
         ready_event = threading.Event()
         server_conn: socket.socket | None = None
-        received: list[InteractionMessage] = []
+        received: list[RemoteEventHandlerInvocation] = []
         done = threading.Event()
 
         def serve() -> None:
@@ -400,7 +400,7 @@ class TestRecvEvents:
             time.sleep(0.1)
             send_message(
                 server_conn,
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id="b1", action="click", ts=time.time(), value=True
                 ),
             )
@@ -412,7 +412,7 @@ class TestRecvEvents:
         try:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
 
-            def _cb(msg: InteractionMessage) -> None:
+            def _cb(msg: RemoteEventHandlerInvocation) -> None:
                 received.append(msg)
                 done.set()
 
@@ -728,14 +728,14 @@ class TestBackgroundListener:
     """Tests for push-based event handling via background listener."""
 
     def test_callback_dispatch(self) -> None:
-        """Listener dispatches InteractionMessage to registered callback."""
+        """Listener dispatches RemoteEventHandlerInvocation to registered callback."""
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
         sock_path = Path(short_dir) / "d.sock"
         ready_event = threading.Event()
         server_conn: socket.socket | None = None
-        received: list[InteractionMessage] = []
+        received: list[RemoteEventHandlerInvocation] = []
 
         def serve() -> None:
             nonlocal server_conn
@@ -744,7 +744,7 @@ class TestBackgroundListener:
             time.sleep(0.1)
             send_message(
                 server_conn,
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id="btn1", action="click", ts=time.time(), value=True
                 ),
             )
@@ -791,7 +791,7 @@ class TestBackgroundListener:
             # An interaction whose (element_id, action) has no callback.
             send_message(
                 server_conn,
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id="other", action="click", ts=time.time(), value=True
                 ),
             )
@@ -917,7 +917,7 @@ class TestBackgroundListener:
             time.sleep(0.1)
             send_message(
                 server_conn,
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id="trigger", action="click", ts=time.time(), value=True
                 ),
             )
@@ -933,7 +933,7 @@ class TestBackgroundListener:
         try:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
 
-            def on_trigger(msg: InteractionMessage) -> None:
+            def on_trigger(msg: RemoteEventHandlerInvocation) -> None:
                 client.show_async(
                     "response",
                     elements=[TextElement(id="t1", content="Callback fired")],
@@ -963,7 +963,7 @@ class TestBackgroundListener:
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
         sock_path = Path(short_dir) / "d.sock"
-        received: list[InteractionMessage] = []
+        received: list[RemoteEventHandlerInvocation] = []
         conns: list[socket.socket] = []
 
         def serve_two(server: socket.socket, ready: threading.Event) -> None:
@@ -977,7 +977,7 @@ class TestBackgroundListener:
                     time.sleep(0.1)
                     send_message(
                         conn,
-                        InteractionMessage(
+                        RemoteEventHandlerInvocation(
                             element_id="btn2",
                             action="click",
                             ts=time.time(),
@@ -1039,7 +1039,7 @@ class TestBackgroundListener:
         sock_path = Path(short_dir) / "d.sock"
         ready_event = threading.Event()
         server_conn: socket.socket | None = None
-        click_received: list[InteractionMessage] = []
+        click_received: list[RemoteEventHandlerInvocation] = []
 
         def serve() -> None:
             nonlocal server_conn
@@ -1049,7 +1049,7 @@ class TestBackgroundListener:
             # Send a "changed" event — should NOT match the "click" callback
             send_message(
                 server_conn,
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id="slider1",
                     action="changed",
                     ts=time.time(),
@@ -1059,7 +1059,7 @@ class TestBackgroundListener:
             # Send a "click" event — SHOULD match
             send_message(
                 server_conn,
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id="slider1",
                     action="click",
                     ts=time.time(),
@@ -1122,7 +1122,7 @@ class TestBackgroundListener:
             # Simulate user clicking the "Hello" menu item
             send_message(
                 server_conn,
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id="hello-world",
                     action="menu",
                     ts=time.time(),
@@ -1141,7 +1141,7 @@ class TestBackgroundListener:
         try:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
 
-            def on_hello(msg: InteractionMessage) -> None:
+            def on_hello(msg: RemoteEventHandlerInvocation) -> None:
                 client.show_async(
                     "hello-scene",
                     elements=[

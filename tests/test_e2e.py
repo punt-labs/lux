@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 from punt_lux.display_client import DisplayClient
-from punt_lux.protocol import ButtonElement, InteractionMessage, TextElement
+from punt_lux.protocol import ButtonElement, RemoteEventHandlerInvocation, TextElement
 
 
 def _short_sock_path() -> tuple[str, Path]:
@@ -141,10 +141,10 @@ class TestWalkingSkeleton:
             _wait_for_socket(sock_path, proc)
 
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=5.0)
-            events: list[InteractionMessage] = []
+            events: list[RemoteEventHandlerInvocation] = []
             done = threading.Event()
 
-            def _on_click(msg: InteractionMessage) -> None:
+            def _on_click(msg: RemoteEventHandlerInvocation) -> None:
                 events.append(msg)
                 if len(events) == 2:
                     done.set()

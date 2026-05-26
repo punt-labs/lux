@@ -1,5 +1,11 @@
 # Pharo Display Server: Technical Spikes
 
+> **Status: Not approved alternative concept.**
+> This document explores a different direction centered on Pharo. It is not
+> the canonical Lux architecture, is not an approved plan, and is not under
+> active development. Do not use it to guide implementation. See
+> `docs/architecture/target/target.md` for the current target design.
+
 ## Context
 
 Lux is ~25% done reimplementing a subset of Morphic on top of ImGui with a JSON

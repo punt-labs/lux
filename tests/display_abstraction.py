@@ -25,7 +25,7 @@ Concrete state (from code):
     _scenes        : dict[str, SceneMessage]    (multi-scene, keyed by scene id)
     _scene_order   : list[str]                  (tab ordering)
     _active_tab    : str | None                 (currently selected tab)
-    _event_queue   : list[InteractionMessage]
+    _event_queue   : list[RemoteEventHandlerInvocation]
     _textures      : TextureCache          (no abstract counterpart)
     _socket_path   : Path                  (no abstract counterpart)
 """

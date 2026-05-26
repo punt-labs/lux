@@ -33,7 +33,7 @@ from punt_lux.display.texture_cache import TextureCache
 from punt_lux.protocol import (
     CollapsingHeaderElement,
     GroupElement,
-    InteractionMessage,
+    RemoteEventHandlerInvocation,
     TabBarElement,
     WindowElement,
 )
@@ -135,7 +135,7 @@ class ElementRenderer:
         self._progress_renderer = ProgressRenderer()
         self._spinner_renderer = SpinnerRenderer()
         self._markdown_renderer = MarkdownRenderer()
-        self._button_renderer = ButtonRenderer(emit_event)
+        self._button_renderer = ButtonRenderer()
         self._slider_renderer = SliderRenderer(widget_state, emit_event)
         self._checkbox_renderer = CheckboxRenderer(widget_state, emit_event)
         self._combo_renderer = ComboRenderer(widget_state, emit_event)
@@ -492,7 +492,7 @@ class ElementRenderer:
 
     def _emit_node_click(self, tree_id: str, node_id: str, label: str) -> None:
         self._emit_event(
-            InteractionMessage(
+            RemoteEventHandlerInvocation(
                 element_id=tree_id,
                 action="node_clicked",
                 ts=time.time(),
@@ -591,7 +591,7 @@ class ElementRenderer:
             self._widget_state.set(open_key, self._MODAL_CLOSED)
             self._widget_state.set(dismiss_key, self._MODAL_OPEN)
             self._emit_event(
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id=eid,
                     action="closed",
                     ts=time.time(),

@@ -44,7 +44,6 @@ from punt_lux.protocol import (
     ConnectMessage,
     InputNumberElement,
     InputTextElement,
-    InteractionMessage,
     IntrospectRequest,
     IntrospectResponse,
     ListScenesRequest,
@@ -55,6 +54,7 @@ from punt_lux.protocol import (
     QueryRequest,
     RadioElement,
     RegisterMenuMessage,
+    RemoteEventHandlerInvocation,
     SceneMessage,
     ScreenshotRequest,
     ScreenshotResponse,
@@ -76,6 +76,7 @@ from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.query_dispatcher import QueryDispatcher
 from punt_lux.scene import Frame, SceneManager, WidgetState
 from punt_lux.socket_server import SocketServer
+from punt_lux.tracing import trace
 
 # Element kinds with a per-class renderer in ``display.renderers``.
 # Scenes containing only these kinds route through ``Display.apply``
@@ -127,7 +128,7 @@ class DisplayServer:
     _domain_display: Display
     _domain_client_id: ClientId
     _domain_pump: DomainPump
-    _event_queue: list[InteractionMessage]
+    _event_queue: list[RemoteEventHandlerInvocation]
     _textures: TextureCache
     _table_renderer: TableRenderer
     _widget_state: WidgetState
@@ -453,6 +454,8 @@ class DisplayServer:
 
     def _on_post_init(self) -> None:
         """Called once the OpenGL context is ready."""
+        import signal
+
         from imgui_bundle import hello_imgui, imgui
 
         # Ensure docking is enabled (drag-merge frames into tabs).
@@ -464,6 +467,8 @@ class DisplayServer:
         self._themes = list(hello_imgui.ImGuiTheme_)
         self._socket_server.setup(self._socket_path)
         self._display_paths.write_pid()
+
+        signal.signal(signal.SIGTERM, self._handle_sigterm)
 
         logger.info("Display server listening on %s", self._socket_path)
 
@@ -547,6 +552,11 @@ class DisplayServer:
     def _request_fit_all(self) -> None:
         """Callback for MenuManager: request fit-all layout."""
         self._fit_all_frames = True
+
+    def _handle_sigterm(self, _signum: int, _frame: object) -> None:
+        """SIGTERM handler — remove PID file and exit."""
+        self._display_paths.remove_pid()
+        raise SystemExit(0)
 
     def _on_exit(self) -> None:
         """Called before the window closes."""
@@ -773,18 +783,24 @@ class DisplayServer:
             "available": [str(t) for t in self._themes],
         }
 
-    def _emit_event(self, event: InteractionMessage) -> None:
-        """Stamp scene_id, route domain-eligible events to the pump, and queue.
+    @trace
+    def _emit_event(self, event: RemoteEventHandlerInvocation) -> None:
+        """Stamp scene_id and queue for delivery to the Hub.
 
-        PR 2: wire-side button clicks mirror through ``DomainPump.route_interaction``
-        before joining the queue so the domain Display sees the same user-driven
-        event the wire-side subscribers do.  Non-button interactions (slider,
-        checkbox, …) flow through the queue unchanged until their own
-        Interaction variants ship in later PRs.
+        D21: the display no longer dispatches interactions locally via
+        ``DomainPump.route_interaction``. The ``remote_dispatch``
+        handler on each element sends the ``RemoteEventHandlerInvocation`` to
+        the Hub, where the real handler fires. This method is the
+        socket-send path the ``remote_dispatch`` closure captures.
         """
         if event.scene_id is None:
             event = dataclasses.replace(event, scene_id=self._current_scene_id)
-        self._domain_pump.route_interaction(event)
+        logger.debug(
+            "_emit_event queued element_id=%s action=%s scene_id=%s",
+            event.element_id,
+            event.action,
+            event.scene_id,
+        )
         self._event_queue.append(event)
 
     # -- Tier 3 write handlers ------------------------------------------------
@@ -879,6 +895,7 @@ class DisplayServer:
             fd = sock.fileno()
         except OSError:
             return
+        self._wrap_abc_elements(msg)
         self._scene_manager.handle_scene(msg, fd)
         self._route_to_domain_display(msg)
         ack = AckMessage(scene_id=msg.id, ts=time.time())
@@ -892,12 +909,28 @@ class DisplayServer:
             fd = sock.fileno()
         except OSError:
             return
+        self._wrap_abc_elements(msg)
         self._scene_manager.handle_framed_scene(msg, fd)
         self._route_to_domain_display(msg)
         ack = AckMessage(scene_id=msg.id, ts=time.time())
         self._socket_server.send_to_client(sock, ack)
         if self._test_auto_click:
             self._auto_click_buttons(msg)
+
+    def _wrap_abc_elements(self, msg: SceneMessage) -> None:
+        """Install remote_dispatch handlers on deserialized ABC elements.
+
+        After native deserialization, ABC elements carry their Hub-side
+        handlers. This method replaces them with ``remote_dispatch``
+        wrappers so clicks route back to the Hub instead of executing
+        locally. Must run BEFORE ``_route_to_domain_display`` so the
+        DomainPump sees wrapped elements.
+        """
+        from punt_lux.domain.element_abc import Element as AbcElement
+
+        for elem in msg.elements:
+            if isinstance(elem, AbcElement):
+                elem.wrap_handlers_for_remote(self._emit_event)
 
     def _route_to_domain_display(self, msg: SceneMessage) -> None:
         """Mirror basics-only scenes through Display.apply (PR 1 dual-write)."""
@@ -927,7 +960,7 @@ class DisplayServer:
                 eid: str = getattr(elem, "id", "")
                 action: str = getattr(elem, "action", None) or eid
                 self._emit_event(
-                    InteractionMessage(
+                    RemoteEventHandlerInvocation(
                         element_id=eid,
                         action=action,
                         ts=time.time(),
@@ -937,7 +970,7 @@ class DisplayServer:
             elif isinstance(elem, SliderElement):
                 val: int | float = int(elem.value) if elem.integer else elem.value
                 self._emit_event(
-                    InteractionMessage(
+                    RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
                         ts=time.time(),
@@ -946,7 +979,7 @@ class DisplayServer:
                 )
             elif isinstance(elem, CheckboxElement):
                 self._emit_event(
-                    InteractionMessage(
+                    RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
                         ts=time.time(),
@@ -960,7 +993,7 @@ class DisplayServer:
                     else ""
                 )
                 self._emit_event(
-                    InteractionMessage(
+                    RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
                         ts=time.time(),
@@ -969,7 +1002,7 @@ class DisplayServer:
                 )
             elif isinstance(elem, InputTextElement):
                 self._emit_event(
-                    InteractionMessage(
+                    RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
                         ts=time.time(),
@@ -983,7 +1016,7 @@ class DisplayServer:
                     else ""
                 )
                 self._emit_event(
-                    InteractionMessage(
+                    RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
                         ts=time.time(),
@@ -992,7 +1025,7 @@ class DisplayServer:
                 )
             elif isinstance(elem, ColorPickerElement):
                 self._emit_event(
-                    InteractionMessage(
+                    RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
                         ts=time.time(),
@@ -1001,7 +1034,7 @@ class DisplayServer:
                 )
             elif isinstance(elem, SelectableElement):
                 self._emit_event(
-                    InteractionMessage(
+                    RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="clicked",
                         ts=time.time(),
@@ -1400,7 +1433,7 @@ class DisplayServer:
             self._table_renderer.widget_state = ws
             self._element_renderer.widget_state = ws
         # Bugbot HIGH (PR #187): _emit_event stamps scene_id from
-        # ``self._current_scene_id`` for any InteractionMessage whose scene_id
+        # ``self._current_scene_id`` for any RemoteEventHandlerInvocation whose scene_id
         # is None — without this assignment, clicks inside framed scenes
         # carried whatever ``_render_scene_tab`` last set (stale or None),
         # so ``DomainPump.route_interaction`` silently dropped them.
@@ -1410,6 +1443,7 @@ class DisplayServer:
         for elem in scene.elements:
             self._paint_element(elem)
 
+    @trace
     def _paint_element(self, elem: Element) -> None:
         """Dispatch one element to its renderer (PR-3 ImGui factory or PR-2 path)."""
         if isinstance(elem, TextElement):
@@ -1431,7 +1465,7 @@ class DisplayServer:
         owner_fds = set(frame.owner_fds) if frame is not None else set()
         self._scene_manager.close_frame(frame_id)
         if notify and owner_fds:
-            close_event = InteractionMessage(
+            close_event = RemoteEventHandlerInvocation(
                 element_id=frame_id,
                 action="frame_close",
                 ts=time.time(),

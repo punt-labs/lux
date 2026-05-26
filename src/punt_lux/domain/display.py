@@ -29,7 +29,7 @@ from punt_lux.domain.event import (
     Event,
 )
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import BUTTON_CLICKED_TOKEN, ButtonClicked
+from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.domain.interaction_errors import (
     ElementDismissedError,
     UnauthorizedInteractionError,
@@ -45,7 +45,9 @@ from punt_lux.domain.update import AddElement, RemoveElement, SetProperty, Updat
 
 if TYPE_CHECKING:
     from punt_lux.domain.element import Element
-    from punt_lux.protocol.messages.interaction import InteractionMessage
+    from punt_lux.protocol.messages.remote_invocation import (
+        RemoteEventHandlerInvocation,
+    )
 
 __all__ = ["Display", "EventCallback", "Result"]
 
@@ -73,7 +75,7 @@ class Display:
 
     Interaction discipline:
       ``interact`` is the single domain-validation site for a wire
-      ``InteractionMessage``. It either constructs a typed event (today
+      ``RemoteEventHandlerInvocation``. It either constructs a typed event (today
       only ``ButtonClicked``) via the module-private factory token,
       fires it through the resolved Element's handler registry, and
       returns the event; or it raises a typed ``InteractionError``
@@ -225,7 +227,11 @@ class Display:
 
     # -- interact -----------------------------------------------------------
 
-    def interact(self, client_id: ClientId, msg: InteractionMessage) -> ButtonClicked:
+    def interact(
+        self,
+        client_id: ClientId,
+        msg: RemoteEventHandlerInvocation,
+    ) -> ButtonClicked:
         """Validate the wire message, construct the typed event, fire it.
 
         Callers must pass a wire-shape-valid message: ``msg.action`` is
@@ -245,7 +251,9 @@ class Display:
             raise UnknownClientError(client_id=client_id)
         wire_scene = msg.scene_id
         if wire_scene is None:
-            msg_text = "InteractionMessage.scene_id must be set before interact()"
+            msg_text = (
+                "RemoteEventHandlerInvocation.scene_id must be set before interact()"
+            )
             raise ValueError(msg_text)
         scene_id = SceneId(wire_scene)
         element_id = ElementId(msg.element_id)
@@ -332,7 +340,6 @@ class Display:
             scene_id=scene_id,
             element_id=element_id,
             owner_id=owner_id,
-            _token=BUTTON_CLICKED_TOKEN,
         )
 
     # -- per-Update handlers ------------------------------------------------

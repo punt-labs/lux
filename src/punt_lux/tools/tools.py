@@ -189,6 +189,14 @@ def _index_scene_in_hub(scene_id: str, typed_elements: list[WireElement]) -> Non
                 RemoveElement(scene_id=prior_scene, element_id=prior_element),
             )
     for element in typed_elements:
+        handler_count = len(getattr(element, "_handlers", {}))
+        logger.debug(
+            "hub index element_id=%s kind=%s scene_id=%s handler_count=%d",
+            element.id,
+            element.kind,
+            scene_id,
+            handler_count,
+        )
         hub_display.apply(
             connection_id,
             AddElement(

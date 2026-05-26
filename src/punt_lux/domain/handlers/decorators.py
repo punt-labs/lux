@@ -79,16 +79,59 @@ class PublishDecorator:
 
     def wrap[E: Event](self, inner: Handler[E]) -> Handler[E]:
         """Return a handler that runs ``inner`` then publishes the topics."""
-        sink = self._sink
-        topics = self._topics
+        return cast(
+            "Handler[E]",
+            _PublishWrappedHandler(
+                inner=cast("Handler[Event]", inner),
+                sink=self._sink,
+                topics=self._topics,
+            ),
+        )
 
-        def _wrapped(event: E) -> None:
-            inner(event)
-            payload: Mapping[str, object] = {}
-            for topic in topics:
-                sink(topic, payload)
 
-        return _wrapped
+class _PublishWrappedHandler:
+    """Serializable handler wrapper that runs ``inner`` then publishes topics.
+
+    Replaces the closure returned by ``PublishDecorator.wrap`` so the
+    handler chain survives native serialization across the Hub-to-Display
+    wire.
+    """
+
+    _inner: Handler[Event]
+    _sink: PublishSink
+    _topics: tuple[str, ...]
+
+    def __new__(
+        cls,
+        *,
+        inner: Handler[Event],
+        sink: PublishSink,
+        topics: tuple[str, ...],
+    ) -> Self:
+        self = super().__new__(cls)
+        self._inner = inner
+        self._sink = sink
+        self._topics = topics
+        return self
+
+    def __reduce__(self) -> tuple[object, ...]:
+        """Support native serialization for Hub-to-Display transport."""
+        return (
+            object.__new__,
+            (type(self),),
+            {"_inner": self._inner, "_sink": self._sink, "_topics": self._topics},
+        )
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        """Restore state after native deserialization."""
+        for key, value in state.items():
+            object.__setattr__(self, key, value)
+
+    def __call__(self, event: Event) -> None:
+        self._inner(event)
+        payload: Mapping[str, object] = {}
+        for topic in self._topics:
+            self._sink(topic, payload)
 
 
 class DecoratorRegistry:

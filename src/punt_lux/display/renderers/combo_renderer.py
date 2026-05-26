@@ -10,7 +10,7 @@ from typing import Self
 from imgui_bundle import imgui
 
 from punt_lux.protocol.elements.combo import ComboElement
-from punt_lux.protocol.messages.interaction import InteractionMessage
+from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.scene import WidgetState
 from punt_lux.types import EmitEventFn
 
@@ -62,7 +62,7 @@ class ComboRenderer:
             self._widget_state.set(eid, new_val)
             item_text = items[new_val] if 0 <= new_val < len(items) else ""
             self._emit_event(
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id=eid,
                     action="changed",
                     ts=time.time(),

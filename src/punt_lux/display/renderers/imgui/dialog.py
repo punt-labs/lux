@@ -81,11 +81,7 @@ class ImGuiDialogRenderer:
             self._widget_state.set(open_key, self._OPEN)
             was_open = True
 
-        # Default p_open=None hides the close-X — the dialog dismisses
-        # through the DialogModel via child Button handlers, not through
-        # the popup chrome. The post-popup branch catches any user-driven
-        # close (Esc, click-outside) and syncs both latch and model.
-        visible, _p_open = imgui.begin_popup_modal(popup_id)
+        visible, _p_open = imgui.begin_popup_modal(popup_id, True)  # noqa: FBT003
         if visible:
             for child in self._elem.children:
                 self._render_child(child)

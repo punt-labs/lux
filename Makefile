@@ -1,4 +1,4 @@
-.PHONY: help test test-integration test-e2e snapshot-parity snapshot-record lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling report format build install clean depot fuzz prob prfaq clean-tex font-test
+.PHONY: help test test-integration test-e2e snapshot-parity snapshot-record lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling report format build install clean depot fuzz prob prfaq clean-tex font-test restart reload
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
@@ -68,6 +68,48 @@ build: ## Build wheel and sdist
 
 install: build ## Build and install locally (with display extras)
 	uv tool install --force "$$(ls dist/punt_lux-*.whl)[display]"
+
+LUX_PID_FILE := .tmp/.luxd.pid
+DISPLAY_PID_FILE := .tmp/.lux-display.pid
+LUX_PORT ?= 8430
+
+restart: install ## Install + restart luxd and display (full reload cycle)
+	@mkdir -p .tmp
+	@# Kill old luxd
+	@if [ -f $(LUX_PID_FILE) ]; then \
+		kill $$(cat $(LUX_PID_FILE)) 2>/dev/null || true; \
+		rm -f $(LUX_PID_FILE); \
+	else \
+		pkill -f "luxd.*--port $(LUX_PORT)" 2>/dev/null || true; \
+	fi
+	@# Kill old display
+	@if [ -f $(DISPLAY_PID_FILE) ]; then \
+		kill $$(cat $(DISPLAY_PID_FILE)) 2>/dev/null || true; \
+		rm -f $(DISPLAY_PID_FILE); \
+	else \
+		pkill -f "^Lux$$" 2>/dev/null || true; \
+	fi
+	@sleep 1
+	@# Start luxd (stderr → .tmp/luxd.log for diagnostics; DEBUG for hub dispatch)
+	@PYTHONUNBUFFERED=1 luxd --port $(LUX_PORT) 2>.tmp/luxd.log & echo $$! > $(LUX_PID_FILE)
+	@sleep 1
+	@# Start display
+	@lux display & echo $$! > $(DISPLAY_PID_FILE)
+	@sleep 1
+	@echo "luxd pid=$$(cat $(LUX_PID_FILE)) port=$(LUX_PORT), display pid=$$(cat $(DISPLAY_PID_FILE))"
+
+reload: install ## Install + restart luxd only (display keeps running)
+	@mkdir -p .tmp
+	@if [ -f $(LUX_PID_FILE) ]; then \
+		kill $$(cat $(LUX_PID_FILE)) 2>/dev/null || true; \
+		rm -f $(LUX_PID_FILE); \
+	else \
+		pkill -f "luxd.*--port $(LUX_PORT)" 2>/dev/null || true; \
+	fi
+	@sleep 1
+	@luxd --port $(LUX_PORT) 2>.tmp/luxd.log & echo $$! > $(LUX_PID_FILE)
+	@sleep 1
+	@echo "luxd pid=$$(cat $(LUX_PID_FILE)) port=$(LUX_PORT) log=.tmp/luxd.log"
 
 clean: ## Remove build artifacts
 	rm -rf dist/ .tmp/

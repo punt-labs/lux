@@ -20,7 +20,7 @@ from punt_lux.domain.handlers import (
 )
 from punt_lux.domain.handlers.verb_vocabulary import VerbVocabulary
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import BUTTON_CLICKED_TOKEN, ButtonClicked
+from punt_lux.domain.interaction import ButtonClicked
 
 
 def _make_click() -> ButtonClicked:
@@ -29,7 +29,6 @@ def _make_click() -> ButtonClicked:
         scene_id=SceneId("s1"),
         element_id=ElementId("btn"),
         owner_id=ClientId("test"),
-        _token=BUTTON_CLICKED_TOKEN,
     )
 
 

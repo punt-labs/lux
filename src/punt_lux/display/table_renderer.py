@@ -6,7 +6,12 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any, Self
 
-from punt_lux.protocol import InteractionMessage, TableDetail, TableElement, TableFilter
+from punt_lux.protocol import (
+    RemoteEventHandlerInvocation,
+    TableDetail,
+    TableElement,
+    TableFilter,
+)
 from punt_lux.scene import WidgetState
 
 if TYPE_CHECKING:
@@ -152,7 +157,7 @@ class TableRenderer:
         # Emit row_select event on user-initiated click
         if row_clicked and 0 <= selected_orig < len(rows):
             self._emit_event(
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id=eid,
                     action="row_select",
                     ts=time.time(),

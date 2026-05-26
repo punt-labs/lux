@@ -20,7 +20,7 @@ from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.display_client import agent_element_factory
 from punt_lux.protocol.elements.text import TextElement
-from punt_lux.protocol.messages.interaction import InteractionMessage
+from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.scene.widget_state import WidgetState
 
 
@@ -28,7 +28,7 @@ def _emit(_msg: object) -> None:
     """Display-tier no-op emit (matches DisplayServer wiring)."""
 
 
-def _no_emit_event(_msg: InteractionMessage) -> None:
+def _no_emit_event(_msg: RemoteEventHandlerInvocation) -> None:
     """No-op interaction emit for the test ElementRenderer."""
 
 

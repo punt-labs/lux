@@ -14,11 +14,9 @@ import pytest
 from punt_lux.display.domain_pump import DomainPump
 from punt_lux.domain.display import Display
 from punt_lux.domain.ids import ElementId, SceneId
-from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.protocol import (
     ButtonElement,
     GroupElement,
-    InteractionMessage,
     SceneMessage,
     SeparatorElement,
     SliderElement,
@@ -96,102 +94,14 @@ def test_route_empty_elements_on_fresh_scene_is_safe(pump: DomainPump) -> None:
     assert _scene_snapshot_ids(pump, SceneId("s-new")) == frozenset()
 
 
-# -- route_interaction ----------------------------------------------------
+# -- route_interaction removed by D21 ------------------------------------
+# Display no longer dispatches interactions locally. The remote_dispatch
+# handler on each element sends RemoteEventHandlerInvocations to the Hub, where
+# the real handler fires. Tests for the Hub-side dispatch path live in
+# tests/domain/test_hub_interaction_dispatch.py.
 
 
-def test_route_interaction_forwards_button_click_through_display_interact(
-    pump: DomainPump,
-) -> None:
-    """A wire ``InteractionMessage`` lands on the Element's handler registry."""
-    button = ButtonElement(id="b1", label="OK")
-    pump.route(SceneMessage(id="s1", elements=[button]))
-
-    observed: list[ButtonClicked] = []
-    snap = pump._display.snapshot(SceneId("s1"))
-    stored = snap.element(ElementId("b1"))
-    assert isinstance(stored, ButtonElement)
-    stored.add_handler(ButtonClicked, observed.append)
-
-    msg = InteractionMessage(element_id="b1", action="b1", value=True, scene_id="s1")
-    pump.route_interaction(msg)
-
-    assert len(observed) == 1
-    assert observed[0].element_id == ElementId("b1")
-
-
-def test_route_interaction_drops_non_button_kinds_without_raising(
-    pump: DomainPump,
-) -> None:
-    """Slider / non-button interactions surface as logged failures, not raises."""
-    pump.route(SceneMessage(id="s1", elements=[SliderElement(id="sl1", label="Vol")]))
-    msg = InteractionMessage(
-        element_id="sl1", action="changed", value=42.0, scene_id="s1"
-    )
-    # Should not raise — pump catches InteractionError.
-    pump.route_interaction(msg)
-
-
-def test_route_interaction_logs_on_unknown_scene(
-    pump: DomainPump, caplog: pytest.LogCaptureFixture
-) -> None:
-    """A click on a scene the domain Display doesn't know logs and drops."""
-    msg = InteractionMessage(
-        element_id="b1", action="b1", value=True, scene_id="never-seen"
-    )
-    with caplog.at_level("WARNING", logger="punt_lux.display.domain_pump"):
-        pump.route_interaction(msg)
-    messages = [r.getMessage() for r in caplog.records]
-    assert any("never-seen" in m for m in messages), messages
-
-
-def test_route_interaction_logs_on_unknown_element_in_known_scene(
-    pump: DomainPump, caplog: pytest.LogCaptureFixture
-) -> None:
-    """SFH M1: unknown element in a tracked scene is a divergence signal."""
-    pump.route(SceneMessage(id="s1", elements=[ButtonElement(id="b1", label="OK")]))
-    msg = InteractionMessage(
-        element_id="ghost", action="ghost", value=True, scene_id="s1"
-    )
-    with caplog.at_level("WARNING", logger="punt_lux.display.domain_pump"):
-        pump.route_interaction(msg)
-    messages = [r.getMessage() for r in caplog.records]
-    assert any("ghost" in m for m in messages), messages
-
-
-def test_route_interaction_skips_menu_action_without_log(
-    pump: DomainPump, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Menu emissions are wire-chrome, not element-targeted — dropped silently."""
-    pump.route(SceneMessage(id="s1", elements=[ButtonElement(id="b1", label="OK")]))
-    menu_msg = InteractionMessage(
-        element_id="menu.file.open",
-        action="menu",
-        value={"menu": "File", "item": "Open"},
-        scene_id="s1",
-    )
-    with caplog.at_level("WARNING", logger="punt_lux.display.domain_pump"):
-        pump.route_interaction(menu_msg)
-    assert caplog.records == [], (
-        f"menu action must not log; got {[r.getMessage() for r in caplog.records]}"
-    )
-
-
-def test_route_interaction_skips_frame_close_action_without_log(
-    pump: DomainPump, caplog: pytest.LogCaptureFixture
-) -> None:
-    """Frame-close events are display-chrome, not element-targeted."""
-    pump.route(SceneMessage(id="s1", elements=[ButtonElement(id="b1", label="OK")]))
-    msg = InteractionMessage(element_id="frame-1", action="frame_close", scene_id="s1")
-    with caplog.at_level("WARNING", logger="punt_lux.display.domain_pump"):
-        pump.route_interaction(msg)
-    assert caplog.records == []
-
-
-def test_route_interaction_skips_message_without_scene_id(pump: DomainPump) -> None:
-    """An InteractionMessage with no scene_id is dropped before Display.interact."""
-    msg = InteractionMessage(element_id="b1", action="b1", value=True, scene_id=None)
-    # No exception, no log assertions — wire-shape triage owns this case.
-    pump.route_interaction(msg)
+# frame_close and no-scene-id tests also removed with route_interaction.
 
 
 def test_route_multiple_anonymous_separators(

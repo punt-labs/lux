@@ -111,8 +111,18 @@ class JsonDialogDecoder:
             if kind != "button":
                 msg = f"dialog 'children[{i}]' must have kind='button', got {kind!r}"
                 raise ValueError(msg)
+            child_map = self._canonicalize_button_sugar(child_map)
             decoded.append(button_decoder.decode(child_map))
         return tuple(decoded)
+
+    @staticmethod
+    def _canonicalize_button_sugar(
+        raw: Mapping[str, object],
+    ) -> Mapping[str, object]:
+        """Promote top-level ``click`` and ``publish`` sugar on a child button."""
+        from punt_lux.protocol.element_factory import JsonElementFactory
+
+        return JsonElementFactory.canonicalize_button_sugar(raw)
 
     def _build_button_decoder(self, model: DialogModel) -> JsonButtonDecoder:
         """Build a per-dialog Button decoder bound to ``model``'s verbs."""

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import pickle
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal, cast
@@ -69,12 +71,25 @@ def _parse_frame_size(raw: object) -> tuple[int, int] | None:
 
 
 def _scene_to_dict(msg: SceneMessage) -> dict[str, Any]:
+    from punt_lux.domain.element_abc import Element as AbcElement
+
+    elements: list[dict[str, Any]] = []
+    for e in msg.elements:
+        if isinstance(e, AbcElement):
+            # Native serialization: ABC elements cross the Hub-to-Display
+            # wire as serialized Python objects, preserving the full
+            # element tree including handler registrations.
+            elements.append(
+                {"_pickled": base64.b64encode(pickle.dumps(e)).decode("ascii")}
+            )
+        else:
+            elements.append(_element_to_dict(e))
     d: dict[str, Any] = {
         "type": msg.type,
         "id": msg.id,
         "layout": msg.layout,
         "title": msg.title,
-        "elements": [_element_to_dict(e) for e in msg.elements],
+        "elements": elements,
         "frame_id": msg.frame_id,
         "frame_title": msg.frame_title,
         "frame_size": list(msg.frame_size) if msg.frame_size else None,
@@ -102,7 +117,17 @@ def _scene_from_dict(d: dict[str, Any]) -> SceneMessage:
     # default: a tier that forgets to install gets a ``RuntimeError``
     # naming the fix instead of silently dispatching with the wrong DI.
     recurse = _layout.from_dict_dispatcher()
-    elements = [recurse(e) for e in d.get("elements", [])]
+
+    def _decode_element(e: dict[str, Any]) -> Element:
+        if "_pickled" in e:
+            # Native deserialization: ABC elements arrive as serialized
+            # Python objects from the Hub. Trusted IPC boundary — Hub
+            # and Display are co-deployed processes.
+            encoded = cast("str", e["_pickled"])
+            return cast("Element", pickle.loads(base64.b64decode(encoded)))
+        return cast("Element", recurse(e))
+
+    elements = [_decode_element(e) for e in d.get("elements", [])]
     raw_frame_size = d.get("frame_size")
     frame_size = _parse_frame_size(raw_frame_size) if raw_frame_size else None
     raw_flags = d.get("frame_flags")

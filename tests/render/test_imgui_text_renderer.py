@@ -26,7 +26,7 @@ from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.protocol.elements.text import TextElement
-from punt_lux.protocol.messages.interaction import InteractionMessage
+from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.scene.widget_state import WidgetState
 
 
@@ -34,7 +34,7 @@ def _emit(_msg: object) -> None:
     """No-op Display-tier emit (matches the production wiring)."""
 
 
-def _no_emit_event(_msg: InteractionMessage) -> None:
+def _no_emit_event(_msg: RemoteEventHandlerInvocation) -> None:
     """No-op interaction emit (matches the production wiring for the test stub)."""
 
 

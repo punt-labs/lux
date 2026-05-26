@@ -1,6 +1,15 @@
 # Lux Design Decision Log
 
-This file is the authoritative record of design decisions, prior approaches, and their outcomes. **Every design change must be logged here before implementation.**
+> **Status:** historical decision log and rationale record. It is not the
+> canonical architecture source. For architecture intent, start with
+> `docs/architecture/target/target.md` for the rewrite target,
+> `docs/architecture/system.tex` for the prior/current system view, and
+> `docs/standards/python-oo.md` for implementation rules. Some entries below
+> reference documents that have been removed from the working tree; use git
+> history if you need them.
+
+This file records design decisions, prior approaches, and their outcomes. Use
+it as background and rationale, not as the primary architecture guide.
 
 ## Rules
 
@@ -2117,7 +2126,7 @@ the renderer to finish a frame.
 
 This separation is currently incomplete: the display and hub share one
 process and the socket poll runs inside the ImGui frame loop. The
-three-process split (DES-022 / `docs/architecture/x11-model.md`) makes
+three-process split (DES-022 / `docs/architecture/target/topology.md`) makes
 the rate decoupling physical.
 
 ### Typed patches per element kind
@@ -2196,7 +2205,7 @@ the question doesn't get relitigated.
 ### Decision
 
 Lux pursues the domain model across all three tiers, as specified in
-`docs/architecture/domain-model.md`. Live Elements with identity and
+`docs/architecture/target/ui-model.md`. Live Elements with identity and
 ownership. Updates as five typed semantic primitives. Events emitted on
 every state change. A `Display` class that holds Scenes and Clients,
 applies Updates, validates invariants, emits Events. The same domain
@@ -2218,7 +2227,7 @@ tree via `snapshot()`, assert on element identities and ownership,
 verify event emission order, and exercise failure paths — all in one
 process, without ImGui, without sockets. A collection of render
 functions does not give us that. The single-runtime test from
-`domain-model.md` §"Testability" is the discriminating example:
+`docs/architecture/target/ui-model.md` §"Testability" is the discriminating example:
 
 ```python
 display = Display()
@@ -2328,7 +2337,7 @@ Half-measure.
 ### What this is not
 
 This ADR does not specify implementation order — that is the migration
-plan's job. It does not redefine the wire protocol — `domain-model.md`
+plan's job. It does not redefine the wire protocol — `docs/architecture/target/ui-model.md`
 already specifies that. It does not commit to a single test framework
 — the test pyramid in the migration plan does that.
 
@@ -2353,9 +2362,9 @@ review.
 - DES-030 (three-layer type model): orthogonal — DES-030 is about
   *data shape* at each layer; DES-031 is about *behavior and
   invariants* across the tiers.
-- `docs/architecture/domain-model.md`: the algebra this decision
+- `docs/architecture/target/ui-model.md`: the algebra this decision
   commits to realizing.
-- `docs/architecture/x11-model.md`: the topology this decision
+- `docs/architecture/target/topology.md`: the topology this decision
   preserves; the codec at the IPC boundary is the only structural
   difference between the tiers.
 - `docs/oo-refactor/migration-plan.md`: the executable path to
@@ -2366,7 +2375,7 @@ review.
 **Date:** 2026-05-23
 **Status:** ACCEPTED
 **Decided by:** the operator
-**Companion doc:** `docs/architecture/io-model.md`
+**Companion doc:** `docs/architecture/archive/io-model.md`
 
 ### Problem
 
@@ -2528,12 +2537,12 @@ outside the tree" failure mode.
   connection-layer cleanup.
 - This ADR does not change the Element vocabulary, the Update sum
   type, the Event sum type, or any other domain-layer specification
-  established in DES-031 and `domain-model.md`.
+  established in DES-031 and `docs/architecture/target/ui-model.md`.
 
 ### Authority
 
 The decision is the operator's, reached through design discussion in
-the post-PR-2 session that produced `docs/architecture/io-model.md`.
+the post-PR-2 session that produced `docs/architecture/archive/io-model.md`.
 The reasoning that PR 1 and PR 2 over-applied PY-OO-5 is the
 operator's. This ADR records the correction so the question — *should
 codec live on the Element class?* — does not get reopened and so the
@@ -2556,7 +2565,7 @@ migration of codec off the class proceeds with explicit authority.
   this proves to need teeth beyond convention.
 - DES-033 (Renderer and Decoder families): the next ADR, which
   specifies the I/O architecture this one commits to.
-- `docs/architecture/io-model.md`: the long-form architecture
+- `docs/architecture/archive/io-model.md`: the long-form architecture
   document this ADR is the decision of.
 
 ## DES-033: Renderer and Decoder Families with Asymmetric Cardinality
@@ -2564,7 +2573,7 @@ migration of codec off the class proceeds with explicit authority.
 **Date:** 2026-05-23
 **Status:** ACCEPTED
 **Decided by:** the operator
-**Companion doc:** `docs/architecture/io-model.md`
+**Companion doc:** `docs/architecture/archive/io-model.md`
 
 ### Problem
 
@@ -2583,7 +2592,7 @@ Three design questions need explicit resolution:
    Display, or many?
 
 The first two were converged in the io-model design discussion
-([`io-model.md`](docs/architecture/io-model.md)). The third is
+([`docs/architecture/archive/io-model.md`](docs/architecture/archive/io-model.md)). The third is
 asymmetric in a way that affects the application wiring.
 
 ### Decision
@@ -2780,7 +2789,7 @@ level for no benefit.
 ### Authority
 
 The decision is the operator's, reached through design discussion in
-the post-PR-2 session that produced `docs/architecture/io-model.md`.
+the post-PR-2 session that produced `docs/architecture/archive/io-model.md`.
 The asymmetric-cardinality observation is the operator's. This ADR
 records the architecture so that the question — *how do we plug in
 multiple surfaces and multiple wire formats?* — has a single
@@ -2795,10 +2804,10 @@ answer to point at and so that the implementation is bounded.
 - DES-030 (three-layer type model): wire layer is now produced by
   Decoder families and consumed by Encoder families if added; the
   type shape is unchanged.
-- `docs/architecture/io-model.md`: the long-form architecture
+- `docs/architecture/archive/io-model.md`: the long-form architecture
   document this ADR is the decision of. ADR records the decision;
   io-model.md records the design in detail.
-- `docs/architecture/x11-model.md`: when PR 13 of the migration
+- `docs/architecture/target/topology.md`: when PR 13 of the migration
   plan splits `lux-display` into its own process, the cross-process
   IPC is one specific Decoder family (whichever format the hub
   serializes Updates and Events into) on each side of the boundary.
@@ -2808,7 +2817,7 @@ answer to point at and so that the implementation is bounded.
 **Date:** 2026-05-23
 **Status:** ACCEPTED
 **Decided by:** the operator
-**Companion doc:** `docs/architecture/io-model.md`
+**Companion doc:** `docs/architecture/archive/io-model.md`
 
 ### Problem
 
@@ -2975,9 +2984,9 @@ agent who reads the io-model and reaches for the wrong synthesis.
   Renderer is per-kind-per-surface; Encoder is per-kind-per-format;
   both are dispatched by per-tier registries (`Renderers` and
   `Encoders`).
-- `docs/architecture/io-model.md` §"Where rendering happens" — the
+- `docs/architecture/archive/io-model.md` §"Where rendering happens" — the
   long-form spec.
-- `docs/architecture/x11-model.md` — the topology this ADR's IPC
+- `docs/architecture/target/topology.md` — the topology this ADR's IPC
   carries across.
 
 ## DES-035: Handler Routing — Ownership, Client Kind, and Pattern Are Three Independent Axes
@@ -2985,7 +2994,7 @@ agent who reads the io-model and reaches for the wrong synthesis.
 **Date:** 2026-05-23
 **Status:** ACCEPTED
 **Decided by:** the operator
-**Companion doc:** `docs/architecture/io-model.md`
+**Companion doc:** `docs/architecture/archive/io-model.md`
 
 ### Problem
 
@@ -3160,7 +3169,7 @@ to one-axis routing rules.
 - DES-034: this ADR's routing concerns operate on InteractionMessages
   which are one of the message kinds the Decoder/Encoder families
   handle.
-- `docs/architecture/io-model.md` §"Handler routing — three
+- `docs/architecture/archive/io-model.md` §"Handler routing — three
   independent axes" — the long-form spec.
 
 ## DES-036: Observer Pattern at the MCP Boundary
@@ -3168,7 +3177,7 @@ to one-axis routing rules.
 **Date:** 2026-05-23
 **Status:** ACCEPTED
 **Decided by:** the operator
-**Companion doc:** `docs/architecture/io-model.md`
+**Companion doc:** `docs/architecture/archive/io-model.md`
 
 ### Problem
 
@@ -3369,7 +3378,7 @@ in-process pub/sub for an external bus is a future change.
 ### Authority
 
 The decision is the operator's, reached through design discussion in
-the post-PR-2 session that produced `docs/architecture/io-model.md`.
+the post-PR-2 session that produced `docs/architecture/archive/io-model.md`.
 The operator named the Observer pattern explicitly as the right
 shape; this ADR records the decision so the choice doesn't get
 re-proposed as polling or as point-to-point.
@@ -3401,7 +3410,7 @@ re-proposed as polling or as point-to-point.
   used by handlers in any of DES-035's three handler patterns —
   deterministic handlers can publish; agent-escalation handlers can
   both subscribe and publish.
-- `docs/architecture/io-model.md` §"Agent observers — MCP boundary" —
+- `docs/architecture/archive/io-model.md` §"Agent observers — MCP boundary" —
   the long-form spec.
 - `docs/oo-refactor/migration-plan.md` PR 11 — the migration PR that
   introduces this subsystem.

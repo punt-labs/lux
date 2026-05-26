@@ -4,15 +4,15 @@
 from __future__ import annotations
 
 import logging
-import time
 from typing import Self
 
 from imgui_bundle import imgui
 
 from punt_lux.display.renderers._arrow import ArrowDirections
+from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.protocol.elements.button import ButtonElement
-from punt_lux.protocol.messages.interaction import InteractionMessage
-from punt_lux.types import EmitEventFn
+from punt_lux.tracing import trace
 
 __all__ = ["ButtonRenderer"]
 
@@ -20,29 +20,35 @@ _log = logging.getLogger(__name__)
 
 
 class ButtonRenderer:
-    """Render a ButtonElement, handling arrow / small / disabled variants."""
+    """Render a ButtonElement, handling arrow / small / disabled variants.
 
-    _emit_event: EmitEventFn
+    On click, fires ``ButtonClicked`` through the element's handler
+    registry. On the display side, handlers are wrapped by
+    ``remote_dispatch`` (installed by the display-side factory) which
+    sends a ``RemoteEventHandlerInvocation`` to the Hub over the socket
+    instead of executing the real handler body. On the Hub side, the
+    same handlers run unwrapped.
+    """
+
     _arrows: ArrowDirections
 
-    def __new__(cls, emit_event: EmitEventFn) -> Self:
+    def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._emit_event = emit_event
         self._arrows = ArrowDirections()
         return self
 
+    @trace
     def render(self, elem: ButtonElement) -> None:
-        action = elem.action or elem.id
         if elem.disabled:
             imgui.begin_disabled()
         clicked = self._click_button(elem)
         if clicked:
-            self._emit_event(
-                InteractionMessage(
-                    element_id=elem.id,
-                    action=action,
-                    ts=time.time(),
-                    value=True,
+            _log.debug("button fire element_id=%s", elem.id)
+            elem.fire(
+                ButtonClicked(
+                    scene_id=SceneId("__display__"),
+                    element_id=ElementId(elem.id),
+                    owner_id=ClientId("__display__"),
                 )
             )
         if elem.disabled:

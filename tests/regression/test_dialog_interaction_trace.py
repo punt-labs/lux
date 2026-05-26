@@ -1,6 +1,6 @@
 """End-to-end interaction-trace parity gate for the Dialog Confirm click.
 
-This test pins the full causal chain: a wire ``InteractionMessage``
+This test pins the full causal chain: a wire ``RemoteEventHandlerInvocation``
 for the Confirm child of a ``DialogElement`` flows through
 ``Display.interact`` into a typed ``ButtonClicked``, into the catalog
 handler the wire decoder installed, into ``DialogModel.confirm`` which
@@ -36,8 +36,8 @@ from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.elements import build_element_codec
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder
-from punt_lux.protocol.messages.interaction import InteractionMessage
 from punt_lux.protocol.messages.observer import ObserverMessage
+from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.protocol.renderers import RaisingRendererFactory
 
 if TYPE_CHECKING:
@@ -267,7 +267,7 @@ def test_confirm_click_traces_end_to_end_through_every_tier() -> None:
     # The agent installs the panel as the scene root and the dialog as
     # its child. The Display layer tracks element ownership for the
     # ``Display.interact`` gate; child buttons are installed alongside
-    # so the wire ``InteractionMessage`` resolves to a known element.
+    # so the wire ``RemoteEventHandlerInvocation`` resolves to a known element.
     # AbcElement subclasses satisfy the wire ``Element`` Protocol
     # structurally (id, kind, tooltip, to_dict, from_dict); the cast
     # tells mypy what the runtime check already knows.
@@ -316,8 +316,8 @@ def test_confirm_click_traces_end_to_end_through_every_tier() -> None:
     assert pre_children[0] is dialog
     assert hub_display.resolve(_SCENE, _DIALOG_ID) is dialog
 
-    # --- The act: a wire InteractionMessage for the Confirm click ----------
-    click = InteractionMessage(
+    # --- The act: a wire RemoteEventHandlerInvocation for the Confirm click ----------
+    click = RemoteEventHandlerInvocation(
         element_id=str(_OK_BUTTON_ID),
         action="click",
         scene_id=str(_SCENE),
@@ -447,7 +447,7 @@ def test_confirm_click_traces_through_module_level_element_from_dict(
         AddElement(scene_id=_SCENE, element=_as_wire(dialog), parent_id=None),
     )
 
-    click = InteractionMessage(
+    click = RemoteEventHandlerInvocation(
         element_id=str(_OK_BUTTON_ID),
         action="click",
         scene_id=str(_SCENE),

@@ -22,7 +22,6 @@ from punt_lux.protocol import (
     ImageElement,
     InputNumberElement,
     InputTextElement,
-    InteractionMessage,
     IntrospectRequest,
     IntrospectResponse,
     ListScenesRequest,
@@ -41,6 +40,7 @@ from punt_lux.protocol import (
     RadioElement,
     ReadyMessage,
     RegisterMenuMessage,
+    RemoteEventHandlerInvocation,
     SceneMessage,
     ScreenshotRequest,
     ScreenshotResponse,
@@ -454,7 +454,7 @@ class TestMessages:
         assert msg.error == "bad scene"
 
     def test_interaction_message(self):
-        msg = InteractionMessage(element_id="b1", action="click", value=42)
+        msg = RemoteEventHandlerInvocation(element_id="b1", action="click", value=42)
         assert msg.value == 42
 
     def test_pong_message(self):
@@ -707,10 +707,10 @@ class TestSerialization:
                 id="AckMessage",
             ),
             pytest.param(
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id="b1", action="click", value=42, scene_id="s1"
                 ),
-                id="InteractionMessage",
+                id="RemoteEventHandlerInvocation",
             ),
             pytest.param(PongMessage(ts=1.0, display_ts=2.0), id="PongMessage"),
             pytest.param(
@@ -780,13 +780,24 @@ class TestSerialization:
         e = ButtonElement(id="b1", label="X", disabled=True)
         scene = SceneMessage(id="s1", elements=[e])
         d = message_to_dict(scene)
-        assert d["elements"][0]["disabled"] is True
+        # ABC elements use native serialization — roundtrip preserves fields
+        assert "_pickled" in d["elements"][0]
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        btn = restored.elements[0]
+        assert isinstance(btn, ButtonElement)
+        assert btn.disabled is True
 
     def test_button_disabled_false_excluded(self):
         e = ButtonElement(id="b1", label="X", disabled=False)
         scene = SceneMessage(id="s1", elements=[e])
         d = message_to_dict(scene)
-        assert "disabled" not in d["elements"][0]
+        # ABC elements use native serialization — roundtrip preserves fields
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        btn = restored.elements[0]
+        assert isinstance(btn, ButtonElement)
+        assert btn.disabled is False
 
     def test_slider_roundtrip(self):
         e = SliderElement(id="sl1", label="Vol", value=50.0, min=0.0, max=100.0)
@@ -1272,16 +1283,23 @@ class TestSerialization:
         e = TextElement(id="t1", content="hover me", tooltip="help")
         scene = SceneMessage(id="s1", elements=[e])
         d = message_to_dict(scene)
-        assert d["elements"][0]["tooltip"] == "help"
+        # ABC elements use native serialization — roundtrip preserves fields
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
-        assert restored.elements[0].tooltip == "help"
+        txt = restored.elements[0]
+        assert isinstance(txt, TextElement)
+        assert txt.tooltip == "help"
 
     def test_tooltip_excluded_when_none(self):
         e = TextElement(id="t1", content="no tip")
         scene = SceneMessage(id="s1", elements=[e])
         d = message_to_dict(scene)
-        assert "tooltip" not in d["elements"][0]
+        # ABC elements use native serialization — roundtrip preserves fields
+        restored = message_from_dict(d)
+        assert isinstance(restored, SceneMessage)
+        txt = restored.elements[0]
+        assert isinstance(txt, TextElement)
+        assert txt.tooltip is None
 
     def test_collapsing_header_default_open_excluded_when_false(self):
         e = CollapsingHeaderElement(id="ch1", label="Section")
@@ -1943,7 +1961,7 @@ class TestMessageRegistry:
             "query_response",
             "ready",
             "ack",
-            "interaction",
+            "remote_invocation",
             "observer",
             "pong",
             "unknown",

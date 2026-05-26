@@ -20,8 +20,8 @@ from punt_lux.protocol import (
     ButtonElement,
     ClearMessage,
     FrameReader,
-    InteractionMessage,
     Patch,
+    RemoteEventHandlerInvocation,
     SceneMessage,
     SeparatorElement,
     TextElement,
@@ -143,7 +143,9 @@ class TestRefinementReceiveScene:
         sock = _mock_sock()
         _set_scene(server, "s1")
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="b1", ts=1.0, value=True)
+            RemoteEventHandlerInvocation(
+                element_id="b1", action="b1", ts=1.0, value=True
+            )
         )
 
         abs_before = abstract(server)
@@ -239,7 +241,7 @@ class TestRefinementClearScene:
         sock = _mock_sock()
         _set_scene(server)
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="b1", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="b1", action="b1", ts=1.0)
         )
         abs_before = abstract(server)
 
@@ -375,7 +377,7 @@ class TestRefinementFlushEvents:
         _register_client(server, sock)
         _set_scene(server)
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="click", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
         )
         abs_before = abstract(server)
 
@@ -402,8 +404,8 @@ class TestRefinementFlushEvents:
         _set_scene(server)
         server._event_queue.extend(
             [
-                InteractionMessage(element_id="b1", action="click", ts=1.0),
-                InteractionMessage(element_id="b1", action="click", ts=2.0),
+                RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0),
+                RemoteEventHandlerInvocation(element_id="b1", action="click", ts=2.0),
             ]
         )
         abs_before = abstract(server)
@@ -430,7 +432,7 @@ class TestRefinementShutdown:
         _register_client(server, sock2)
         _set_scene(server)
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="click", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
         )
         abs_before = abstract(server)
 
@@ -611,7 +613,7 @@ class TestRefinementComposed:
 
         # Add event and flush
         server._event_queue.append(
-            InteractionMessage(element_id="b1", action="click", ts=1.0)
+            RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
         )
         abs_state = abstract_button_click(abs_state, "b1")
 

@@ -10,7 +10,7 @@ from imgui_bundle import ImVec4, imgui
 
 from punt_lux.display.renderers._color import parse_rgba
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
-from punt_lux.protocol.messages.interaction import InteractionMessage
+from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.scene import WidgetState
 from punt_lux.types import EmitEventFn
 
@@ -47,7 +47,7 @@ class ColorPickerRenderer:
             self._widget_state.set(eid, new_color)
             hex_val = self._encode(new_color, alpha=elem.alpha)
             self._emit_event(
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id=eid,
                     action="changed",
                     ts=time.time(),

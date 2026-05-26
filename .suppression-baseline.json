@@ -1,11 +1,11 @@
 {
-  "total": 114,
+  "total": 122,
   "by_category": {
     "noqa": 38,
-    "type_ignore": 8,
+    "type_ignore": 9,
     "pylint_disable": 2,
     "pyright_ignore": 11,
-    "per_file_ignores": 55
+    "per_file_ignores": 62
   },
   "by_file": {
     "src/punt_lux/__main__.py": {
@@ -19,9 +19,6 @@
       "noqa": 1,
       "type_ignore": 1
     },
-    "src/punt_lux/display/domain_pump.py": {
-      "noqa": 1
-    },
     "src/punt_lux/display/element_renderer.py": {
       "noqa": 2
     },
@@ -32,10 +29,16 @@
     "src/punt_lux/display/menu_manager.py": {
       "noqa": 13
     },
+    "src/punt_lux/display/renderers/imgui/dialog.py": {
+      "noqa": 1
+    },
     "src/punt_lux/display/server.py": {
       "noqa": 2,
       "type_ignore": 2,
       "pyright_ignore": 1
+    },
+    "src/punt_lux/domain/hub/clients.py": {
+      "type_ignore": 1
     },
     "src/punt_lux/domain/hub/hub_display.py": {
       "noqa": 1
@@ -82,5 +85,5 @@
       "type_ignore": 1
     }
   },
-  "updated_at": "2026-05-25T03:10:31Z"
+  "updated_at": "2026-05-25T20:24:03Z"
 }

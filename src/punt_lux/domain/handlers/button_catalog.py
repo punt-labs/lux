@@ -17,15 +17,52 @@ Two factories ship in PR 4:
 ``ButtonHandlers`` is a namespace, not an instantiable class — every
 member is a ``@staticmethod`` whose return type is the typed handler
 the ABC expects.
+
+Handler factories return callable class instances (not closures) so the
+resulting handlers survive native serialization — required for the
+Hub-to-Display transport path where element trees cross the wire as
+serialized Python objects.
 """
 
 from __future__ import annotations
+
+from typing import Self
 
 from punt_lux.domain.event_protocol import Handler
 from punt_lux.domain.handlers.verb_vocabulary import BoundVerb
 from punt_lux.domain.interaction import ButtonClicked
 
 __all__ = ["ButtonHandlers"]
+
+
+class _NoopHandler:
+    """Serializable no-op handler for ``ButtonClicked``."""
+
+    def __call__(self, _event: ButtonClicked) -> None:
+        return None
+
+
+class _CallModelHandler:
+    """Serializable handler that invokes a ``BoundVerb`` on click."""
+
+    _verb: BoundVerb
+
+    def __new__(cls, *, verb: BoundVerb) -> Self:
+        self = super().__new__(cls)
+        self._verb = verb
+        return self
+
+    def __reduce__(self) -> tuple[object, ...]:
+        """Support native serialization for Hub-to-Display transport."""
+        return (object.__new__, (type(self),), {"_verb": self._verb})
+
+    def __setstate__(self, state: dict[str, object]) -> None:
+        """Restore state after native deserialization."""
+        for key, value in state.items():
+            object.__setattr__(self, key, value)
+
+    def __call__(self, _event: ButtonClicked) -> None:
+        self._verb.invoke()
 
 
 class ButtonHandlers:
@@ -39,11 +76,7 @@ class ButtonHandlers:
         decorator side effects (publish, log, etc.). A button that
         publishes a topic and does nothing else wraps ``noop()``.
         """
-
-        def _handler(_event: ButtonClicked) -> None:
-            return None
-
-        return _handler
+        return _NoopHandler()
 
     @staticmethod
     def call_model(verb: BoundVerb) -> Handler[ButtonClicked]:
@@ -51,11 +84,7 @@ class ButtonHandlers:
 
         The parent component's decoder resolves the wire verb string
         against the model's vocabulary and passes the resulting
-        ``BoundVerb`` in. The handler closure captures the binding; the
+        ``BoundVerb`` in. The handler captures the binding; the
         event itself carries no model reference.
         """
-
-        def _handler(_event: ButtonClicked) -> None:
-            verb.invoke()
-
-        return _handler
+        return _CallModelHandler(verb=verb)

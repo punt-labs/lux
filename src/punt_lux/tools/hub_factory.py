@@ -56,6 +56,10 @@ class HubPublishSink:
         """Publish ``payload`` to ``topic`` in the bound connection's scope."""
         hub.publish(self._connection_id, Topic(topic), payload)
 
+    def __reduce__(self) -> tuple[object, ...]:
+        """Support native serialization for Hub-to-Display transport."""
+        return (HubPublishSink, (self._connection_id,))
+
 
 def _no_op_emit(_msg: object) -> None:
     """Sentinel emit channel for Hub-side decode — Null Object."""

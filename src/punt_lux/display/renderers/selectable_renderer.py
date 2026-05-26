@@ -9,7 +9,7 @@ from typing import Self
 from imgui_bundle import imgui
 
 from punt_lux.protocol.elements.selectable import SelectableElement
-from punt_lux.protocol.messages.interaction import InteractionMessage
+from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.scene import WidgetState
 from punt_lux.types import EmitEventFn
 
@@ -44,7 +44,7 @@ class SelectableRenderer:
         if clicked:
             self._widget_state.set(eid, new_val)
             self._emit_event(
-                InteractionMessage(
+                RemoteEventHandlerInvocation(
                     element_id=eid,
                     action="clicked",
                     ts=time.time(),

@@ -15,7 +15,6 @@ site, keeping ``_ACTIONS`` private to the model.
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, Self, runtime_checkable
 
@@ -45,13 +44,15 @@ class VerbVocabulary(Protocol):
 class BoundVerb:
     """A verb name resolved against a model's vocabulary.
 
-    Carries the bound callable plus the original verb for diagnostics.
+    Carries the model reference plus the original verb string.
     Constructed by ``resolve_against`` so callers cannot forge an
-    unbound verb.
+    unbound verb. Stores ``model`` and ``verb`` directly (not a
+    closure) so the binding survives native serialization across
+    the Hub-to-Display wire.
     """
 
     _verb: str
-    _bound: Callable[[], None]
+    _model: VerbVocabulary
 
     @classmethod
     def resolve_against(cls, model: VerbVocabulary, verb: str) -> Self:
@@ -60,7 +61,7 @@ class BoundVerb:
         if verb not in known:
             msg = f"unknown verb: {verb!r} (expected one of {sorted(known)})"
             raise ValueError(msg)
-        return cls(_verb=verb, _bound=lambda: model.invoke(verb))
+        return cls(_verb=verb, _model=model)
 
     @property
     def verb(self) -> str:
@@ -69,4 +70,4 @@ class BoundVerb:
 
     def invoke(self) -> None:
         """Invoke the bound model method."""
-        self._bound()
+        self._model.invoke(self._verb)

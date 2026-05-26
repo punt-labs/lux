@@ -18,11 +18,93 @@ Lux is a **visual output surface for Claude Code**. Vox gives agents a voice; Lu
 - **MCP server**: via `mcp-proxy` → `luxd` WebSocket
 - **Python**: 3.13+, managed with `uv`
 
+## Read This First
+
+**This codebase is being rewritten toward a new architecture.** The repo
+contains a mix of:
+
+- current implementation
+- migration scaffolding
+- target-state architecture docs
+- historical and alternative concept docs
+
+Do not infer the intended architecture from whichever file you opened first.
+
+- **Canonical design target:** `docs/architecture/target/target.md`
+- **Docs map / conflict triage:** `docs/README.md`
+- **Coding standard:** `docs/standards/python-oo.md`
+- **Current/intermediate architecture:** `docs/architecture/system.tex`
+- **Rule for conflicts:** if a document disagrees with
+  `docs/architecture/target/target.md`, treat that target doc as the source of
+  truth for design intent.
+
+For implementation work, distinguish carefully between:
+
+- **current behavior** — what the code and tests do today
+- **target architecture** — what the rewrite is converging toward
+
+Do not re-entrench legacy structure just because it is present in the tree.
+When making design decisions, align new work with
+`docs/architecture/target/target.md`. When writing Python, follow
+`docs/standards/python-oo.md`.
+
 ## Architecture
 
-### How rendering works
+### Rewrite status
 
-An agent calls an MCP tool (e.g., `show_table()`, `show_dashboard()`). The MCP server (`server.py`) builds a JSON element tree describing the scene and sends it to `luxd` over WebSocket. `luxd` stores the scene and pushes it to `lux-display` over Unix socket IPC. The ImGui renderer draws the scene every frame at 60fps. This is immediate mode "cached" — the agent sends state once, the display re-renders each frame without further communication. Filters, search, and row selection run entirely in the display process with zero MCP round-trips.
+The repository is mid-migration from an older display-server-centered design to
+the newer Hub/Display architecture. Some modules already reflect the new model;
+others are transitional or legacy. Agents must keep that distinction explicit.
+
+- The **target architecture** is documented in `docs/architecture/target/`.
+- The **current implementation** still contains older single-process and
+  transitional paths.
+- The purpose of new work is generally to move the codebase toward the target,
+  not to treat every current implementation detail as architecturally blessed.
+
+### Target rendering model
+
+The paragraphs below describe the architecture the rewrite is converging on.
+They are not a claim that every module already implements this cleanly today.
+
+Lux has multiple front doors into the Hub, especially MCP tools and direct
+client APIs. Clients submit UI to the Hub, the Hub installs authoritative UI
+objects into `HubDisplay`, and the Hub executes the real handlers. The Hub may
+host long-lived headless app UIs as well as ad hoc agent-produced UIs.
+
+App-level business logic flows through the Hub-managed publish/subscribe
+channel, which is separate from the UI observer mechanism. A Hub-side handler
+or a timer may publish app-defined topics such as `openTicket`,
+`closeTicket`, or `markTicketInProgress`.
+
+The Display receives a full copy of the UI it is rendering. It wraps handlers
+for remote dispatch so interactions route back to the owning Hub instead of
+executing locally. The default replication model is whole-UI resend on change:
+if a rendered UI changes, the Hub can resend the whole affected UI and the
+Display replaces its copy.
+
+UI state crosses the Hub/Display boundary; render calls do not. Scene trees,
+updates, serialized Lux element objects, and remote interaction messages may
+cross the wire. ImGui calls and other renderer operations stay local to the
+Display.
+
+### Two-tier handler dispatch (D21)
+
+The Hub says: "I am sending you a copy of a UI. If anyone interacts with it, I
+will do the work." The Display says: "I will render that copy and forward
+interactions back to the Hub." When the Hub sends a new scene, the Display
+forgets the old one completely and repeats the cycle.
+
+One event type (`ButtonClicked`), same element state on both tiers:
+
+- **Hub:** `elem.fire(ButtonClicked)` → real handler runs (call_model → DialogModel, publish → Hub.publish)
+- **Display:** `elem.fire(ButtonClicked)` → wrapped handler sends `RemoteEventHandlerInvocation` to Hub → Hub resolves element → fires real handler on its copy
+
+The Hub and Display are separate processes, potentially on separate machines.
+The MCP tool or client API talks to the Hub, not to the Display. The Hub
+manages Display communication.
+
+When a handler mutates Hub-side state (e.g., dialog dismissed via `mark_removed`), the Hub re-pushes the full scene tree to the Display. ImGui handles the diff — it renders whatever the current scene tree is.
 
 ### Key architectural boundary: protocol vs. rendering
 
@@ -32,11 +114,19 @@ This separation means: protocol bugs break agents. Rendering bugs break the disp
 
 ### Three-tier distributed architecture
 
-- **`lux-display`** — ImGui renderer. Receives JSON scene via Unix socket, renders every frame. Native dependencies (`imgui-bundle`, `numpy`, `Pillow`) live here behind the `[display]` optional extra.
-- **`luxd`** — WebSocket session hub. Multiplexes MCP sessions, routes scene updates to the display, stores persistent state (scenes, menus, themes, client registrations).
+- **`lux-display`** — ImGui renderer. Receives element objects from the Hub, wraps handlers with `remote_dispatch`, renders every frame. Native dependencies (`imgui-bundle`, `numpy`, `Pillow`) live here behind the `[display]` optional extra.
+- **`luxd`** — Session hub. Decodes wire elements, stores authoritative state in HubDisplay, pushes element copies to the display, receives and dispatches remote handler invocations from display clicks.
 - **`mcp-proxy`** — Transport bridge. Claude Code stdio ↔ luxd WebSocket. See `../mcp-proxy/`.
 
-This is a proposal (`docs/architecture-x11-model.md`). The current implementation has the display and hub in one process. The three-tier split is the target architecture for v1 completion.
+This is the rewrite target, documented in
+`docs/architecture/target/target.md`,
+`docs/architecture/target/topology.md`, and
+`docs/architecture/target/ui-model.md`. The current implementation still
+contains older single-process structure and migration scaffolding.
+
+The code-backed sliver that already demonstrates this target is narrower than
+the full system: `HubDisplay`, Hub-scoped pub-sub, and the ABC button/dialog
+path with remote handler wrapping and Hub-side re-dispatch.
 
 ### Key packages and modules
 
@@ -59,7 +149,9 @@ This is a proposal (`docs/architecture-x11-model.md`). The current implementatio
 
 24 element kinds covering ImGui's core primitives. Primary consumers: beads issue browser (`show_table()`), dashboards (`show_dashboard()`), architecture diagrams (`show_diagram()`).
 
-See `docs/architecture/system.tex` for the comprehensive technical architecture; `docs/architecture/domain-model.md` for the OO north star.
+Start with `docs/architecture/target/target.md`. Use
+`docs/architecture/target/ui-model.md` for the authoritative UI model and
+`docs/architecture/target/topology.md` for the target process model.
 
 ### Vision
 
@@ -68,6 +160,19 @@ See `docs/architecture/system.tex` for the comprehensive technical architecture;
 **v2 (future):** A Pharo-inspired live environment where MCP is the message bus and Lux is the Morphic rendering layer. Agent introspects and reshapes UI at runtime. System browser, inspector, workspace.
 
 **Guiding constraint:** do not add v2 features in v1. Hone the data-display core. Every element kind must justify itself by current agent usage, not by v2 composability.
+
+## Logging
+
+Two separate log files — luxd and the display are separate processes with separate log destinations:
+
+| Process | Log file | Level |
+|---------|----------|-------|
+| luxd (Hub) | `~/.punt-labs/lux/logs/luxd-stderr.log` | Configured by launchd |
+| lux-display | `/tmp/lux-jfreeman/display.sock.log` | INFO (set in `__main__.py`) |
+
+When debugging display-side behavior (rendering, click dispatch, handler wrapping), read the display log. When debugging Hub-side behavior (MCP tools, HubDisplay, publish), read the luxd log.
+
+DEBUG-level logs do not appear by default. To see them, change the level in `__main__.py:100` or add WARNING-level logs. Do not add ad-hoc debug prints — use the logger at the appropriate level.
 
 ## Code Quality
 
@@ -95,7 +200,7 @@ Default Python — procedural functions operating on dataclasses, `| None` every
 
 **Protocol codec functions** — every `protocol/elements/*.py` and `protocol/messages/*.py` module still uses module-level `_<kind>_to_dict` / `_<kind>_from_dict` functions instead of methods on the dataclasses. Phase A (PRs #169, #170, #172) split the file but DID NOT fix the procedural codec pattern — same OO debt now spread across 11 family modules instead of 2. The draw-command surface (PR #176) is the one corner that fixed it. When you touch any of those files, fix the codec while you're there; do not file a follow-up bead.
 
-**MCP tool boilerplate** — 29 MCP tools in `tools/tools.py` (registered via `tools/server.py` and exposed by `tools/connection.py`) with identical boilerplate. This signals a missing abstraction. Extract the pattern into a decorator or registry — see `docs/architecture/introspection-api.md` for the proposed `QueryRequest` / `QueryResponse` envelope.
+**MCP tool boilerplate** — 29 MCP tools in `tools/tools.py` (registered via `tools/server.py` and exposed by `tools/connection.py`) with identical boilerplate. This signals a missing abstraction. Extract the pattern into a decorator or registry — see `docs/architecture/target/introspection-api.md` for the target verification/control surface.
 
 **OO ratchet:** `make check-oo` (part of `make check`) compares current OO scores against `.oo-baseline.json`. It passes only if no metric regressed on touched files and at least one metric improved. It fails if any metric got worse or nothing improved.
 
@@ -195,26 +300,36 @@ Execute after every agent delegation that produces sizeable code changes. Do not
 
 1. **Delegate** to the right ethos specialist (see pairing table above). Do not use bare `Agent()` for implementation work.
 2. **`make check`** — must pass before proceeding. Zero exceptions.
-3. **`make install`** — builds wheel and installs it locally. `make check` passing is not installation. **After installing, restart `luxd`** — the running hub loads code at startup and will serve the old version until restarted. Tests that exercise MCP tools or the display pipeline are testing the old code if the hub is stale. Restart with `lux ensure-hub --restart` (if registered as a service) or kill and relaunch manually.
+3. **`make restart`** — builds, installs, and restarts BOTH luxd AND the display. This is the ONLY correct way to pick up code changes. `launchctl kickstart` restarts luxd but leaves the display running stale code — the display is a separate process (PID visible in `make restart` output). `lux ensure-hub --restart` also only restarts luxd. Never use either for code iteration; always `make restart`.
 4. **`make test`** against the installed artifact — not from source. If no test covers the changed code, write one before marking this step complete.
-5. **Exercise manually** — before running, write expected output for each case. After running, compare actual to expected; differences are bugs. Cover: one invalid or malformed input, one case where a dependency is unavailable or returns an error, one boundary condition. Paste the actual output.
-6. **`/feature-dev:code-reviewer`** on the mission diff.
-7. **`/pr-review-toolkit:silent-failure-hunter`** on the mission diff.
-8. **Fix every finding.** To dismiss one: document (a) the exact finding, (b) the specific reason it does not apply, (c) the code reference. "Pre-existing", "by design", "intentional", and "expected" are not reasons.
-9. **Re-run both agents.** Exit the fix loop on the first round that produces no findings.
-10. **Commit.**
+5. **Exercise via introspection + operator confirmation** — write expected output BEFORE running. Drive the feature through its real entry point (MCP tool, CLI command, button click in the lux window). Capture what the running system did via the introspection APIs (`inspect_scene`, `list_scenes`, `list_recent_events`, `list_errors`, `screenshot`, `list_menus`, `list_clients`, `get_display_info`). Compare actual to expected. **Ask the operator to confirm.** Cover one invalid input, one missing-dependency case, one boundary condition. Synthetic tests that exercise a dispatcher in-process do not substitute for running the feature. **Exception: docs-only changes (CLAUDE.md, ADRs, READMEs) have no entry point to run; markdownlint pass + read-through is the verification.**
+6. **Local review** — run the applicable agents, 2–6 by scope.
+
+   | Agent | When |
+   |---|---|
+   | `pr-review-toolkit:code-reviewer` | Always |
+   | `pr-review-toolkit:silent-failure-hunter` | Always |
+   | `pr-review-toolkit:type-design-analyzer` | New type, dataclass, or Protocol introduced |
+   | `pr-review-toolkit:comment-analyzer` | Significant documentation/comment changes |
+   | `pr-review-toolkit:pr-test-analyzer` | Changes that add or restructure tests |
+   | `pr-review-toolkit:code-simplifier` | After the others are clean — catches unused abstraction / dead code |
+
+   Trivial fix (≤1 file, no new types): 2. Single-feature change: 3–4. Cross-cutting refactor: 5–6.
+7. **Fix every finding.** To dismiss one: document (a) the exact finding, (b) the specific reason it does not apply, (c) the code reference. "Pre-existing", "by design", "intentional", and "expected" are not reasons.
+8. **Re-run agents.** Exit the fix loop on the first round that produces no findings on any selected agent.
+9. **Commit.**
 
 ### Outer loop — one PR (one rollback-coherent unit)
 
 After all missions for the feature complete and each has passed its inner loop:
 
 1. **`make check`** on the full accumulated diff.
-2. **Both local review agents** on the complete diff — cross-mission issues only appear at this level.
+2. **All applicable local review agents** on the complete diff (2–6 by scope — same table as Inner-loop step 6) — cross-mission issues only appear at this level.
 3. **Fix all findings** using the same documentation standard.
 4. **Human IDE review** of the full diff — the only human review in the process. Resolve all findings before proceeding.
-5. **`make install`** then restart `luxd` (`lux ensure-hub --restart`), then run the complete user-facing workflow end-to-end, including at least one path through a dependency. Paste actual output and verify the changed code was exercised.
+5. **`make restart`** (builds, installs, restarts both luxd and display), then run the complete user-facing workflow end-to-end through its real entry point. Capture system state via the lux introspection APIs (`inspect_scene`, `list_recent_events`, `list_errors`, `screenshot`, etc.) and **ask the operator to confirm** the observed behavior matches the expected outcome written down before running. Verify the changed code was exercised — not just the surrounding scaffolding.
 6. **Re-run agents** until clean.
-7. **Open PR.** A PR opened before step 6 is clean is a procedural violation.
+7. **Open PR.** A PR opened before step 6 is clean is a procedural violation. The PR description includes the manual-verification playbook: commands run + introspection captures + operator-confirmation outcome.
 
 ### PR boundaries
 
@@ -230,12 +345,18 @@ Release scripts: `scripts/release-plugin.sh` (swap `lux-dev` → `lux`), `script
 
 ## Key Documents
 
+- `docs/architecture/target/target.md` — **start here**; canonical design target for the rewrite
+- `docs/README.md` — docs map and conflict triage
+- `docs/standards/python-oo.md` — mandatory OO implementation standard and ratchet policy
 - `DESIGN.md` — ADR log. Read before proposing changes to settled architecture.
-- `prfaq.tex` → `prfaq.pdf` — product direction
-- `docs/architecture/system.tex` → `docs/architecture/system.pdf` — current system architecture
-- `docs/architecture/x11-model.md` — three-tier architecture: X11 analogy, update/refresh rate separation
-- `docs/architecture/luxd-impl.md` — luxd hub implementation spec
-- `docs/oo-refactor/dynamic-access-design.md` — three-layer type model (wire / scene graph / snapshot)
+- `docs/architecture/target/topology.md` — process topology target
+- `docs/architecture/target/ui-model.md` — authoritative UI model target
+- `docs/architecture/target/introspection-api.md` — introspection and control surface
+- `docs/architecture/system.tex` → `docs/architecture/system.pdf` — current/intermediate architecture
+
+Do **not** use `docs/concepts/*` to guide implementation. Those are
+alternative concepts, not approved plans, and not under active
+development.
 
 <!-- quarry:begin -->
 ## Quarry

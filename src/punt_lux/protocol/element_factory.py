@@ -16,6 +16,8 @@ directive bans.
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Self
 
@@ -30,6 +32,7 @@ from punt_lux.protocol.elements.text_codec import JsonTextDecoder
 from punt_lux.protocol.standalone_button_handler import (
     build_standalone_button_handler_decoder,
 )
+from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -40,6 +43,7 @@ if TYPE_CHECKING:
 
 __all__ = ["JsonElementFactory"]
 
+_log = logging.getLogger(__name__)
 
 _ABC_KINDS = frozenset({"text", "button", "dialog"})
 
@@ -64,6 +68,7 @@ class JsonElementFactory:
     _emit: Emit
     _sink: PublishSink
     _codec: ElementCodec
+    _display_send: Callable[[Any], None] | None
     _text_decoder: JsonTextDecoder
     _button_decoder: JsonButtonDecoder
     _dialog_decoder: JsonDialogDecoder
@@ -75,12 +80,14 @@ class JsonElementFactory:
         emit: Emit,
         publish_sink: PublishSink,
         codec: ElementCodec,
+        display_send: Callable[[Any], None] | None = None,
     ) -> Self:
         self = super().__new__(cls)
         self._rf = renderer_factory
         self._emit = emit
         self._sink = publish_sink
         self._codec = codec
+        self._display_send = display_send
         self._text_decoder = JsonTextDecoder(
             renderer_factory=renderer_factory,
             emit=emit,
@@ -100,17 +107,63 @@ class JsonElementFactory:
         )
         return self
 
+    @trace
     def decode(self, raw: Mapping[str, object]) -> AbcElement:
         """Dispatch by ``raw["kind"]`` to the per-kind ABC decoder."""
         kind = raw.get("kind")
         if kind == "text":
             return self._text_decoder.decode(raw)
         if kind == "button":
-            return self._button_decoder.decode(raw)
+            raw = self.canonicalize_button_sugar(raw)
+            btn = self._button_decoder.decode(raw)
+            if self._display_send is not None:
+                btn.wrap_handlers_for_remote(self._display_send)
+            return btn
         if kind == "dialog":
-            return self._dialog_decoder.decode(raw)
+            dlg = self._dialog_decoder.decode(raw)
+            if self._display_send is not None:
+                dlg.wrap_handlers_for_remote(self._display_send)
+            return dlg
         msg = f"JsonElementFactory has no decoder for kind={kind!r}"
         raise ValueError(msg)
+
+    @staticmethod
+    def canonicalize_button_sugar(
+        raw: Mapping[str, object],
+    ) -> Mapping[str, object]:
+        """Promote top-level ``click`` and ``publish`` sugar to ``handlers``.
+
+        Wire sugar examples:
+          ``{"click": "confirm", "publish": ["topic"]}``
+          ``{"publish": ["topic"]}``  (no click verb → noop factory)
+          ``{"click": "cancel"}``     (no publish → no decorator)
+
+        If the raw dict already has a ``handlers`` key, returns unchanged.
+        """
+        click = raw.get("click")
+        publish = raw.get("publish")
+        if click is None and publish is None:
+            return raw
+        if "handlers" in raw:
+            return raw
+        factory = "call_model" if click else "noop"
+        params: dict[str, object] = {}
+        if click:
+            params["verb"] = click
+        wrap: list[dict[str, object]] = []
+        if publish:
+            wrap.append({"decorator": "publish", "topics": publish})
+        handler_spec: dict[str, object] = {
+            "event": "click",
+            "factory": factory,
+            **params,
+            "wrap": wrap,
+        }
+        merged = dict(raw)
+        merged["handlers"] = [handler_spec]
+        merged.pop("click", None)
+        merged.pop("publish", None)
+        return merged
 
     def element_from_dict(self, d: dict[str, Any]) -> Any:
         """Deserialize a wire dict to the appropriate Element class.
