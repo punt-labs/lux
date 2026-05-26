@@ -148,18 +148,27 @@ class ClientRegistry:
                 type(element).__name__,
             )
             return
-        handler_count = element.handler_count(ButtonClicked)
         logger.debug(
-            "hub dispatch element=%s ButtonClicked_handlers=%d all_handlers=%s",
+            "hub dispatch element=%s all_handlers=%s",
             element_id,
-            handler_count,
             element.handler_summary(),
         )
-        event = ButtonClicked(
-            scene_id=SceneId(scene_id),
-            element_id=ElementId(element_id),
-            owner_id=ClientId(str(owner)),
-        )
+        event_kind = msg.event_kind
+        if event_kind == "value_changed":
+            from punt_lux.domain.interaction import ValueChanged  # noqa: PLC0415
+
+            event = ValueChanged(
+                scene_id=SceneId(scene_id),
+                element_id=ElementId(element_id),
+                owner_id=ClientId(str(owner)),
+                value=msg.value,
+            )
+        else:
+            event = ButtonClicked(
+                scene_id=SceneId(scene_id),
+                element_id=ElementId(element_id),
+                owner_id=ClientId(str(owner)),
+            )
         logger.debug(
             "hub dispatch firing element_id=%s scene_id=%s",
             element_id,
