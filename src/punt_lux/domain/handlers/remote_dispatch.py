@@ -33,20 +33,24 @@ type SendFn = Callable[[RemoteEventHandlerInvocation], None]
 
 
 def remote_dispatch(
+    inner: Callable[[ButtonClicked], None],
     send: SendFn,
     element_id: str,
     action: str,
 ) -> Callable[[ButtonClicked], None]:
-    """Return a handler that wraps a ``ButtonClicked`` dispatch.
+    """Wrap ``inner`` so it routes to the Hub instead of executing.
 
-    The returned callable accepts a ``ButtonClicked`` event and sends
-    an ``RemoteEventHandlerInvocation`` over the socket instead of
-    executing catalog logic locally. The Hub receives the message,
-    resolves the element from ``HubDisplay``, and fires the real
-    (unwrapped) handler.
+    The returned callable has the same interface as ``inner`` but
+    sends a ``RemoteEventHandlerInvocation`` over the socket instead
+    of calling ``inner``. The Hub receives the message, resolves the
+    element from ``HubDisplay``, and fires the real (unwrapped)
+    handler on its copy.
 
     Parameters
     ----------
+    inner:
+        The real handler being wrapped. Captured but never called
+        on the Display side — execution happens on the Hub.
     send:
         The Display's socket-write callable.
     element_id:

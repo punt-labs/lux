@@ -101,11 +101,10 @@ class ClientRegistry:
         """Route display-side clicks through Hub-side element dispatch.
 
         D21: the display wraps every handler in ``remote_dispatch``,
-        which sends an ``RemoteEventHandlerInvocation`` to the Hub. This method
-        receives that message, resolves the element from ``HubDisplay``,
-        constructs a ``ButtonClicked`` with the factory token, and
-        fires the Hub-side handlers (which have real
-        ``HubPublishSink``).
+        which sends a ``RemoteEventHandlerInvocation`` to the Hub.
+        This method receives that message, resolves the element from
+        ``HubDisplay``, constructs a ``ButtonClicked``, and fires
+        the Hub-side handlers (which have real ``HubPublishSink``).
         """
         from punt_lux.domain.element_abc import Element as ElementABC
         from punt_lux.domain.hub import hub_display
