@@ -199,13 +199,12 @@ class Element(ABC):
         self,
         send_fn: Callable[[RemoteEventHandlerInvocation], None],
     ) -> None:
-        """Replace all ButtonClicked handlers with remote_dispatch wrappers.
+        """Replace each ButtonClicked handler with a remote_dispatch wrapper.
 
-        Recurses into children via ``_children()``. Every ``ButtonElement``
-        in the subtree gets a single ``remote_dispatch`` handler regardless
-        of how many handlers the Hub side installed — the Display only
-        needs to send the invocation message, not replay the full handler
-        chain.
+        Recurses into children via ``_children()``. Each handler on a
+        ``ButtonElement`` is individually wrapped so the Display sends one
+        ``RemoteEventHandlerInvocation`` per handler per click. The Hub
+        replays the full handler chain on its authoritative copy.
         """
         from punt_lux.domain.handlers.remote_dispatch import remote_dispatch
         from punt_lux.domain.interaction import ButtonClicked

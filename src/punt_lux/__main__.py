@@ -98,7 +98,15 @@ def display(
     import os
 
     raw_level = os.environ.get("LUX_LOG_LEVEL", "INFO").upper()
-    log_level = getattr(logging, raw_level, logging.INFO)
+    log_level = getattr(logging, raw_level, None)
+    if log_level is None:
+        import sys
+
+        print(
+            f"WARNING: LUX_LOG_LEVEL={raw_level!r} is not valid, defaulting to INFO",
+            file=sys.stderr,
+        )
+        log_level = logging.INFO
     logging.basicConfig(
         filename=str(log_path),
         level=log_level,

@@ -554,8 +554,8 @@ class DisplayServer:
         self._fit_all_frames = True
 
     def _handle_sigterm(self, _signum: int, _frame: object) -> None:
-        """SIGTERM handler — clean up PID file and exit."""
-        self._on_exit()
+        """SIGTERM handler — remove PID file and exit."""
+        self._display_paths.remove_pid()
         raise SystemExit(0)
 
     def _on_exit(self) -> None:
