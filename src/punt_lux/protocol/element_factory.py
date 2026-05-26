@@ -32,6 +32,9 @@ from punt_lux.protocol.elements.text_codec import JsonTextDecoder
 from punt_lux.protocol.standalone_button_handler import (
     build_standalone_button_handler_decoder,
 )
+from punt_lux.protocol.standalone_checkbox_handler import (
+    build_standalone_checkbox_handler_decoder,
+)
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
@@ -99,6 +102,7 @@ class JsonElementFactory:
             renderer_factory=renderer_factory,
             emit=emit,
             element_cls=CheckboxElement,
+            handler_decoder=build_standalone_checkbox_handler_decoder(publish_sink),
         )
         self._dialog_decoder = JsonDialogDecoder(
             renderer_factory=renderer_factory,

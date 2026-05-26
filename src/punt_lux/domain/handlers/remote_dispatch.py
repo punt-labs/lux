@@ -109,7 +109,7 @@ class RemoteDispatchGroup:
                 type(event).__name__,
                 self._element_id,
             )
-            value = True
+            return
 
         _log.debug(
             "remote_dispatch sending element_id=%s action=%s "

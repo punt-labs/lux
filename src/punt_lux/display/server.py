@@ -1512,6 +1512,7 @@ class DisplayServer:
                 {
                     "element_id": event.element_id,
                     "action": event.action,
+                    "event_kind": event.event_kind,
                     "value": event.value,
                     "timestamp": event.ts if event.ts is not None else time.time(),
                 }

@@ -148,10 +148,20 @@ class CheckboxElement(Element):
     @classmethod
     def from_dict(cls, d: Mapping[str, object]) -> Self:
         """Construct a CheckboxElement from a JSON-decoded mapping."""
+        from punt_lux.protocol.raising_publish_sink import (  # noqa: PLC0415
+            RaisingPublishSink,
+        )
+        from punt_lux.protocol.standalone_checkbox_handler import (  # noqa: PLC0415
+            build_standalone_checkbox_handler_decoder,
+        )
+
         decoder = JsonCheckboxDecoder(
             renderer_factory=_RAISING_FACTORY,
             emit=_no_emit,
             element_cls=cls,
+            handler_decoder=build_standalone_checkbox_handler_decoder(
+                RaisingPublishSink("CheckboxElement.from_dict"),  # type: ignore[arg-type]  # structural Protocol match
+            ),
         )
         return cast("Self", decoder.decode(d))
 

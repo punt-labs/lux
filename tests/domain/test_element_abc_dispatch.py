@@ -382,12 +382,19 @@ def test_checkbox_handler_survives_serialization_roundtrip() -> None:
     import pickle
 
     from punt_lux.protocol.elements.checkbox_codec import JsonCheckboxDecoder
+    from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
     from punt_lux.protocol.renderers import RaisingRendererFactory
+    from punt_lux.protocol.standalone_checkbox_handler import (
+        build_standalone_checkbox_handler_decoder,
+    )
 
     decoder = JsonCheckboxDecoder(
         renderer_factory=RaisingRendererFactory(),
         emit=_emit,
         element_cls=CheckboxElement,
+        handler_decoder=build_standalone_checkbox_handler_decoder(
+            RaisingPublishSink("test"),  # type: ignore[arg-type]  # structural Protocol match
+        ),
     )
     elem = decoder.decode({"kind": "checkbox", "id": "cb1", "label": "Test"})
     assert elem.handler_count(ValueChanged) == 1
