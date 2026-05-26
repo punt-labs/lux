@@ -1096,6 +1096,59 @@ class TestBackgroundListener:
 
             shutil.rmtree(short_dir, ignore_errors=True)
 
+    def test_checkbox_changed_callback_receives_value_changed_event(self) -> None:
+        """Checkbox events route to ``(element_id, "changed")`` callbacks."""
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+        received: list[RemoteEventHandlerInvocation] = []
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+            assert server_conn is not None
+            time.sleep(0.1)
+            send_message(
+                server_conn,
+                RemoteEventHandlerInvocation(
+                    element_id="cb1",
+                    action="changed",
+                    event_kind="value_changed",
+                    ts=time.time(),
+                    value=True,
+                ),
+            )
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        ready_event.wait(timeout=5)
+
+        try:
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            client.on_event("cb1", "changed", lambda msg: received.append(msg))
+            client.connect()
+            client.start_listener()
+
+            deadline = time.monotonic() + 2.0
+            while not received and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert len(received) == 1
+            assert received[0].element_id == "cb1"
+            assert received[0].action == "changed"
+            assert received[0].event_kind == "value_changed"
+            assert received[0].value is True
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
     def test_hello_world_menu_callback(self) -> None:
         """E2E proof: menu click → callback → show_async opens a frame.
 

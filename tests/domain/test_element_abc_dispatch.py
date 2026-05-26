@@ -20,9 +20,10 @@ from typing import Self
 
 from punt_lux.domain.element_abc import Element
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.protocol import RemoteEventHandlerInvocation
 from punt_lux.protocol.elements.button import ButtonElement
+from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.renderers import RaisingRendererFactory
 
 
@@ -277,3 +278,141 @@ def test_wrap_handlers_for_remote_is_idempotent_for_button_bucket() -> None:
 
     assert button.handler_count(ButtonClicked) == 2
     assert len(sent) == 1
+
+
+def test_value_changed_construction() -> None:
+    event = ValueChanged(
+        scene_id=SceneId("s"),
+        element_id=ElementId("e"),
+        owner_id=ClientId("c"),
+        value=True,
+    )
+    assert event.scene_id == SceneId("s")
+    assert event.element_id == ElementId("e")
+    assert event.owner_id == ClientId("c")
+    assert event.value is True
+    assert event.kind == "value_changed"
+
+
+def test_value_changed_is_frozen() -> None:
+    import pytest
+
+    event = ValueChanged(
+        scene_id=SceneId("s"),
+        element_id=ElementId("e"),
+        owner_id=ClientId("c"),
+        value=False,
+    )
+    with pytest.raises(AttributeError):
+        event.value = True  # type: ignore[misc]
+
+
+def test_checkbox_set_value_rejects_non_bool() -> None:
+    import pytest
+
+    cb = CheckboxElement(id="cb", label="Test")
+    with pytest.raises(TypeError, match="value must be bool"):
+        cb.apply_patch({"value": "not a bool"})
+
+
+def test_checkbox_set_value_accepts_bool() -> None:
+    cb = CheckboxElement(id="cb", label="Test", value=False)
+    cb.apply_patch({"value": True})
+    assert cb.value is True
+
+
+def test_wrap_handlers_for_remote_groups_checkbox_value_changed_handlers() -> None:
+    checkbox = CheckboxElement(id="toggle", label="Toggle")
+    local_runs: list[str] = []
+    sent: list[RemoteEventHandlerInvocation] = []
+
+    def _first(_event: ValueChanged) -> None:
+        local_runs.append("first")
+
+    def _second(_event: ValueChanged) -> None:
+        local_runs.append("second")
+
+    checkbox.add_handler(ValueChanged, _first)
+    checkbox.add_handler(ValueChanged, _second)
+
+    checkbox.wrap_handlers_for_remote(sent.append)
+
+    assert checkbox.handler_count(ValueChanged) == 2
+
+    checkbox.fire(
+        ValueChanged(
+            scene_id=SceneId("scene"),
+            element_id=ElementId("toggle"),
+            owner_id=ClientId("display"),
+            value=True,
+        )
+    )
+
+    assert local_runs == []
+    assert len(sent) == 1
+    assert sent[0].element_id == "toggle"
+    assert sent[0].event_kind == "value_changed"
+    assert sent[0].value is True
+
+
+def test_wrap_handlers_for_remote_is_idempotent_for_checkbox_bucket() -> None:
+    checkbox = CheckboxElement(id="toggle", label="Toggle")
+    sent: list[RemoteEventHandlerInvocation] = []
+    checkbox.add_handler(ValueChanged, lambda _event: None)
+    checkbox.add_handler(ValueChanged, lambda _event: None)
+
+    checkbox.wrap_handlers_for_remote(sent.append)
+    checkbox.wrap_handlers_for_remote(sent.append)
+
+    checkbox.fire(
+        ValueChanged(
+            scene_id=SceneId("scene"),
+            element_id=ElementId("toggle"),
+            owner_id=ClientId("display"),
+            value=False,
+        )
+    )
+
+    assert checkbox.handler_count(ValueChanged) == 2
+    assert len(sent) == 1
+
+
+def test_checkbox_handler_survives_serialization_roundtrip() -> None:
+    """_UpdateValueHandler survives native serialization."""
+    import pickle
+
+    from punt_lux.protocol.elements.checkbox_codec import JsonCheckboxDecoder
+    from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
+    from punt_lux.protocol.renderers import RaisingRendererFactory
+    from punt_lux.protocol.standalone_checkbox_handler import (
+        build_standalone_checkbox_handler_decoder,
+    )
+
+    decoder = JsonCheckboxDecoder(
+        renderer_factory=RaisingRendererFactory(),
+        emit=_emit,
+        element_cls=CheckboxElement,
+        handler_decoder=build_standalone_checkbox_handler_decoder(
+            RaisingPublishSink("test"),  # type: ignore[arg-type]  # structural Protocol match
+        ),
+    )
+    elem = decoder.decode({"kind": "checkbox", "id": "cb1", "label": "Test"})
+    assert elem.handler_count(ValueChanged) == 1
+
+    data = pickle.dumps(elem)
+    restored = pickle.loads(data)  # noqa: S301 — trusted test data
+    assert restored.handler_count(ValueChanged) == 1
+
+    sent: list[RemoteEventHandlerInvocation] = []
+    restored.wrap_handlers_for_remote(sent.append)
+    restored.fire(
+        ValueChanged(
+            scene_id=SceneId("s"),
+            element_id=ElementId("cb1"),
+            owner_id=ClientId("d"),
+            value=True,
+        )
+    )
+    assert len(sent) == 1
+    assert sent[0].event_kind == "value_changed"
+    assert sent[0].value is True

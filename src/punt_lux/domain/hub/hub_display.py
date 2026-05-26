@@ -49,6 +49,7 @@ from punt_lux.domain.hub.ownership_error import HubOwnershipError
 from punt_lux.domain.hub.root_registry import RootRegistry
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
+from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -135,6 +136,7 @@ class HubDisplay:
         """Return every ``(scene, element)`` pair this connection installed."""
         return self._owners.keys_for(connection_id)
 
+    @trace
     def replace_scene(
         self,
         connection_id: ConnectionId,

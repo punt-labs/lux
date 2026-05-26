@@ -62,6 +62,7 @@ from punt_lux.protocol import (
 from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.elements import build_element_codec, layout as _element_layout
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
     from punt_lux.protocol import Element, Message, Patch
@@ -488,6 +489,7 @@ class DisplayClient:
             raise RuntimeError(msg)
         return self._sock
 
+    @trace
     def _send(self, msg: Message) -> None:
         """Send a message, holding the lock when the listener is active."""
         sock = self._require_connected()

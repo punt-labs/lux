@@ -1,8 +1,8 @@
 {
-  "total": 122,
+  "total": 127,
   "by_category": {
-    "noqa": 38,
-    "type_ignore": 9,
+    "noqa": 42,
+    "type_ignore": 10,
     "pylint_disable": 2,
     "pyright_ignore": 11,
     "per_file_ignores": 62
@@ -37,6 +37,9 @@
       "type_ignore": 2,
       "pyright_ignore": 1
     },
+    "src/punt_lux/domain/handlers/remote_dispatch.py": {
+      "noqa": 1
+    },
     "src/punt_lux/domain/hub/clients.py": {
       "type_ignore": 1
     },
@@ -44,11 +47,15 @@
       "noqa": 1
     },
     "src/punt_lux/luxd.py": {
-      "noqa": 1,
+      "noqa": 2,
       "type_ignore": 1
     },
     "src/punt_lux/paths.py": {
       "noqa": 2
+    },
+    "src/punt_lux/protocol/elements/checkbox.py": {
+      "noqa": 2,
+      "type_ignore": 1
     },
     "src/punt_lux/protocol/elements/layout.py": {
       "type_ignore": 1
@@ -85,5 +92,5 @@
       "type_ignore": 1
     }
   },
-  "updated_at": "2026-05-25T20:24:03Z"
+  "updated_at": "2026-05-26T22:06:16Z"
 }

@@ -966,6 +966,7 @@ class DisplayServer:
                     RemoteEventHandlerInvocation(
                         element_id=eid,
                         action=action,
+                        event_kind="button_clicked",
                         ts=time.time(),
                         value=True,
                     )
@@ -984,9 +985,10 @@ class DisplayServer:
                 self._emit_event(
                     RemoteEventHandlerInvocation(
                         element_id=elem.id,
-                        action="changed",
+                        action=elem.action,
+                        event_kind="value_changed",
                         ts=time.time(),
-                        value=elem.value,
+                        value=not elem.value,
                     )
                 )
             elif isinstance(elem, ComboElement):
@@ -1510,11 +1512,13 @@ class DisplayServer:
                 {
                     "element_id": event.element_id,
                     "action": event.action,
+                    "event_kind": event.event_kind,
                     "value": event.value,
                     "timestamp": event.ts if event.ts is not None else time.time(),
                 }
             )
 
+    @trace
     def _dispatch_queued_events(self) -> None:
         """Send queued events to the owning client or broadcast."""
         for event in self._event_queue:

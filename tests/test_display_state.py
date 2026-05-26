@@ -13,9 +13,10 @@ from unittest.mock import MagicMock
 from punt_lux.display import DisplayServer
 from punt_lux.display.element_renderer import ElementRenderer
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.protocol import (
     ButtonElement,
+    CheckboxElement,
     ClearMessage,
     Element,
     MenuMessage,
@@ -166,6 +167,44 @@ class TestEmitEvent:
                 )
             )
 
+        assert "without a real PublishSink wired" in caplog.text
+
+    def test_display_factory_checkbox_publish_handler_is_loud_and_updates_state(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        server = _make_server()
+        checkbox = server._luxd_factory.element_from_dict(
+            {
+                "kind": "checkbox",
+                "id": "publish-checkbox",
+                "label": "Publish",
+                "handlers": [
+                    {
+                        "event": "changed",
+                        "factory": "noop",
+                        "wrap": [
+                            {"decorator": "publish", "topics": ["openTicket"]},
+                        ],
+                    }
+                ],
+            }
+        )
+
+        assert isinstance(checkbox, CheckboxElement)
+        assert checkbox.handler_count(ValueChanged) == 2
+
+        with caplog.at_level(logging.ERROR, logger="punt_lux.domain.element_abc"):
+            checkbox.fire(
+                ValueChanged(
+                    scene_id=SceneId("scene"),
+                    element_id=ElementId("publish-checkbox"),
+                    owner_id=ClientId("display"),
+                    value=True,
+                )
+            )
+
+        assert checkbox.value is True
         assert "without a real PublishSink wired" in caplog.text
 
 

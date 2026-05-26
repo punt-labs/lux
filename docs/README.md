@@ -36,6 +36,7 @@ policy and ratchet enforcement live. It is not an architecture document.
 - [architecture/target/README.md](./architecture/target/README.md)
 - [architecture/target/topology.md](./architecture/target/topology.md)
 - [architecture/target/ui-model.md](./architecture/target/ui-model.md)
+- [architecture/target/element-contract.md](./architecture/target/element-contract.md)
 - [architecture/target/introspection-api.md](./architecture/target/introspection-api.md)
 
 These documents describe the intended Hub-authoritative architecture.

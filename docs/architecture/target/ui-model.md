@@ -5,6 +5,9 @@
 Start with [target.md](./target.md). This document covers the UI class
 hierarchy and its semantics, not process topology.
 
+For the normative "what an Element must and must not support" contract, use
+[element-contract.md](./element-contract.md).
+
 ## What This Document Covers
 
 This document answers:

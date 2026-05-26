@@ -225,9 +225,34 @@ def serve(
     logger.info("luxd stopped")
 
 
+_LOG_LEVELS: dict[str, int] = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
+
+
 def main() -> None:
     """Entry point for the luxd binary."""
     import argparse
+
+    raw_level = os.environ.get("LUX_LOG_LEVEL", "DEBUG").upper()
+    log_level = _LOG_LEVELS.get(raw_level)
+    if log_level is None:
+        import sys
+
+        print(  # noqa: T201 — before basicConfig, logging unavailable
+            f"WARNING: LUX_LOG_LEVEL={raw_level!r} is not valid, defaulting to DEBUG",
+            file=sys.stderr,
+        )
+        log_level = logging.DEBUG
+    logging.basicConfig(
+        level=log_level,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+        datefmt="%H:%M:%S",
+    )
 
     parser = argparse.ArgumentParser(description="Lux session hub daemon")
     parser.add_argument("--host", default="127.0.0.1", help="Bind address")

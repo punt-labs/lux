@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING, Any, Self
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.button_codec import JsonButtonDecoder
+from punt_lux.protocol.elements.checkbox import CheckboxElement
+from punt_lux.protocol.elements.checkbox_codec import JsonCheckboxDecoder
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder
 from punt_lux.protocol.elements.element_wire import ElementWireContext
@@ -29,6 +31,9 @@ from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.text_codec import JsonTextDecoder
 from punt_lux.protocol.standalone_button_handler import (
     build_standalone_button_handler_decoder,
+)
+from punt_lux.protocol.standalone_checkbox_handler import (
+    build_standalone_checkbox_handler_decoder,
 )
 from punt_lux.tracing import trace
 
@@ -41,7 +46,7 @@ if TYPE_CHECKING:
 
 __all__ = ["JsonElementFactory"]
 
-_ABC_KINDS = frozenset({"text", "button", "dialog"})
+_ABC_KINDS = frozenset({"text", "button", "checkbox", "dialog"})
 
 
 class JsonElementFactory:
@@ -66,6 +71,7 @@ class JsonElementFactory:
     _codec: ElementCodec
     _text_decoder: JsonTextDecoder
     _button_decoder: JsonButtonDecoder
+    _checkbox_decoder: JsonCheckboxDecoder
     _dialog_decoder: JsonDialogDecoder
 
     def __new__(
@@ -92,6 +98,12 @@ class JsonElementFactory:
             element_cls=ButtonElement,
             handler_decoder=build_standalone_button_handler_decoder(publish_sink),
         )
+        self._checkbox_decoder = JsonCheckboxDecoder(
+            renderer_factory=renderer_factory,
+            emit=emit,
+            element_cls=CheckboxElement,
+            handler_decoder=build_standalone_checkbox_handler_decoder(publish_sink),
+        )
         self._dialog_decoder = JsonDialogDecoder(
             renderer_factory=renderer_factory,
             emit=emit,
@@ -109,6 +121,8 @@ class JsonElementFactory:
         if kind == "button":
             raw = self.canonicalize_button_sugar(raw)
             return self._button_decoder.decode(raw)
+        if kind == "checkbox":
+            return self._checkbox_decoder.decode(raw)
         if kind == "dialog":
             return self._dialog_decoder.decode(raw)
         msg = f"JsonElementFactory has no decoder for kind={kind!r}"
@@ -167,7 +181,9 @@ class JsonElementFactory:
             raise ValueError(msg)
         if kind in _ABC_KINDS:
             abc_elem = self.decode(d)
-            if isinstance(abc_elem, TextElement | ButtonElement | DialogElement):
+            if isinstance(
+                abc_elem, TextElement | ButtonElement | CheckboxElement | DialogElement
+            ):
                 return abc_elem
             msg = f"JsonElementFactory returned unexpected type for kind={kind!r}"
             raise AssertionError(msg)
@@ -182,7 +198,7 @@ class JsonElementFactory:
         if tooltip is None:
             return elem
         if isinstance(  # pragma: no cover - dispatch invariant
-            elem, TextElement | ButtonElement | DialogElement
+            elem, TextElement | ButtonElement | CheckboxElement | DialogElement
         ):
             msg = f"kind {elem.kind!r} must route through ABC decoder"
             raise AssertionError(msg)
