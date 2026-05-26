@@ -966,6 +966,7 @@ class DisplayServer:
                     RemoteEventHandlerInvocation(
                         element_id=eid,
                         action=action,
+                        event_kind="button_clicked",
                         ts=time.time(),
                         value=True,
                     )
@@ -984,9 +985,10 @@ class DisplayServer:
                 self._emit_event(
                     RemoteEventHandlerInvocation(
                         element_id=elem.id,
-                        action="changed",
+                        action=elem.id,
+                        event_kind="value_changed",
                         ts=time.time(),
-                        value=elem.value,
+                        value=not elem.value,
                     )
                 )
             elif isinstance(elem, ComboElement):

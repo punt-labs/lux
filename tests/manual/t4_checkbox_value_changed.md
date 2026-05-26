@@ -65,3 +65,13 @@ All six steps produce expected output. The critical gate is step 5:
 the event appearing in `list_recent_events` with `event_kind="value_changed"`
 proves the `CheckboxRenderer.fire(ValueChanged)` -> `remote_dispatch` ->
 `RemoteEventHandlerInvocation` -> Hub dispatch -> handler chain is intact.
+
+## Known limitation
+
+This slice covers **state mirroring** (checkbox value synced between
+Hub and Display via the two-tier dispatch chain). It does not yet
+support **declarative handlers** on the wire JSON — unlike buttons,
+which carry a `handlers` key with factory/decorator specs, checkboxes
+have only the built-in `_UpdateValueHandler`. App-defined business
+behavior (e.g., publish a topic on toggle) requires a checkbox handler
+catalog, which is a separate future slice.

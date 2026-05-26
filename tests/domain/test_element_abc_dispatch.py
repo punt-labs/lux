@@ -375,3 +375,37 @@ def test_wrap_handlers_for_remote_is_idempotent_for_checkbox_bucket() -> None:
 
     assert checkbox.handler_count(ValueChanged) == 2
     assert len(sent) == 1
+
+
+def test_checkbox_handler_survives_serialization_roundtrip() -> None:
+    """_UpdateValueHandler survives native serialization."""
+    import pickle
+
+    from punt_lux.protocol.elements.checkbox_codec import JsonCheckboxDecoder
+    from punt_lux.protocol.renderers import RaisingRendererFactory
+
+    decoder = JsonCheckboxDecoder(
+        renderer_factory=RaisingRendererFactory(),
+        emit=_emit,
+        element_cls=CheckboxElement,
+    )
+    elem = decoder.decode({"kind": "checkbox", "id": "cb1", "label": "Test"})
+    assert elem.handler_count(ValueChanged) == 1
+
+    data = pickle.dumps(elem)
+    restored = pickle.loads(data)  # noqa: S301 — trusted test data
+    assert restored.handler_count(ValueChanged) == 1
+
+    sent: list[RemoteEventHandlerInvocation] = []
+    restored.wrap_handlers_for_remote(sent.append)
+    restored.fire(
+        ValueChanged(
+            scene_id=SceneId("s"),
+            element_id=ElementId("cb1"),
+            owner_id=ClientId("d"),
+            value=True,
+        )
+    )
+    assert len(sent) == 1
+    assert sent[0].event_kind == "value_changed"
+    assert sent[0].value is True
