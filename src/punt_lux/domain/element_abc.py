@@ -81,13 +81,21 @@ class Element(ABC):
         Returns a (callable, args, state) triple so the deserializer
         can reconstruct via ``object.__new__`` (bypassing the ABC's
         keyword-only ``__new__``) then restore state via ``__setstate__``.
+
+        Hub-side bookkeeping (``_observers``) contains closures that
+        reference ``HubDisplay`` and cannot survive serialization. The
+        Display is a replica — it does not need Hub observers. Handlers
+        are preserved so ``wrap_handlers_for_remote`` can wrap them on
+        the Display side.
         """
-        return (object.__new__, (type(self),), self.__dict__.copy())
+        state = {k: v for k, v in self.__dict__.items() if k != "_observers"}
+        return (object.__new__, (type(self),), state)
 
     def __setstate__(self, state: dict[str, object]) -> None:
         """Restore instance state after native deserialization."""
         for key, value in state.items():
             object.__setattr__(self, key, value)
+        object.__setattr__(self, "_observers", [])
 
     @property
     @abstractmethod
