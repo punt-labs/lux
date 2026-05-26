@@ -1,15 +1,15 @@
-"""``ButtonClicked`` — the canonical typed event a button-click produces.
+"""Typed interaction events dispatched through ``Element.fire``.
 
-``ButtonClicked`` carries the three identifying fields (scene, element,
-owner) and a ``kind`` discriminator. Constructed by any tier that needs
-to fire a button-click event — the Display constructs it via the
-renderer; the Hub constructs it in ``Display.interact``.
+Each event carries the three identifying fields (scene, element, owner)
+and a ``kind`` discriminator. Constructed by any tier that needs to fire
+the event — the Display constructs it via the renderer; the Hub
+constructs it in ``Display.interact``.
 
 Upstream of ``Display.interact`` lives wire-shape triage in the pump;
 downstream lives typed handler dispatch through ``Element.fire``. No
-intermediate sum type stands between the inbound ``RemoteEventHandlerInvocation``
-and the ``ButtonClicked`` the dispatcher hands to the per-Element handler
-registry.
+intermediate sum type stands between the inbound
+``RemoteEventHandlerInvocation`` and the typed event the dispatcher
+hands to the per-Element handler registry.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from typing import ClassVar, Literal, Self
 
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 
-__all__ = ["ButtonClicked"]
+__all__ = ["ButtonClicked", "ValueChanged"]
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -54,4 +54,35 @@ class ButtonClicked:
         object.__setattr__(self, "scene_id", scene_id)
         object.__setattr__(self, "element_id", element_id)
         object.__setattr__(self, "owner_id", owner_id)
+        return self
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ValueChanged:
+    """A typed value-change event for inputs (checkbox, slider, etc.).
+
+    Same construction pattern as ``ButtonClicked`` — ``init=False`` with
+    ``__new__`` as the sole construction path. Carries a ``value`` payload
+    representing the new state of the input element.
+    """
+
+    scene_id: SceneId
+    element_id: ElementId
+    owner_id: ClientId
+    value: bool
+    kind: ClassVar[Literal["value_changed"]] = "value_changed"
+
+    def __new__(
+        cls,
+        *,
+        scene_id: SceneId,
+        element_id: ElementId,
+        owner_id: ClientId,
+        value: bool,
+    ) -> Self:
+        self = object.__new__(cls)
+        object.__setattr__(self, "scene_id", scene_id)
+        object.__setattr__(self, "element_id", element_id)
+        object.__setattr__(self, "owner_id", owner_id)
+        object.__setattr__(self, "value", value)
         return self
