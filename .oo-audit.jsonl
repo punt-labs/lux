@@ -288,3 +288,5 @@
 {"ts":"2026-05-26T16:56:13Z","commit":"422e01e","files_scored":158,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
 {"ts":"2026-05-26T16:56:22Z","commit":"422e01e","files_scored":1,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-05-26T16:56:38Z","commit":"422e01e","files_scored":158,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-05-26T17:00:44Z","commit":"72b63d7","files_scored":158,"files_improved":1,"files_regressed":1,"verdict":"fail","deltas":{"src/punt_lux/domain/element_abc.py":{"max_complexity":[8.0,7.0],"avg_complexity":[2.33,2.28],"module_size":[252.0,249.0]}}}
+{"ts":"2026-05-26T17:00:59Z","commit":"72b63d7","files_scored":158,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}

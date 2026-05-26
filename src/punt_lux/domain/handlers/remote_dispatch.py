@@ -1,15 +1,16 @@
 """Remote-dispatch wrappers for two-tier handler systems.
 
 When the Hub and Display are separate processes, the display-side
-element factory wraps every ``ButtonClicked`` handler in
-``remote_dispatch`` so that ``element.fire(ButtonClicked(...))`` on the
-Display side sends a ``RemoteEventHandlerInvocation`` to the Hub
-instead of executing the handler body. On the Hub side, the same
-handlers are decoded without wrapping and execute directly.
+element factory wraps every interaction handler in ``remote_dispatch``
+so that ``element.fire(event)`` on the Display side sends a
+``RemoteEventHandlerInvocation`` to the Hub instead of executing the
+handler body. On the Hub side, the same handlers are decoded without
+wrapping and execute directly.
 
-One event type (``ButtonClicked``) on both tiers. The wrapping is the
-distribution concern — handler code, ``element.fire()``, and the
-catalog factories are identical on both sides.
+Two event types (``ButtonClicked``, ``ValueChanged``) on both tiers.
+The wrapping is the distribution concern — handler code,
+``element.fire()``, and the catalog factories are identical on both
+sides.
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvoc
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux.domain.interaction import ButtonClicked
+    from punt_lux.domain.event_protocol import Event, Handler
 
 __all__ = ["RemoteDispatchGroup", "remote_dispatch"]
 
@@ -36,27 +37,35 @@ class RemoteDispatchGroup:
     """Wrap one element-event handler bucket into one remote send.
 
     The Display keeps the original handlers grouped inside this object
-    so the semantic unit remains "the button's click handler chain",
-    not "one transport wrapper per inner handler". One click on the
-    Display yields one ``RemoteEventHandlerInvocation``; the Hub then
-    resolves the authoritative element and runs the full original
+    so the semantic unit remains "the element's event handler chain",
+    not "one transport wrapper per inner handler". One interaction on
+    the Display yields one ``RemoteEventHandlerInvocation``; the Hub
+    then resolves the authoritative element and runs the full original
     handler chain once on its copy.
     """
 
-    __slots__ = ("_action", "_element_id", "_original_handlers", "_send")
+    __slots__ = (
+        "_action",
+        "_element_id",
+        "_event_kind",
+        "_original_handlers",
+        "_send",
+    )
 
-    _original_handlers: tuple[Callable[[ButtonClicked], None], ...]
+    _original_handlers: tuple[Handler[Event], ...]
     _send: SendFn
     _element_id: str
     _action: str
+    _event_kind: str
 
     def __new__(
         cls,
         *,
-        handlers: tuple[Callable[[ButtonClicked], None], ...],
+        handlers: tuple[Handler[Event], ...],
         send: SendFn,
         element_id: str,
         action: str,
+        event_kind: str = "button_clicked",
     ) -> Self:
         if not handlers:
             msg = "RemoteDispatchGroup requires at least one handler"
@@ -66,6 +75,7 @@ class RemoteDispatchGroup:
         self._send = send
         self._element_id = element_id
         self._action = action
+        self._event_kind = event_kind
         return self
 
     @property
@@ -74,33 +84,45 @@ class RemoteDispatchGroup:
         return len(self._original_handlers)
 
     @property
-    def original_handlers(self) -> tuple[Callable[[ButtonClicked], None], ...]:
+    def original_handlers(self) -> tuple[Handler[Event], ...]:
         """Return the original handlers this group wraps."""
         return self._original_handlers
 
-    def __call__(self, _event: ButtonClicked) -> None:
+    def __call__(self, event: Event) -> None:
+        # Lazy import avoids circular dependency; interaction.py
+        # imports nothing from this module so the cycle is clean.
+        from punt_lux.domain.interaction import ValueChanged  # noqa: PLC0415
+
+        value: object = True
+        if isinstance(event, ValueChanged):
+            value = event.value
+
         _log.debug(
-            "remote_dispatch sending element_id=%s action=%s grouped_handlers=%d",
+            "remote_dispatch sending element_id=%s action=%s "
+            "event_kind=%s grouped_handlers=%d",
             self._element_id,
             self._action,
+            self._event_kind,
             self.wrapped_count,
         )
         self._send(
             RemoteEventHandlerInvocation(
                 element_id=self._element_id,
                 action=self._action,
+                event_kind=self._event_kind,
                 ts=time.time(),
-                value=True,
+                value=value,
             )
         )
 
 
 def remote_dispatch(
-    inner: Callable[[ButtonClicked], None],
+    inner: Handler[Event],
     send: SendFn,
     element_id: str,
     action: str,
-) -> Callable[[ButtonClicked], None]:
+    event_kind: str = "button_clicked",
+) -> Handler[Event]:
     """Wrap one handler in a one-item ``RemoteDispatchGroup``.
 
     The returned callable remains compatible with existing call sites,
@@ -120,10 +142,13 @@ def remote_dispatch(
     action:
         The action string for the ``RemoteEventHandlerInvocation``
         (typically ``element_id`` or a catalog-derived name).
+    event_kind:
+        The event kind discriminator for Hub-side dispatch.
     """
     return RemoteDispatchGroup(
         handlers=(inner,),
         send=send,
         element_id=element_id,
         action=action,
+        event_kind=event_kind,
     )

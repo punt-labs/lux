@@ -1,7 +1,7 @@
 {
-  "total": 122,
+  "total": 123,
   "by_category": {
-    "noqa": 38,
+    "noqa": 39,
     "type_ignore": 9,
     "pylint_disable": 2,
     "pyright_ignore": 11,
@@ -36,6 +36,9 @@
       "noqa": 2,
       "type_ignore": 2,
       "pyright_ignore": 1
+    },
+    "src/punt_lux/domain/handlers/remote_dispatch.py": {
+      "noqa": 1
     },
     "src/punt_lux/domain/hub/clients.py": {
       "type_ignore": 1
@@ -85,5 +88,5 @@
       "type_ignore": 1
     }
   },
-  "updated_at": "2026-05-25T20:24:03Z"
+  "updated_at": "2026-05-26T16:58:21Z"
 }

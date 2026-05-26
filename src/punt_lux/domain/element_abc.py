@@ -226,10 +226,7 @@ class Element(ABC):
                 and self._is_remote_dispatch_group(button_handlers[0])
             ):
                 grouped = RemoteDispatchGroup(
-                    handlers=tuple(
-                        cast("Handler[ButtonClicked]", handler)
-                        for handler in button_handlers
-                    ),
+                    handlers=tuple(button_handlers),
                     send=send_fn,
                     element_id=self.id,
                     action=action,
