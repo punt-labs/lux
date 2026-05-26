@@ -1,5 +1,8 @@
 # Lux Refactoring Plan
 
+> **Status note:** historical/transitional refactoring material. The canonical
+> target architecture now lives under `docs/architecture/target/`.
+>
 > **Execution status (as of PR #178, 2026-05-21):** partially shipped.
 > Phase 1 (protocol split) is done via PRs #169 / #170 plus the
 > earlier package layout. Phase 2 (display.py decomposition) shipped
@@ -7,22 +10,24 @@
 > `display/server.py` is still ~1,400 lines, `element_renderer.py` is
 > ~1,100. Phase 3 (`_query_tool` decorator) shipped; the optional
 > `ToolState` class did not. **Phase 4's removal goal is SUPERSEDED**
-> by `docs/architecture/introspection-api.md` (2026-05-12), which
+> by `docs/architecture/target/introspection-api.md`, which
 > takes the opposite stance: keep the three ad-hoc query ops, generalise
 > them through a `QueryRequest` / `QueryResponse` envelope, and grow
 > the surface to 15+ operations. Implementation of the introspection-api
-> pattern is the active work item; nothing has shipped against it yet.
+> pattern was the intended direction; this document remains historical
+> refactoring context rather than a canonical architecture source.
 > Phase 5 shipped 5 of 7 classes; `SessionHub` (Step 5.2) and
 > `DoctorChecker` (Step 5.3) are open.
 > Several file references in the plan body — `display.py`,
 > `protocol.py` — point at files that no longer exist as monoliths.
 > See `resume.md` for the current state and open items.
 
-**This document** is the executable refactoring plan. It combines the
-OO design analysis from `oo-class-design.md` with the peer review
-feedback from `archive/oo-class-design-review.md` into step-by-step
-instructions that preserve behavior at every step. An agent executing
-this plan needs no other document.
+**This document** preserves the step-by-step refactoring plan that guided
+the OO migration work at the time. It combines the OO design analysis from
+`oo-class-design.md` with the peer review feedback from
+`archive/oo-class-design-review.md` into behavior-preserving extraction
+steps. Read it as historical implementation guidance, not as the canonical
+architecture source.
 
 Every step is a behavior-preserving transformation. `make check` passes
 after every step. One class extraction per step -- never two at once.
@@ -1512,13 +1517,13 @@ testability: a `ToolState` instance can be injected with a mock
 
 ## Phase 4: `display_client.py` migration (1 step)
 
-> **SUPERSEDED 2026-05-12 by `docs/architecture/introspection-api.md`.**
+> **SUPERSEDED 2026-05-12 by `docs/architecture/target/introspection-api.md`.**
 > The plan below removed the three ad-hoc query ops to keep
 > `DisplayClient` small. The newer introspection-api design takes the
 > opposite stance: keep all three, generalise the pattern, and grow
 > the surface to 15+ operations through a single dispatcher and a
 > `QueryRequest` / `QueryResponse` envelope. Open work is now defined
-> by introspection-api.md, not by this step. Text retained for
+> by the target introspection doc, not by this step. Text retained for
 > historical context only.
 
 Independent of the `display.py` decomposition. Can run in parallel

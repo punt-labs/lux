@@ -1,5 +1,8 @@
 # PR 4 — io-model Hub, Element interaction, Agent Subscribe
 
+> **Status note:** point-in-time migration design. The canonical target
+> architecture now lives under `docs/architecture/target/`.
+
 **Status:** design
 **Bead:** `lux-wb55`
 **Worker / Evaluator:** `rmh` / `gvr`
@@ -563,17 +566,20 @@ when the trust model for executing agent-authored code is ready.
 
 ## Two-tier handler dispatch: the remote-dispatch decorator
 
-The Hub and Display are separate processes. Both decode elements from
-the wire. Both hold handler registrations produced by the same catalog
-factories. But the handlers contain Hub-side operations — model
-mutation, `Hub.publish`, Observer cascade — that cannot execute in the
-Display process.
+The Hub and Display are separate processes. The Hub decodes elements
+from wire JSON once, producing typed Python objects with real handlers
+(call_model, publish, etc.). The Display receives deep copies of these
+objects — not JSON re-serializations. Both hold the same element state.
+But the handlers contain Hub-side operations — model mutation,
+`Hub.publish`, Observer cascade — that cannot execute in the Display
+process.
 
-The solution: the Display wraps every handler in a **remote-dispatch
-decorator** that routes execution to the Hub instead of running the
-handler body locally. The decorator encapsulates the distribution
-concern. Handler code, `element.fire()`, `addHandler/removeHandler`,
-and the catalog factories are identical on both sides.
+The solution: the Display wraps every handler on its copy in a
+**remote-dispatch decorator** that routes execution to the Hub instead
+of running the handler body locally. The decorator encapsulates the
+distribution concern. Element state, `element.fire()`, and the handler
+registry interface are identical on both sides — only handler behavior
+differs (execute vs. route).
 
 ### How it works
 
@@ -620,17 +626,26 @@ def remote_dispatch(
     return _wrapper
 ```
 
-The Display-side factory applies this decorator to every handler at
-decode time. The `send` callable is the Display's socket-write path
-(the same path `ButtonRenderer._emit_event` uses today).
+The Hub serializes typed element objects natively and sends them to the
+Display (separate process, potentially separate machine). The Display
+deserializes and calls `wrap_handlers_for_remote(send_fn)` on the
+top-level composite — this method walks all children and wraps every
+registered handler. There is no Display-side wire decode. The `send`
+callable is the Display's socket-write path back to the Hub.
+
+Handler wrapping is a method on the composite element, not an external
+factory concern. The composite knows its children and their handler
+registrations. `wrap_handlers_for_remote` is self-contained.
 
 ### What this replaces
 
-The Display-side `DomainPump.route_interaction` call in `_emit_event`
-is removed — the handler wrapper IS the routing. The Display-side
-`NoOpAgentSideSink` on the factory is replaced by the remote-dispatch
-decorator on each handler. The publish-sink concern moves from the
-factory level to the per-handler wrapper level.
+The Display does not decode wire JSON independently. The Hub decodes
+once; the Display receives serialized copies and wraps handlers. The
+Display-side `NoOpAgentSideSink` is eliminated — publish routing is
+handled by the remote-dispatch decorator on each handler. The JSON
+round-trip that dropped handler specs (to_dict → from_dict) is
+eliminated — objects cross the Hub→Display boundary as natively
+serialized Python objects, not as JSON text.
 
 ### Pre-optimization and post-optimization
 

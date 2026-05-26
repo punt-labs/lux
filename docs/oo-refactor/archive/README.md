@@ -11,8 +11,8 @@ Preserved for history; not authoritative for future work.
 | `oo-refactoring-plan-review.md` | n/a (review of `../oo-refactoring-plan.md`) | Peer review by `rej` of the refactoring plan; findings absorbed into the plan. |
 | `oo-class-design-review.md` | n/a (review of `../oo-class-design.md`) | Peer review by `rej` of the class design; findings absorbed into the design. |
 
-Active design docs live in the parent directory:
+Remaining transitional docs live in the parent directory:
 
 - `../oo-class-design.md` — class-level OO design (still has open items)
-- `../oo-refactoring-plan.md` — executable refactoring plan (several steps still open)
+- `../oo-refactoring-plan.md` — historical step-by-step refactoring plan
 - `../resume.md` — current status snapshot

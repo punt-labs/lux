@@ -1,5 +1,8 @@
 # OO Class Design
 
+> **Status note:** historical/transitional class-design analysis. The canonical
+> target architecture now lives under `docs/architecture/target/`.
+>
 > **Execution status (as of PR #178, 2026-05-21):** partially shipped.
 > 11 of the 13 prescribed classes exist (`SceneManager`, `SocketServer`,
 > `TableRenderer`, `QueryDispatcher`, `ElementRenderer`, `MenuManager`,

@@ -1,9 +1,13 @@
 # Migration Plan — Domain Model Across All Tiers (Revised 2026-05-23, v2.1)
 
-**Status:** ACTIVE
-**Target:** `docs/architecture/domain-model.md` (domain north star), `docs/architecture/io-model.md` (I/O architecture), `docs/architecture/x11-model.md` (process topology).
+> **Status note:** transitional migration material. This plan predates the
+> `docs/architecture/target/` layout. Use the target docs there as the
+> canonical architecture source.
+
+**Status:** TRANSITIONAL MIGRATION MATERIAL
+**Target:** `docs/architecture/target/ui-model.md` (UI model), `docs/architecture/target/topology.md` (process topology), and `docs/architecture/target/introspection-api.md` (verification surface). Historical io-model detail lives in `docs/architecture/archive/io-model.md`.
 **Method:** B-amended — thin vertical slice. See "Methods considered and rejected" below.
-**Authority:** This is the executable plan. Mission YAMLs cite PRs from this document; specialist agents (`rmh`, `gvr`, `mdm`, `djb`, `adb`, `kpz`) execute PRs in the order below.
+**Authority:** Historical migration plan. Useful for sequencing history and implementation context, but not the canonical architecture source.
 
 ## Why this revision exists (v2)
 
@@ -20,7 +24,8 @@ The v2 sequence (this document) replaces PRs 3–13 with a **thin vertical slice
 
 ## What v1 got right and v2 retains
 
-- The Element ABC + template-method `render()` shape (DES-032, io-model.md). Unchanged.
+- The Element ABC + template-method `render()` shape (DES-032, archived
+  io-model design). Unchanged.
 - The Renderer / Decoder / Encoder families (DES-033, DES-034). Unchanged in shape; v2 ships them per-kind alongside each Element migration rather than bundling Encoder as a family PR.
 - Observer pattern at MCP boundary (DES-036). Unchanged in shape; v2 ships it in PR 4 with `interaction.<id>` as the load-bearing first consumer rather than PR 11 with a manufactured consumer.
 - The Bar invariants (below). Unchanged — rule 10 (tests-with-code per commit) remains the new rule introduced in v1.
@@ -133,7 +138,7 @@ Rules 1–10 are unchanged from v1. Repeated here for self-containment. **Rule 1
 
 Mission YAMLs from PR 3 onward MUST cite these in the OO-rules block:
 
-- `docs/architecture/io-model.md` — the I/O architecture target.
+- `docs/architecture/target/ui-model.md` and `docs/architecture/target/topology.md` — the target architecture set.
 - `DESIGN.md` DES-031 — Domain Model Across All Tiers (grounding decision).
 - `DESIGN.md` DES-032 — Element Owns Behavior, Not I/O (codec moves off the
   class; render moves onto the class via template method; behavior methods on
@@ -323,10 +328,12 @@ Unchanged from the original plan. Repeated here for self-containment.
 
 Every PR follows this loop. The loop is the contract.
 
-1. **Read this document, the relevant ADRs in `DESIGN.md`, and
-   `domain-model.md` / `io-model.md` / `x11-model.md`.**
+1. **Read this document, the relevant ADRs in `DESIGN.md`, and the target
+   docs in `docs/architecture/target/` plus archived `io-model.md` where
+   historical I/O detail matters.**
 2. **Author a mission YAML** that cites the OO rules + DES-031/032/033 +
-   io-model.md in the first 20 lines with one BEFORE/AFTER example. The
+   the target docs (and archived `io-model.md` only when needed) in the first
+   20 lines with one BEFORE/AFTER example. The
    YAML lives at `.tmp/missions/<pr-name>.yaml`.
 3. **Dispatch with `ethos mission create --file <yaml>`** then
    **`Agent(subagent_type=<worker>, run_in_background=true)`** — both steps
@@ -350,7 +357,7 @@ Every PR follows this loop. The loop is the contract.
 | Tier | Where | What it covers |
 |------|-------|----------------|
 | **Characterization (PR 0)** | `tests/characterization/snapshots/` | Every MCP tool input → response captured on `main`. Replayed in CI on every PR. Catches output-level regressions. |
-| **Domain unit (PR 1 onward)** | `tests/domain/` | `Display.apply(client, update)` returns the expected Event or Error. Ownership, cycle, type, duplicate-id invariants enforced. Single-runtime tests per `domain-model.md` §"Testability". |
+| **Domain unit (PR 1 onward)** | `tests/domain/` | `Display.apply(client, update)` returns the expected Event or Error. Ownership, cycle, type, duplicate-id invariants enforced. Single-runtime tests per the target UI model's testability guidance. |
 | **Render unit (PR 3 onward)** — NEW | `tests/render/` | Per-element-kind render tests against `Surface.RECORDING`. Construct an Element, render it via the Recording renderer, assert on the captured calls. Closes the rendering-layer test gap that existed since the project began. |
 | **Behavior unit (PR 5 onward)** — NEW | `tests/behavior/` | Element behavior methods (`on_click`, `on_value_change`, etc.) tested directly. Construct an Element, call its behavior method, assert on the emitted InteractionMessage shape. |
 | **Family integration (PR 3 onward)** | `tests/integration/families/<family>/` | End-to-end exercise of one element family through the io-model pipeline (decoder → domain → renderer). |
@@ -358,7 +365,8 @@ Every PR follows this loop. The loop is the contract.
 
 ## Methods considered and rejected (path only)
 
-The architectural target (DES-031, DES-032, DES-033, io-model.md, domain-model.md)
+The architectural target (DES-031, DES-032, DES-033, archived io-model design,
+target UI model)
 is **not under review**. Reviewers are scoped to migration **path** only.
 
 For the record: three migration methods were evaluated by three architect
@@ -399,10 +407,10 @@ Do not work two PRs in parallel on the same working tree.
 
 ## References
 
-- `docs/architecture/domain-model.md` — the algebra this plan realizes
-- `docs/architecture/io-model.md` — the I/O architecture (Decoder / Element / Renderer)
-- `docs/architecture/x11-model.md` — the topology PR 3 realizes (bare subprocess; operational supervision in a later PR)
-- `docs/architecture/introspection-api.md` — already-implemented query pattern
+- `docs/architecture/target/ui-model.md` — the target UI model this plan was aiming toward
+- `docs/architecture/archive/io-model.md` — archived io-model detail retained for migration history
+- `docs/architecture/target/topology.md` — the target topology this plan was aiming toward
+- `docs/architecture/target/introspection-api.md` — the target verification/control surface
 - `docs/oo-refactor/resume.md` — current OO scores; updated after each PR
 - `DESIGN.md` DES-030 — three-layer type model (wire / scene graph / snapshot)
 - `DESIGN.md` DES-031 — Domain Model Across All Tiers

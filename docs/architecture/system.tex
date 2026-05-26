@@ -29,7 +29,7 @@
   columns=fullflexible,
 }
 
-\newcommand{\modpath}[1]{\texttt{src/punt\_lux/#1}}
+\newcommand{\modpath}[1]{\path{src/punt_lux/#1}}
 \newcommand{\tool}[1]{\texttt{#1}}
 \newcommand{\msg}[1]{\texttt{#1}}
 \newcommand{\elem}[1]{\texttt{#1}}
@@ -37,11 +37,11 @@
 
 \begin{document}
 
-\title{Lux: Technical Architecture Specification}
+\title{Lux: Prior Display-Server Architecture Specification}
 \author{Visual Output Surface for AI Agents}
 \date{May 2026 --- v0.18.0}
 \hypersetup{
-  pdftitle={Lux: Technical Architecture Specification},
+  pdftitle={Lux: Prior Display-Server Architecture Specification},
   pdfauthor={Punt Labs},
   pdfsubject={Architecture},
   pdfcreator={pdflatex}
@@ -55,49 +55,55 @@
 \section{Overview}
 % ===================================================================
 
-Lux is a visual output surface for Claude Code.  It renders element
-trees pushed by AI agents via MCP tools into a native ImGui window
-over Unix socket IPC.  The system has four projection surfaces from
-a single codebase: Python library, CLI, MCP server, and Claude Code
-plugin.
+Lux is a visual output surface for Claude Code agents and local
+applications.  In the display-server-centered architecture documented
+here, agents and apps push JSON element trees into a native ImGui
+window over Unix socket IPC.  The system has four projection surfaces
+from a single codebase: Python library, CLI, MCP server, and Claude
+Code plugin.
 
-The display server owns the render loop.  Agents are clients.  All
+The display server owns the render loop, scene state, widget state,
+interaction queue, and query surface.  Agents are clients.  All
 agent--display communication is message-passing over a framed JSON
 protocol on a Unix domain socket.  The display server is
 single-threaded: no threads, no asyncio, no locks.  It polls all
 I/O non-blocking each frame via \texttt{select()}.
 
+\subsection{Scope}
+
+This document is the canonical specification of Lux's \emph{prior
+display-server architecture}.  It intentionally describes the
+display-server-centered design that shipped through the v0.18 line and
+does \emph{not} treat the experimental Hub/domain slices now present in
+the repository as normative.  Where the codebase contains newer
+transport or domain experiments, this document ignores them and records
+the stable design they grew out of.
+
 \subsection{Companion Documents}
 
 This document is the canonical, comprehensive description of the
-shipped system.  The sibling files in
-\texttt{docs/architecture/} are narrower slices and design proposals
-that this document references but does not duplicate:
+prior display-server system.  The sibling files in
+\texttt{docs/architecture/} provide narrower supporting views:
 
 \begin{itemize}
-  \item \texttt{domain-model.md} --- north-star domain (Element,
-    Scene, Client, Update, Event, Port).  \emph{Target state}, not
-    yet implemented.  Section \S\ref{sec:domain-model-gap} flags
-    where the current procedural shape diverges from the OO target.
-  \item \texttt{x11-model.md} --- three-process target architecture
-    (mcp-proxy $\to$ \texttt{luxd} $\to$ \texttt{lux-display}).
-    \emph{Proposed}; the shipped code runs the display and hub in
-    one process.  Section \S\ref{sec:ipc} describes the current
-    single-process reality and the boundary that will become a
-    process split.
-  \item \texttt{luxd-impl.md} --- Phase 1 implementation spec for
-    the three-process split.
+  \item \texttt{display-server.tex} --- Z specification of the core
+    display-server state machine, including client lifecycle, scene
+    replacement, patching, and interaction broadcast.
+  \item \texttt{workspace-model.tex} --- Z specification of frames,
+    client identity, scene-to-frame routing, and World menu ownership.
+  \item \texttt{claude-code-lux.tex} --- Z specification of Lux as a
+    consumer-facing visual surface inside the broader Claude Code
+    workflow.
   \item \texttt{introspection-api.md} --- the unified
-    \msg{QueryRequest}/\msg{QueryResponse} envelope.  The generic
-    infrastructure is shipped; twelve of fourteen planned query
-    methods are wired and live --- a thirteenth (\msg{screenshot}) is
-    registered but its handler raises and routes to a dedicated
-    \msg{ScreenshotRequest} message instead.  See Section
-    \S\ref{sec:tools}.
-  \item \texttt{display-server.tex} --- Z specification of the
-    display state machine, with refinement and partition tests
-    (Section \S\ref{sec:formal}).
+    \msg{QueryRequest}/\msg{QueryResponse} envelope and the display
+    introspection method catalog used by
+    \tool{inspect\_scene()}, \tool{list\_scenes()}, and related tools.
+    See Section \S\ref{sec:tools}.
 \end{itemize}
+
+Other architecture notes in this directory may discuss future-facing or
+experimental directions.  They are intentionally out of scope for this
+specification.
 
 \subsection{Design Principles}
 
@@ -125,147 +131,101 @@ that this document references but does not duplicate:
 
 \subsection{Component Map}
 
-The Python package is laid out as five domain-aligned packages plus a
-small set of foundation modules at the package root.
+The Python package splits the prior display-server design across the
+protocol layer, the display/runtime layer, scene state management, and
+MCP/client adapters.
 
-\begin{center}
-\begin{tabular}{llp{7cm}}
+\begin{longtable}{p{2.3cm}p{3.2cm}p{8.6cm}}
 \toprule
 \textbf{Module} & \textbf{File or package} & \textbf{Responsibility} \\
 \midrule
-Protocol      & \modpath{protocol/}              & Wire framing (4-byte
-                length prefix, JSON payload), the \texttt{FrameReader}
-                streaming buffer, and the dispatch helpers
-                \texttt{message\_to\_dict} / \texttt{element\_to\_dict}.
-                Element and message dataclasses live in the two
-                sub-packages below.
-                \\
-Elements      & \modpath{protocol/elements/}     & 24 element dataclasses
-                across seven family modules (\texttt{basics},
-                \texttt{inputs}, \texttt{layout}, \texttt{graphics},
-                \texttt{table}, \texttt{patch}, \texttt{plot\_element}),
-                with the \texttt{ElementCodec} dispatch table in
-                \texttt{codec.py} (PR \#169, \#172).  Draw commands are
-                split into \texttt{draw\_wire.py},
-                \texttt{draw\_values.py}, \texttt{draw\_bounds.py},
-                \texttt{draw\_decoder.py}, and four command-family
-                modules (\texttt{draw\_commands\_line.py},
-                \texttt{draw\_commands\_shape.py},
-                \texttt{draw\_commands\_curve.py},
-                \texttt{draw\_commands\_text.py})
-                (PR \#176, \#177).
-                \\
-Messages      & \modpath{protocol/messages/}     & 21 message dataclasses
-                across five family modules (\texttt{lifecycle},
-                \texttt{scene}, \texttt{interaction}, \texttt{menu},
-                \texttt{introspect}), with the \texttt{MessageRegistry}
-                dispatch table in \texttt{registry.py} (PR \#157,
-                \#170).
-                \\
+\endfirsthead
+\toprule
+\textbf{Module} & \textbf{File or package} & \textbf{Responsibility} \\
+\midrule
+\endhead
+Protocol      & \modpath{protocol/}              & Wire framing, the
+                \texttt{FrameReader} streaming buffer, and the
+                \texttt{message\_to\_dict} / \texttt{element\_to\_dict}
+                dispatch helpers. \\
+Elements      & \modpath{protocol/elements/}     & 25 wire element
+                dataclasses plus the \texttt{Patch} payload used by
+                \msg{UpdateMessage}.  \texttt{JsonElementFactory}
+                handles the ABC-backed \texttt{text}, \texttt{button},
+                and \texttt{dialog} path; \texttt{ElementCodec} covers
+                the remaining kinds. \\
+Messages      & \modpath{protocol/messages/}     & 22 message
+                dataclasses across the \texttt{scene},
+                \texttt{lifecycle}, \texttt{interaction},
+                \texttt{observer}, \texttt{menu}, and
+                \texttt{introspect} families, with
+                \texttt{MessageRegistry} as the wire dispatch table. \\
 Display       & \modpath{display/}               & ImGui render loop,
-                element renderers, event flush.  Six modules:
-                \texttt{server.py} ($\sim$1{,}400 lines --- the
-                \texttt{DisplayServer} coordinator),
-                \texttt{element\_renderer.py} ($\sim$1{,}100 lines ---
-                per-kind dispatch with a 24-entry \texttt{\_RENDERERS}
-                table),
-                \texttt{table\_renderer.py} ($\sim$630 lines),
-                \texttt{menu\_manager.py} ($\sim$580 lines),
-                \texttt{idle\_screen.py} ($\sim$200 lines),
-                \texttt{texture\_cache.py} ($\sim$80 lines).  Extracted from
-                the original \texttt{display.py} (4{,}208 lines) via PR
-                \#158; \texttt{server.py} is the remaining decomposition
-                target.
-                \\
+                scene rendering, frame lifecycle, menu management,
+                screenshot capture, and event flush.  The core modules
+                are \texttt{server.py}, \texttt{element\_renderer.py},
+                \texttt{table\_renderer.py}, \texttt{menu\_manager.py},
+                \texttt{idle\_screen.py}, and \texttt{texture\_cache.py}. \\
 Scene         & \modpath{scene/}                 & Scene graph state.
-                \texttt{manager.py} owns the \texttt{SceneManager}
-                state machine ($\sim$440 lines).  \texttt{frame.py}
-                defines the \texttt{Frame} class ($\sim$140 lines; class
-                renamed from \texttt{\_Frame} in PR \#159).
-                \texttt{widget\_state.py} defines
-                \texttt{WidgetState} (36 lines).
-                \\
-Tools (MCP)   & \modpath{tools/}                 & FastMCP tool surface
-                (PR \#160).  \texttt{server.py} owns the
-                \texttt{FastMCP} instance and the session lifespan.
-                \texttt{connection.py} owns \texttt{\_get\_client} and
-                \texttt{\_with\_reconnect}.  \texttt{tools.py}
-                registers the 24 tool functions (Section
-                \S\ref{sec:tools}).
-                \\
+                \texttt{manager.py} owns \texttt{SceneManager},
+                \texttt{frame.py} defines workspace frames, and
+                \texttt{widget\_state.py} holds per-scene ImGui control
+                state. \\
+Tools (MCP)   & \modpath{tools/}                 & FastMCP tool surface.
+                \texttt{server.py} owns the \texttt{FastMCP} instance
+                and session lifecycle.  \texttt{tools.py} defines
+                display-facing helpers; \texttt{subscribe\_tools.py}
+                defines the separate session pub-sub helpers. \\
 Socket server & \modpath{socket\_server.py}      & \texttt{SocketServer}
                 --- Unix-domain socket lifecycle, non-blocking
                 multiplexing of client connections, per-client
-                \texttt{FrameReader} buffers, send/recv to clients.
-                Extracted from the original display monolith.
-                \\
+                \texttt{FrameReader} buffers, and send/recv to clients. \\
 Query dispatcher & \modpath{query\_dispatcher.py} & \texttt{QueryDispatcher}
-                --- routes \msg{QueryRequest} by \field{method} string
-                to registered handler methods.  Owns the ring buffers
-                for recent interaction events (max 200) and recent
-                error log entries (max 100).  See
-                \texttt{introspection-api.md} for the wire format and
-                handler template.
-                \\
-Client        & \modpath{client.py}              & Backward-compat
-                shim that re-exports \texttt{DisplayClient} under the
-                old name \texttt{LuxClient}.  Scheduled for removal
-                (\texttt{lux-3bp8}, per PL-PP-1: no compat aliases).
-                \\
+                --- routes \msg{QueryRequest} by \field{method} string,
+                and owns the ring buffers for recent interaction events
+                (max 200) and recent error log entries (max 100). \\
+Client        & \modpath{client.py}              & Backward-compat shim
+                that re-exports \texttt{DisplayClient} under the old
+                name \texttt{LuxClient}. \\
 Display client & \modpath{display\_client.py}    & \texttt{DisplayClient}
-                --- high-level client with a background listener
-                thread, typed methods for \texttt{show},
-                \texttt{update}, \texttt{query}, \texttt{recv}, etc.
-                Used by MCP tools and by the \texttt{lux show beads}
-                subcommand.
-                \\
-Hub           & \modpath{hub.py}                 & WebSocket session
-                hub (\texttt{luxd}).  Starlette + uvicorn app that
-                multiplexes MCP sessions onto the display.  Today
-                runs in-process; the three-process split in
-                \texttt{x11-model.md} moves it to its own daemon.
-                \\
-Apps/Beads    & \modpath{apps/beads.py}          & Beads issue
-                browser; loads \texttt{.beads/issues.jsonl}, renders
-                a filterable table via the \texttt{table} element.
-                \\
+                --- typed \texttt{show}, \texttt{update},
+                \texttt{query}, \texttt{clear}, and \texttt{ping}
+                methods, plus callback registration for
+                \msg{InteractionMessage} and \texttt{poll\_event()}
+                for queued \msg{ObserverMessage}s. \\
+Gateway       & \modpath{luxd.py}                & Optional WebSocket
+                gateway (\texttt{luxd}) and mcp-proxy entry point.  In
+                the prior architecture documented here it is transport
+                and session bootstrap plumbing, not the source of truth
+                for scene state or rendering. \\
+Apps/Beads    & \modpath{apps/beads.py}          & Beads issue browser;
+                loads \texttt{.beads/issues.jsonl} and renders a
+                filterable table scene. \\
 Show          & \modpath{show.py}                & \texttt{lux show}
-                subcommand for pre-built scenes (beads board).
-                \\
+                subcommand for pre-built scenes such as the beads board. \\
 Paths         & \modpath{paths.py}               & \texttt{DisplayPaths}
-                --- socket discovery, PID lifecycle, auto-spawn.
-                Module-level helpers cover hub paths (PR \#161).
-                \\
+                --- socket discovery, PID lifecycle, and auto-spawn via
+                \texttt{ensure()}.  Module-level helpers also resolve
+                the optional gateway's PID/port paths. \\
 Runtime       & \modpath{runtime.py}             & \texttt{CodeExecutor}
                 and \texttt{RenderContext} --- compile and run
                 agent-submitted render functions per-frame, gated by
-                consent.
-                \\
+                consent. \\
 Config        & \modpath{config.py}              & \texttt{ConfigManager}
-                reads \texttt{.lux/config.md} YAML frontmatter; display
-                mode toggle (\field{display=y|n}).
-                \\
+                reads and writes YAML frontmatter in
+                \texttt{.punt-labs/lux.md}; the live field today is the
+                per-repo display-mode toggle (\field{display = y|n}). \\
 Hooks         & \modpath{hooks.py}               & Claude Code lifecycle
-                hook handlers (session start, post-bash).
-                \\
+                hook handlers (session start, post-bash). \\
 Service       & \modpath{service.py}             & \texttt{ServiceManager}
-                --- launchd/systemd lifecycle for \texttt{luxd}.
-                \\
+                --- launchd/systemd lifecycle for \texttt{luxd}. \\
 Remote        & \modpath{remote.py}              & \texttt{ProxyConfigFile}
-                --- mcp-proxy WebSocket transport setup.
-                \\
-CLI           & \modpath{\_\_main\_\_.py}        & Typer app.  Subcommands:
-                \texttt{display}, \texttt{serve}, \texttt{enable},
-                \texttt{disable}, \texttt{version}, \texttt{ping},
-                \texttt{status}, \texttt{doctor},
-                \texttt{hub-install}, \texttt{hub-uninstall},
-                \texttt{ensure-hub}, \texttt{hub-status},
-                \texttt{setup-proxy}, \texttt{install},
-                \texttt{uninstall}.
-                \\
+                --- mcp-proxy WebSocket transport setup. \\
+CLI           & \modpath{\_\_main\_\_.py}        & Typer app with
+                display, service, status, installation, and gateway
+                management subcommands. \\
 \bottomrule
-\end{tabular}
-\end{center}
+\end{longtable}
 
 \subsection{Data Flow}
 
@@ -275,8 +235,8 @@ Three primary data paths connect agents to the display:
 
 \begin{enumerate}
   \item Agent calls MCP tool (e.g., \tool{show()}).
-  \item MCP server obtains a \texttt{DisplayClient} via
-    \texttt{tools/connection.py::\_get\_client()}, calls
+  \item MCP server obtains a \texttt{DisplayClient} from the session's
+    connection registry, then calls
     \texttt{client.show(scene\_id, elements)}.
   \item Client serializes \msg{SceneMessage} as JSON, frames with
     4-byte big-endian length prefix, sends over Unix socket.
@@ -307,7 +267,9 @@ Three primary data paths connect agents to the display:
   \item Each frame, \texttt{\_flush\_events()} broadcasts all queued
     messages to all connected clients via
     \texttt{SocketServer.send\_to\_client()}, then clears the queue.
-  \item Agent calls \tool{recv()} to consume events.
+  \item Client-side consumers handle those interactions through the
+    display client, typically by registering
+    \texttt{DisplayClient.on\_event()} callbacks.
 \end{enumerate}
 
 \subsubsection{Update Path (Incremental Patching)}
@@ -353,9 +315,12 @@ dataclasses).  Oversize frames raise \texttt{ValueError}, which
 
 \subsection{Message Types}
 
-The 21 message types are split across two unions in
-\modpath{protocol/messages/\_\_init\_\_.py}: \texttt{ClientMessage}
-(12 types) and \texttt{DisplayMessage} (8 types), plus
+The message layer is split across the \texttt{scene},
+\texttt{lifecycle}, \texttt{interaction}, \texttt{observer},
+\texttt{menu}, and \texttt{introspect} families.  In
+\modpath{protocol/messages/\_\_init\_\_.py}, the protocol surface is
+assembled into a \texttt{ClientMessage} union (12 request/command
+types), a \texttt{DisplayMessage} union (9 response/event types), and
 \msg{UnknownMessage} for forward compatibility.
 
 \subsubsection{Client $\to$ Display}
@@ -415,6 +380,9 @@ and \field{frame\_layout} (\texttt{"tab"} or \texttt{"stack"}).
 \msg{InteractionMessage} & User interaction; \field{element\_id},
   \field{action}, \field{value}, \field{ts}, optional
   \field{scene\_id}. \\
+\msg{ObserverMessage}    & Session-scoped business event fan-out for
+  the optional subscribe/publish path; \field{topic} +
+  \field{payload}. \\
 \msg{PongMessage}        & Ping response; round-trip latency probe. \\
 \msg{IntrospectResponse} & Scene element tree response. \\
 \msg{ListScenesResponse} & List of active scene summaries plus
@@ -438,20 +406,21 @@ default --- this replaces the original \texttt{if/elif} chain in
 
 \subsection{Element Kinds}
 
-24 element kinds organized by category, registered in
-\texttt{ElementCodec} via per-family \texttt{register\_codecs} calls.
-Each element is a frozen dataclass with \texttt{slots=True}.  The
-\texttt{Element} union is assembled in
+The wire layer exposes 25 element kinds plus the non-element
+\texttt{Patch} payload used by \msg{UpdateMessage}.  Three kinds
+(\texttt{text}, \texttt{button}, \texttt{dialog}) are decoded through
+\texttt{JsonElementFactory}; the remaining kinds are registered into
+\texttt{ElementCodec}.  Each element is a frozen, slotted dataclass,
+and the \texttt{Element} union is assembled in
 \modpath{protocol/elements/\_\_init\_\_.py}.
 
-\begin{center}
 \begin{longtable}{llp{6cm}}
 \toprule
-\textbf{Family module} & \textbf{Element} & \textbf{Notes} \\
+\textbf{Category} & \textbf{Element} & \textbf{Notes} \\
 \midrule
 \endfirsthead
 \toprule
-\textbf{Family module} & \textbf{Element} & \textbf{Notes} \\
+\textbf{Category} & \textbf{Element} & \textbf{Notes} \\
 \midrule
 \endhead
 \texttt{basics}    & \elem{text}              & Content + style (heading, caption, success, error, code);
@@ -475,6 +444,10 @@ Each element is a frozen dataclass with \texttt{slots=True}.  The
               \field{alpha} (RGBA) and \field{picker} (full widget) modes \\
             & \elem{selectable}        & Click-to-select item \\
 \midrule
+\texttt{dialog}    & \elem{dialog}            & Dialog root with title,
+              children, handlers, and an internal model-backed
+              lifecycle \\
+\midrule
 \texttt{layout}    & \elem{group}             & Row, column, or paged layout
               (\field{pages} + \field{page\_source}) \\
             & \elem{tab\_bar}          & Tabbed container \\
@@ -492,7 +465,6 @@ Each element is a frozen dataclass with \texttt{slots=True}.  The
 \texttt{table}     & \elem{table}             & Columns, rows, built-in filters, detail panel, pagination \\
 \bottomrule
 \end{longtable}
-\end{center}
 
 \subsection{Draw Commands}\label{sec:draw-commands}
 
@@ -652,7 +624,8 @@ read-only properties on \texttt{DisplayServer.scene\_manager}.
 
 \subsubsection{Widget State Swap Pattern}
 
-The 24-element \texttt{ElementRenderer.\_RENDERERS} dispatch table
+The renderer's per-kind \texttt{ElementRenderer.\_RENDERERS} dispatch
+table
 all reads from \texttt{self.\_widget\_state}.  Rather than threading
 a \field{scene\_id} parameter through every method, the display
 swaps the per-scene state dict into this instance variable before
@@ -784,12 +757,12 @@ position and size.
 \section{IPC and Process Management}\label{sec:ipc}
 % ===================================================================
 
-The shipped system runs the display and the session hub in a single
-process.  The target architecture in \texttt{x11-model.md} splits this
-into three processes (mcp-proxy $\to$ \texttt{luxd}
-$\to$ \texttt{lux-display}); \texttt{luxd-impl.md} is the Phase 1
-implementation spec.  This section describes the current
-single-process reality.
+The architecture documented here is centered on the display server
+process.  Agents and apps connect to that display over a Unix socket,
+either directly or through higher-level client wrappers.  Optional
+remote access uses \texttt{luxd} as a WebSocket/session gateway, but
+scene storage, widget state, interaction broadcast, and rendering still
+belong to the display process in this model.
 
 \subsection{Socket Discovery}
 
@@ -823,7 +796,7 @@ the same file: \texttt{hub\_dir()}, \texttt{hub\_pid\_path()},
 
 \subsection{Auto-Spawn}
 
-\texttt{DisplayPaths.ensure\_display()} spawns the display server if
+\texttt{DisplayPaths.ensure()} spawns the display server if
 not running:
 
 \begin{enumerate}
@@ -837,13 +810,13 @@ not running:
   \item Display logs to \texttt{\{socket\_path\}.log}.
 \end{enumerate}
 
-\subsection{MCP Server Reconnect}
+\subsection{Tool Reconnect Path}
 
-The MCP server wraps every tool call in
-\texttt{tools/connection.py::\_with\_reconnect()}: if an
-\texttt{OSError} (broken pipe) occurs, the stale client is closed, a
-new connection is established, and the call is retried exactly once.
-No retry loop.
+The MCP surface wraps display-bound calls in
+\texttt{client\_registry.with\_reconnect()}: if an \texttt{OSError}
+(for example a broken pipe) occurs, the stale client is closed, a new
+connection is established, and the call is retried exactly once.  There
+is no unbounded retry loop.
 
 % ===================================================================
 \section{Performance}
@@ -860,7 +833,7 @@ Idle FPS            & 30             & \texttt{fps\_idling.fps\_idle = 30.0} \\
 Active FPS          & 60+            & GLFW vsync, GPU-bound \\
 Socket poll timeout & 0              & Non-blocking \texttt{select()} \\
 Max message size    & 16\,MiB        & Hard limit in \texttt{FrameReader} \\
-Connection timeout  & 5.0\,s         & \texttt{ensure\_display()} and handshake \\
+Connection timeout  & 5.0\,s         & \texttt{ensure()} and handshake \\
 Texture loading     & Lazy           & First render triggers PIL + OpenGL upload \\
 Event ring buffer   & 200 entries    & \texttt{QueryDispatcher.\_recent\_events} \\
 Error ring buffer   & 100 entries    & \texttt{QueryDispatcher.\_recent\_errors} \\
@@ -1058,13 +1031,13 @@ isolation.
 \section{MCP Tool Surface}\label{sec:tools}
 % ===================================================================
 
-24 tools, registered in \modpath{tools/tools.py}.  16 are declared
-with \texttt{@mcp.tool()} directly; 8 are declared with the
-\texttt{@\_query\_tool(method=...)} wrapper that routes through the
-generic \msg{QueryRequest} envelope (see
-\texttt{introspection-api.md}).
+The display-facing MCP surface is registered primarily in
+\modpath{tools/tools.py}.  Simple scene and configuration tools are
+declared directly with \texttt{@mcp.tool()}; query-style operations
+route through the generic \msg{QueryRequest} envelope where possible.
+Separate session-pub-sub tools live in \modpath{tools/subscribe\_tools.py}
+and are distinct from the display's UI interaction stream.
 
-\begin{center}
 \begin{longtable}{lp{8cm}}
 \toprule
 \textbf{Tool} & \textbf{Signature and Purpose} \\
@@ -1077,56 +1050,51 @@ generic \msg{QueryRequest} envelope (see
 \multicolumn{2}{l}{\textbf{Scene management}} \\
 \midrule
 \tool{show}           & \texttt{(scene\_id, elements, title?, layout?,
-  frame\_id?, frame\_title?, frame\_size?, frame\_flags?)}
-  --- Display a scene.  Docstring lists all 24 element kinds. \\
+  frame\_id?, frame\_title?, frame\_size?, frame\_flags?,
+  frame\_layout?)} --- Display a scene built from element dicts. \\
 \tool{show\_table}    & \texttt{(scene\_id, columns, rows, filters?,
-  detail?, title?)} --- Filterable data table with search, combo
-  filters, and detail panel. \\
+  detail?, flags?, title?, frame\_id?, frame\_title?)} --- Convenience
+  wrapper for a filterable table scene. \\
 \tool{show\_dashboard} & \texttt{(scene\_id, metrics?, charts?,
-  table\_columns?, table\_rows?, title?)} --- Metrics cards + charts +
-  summary table. \\
+  table\_columns?, table\_rows?, title?, frame\_id?, frame\_title?)}
+  --- Convenience wrapper for metrics, charts, and a summary table. \\
 \tool{update}         & \texttt{(scene\_id, patches)} --- Incremental
   JSON patches targeting elements by ID. \\
 \tool{clear}          & \texttt{()} --- Clear all scenes. \\
 \midrule
-\multicolumn{2}{l}{\textbf{Communication}} \\
+\multicolumn{2}{l}{\textbf{Display control}} \\
 \midrule
 \tool{ping}           & \texttt{()} --- Latency probe; returns
   \msg{PongMessage}. \\
-\tool{recv}           & \texttt{(timeout?)} --- Receive next event
-  (interaction, window lifecycle). \\
 \tool{set\_menu}      & \texttt{(menus)} --- Set agent-provided menu
   bar entries. \\
-\tool{register\_tool} & \texttt{(name, description, schema)} --- Register
-  a custom tool in the display's tool palette. \\
+\tool{register\_tool} & \texttt{(label, tool\_id, shortcut?, icon?)}
+  --- Register an item in the shared Lux Tools menu. \\
 \tool{set\_theme}     & \texttt{(theme)} --- Apply display theme.
   Routes through \msg{QueryRequest}. \\
 \midrule
-\multicolumn{2}{l}{\textbf{Configuration}} \\
+\multicolumn{2}{l}{\textbf{Display configuration}} \\
 \midrule
-\tool{display\_mode}  & \texttt{()} --- Read current display mode
-  (y/n); advisory L3 signal for consumer plugins. \\
-\tool{set\_display\_mode} & \texttt{(mode)} --- Set display mode. \\
 \tool{set\_window\_settings} & \texttt{(opacity?, font\_scale?,
   decorated?, fps\_idle?)} --- Configure display window appearance
   and idle frame rate. \\
 \tool{set\_frame\_state} & \texttt{(frame\_id, minimized?)}
   --- Control frame state (minimize/restore). \\
 \midrule
-\multicolumn{2}{l}{\textbf{Introspection (legacy ad-hoc messages)}} \\
+\multicolumn{2}{l}{\textbf{Display introspection}} \\
 \midrule
 \tool{inspect\_scene} & \texttt{(scene\_id)} --- Element tree for a
-  scene.  Implementation routes through the generic
-  \msg{QueryRequest} envelope; the \msg{IntrospectRequest} message
-  type remains in the protocol for backward compatibility. \\
+  scene.  The MCP helper routes through \msg{QueryRequest}; the
+  legacy \msg{IntrospectRequest} message remains in the wire protocol
+  for compatibility. \\
 \tool{list\_scenes}   & \texttt{()} --- All active scenes plus
-  frame summaries.  Same dual-path treatment as
-  \tool{inspect\_scene}. \\
-\tool{screenshot}     & \texttt{()} --- Capture display as a PNG;
-  returns the file path. \\
-\midrule
-\multicolumn{2}{l}{\textbf{Introspection (generic query path)}} \\
-\midrule
+  frame summaries.  The MCP helper also routes through
+  \msg{QueryRequest}. \\
+\tool{screenshot}     & \texttt{()} --- Intended to capture the
+  display as a PNG.  The wire protocol retains a dedicated
+  \msg{ScreenshotRequest}/\msg{ScreenshotResponse} path; the current
+  MCP helper is transitional and still reaches the display through the
+  query surface. \\
 \tool{get\_display\_info} & \texttt{()} --- Display dimensions,
   frame count, client count, FPS, uptime, PID. \\
 \tool{get\_window\_settings} & \texttt{()} --- Opacity, font scale,
@@ -1143,18 +1111,35 @@ generic \msg{QueryRequest} envelope (see
 \tool{list\_errors}   & \texttt{(count?)} --- Recent error log
   entries.  Reads \texttt{QueryDispatcher.\_recent\_errors} (max
   100). \\
+\midrule
+\multicolumn{2}{l}{\textbf{Per-repo config helpers}} \\
+\midrule
+\tool{display\_mode}  & \texttt{(repo)} --- Read the repo-local
+  display mode from \texttt{<repo>/.punt-labs/lux.md}. \\
+\tool{set\_display\_mode} & \texttt{(mode, repo)} --- Write the
+  repo-local display mode and eagerly connect when enabling. \\
+\midrule
+\multicolumn{2}{l}{\textbf{Session pub-sub helpers}} \\
+\midrule
+\tool{subscribe}      & \texttt{(topic)} --- Subscribe the calling
+  session to a topic within its own scope. \\
+\tool{unsubscribe}    & \texttt{(topic)} --- Remove the calling
+  session's subscription to a topic. \\
+\tool{publish}        & \texttt{(topic, payload?)} --- Fan out a
+  business event to subscribers in the calling session's scope. \\
+\tool{recv}           & \texttt{(timeout?)} --- Wait for the next
+  session-scoped business event.  This is \emph{not} the display UI
+  interaction stream. \\
 \bottomrule
 \end{longtable}
-\end{center}
 
-The introspection-api proposal targets fourteen query methods (see
-\texttt{introspection-api.md} Section 2 for the full inventory).
-Twelve are wired and live; \texttt{screenshot} is registered but
-its handler raises and routes to the dedicated
-\msg{ScreenshotRequest} path; one op from the inventory remains
-unimplemented.
+The introspection surface is split between the generic
+\msg{QueryRequest}/\msg{QueryResponse} envelope and a small number of
+older dedicated request/response pairs kept for compatibility.
+At the protocol level, \texttt{screenshot} still expects the dedicated
+\msg{ScreenshotRequest}/\msg{ScreenshotResponse} path.
 
-Six are built into \texttt{QueryDispatcher} at construction time:
+Six handlers are built into \texttt{QueryDispatcher} at construction time:
 \texttt{inspect\_scene}, \texttt{list\_scenes}, \texttt{list\_clients},
 \texttt{list\_menus}, \texttt{list\_recent\_events},
 \texttt{list\_errors}.
@@ -1199,117 +1184,46 @@ state to the active tab for backward compatibility.  A specification
 update to model the full multi-scene state is pending.
 
 % ===================================================================
-\section{Domain Model Gap}\label{sec:domain-model-gap}
-% ===================================================================
-
-The companion document \texttt{docs/architecture/domain-model.md}
-names the north-star OO domain --- Element, Scene, Client, Update,
-Event, Port --- with structural invariants (identity unique within a
-Scene; ownership immutable; clients mutate only what they own;
-acyclic tree; typed property updates; transactional disconnection).
-
-The shipped system implements a subset of those invariants in
-procedural form.  Specifically:
-
-\begin{itemize}
-  \item Elements are \texttt{frozen=True} dataclasses with public
-    fields.  The target makes them stateful objects with validated
-    mutators.
-  \item Updates are coarse: \msg{SceneMessage} replaces the whole
-    tree; \msg{UpdateMessage} carries a list of patches that the
-    \texttt{SceneManager} applies imperatively.  The target
-    decomposes into five typed semantic primitives
-    (\texttt{AddElement}, \texttt{RemoveElement},
-    \texttt{SetProperty}, \texttt{ReparentElement},
-    \texttt{ReplaceElement}).
-  \item Ownership is tracked in \texttt{SceneManager.\_scene\_to\_owner}
-    by client fd.  Cross-client mutations within the same scene are
-    not currently rejected.  The target enforces ownership at the
-    domain layer.
-  \item Events are limited to \msg{InteractionMessage} (input
-    callbacks).  The target emits success and failure events for
-    every domain mutation, replayable by Port subscribers.
-\end{itemize}
-
-The draw-command surface (PR \#176, \#177) is the first piece that
-moves toward the north star: typed value classes
-(\texttt{Point2}, \texttt{Color}, \texttt{Thickness},
-\texttt{Radius}, \texttt{Rounding}), decoder at the wire boundary,
-records that own their \texttt{to\_wire} / \texttt{from\_wire}.
-The protocol-codec split into family modules with
-\texttt{ElementCodec} and \texttt{MessageRegistry} (PR \#157,
-\#169, \#170, \#172) is the second.  The remaining work is tracked
-as bead \texttt{lux-x4kb}: per-kind codecs still live as
-module-level functions rather than methods on the dataclasses.
-
-The OO ratchet (\texttt{make check-oo}) enforces the local rule that
-every commit improves OO scores on touched files.  Aggregate scores
-as of v0.18.0: \texttt{method\_ratio} 0.68 (target $\geq$ 0.80),
-\texttt{max\_complexity} 19 (target $\leq$ 10),
-\texttt{module\_size} $\sim$1{,}400 max (target $\leq$ 300) ---
-\texttt{display/server.py} is the largest remaining decomposition
-target.  See \texttt{docs/oo-refactor/resume.md} for the per-file
-breakdown.
-
-% ===================================================================
 \section{Test Architecture}
 % ===================================================================
 
-The default \texttt{pytest} run collects 853 tests (out of 869
-collected; 16 marker-gated tests are deselected).  Counts below are
-from \texttt{pytest --collect-only}.
+The test suite is broad and layered; the exact count changes regularly,
+so this document records the coverage shape rather than a brittle
+inventory snapshot.
 
-\begin{center}
-\begin{tabular}{lrl}
-\toprule
-\textbf{Test File} & \textbf{Count} & \textbf{What It Tests} \\
-\midrule
-\texttt{test\_protocol.py}            & 202 & Serialization, deserialization, framing \\
-\texttt{test\_display\_partition.py}  & 107 & TTF-derived partitions from Z spec \\
-\texttt{test\_tools.py}               & 83  & MCP tool behavior (mocked client) \\
-\texttt{test\_display\_state.py}      & 67  & State machine logic (no ImGui) \\
-\texttt{test\_display\_refinement.py} & 28  & Abstraction function commutativity \\
-\texttt{test\_show.py}                & 29  & CLI \texttt{show} subcommand \\
-\texttt{test\_draw\_commands.py}      & 27  & Typed draw-command records \\
-\texttt{test\_display\_client.py}     & 26  & High-level client library \\
-\texttt{test\_draw\_decoder.py}       & 24  & Draw-command dispatch on wire \texttt{cmd} \\
-\texttt{test\_draw\_values.py}        & 24  & Point2/Color/Thickness validation \\
-\texttt{test\_query.py}               & 23  & Query envelope round-trips \\
-\texttt{test\_draw\_wire.py}          & 23  & WireContext require-helpers \\
-\texttt{test\_scene\_manager.py}      & 23  & SceneManager state transitions \\
-\texttt{test\_runtime.py}             & 22  & CodeExecutor lifecycle \\
-\texttt{test\_paths.py}               & 19  & Socket discovery, PID, auto-spawn \\
-\texttt{test\_hooks.py}               & 18  & Hook handler output \\
-\texttt{test\_draw\_bounds.py}        & 15  & Radius/Rounding bounds \\
-\texttt{test\_config.py}              & 12  & Config read/write \\
-\texttt{test\_remote.py}              & 12  & mcp-proxy and remote transport \\
-\texttt{test\_cli.py}                 & 11  & CLI command smoke tests \\
-\texttt{test\_paths\_hub.py}          & 11  & Hub socket and PID paths \\
-\texttt{test\_service.py}             & 11  & Daemon lifecycle \\
-\texttt{test\_unit.py}                & 6   & Misc unit tests \\
-\texttt{test\_hub.py}                 & 6   & WebSocket session hub \\
-\texttt{test\_menu\_manager.py}       & 6   & MenuManager registration \\
-\texttt{test\_table\_renderer.py}     & 6   & Table renderer pure logic \\
-\texttt{test\_query\_dispatcher.py}   & 5   & QueryDispatcher routing \\
-\texttt{test\_socket\_server.py}      & 5   & SocketServer non-blocking IO \\
-\texttt{test\_version.py}             & 2   & Version string consistency \\
-\midrule
-\multicolumn{3}{l}{\textbf{Marker-gated (not in default \texttt{pytest} run)}} \\
-\midrule
-\texttt{test\_integration.py}         & 8   & Socket IPC, protocol framing (real sockets) \\
-\texttt{test\_query.py} (integration) & 5   & Query end-to-end with real socket \\
-\texttt{test\_e2e.py}                 & 3   & Full display server lifecycle (requires GPU) \\
-\midrule
-\textbf{Total}                        & 869 & (853 default + 16 marker-gated) \\
-\bottomrule
-\end{tabular}
-\end{center}
+\begin{itemize}
+  \item \textbf{Protocol and codec tests}: framing, serialization,
+    typed draw-command decode, value validation, and query envelopes.
+    Representative files:
+    \texttt{test\_protocol.py}, \texttt{test\_draw\_*},
+    \texttt{test\_query.py}.
+  \item \textbf{Display-state and manager tests}:
+    pure state transitions for the display server without a live GUI.
+    Representative files: \texttt{test\_display\_state.py},
+    \texttt{test\_scene\_manager.py},
+    \texttt{test\_query\_dispatcher.py},
+    \texttt{test\_socket\_server.py}.
+  \item \textbf{Tooling and client tests}: \texttt{test\_tools.py},
+    \texttt{test\_display\_client.py}, \texttt{test\_show.py},
+    \texttt{test\_cli.py}, \texttt{test\_paths.py},
+    \texttt{test\_service.py}, \texttt{test\_remote.py}, and
+    \texttt{test\_config.py} cover the MCP surface, client wrappers,
+    CLI, process helpers, remote config, and repo-local configuration.
+  \item \textbf{Formal-model alignment}:
+    \texttt{test\_display\_refinement.py} and
+    \texttt{test\_display\_partition.py} tie the concrete Python
+    implementation back to the Z specification.
+  \item \textbf{Marker-gated integration and e2e tests}:
+    \texttt{test\_integration.py}, the integration-marked cases in
+    \texttt{test\_query.py}, and \texttt{test\_e2e.py} exercise real
+    sockets and, for the e2e path, a live display environment.
+\end{itemize}
 
-Quality gates: \texttt{ruff} (lint + format), \texttt{mypy} (strict),
-\texttt{pyright} (strict), \texttt{pytest} (all markers except
-integration/e2e), \texttt{check-oo} (OO ratchet against
-\texttt{.oo-baseline.json}), \texttt{check-suppressions} (suppression
-ratchet).  Zero violations required.  See \texttt{Makefile} for the
-exact targets; \texttt{make check} is the composite gate.
+Quality gates are driven by the Makefile: \texttt{ruff} (lint +
+format), \texttt{mypy} (strict), \texttt{pyright} (strict),
+\texttt{pytest} (default marker set), \texttt{check-oo} (OO ratchet
+against \texttt{.oo-baseline.json}), and
+\texttt{check-suppressions}.  \texttt{make check} is the composite
+gate.
 
 \end{document}

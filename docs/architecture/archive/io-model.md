@@ -1,10 +1,16 @@
-# I/O Model — Decoder, Element, Renderer
+# Archived: I/O Model — Decoder, Element, Renderer
+
+> Archived document. This is not a primary architecture source anymore.
+> Its useful target-state content was folded into
+> [target/target.md](../target/target.md),
+> [target/topology.md](../target/topology.md), and
+> [target/ui-model.md](../target/ui-model.md).
 
 **Author:** Claude Agento (claude)
 **Date:** 2026-05-23
-**Status:** TARGET (not yet implemented).
-**Companion docs:** [`domain-model.md`](domain-model.md) (the domain north star),
-[`x11-model.md`](x11-model.md) (the process topology),
+**Status:** ARCHIVED.
+**Companion docs:** [`../target/ui-model.md`](../target/ui-model.md) (the target UI model),
+[`../target/topology.md`](../target/topology.md) (the target topology),
 [`migration-plan.md`](../oo-refactor/migration-plan.md) (how we get there).
 
 This document is the target architecture for how data flows IN to the Lux
@@ -1106,8 +1112,8 @@ These are decided later, when first concrete need arises.
 
 ## References
 
-- [`domain-model.md`](domain-model.md) — the Element / Display / Update / Event vocabulary this builds on.
-- [`x11-model.md`](x11-model.md) — the process split that runs the Display in its own process.
+- [`../target/ui-model.md`](../target/ui-model.md) — the target UI model this archive builds on.
+- [`../target/topology.md`](../target/topology.md) — the target process split this archive assumed.
 - [`migration-plan.md`](../oo-refactor/migration-plan.md) — the migration order.
 - Gamma, Helm, Johnson, Vlissides, *Design Patterns* — Composite (the
   Element/Renderer pattern), Template Method (the `Element.render`

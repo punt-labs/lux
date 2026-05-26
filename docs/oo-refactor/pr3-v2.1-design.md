@@ -1,5 +1,8 @@
 # PR 3 v2.1 — production-integration map for the io-model spike
 
+> **Status note:** point-in-time migration design. The canonical target
+> architecture now lives under `docs/architecture/target/`.
+
 **Status:** design
 **Bead:** `lux-c2c8`
 **Plan reference:** `docs/oo-refactor/migration-plan.md` PR 3 (v2.1)

@@ -18,18 +18,23 @@
 > **Deprecated by v2:** §§8–9 (wire-layer + display-server bypass with
 > NullRendererFactory bake-in). v2 ships per-kind Encoder + Connection
 > abstraction from day one; the bypass workaround does not exist.
+>
+> **Architecture note:** the canonical target architecture now lives under
+> `docs/architecture/target/`. This document references the older
+> `io-model.md` design; the archived version now lives at
+> `docs/architecture/archive/io-model.md`.
 
 **Bead:** `lux-c2c8` (description updated to v2 scope 2026-05-23)
 **Author:** Raymond H (`rmh`) — Python implementation specialist
 **Evaluator:** Guido v. R. (`gvr`)
 **Mission:** `m-2026-05-23-003` (closed as ESCALATED, 2026-05-23, after PR #189)
-**Status:** Round 1 design under v1 scope — **superseded** by the v2 plan adopted in PR #189. Retained for partial reference; a fresh design mission against the v2 scope is the active artifact.
+**Status:** Round 1 design under v1 scope — **superseded** by the v2 plan adopted in PR #189. Retained for partial reference only; the later v2 design work replaced it.
 
 ## 0. What this document is (and isn't)
 
 This is a **design doc**. It proposes the file layout, class signatures,
 constructor shapes, internal commit sequence, and test plan that realize the
-io-model architecture committed in `docs/architecture/io-model.md` and
+io-model architecture committed in `docs/architecture/archive/io-model.md` and
 `DESIGN.md` DES-031 / DES-032 / DES-033 for the PR 3 scope (io-model
 infrastructure + `TextElement` migration).
 
@@ -94,7 +99,7 @@ Quoted from `punt-labs/.claude/rules/python-*.md`:
 
 ### 0.2 Architecture authorities cited verbatim
 
-Quoted from `docs/architecture/io-model.md`:
+Quoted from `docs/architecture/archive/io-model.md`:
 
 > **The Element is a domain object.** State, behavior, composition. Not a
 > transport struct, not a render widget.
@@ -226,7 +231,7 @@ These live under `protocol/` (NOT under `tests/`) because they are
 production-shipped surfaces consumed by tests AND by any non-display
 tier — the `NullRendererFactory` returned by `NullRenderer`'s sibling
 factory is what `hub_display` and applet-tier Element constructors
-inject when no rendering happens locally (per io-model.md §"What this
+inject when no rendering happens locally (per archived io-model.md §"What this
 means for `renderer_factory` injection on Element"). They are not
 test-only code; the name `renderers_test.py` is the io-model's surface
 discriminator (RECORDING/NULL are surfaces alongside IMGUI), not a
@@ -931,7 +936,8 @@ forces push back:
    wanted hashability, we couldn't include them in the hash without
    coupling identity to the factory instance — which would defeat
    the point ("the same TextElement on hub and display tiers is the
-   same Element" per io-model.md §"Tier-local Element representation").
+   same Element" per the archived io-model design's
+   §"Tier-local Element representation").
 2. **Snapshot parity does NOT need element hashability.**
    `make snapshot-parity` (PR 0's CI gate) replays MCP tool calls and
    compares the resulting wire output dict-for-dict. The byte-identity
@@ -2522,13 +2528,16 @@ Per the mission scope, the following are explicitly NOT in PR 3:
 
 ## 15. Escalations
 
-None at design time. The architecture in `io-model.md`,
-`domain-model.md`, and `DESIGN.md` DES-031/032/033 is internally
+None at design time. The architecture in
+`docs/architecture/archive/io-model.md`,
+`docs/architecture/target/ui-model.md`, and `DESIGN.md` DES-031/032/033 is
+internally
 consistent and the design above realizes it cleanly. Two areas were
 near-escalations during design:
 
-1. **`renderer_factory` is unused on hub/applet tiers** (per io-model
-   §"What this means for renderer_factory injection on Element"). The
+1. **`renderer_factory` is unused on hub/applet tiers** (per the archived
+   io-model design's §"What this means for renderer_factory injection on
+   Element"). The
    constructor parameter is "dead weight" on those tiers. The
    resolution: io-model already acknowledges this and accepts the
    uniformity cost ("the injected factory is dead weight but keeps

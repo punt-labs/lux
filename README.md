@@ -7,9 +7,9 @@
 [![PyPI](https://img.shields.io/pypi/v/punt-lux)](https://pypi.org/project/punt-lux/)
 [![Python](https://img.shields.io/pypi/pyversions/punt-lux)](https://pypi.org/project/punt-lux/)
 
-Lux gives AI agents a window they can draw into. It runs an ImGui display server on the local machine, connected by Unix socket IPC. Agents send JSON element trees via MCP tools; the display renders them at 60fps. The protocol is the API surface --- if an agent can describe it as JSON, Lux renders it.
+Lux gives agents and apps a shared visual surface. The intended architecture is a hub/display split: clients send UI descriptions to `luxd`, the Hub owns authoritative element state and behavior, and the Display renders a replica of the current scene while forwarding user interactions back to the Hub.
 
-The design follows Smalltalk's Morphic model: every visible element is a composable, nestable object. Windows contain tabs, tabs contain groups, groups contain buttons and plots. The long-term goal is a live environment where the MCP server is the message bus and Lux is the rendering layer, with the agent as the programmer at the keyboard.
+The design draws on X11's client/server split and Smalltalk-style live introspection. MCP is one gateway into Lux, not the whole architecture. If you want the short version of the rewrite target, start with [`docs/architecture/target/target.md`](docs/architecture/target/target.md). If you need help navigating the docs, use [`docs/README.md`](docs/README.md).
 
 **Platforms:** macOS, Linux
 
@@ -229,11 +229,12 @@ All elements with an `id` support an optional `tooltip` field (string shown on h
 ## Architecture
 
 ```text
-Agent (Claude Code)
-  │ MCP (stdio)
+Agent or app
+  │ MCP or direct Hub API
   ▼
-lux serve (FastMCP)
-  │ Unix socket (JSON frames)
+luxd (Hub)
+  │ authoritative state + introspection
+  │ scene replicas + remote invocations
   ▼
 lux display (ImGui + OpenGL)
   │ renders at 60fps
@@ -241,16 +242,18 @@ lux display (ImGui + OpenGL)
 Window on screen
 ```
 
-The display server and MCP server are separate processes. The MCP server is a thin adapter that translates MCP tool calls into protocol messages sent over the Unix socket. The display server runs the ImGui render loop, polls the socket each frame via `select()` with zero timeout, and renders whatever scene the agent last sent.
-
-Client code can also use `DisplayClient` directly as a Python library, bypassing MCP. The demos do this.
+The Hub is the single source of truth for element state, ownership, and handler dispatch. The Display is a rendering replica: it paints the current scene and forwards interactions back to the Hub, which runs the real handler and re-pushes updated state. MCP is one entry point, not the only one.
 
 ## Documentation
 
-[Architecture (PDF)](docs/architecture/system.pdf) |
+[Docs Guide](docs/README.md) |
+[Target Architecture](docs/architecture/target/target.md) |
+[Target Topology](docs/architecture/target/topology.md) |
+[Target UI Model](docs/architecture/target/ui-model.md) |
+[Target Introspection](docs/architecture/target/introspection-api.md) |
+[Current Architecture](docs/architecture/system.tex) |
 [Design Log](DESIGN.md) |
-[Changelog](CHANGELOG.md) |
-[Contributing](CONTRIBUTING.md)
+[Changelog](CHANGELOG.md)
 
 ## Development
 

@@ -1,6 +1,6 @@
 # io-model spike v1 — minimal three-process realization
 
-Demonstrates `docs/architecture/io-model.md` end-to-end in the smallest spec that exercises all three roundtrip kinds.
+Demonstrates `docs/architecture/archive/io-model.md` end-to-end in the smallest spec that exercises all three roundtrip kinds.
 
 ## Canonical vocabulary
 
@@ -24,7 +24,7 @@ This spike is documentation. The verbs are precise; every log line, every demo s
 ## What this spike proves
 
 1. **Three tiers, three OS processes.** Agent, Hub, Display. Real Unix-socket IPC between them. Each tier holds its own `Display` instance with its own per-tier Element subtree (instantiated from decoded wire dicts). No shared memory.
-2. **IPC carries Updates and Events. Not render calls.** Per `io-model.md` §"Where rendering happens": "No render call crosses any IPC boundary."
+2. **IPC carries Updates and Events. Not render calls.** Per `docs/architecture/archive/io-model.md` §"Where rendering happens": "No render call crosses any IPC boundary."
 3. **Hub accepts; DISP mirrors and renders.** Hub gets `NullRendererFactory` and has no render loop — its role is to accept and propagate. DISP gets the chosen surface factory and runs the render loop. AGNT is a pure subscriber/sender.
 4. **Two output surfaces (selectable at DISP startup).** `TextSurface` prints scenes to stdout each tick; `RecordingSurface` appends JSONL to a log file each tick. Selected via `LUX_SURFACE=text|recording`. Same Element classes, same Renderer Protocol, different per-kind renderers.
 5. **Four roundtrip kinds, end-to-end:**

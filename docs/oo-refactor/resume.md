@@ -3,13 +3,16 @@
 **As of:** PR 2 (lux-i84j, 2026-05-23) — branch `feat/pr2-inputs`
 **Prior:** PR 1 (lux-b14i, 2026-05-22), PR #182 (2026-05-22), through PR #178 (2026-05-21), PR #165 (2026-05-16)
 
-> **Active plan:** `migration-plan.md` is the executable source of truth for
-> the path to the `domain-model.md` target. Method B-amended was selected
-> after architect review (3/3 reject Method C, 3/3 iterate Method A, 2/3
-> approve B). The architectural target itself is **not under review** — see
-> `DESIGN.md` DES-031 for the grounding decision. This resume file remains
-> the snapshot of current state and ratchet scores; the plan file is the
-> sequence of work.
+> **Status note:** historical/transitional migration material. The canonical
+> target architecture now lives under `docs/architecture/target/`.
+>
+> **Planning note:** `migration-plan.md` captures the sequencing that guided
+> the path toward the `target/ui-model.md` target. Method B-amended was
+> selected after architect review (3/3 reject Method C, 3/3 iterate Method A,
+> 2/3 approve B). The architectural target itself is **not under review** —
+> see `DESIGN.md` DES-031 for the grounding decision. This resume file remains
+> a snapshot of current state and ratchet scores; the plan file remains
+> historical migration context, not the canonical architecture source.
 
 ## Goal
 
@@ -17,7 +20,7 @@ Transform Lux from a procedural monolith to a well-factored OO design with
 domain-aligned packages, proper encapsulation, and low coupling. Work order:
 package → module → class → method.
 
-Target state is named formally in `docs/architecture/domain-model.md`.
+Target state is named formally in `docs/architecture/target/ui-model.md`.
 
 ## Current OO scores
 
@@ -59,7 +62,7 @@ families end-to-end.
 | #175 | — | Session housekeeping (gitignore, submodule, design doc) |
 | **#176** | lux-4n1b | **Typed `DrawCommand` decoder; remove silent `.get()` defaults from renderer** |
 | #177 | — | Rename `*Cmd` records to nouns (they aren't commands) |
-| **#178** | — | **`docs/architecture/domain-model.md` — north star** |
+| **#178** | — | **`docs/architecture/target/ui-model.md` — north star** |
 | **PR 0** | lux-edvm | **Characterization snapshot baseline + `make snapshot-parity` CI gate** |
 | **PR 1** | lux-b14i | **Domain layer (`domain/`) + basics family migration end-to-end.** `ClientId` / `SceneId` / `ElementId` NewTypes, `Element` Protocol, `Update` / `Event` / `Error` sum types, `Display.apply(client, update) -> Event \| Error` (PY-EH-1 validate-before-mutate, PY-EH-8 never None).  Codec methods on every basics class; module-level `_to_dict_*` / `_from_dict_*` helpers deleted (PY-OO-7).  Per-kind renderer classes (`text_renderer.py`, `image_renderer.py`, etc.) replace the basics branches of `_RENDERERS` dispatch.  Basics-only scenes routed through `Display.apply` alongside SceneManager in the hub.  `basics.py` split into one-class-per-module form per PY-OO-2.  `make snapshot-parity` green throughout. |
 | **PR 2** | lux-i84j | **Inputs family migration end-to-end.** Nine input classes (Button, Slider, Checkbox, Combo, InputText, InputNumber, Radio, ColorPicker, Selectable) split into per-kind modules with codec methods on the class; `inputs.py` rebuilt as `InputsRegistry` aggregator (311→69 lines, 9→1 classes, method_ratio 0→1.0). Nine per-kind renderer classes in `display/renderers/` replace the inputs branches of `_RENDERERS` (element_renderer.py shrinks 869→638). `DomainPump` widened from basics to native kinds (`_BASICS_KINDS + _INPUTS_KINDS = _NATIVE_KINDS`); inputs scenes route through `Display.apply`. New `Display.interact(client, interaction) -> Event \| Error` for user-driven events; `domain/interaction.py::ButtonClicked` and `domain/interaction_event.py::ButtonPressed` ship as the first variant. `DomainPump.route_interaction` is the production caller; wire button clicks reach `Display.interact` via `DisplayServer._emit_event` forwarding. `SceneManager` branches for the nine inputs kinds deleted; `WidgetValueProvider` Protocol owns the per-class `widget_value()` accessor (six implementors + one — `InputNumber` — added post-review). `make snapshot-parity` green; +37 tests including the deferred Button-interaction-routing acceptance test. |
@@ -76,7 +79,7 @@ three metrics remain unmet (concentrated in `element_renderer.py`,
 |------|--------|-------------|
 | **2.x** display.py decomposition | Partial | Classes extracted (TableRenderer, ElementRenderer, MenuManager, SceneManager, SocketServer, QueryDispatcher) but `display/server.py` is **still ~1,400 lines** — Phase 2 was structural-split-only, not size-targeted. |
 | **3.x** tools.py refactor | Partial | `_query_tool` decorator in place. `ToolState` class not done (was optional). |
-| **4.1** Remove `inspect_scene` / `list_scenes` / `screenshot` and their queues | **Superseded** | `docs/architecture/introspection-api.md` (2026-05-12) reverses this — keep the three ops, generalise the pattern through a `QueryRequest` / `QueryResponse` envelope and a single dispatcher, grow to 15+ ops. Implementation of the introspection-api pattern is the live work item, not removal. |
+| **4.1** Remove `inspect_scene` / `list_scenes` / `screenshot` and their queues | **Superseded** | `docs/architecture/target/introspection-api.md` captures the target verification/control surface — keep the three ops, generalise the pattern through a `QueryRequest` / `QueryResponse` envelope, and grow the inspection surface. |
 | **5.2** `SessionHub` class in `hub.py` | **Open** | `hub.py` is 5 module-level functions, zero classes. |
 | **5.3** `DoctorChecker` class in `__main__.py` | **Open** | `__main__.py` is 576 lines, 23 functions, zero classes. |
 | Size targets | **Open** | None of the three largest modules meets the ≤ 300 `module_size` target. `oo_score.py` reports 1,203 / ~999 / ~488 for `display/server.py` / `element_renderer.py` / `__main__.py`; raw `wc -l` is ~1,400 / ~1,100 / ~580. |
@@ -92,7 +95,7 @@ three metrics remain unmet (concentrated in `element_renderer.py`,
 | `SessionHub` | `hub.py` | **Not created** — `hub.py` is module-level functions only |
 | `DoctorChecker` | `__main__.py` | **Not created** — `__main__.py` is module-level functions only |
 
-## Open work from `domain-model.md`
+## Open work from the target UI model
 
 | Stage | What it means | Status |
 |-------|---------------|--------|
@@ -107,11 +110,11 @@ three metrics remain unmet (concentrated in `element_renderer.py`,
 
 | Doc | What it answers |
 |-----|-----------------|
-| `docs/architecture/system.tex` | Comprehensive technical architecture (canonical) |
-| `docs/architecture/domain-model.md` | What the code holds — Composite tree, Client, Update, Event, Port |
-| `docs/architecture/x11-model.md` | Where the code runs — three-tier process model |
-| `docs/architecture/luxd-impl.md` | How the hub is built — MCP proxy spec |
-| `docs/architecture/introspection-api.md` | What introspection ops exist and how they dispatch |
+| `docs/architecture/system.tex` | Current/intermediate architecture |
+| `docs/architecture/target/ui-model.md` | What the target code holds — authoritative UI model, handlers, observers |
+| `docs/architecture/target/topology.md` | Where the target code runs — Hub/Display topology |
+| `docs/architecture/luxd-impl.md` | Historical hub migration note |
+| `docs/architecture/target/introspection-api.md` | What the target verification surface should expose |
 | `docs/oo-refactor/oo-class-design.md` | Class-by-class OO design (2 classes still open) |
 | `docs/oo-refactor/oo-refactoring-plan.md` | Executable refactoring plan (several steps open per above) |
 
@@ -125,7 +128,7 @@ three metrics remain unmet (concentrated in `element_renderer.py`,
 2. **PR 4 — `graphics` + `table` + `plot` families** — finish the
    `_RENDERERS` dispatch retirement. `element_renderer.py` becomes a
    dispatcher-only module.
-3. **Implement `introspection-api.md` generic pattern** — `QueryRequest` /
+3. **Implement the target introspection generic pattern** — `QueryRequest` /
    `QueryResponse` envelope + single `_handle_query` dispatcher in
    `display/server.py`. Migrates the existing three ops (`inspect_scene`,
    `list_scenes`, `screenshot`) to the pattern; opens the door to the other
