@@ -137,7 +137,7 @@ class ElementRenderer:
         self._markdown_renderer = MarkdownRenderer()
         self._button_renderer = ButtonRenderer()
         self._slider_renderer = SliderRenderer(widget_state, emit_event)
-        self._checkbox_renderer = CheckboxRenderer(widget_state, emit_event)
+        self._checkbox_renderer = CheckboxRenderer(widget_state)
         self._combo_renderer = ComboRenderer(widget_state, emit_event)
         self._input_text_renderer = InputTextRenderer(widget_state, emit_event)
         self._input_number_renderer = InputNumberRenderer(widget_state, emit_event)
