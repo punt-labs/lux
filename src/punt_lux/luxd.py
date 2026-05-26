@@ -239,7 +239,15 @@ def main() -> None:
     import argparse
 
     raw_level = os.environ.get("LUX_LOG_LEVEL", "DEBUG").upper()
-    log_level = _LOG_LEVELS.get(raw_level, logging.DEBUG)
+    log_level = _LOG_LEVELS.get(raw_level)
+    if log_level is None:
+        import sys
+
+        print(  # noqa: T201 — before basicConfig, logging unavailable
+            f"WARNING: LUX_LOG_LEVEL={raw_level!r} is not valid, defaulting to DEBUG",
+            file=sys.stderr,
+        )
+        log_level = logging.DEBUG
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",

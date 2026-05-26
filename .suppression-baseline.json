@@ -1,7 +1,7 @@
 {
-  "total": 126,
+  "total": 127,
   "by_category": {
-    "noqa": 41,
+    "noqa": 42,
     "type_ignore": 10,
     "pylint_disable": 2,
     "pyright_ignore": 11,
@@ -47,7 +47,7 @@
       "noqa": 1
     },
     "src/punt_lux/luxd.py": {
-      "noqa": 1,
+      "noqa": 2,
       "type_ignore": 1
     },
     "src/punt_lux/paths.py": {
@@ -92,5 +92,5 @@
       "type_ignore": 1
     }
   },
-  "updated_at": "2026-05-26T21:20:59Z"
+  "updated_at": "2026-05-26T22:06:16Z"
 }
