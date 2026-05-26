@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
 import sys
@@ -11,6 +12,14 @@ import typer
 
 from punt_lux import __version__
 from punt_lux.show import show_app
+
+_LOG_LEVELS: dict[str, int] = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
 
 
 def _version_callback(value: bool) -> None:
@@ -98,15 +107,7 @@ def display(
     import os
 
     raw_level = os.environ.get("LUX_LOG_LEVEL", "INFO").upper()
-    log_level = getattr(logging, raw_level, None)
-    if log_level is None:
-        import sys
-
-        print(
-            f"WARNING: LUX_LOG_LEVEL={raw_level!r} is not valid, defaulting to INFO",
-            file=sys.stderr,
-        )
-        log_level = logging.INFO
+    log_level = _LOG_LEVELS.get(raw_level, logging.INFO)
     logging.basicConfig(
         filename=str(log_path),
         level=log_level,

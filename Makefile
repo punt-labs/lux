@@ -90,11 +90,11 @@ restart: install ## Install + restart luxd and display (full reload cycle)
 		pkill -f "^Lux$$" 2>/dev/null || true; \
 	fi
 	@sleep 1
-	@# Start luxd (stderr → .tmp/luxd.log for diagnostics; DEBUG for hub dispatch)
-	@PYTHONUNBUFFERED=1 luxd --port $(LUX_PORT) 2>.tmp/luxd.log & echo $$! > $(LUX_PID_FILE)
+	@# Start luxd (LUX_LOG_LEVEL controls verbosity; output → .tmp/luxd.log)
+	@PYTHONUNBUFFERED=1 LUX_LOG_LEVEL=$${LUX_LOG_LEVEL:-DEBUG} luxd --port $(LUX_PORT) >.tmp/luxd.log 2>&1 & echo $$! > $(LUX_PID_FILE)
 	@sleep 1
-	@# Start display
-	@lux display & echo $$! > $(DISPLAY_PID_FILE)
+	@# Start display (DEBUG so @trace output appears in display.sock.log)
+	@LUX_LOG_LEVEL=DEBUG lux display & echo $$! > $(DISPLAY_PID_FILE)
 	@sleep 1
 	@echo "luxd pid=$$(cat $(LUX_PID_FILE)) port=$(LUX_PORT), display pid=$$(cat $(DISPLAY_PID_FILE))"
 

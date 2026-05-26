@@ -11,6 +11,7 @@ from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.scene import WidgetState
+from punt_lux.tracing import trace
 
 __all__ = ["CheckboxRenderer"]
 
@@ -40,6 +41,7 @@ class CheckboxRenderer:
     def widget_state(self, value: WidgetState) -> None:
         self._widget_state = value
 
+    @trace
     def render(self, elem: CheckboxElement) -> None:
         eid = elem.id
         label = elem.label
