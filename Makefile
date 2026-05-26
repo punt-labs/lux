@@ -69,19 +69,15 @@ build: ## Build wheel and sdist
 install: build ## Build and install locally (with display extras)
 	uv tool install --force "$$(ls dist/punt_lux-*.whl)[display]"
 
-LUX_PID_FILE := .tmp/.luxd.pid
+LUX_LAUNCHD_LABEL := com.punt-labs.lux
 DISPLAY_PID_FILE := .tmp/.lux-display.pid
-LUX_PORT ?= 8430
 
-restart: install ## Install + restart luxd and display (full reload cycle)
+restart: install ## Install + restart luxd (via launchd) and display
 	@mkdir -p .tmp
-	@# Kill old luxd
-	@if [ -f $(LUX_PID_FILE) ]; then \
-		kill $$(cat $(LUX_PID_FILE)) 2>/dev/null || true; \
-		rm -f $(LUX_PID_FILE); \
-	else \
-		pkill -f "luxd.*--port $(LUX_PORT)" 2>/dev/null || true; \
-	fi
+	@# Restart luxd — launchd manages the daemon (KeepAlive: true)
+	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" 2>/dev/null || \
+		echo "warning: launchctl kickstart failed — luxd may not be a launchd service"
+	@sleep 1
 	@# Kill old display
 	@if [ -f $(DISPLAY_PID_FILE) ]; then \
 		kill $$(cat $(DISPLAY_PID_FILE)) 2>/dev/null || true; \
@@ -90,26 +86,16 @@ restart: install ## Install + restart luxd and display (full reload cycle)
 		pkill -f "^Lux$$" 2>/dev/null || true; \
 	fi
 	@sleep 1
-	@# Start luxd (LUX_LOG_LEVEL controls verbosity; output → .tmp/luxd.log)
-	@PYTHONUNBUFFERED=1 LUX_LOG_LEVEL=$${LUX_LOG_LEVEL:-DEBUG} luxd --port $(LUX_PORT) >.tmp/luxd.log 2>&1 & echo $$! > $(LUX_PID_FILE)
+	@# Start display
+	@LUX_LOG_LEVEL=$${LUX_LOG_LEVEL:-DEBUG} lux display & echo $$! > $(DISPLAY_PID_FILE)
 	@sleep 1
-	@# Start display (DEBUG so @trace output appears in display.sock.log)
-	@LUX_LOG_LEVEL=DEBUG lux display & echo $$! > $(DISPLAY_PID_FILE)
-	@sleep 1
-	@echo "luxd pid=$$(cat $(LUX_PID_FILE)) port=$(LUX_PORT), display pid=$$(cat $(DISPLAY_PID_FILE))"
+	@echo "luxd restarted via launchd, display pid=$$(cat $(DISPLAY_PID_FILE))"
 
 reload: install ## Install + restart luxd only (display keeps running)
-	@mkdir -p .tmp
-	@if [ -f $(LUX_PID_FILE) ]; then \
-		kill $$(cat $(LUX_PID_FILE)) 2>/dev/null || true; \
-		rm -f $(LUX_PID_FILE); \
-	else \
-		pkill -f "luxd.*--port $(LUX_PORT)" 2>/dev/null || true; \
-	fi
+	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" 2>/dev/null || \
+		echo "warning: launchctl kickstart failed — luxd may not be a launchd service"
 	@sleep 1
-	@luxd --port $(LUX_PORT) 2>.tmp/luxd.log & echo $$! > $(LUX_PID_FILE)
-	@sleep 1
-	@echo "luxd pid=$$(cat $(LUX_PID_FILE)) port=$(LUX_PORT) log=.tmp/luxd.log"
+	@echo "luxd restarted via launchd"
 
 clean: ## Remove build artifacts
 	rm -rf dist/ .tmp/

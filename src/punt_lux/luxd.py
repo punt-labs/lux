@@ -238,8 +238,8 @@ def main() -> None:
     """Entry point for the luxd binary."""
     import argparse
 
-    raw_level = os.environ.get("LUX_LOG_LEVEL", "WARNING").upper()
-    log_level = _LOG_LEVELS.get(raw_level, logging.WARNING)
+    raw_level = os.environ.get("LUX_LOG_LEVEL", "DEBUG").upper()
+    log_level = _LOG_LEVELS.get(raw_level, logging.DEBUG)
     logging.basicConfig(
         level=log_level,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
