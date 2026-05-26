@@ -109,7 +109,7 @@ class ClientRegistry:
         from punt_lux.domain.element_abc import Element as ElementABC
         from punt_lux.domain.hub import hub_display
         from punt_lux.domain.ids import ClientId, ElementId, SceneId
-        from punt_lux.domain.interaction import ButtonClicked
+        from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 
         scene_id = msg.scene_id
         element_id = msg.element_id
@@ -155,8 +155,6 @@ class ClientRegistry:
         )
         event_kind = msg.event_kind
         if event_kind == "value_changed":
-            from punt_lux.domain.interaction import ValueChanged  # noqa: PLC0415
-
             event = ValueChanged(
                 scene_id=SceneId(scene_id),
                 element_id=ElementId(element_id),
