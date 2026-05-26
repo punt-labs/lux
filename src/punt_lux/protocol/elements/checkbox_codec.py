@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
+from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements._util import strip_none
 from punt_lux.protocol.elements.element_wire import ElementWireContext
 
@@ -54,9 +55,15 @@ class JsonCheckboxDecoder:
         return self
 
     def decode(self, raw: Mapping[str, object]) -> CheckboxElement:
-        """Construct a CheckboxElement from a JSON-decoded mapping."""
+        """Construct a CheckboxElement from a JSON-decoded mapping.
+
+        Registers a default no-op ``ValueChanged`` handler so
+        ``wrap_handlers_for_remote`` has a handler to wrap on the
+        Display side. Buttons get handlers from the wire JSON; for
+        checkboxes the "forward value changes" behavior is implicit.
+        """
         ctx = ElementWireContext.for_kind("checkbox")
-        return self._cls(
+        elem = self._cls(
             renderer_factory=self._rf,
             emit=self._emit,
             id=ctx.require_str(raw, "id"),
@@ -64,6 +71,12 @@ class JsonCheckboxDecoder:
             value=ctx.optional_bool(raw, "value", default=False),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),
         )
+
+        def _on_value_changed(event: ValueChanged) -> None:
+            elem.apply_patch({"value": event.value})
+
+        elem.add_handler(ValueChanged, _on_value_changed)
+        return elem
 
 
 class JsonCheckboxEncoder:
