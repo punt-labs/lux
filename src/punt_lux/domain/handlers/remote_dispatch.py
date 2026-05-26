@@ -33,7 +33,7 @@ type SendFn = Callable[[RemoteEventHandlerInvocation], None]
 
 
 def remote_dispatch(
-    inner: Callable[[ButtonClicked], None],
+    _inner: Callable[[ButtonClicked], None],
     send: SendFn,
     element_id: str,
     action: str,

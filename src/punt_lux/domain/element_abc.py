@@ -214,7 +214,10 @@ class Element(ABC):
         if isinstance(self, ButtonElement):
             action = getattr(self, "action", None) or self.id
             self._handlers[ButtonClicked] = [
-                cast("Handler[Event]", remote_dispatch(handler, send_fn, self.id, action))
+                cast(
+                    "Handler[Event]",
+                    remote_dispatch(handler, send_fn, self.id, action),
+                )
                 for handler in self._handlers.get(ButtonClicked, ())
             ]
         for child in self._children():
