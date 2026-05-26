@@ -1,14 +1,11 @@
 """Standalone ``HandlerDecoder[ValueChanged]`` builder for CheckboxElement.
 
 Parallel to ``standalone_button_handler.py``: a checkbox without a parent
-composite model has no verb vocabulary, so only the ``noop`` and
-``update_value`` inner factories are registered. The decorator registry
-binds to whatever ``PublishSink`` the caller supplies.
-
-``update_value`` is the default factory — it creates an
-``_UpdateValueHandler`` that calls ``apply_patch({"value": event.value})``
-on the owning element. This is the handler that keeps the Hub's
-authoritative checkbox state in sync with user interactions.
+composite model has no verb vocabulary, so the explicit factory registry
+contains only ``noop``. The built-in state-sync handler
+(``_UpdateValueHandler``) is installed separately by ``JsonCheckboxDecoder``
+before any wire-declared handlers are decoded. The decorator registry binds
+to whatever ``PublishSink`` the caller supplies.
 """
 
 from __future__ import annotations
@@ -39,12 +36,13 @@ def build_standalone_checkbox_handler_decoder(
 ) -> HandlerDecoder[ValueChanged]:
     """Return the ``HandlerDecoder`` for a standalone CheckboxElement.
 
-    Registers two factories:
+    Registers one explicit factory:
     - ``noop``: do-nothing handler (used when the only side effect is a
       decorator like ``publish``)
-    - ``update_value``: updates the checkbox's boolean state via
-      ``apply_patch`` — this is the default for checkboxes without
-      explicit wire-declared handlers
+
+    The built-in state-sync handler is installed directly by
+    ``JsonCheckboxDecoder`` so every decoded checkbox keeps its boolean value
+    mirrored even when the wire JSON does not declare any handlers.
     """
     factories: FactoryRegistry[ValueChanged] = FactoryRegistry()
 

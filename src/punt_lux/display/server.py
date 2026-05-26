@@ -985,7 +985,7 @@ class DisplayServer:
                 self._emit_event(
                     RemoteEventHandlerInvocation(
                         element_id=elem.id,
-                        action=elem.id,
+                        action=elem.action,
                         event_kind="value_changed",
                         ts=time.time(),
                         value=not elem.value,

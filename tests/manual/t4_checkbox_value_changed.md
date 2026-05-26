@@ -48,8 +48,8 @@ Operator clicks the checkbox in the Lux window.
 lux list_recent_events count=5
 ```
 
-**Expected:** Event with `element_id: "cb1"`, `event_kind: "value_changed"`,
-`value: true`.
+**Expected:** Event with `element_id: "cb1"`, `action: "changed"`,
+`event_kind: "value_changed"`, `value: true`.
 
 ### 6. Verify the Hub updated state
 
@@ -66,12 +66,12 @@ the event appearing in `list_recent_events` with `event_kind="value_changed"`
 proves the `CheckboxRenderer.fire(ValueChanged)` -> `remote_dispatch` ->
 `RemoteEventHandlerInvocation` -> Hub dispatch -> handler chain is intact.
 
-## Known limitation
+## Scope note
 
-This slice covers **state mirroring** (checkbox value synced between
-Hub and Display via the two-tier dispatch chain). It does not yet
-support **declarative handlers** on the wire JSON — unlike buttons,
-which carry a `handlers` key with factory/decorator specs, checkboxes
-have only the built-in `_UpdateValueHandler`. App-defined business
-behavior (e.g., publish a topic on toggle) requires a checkbox handler
-catalog, which is a separate future slice.
+This manual test covers the state-mirroring slice: the checkbox toggles,
+the Display emits `event_kind="value_changed"`, and the Hub updates the
+authoritative checkbox value before re-pushing the scene.
+
+Checkbox wire JSON also supports declarative `handlers` with
+`event: "changed"` now. That behavior is covered by automated regression
+tests rather than this manual smoke test.

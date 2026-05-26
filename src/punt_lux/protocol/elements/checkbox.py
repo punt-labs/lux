@@ -92,9 +92,9 @@ class CheckboxElement(Element):
         return self._value
 
     @property
-    def action(self) -> str:
-        """Return the action name — falls back to ``id``."""
-        return self._id
+    def action(self) -> Literal["changed"]:
+        """Return the input action name — always ``"changed"``."""
+        return "changed"
 
     @property
     def tooltip(self) -> str | None:

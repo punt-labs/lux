@@ -180,4 +180,5 @@ An agent should be able to:
 - [README.md](./README.md)
 - [topology.md](./topology.md)
 - [ui-model.md](./ui-model.md)
+- [element-contract.md](./element-contract.md)
 - [introspection-api.md](./introspection-api.md)

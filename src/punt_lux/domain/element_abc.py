@@ -246,7 +246,7 @@ class Element(ABC):
                     cast("Handler[Event]", grouped),
                 ]
         if isinstance(self, CheckboxElement):
-            action = self.action or self.id
+            action = self.action
             value_handlers = self._handlers.get(ValueChanged, ())
             if value_handlers and not (
                 len(value_handlers) == 1
