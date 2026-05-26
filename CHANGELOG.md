@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **D21 remote dispatch: grouped handler wrapping** — `RemoteDispatchGroup`
+  replaces per-handler wrapping so one button click yields one
+  `RemoteEventHandlerInvocation` instead of N. Hub replays the full handler
+  chain once on its authoritative copy.
+- **D21 remote dispatch: owner resolution** — `_hub_interaction_dispatch` now
+  resolves the real element owner from `HubDisplay.owner_of()` instead of
+  hardcoded `"display-fallback"` sentinel.
+- **D21 remote dispatch: race condition guard** — `owner_of` call moved inside
+  the existing try/except block so a concurrent `drop_connection` cannot crash
+  the dispatch handler.
+- **D21 remote dispatch: PY-TS-10 compliance** — replaced `getattr` duck-typing
+  in `_logical_handler_count` and `_is_remote_dispatch_group` with `isinstance`
+  checks against `RemoteDispatchGroup`.
+- **Display-tier publish safety** — `RaisingPublishSink` replaces
+  `NoOpAgentSideSink` on the Display so misrouted publishes fail loud instead
+  of silently dropping.
+- **Hub scene replacement** — `HubDisplay.replace_scene` consolidates the
+  remove-old + install-new loop from `tools.py` into the domain layer where
+  ownership, root observers, and child indexes are rebuilt through `apply()`.
+
 ### Changed
 
 - **Architecture spec updated to v0.18.0** — `docs/architecture/system.tex`

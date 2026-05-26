@@ -98,3 +98,44 @@ def test_owner_can_still_remove_their_own_element() -> None:
         _OWNER,
         RemoveElement(scene_id=_SCENE, element_id=_ELEMENT_ID),
     )
+
+
+# -- replace_scene ---------------------------------------------------------
+
+
+def test_replace_scene_installs_fresh_roots() -> None:
+    """``replace_scene`` with no prior scene installs all roots."""
+    hub_display = HubDisplay()
+    hub_display.register_client(_OWNER)
+
+    leaf_a = _WireLeaf(id="a")
+    leaf_b = _WireLeaf(id="b")
+    hub_display.replace_scene(_OWNER, _SCENE, [leaf_a, leaf_b])
+
+    assert hub_display.owner_of(_SCENE, ElementId("a")) == _OWNER
+    assert hub_display.owner_of(_SCENE, ElementId("b")) == _OWNER
+    roots = hub_display.scene_roots(_SCENE)
+    root_ids = {e.id for e in roots}
+    assert root_ids == {"a", "b"}
+
+
+def test_replace_scene_removes_old_roots_and_installs_new() -> None:
+    """``replace_scene`` replaces the existing scene — old roots are gone."""
+    hub_display = HubDisplay()
+    hub_display.register_client(_OWNER)
+
+    old = _WireLeaf(id="old")
+    hub_display.replace_scene(_OWNER, _SCENE, [old])
+    assert hub_display.owner_of(_SCENE, ElementId("old")) == _OWNER
+
+    new = _WireLeaf(id="new")
+    hub_display.replace_scene(_OWNER, _SCENE, [new])
+
+    roots = hub_display.scene_roots(_SCENE)
+    root_ids = {e.id for e in roots}
+    assert root_ids == {"new"}
+
+    from punt_lux.domain.hub.element_index import UnknownElementError
+
+    with pytest.raises(UnknownElementError):
+        hub_display.resolve(_SCENE, ElementId("old"))

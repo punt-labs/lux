@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
@@ -12,7 +13,6 @@ from punt_lux.config import ConfigManager
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub_display
 from punt_lux.domain.ids import ConnectionId, SceneId
-from punt_lux.domain.update import AddElement, RemoveElement
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import Element as WireElement, Patch
 from punt_lux.tools.connection import _query_tool
@@ -135,9 +135,15 @@ def show(
         size_tuple = (frame_size[0], frame_size[1])
     if frame_layout is not None and frame_layout not in ("tab", "stack"):
         return f"error: frame_layout must be 'tab' or 'stack', got {frame_layout!r}"
+    scene = SceneId(scene_id)
 
     def _call() -> str:
         client = client_registry.get()
+        hub_display.replace_scene(
+            connection_id,
+            scene,
+            cast("Sequence[DomainElement]", typed_elements),
+        )
         ack = client.show(
             scene_id,
             typed_elements,
@@ -151,60 +157,9 @@ def show(
         )
         if ack is None:
             return "timeout"
-        _index_scene_in_hub(scene_id, typed_elements)
         return f"ack:{ack.scene_id}"
 
     return client_registry.with_reconnect(_call)
-
-
-def _index_scene_in_hub(scene_id: str, typed_elements: list[WireElement]) -> None:
-    """Mirror the displayed scene into the HubDisplay element index.
-
-    Without this, click resolution and connection-scoped cleanup are
-    blind to anything ``show`` put on screen — ``Display.interact``
-    rejects every interaction whose target was installed via ``show``,
-    and ``drop_connection`` leaks the scene's roots. The Composite
-    Protocol recursion inside ``HubDisplay.apply`` walks each root's
-    descendants automatically.
-
-    A re-show of the same ``scene_id`` first removes every element this
-    connection previously installed in that scene; without that sweep,
-    the Hub mirror would accumulate stale entries that point at widgets
-    the display has already replaced. The render side is single-frame
-    state — the mirror must match.
-
-    Every wire element class structurally satisfies the
-    :class:`DomainElement` Protocol — same ``id`` / ``kind`` /
-    ``to_dict`` / ``from_dict`` shape — but mypy does not infer the
-    Protocol match from the wire union, so we cast at the call site
-    (the display-side ``DomainPump`` carries the same cast).
-    """
-    connection_id = ConnectionId(_session_key.get())
-    hub_display.register_client(connection_id)
-    scene = SceneId(scene_id)
-    for prior_scene, prior_element in hub_display.elements_owned_by(connection_id):
-        if prior_scene == scene:
-            hub_display.apply(
-                connection_id,
-                RemoveElement(scene_id=prior_scene, element_id=prior_element),
-            )
-    for element in typed_elements:
-        handler_count = len(getattr(element, "_handlers", {}))
-        logger.debug(
-            "hub index element_id=%s kind=%s scene_id=%s handler_count=%d",
-            element.id,
-            element.kind,
-            scene_id,
-            handler_count,
-        )
-        hub_display.apply(
-            connection_id,
-            AddElement(
-                scene_id=scene,
-                element=cast("DomainElement", element),
-                parent_id=None,
-            ),
-        )
 
 
 @mcp.tool()

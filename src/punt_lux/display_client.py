@@ -80,11 +80,6 @@ class NoOpAgentSideSink:
     indicate a misrouted Hub element) silently no-ops rather than
     raising — agent-side validation focuses on schema integrity, not
     on Hub-only side effects.
-
-    Display-tier code (luxd) reuses this same sink today because the
-    display process has no Hub wired in yet. Once a real Hub flows
-    through the display tier, that consumer constructs its own
-    Hub-bound sink instead.
     """
 
     __slots__ = ()

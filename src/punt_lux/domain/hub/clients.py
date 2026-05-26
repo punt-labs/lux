@@ -126,6 +126,7 @@ class ClientRegistry:
             return
         try:
             element = hub_display.resolve(SceneId(scene_id), ElementId(element_id))
+            owner = hub_display.owner_of(SceneId(scene_id), ElementId(element_id))
         except (KeyError, LookupError) as exc:
             logger.warning(
                 "hub dispatch resolve failed scene_id=%s element_id=%s: %s",
@@ -157,7 +158,7 @@ class ClientRegistry:
         event = ButtonClicked(
             scene_id=SceneId(scene_id),
             element_id=ElementId(element_id),
-            owner_id=ClientId("display-fallback"),
+            owner_id=ClientId(str(owner)),
         )
         logger.debug(
             "hub dispatch firing element_id=%s scene_id=%s",

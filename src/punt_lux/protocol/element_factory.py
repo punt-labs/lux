@@ -16,8 +16,6 @@ directive bans.
 
 from __future__ import annotations
 
-import logging
-from collections.abc import Callable
 from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Self
 
@@ -43,8 +41,6 @@ if TYPE_CHECKING:
 
 __all__ = ["JsonElementFactory"]
 
-_log = logging.getLogger(__name__)
-
 _ABC_KINDS = frozenset({"text", "button", "dialog"})
 
 
@@ -68,7 +64,6 @@ class JsonElementFactory:
     _emit: Emit
     _sink: PublishSink
     _codec: ElementCodec
-    _display_send: Callable[[Any], None] | None
     _text_decoder: JsonTextDecoder
     _button_decoder: JsonButtonDecoder
     _dialog_decoder: JsonDialogDecoder
@@ -80,14 +75,12 @@ class JsonElementFactory:
         emit: Emit,
         publish_sink: PublishSink,
         codec: ElementCodec,
-        display_send: Callable[[Any], None] | None = None,
     ) -> Self:
         self = super().__new__(cls)
         self._rf = renderer_factory
         self._emit = emit
         self._sink = publish_sink
         self._codec = codec
-        self._display_send = display_send
         self._text_decoder = JsonTextDecoder(
             renderer_factory=renderer_factory,
             emit=emit,
@@ -115,15 +108,9 @@ class JsonElementFactory:
             return self._text_decoder.decode(raw)
         if kind == "button":
             raw = self.canonicalize_button_sugar(raw)
-            btn = self._button_decoder.decode(raw)
-            if self._display_send is not None:
-                btn.wrap_handlers_for_remote(self._display_send)
-            return btn
+            return self._button_decoder.decode(raw)
         if kind == "dialog":
-            dlg = self._dialog_decoder.decode(raw)
-            if self._display_send is not None:
-                dlg.wrap_handlers_for_remote(self._display_send)
-            return dlg
+            return self._dialog_decoder.decode(raw)
         msg = f"JsonElementFactory has no decoder for kind={kind!r}"
         raise ValueError(msg)
 

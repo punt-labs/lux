@@ -6,11 +6,14 @@ patching — all pure logic that doesn't touch ImGui or OpenGL.
 
 from __future__ import annotations
 
-from typing import Any
+import logging
+from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 from punt_lux.display import DisplayServer
 from punt_lux.display.element_renderer import ElementRenderer
+from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.protocol import (
     ButtonElement,
     ClearMessage,
@@ -27,6 +30,9 @@ from punt_lux.protocol import (
     WindowElement,
 )
 from punt_lux.scene import WidgetState
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _make_server() -> DisplayServer:
@@ -128,6 +134,39 @@ class TestEmitEvent:
         server._current_scene_id = "stale-tab"
         server._render_framed_scene(frame, "framed-1")
         assert server._current_scene_id == "framed-1"
+
+    def test_display_factory_local_publish_failure_is_loud(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        server = _make_server()
+        button = server._luxd_factory.element_from_dict(
+            {
+                "kind": "button",
+                "id": "publish-button",
+                "label": "Publish",
+                "handlers": [
+                    {
+                        "event": "click",
+                        "factory": "noop",
+                        "wrap": [
+                            {"decorator": "publish", "topics": ["openTicket"]},
+                        ],
+                    }
+                ],
+            }
+        )
+
+        with caplog.at_level(logging.ERROR, logger="punt_lux.domain.element_abc"):
+            button.fire(
+                ButtonClicked(
+                    scene_id=SceneId("scene"),
+                    element_id=ElementId("publish-button"),
+                    owner_id=ClientId("display"),
+                )
+            )
+
+        assert "without a real PublishSink wired" in caplog.text
 
 
 # -----------------------------------------------------------------------
