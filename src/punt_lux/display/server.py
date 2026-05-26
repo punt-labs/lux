@@ -1515,6 +1515,7 @@ class DisplayServer:
                 }
             )
 
+    @trace
     def _dispatch_queued_events(self) -> None:
         """Send queued events to the owning client or broadcast."""
         for event in self._event_queue:
