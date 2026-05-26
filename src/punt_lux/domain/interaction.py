@@ -19,7 +19,9 @@ from typing import ClassVar, Literal, Self
 
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 
-__all__ = ["ButtonClicked", "ValueChanged"]
+__all__ = ["ButtonClicked", "EventKind", "ValueChanged"]
+
+type EventKind = Literal["button_clicked", "value_changed"]
 
 
 @dataclass(frozen=True, slots=True, init=False)

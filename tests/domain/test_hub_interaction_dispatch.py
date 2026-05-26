@@ -242,3 +242,76 @@ def test_hub_interaction_dispatch_runs_checkbox_value_changed_handler(
 
     assert seen == [("handled", False)]
     mock_client.show_async.assert_called_once()
+    assert mock_client.show_async.call_args.kwargs["elements"] == [checkbox]
+
+
+def test_hub_interaction_dispatch_unknown_event_kind_returns_silently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Unknown event_kind logs warning and returns without firing."""
+    import punt_lux.domain.hub as hub_module
+
+    isolated_display = HubDisplay()
+    scene_id = SceneId("scene")
+    element_id = ElementId("btn")
+    owner = ConnectionId("agent")
+    isolated_display.register_client(owner)
+
+    button = ButtonElement(id=str(element_id), label="OK")
+    fired: list[str] = []
+    button.add_handler(ButtonClicked, lambda _e: fired.append("fired"))
+    isolated_display.apply(
+        owner,
+        AddElement(scene_id=scene_id, element=button, parent_id=None),
+    )
+
+    monkeypatch.setattr(hub_module, "hub_display", isolated_display)
+
+    clients_module.ClientRegistry._hub_interaction_dispatch(
+        RemoteEventHandlerInvocation(
+            scene_id=str(scene_id),
+            element_id=str(element_id),
+            action="click",
+            event_kind="unknown_kind",
+            ts=1.0,
+            value=True,
+        )
+    )
+
+    assert fired == []
+
+
+def test_hub_interaction_dispatch_value_changed_rejects_non_bool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Non-bool value on value_changed logs warning and returns."""
+    import punt_lux.domain.hub as hub_module
+
+    isolated_display = HubDisplay()
+    scene_id = SceneId("scene")
+    element_id = ElementId("cb")
+    owner = ConnectionId("agent")
+    isolated_display.register_client(owner)
+
+    cb = CheckboxElement(id=str(element_id), label="Toggle")
+    fired: list[str] = []
+    cb.add_handler(ValueChanged, lambda _e: fired.append("fired"))
+    isolated_display.apply(
+        owner,
+        AddElement(scene_id=scene_id, element=cb, parent_id=None),
+    )
+
+    monkeypatch.setattr(hub_module, "hub_display", isolated_display)
+
+    clients_module.ClientRegistry._hub_interaction_dispatch(
+        RemoteEventHandlerInvocation(
+            scene_id=str(scene_id),
+            element_id=str(element_id),
+            action="changed",
+            event_kind="value_changed",
+            ts=1.0,
+            value="not a bool",
+        )
+    )
+
+    assert fired == []

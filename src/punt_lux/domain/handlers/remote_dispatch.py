@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from punt_lux.domain.event_protocol import Event, Handler
+    from punt_lux.domain.interaction import EventKind
 
 __all__ = ["RemoteDispatchGroup", "remote_dispatch"]
 
@@ -56,7 +57,7 @@ class RemoteDispatchGroup:
     _send: SendFn
     _element_id: str
     _action: str
-    _event_kind: str
+    _event_kind: EventKind
 
     def __new__(
         cls,
@@ -65,7 +66,7 @@ class RemoteDispatchGroup:
         send: SendFn,
         element_id: str,
         action: str,
-        event_kind: str = "button_clicked",
+        event_kind: EventKind = "button_clicked",
     ) -> Self:
         if not handlers:
             msg = "RemoteDispatchGroup requires at least one handler"
@@ -91,11 +92,22 @@ class RemoteDispatchGroup:
     def __call__(self, event: Event) -> None:
         # Lazy import avoids circular dependency; interaction.py
         # imports nothing from this module so the cycle is clean.
-        from punt_lux.domain.interaction import ValueChanged  # noqa: PLC0415
+        from punt_lux.domain.interaction import (  # noqa: PLC0415
+            ButtonClicked,
+            ValueChanged,
+        )
 
-        value: object = True
         if isinstance(event, ValueChanged):
-            value = event.value
+            value: object = event.value
+        elif isinstance(event, ButtonClicked):
+            value = True
+        else:
+            _log.warning(
+                "RemoteDispatchGroup unrecognized event type %s for element_id=%s",
+                type(event).__name__,
+                self._element_id,
+            )
+            value = True
 
         _log.debug(
             "remote_dispatch sending element_id=%s action=%s "
@@ -121,7 +133,7 @@ def remote_dispatch(
     send: SendFn,
     element_id: str,
     action: str,
-    event_kind: str = "button_clicked",
+    event_kind: EventKind = "button_clicked",
 ) -> Handler[Event]:
     """Wrap one handler in a one-item ``RemoteDispatchGroup``.
 

@@ -280,6 +280,47 @@ def test_wrap_handlers_for_remote_is_idempotent_for_button_bucket() -> None:
     assert len(sent) == 1
 
 
+def test_value_changed_construction() -> None:
+    event = ValueChanged(
+        scene_id=SceneId("s"),
+        element_id=ElementId("e"),
+        owner_id=ClientId("c"),
+        value=True,
+    )
+    assert event.scene_id == SceneId("s")
+    assert event.element_id == ElementId("e")
+    assert event.owner_id == ClientId("c")
+    assert event.value is True
+    assert event.kind == "value_changed"
+
+
+def test_value_changed_is_frozen() -> None:
+    import pytest
+
+    event = ValueChanged(
+        scene_id=SceneId("s"),
+        element_id=ElementId("e"),
+        owner_id=ClientId("c"),
+        value=False,
+    )
+    with pytest.raises(AttributeError):
+        event.value = True  # type: ignore[misc]
+
+
+def test_checkbox_set_value_rejects_non_bool() -> None:
+    import pytest
+
+    cb = CheckboxElement(id="cb", label="Test")
+    with pytest.raises(TypeError, match="value must be bool"):
+        cb.apply_patch({"value": "not a bool"})
+
+
+def test_checkbox_set_value_accepts_bool() -> None:
+    cb = CheckboxElement(id="cb", label="Test", value=False)
+    cb.apply_patch({"value": True})
+    assert cb.value is True
+
+
 def test_wrap_handlers_for_remote_groups_checkbox_value_changed_handlers() -> None:
     checkbox = CheckboxElement(id="toggle", label="Toggle")
     local_runs: list[str] = []

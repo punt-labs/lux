@@ -103,8 +103,9 @@ class ClientRegistry:
         D21: the display wraps every handler in ``remote_dispatch``,
         which sends a ``RemoteEventHandlerInvocation`` to the Hub.
         This method receives that message, resolves the element from
-        ``HubDisplay``, constructs a ``ButtonClicked``, and fires
-        the Hub-side handlers (which have real ``HubPublishSink``).
+        ``HubDisplay``, constructs a ``ButtonClicked`` or
+        ``ValueChanged`` depending on ``event_kind``, and fires the
+        Hub-side handlers (which have real ``HubPublishSink``).
         """
         from punt_lux.domain.element_abc import Element as ElementABC
         from punt_lux.domain.hub import hub_display
@@ -156,22 +157,39 @@ class ClientRegistry:
         event_kind = msg.event_kind
         event: ButtonClicked | ValueChanged
         if event_kind == "value_changed":
+            wire_value = msg.value
+            if not isinstance(wire_value, bool):
+                logger.warning(
+                    "hub dispatch value_changed non-bool value=%r element_id=%s",
+                    wire_value,
+                    element_id,
+                )
+                return
             event = ValueChanged(
                 scene_id=SceneId(scene_id),
                 element_id=ElementId(element_id),
                 owner_id=ClientId(str(owner)),
-                value=msg.value,
+                value=wire_value,
             )
-        else:
+        elif event_kind in (None, "button_clicked"):
             event = ButtonClicked(
                 scene_id=SceneId(scene_id),
                 element_id=ElementId(element_id),
                 owner_id=ClientId(str(owner)),
             )
+        else:
+            logger.warning(
+                "hub dispatch unknown event_kind=%r element_id=%s scene_id=%s",
+                event_kind,
+                element_id,
+                scene_id,
+            )
+            return
         logger.debug(
-            "hub dispatch firing element_id=%s scene_id=%s",
+            "hub dispatch firing element_id=%s scene_id=%s event_kind=%s",
             element_id,
             scene_id,
+            event_kind,
         )
         element.fire(event)
 
