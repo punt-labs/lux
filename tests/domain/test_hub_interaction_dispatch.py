@@ -9,9 +9,10 @@ from unittest.mock import MagicMock
 from punt_lux.domain.hub import clients as clients_module
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
-from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.domain.update import AddElement
 from punt_lux.protocol.elements.button import ButtonElement
+from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 
 if TYPE_CHECKING:
@@ -197,3 +198,47 @@ def test_hub_interaction_dispatch_scene_repush_failure_does_not_crash(
     )
 
     assert fired == ["ok"]
+
+
+def test_hub_interaction_dispatch_runs_checkbox_value_changed_handler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    isolated_display = HubDisplay()
+    scene_id = SceneId("scene")
+    element_id = ElementId("toggle")
+    owner = ConnectionId("agent-1")
+    isolated_display.register_client(owner)
+
+    checkbox = CheckboxElement(id=str(element_id), label="Toggle")
+    seen: list[tuple[str, bool]] = []
+
+    def _handler(event: ValueChanged) -> None:
+        seen.append(("handled", event.value))
+
+    checkbox.add_handler(ValueChanged, _handler)
+    isolated_display.apply(
+        owner,
+        AddElement(scene_id=scene_id, element=checkbox, parent_id=None),
+    )
+
+    mock_client = MagicMock()
+    fake_registry = SimpleNamespace(get=MagicMock(return_value=mock_client))
+
+    import punt_lux.domain.hub as hub_module
+
+    monkeypatch.setattr(hub_module, "hub_display", isolated_display)
+    monkeypatch.setattr(hub_module, "client_registry", fake_registry)
+
+    clients_module.ClientRegistry._hub_interaction_dispatch(
+        RemoteEventHandlerInvocation(
+            scene_id=str(scene_id),
+            element_id=str(element_id),
+            action="toggle",
+            event_kind="value_changed",
+            ts=1.0,
+            value=False,
+        )
+    )
+
+    assert seen == [("handled", False)]
+    mock_client.show_async.assert_called_once()

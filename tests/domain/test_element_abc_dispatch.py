@@ -20,9 +20,10 @@ from typing import Self
 
 from punt_lux.domain.element_abc import Element
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.protocol import RemoteEventHandlerInvocation
 from punt_lux.protocol.elements.button import ButtonElement
+from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.renderers import RaisingRendererFactory
 
 
@@ -276,4 +277,60 @@ def test_wrap_handlers_for_remote_is_idempotent_for_button_bucket() -> None:
     )
 
     assert button.handler_count(ButtonClicked) == 2
+    assert len(sent) == 1
+
+
+def test_wrap_handlers_for_remote_groups_checkbox_value_changed_handlers() -> None:
+    checkbox = CheckboxElement(id="toggle", label="Toggle")
+    local_runs: list[str] = []
+    sent: list[RemoteEventHandlerInvocation] = []
+
+    def _first(_event: ValueChanged) -> None:
+        local_runs.append("first")
+
+    def _second(_event: ValueChanged) -> None:
+        local_runs.append("second")
+
+    checkbox.add_handler(ValueChanged, _first)
+    checkbox.add_handler(ValueChanged, _second)
+
+    checkbox.wrap_handlers_for_remote(sent.append)
+
+    assert checkbox.handler_count(ValueChanged) == 2
+
+    checkbox.fire(
+        ValueChanged(
+            scene_id=SceneId("scene"),
+            element_id=ElementId("toggle"),
+            owner_id=ClientId("display"),
+            value=True,
+        )
+    )
+
+    assert local_runs == []
+    assert len(sent) == 1
+    assert sent[0].element_id == "toggle"
+    assert sent[0].event_kind == "value_changed"
+    assert sent[0].value is True
+
+
+def test_wrap_handlers_for_remote_is_idempotent_for_checkbox_bucket() -> None:
+    checkbox = CheckboxElement(id="toggle", label="Toggle")
+    sent: list[RemoteEventHandlerInvocation] = []
+    checkbox.add_handler(ValueChanged, lambda _event: None)
+    checkbox.add_handler(ValueChanged, lambda _event: None)
+
+    checkbox.wrap_handlers_for_remote(sent.append)
+    checkbox.wrap_handlers_for_remote(sent.append)
+
+    checkbox.fire(
+        ValueChanged(
+            scene_id=SceneId("scene"),
+            element_id=ElementId("toggle"),
+            owner_id=ClientId("display"),
+            value=False,
+        )
+    )
+
+    assert checkbox.handler_count(ValueChanged) == 2
     assert len(sent) == 1
