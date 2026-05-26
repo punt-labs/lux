@@ -154,6 +154,7 @@ class ClientRegistry:
             element.handler_summary(),
         )
         event_kind = msg.event_kind
+        event: ButtonClicked | ValueChanged
         if event_kind == "value_changed":
             event = ValueChanged(
                 scene_id=SceneId(scene_id),
