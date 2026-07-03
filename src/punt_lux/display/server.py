@@ -257,11 +257,11 @@ class DisplayServer:
         self._imgui_renderer_factory = ImGuiRendererFactory(
             widget_state=self._widget_state,
             texture_cache=self._textures,
-            # Display-tier emit is no-op per spike display.py:167.
+            # Display-tier emit is a no-op; interactions route to the Hub.
             emit=lambda _msg: None,
             # ImGuiTextRenderer delegates back to ElementRenderer so the
             # generic post-processing (styled-text tooltip hover) keeps
-            # working through the io-model dispatch path (Cursor MED, PR #195).
+            # working through the per-kind renderer dispatch path.
             element_renderer=self._element_renderer,
         )
 
@@ -942,8 +942,8 @@ class DisplayServer:
     def _auto_click_buttons(self, msg: SceneMessage) -> None:
         """Enqueue synthetic interactions for testable elements (test mode).
 
-        Bugbot LOW (PR #187): synthetic events run BEFORE the first render
-        loop assigns ``self._current_scene_id`` from ``_render_scene_tab``.
+        Synthetic events run BEFORE the first render loop assigns
+        ``self._current_scene_id`` from ``_render_scene_tab``.
         Without stamping the scene id here, ``_emit_event`` would set
         ``scene_id=None`` and ``DomainPump.route_interaction`` would
         silently drop every synthetic button click.  Save / restore the
@@ -1068,7 +1068,7 @@ class DisplayServer:
         self._menu_manager.check_world_menu_background_click(imgui)
         self._menu_manager.render_world_panel(imgui)
 
-        # Render framed scenes (DES-022 workspace model)
+        # Render framed scenes (workspace model)
         self._render_frames(imgui)
 
         sm = self._scene_manager
@@ -1437,11 +1437,11 @@ class DisplayServer:
             self._widget_state = ws
             self._table_renderer.widget_state = ws
             self._element_renderer.widget_state = ws
-        # Bugbot HIGH (PR #187): _emit_event stamps scene_id from
-        # ``self._current_scene_id`` for any RemoteEventHandlerInvocation whose scene_id
-        # is None — without this assignment, clicks inside framed scenes
-        # carried whatever ``_render_scene_tab`` last set (stale or None),
-        # so ``DomainPump.route_interaction`` silently dropped them.
+        # ``_emit_event`` stamps scene_id from ``self._current_scene_id``
+        # for any RemoteEventHandlerInvocation whose scene_id is None —
+        # without this assignment, clicks inside framed scenes carried
+        # whatever ``_render_scene_tab`` last set (stale or None), so
+        # ``DomainPump.route_interaction`` silently dropped them.
         self._current_scene_id = scene_id
         self._element_renderer.current_scene_id = scene_id
         scene = frame.scenes[scene_id]
