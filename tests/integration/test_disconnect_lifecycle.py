@@ -1,4 +1,4 @@
-"""Connection-lifecycle cleanup — D7 / D17 / Commit 8 invariants.
+"""Connection-lifecycle cleanup invariants.
 
 Two invariants verified here:
 
@@ -51,7 +51,7 @@ class _Button:
 
 def test_orphan_handler_publish_after_disconnect_is_safe_noop() -> None:
     """A publish from a handler fired after the subscriber's connection
-    drops returns zero subscribers and does not raise (D17)."""
+    drops returns zero subscribers and does not raise."""
     isolated_hub = Hub()
     received: list[ObserverMessage] = []
 

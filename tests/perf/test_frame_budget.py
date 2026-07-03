@@ -1,4 +1,4 @@
-"""Frame-budget smoke for the io-model Text render path.
+"""Frame-budget smoke for the Text render path.
 
 A per-frame smoke that exercises the Element ABC template-method
 ``render()`` over a modest scene (10 ``TextElement`` instances) and

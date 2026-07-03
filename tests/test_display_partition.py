@@ -816,7 +816,7 @@ class TestInvariantPartitions:
 
 
 # ---------------------------------------------------------------------------
-# Frame operations (DES-022 workspace model)
+# Frame operations (workspace model)
 # ---------------------------------------------------------------------------
 
 

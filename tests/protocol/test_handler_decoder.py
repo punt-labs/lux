@@ -4,7 +4,7 @@ The decoder turns one agent-authored wire spec into a typed
 ``Handler[E]`` via three stages: sugar canonicalisation, inner-factory
 dispatch through a per-Element ``FactoryRegistry``, and decorator
 wrapping through the process-shared ``DecoratorRegistry``. These tests
-pin each stage against the spec in ``docs/oo-refactor/pr4-v2.1-design.md``.
+pin each stage against the wire spec.
 """
 
 from __future__ import annotations

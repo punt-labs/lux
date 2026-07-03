@@ -1,8 +1,8 @@
 """RecordingRenderer + RecordingRendererFactory append JSONL traces.
 
-Per design doc §1 row 8 and §2: the recording surface is the headless
-test fixture for the io-model. Each render/begin/end appends one entry;
-the factory dispatches by ``isinstance(elem, Element)`` against the
+The recording surface is the headless test fixture for the renderer
+Protocol. Each render/begin/end appends one entry; the factory
+dispatches by ``isinstance(elem, Element)`` against the
 runtime-checkable domain Protocol (PY-TS-10 — no hasattr dispatch).
 """
 

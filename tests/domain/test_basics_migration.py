@@ -10,8 +10,8 @@ Per the migration plan, every kind must satisfy:
 4. Wire round-trip: ``element_to_dict(elem)`` produces byte-identical
    output to the pre-migration codec (asserted by make snapshot-parity).
 
-Commit 4 covers TextElement; commits 5-9 add Image, Separator, Progress,
-Spinner, Markdown.
+TextElement is covered here; Image, Separator, Progress, Spinner, and
+Markdown follow.
 """
 
 from __future__ import annotations
@@ -82,7 +82,7 @@ def test_text_element_from_dict_round_trips_via_class_method() -> None:
 
 
 def test_text_element_from_dict_accepts_arbitrary_style_string() -> None:
-    """PR 1 keeps ``style: str | None`` to preserve wire shape (deferred tighten).
+    """``style`` stays ``str | None`` to preserve wire shape (deferred tighten).
 
     The renderer treats unknown styles as falling back to default body styling,
     so accepting any string here is byte-compatible with the pre-migration codec.
@@ -368,7 +368,7 @@ def test_markdown_rejects_non_string_content() -> None:
 
 
 def test_element_from_dict_accepts_null_tooltip() -> None:
-    """Copilot CP-5: ``{"tooltip": null}`` is equivalent to omitting the field."""
+    """``{"tooltip": null}`` is equivalent to omitting the field."""
     payload = {"kind": "text", "id": "t1", "content": "hi", "tooltip": None}
     elem = agent_element_factory().element_from_dict(payload)
     assert isinstance(elem, TextElement)
@@ -383,7 +383,7 @@ def test_element_from_dict_accepts_string_tooltip() -> None:
 
 
 def test_element_from_dict_rejects_non_string_tooltip() -> None:
-    """Copilot CP-5: non-str tooltips raise at the boundary (PY-EH-1)."""
+    """Non-str tooltips raise at the boundary (PY-EH-1)."""
     import pytest
 
     payload = {"kind": "text", "id": "t1", "content": "hi", "tooltip": 42}
@@ -392,7 +392,7 @@ def test_element_from_dict_rejects_non_string_tooltip() -> None:
 
 
 def test_text_element_patch_rejects_non_str_content() -> None:
-    """CR2: setter type-narrowing — wire patch with wrong type raises TypeError.
+    """Setter type-narrowing — wire patch with wrong type raises TypeError.
 
     ``Element.apply_patch`` dispatches JSON-decoded values to ``_set_<field>``;
     the wire payload is ``object``, so the setter must guard at the
@@ -406,7 +406,7 @@ def test_text_element_patch_rejects_non_str_content() -> None:
 
 
 def test_text_element_patch_accepts_null_color() -> None:
-    """NF1: ``{"color": null}`` in a patch matches the decode contract.
+    """``{"color": null}`` in a patch matches the decode contract.
 
     ``JsonTextDecoder.decode`` coerces a wire ``null`` color to the empty-
     string "no override" sentinel; ``_set_color`` must do the same so an

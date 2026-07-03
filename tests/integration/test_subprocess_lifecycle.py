@@ -1,16 +1,13 @@
-"""Subprocess lifecycle smoke — Text scene survives end-to-end after commit (iii).
+"""Subprocess lifecycle smoke — Text scene survives end-to-end.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §7(v) + D7 (§6): no source changes
-in this commit. DisplayClient keeps its existing length-prefixed framing;
-the Connection module added in commit (iv) is a parallel transport
-consumed by tests only.
+DisplayClient keeps its existing length-prefixed framing; the
+``Connection`` module is a parallel transport consumed by tests only.
 
 This smoke test spawns the display via :class:`DisplayPaths.ensure`, sends
 one Text scene through the unchanged DisplayClient path, closes the
 client, terminates the subprocess, and asserts the PID file is gone. It
-guards the io-model migration of TextElement (commit iii) end-to-end —
-if the wire shape or codec dispatch regressed, the scene ack would never
-arrive.
+guards the Element ABC path for TextElement end-to-end — if the wire
+shape or codec dispatch regressed, the scene ack would never arrive.
 """
 
 from __future__ import annotations

@@ -11,8 +11,8 @@ The wire form is a tagged dict (``{"decorator": "publish", "topics":
 [...]}``) and the registry resolves the ``decorator`` name to a
 typed factory built from the remaining keys.
 
-``PublishSink`` is the structural contract the ``Hub`` will satisfy
-in commit 6. Until then, tests inject any callable that records the
+``PublishSink`` is the structural contract the ``Hub`` will satisfy.
+Until then, tests inject any callable that records the
 ``(topic, payload)`` pairs the decorator emits.
 """
 
@@ -35,8 +35,8 @@ __all__ = [
 class PublishSink(Protocol):
     """Structural contract for the ``publish`` decorator's sink.
 
-    The Hub satisfies this when commit 6 lands; until then, tests pass
-    a recording callable. The decorator is the only call site, so the
+    The Hub satisfies this; until then, tests pass a recording
+    callable. The decorator is the only call site, so the
     surface stays one method.
     """
 

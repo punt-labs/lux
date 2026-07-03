@@ -1,7 +1,7 @@
 """``ClientRegistry.with_reconnect`` restores listener after reconnect.
 
-Bugbot MED 1: the original ``with_reconnect`` reconnected the socket but
-never restarted the background listener. Push-mode callers (callbacks
+The original ``with_reconnect`` reconnected the socket but never
+restarted the background listener. Push-mode callers (callbacks
 registered via ``on_event``, ``poll_event`` blocked on
 ``_event_queue``) silently stopped receiving frames after the first
 ``OSError`` recovered by the registry — the socket was healthy, the

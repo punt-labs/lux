@@ -28,7 +28,7 @@ def test_parse_hex_color_accepts_unprefixed() -> None:
 def test_parse_hex_color_invalid_returns_none(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """Copilot CP-NEW-2: invalid hex must return None so renderers preserve theme.
+    """Invalid hex must return None so renderers preserve theme.
 
     The prior contract returned opaque white on bad input, which made
     every styled text widget render white instead of the ImGui theme

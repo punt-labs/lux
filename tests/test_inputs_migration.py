@@ -1,7 +1,7 @@
 """Wire-path tests: inputs elements flow through Display.apply unchanged.
 
-Each commit in the inputs migration adds one class to the matrix below.
-Per the migration plan, every kind must satisfy:
+The inputs migration adds each class to the matrix below. Every
+migrated kind must satisfy:
 
 1. ``isinstance(elem, Element)`` is True against the domain Protocol.
 2. ``factory.element_from_dict({...})`` returns the typed class via the per-kind
