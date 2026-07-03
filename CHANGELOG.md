@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **Starlette upgraded to 1.x** — `luxd` now requires `starlette>=1.3.1,<2`
+  (was `>=0.46.0`), a major-version upgrade. The hub's WebSocket/HTTP app and
+  the MCP transport run on Starlette 1.x; the MCP stack (mcp/fastmcp) imposes
+  no upper bound, so it resolves cleanly. Verified: 1347 tests pass and luxd
+  serves the MCP round-trip on 127.0.0.1:8430 under 1.3.1. Fresh `lux install`
+  now resolves the patched 1.x rather than 0.x.
+
+### Security
+
+- **Cleared 17 Dependabot advisories.** Required `starlette>=1.3.1` (5 alerts:
+  SSRF/NTLM via UNC paths, form-limit bypass, arbitrary HTTP-method dispatch,
+  path concatenation, Host-header poisoning) and bumped the vulnerable
+  transitive deps `pyjwt`→2.13.0, `python-multipart`→0.0.32, `cryptography`→49,
+  `pydantic-settings`→2.14.2, `idna`→3.18 (12 alerts). Real exposure was low —
+  luxd is localhost-only with CSWSH — but the dependency tree is now clean.
+- **Least-privilege CI permissions** — the `test`, `lint`, and `docs` workflows
+  now declare `permissions: contents: read` instead of inheriting the broad
+  default `GITHUB_TOKEN` (clears 3 code-scanning alerts).
+
 ## [0.19.0] - 2026-07-03
 
 This release is mid-migration, not a finished state. The Hub/Display io-model
