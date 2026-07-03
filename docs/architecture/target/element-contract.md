@@ -81,6 +81,20 @@ The exact field schema of each kind may evolve, but the catalog itself is part
 of the contract. New kinds should be added deliberately; apps should not work
 around missing concepts by inventing their own cross-boundary classes.
 
+### Migration status
+
+The catalog holds 25 element kinds. Four have been migrated onto the Element
+ABC that gives this contract its behavioral teeth — `text`, `button`,
+`checkbox`, and `dialog`. These own data *and* behavior: a handler registry,
+the composite render template, and the property-observer surface. The
+remaining kinds are still frozen wire dataclasses and will migrate family by
+family.
+
+`checkbox` is the shipped interactive ABC element: a toggle fires
+`value_changed`, which routes to the Hub for authoritative dispatch. `button`
+carries the `button_clicked` interaction. `text` and `dialog` complete the
+migrated set as passive-display and composite exemplars respectively.
+
 ## Framing Contract
 
 User-facing app or agent UI is framed.
