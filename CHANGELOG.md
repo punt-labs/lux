@@ -2,6 +2,56 @@
 
 ## [Unreleased]
 
+This release is mid-migration, not a finished state. The Hub/Display io-model
+and the OO decomposition are both **in progress**: only Text, Checkbox, and
+Dialog elements are on the new Element ABC path, and `display/server.py` and
+`display/element_renderer.py` remain over the module-size target. Entries below
+describe what shipped, framed as increments.
+
+### Changed
+
+- **BREAKING — `set_display_mode` and `display_mode` MCP tools now require a
+  `repo` argument** (absolute path of the caller's project). Config is
+  read/written at `<repo>/.punt-labs/lux.md`. Previously the path resolved
+  against the server process's cwd, which under launchd (cwd `/`) wrote to a
+  read-only `/.punt-labs` and raised `[Errno 30]`. Callers must now pass their
+  workspace path explicitly. (lux-r929)
+- **Internal decomposition (ongoing, not complete)** — the original
+  `display.py` (4,208 lines) was split into `display/`, `scene/`, `tools/`, and
+  `protocol/` packages; `protocol.py`, `messages.py`, and `elements.py` became
+  sub-packages; `MessageRegistry` and `ElementCodec` registries replaced
+  if/elif dispatch. `display/server.py` (~1,400 lines) and
+  `display/element_renderer.py` (~1,100 lines) are still above the 300-line
+  target — further extraction remains.
+- **Protocol dataclasses are `frozen=True, slots=True`**; draw-command `*Cmd`
+  classes renamed to nouns (they are records, not commands).
+- **Architecture spec refreshed** — `docs/architecture/system.tex` brought
+  current: 24 element kinds, 24 MCP tools, frame architecture, introspection
+  protocol. README MCP tool table expanded from 11 to the full 24-tool surface;
+  `display_mode` documented as read-only alongside `set_display_mode`.
+
+### Added
+
+- **Initial Hub/Display io-model architecture** — Element ABC with two-tier
+  handler dispatch, `HubDisplay` authoritative state, and a Hub-scoped Agent
+  Subscribe publish/subscribe channel separate from the UI observer mechanism.
+  Text, Checkbox, and Dialog elements are migrated to the ABC; remaining element
+  kinds still use the legacy path. (lux-wb55, and the PR 0–4 migration chain)
+- **Interactive checkbox** — fires a `ValueChanged` event through remote
+  dispatch, routing the interaction back to the owning Hub. New `ValueChanged`
+  event type; `RemoteDispatchGroup` widened from `ButtonClicked` to any `Event`.
+- **Dialog modal clicks** — dialog buttons dispatch through the D21
+  `remote_dispatch` path to the Hub's authoritative copy.
+- **Typed draw-command decoder** — removes silent `.get()` defaults from the
+  draw-command wire path. (lux-4n1b)
+- **Concept papers from PR #109** — self-extending display vision
+  (`concept-self-extending-display.md`), extension architecture
+  (`concept-extension-architecture.tex`), and Working Backwards PR/FAQ
+  (`concept-prfaq.tex`). Concept-stage exploration, not versioned roadmap.
+- **Sub-agent write permissions** — `.claude/settings.json` allows Edit/Write
+  for `src/`, `tests/`, `docs/`, `tools/`, `.tmp/` so background sub-agents can
+  modify code without interactive approval.
+
 ### Fixed
 
 - **luxd reads no display config at startup** — removed the MCP session
@@ -32,16 +82,15 @@
 - **Hub scene replacement** — `HubDisplay.replace_scene` consolidates the
   remove-old + install-new loop from `tools.py` into the domain layer where
   ownership, root observers, and child indexes are rebuilt through `apply()`.
-
-### Changed
-
-- **Architecture spec updated to v0.18.0** — `docs/architecture/system.tex`
-  brought current: 24 element kinds, 24 MCP tools, frame architecture section,
-  introspection protocol, 662 tests across 21 files. Was stale at v0.7.0.
-- **README MCP tool table expanded** — from 11 tools to full 24-tool surface
-  with categorized sections (scene management, communication, configuration,
-  introspection). Fixed `display_mode` documented as read-write (now read-only
-  with separate `set_display_mode`).
+- **Coherent log-level control** — `LUX_LOG_LEVEL` now configures both the
+  luxd hub and the display process; an invalid value warns instead of silently
+  falling back.
+- **launchd-aware `make restart`** — restarts both luxd (via launchd) and the
+  separate display process, so code changes are actually picked up.
+- **Beads auto-render hook** — uses `bd ready`, surfaces `bd` failures instead
+  of swallowing them, and applies a 60s timeout.
+- **Display restart on upgrade** — `lux install`/upgrade restarts the display
+  so it does not keep running stale code.
 
 ### Removed
 
@@ -51,17 +100,6 @@
   normal Dock app per GLFW's default activation policy, restoring standard
   macOS app presence and making operational debugging easier. Pairs with the
   v0.7.0 "Dock hiding" Added entry. No effect on Linux.
-
-### Added
-
-- **Concept papers from PR #109** — self-extending display vision
-  (`concept-self-extending-display.md`), extension architecture
-  (`concept-extension-architecture.tex`), and Working Backwards PR/FAQ
-  (`concept-prfaq.tex`). Preserved as concept-stage exploration, not versioned
-  roadmap. Cross-referenced and self-consistent.
-- **Sub-agent write permissions** — `.claude/settings.json` now allows Edit/Write
-  for `src/`, `tests/`, `docs/`, `tools/`, `.tmp/` so background sub-agents can
-  modify code without interactive approval.
 
 ## [0.18.0] - 2026-05-12
 
