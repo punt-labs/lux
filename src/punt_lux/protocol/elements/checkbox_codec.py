@@ -7,7 +7,7 @@ short delegators so the runtime-checkable ``domain.element.Element``
 Protocol stays satisfied.
 
 The decoder injects the tier's ``renderer_factory`` + ``emit`` at
-construction so the io-model element is born with its DI wired in.
+construction so the element is born with its DI wired in.
 """
 
 from __future__ import annotations

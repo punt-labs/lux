@@ -1,10 +1,9 @@
-"""Decoder + Encoder Protocols for io-model wire codecs.
+"""Decoder + Encoder Protocols for wire codecs.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §1 row 2 and the spike at
-``spikes/io_model_v1/src/lux_spike/protocols.py``: wire-side structural
-contracts. Decoder reads a wire dict and returns an Element; Encoder
-takes an Element and produces a wire dict. Implementations live in the
-per-kind ``_codec`` modules under ``protocol/elements/``.
+Wire-side structural contracts. Decoder reads a wire dict and returns an
+Element; Encoder takes an Element and produces a wire dict.
+Implementations live in the per-kind ``_codec`` modules under
+``protocol/elements/``.
 """
 
 from __future__ import annotations

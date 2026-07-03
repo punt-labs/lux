@@ -1,4 +1,4 @@
-"""TextElement — io-model text block on the Element ABC.
+"""TextElement — text block on the Element ABC.
 
 ABC subclass with ``__new__``-keyword-only construction. Sentinel
 defaults on ``renderer_factory`` and ``emit`` keep existing keyword
@@ -48,11 +48,10 @@ class TextElement(Element):
     """A text block.
 
     PY-TS-14 OK: ``style`` and ``tooltip`` stay ``str | None`` —
-    ``style`` is the deferred Literal-flip (D3 — snapshot parity needs
-    permissive accept of arbitrary style strings), ``tooltip`` absence
-    is the documented contract.
+    ``style`` stays permissive so snapshot parity can accept arbitrary
+    style strings, ``tooltip`` absence is the documented contract.
 
-    ``color`` flips from ``str | None`` to ``str = ""`` (D4) — the empty
+    ``color`` is ``str = ""`` rather than ``str | None`` — the empty
     string is the discriminated "no override" state; the renderer's
     ``parse_hex_color(elem.color) if elem.color else None`` treats
     empty/None equivalently, so the byte-on-wire shape is unchanged
@@ -118,7 +117,7 @@ class TextElement(Element):
         """Return the foreground color, or ``""`` for the renderer default."""
         return self._color
 
-    # -- minimal setters for the scene patch path (D6) ---------------------
+    # -- minimal setters for the scene patch path ---------------------------
     #
     # ``Element.apply_patch`` dispatches JSON-decoded values straight to these
     # setters, so each ``value`` arrives as ``object`` and PY-EH-1 demands
@@ -153,10 +152,10 @@ class TextElement(Element):
         self._tooltip = self._opt_str_or_raise(value, "tooltip")
 
     def _set_color(self, value: object) -> None:
-        """Replace the color (NF1: ``null`` coerces to "" matching decoder)."""
+        """Replace the color (``null`` coerces to "" matching decoder)."""
         self._color = "" if value is None else self._str_or_raise(value, "color")
 
-    # -- codec delegators (D5) ---------------------------------------------
+    # -- codec delegators ---------------------------------------------------
 
     def to_dict(self) -> dict[str, object]:
         """Return the JSON-compatible wire representation."""

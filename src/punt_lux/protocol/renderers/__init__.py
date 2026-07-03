@@ -5,7 +5,7 @@ zero ImGui dependency. They are usable on the Hub and in tests without the
 ``[display]`` optional extra installed.
 
 - ``raising``: fail-loud sentinel factory for tiers that never paint (Hub,
-  Agent) and for the direct-construction default of io-model elements. A
+  Agent) and for the direct-construction default of ABC elements. A
   misrouted ``elem.render()`` raises ``RuntimeError`` instead of returning
   silently.
 - ``recording``: JSONL-appending renderer used by headless render assertions.

@@ -1,11 +1,11 @@
 """JsonElementFactory — top-level wire decoder dispatching by ``kind``.
 
-The io-model inbound dispatcher. One instance per tier (constructed at
-startup with that tier's ``RendererFactory`` + ``Emit`` + ``PublishSink``);
-each ``element_from_dict(raw)`` call routes to the per-kind decoder for
+The inbound dispatcher. One instance per tier (constructed at startup
+with that tier's ``RendererFactory`` + ``Emit`` + ``PublishSink``); each
+``element_from_dict(raw)`` call routes to the per-kind decoder for
 ``raw["kind"]``. ABC-shaped kinds (Text, Button, Dialog) flow through
-io-model per-kind decoders; the remaining dataclass kinds dispatch
-through the legacy ``ElementCodec`` table.
+per-kind decoders; the remaining dataclass kinds dispatch through the
+legacy ``ElementCodec`` table.
 
 The ``publish_sink`` is REQUIRED. A factory has no permission to be
 constructed without one — its Dialog child decoders would silently
@@ -169,8 +169,8 @@ class JsonElementFactory:
     def element_from_dict(self, d: dict[str, Any]) -> Any:
         """Deserialize a wire dict to the appropriate Element class.
 
-        Text, Button, and Dialog route through the io-model per-kind
-        decoders; the remaining dataclass kinds continue through the
+        Text, Button, and Dialog route through the per-kind decoders;
+        the remaining dataclass kinds continue through the
         ``ElementCodec`` table. A missing, empty, or non-string ``kind``
         is a ``ValueError`` — mirrors ``ElementCodec.from_dict``'s
         contract so every element path has the same boundary semantics.

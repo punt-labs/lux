@@ -183,7 +183,7 @@ _ENCODER_FACTORY = JsonEncoderFactory()
 def _element_to_dict(elem: Element) -> dict[str, Any]:
     """Serialize an Element dataclass to a JSON-compatible dict."""
     if isinstance(elem, TextElement | ButtonElement | DialogElement):
-        # Each io-model encoder owns its own tooltip emission.
+        # Each per-kind encoder owns its own tooltip emission.
         return _ENCODER_FACTORY.encode(elem)
     result = _to_dict_codec.to_dict(elem)
     # The remaining dataclass kinds' per-kind codecs don't emit tooltip;

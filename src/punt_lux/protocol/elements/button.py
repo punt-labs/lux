@@ -1,4 +1,4 @@
-"""ButtonElement — io-model button on the Element ABC.
+"""ButtonElement — button on the Element ABC.
 
 ABC subclass with ``__new__`` keyword-only construction. Sentinel defaults
 on ``renderer_factory`` and ``emit`` keep direct-construction call sites

@@ -3,12 +3,12 @@
 Per-kind classes live in ``slider.py``, ``checkbox.py``, ``combo.py``,
 ``input_text.py``, ``input_number.py``, ``radio.py``, ``color_picker.py``,
 ``selectable.py``.  ``button.py`` is registered separately through
-``JsonElementFactory`` (PR 4 io-model dispatch — see ``__init__.py``);
+``JsonElementFactory`` (Element ABC dispatch — see ``__init__.py``);
 the entry is removed here to avoid double registration.
 
 The ``InputsRegistry`` class consolidates the eight remaining register
 calls behind a single ``apply`` method so the package ``__init__`` does
-not grow each migration PR.
+not grow as each family migrates.
 """
 
 from __future__ import annotations

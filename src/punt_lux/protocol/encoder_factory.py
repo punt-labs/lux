@@ -1,12 +1,12 @@
 """JsonEncoderFactory — top-level wire encoder dispatching by element type.
 
-The io-model outbound dispatcher. Stateless — one instance shared across
-the process; each ``encode(elem)`` call routes to the per-kind encoder
-for ``type(elem)``.
+The outbound dispatcher. Stateless — one instance shared across the
+process; each ``encode(elem)`` call routes to the per-kind encoder for
+``type(elem)``.
 
 Ships Text, Button, and Dialog dispatch. Additional kinds register as
 each family migrates from the legacy ``ElementCodec`` path to the
-io-model.
+per-kind encoders.
 """
 
 from __future__ import annotations
