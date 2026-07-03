@@ -1,31 +1,42 @@
-"""Regression tests: the MCP session lifespan holds no display-config state."""
+"""Regression tests: MCP session startup holds no display-config state."""
 
 from __future__ import annotations
 
-import asyncio
+import importlib
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
-from punt_lux.tools.server import mcp
+import anyio
+from mcp.shared.message import SessionMessage
+
+import punt_lux.tools.server as server_module
+from punt_lux.tools import run_mcp_session, set_display_mode
 
 if TYPE_CHECKING:
     import pytest
 
 
-def _drive_session_startup() -> None:
-    """Enter and exit the MCP session lifespan the way a session does.
+def _run_session_to_completion() -> None:
+    """Drive a real MCP session with its read stream already closed.
 
-    ``run_mcp_session`` wraps ``server.run`` in ``mcp._lifespan_manager()``.
-    Entering and exiting that context is the daemon's entire startup path, so
-    it is the surface these tests exercise.
+    ``run_mcp_session`` is the per-connection entry point luxd calls. Passing a
+    receive stream whose send end is closed makes ``server.run`` return at once,
+    so the whole startup path runs — ContextVar set, private-API guards, lifespan
+    enter and exit — without a live client. A config read anywhere in that path,
+    not just inside the lifespan, is therefore caught.
     """
 
     async def _run() -> None:
-        async with mcp._lifespan_manager():
-            pass
+        send_read, recv_read = anyio.create_memory_object_stream[
+            SessionMessage | Exception
+        ](0)
+        send_write, _recv_write = anyio.create_memory_object_stream[SessionMessage](0)
+        await send_read.aclose()
+        with anyio.fail_after(5):
+            await run_mcp_session(recv_read, send_write, session_key="test")
 
-    asyncio.run(_run())
+    anyio.run(_run)
 
 
 class TestSessionStartup:
@@ -37,7 +48,7 @@ class TestSessionStartup:
             patch("punt_lux.config.ConfigManager.read") as read,
             patch("punt_lux.config.resolve_config_path") as resolve,
         ):
-            _drive_session_startup()
+            _run_session_to_completion()
 
         read.assert_not_called()
         resolve.assert_not_called()
@@ -45,7 +56,7 @@ class TestSessionStartup:
     def test_does_not_eager_connect(self) -> None:
         """Startup never connects, so it cannot auto-spawn the display."""
         with patch("punt_lux.domain.hub.clients.client_registry.get") as connect:
-            _drive_session_startup()
+            _run_session_to_completion()
 
         connect.assert_not_called()
 
@@ -57,7 +68,7 @@ class TestSessionStartup:
             patch("punt_lux.config.resolve_config_path") as resolve,
             patch("punt_lux.domain.hub.clients.client_registry.get") as connect,
         ):
-            _drive_session_startup()
+            _run_session_to_completion()
 
         read.assert_not_called()
         resolve.assert_not_called()
@@ -73,7 +84,35 @@ class TestSessionStartup:
             patch("punt_lux.config.ConfigManager.read") as read,
             patch("punt_lux.domain.hub.clients.client_registry.get") as connect,
         ):
-            _drive_session_startup()
+            _run_session_to_completion()
 
         read.assert_not_called()
         connect.assert_not_called()
+
+
+class TestServerImport:
+    """Importing the server module reads no config at module load."""
+
+    def test_import_reads_no_display_config(self) -> None:
+        """A module-level config read would fire before per-test spies exist."""
+        with (
+            patch("punt_lux.config.ConfigManager.read") as read,
+            patch("punt_lux.config.resolve_config_path") as resolve,
+        ):
+            try:
+                importlib.reload(server_module)
+                read.assert_not_called()
+                resolve.assert_not_called()
+            finally:
+                importlib.reload(server_module)
+
+
+class TestExplicitEnable:
+    """Only explicit set_display_mode(y) eager-connects — startup does not."""
+
+    def test_set_display_mode_y_eager_connects(self, tmp_path: Path) -> None:
+        """Enabling display connects immediately, unlike daemon startup."""
+        with patch("punt_lux.domain.hub.clients.client_registry.get") as connect:
+            assert set_display_mode("y", repo=str(tmp_path)) == "display:on"
+
+        connect.assert_called_once()
