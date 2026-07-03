@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 import logging
-from collections.abc import AsyncGenerator
 from contextvars import ContextVar
 from typing import TYPE_CHECKING
 
@@ -18,61 +15,7 @@ if TYPE_CHECKING:
     )
     from mcp.shared.message import SessionMessage
 
-from punt_lux.config import ConfigManager
-
 logger = logging.getLogger(__name__)
-
-
-async def _retry_eager_connect() -> None:
-    """Background retries for eager display connect."""
-    from punt_lux.domain.hub import client_registry
-
-    for delay in (2.0, 5.0, 10.0):
-        await asyncio.sleep(delay)
-        try:
-            await asyncio.to_thread(client_registry.get)
-            logger.info("Eager connect retry succeeded")
-            return
-        except Exception:  # noqa: BLE001
-            logger.debug("Eager connect retry failed", exc_info=True)
-
-
-@contextlib.asynccontextmanager
-async def _lifespan(_server: FastMCP) -> AsyncGenerator[None]:
-    """Eager-connect to the display server when display=y.
-
-    Runs ``client_registry.get()`` in a thread so the blocking socket
-    connect and potential ``ensure_display()`` auto-spawn don't stall
-    the async event loop.
-    """
-    from punt_lux.domain.hub import client_registry
-
-    config_mgr = ConfigManager()
-    try:
-        cfg = config_mgr.read()
-    except (OSError, ValueError) as exc:
-        logger.warning("Failed to read display config (%s): %s", config_mgr.path, exc)
-        yield
-        return
-
-    retry_task: asyncio.Task[None] | None = None
-    if cfg.display == "y":
-        try:
-            logger.info("display=y, eagerly connecting to display server")
-            await asyncio.to_thread(client_registry.get)
-        except Exception:  # noqa: BLE001 — best-effort startup
-            logger.warning(
-                "Eager connect failed; scheduling retries",
-                exc_info=True,
-            )
-            retry_task = asyncio.create_task(_retry_eager_connect())
-    try:
-        yield
-    finally:
-        if retry_task is not None and not retry_task.done():
-            retry_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await retry_task
 
 
 mcp = FastMCP(
@@ -98,7 +41,6 @@ mcp = FastMCP(
         "- Form: input_text + combo + checkbox + button for submission\n"
         "- Custom layout: use show() to compose any element tree"
     ),
-    lifespan=_lifespan,
 )
 
 # -- Per-session state for hub mode ----------------------------------------
@@ -141,8 +83,8 @@ async def run_mcp_session(
     token = _session_key.set(session_key)
     try:
         # FastMCP private API — verify on fastmcp upgrades.
-        # _lifespan_manager() must be entered before server.run() so the
-        # lifespan context (eager display connect, retry tasks) is available.
+        # _lifespan_manager() must be entered before server.run() so FastMCP
+        # session initialization runs.
         server = getattr(mcp, "_mcp_server", None)
         lifespan_mgr = getattr(mcp, "_lifespan_manager", None)
         if server is None or lifespan_mgr is None:
