@@ -1,5 +1,13 @@
 # ImGui Demo Audit vs Lux Element Coverage
 
+> **Archived 2026-07-03 — superseded; retained for history.**
+> This is a point-in-time coverage audit against Lux v0.5.x (23 element
+> types). The catalog has since grown to 25 element kinds and the numbers
+> below are stale. It is kept for historical reference only. For the current
+> ImGui primitive reference see `docs/imgui/primitive-catalog.md`; for the
+> current architecture see `docs/architecture/system.tex`. See
+> `docs/archive/README.md` for why this was archived.
+
 **Date**: 2026-03-20
 **ImGui version**: 1.92.7 (imgui_demo.cpp)
 **Lux version**: 0.5.x (23 element types, 69 imgui calls)
