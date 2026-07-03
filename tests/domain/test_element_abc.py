@@ -1,8 +1,7 @@
 """Element ABC — template-method render() walks children; leaves render directly.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §7(ii): the ABC's template method is
-the contract the io-model element kinds inherit. Leaves call
-``renderer.render()``; composites bracket their children with
+The ABC's template method is the contract the ABC element kinds inherit.
+Leaves call ``renderer.render()``; composites bracket their children with
 ``renderer.begin()`` / ``renderer.end()`` and recurse into each child's
 own ``render()``.
 """

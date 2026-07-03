@@ -1,4 +1,4 @@
-"""Text outbound end-to-end — io-model dispatch from wire dict to ABC-shaped Element.
+"""Text outbound end-to-end — dispatch from wire dict to ABC-shaped Element.
 
 Routes Text through ``JsonElementFactory`` so ``element_from_dict``
 returns an ABC-shaped ``TextElement`` bound to its tier's renderer
@@ -68,7 +68,7 @@ def test_in_memory_backend() -> None:
 
 
 def test_in_memory_backend_roundtrip_with_factories() -> None:
-    """Full client→hub→decode roundtrip exercising both io-model factories.
+    """Full client→hub→decode roundtrip exercising both factories.
 
     Constructs a ``TextElement`` on the client, encodes it via
     ``JsonEncoderFactory``, ships the wire dict through an

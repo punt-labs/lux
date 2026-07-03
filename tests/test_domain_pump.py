@@ -1,7 +1,7 @@
 """Tests for ``DomainPump`` — the native-kind dual-write route.
 
-After commit 5 the pump shrinks to wire-shape triage only — drop
-display-chrome actions, drop messages without a scene id, forward
+The pump does wire-shape triage only — drop display-chrome actions,
+drop messages without a scene id, forward
 everything else straight to ``Display.interact``. Domain-validation
 failures surface as ``InteractionError`` subclasses; the pump catches
 them and logs.
@@ -77,7 +77,7 @@ def test_route_skips_mixed_scene_with_non_native_kind(pump: DomainPump) -> None:
 
 
 def test_route_empty_elements_clears_existing_scene(pump: DomainPump) -> None:
-    """Re-sending an empty scene drops prior elements (Copilot CP-2)."""
+    """Re-sending an empty scene drops prior elements."""
     initial = SceneMessage(id="s1", elements=[TextElement(id="t1", content="hi")])
     pump.route(initial)
     assert _scene_snapshot_ids(pump, SceneId("s1")) == {ElementId("t1")}
@@ -107,7 +107,7 @@ def test_route_empty_elements_on_fresh_scene_is_safe(pump: DomainPump) -> None:
 def test_route_multiple_anonymous_separators(
     pump: DomainPump, caplog: pytest.LogCaptureFixture
 ) -> None:
-    """Copilot CP-NEW-1: anonymous SeparatorElements must not collide."""
+    """Anonymous SeparatorElements must not collide."""
     msg = SceneMessage(
         id="s1",
         elements=[

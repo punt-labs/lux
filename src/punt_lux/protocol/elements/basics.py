@@ -2,12 +2,12 @@
 
 Per-kind classes live in ``image.py``, ``separator.py``, ``progress.py``,
 ``spinner.py``, ``markdown.py``. ``text.py`` is registered separately
-through ``JsonElementFactory`` (PR 3 io-model dispatch — see
+through ``JsonElementFactory`` (Element ABC dispatch — see
 ``__init__.py``); the entry is removed here to avoid double registration.
 
 The ``BasicsRegistry`` class consolidates the five remaining register
 calls behind a single ``apply`` method so the package ``__init__`` does
-not grow each migration PR.
+not grow as each family migrates.
 """
 
 from __future__ import annotations

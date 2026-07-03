@@ -113,7 +113,7 @@ def abstract(server: DisplayServer) -> AbstractState:
     active_id = server._scene_manager._active_tab
     scene = server._scene_manager._scenes.get(active_id) if active_id else None
     scene_id = scene.id if scene is not None else ""
-    # Copilot CP-8: filter out empty-string ids.  ``SeparatorElement.id``
+    # Filter out empty-string ids.  ``SeparatorElement.id``
     # defaults to ``""`` for anonymous separators (post-PY-OO-2 split:
     # the prior wire shape was ``str | None`` and was filtered by
     # ``e.id is not None``).  Without this filter, multiple anonymous

@@ -298,7 +298,7 @@ def test_set_property_on_bool_field_accepts_bool() -> None:
 
 
 def test_set_property_on_float_field_accepts_int() -> None:
-    """Copilot CP-NEW5: JSON int literals must satisfy float-annotated fields.
+    """JSON int literals must satisfy float-annotated fields.
 
     ``json.loads('{"fraction": 1}')`` yields ``int`` 1, not ``float`` 1.0.  The
     wire-boundary ``WireContext.require_number`` coerces both; ``Display._apply_set``

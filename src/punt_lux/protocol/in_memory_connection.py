@@ -1,10 +1,8 @@
 """InMemoryConnection — paired-queue duplex for in-process tests.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §5: the in-memory backend for
-``LUX_DISPLAY_IN_PROCESS=1`` tests. Exposes the same ``send_line`` /
-``iter_lines`` / ``close`` shape as ``LineSocket``.
-
-D7 (design §6): PR 3 consumes this only from
+The in-memory backend for ``LUX_DISPLAY_IN_PROCESS=1`` tests. Exposes
+the same ``send_line`` / ``iter_lines`` / ``close`` shape as
+``LineSocket``. Consumed only from
 ``tests/integration/test_text_outbound_e2e.py``.
 """
 

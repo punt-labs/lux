@@ -1,15 +1,13 @@
 """JsonTextDecoder + JsonTextEncoder — wire codec for ``TextElement``.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §1 row 4 and §4: the codec body
-that used to live on ``TextElement`` (PR-2 dataclass) moves into this
-sibling module. ``TextElement.to_dict`` / ``TextElement.from_dict``
-remain as ≤ 3-line delegators (D5) so the runtime-checkable
+The codec body lives in this sibling module rather than on
+``TextElement``. ``TextElement.to_dict`` / ``TextElement.from_dict``
+remain as short delegators so the runtime-checkable
 ``domain.element.Element`` Protocol stays satisfied.
 
 The decoder injects the tier's ``renderer_factory`` + ``emit`` at
-construction so the io-model element is born with its DI wired in. The
-encoder takes the element state directly — no intermediate render
-product (the rejected RemoteRenderer pattern, per ARCHITECTURE_NOTES A3).
+construction so the element is born with its DI wired in. The encoder
+takes the element state directly — no intermediate render product.
 """
 
 from __future__ import annotations
@@ -63,7 +61,7 @@ class JsonTextDecoder:
     def decode(self, raw: Mapping[str, object]) -> TextElement:
         """Construct a TextElement from a JSON-decoded mapping."""
         ctx = ElementWireContext.for_kind("text")
-        # PR-2 dataclass codec accepted ``{"color": null}`` via
+        # The legacy dataclass codec accepted ``{"color": null}`` via
         # optional_nullable_str; preserve wire backward-compat by
         # coercing None to the empty-string default.
         color_raw = ctx.optional_nullable_str(raw, "color")
@@ -82,7 +80,7 @@ class JsonTextEncoder:
     """Encode a ``TextElement`` to its JSON-compatible wire dict.
 
     Stateless. ``style``, ``tooltip``, and ``color`` are omitted when
-    absent so the wire shape matches the PR-2 dataclass codec byte-for-byte.
+    absent so the wire shape matches the legacy dataclass codec byte-for-byte.
     """
 
     __slots__ = ()
@@ -92,7 +90,7 @@ class JsonTextEncoder:
 
     def encode(self, elem: TextElement) -> dict[str, object]:
         """Serialize a TextElement to a JSON-compatible dict."""
-        # ``color`` "" (D4 sentinel) flattens to None so strip_none drops it.
+        # ``color`` "" sentinel flattens to None so strip_none drops it.
         return strip_none(
             {
                 "kind": elem.kind,

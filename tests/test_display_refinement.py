@@ -189,7 +189,7 @@ class TestRefinementReceiveScene:
         assert abstract(server) == abs_after
 
     def test_abstract_filters_anonymous_separator_ids(self):
-        """Copilot CP-8: anonymous separators (id == "") are excluded.
+        """Anonymous separators (id == "") are excluded.
 
         Prior to the basics PY-OO-2 split, ``SeparatorElement.id`` was
         ``str | None`` and the abstraction filtered ``e.id is not None``.

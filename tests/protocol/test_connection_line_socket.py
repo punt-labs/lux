@@ -1,10 +1,9 @@
 """LineSocket — round-trip JSON lines over a Unix-socket pair.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §7(iv): commit (iv) lands the
-io-model transport as a new module consumed by tests only (D7). These
-tests exercise the three behaviors the spike validated end-to-end —
-duplex send/recv, partial-chunk reassembly, and close propagation —
-against a server/client pair joined by a real ``AF_UNIX`` socket.
+The wire transport is a module consumed by tests only. These tests
+exercise its three end-to-end behaviors — duplex send/recv,
+partial-chunk reassembly, and close propagation — against a
+server/client pair joined by a real ``AF_UNIX`` socket.
 """
 
 from __future__ import annotations
@@ -126,8 +125,8 @@ def test_iter_lines_returns_when_peer_closes(
 def test_spawn_reader_logs_and_terminates_on_malformed_json(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """SF1 regression: malformed input must log via ``logger.exception`` and
-    let the reader thread exit cleanly instead of dying silently.
+    """Malformed input must log via ``logger.exception`` and let the
+    reader thread exit cleanly instead of dying silently.
 
     Before the fix at 8c6fb02 the unprotected ``for payload in
     iter_lines():`` loop swallowed ``JSONDecodeError`` (and ``OSError``,
@@ -166,7 +165,7 @@ def test_spawn_reader_logs_and_terminates_on_malformed_json(
 def test_spawn_reader_continues_after_handler_exception(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """SF10: a handler raising on every payload must be logged and survived.
+    """A handler raising on every payload must be logged and survived.
 
     The inner ``try/except`` in ``spawn_reader``'s loop is the resilience
     contract — one misbehaving handler can't take down the reader thread.
@@ -208,7 +207,7 @@ def test_spawn_reader_continues_after_handler_exception(
 
 
 def test_spawn_reader_closes_line_socket_on_exit() -> None:
-    """CP2: ownership of the LineSocket transfers to the reader thread.
+    """Ownership of the LineSocket transfers to the reader thread.
 
     When the peer EOFs and ``iter_lines`` returns, ``spawn_reader``'s
     ``finally`` must close the LineSocket so the underlying fd is released
@@ -231,7 +230,7 @@ def test_spawn_reader_closes_line_socket_on_exit() -> None:
 
 
 def test_spawn_reader_closes_line_socket_after_iter_lines_failure() -> None:
-    """CP2: close also runs when ``iter_lines`` raises, not just on EOF.
+    """Close also runs when ``iter_lines`` raises, not just on EOF.
 
     Feeding malformed bytes drives ``iter_lines`` through ``JSONDecodeError``
     — the outer ``except Exception`` logs it, and the ``finally`` must
@@ -256,7 +255,7 @@ def test_spawn_reader_closes_line_socket_after_iter_lines_failure() -> None:
 def test_connect_unix_closes_socket_on_unexpected_exception(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """CP3: ``connect_unix`` must release the fd on every non-success exit.
+    """``connect_unix`` must release the fd on every non-success exit.
 
     Round-1 only handled the two retry-eligible races
     (``FileNotFoundError`` / ``ConnectionRefusedError``). Any other

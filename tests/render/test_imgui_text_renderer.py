@@ -1,18 +1,17 @@
 """ImGuiTextRenderer adapter — factory dispatch and Renderer Protocol shape.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §7(vi): the production
-``ImGuiRendererFactory`` returns an ``ImGuiTextRenderer`` for a
-``TextElement``. ``begin``/``end`` are documented no-ops for the Text
-leaf — safe to invoke without an active ImGui frame. ``render`` is NOT
-exercised against real ImGui here: it calls into ``imgui.text_wrapped``
-which segfaults without a live GL context. Render-path coverage lives
-in the visual tier (manual) and the e2e tier where a display server
-is running.
+The production ``ImGuiRendererFactory`` returns an ``ImGuiTextRenderer``
+for a ``TextElement``. ``begin``/``end`` are documented no-ops for the
+Text leaf — safe to invoke without an active ImGui frame. ``render`` is
+NOT exercised against real ImGui here: it calls into
+``imgui.text_wrapped`` which segfaults without a live GL context.
+Render-path coverage lives in the visual tier (manual) and the e2e tier
+where a display server is running.
 
-The regression test for Cursor MED (PR #195 round 2) stubs the
-``ElementRenderer.render_element`` method and asserts ``ImGuiTextRenderer``
-delegates to it — that delegation is what preserves the styled-text
-tooltip post-processing the io-model dispatch would otherwise bypass.
+The regression test stubs the ``ElementRenderer.render_element`` method
+and asserts ``ImGuiTextRenderer`` delegates to it — that delegation is
+what preserves the styled-text tooltip post-processing that per-kind
+renderer dispatch would otherwise bypass.
 """
 
 from __future__ import annotations
@@ -103,7 +102,7 @@ class _StubFactory:
 
 
 def test_render_delegates_to_element_renderer_so_styled_tooltip_fires() -> None:
-    """Cursor MED regression: render() must go through ElementRenderer.
+    """render() must go through ElementRenderer.
 
     ``ElementRenderer.render_element`` runs the native ``TextRenderer``
     paint AND the generic tooltip post-processing for styled text.

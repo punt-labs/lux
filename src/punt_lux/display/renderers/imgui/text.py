@@ -1,14 +1,13 @@
 """ImGuiTextRenderer — Renderer-Protocol adapter for ``TextElement``.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §2: the production text
-renderer delegates to the legacy ``ElementRenderer.render_element``
-which dispatches the TextElement to its native ``TextRenderer`` (style
-branches, color) AND runs the generic post-processing pass (styled-text
-tooltip hover). Delegating to ``ElementRenderer`` — rather than
-``TextRenderer`` directly — preserves the tooltip post-processing that
-the io-model dispatch would otherwise bypass (Cursor MED, PR #195
-round 2). The adapter exists to satisfy the Renderer Protocol shape
-(``render`` / ``begin`` / ``end``) so the io-model's template-method
+The production text renderer delegates to the legacy
+``ElementRenderer.render_element`` which dispatches the TextElement to
+its native ``TextRenderer`` (style branches, color) AND runs the generic
+post-processing pass (styled-text tooltip hover). Delegating to
+``ElementRenderer`` — rather than ``TextRenderer`` directly — preserves
+the tooltip post-processing that per-kind renderer dispatch would
+otherwise bypass. The adapter exists to satisfy the Renderer Protocol
+shape (``render`` / ``begin`` / ``end``) so the template-method
 ``Element.render()`` can call it polymorphically; Text is a leaf so
 ``begin`` / ``end`` are no-ops.
 """
@@ -41,7 +40,7 @@ class ImGuiTextRenderer:
 
         ``ElementRenderer`` runs the native ``TextRenderer`` (style + color)
         AND the generic tooltip post-processing, so styled text with a
-        tooltip still gets the hover hint (Cursor MED, PR #195 round 2).
+        tooltip still gets the hover hint.
         """
         self._factory.element_renderer.render_element(self._elem)
 

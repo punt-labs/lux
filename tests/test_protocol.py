@@ -102,7 +102,7 @@ class TestElements:
     def test_separator_element(self):
         e = SeparatorElement()
         assert e.kind == "separator"
-        # PY-TS-14 (post-migration): id is str (anonymous separators use "").
+        # PY-TS-14: id is str (anonymous separators use "").
         assert e.id == ""
 
     def test_separator_with_id(self):

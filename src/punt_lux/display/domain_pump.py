@@ -25,8 +25,8 @@ __all__ = ["DomainPump"]
 
 _log = logging.getLogger(__name__)
 
-# io-model element kinds that route through the new ABC-based ``apply``
-# path. ABC elements carry runtime state (renderer factory, emit, handler
+# ABC-based element kinds that route through the ``apply`` path.
+# ABC elements carry runtime state (renderer factory, emit, handler
 # registry) and cannot pass through dataclasses.replace, which the basic
 # native-kind path uses for anonymous-id synthesis.
 _ABC_TYPES: tuple[type, ...] = (TextElement, ButtonElement, DialogElement)

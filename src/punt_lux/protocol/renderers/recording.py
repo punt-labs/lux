@@ -1,7 +1,6 @@
 """RecordingRenderer — appends a JSONL trace of render calls.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §1 row 8 and §2 (RecordingRenderer
-as a test surface): the recording surface lives under ``protocol/`` so
+A test surface: the recording renderer lives under ``protocol/`` so
 tests can use it without the ``[display]`` optional extra. Each render
 call appends one JSON line; composites bracket their children with
 begin/end entries.

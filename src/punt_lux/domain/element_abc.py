@@ -18,10 +18,10 @@ The ABC carries:
   component self-dismiss, or connection disconnect all route through
   the one ``mark_removed`` method).
 
-The PR-1 ``domain.element.Element`` Protocol is the **structural** contract
-for wire dataclasses and continues to type the PR-2 element kinds. This
-ABC is the **behavioral** contract for io-model element kinds. Both names
-coexist; the file names keep them visually distinct.
+The ``domain.element.Element`` Protocol is the **structural** contract
+for wire dataclasses and continues to type the dataclass element kinds.
+This ABC is the **behavioral** contract for the ABC element kinds. Both
+names coexist; the file names keep them visually distinct.
 """
 
 from __future__ import annotations
@@ -47,7 +47,7 @@ logger = logging.getLogger(__name__)
 
 
 class Element(ABC):
-    """Domain core for io-model element kinds.
+    """Domain core for the ABC element kinds.
 
     Subclasses add fields and (optionally) behavior methods. They do NOT
     override ``render()`` — Composite + the template handle it. Composites
@@ -137,8 +137,8 @@ class Element(ABC):
 
         Returns ``self`` so the call site can be a drop-in replacement
         for the dataclass ``replace(...)`` path. The element is mutated
-        in place (io-model elements are mutable; dataclass elements are
-        frozen — the two branches converge in ``SceneManager._apply_patch_set``).
+        in place (ABC elements are mutable; dataclass elements are frozen
+        — the two branches converge in ``SceneManager._apply_patch_set``).
         """
         for key, value in patch.items():
             setter = getattr(self, f"_set_{key}", None)

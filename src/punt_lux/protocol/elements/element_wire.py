@@ -74,9 +74,9 @@ class ElementWireContext:
     def optional_int(self, d: Mapping[str, object], field: str) -> int | None:
         """Return ``d[field]`` as int, ``None`` if absent or explicitly null.
 
-        Copilot CP-4: a wire payload that carries ``{"width": null}`` is
-        treated the same as one that omits ``width`` — both yield
-        ``None``.  Only present, non-None, non-int values raise.
+        A wire payload that carries ``{"width": null}`` is treated the
+        same as one that omits ``width`` — both yield ``None``.  Only
+        present, non-None, non-int values raise.
         """
         if field not in d:
             return None
@@ -140,9 +140,9 @@ class ElementWireContext:
     def optional_nullable_str(self, d: Mapping[str, object], field: str) -> str | None:
         """Return ``d[field]`` as str, ``None`` if absent or explicitly null.
 
-        Copilot CP-3: a wire payload that carries ``{"style": null}`` is
-        treated the same as one that omits ``style`` — both yield
-        ``None``.  Only present, non-None, non-str values raise.
+        A wire payload that carries ``{"style": null}`` is treated the
+        same as one that omits ``style`` — both yield ``None``.  Only
+        present, non-None, non-str values raise.
         """
         if field not in d:
             return None

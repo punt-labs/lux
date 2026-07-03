@@ -54,9 +54,9 @@ class WireFields:
         """Return ``data[field]`` raw; raise if the key is absent.
 
         Distinguishes "missing key" from "explicit ``None``" — the latter
-        is a legitimate payload (Copilot CP-6: ``SetProperty.value`` is
-        the nullable field in the discriminated update union, and
-        ``d.get("value")`` cannot tell those two cases apart).
+        is a legitimate payload (``SetProperty.value`` is the nullable
+        field in the discriminated update union, and ``d.get("value")``
+        cannot tell those two cases apart).
         """
         if field not in self._data:
             msg = f"{self._kind} missing required field {field!r}"

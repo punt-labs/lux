@@ -1,9 +1,7 @@
 """Renderer + RendererFactory + Emit Protocols.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §1 row 2 and the spike at
-``spikes/io_model_v1/src/lux_spike/protocols.py``: render-side structural
-contracts. Wire-side codec contracts live next door in
-``codec_protocols.py`` (PY-OO-2: one concept per module).
+Render-side structural contracts. Wire-side codec contracts live next
+door in ``codec_protocols.py`` (PY-OO-2: one concept per module).
 """
 
 from __future__ import annotations
@@ -36,7 +34,7 @@ class RendererFactory(Protocol):
     """Callable that resolves an Element to its per-kind renderer.
 
     One factory per Display, constructed once at startup and threaded
-    through the io-model element tree at decode time.
+    through the element tree at decode time.
     """
 
     def __call__(self, elem: object) -> Renderer: ...

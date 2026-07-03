@@ -1,16 +1,14 @@
-"""Line-delimited JSON over Unix sockets — io-model transport.
+"""Line-delimited JSON over Unix sockets — the wire transport.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §5 and the spike at
-``spikes/io_model_v1/src/lux_spike/connection.py``: ``LineSocket`` is
-the bytes-on-the-wire layer; ``Decoder``/``Encoder`` sit on top. One
-``LineSocket`` owns one full-duplex conversation. Reads are
-single-threaded (one reader per socket); sends are serialized via an
+``LineSocket`` is the bytes-on-the-wire layer; ``Decoder``/``Encoder``
+sit on top. One ``LineSocket`` owns one full-duplex conversation. Reads
+are single-threaded (one reader per socket); sends are serialized via an
 internal lock so multiple producers can share one connection. The
 in-memory paired-queue variant lives in ``in_memory_connection.py``
 (PY-OO-2: one concept per module); both expose the same ``send_line``
 / ``iter_lines`` / ``close`` shape so consumers don't branch on backend.
-D7 (design §6): consumed by tests only; ``DisplayClient`` keeps its
-existing length-prefixed wire path until a coordinated cross-tier flip.
+Consumed by tests only; ``DisplayClient`` keeps its existing
+length-prefixed wire path until a coordinated cross-tier flip.
 """
 
 from __future__ import annotations
@@ -44,7 +42,7 @@ class LineSocket:
 
     Owned by whichever process accepted or connected the socket.
     Thread-safe send; reading is single-threaded (one reader thread per
-    ``LineSocket`` in the io-model tier processes).
+    ``LineSocket`` in each process).
     """
 
     _sock: socket.socket

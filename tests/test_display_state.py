@@ -107,8 +107,8 @@ class TestEmitEvent:
         assert server._event_queue[0].scene_id == "s2"
 
     def test_framed_scene_render_updates_current_scene_id(self) -> None:
-        """Bugbot HIGH on PR #187: button clicks inside framed scenes were
-        being stamped with stale or None scene_id because
+        """Button clicks inside framed scenes were being stamped with
+        stale or None scene_id because
         ``_render_framed_scene`` updated only the element renderer's view,
         not ``DisplayServer._current_scene_id``.  The stamp source must
         track the scene actually being rendered, regardless of whether it

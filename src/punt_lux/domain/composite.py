@@ -26,7 +26,7 @@ class Composite(Protocol):
 
     Structural contract: any Element with a ``children`` property
     returning ``tuple[Element, ...]`` satisfies this Protocol — wire
-    dataclass composites and io-model ABC composites alike.
+    dataclass composites and ABC composites alike.
     """
 
     @property

@@ -108,7 +108,7 @@ def test_set_property_value_preserves_none() -> None:
 
 
 def test_set_property_rejects_missing_value_key() -> None:
-    """Copilot CP-6: a payload without the ``value`` key is malformed.
+    """A payload without the ``value`` key is malformed.
 
     ``d.get("value")`` previously coalesced this with explicit-null,
     silently accepting both.  The fix raises on missing key while still

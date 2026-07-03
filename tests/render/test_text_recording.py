@@ -1,10 +1,9 @@
-"""TextElement renders through RecordingRenderer per the io-model contract.
+"""TextElement renders through RecordingRenderer per the renderer contract.
 
-Per docs/oo-refactor/pr3-v2.1-design.md §7(iii): when a Text element is
-constructed with a ``RecordingRendererFactory`` and its template-method
-``render()`` is invoked, the recording log captures one ``{"op":
-"render", "kind": "text", "id": ...}`` entry — leaf shape per spike
-R1.
+When a Text element is constructed with a ``RecordingRendererFactory``
+and its template-method ``render()`` is invoked, the recording log
+captures one ``{"op": "render", "kind": "text", "id": ...}`` entry — the
+leaf shape.
 """
 
 from __future__ import annotations

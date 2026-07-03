@@ -89,7 +89,7 @@ class TestOptionalInt:
     def test_returns_none_when_explicit_null(
         self, image_ctx: ElementWireContext
     ) -> None:
-        """Copilot CP-4: explicit JSON null is the same as absent."""
+        """Explicit JSON null is the same as absent."""
         assert image_ctx.optional_int({"width": None}, "width") is None
 
     def test_rejects_bool(self, image_ctx: ElementWireContext) -> None:
@@ -117,7 +117,7 @@ class TestOptionalNullableStr:
     def test_returns_none_when_explicit_null(
         self, text_ctx: ElementWireContext
     ) -> None:
-        """Copilot CP-3: explicit JSON null is the same as absent."""
+        """Explicit JSON null is the same as absent."""
         assert text_ctx.optional_nullable_str({"style": None}, "style") is None
 
     def test_rejects_non_string(self, text_ctx: ElementWireContext) -> None:

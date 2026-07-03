@@ -163,7 +163,7 @@ def cc_session_start() -> None:
     """SessionStart — internal hook dispatcher."""
     from punt_lux.hooks import emit, handle_session_start
 
-    # Handler doesn't use stdin data — skip reading entirely (DES-027).
+    # Skip stdin — this handler needs no payload and the pipe may never close.
     result = handle_session_start()
     emit(result)
 
