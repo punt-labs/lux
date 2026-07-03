@@ -421,12 +421,12 @@ class SceneManager:
     ) -> None:
         """Apply a set-patch to an element and sync widget state.
 
-        Two element shapes coexist during the io-model migration
-        (pr3-v2.1-design.md §4 D6): ABC subclasses (Text in PR 3, more
-        in PRs 4-11) own their patch path via ``_set_<field>`` setters
-        called from ``Element.apply_patch``; PR-2 dataclasses continue
+        Two element shapes coexist: ABC subclasses (currently Text) own
+        their patch path via ``_set_<field>`` setters called from
+        ``Element.apply_patch``; the remaining dataclasses continue
         through ``dataclasses.replace``. The dispatch branch keeps each
-        shape on its native mutation strategy until PR 12's sweep.
+        shape on its native mutation strategy until every kind is an ABC
+        subclass.
         """
         parent_list, idx = location
         elem = parent_list[idx]

@@ -1450,7 +1450,7 @@ class DisplayServer:
 
     @trace
     def _paint_element(self, elem: Element) -> None:
-        """Dispatch one element to its renderer (PR-3 ImGui factory or PR-2 path)."""
+        """Dispatch one element to its renderer (ImGui factory or legacy path)."""
         if isinstance(elem, TextElement):
             self._imgui_renderer_factory(elem).render()
         else:
