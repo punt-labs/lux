@@ -640,8 +640,8 @@ The dispatch table (\texttt{MessageRegistry} in
 \modpath{protocol/messages/registry.py}) is populated at import time by
 \texttt{register\_codecs} calls from each family module.  Tests can
 construct an isolated registry without touching the module-level
-default --- this replaces the original \texttt{if/elif} chain in
-\texttt{message\_from\_dict} (PR \#157).
+default --- this replaces an earlier \texttt{if/elif} chain in
+\texttt{message\_from\_dict}.
 
 \subsection{Element Kinds}
 
@@ -721,7 +721,7 @@ both Hub and Display.
 \subsection{Draw Commands}\label{sec:draw-commands}
 
 The \elem{draw} element holds a tuple of typed \texttt{DrawCommand}
-records (PR \#176, \#177).  Each command is a frozen, slotted
+records.  Each command is a frozen, slotted
 dataclass that satisfies the \texttt{DrawCommand} Protocol
 (\texttt{TYPE: ClassVar[str]}, \texttt{to\_wire(self) -> dict},
 \texttt{from\_wire(cls, d, *, ctx) -> Self}).
@@ -958,10 +958,8 @@ of workspace organization.  The \texttt{Frame} class lives in
 \end{tabular}
 \end{center}
 
-Public read/write properties wrap each field (PR \#159 extracted
-\texttt{\_Frame} from the original \texttt{display.py} and renamed it
-\texttt{Frame}; constructor follows the PY-CC-1 \texttt{\_\_new\_\_}
-pattern).
+Public read/write properties wrap each field; the constructor follows
+the PY-CC-1 \texttt{\_\_new\_\_} pattern.
 
 \subsection{Frame Lifecycle}
 
