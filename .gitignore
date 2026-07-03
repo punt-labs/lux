@@ -55,3 +55,6 @@ uv.toml
 spikes/*
 !spikes/io_model_v1/
 demos/
+
+# bd create lock (transient)
+.create.lock
