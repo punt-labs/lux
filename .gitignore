@@ -58,3 +58,6 @@ demos/
 
 # bd create lock (transient)
 .create.lock
+
+# Per-user plugin local config (vox/biff/etc.) — never tracked
+*.local.md
