@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- **luxd reads no display config at startup** — removed the MCP session
+  lifespan's display-config gate and its eager-connect retry machinery. Under
+  launchd the daemon runs with cwd `/`, so the gate's no-argument
+  `ConfigManager()` resolved to a nonexistent `/.punt-labs/lux.md`: the read
+  never matched the caller's project and the eager connect never fired. The
+  gate was also redundant — `set_display_mode(y)` eager-connects on explicit
+  enable and every tool call connects lazily. This eliminates both the
+  read-only `/.punt-labs` failure class and the silently-disabled eager
+  connect; luxd now holds no display-config state.
 - **D21 remote dispatch: grouped handler wrapping** — `RemoteDispatchGroup`
   replaces per-handler wrapping so one button click yields one
   `RemoteEventHandlerInvocation` instead of N. Hub replays the full handler
