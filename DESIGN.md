@@ -276,8 +276,13 @@ Adds build step, hurts debuggability, and LLMs cannot construct binary messages 
 ## DES-004: Rendering Posture — Full JSON Vocabulary + Opt-In Code Running
 
 **Date:** 2026-03-06
-**Status:** SETTLED
+**Status:** SETTLED (partially superseded)
 **Topic:** How much control Claude has over the display surface
+
+> **Partially superseded (v0.19.0):** The full-JSON-vocabulary decision stands
+> and is the shipped product. The "opt-in code running" posture (agent-supplied
+> Python via `render_function`) was superseded by Hub-side handler dispatch
+> (the io-model — DES-035/DES-036). See DES-012.
 
 ### Design
 
@@ -580,8 +585,14 @@ Pin a minimum imgui-bundle version in `pyproject.toml` and remove the fallback.
 ## DES-012: render_function Integration — Lifecycle, Hot Reload, and Event Routing
 
 **Date:** 2026-03-07
-**Status:** SETTLED
+**Status:** SUPERSEDED (v0.19.0)
 **Topic:** How the render_function element kind is wired into the display server
+
+> **Superseded (v0.19.0):** `render_function` is not a registered element kind.
+> Interaction is Hub-side handler dispatch (the io-model — see DES-035/DES-036),
+> not agent-supplied Python executed in the display. Code-execution scaffolding
+> survives only in `src/punt_lux/runtime.py`; it is not the v0.19.0 interaction
+> path.
 
 ### Context
 
@@ -858,8 +869,12 @@ A non-blocking hook would add `additionalContext` suggesting the LLM show a summ
 ## DES-016: Signal Accumulation — PostToolUse Bash Classification
 
 **Date:** 2026-03-08
-**Status:** ACCEPTED
+**Status:** SUPERSEDED (v0.19.0)
 **Topic:** How Bash command output is classified into signals that inform the Stop hook
+
+> **Superseded (v0.19.0):** The `signals.json` signal-accumulation mechanism is
+> not present in the shipped code; `ConfigManager` allows only the `display`
+> key. This ADR's subsystem no longer exists. Retained for history.
 
 ### Context
 
@@ -901,8 +916,14 @@ Signals are stored in `.lux/signals.json` as a simple array of `{type, timestamp
 ## DES-017: Config State — `.lux/config.md` with YAML Frontmatter
 
 **Date:** 2026-03-08
-**Status:** ACCEPTED
+**Status:** SUPERSEDED (v0.19.0)
 **Topic:** Where Lux stores per-project configuration
+
+> **Superseded (v0.19.0):** Shipped config is `.punt-labs/lux.md` with a single
+> `display` key — not `.lux/config.md` with a `notify` key. It is read/written
+> via the `display_mode` / `set_display_mode` MCP tools, which now require an
+> absolute `repo` argument (lux-r929); `luxd` holds no display-config state.
+> There is no `lux notify` CLI or `signals.json`. See `src/punt_lux/config.py`.
 
 ### Context
 
