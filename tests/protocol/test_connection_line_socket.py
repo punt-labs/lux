@@ -165,7 +165,7 @@ def test_spawn_reader_logs_and_terminates_on_malformed_json(
 def test_spawn_reader_continues_after_handler_exception(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """SF10: a handler raising on every payload must be logged and survived.
+    """A handler raising on every payload must be logged and survived.
 
     The inner ``try/except`` in ``spawn_reader``'s loop is the resilience
     contract — one misbehaving handler can't take down the reader thread.
