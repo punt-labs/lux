@@ -31,15 +31,19 @@
 % ===================================================================
 
 \paragraph{Document status.}
-This is a formal workspace-model specification, not the canonical rewrite-
-target document. For the rewrite target, start with \texttt{target/target.md}.
-For the current/intermediate whole-system narrative, see \texttt{system.tex}.
+This is a formal workspace-model specification of a shipped subsystem, not the
+canonical rewrite-target document. The workspace model it describes --- frames,
+the World menu, and the dock bar --- has shipped since roughly v0.9 and is live
+in the current display. It predates the Hub/Display split, so it models the
+workspace layer within the legacy single-process design; the target topology
+(\texttt{target/target.md}) relocates authoritative state into the Hub without
+retiring these workspace concepts. For the current whole-system narrative, see
+\texttt{system.tex}.
 
-DES-022 introduces a workspace model for the Lux display server,
-inspired by Pharo/Squeak's live environment.  The display becomes a
-\emph{workspace} containing independent, movable \emph{frames} (ImGui
-inner windows).  Each frame is owned by a connected client and
-contains one or more \emph{scenes}.
+The workspace model, inspired by Pharo/Squeak's live environment, makes
+the display a \emph{workspace} containing independent, movable
+\emph{frames} (ImGui inner windows).  Each frame is owned by a connected
+client and contains one or more \emph{scenes}.
 
 This specification models the workspace layer that sits above the
 existing scene renderer (specified in \texttt{display-server.tex}).
@@ -53,7 +57,7 @@ It covers:
 \end{itemize}
 
 We abstract away the element tree inside scenes (already modeled) and
-focus on the new state that DES-022 introduces.
+focus on the workspace state --- frames, ownership, and the World menu.
 
 % ===================================================================
 \section{Basic Types}

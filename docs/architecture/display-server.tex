@@ -31,9 +31,17 @@
 % ===================================================================
 
 \paragraph{Document status.}
-This is a formal subsystem specification, not the canonical rewrite-target
-document. For the rewrite target, start with \texttt{target/target.md}. For
-the current/intermediate whole-system narrative, see \texttt{system.tex}.
+This is a formal subsystem specification of the \emph{legacy single-process
+display server} --- the design where one process owns the socket, the scene
+state, and the render loop. It is not the shipped three-process Hub/Display
+runtime the system is migrating toward, and it is not the canonical
+rewrite-target document. For the rewrite target, start with
+\texttt{target/target.md}; for the current whole-system narrative --- including
+the Hub/Display slice that supersedes this single-process model --- see
+\texttt{system.tex}. This spec is retained because its refinement and partition
+tests (\texttt{tests/test\_display\_refinement.py},
+\texttt{tests/test\_display\_partition.py}) still hold the current display code
+to the model defined here.
 
 The Lux display server is an ImGui render loop that listens on a Unix
 domain socket and renders scenes.  Each frame, it accepts new
