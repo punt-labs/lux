@@ -127,7 +127,7 @@ class DomainPump:
             return elem
         if isinstance(elem, _ABC_TYPES):
             msg = (
-                f"io-model element of kind={elem.kind!r} requires an explicit id "
+                f"ABC element of kind={elem.kind!r} requires an explicit id "
                 "(anonymous-id synthesis only supports dataclass elements)"
             )
             raise ValueError(msg)
