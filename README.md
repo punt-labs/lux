@@ -98,7 +98,7 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 
 ## Features
 
-- **24 element kinds** --- text, buttons (arrow, small), images, sliders, checkboxes, combos, inputs (text, number), radios, color pickers (alpha, full picker), selectables, trees, tables, plots, progress bars, spinners, markdown, draw canvases, modals, groups, tab bars, collapsing headers, windows, separators
+- **25 element kinds** --- text, buttons (arrow, small), images, sliders, checkboxes, combos, inputs (text, number), radios, color pickers (alpha, full picker), selectables, trees, tables, plots, progress bars, spinners, markdown, draw canvases, modals, dialogs, groups, tab bars, collapsing headers, windows, separators
 - **Frames** --- scenes target named frames (inner windows) via `frame_id`. Frames persist after disconnect, can be adopted by new clients, and support initial sizing (`frame_size`) and ImGui window flags (`frame_flags`)
 - **Layout nesting** --- windows contain tab bars contain groups contain any element, arbitrarily deep
 - **Incremental updates** --- `update` patches individual elements by ID without replacing the scene
@@ -112,7 +112,7 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 
 ## MCP Tools
 
-Agents interact with Lux through **24 MCP tools** exposed by `lux serve`:
+Agents interact with Lux through **27 MCP tools** exposed by `lux serve`:
 
 | Tool | What it does |
 |------|-------------|
@@ -144,6 +144,10 @@ Agents interact with Lux through **24 MCP tools** exposed by `lux serve`:
 | `list_menus()` | Registered menu items |
 | `list_recent_events(count)` | Recent interaction events |
 | `list_errors(count)` | Recent error log entries |
+| **Pub/Sub (Agent Subscribe)** | |
+| `subscribe(topic)` | Subscribe to a Hub-scoped app topic; delivered via `recv` |
+| `unsubscribe(topic)` | Stop receiving a topic |
+| `publish(topic, payload)` | Publish an app event to a Hub topic (separate from the UI observer mechanism) |
 
 ## What It Looks Like
 
@@ -207,7 +211,7 @@ Returns `"interaction:element=b1,action=click,value=True"`.
 | Lists | `selectable`, `tree` |
 | Data | `table`, `plot`, `progress`, `spinner`, `markdown` |
 | Canvas | `draw` (line, rect, circle, triangle, polyline, text, bezier) |
-| Layout | `group`, `tab_bar`, `collapsing_header`, `window`, `modal` |
+| Layout | `group`, `tab_bar`, `collapsing_header`, `window`, `modal`, `dialog` (modal confirm dialog with Hub-side handler dispatch) |
 
 All elements with an `id` support an optional `tooltip` field (string shown on hover).
 
@@ -224,6 +228,12 @@ All elements with an `id` support an optional `tooltip` field (string shown on h
 | `lux install` | Install the Claude Code plugin via the marketplace |
 | `lux uninstall` | Uninstall the Claude Code plugin |
 | `lux show beads` | Display the beads issue board (no LLM needed) |
+| `lux ping` | Ping the display server; print round-trip time |
+| `lux hub-install` | Register the `luxd` session hub as a launchd/systemd service |
+| `lux hub-uninstall` | Remove the `luxd` service |
+| `lux ensure-hub` | Ensure `luxd` is running (`--restart` to restart) |
+| `lux hub-status` | Report `luxd` service status |
+| `lux setup-proxy` | Write the `mcp-proxy` config for the hub |
 | `lux version` | Print version |
 
 ## Architecture

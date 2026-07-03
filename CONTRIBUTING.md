@@ -63,7 +63,17 @@ One logical change per commit. Small commits are preferred over large ones.
 
 ### Quality Gates
 
-Every commit must pass:
+Every commit must pass the single gate:
+
+```bash
+make check   # OO ratchet + lint + format + mypy + pyright + tests
+```
+
+`make check` is authoritative. It runs the individual tools below plus the
+**OO ratchet** (`make check-oo`), which compares OO scores against
+`.oo-baseline.json` and fails if any metric regresses on a touched file. After
+improving OO quality, run `make update-oo` and stage `.oo-baseline.json` +
+`.oo-audit.jsonl` in the same commit. The underlying tools:
 
 ```bash
 uv run ruff check .           # Linting
