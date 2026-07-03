@@ -52,23 +52,44 @@ This is the current/intermediate system view, not the rewrite target.
 
 - [architecture/display-server.tex](./architecture/display-server.tex)
 - [architecture/workspace-model.tex](./architecture/workspace-model.tex)
-- [architecture/claude-code-lux.tex](./architecture/claude-code-lux.tex)
 
-These are formal or appendix-style documents. They are useful, but they are
-not the main narrative architecture set.
+These are formal or appendix-style documents modeling the legacy
+single-process design. They are useful, and their refinement tests still hold
+the current display code to their models, but they are not the main narrative
+architecture set and they predate the Hub/Display split.
 
-## Historical Material
+## ImGui Reference
 
-Older migration notes, archived io-model drafts, and spike proof points were
-removed from the live docs tree to reduce confusion. If you need that material,
-recover it from git history instead of treating it as current guidance.
+- [imgui/primitive-catalog.md](./imgui/primitive-catalog.md)
+
+A comprehensive Dear ImGui / ImPlot widget and primitive reference. This is a
+timeless API reference, independent of Lux's architecture, and is kept current.
+
+## Archive
+
+- [archive/README.md](./archive/README.md)
+- [archive/claude-code-lux.tex](./archive/claude-code-lux.tex)
+- [archive/coverage-audit.md](./archive/coverage-audit.md)
+
+Superseded documents retained for history. Each carries an archived banner.
+They do not describe the current system; see [`archive/README.md`](./archive/README.md)
+for why each was archived. Older migration notes and spike proof points not in
+the archive can be recovered from git history.
 
 ## Alternative Concepts
 
 - [concepts/self-extending-display.md](./concepts/self-extending-display.md)
 - [concepts/extension-architecture.tex](./concepts/extension-architecture.tex)
-- [concepts/prfaq.tex](./concepts/prfaq.tex)
 - [concepts/pharo-inspiration.md](./concepts/pharo-inspiration.md)
 
 These are not approved plans, are not the canonical Lux architecture, and are
 not under active development.
+
+## Product Thesis
+
+- [concepts/prfaq.tex](./concepts/prfaq.tex)
+
+The Working-Backwards PR/FAQ. Unlike the alternative concepts above, this is a
+living product-thesis document under the org's release workflow — it is updated
+when a change shifts product direction or validates a risk assumption, not an
+abandoned concept.

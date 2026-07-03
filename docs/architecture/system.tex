@@ -37,11 +37,11 @@
 
 \begin{document}
 
-\title{Lux: Prior Display-Server Architecture Specification}
-\author{Visual Output Surface for AI Agents}
-\date{May 2026 --- v0.18.0}
+\title{Lux: Current Architecture Specification}
+\author{Visual Output Surface for AI Agents --- a System in Transition}
+\date{July 2026 --- v0.19.0}
 \hypersetup{
-  pdftitle={Lux: Prior Display-Server Architecture Specification},
+  pdftitle={Lux: Current Architecture Specification},
   pdfauthor={Punt Labs},
   pdfsubject={Architecture},
   pdfcreator={pdflatex}
@@ -56,54 +56,68 @@
 % ===================================================================
 
 Lux is a visual output surface for Claude Code agents and local
-applications.  In the display-server-centered architecture documented
-here, agents and apps push JSON element trees into a native ImGui
-window over Unix socket IPC.  The system has four projection surfaces
-from a single codebase: Python library, CLI, MCP server, and Claude
-Code plugin.
+applications.  Agents and apps push JSON element trees into a native
+ImGui window over IPC.  The system has four projection surfaces from a
+single codebase: Python library, CLI, MCP server, and Claude Code
+plugin.
 
-The display server owns the render loop, scene state, widget state,
-interaction queue, and query surface.  Agents are clients.  All
-agent--display communication is message-passing over a framed JSON
-protocol on a Unix domain socket.  The display server is
-single-threaded: no threads, no asyncio, no locks.  It polls all
-I/O non-blocking each frame via \texttt{select()}.
+This document describes the architecture \emph{as the code stands
+today}.  Today's code is mid-migration between two models, and this
+specification keeps that distinction explicit throughout:
+
+\begin{itemize}
+  \item The \textbf{legacy single-process display-server path}
+    (\modpath{display/}, \modpath{scene/}, \modpath{socket\_server.py})
+    still carries the bulk of the rendering and scene mass.  In this
+    path the display process owns the render loop, scene state, widget
+    state, interaction queue, and query surface; agents are clients;
+    all communication is framed JSON over a Unix domain socket; and the
+    loop is single-threaded, polling all I/O non-blocking each frame via
+    \texttt{select()}.
+  \item The \textbf{new Hub/Display slice} (\modpath{domain/}) is the
+    working proof of the target model: a Hub-authoritative
+    \texttt{HubDisplay} store, an Element ABC on four migrated kinds, a
+    two-tier remote-dispatch event path, and a Hub-scoped
+    publish/subscribe channel.  It is narrow but real, and it is where
+    new work converges.  See Section \S\ref{sec:hubdisplay}.
+\end{itemize}
 
 \subsection{Scope}
 
-This document is the canonical specification of Lux's \emph{prior
-display-server architecture}.  It intentionally describes the
-display-server-centered design that shipped through the v0.18 line and
-does \emph{not} treat the experimental Hub/domain slices now present in
-the repository as normative.  Where the codebase contains newer
-transport or domain experiments, this document ignores them and records
-the stable design they grew out of.
+This document is the current-architecture record for Lux --- the
+org-standard answer to ``what does the code approximately do today?''
+It is not the rewrite target.  The canonical design intent lives in
+\texttt{docs/architecture/target/target.md}; where this document and
+that target disagree, the target defines the \emph{direction} and this
+document reports the \emph{present}.
+
+The system is honestly a work in transition.  Rather than pretend the
+legacy path is gone or that the new slice is complete, the sections
+below label each subsystem as \textbf{migrated}, \textbf{transitional},
+or \textbf{legacy} so a reader can tell settled ground from
+scaffolding.
 
 \subsection{Companion Documents}
 
-This document is the canonical, comprehensive description of the
-prior display-server system.  The sibling files in
-\texttt{docs/architecture/} provide narrower supporting views:
+The sibling files in \texttt{docs/architecture/} provide narrower
+supporting views:
 
 \begin{itemize}
-  \item \texttt{display-server.tex} --- Z specification of the core
-    display-server state machine, including client lifecycle, scene
-    replacement, patching, and interaction broadcast.
+  \item \texttt{target/target.md} --- the canonical rewrite target.
+    Start there for design intent; return here for current behavior.
+  \item \texttt{display-server.tex} --- Z specification of the legacy
+    display-server state machine (client lifecycle, scene replacement,
+    patching, event flush).  It models the single-process path, not the
+    Hub/Display runtime, and its refinement tests still hold the current
+    display code to that model.
   \item \texttt{workspace-model.tex} --- Z specification of frames,
     client identity, scene-to-frame routing, and World menu ownership.
-  \item \texttt{claude-code-lux.tex} --- Z specification of Lux as a
-    consumer-facing visual surface inside the broader Claude Code
-    workflow.
-  \item \texttt{introspection-api.md} --- the unified
-    \msg{QueryRequest}/\msg{QueryResponse} envelope and the display
-    introspection method catalog used by
+  \item \texttt{target/introspection-api.md} --- the target
+    verification and control surface realized by the unified
+    \msg{QueryRequest}/\msg{QueryResponse} envelope and the
     \tool{inspect\_scene()}, \tool{list\_scenes()}, and related tools.
     See Section \S\ref{sec:tools}.
 \end{itemize}
-
-Other architecture notes in this directory may discuss future-facing or
-experimental directions.  They are intentionally out of scope for this
-specification.
 
 \subsection{Design Principles}
 
@@ -131,9 +145,12 @@ specification.
 
 \subsection{Component Map}
 
-The Python package splits the prior display-server design across the
-protocol layer, the display/runtime layer, scene state management, and
-MCP/client adapters.
+The Python package spans four concerns: the protocol layer (the wire
+contract), the legacy display/runtime layer with its scene-state
+management and MCP/client adapters, and the newer \modpath{domain/}
+Hub/Display slice.  The first three are the mass of the shipped
+data-display product; \modpath{domain/} is the migrated core described
+in Section \S\ref{sec:hubdisplay}.
 
 \begin{longtable}{p{2.3cm}p{3.2cm}p{8.6cm}}
 \toprule
@@ -149,17 +166,22 @@ Protocol      & \modpath{protocol/}              & Wire framing, the
                 \texttt{message\_to\_dict} / \texttt{element\_to\_dict}
                 dispatch helpers. \\
 Elements      & \modpath{protocol/elements/}     & 25 wire element
-                dataclasses plus the \texttt{Patch} payload used by
-                \msg{UpdateMessage}.  \texttt{JsonElementFactory}
-                handles the ABC-backed \texttt{text}, \texttt{button},
-                and \texttt{dialog} path; \texttt{ElementCodec} covers
-                the remaining kinds. \\
+                kinds plus the \texttt{Patch} payload used by
+                \msg{UpdateMessage}.  Four kinds --- \texttt{text},
+                \texttt{button}, \texttt{checkbox}, \texttt{dialog} ---
+                subclass the \modpath{domain/element\_abc.py}
+                \texttt{Element} ABC (data + behavior); the rest are
+                frozen dataclasses.  \texttt{JsonElementFactory} decodes
+                the io-model kinds, \texttt{ElementCodec} the remainder. \\
 Messages      & \modpath{protocol/messages/}     & 22 message
-                dataclasses across the \texttt{scene},
-                \texttt{lifecycle}, \texttt{interaction},
-                \texttt{observer}, \texttt{menu}, and
-                \texttt{introspect} families, with
-                \texttt{MessageRegistry} as the wire dispatch table. \\
+                dataclasses across six families --- \texttt{scene},
+                \texttt{lifecycle}, \texttt{menu}, \texttt{introspect},
+                \texttt{observer}, and \texttt{remote\_invocation} ---
+                with \texttt{MessageRegistry} as the wire dispatch
+                table.  User interactions cross the wire as
+                \msg{RemoteEventHandlerInvocation}
+                (\texttt{remote\_invocation}), not as a broadcast
+                interaction message. \\
 Display       & \modpath{display/}               & ImGui render loop,
                 scene rendering, frame lifecycle, menu management,
                 screenshot capture, and event flush.  The core modules
@@ -171,6 +193,18 @@ Scene         & \modpath{scene/}                 & Scene graph state.
                 \texttt{frame.py} defines workspace frames, and
                 \texttt{widget\_state.py} holds per-scene ImGui control
                 state. \\
+Domain (Hub)  & \modpath{domain/}                & The migrated
+                Hub/Display slice.  \texttt{element\_abc.py} is the
+                \texttt{Element} ABC (Composite template method, handler
+                registry, property-observer surface).
+                \texttt{hub/hub\_display.py} is \texttt{HubDisplay},
+                the Hub-authoritative element/owner/child store;
+                \texttt{hub/hub.py} is the connection-scoped Agent
+                Subscribe pub-sub Hub.  \texttt{display.py} routes
+                \texttt{Update}s to \texttt{Event}s and validates
+                remote interactions in \texttt{interact()}.
+                \texttt{handlers/remote\_dispatch.py} wraps handlers for
+                the two-tier path.  See \S\ref{sec:hubdisplay}. \\
 Tools (MCP)   & \modpath{tools/}                 & FastMCP tool surface.
                 \texttt{server.py} owns the \texttt{FastMCP} instance
                 and session lifecycle.  \texttt{tools.py} defines
@@ -190,14 +224,15 @@ Client        & \modpath{client.py}              & Backward-compat shim
 Display client & \modpath{display\_client.py}    & \texttt{DisplayClient}
                 --- typed \texttt{show}, \texttt{update},
                 \texttt{query}, \texttt{clear}, and \texttt{ping}
-                methods, plus callback registration for
-                \msg{InteractionMessage} and \texttt{poll\_event()}
-                for queued \msg{ObserverMessage}s. \\
-Gateway       & \modpath{luxd.py}                & Optional WebSocket
-                gateway (\texttt{luxd}) and mcp-proxy entry point.  In
-                the prior architecture documented here it is transport
-                and session bootstrap plumbing, not the source of truth
-                for scene state or rendering. \\
+                methods, plus \texttt{on\_event()} callback registration
+                for \msg{RemoteEventHandlerInvocation} frames and
+                \texttt{poll\_event()} for queued \msg{ObserverMessage}s. \\
+Gateway       & \modpath{luxd.py}                & WebSocket gateway
+                (\texttt{luxd}) and mcp-proxy entry point --- the Hub
+                process in the target topology.  In the legacy
+                single-process path it is transport and session
+                bootstrap plumbing, not the source of truth for scene
+                state or rendering. \\
 Apps/Beads    & \modpath{apps/beads.py}          & Beads issue browser;
                 loads \texttt{.beads/issues.jsonl} and renders a
                 filterable table scene. \\
@@ -253,23 +288,41 @@ Three primary data paths connect agents to the display:
     client.
 \end{enumerate}
 
-\subsubsection{Event Path (User $\to$ Agent)}
+\subsubsection{Event Path (User $\to$ Hub, two-tier D21)}
+
+The event path is the clearest place the migration shows through.  The
+display no longer dispatches interactions locally or broadcasts a
+generic interaction message; it forwards the interaction back to the
+owning Hub, where the authoritative handler runs.  This is the D21
+two-tier model described in \S\ref{sec:hubdisplay}.
 
 \begin{enumerate}
-  \item User interacts with widget (click, slider drag, text input).
-  \item \texttt{ElementRenderer} or \texttt{TableRenderer} emits an
-    \msg{InteractionMessage} with \field{element\_id},
-    \field{action}, \field{value}, and optional \field{scene\_id}
-    via the \texttt{emit\_event} callback.
-  \item Message buffered in \texttt{DisplayServer.\_event\_queue}
-    and pushed to the \texttt{QueryDispatcher}'s ring buffer for
-    later \tool{list\_recent\_events()} queries.
-  \item Each frame, \texttt{\_flush\_events()} broadcasts all queued
-    messages to all connected clients via
-    \texttt{SocketServer.send\_to\_client()}, then clears the queue.
-  \item Client-side consumers handle those interactions through the
-    display client, typically by registering
-    \texttt{DisplayClient.on\_event()} callbacks.
+  \item When a scene is installed, the display calls
+    \texttt{elem.wrap\_handlers\_for\_remote(\_emit\_event)} on each
+    element, replacing every handler bucket with a
+    \texttt{RemoteDispatchGroup} that captures the socket-send closure.
+  \item User interacts with a widget (button click, checkbox toggle).
+    \texttt{ElementRenderer} fires the typed event on the display-side
+    element copy; the wrapped handler runs instead of the real handler.
+  \item The wrapper builds one \msg{RemoteEventHandlerInvocation}
+    (\field{element\_id}, \field{action}, \field{event\_kind}
+    --- \texttt{button\_clicked} or \texttt{value\_changed} ---,
+    \field{value}, \field{ts}) and hands it to \texttt{\_emit\_event},
+    which stamps the current \field{scene\_id} and queues it.  One
+    interaction produces one message per element/event bucket, however
+    many handlers that bucket holds.
+  \item Each frame, \texttt{\_flush\_events()} records the events in the
+    \texttt{QueryDispatcher} ring buffer (for
+    \tool{list\_recent\_events()}), then \texttt{\_dispatch\_queued\_events()}
+    routes each event to the \emph{owning} client --- the connection
+    whose scene this is, resolved via
+    \texttt{SceneManager.scene\_to\_owner} --- falling back to broadcast
+    only when no owner is known.
+  \item The owning Hub resolves the authoritative Element by
+    \field{(scene\_id, element\_id)}, validates ownership in
+    \texttt{Display.interact()}, and fires the real event once.  The
+    original handler chain --- \texttt{call\_model}, \texttt{publish},
+    \texttt{mark\_removed} --- runs on the Hub's copy.
 \end{enumerate}
 
 \subsubsection{Update Path (Incremental Patching)}
@@ -290,6 +343,187 @@ Three primary data paths connect agents to the display:
     up either the unframed-scenes dict or the per-frame scene
     dict.
 \end{enumerate}
+
+% ===================================================================
+\section{The Hub/Display Slice (Migrated Core)}\label{sec:hubdisplay}
+% ===================================================================
+
+Everything above describes the legacy single-process path, still the
+mass of the shipped product.  This section describes the migrated core
+--- the part of the code that already implements the target model from
+\texttt{target/target.md}.  It is narrow but load-bearing: it is where
+new element work lands, and it is the reference for how the whole system
+is meant to behave once migration completes.
+
+The slice lives in \modpath{domain/} and imports no ImGui, no socket,
+and no JSON --- it is pure domain.  Adapters wrap it: the display
+process renders it, the Hub transport moves its serialized elements over
+the wire.
+
+\subsection{Two Authorities, One Winner}
+
+The target model splits the old display server into a \textbf{Hub} and a
+\textbf{Display} that are separate processes, potentially on separate
+machines.
+
+\begin{itemize}
+  \item The \textbf{Hub} owns authoritative UI state and runs the real
+    handlers.  Clients (MCP tools, direct client APIs) talk to the Hub,
+    never to the Display.
+  \item The \textbf{Display} holds a full replica of the UI for
+    rendering and input capture.  It wraps handlers so interactions
+    route back to the owning Hub instead of executing locally.
+\end{itemize}
+
+The rule is: \textbf{UI state crosses the wire; render calls do not.}
+Serialized elements, scene updates, and remote interaction messages
+travel between Hub and Display; ImGui calls stay local to the Display.
+When Hub-side state changes, the Hub re-sends the whole affected UI and
+the Display replaces its copy --- there is no incremental diff protocol.
+
+\subsection{HubDisplay: the Authoritative Store}
+
+\texttt{HubDisplay} (\modpath{domain/hub/hub\_display.py}) is the Hub's
+single authoritative surface for scene state.  It is a facade over five
+typed collaborators, each with one responsibility:
+
+\begin{center}
+\begin{tabular}{lp{8.5cm}}
+\toprule
+\textbf{Collaborator} & \textbf{Responsibility} \\
+\midrule
+\texttt{ElementIndex}       & \field{(scene\_id, element\_id)} $\to$
+  \texttt{Element} lookup table. \\
+\texttt{OwnerTracker}       & Every Element's owning
+  \field{ConnectionId}; the interaction path gates on this, and the
+  disconnect path walks it to find each connection's owned roots. \\
+\texttt{RootRegistry}       & Scene-root ABC Elements that participate
+  in the property-observer cascade. \\
+\texttt{ChildIndex}         & Parent $\to$ children edges captured at
+  install time so cascade removal drops every descendant in one walk. \\
+\texttt{HubClientRegistry}  & The set of connections currently
+  registered as Hub clients. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\texttt{apply(connection\_id, update)} dispatches on the typed
+\texttt{Update} sum --- \texttt{AddElement}, \texttt{SetProperty},
+\texttt{RemoveElement} --- and enforces ownership: a connection cannot
+mutate or evict another connection's elements.  \texttt{AddElement}
+recurses into composite children via the Composite Protocol so a Button
+buried inside a Dialog is indexed and later click-resolvable.
+\texttt{replace\_scene} keeps the Hub authoritative on re-show: it
+removes the connection's previous roots, then installs the new ones
+through the same \texttt{apply} path so ownership, root observers, and
+child indexes rebuild in one place.
+
+\subsection{The Element ABC}
+
+The migrated kinds subclass the \texttt{Element} ABC in
+\modpath{domain/element\_abc.py}.  The ABC carries data \emph{and}
+behavior:
+
+\begin{itemize}
+  \item \textbf{Composite render template.}  \texttt{render()} is a
+    template method (never overridden); composites override
+    \texttt{\_children()} to return their children, leaves inherit the
+    empty default.
+  \item \textbf{Handler registry.}  \texttt{add\_handler} /
+    \texttt{remove\_handler} / \texttt{fire} key handlers by
+    \texttt{Event} subclass.  \texttt{fire} snapshots the bucket so a
+    handler that mutates the registry mid-dispatch cannot affect the
+    in-flight call.
+  \item \textbf{Property-observer surface.}  \texttt{add\_observer},
+    \texttt{mark\_removed}, and \texttt{removed} let a parent composite
+    react to a child being removed.  All three removal paths --- agent
+    \texttt{RemoveElement}, component self-dismiss, connection
+    disconnect --- route through the one \texttt{mark\_removed} method.
+  \item \textbf{Native serialization.}  \texttt{\_\_reduce\_\_} /
+    \texttt{\_\_setstate\_\_} let an Element cross the Hub$\to$Display
+    boundary.  Hub-only bookkeeping (the observer closures that
+    reference \texttt{HubDisplay}) is dropped on serialization; the
+    Display is a replica and does not need Hub observers.  Handlers
+    survive so \texttt{wrap\_handlers\_for\_remote} can wrap them on the
+    Display side.
+\end{itemize}
+
+\subsection{Two-Tier Handler Dispatch (D21)}
+
+The Hub says: ``I am sending you a copy of a UI.  If anyone interacts
+with it, I will do the work.''  The Display says: ``I will render that
+copy and forward interactions back to the Hub.''
+
+Both tiers hold the same element state and both call
+\texttt{elem.fire(event)}.  The difference is what the handler does:
+
+\begin{itemize}
+  \item \textbf{Hub:} \texttt{elem.fire(event)} runs the real handler
+    --- \texttt{call\_model}, \texttt{publish}, \texttt{mark\_removed}.
+  \item \textbf{Display:} \texttt{wrap\_handlers\_for\_remote} has
+    replaced each event bucket with a \texttt{RemoteDispatchGroup}
+    (\modpath{domain/handlers/remote\_dispatch.py}), so
+    \texttt{elem.fire(event)} sends one \msg{RemoteEventHandlerInvocation}
+    to the Hub.  The Hub resolves the authoritative Element by
+    \field{(scene\_id, element\_id)} in \texttt{Display.interact()},
+    validates ownership, and fires the real event once.
+\end{itemize}
+
+Two event types cross this boundary today: \texttt{ButtonClicked} and
+\texttt{ValueChanged} (\modpath{domain/interaction.py}).  Grouping is
+per element/event bucket: a button with three handlers still produces a
+single remote message, and the Hub replays the full three-handler chain
+once on its copy.  When a handler mutates Hub-side state (for example a
+dialog dismissing itself via \texttt{mark\_removed}), the Hub re-pushes
+the full scene tree and the Display renders whatever the current tree
+is.
+
+\subsection{Agent Subscribe / Publish}
+
+The Hub also owns an application-level publish/subscribe channel
+(\modpath{domain/hub/hub.py}), distinct from the element-observer
+mechanism above --- the two share no machinery.
+
+Every operation is scoped to a \field{ConnectionId}.  A connection
+cannot see, touch, or publish into another connection's topics.
+\texttt{subscribe} registers the caller's outbound writer against a
+topic; \texttt{publish} fans an \msg{ObserverMessage} payload out to
+that connection's subscribers using snapshot-then-iterate so a slow
+handler cannot stall concurrent publishes.  Topics --- \texttt{openTicket},
+\texttt{closeTicket}, \texttt{markTicketInProgress} --- are defined by
+the app or agent, not by Lux.  This is the business-event channel; it is
+not the UI-state replication path.
+
+The MCP surface exposes this channel through \tool{subscribe},
+\tool{unsubscribe}, \tool{publish}, and \tool{recv} (\S\ref{sec:tools}).
+
+\subsection{Migrated vs.\ Still-Legacy}
+
+To keep the migration boundary honest:
+
+\begin{center}
+\begin{tabular}{lp{9.5cm}}
+\toprule
+\textbf{State} & \textbf{What it covers} \\
+\midrule
+\textbf{Migrated}     & The Element ABC and its four kinds
+  (\texttt{text}, \texttt{button}, \texttt{checkbox}, \texttt{dialog});
+  \texttt{HubDisplay} authoritative state with ownership and cascade
+  removal; the D21 \msg{RemoteEventHandlerInvocation} two-tier event
+  path; Agent Subscribe/Publish. \\
+\textbf{Transitional} & The display process, which now runs the D21
+  event path (\S\ref{sec:frames}) yet still owns rendering, scene tabs,
+  frames, and the query surface as in the legacy design. \\
+\textbf{Legacy}       & The 21 not-yet-migrated element kinds as frozen
+  dataclasses; \texttt{SceneManager} multi-scene/frame state;
+  \texttt{socket\_server.py} single-process transport; the legacy
+  ad-hoc introspection request/response pairs kept for compatibility. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The direction is fixed by \texttt{target/target.md}; the pace is set by
+migrating one element family and one subsystem at a time.
 
 % ===================================================================
 \section{Wire Protocol}
@@ -315,13 +549,16 @@ dataclasses).  Oversize frames raise \texttt{ValueError}, which
 
 \subsection{Message Types}
 
-The message layer is split across the \texttt{scene},
-\texttt{lifecycle}, \texttt{interaction}, \texttt{observer},
-\texttt{menu}, and \texttt{introspect} families.  In
-\modpath{protocol/messages/\_\_init\_\_.py}, the protocol surface is
-assembled into a \texttt{ClientMessage} union (12 request/command
-types), a \texttt{DisplayMessage} union (9 response/event types), and
-\msg{UnknownMessage} for forward compatibility.
+The message layer is split across six families: \texttt{scene},
+\texttt{lifecycle}, \texttt{menu}, \texttt{introspect},
+\texttt{observer}, and \texttt{remote\_invocation}.  There is no
+standalone \texttt{interaction} family --- user interactions travel as
+\msg{RemoteEventHandlerInvocation} from the \texttt{remote\_invocation}
+module.  In \modpath{protocol/messages/\_\_init\_\_.py}, the protocol
+surface is assembled into a \texttt{ClientMessage} union (12
+request/command types), a \texttt{DisplayMessage} union (9
+response/event types), and \msg{UnknownMessage} for forward
+compatibility.
 
 \subsubsection{Client $\to$ Display}
 
@@ -377,11 +614,13 @@ and \field{frame\_layout} (\texttt{"tab"} or \texttt{"stack"}).
   capabilities. \\
 \msg{AckMessage}         & Acknowledges scene or update; \field{scene\_id},
   \field{ts}, optional \field{error}. \\
-\msg{InteractionMessage} & User interaction; \field{element\_id},
-  \field{action}, \field{value}, \field{ts}, optional
-  \field{scene\_id}. \\
-\msg{ObserverMessage}    & Session-scoped business event fan-out for
-  the optional subscribe/publish path; \field{topic} +
+\msg{RemoteEventHandlerInvocation} & User interaction forwarded to the
+  owning Hub for authoritative dispatch; \field{element\_id},
+  \field{action}, \field{event\_kind}
+  (\texttt{button\_clicked} / \texttt{value\_changed}), \field{value},
+  \field{ts}, optional \field{scene\_id}. \\
+\msg{ObserverMessage}    & Connection-scoped business event fan-out for
+  the Agent Subscribe / Publish path; \field{topic} +
   \field{payload}. \\
 \msg{PongMessage}        & Ping response; round-trip latency probe. \\
 \msg{IntrospectResponse} & Scene element tree response. \\
@@ -401,18 +640,28 @@ The dispatch table (\texttt{MessageRegistry} in
 \modpath{protocol/messages/registry.py}) is populated at import time by
 \texttt{register\_codecs} calls from each family module.  Tests can
 construct an isolated registry without touching the module-level
-default --- this replaces the original \texttt{if/elif} chain in
-\texttt{message\_from\_dict} (PR \#157).
+default --- this replaces an earlier \texttt{if/elif} chain in
+\texttt{message\_from\_dict}.
 
 \subsection{Element Kinds}
 
 The wire layer exposes 25 element kinds plus the non-element
-\texttt{Patch} payload used by \msg{UpdateMessage}.  Three kinds
-(\texttt{text}, \texttt{button}, \texttt{dialog}) are decoded through
-\texttt{JsonElementFactory}; the remaining kinds are registered into
-\texttt{ElementCodec}.  Each element is a frozen, slotted dataclass,
-and the \texttt{Element} union is assembled in
-\modpath{protocol/elements/\_\_init\_\_.py}.
+\texttt{Patch} payload used by \msg{UpdateMessage}.  Four kinds ---
+\texttt{text}, \texttt{button}, \texttt{checkbox}, \texttt{dialog} ---
+have been migrated onto the \modpath{domain/element\_abc.py}
+\texttt{Element} ABC: they own data \emph{and} behavior (a handler
+registry, the Composite render template, and the property-observer
+surface).  The remaining kinds are still frozen, slotted dataclasses
+registered into \texttt{ElementCodec}.  The \texttt{Element} union is
+assembled in \modpath{protocol/elements/\_\_init\_\_.py}.
+
+On the encode side, \texttt{\_element\_to\_dict} routes \texttt{text},
+\texttt{button}, and \texttt{dialog} through the io-model
+\texttt{JsonEncoderFactory}; \texttt{checkbox} is ABC-backed but
+serializes through its own per-kind codec.  On the decode side,
+\texttt{JsonElementFactory} reconstructs the io-model kinds with the
+tier-injected renderer factory and emit callback so handlers wire up on
+both Hub and Display.
 
 \begin{longtable}{llp{6cm}}
 \toprule
@@ -434,7 +683,10 @@ and the \texttt{Element} union is assembled in
 \texttt{inputs}    & \elem{button}            & Label, action, disabled flag;
               \field{arrow} (directional) and \field{small} variants \\
             & \elem{slider}            & Min/max/value, integer mode \\
-            & \elem{checkbox}          & Boolean toggle \\
+            & \elem{checkbox}          & Boolean toggle; the shipped
+              interactive ABC element --- a toggle fires
+              \texttt{ValueChanged}, routed to the Hub as a
+              \texttt{value\_changed} invocation \\
             & \elem{combo}             & Dropdown selection \\
             & \elem{input\_text}       & Single-line text input \\
             & \elem{radio}             & Radio button group \\
@@ -469,7 +721,7 @@ and the \texttt{Element} union is assembled in
 \subsection{Draw Commands}\label{sec:draw-commands}
 
 The \elem{draw} element holds a tuple of typed \texttt{DrawCommand}
-records (PR \#176, \#177).  Each command is a frozen, slotted
+records.  Each command is a frozen, slotted
 dataclass that satisfies the \texttt{DrawCommand} Protocol
 (\texttt{TYPE: ClassVar[str]}, \texttt{to\_wire(self) -> dict},
 \texttt{from\_wire(cls, d, *, ctx) -> Self}).
@@ -537,10 +789,11 @@ sequence:
     workspace frames (see \S\ref{sec:frames}).  Render the dock bar for
     minimized frames.  Legacy fallback: if no frames exist, render
     unframed scenes as tabs.
-  \item \textbf{Flush events.}  Broadcast all buffered
-    \msg{InteractionMessage}s via
-    \texttt{SocketServer.send\_to\_client()} to every connected
-    client, then clear the queue.  Each event is also recorded in
+  \item \textbf{Flush events.}  Route all buffered
+    \msg{RemoteEventHandlerInvocation}s to each scene's owning client
+    via \texttt{SocketServer.send\_to\_client()} (falling back to
+    broadcast only when no owner is known), then clear the queue.  Each
+    event is also recorded in
     \texttt{QueryDispatcher.\_recent\_events} for later
     \tool{list\_recent\_events()} queries.
 \end{enumerate}
@@ -585,8 +838,8 @@ read-only properties on \texttt{DisplayServer.scene\_manager}.
 \midrule
 \multicolumn{2}{l}{\textbf{Display-server state}} \\
 \midrule
-\texttt{\_event\_queue}       & \texttt{list[InteractionMessage]} on
-  \texttt{DisplayServer}, drained each frame. \\
+\texttt{\_event\_queue}       & \texttt{list[RemoteEventHandlerInvocation]}
+  on \texttt{DisplayServer}, drained each frame. \\
 \texttt{\_client\_names}      & On \texttt{SocketServer}, fd $\to$
   display name from \msg{ConnectMessage}. \\
 \texttt{\_menu\_registrations} & On \texttt{MenuManager}, per-client
@@ -705,10 +958,8 @@ of workspace organization.  The \texttt{Frame} class lives in
 \end{tabular}
 \end{center}
 
-Public read/write properties wrap each field (PR \#159 extracted
-\texttt{\_Frame} from the original \texttt{display.py} and renamed it
-\texttt{Frame}; constructor follows the PY-CC-1 \texttt{\_\_new\_\_}
-pattern).
+Public read/write properties wrap each field; the constructor follows
+the PY-CC-1 \texttt{\_\_new\_\_} pattern.
 
 \subsection{Frame Lifecycle}
 
@@ -757,12 +1008,14 @@ position and size.
 \section{IPC and Process Management}\label{sec:ipc}
 % ===================================================================
 
-The architecture documented here is centered on the display server
-process.  Agents and apps connect to that display over a Unix socket,
-either directly or through higher-level client wrappers.  Optional
-remote access uses \texttt{luxd} as a WebSocket/session gateway, but
-scene storage, widget state, interaction broadcast, and rendering still
-belong to the display process in this model.
+This section describes the legacy single-process transport: agents and
+apps connect to the display over a Unix socket, either directly or
+through higher-level client wrappers, and \texttt{luxd} acts as a
+WebSocket/session gateway.  In this path scene storage, widget state,
+event routing, and rendering all belong to the display process.  The
+target topology relocates authoritative scene state into the Hub
+(\S\ref{sec:hubdisplay}); the socket mechanics below are what the
+migration is moving away from.
 
 \subsection{Socket Discovery}
 
@@ -1156,9 +1409,11 @@ construction time because they touch ImGui state:
 \section{Formal Model}\label{sec:formal}
 % ===================================================================
 
-The display server's state machine is formally specified in
+The legacy display server's state machine is formally specified in
 \texttt{docs/architecture/display-server.tex} using the Z notation
-(ISO 13568).  The specification covers:
+(ISO 13568).  The specification models the single-process path, and its
+refinement tests still hold the current display code to that model.  It
+covers:
 
 \begin{itemize}
   \item Client connection/disconnection with FrameReader association.

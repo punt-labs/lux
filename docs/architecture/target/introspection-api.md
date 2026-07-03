@@ -50,6 +50,16 @@ The architectural split is:
 Control operations should be documented and gated separately from read-only
 inspection.
 
+### Repo-scoped display config (breaking change in v0.19.0)
+
+The display-mode control operations are scoped to a caller-supplied repository,
+not to server-global state. `display_mode` and `set_display_mode` now **require
+an absolute `repo` path** naming the caller's project; the config is read from
+and written to `<repo>/.punt-labs/lux.md`. luxd holds no display-config state of
+its own — it runs wherever launchd started it (typically `$HOME`), so every
+caller must say which project it means. A missing, relative, or non-existent
+`repo` argument is rejected with a `ValueError`.
+
 ## Scope
 
 Introspection is about live Lux state, not about guessing from logs or asking a
@@ -78,6 +88,11 @@ Introspection does not change the authoritative model:
 
 ## Implementation Note
 
-The current code already has a generic query mechanism in progress. That
-mechanism is implementation detail. The important architectural point is that
-Lux must expose a stable inspection surface for verification.
+The generic query mechanism is shipped, not aspirational. A `QueryDispatcher`
+routes `QueryRequest` by method string and carries six built-in read-only
+handlers — `inspect_scene`, `list_scenes`, `list_clients`, `list_menus`,
+`list_recent_events`, `list_errors` — with control handlers such as
+`get_display_info`, `get_theme`, `set_window_settings`, `set_frame_state`, and
+`set_theme` registered by the display where they touch ImGui state. That
+routing is implementation detail. The architectural point that outlives it: Lux
+must expose a stable inspection surface for verification.

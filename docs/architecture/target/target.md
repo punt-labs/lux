@@ -4,7 +4,8 @@
 
 This document describes the architecture Lux is moving toward. It is not a
 claim that the current code already cleanly implements this model. For the
-current/intermediate system, see [system.tex](../system.tex).
+current architecture — what the shipped code does today, honestly framed as a
+system mid-migration toward this target — see [system.tex](../system.tex).
 
 If you read only one target-architecture document, read this one.
 
