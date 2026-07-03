@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.0] - 2026-07-03
+
 This release is mid-migration, not a finished state. The Hub/Display io-model
 and the OO decomposition are both **in progress**: only Text, Checkbox, and
 Dialog elements are on the new Element ABC path, and `display/server.py` and
