@@ -69,17 +69,19 @@ Every commit must pass the single gate:
 make check   # OO ratchet + lint + format + mypy + pyright + tests
 ```
 
-`make check` is authoritative. It runs the individual tools below plus the
-**OO ratchet** (`make check-oo`), which compares OO scores against
-`.oo-baseline.json` and fails if any metric regresses on a touched file. After
-improving OO quality, run `make update-oo` and stage `.oo-baseline.json` +
-`.oo-audit.jsonl` in the same commit. The underlying tools:
+`make check` is authoritative — the `Makefile` is the source of truth for the
+exact chain. It composes the **OO ratchet** (`make check-oo`, which compares OO
+scores against `.oo-baseline.json` and fails if any metric regresses on a
+touched file) with formatting, linting, type-checking, tests, and complexity/
+design checks (`radon`, `pylint`). After improving OO quality, run
+`make update-oo` and stage `.oo-baseline.json` + `.oo-audit.jsonl` in the same
+commit. The main tools it draws on:
 
 ```bash
 uv run ruff check .           # Linting
 uv run ruff format --check .  # Formatting
 uv run mypy src/ tests/       # Type checking (mypy)
-uv run pyright                 # Type checking (pyright)
+npx pyright                    # Type checking (pyright; via npx, per the Makefile)
 uv run pytest                  # Tests
 ```
 
