@@ -95,16 +95,16 @@ class TestServerImport:
 
     def test_import_reads_no_display_config(self) -> None:
         """A module-level config read would fire before per-test spies exist."""
-        with (
-            patch("punt_lux.config.ConfigManager.read") as read,
-            patch("punt_lux.config.resolve_config_path") as resolve,
-        ):
-            try:
+        try:
+            with (
+                patch("punt_lux.config.ConfigManager.read") as read,
+                patch("punt_lux.config.resolve_config_path") as resolve,
+            ):
                 importlib.reload(server_module)
                 read.assert_not_called()
                 resolve.assert_not_called()
-            finally:
-                importlib.reload(server_module)
+        finally:
+            importlib.reload(server_module)
 
 
 class TestExplicitEnable:
