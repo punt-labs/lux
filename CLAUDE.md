@@ -155,11 +155,11 @@ Start with `docs/architecture/target/target.md`. Use
 
 ### Vision
 
-**v1 (current):** A display canvas for Claude Code agents — tables, data, dashboards. The protocol is the API surface — agents describe JSON, Lux renders it.
+**v1 (current):** A display canvas for Claude Code agents — tables, data, dashboards — **plus agent↔user interaction**: the agent can ask the user a question and receive the response. That loop shipped with the Hub/Display io-model (Hub-side handler dispatch + `recv`/`publish`, the Dialog/Checkbox/Button path). The protocol is the API surface — agents describe JSON, Lux renders it.
 
-**v2 (future):** A Pharo-inspired live environment where MCP is the message bus and Lux is the Morphic rendering layer. Agent introspects and reshapes UI at runtime. System browser, inspector, workspace.
+**v2 (future):** **Full ImGui element coverage** — every ImGui widget available as a Lux element — evolving toward a Pharo-inspired live environment where MCP is the message bus and Lux is the Morphic rendering layer (agent introspects and reshapes UI at runtime; system browser, inspector, workspace).
 
-**Guiding constraint:** do not add v2 features in v1. Hone the data-display core. Every element kind must justify itself by current agent usage, not by v2 composability.
+**Guiding constraint:** v1 hones the data-display core and the ask-user/get-response interaction loop. Completeness of the ImGui element set is a **v2 goal** — new element-kind work is tracked with the `v2` bead label and does not block v1. Applications and applets (clock, calculator, dock, standalone viewers) are out of scope entirely.
 
 ## Logging
 
