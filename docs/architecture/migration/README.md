@@ -10,8 +10,9 @@ ADRs in [`../../../DESIGN.md`](../../../DESIGN.md)).
 
 ## Where we are
 
-**4 of 25 element kinds are on the new Element-ABC path** — the interactive
-io-model kinds `text`, `button`, `checkbox`, `dialog`. The other 21 are still
+**4 of 25 element kinds are on the new Element-ABC path** — the io-model kinds
+`text` (a display-only leaf) plus the interactive `button`, `checkbox`, and
+`dialog`. The other 21 are still
 legacy frozen dataclasses on the `SceneManager` + dual-write `DomainPump` path.
 Of the 21: ~9 are interactive (need the full D21 remote-dispatch treatment) and
 ~12 are display-only (need an `ElementABC` with render/id/children but no

@@ -416,5 +416,3 @@ Child beads:
 
 Read-only audit. No code changed. Saved to
 `docs/architecture/element-migration-audit.md`.
-</content>
-</invoke>

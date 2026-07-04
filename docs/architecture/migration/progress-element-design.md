@@ -214,7 +214,7 @@ dataclass kinds." Progress must be added to the ABC side of each, and its legacy
 registration removed in the same change (refactoring protocol: delete the old path
 in the same commit — no dual path for one kind).
 
-1. **`domain/domain_pump.py:32` — `_ABC_TYPES`.** Add `ProgressElement`. Today
+1. **`display/domain_pump.py:32` — `_ABC_TYPES`.** Add `ProgressElement`. Today
    `(TextElement, ButtonElement, DialogElement)`. This gates anonymous-id
    synthesis (`domain_pump.py:117`–`:137`): an ABC element cannot pass through
    `dataclasses.replace`, so an anonymous-id ABC element must raise rather than be
