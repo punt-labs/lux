@@ -76,11 +76,13 @@ restart: install ## Install + restart luxd (via launchd) and display
 	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" 2>/dev/null || \
 		echo "warning: launchctl kickstart failed — luxd may not be a launchd service"
 	@sleep 1
-	@# Reap the running display via its authoritative PID file (<socket>.sock.pid) —
-	@# the single source of truth owned by DisplayPaths. This terminates a live
-	@# owner (no orphaned window) and cleans a dead/stale socket without a blind
-	@# kill, regardless of how the display was started (make restart or auto-spawn).
-	@uv run --extra display python -c "from punt_lux.paths import DisplayPaths; DisplayPaths().reap()"
+	@# Reap the running display, identifying its owner from the socket's OS peer
+	@# credential (not a PID file) so a live owner is always terminated — no
+	@# orphaned window — regardless of how it was started. reap() exits non-zero
+	@# if the owner cannot be resolved or survives termination; abort rather than
+	@# spawn a second display atop a socket the survivor still holds.
+	@uv run --extra display python -c "from punt_lux.paths import DisplayPaths; DisplayPaths().reap()" || \
+		{ echo "error: could not reap the running display — aborting restart (see log above)" >&2; exit 1; }
 	@sleep 1
 	@# Start the display — it writes its own <socket>.sock.pid on startup.
 	@LUX_LOG_LEVEL=$${LUX_LOG_LEVEL:-DEBUG} lux display &

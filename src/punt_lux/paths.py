@@ -15,6 +15,7 @@ import subprocess
 import sys
 import time
 from collections.abc import Generator
+from enum import Enum, auto
 from pathlib import Path
 from typing import Self
 
@@ -35,6 +36,14 @@ _PEER_PID_OPT: dict[str, tuple[int, int, int]] = {
 }
 
 
+class SocketLiveness(Enum):
+    """Observed socket state: dead (no owner), accepting, or handshake-ready."""
+
+    DEAD = auto()
+    ACCEPTING = auto()
+    READY = auto()
+
+
 # ---------------------------------------------------------------------------
 # DisplayPaths — OO API for socket/pid/log path resolution and lifecycle
 # ---------------------------------------------------------------------------
@@ -43,12 +52,12 @@ _PEER_PID_OPT: dict[str, tuple[int, int, int]] = {
 class DisplayPaths:
     """Resolve socket/PID/log paths and own the display process lifecycle.
 
-    The socket is authoritative for both liveness and identity.
-    Liveness is a ``ReadyMessage`` handshake, never a PID-file lookup (a
-    recycled PID would read as alive). Identity — which process to reap —
-    is the socket's OS peer credential, so a missing or divergent PID
-    file cannot leave a live display un-reaped. The socket a live server
-    answers on is never unlinked; the PID file is only a reap fallback.
+    The socket is authoritative for both liveness and identity. A
+    connection that is accepted proves a live owner — even when the
+    handshake is slow (mid-render, breakpoint, slow GPU) — so a socket
+    that accepts is never spawned over nor unlinked. Identity (which
+    process to reap) is the socket's OS peer credential, never a
+    recyclable or corruptible PID file.
     """
 
     _socket_path: Path
@@ -100,39 +109,43 @@ class DisplayPaths:
 
     # -- liveness -----------------------------------------------------------
 
-    def is_running(self) -> bool:
-        """Return whether a live display answers the socket handshake.
+    def _probe(self) -> SocketLiveness:
+        """Return the socket's liveness by connecting and reading a reply.
 
-        Connects to the socket and confirms a ``ReadyMessage`` arrives.
-        A recycled PID cannot read as alive because the PID file is never
-        consulted; a stale socket file with no listener reads as dead
-        because the connection is refused.
+        ``DEAD`` when the file is absent or the connection is refused —
+        no owner. ``ACCEPTING`` when a process accepts the connection but
+        the handshake is absent or slower than ``_PROBE_TIMEOUT``.
+        ``READY`` when a ``ReadyMessage`` completes.
         """
         if not self._socket_path.exists():
-            return False
-        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        probe.settimeout(_PROBE_TIMEOUT)
-        try:
-            probe.connect(str(self._socket_path))
-        except OSError:
-            return False
-        try:
-            reply = recv_message(probe, timeout=_PROBE_TIMEOUT)
-        except (OSError, ValueError):
-            return False
-        finally:
-            probe.close()
-        return isinstance(reply, ReadyMessage)
+            return SocketLiveness.DEAD
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+            probe.settimeout(_PROBE_TIMEOUT)
+            try:
+                probe.connect(str(self._socket_path))
+            except OSError:
+                return SocketLiveness.DEAD
+            try:
+                reply = recv_message(probe, timeout=_PROBE_TIMEOUT)
+            except (OSError, ValueError):
+                return SocketLiveness.ACCEPTING
+            if isinstance(reply, ReadyMessage):
+                return SocketLiveness.READY
+            return SocketLiveness.ACCEPTING
+
+    def is_running(self) -> bool:
+        """Return whether a live process owns the socket (accepts a connection)."""
+        return self._probe() is not SocketLiveness.DEAD
 
     # -- spawn --------------------------------------------------------------
 
     def ensure(self, timeout: float = 5.0) -> Path:
         """Ensure a display server is running, spawning one if needed.
 
-        Idempotent: if a live display already answers the socket, reuse
-        it and never spawn a second. Concurrent callers serialize on a
-        file lock so only one spawns; the losers observe the winner's
-        server on the re-check and reuse it. Returns the socket path.
+        Idempotent: if a live display already owns the socket, reuse it
+        and never spawn a second. Concurrent callers serialize on a file
+        lock so only one spawns; the losers observe the winner's server
+        on the re-check and reuse it. Returns the socket path.
 
         Raises ``RuntimeError`` if the display fails to start within
         *timeout*.
@@ -157,8 +170,7 @@ class DisplayPaths:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
             yield
         finally:
-            fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
-            lock_file.close()
+            lock_file.close()  # closing the fd releases the advisory lock
 
     def _spawn(self) -> None:
         """Launch the display server subprocess, detached from this session."""
@@ -184,10 +196,10 @@ class DisplayPaths:
             log_file.close()
 
     def _await_ready(self, timeout: float) -> Path:
-        """Block until the spawned display answers, or raise on timeout."""
+        """Block until the spawned display completes its handshake, or raise."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
-            if self.is_running():
+            if self._probe() is SocketLiveness.READY:
                 return self._socket_path
             time.sleep(0.1)
         msg = f"Display server failed to start within {timeout}s at {self._socket_path}"
@@ -196,42 +208,39 @@ class DisplayPaths:
     # -- cleanup / reap -----------------------------------------------------
 
     def cleanup_stale(self) -> None:
-        """Remove the socket and PID file only when no server answers.
+        """Remove the socket and PID file only when no process owns the socket.
 
-        Never unlinks a socket a live display is serving — liveness is
-        confirmed by :meth:`is_running`'s handshake probe first.
+        A socket that still accepts a connection is never unlinked — that
+        would orphan a live owner. Deadness is confirmed by
+        :meth:`is_running` first.
         """
         if self.is_running():
             return
         self._clear_dead_files()
 
     def reap(self, timeout: float = 5.0) -> None:
-        """Terminate the display serving this socket and clear its files.
+        """Terminate the display owning this socket; raise if it survives.
 
-        The owner is the socket's OS peer credential, falling back to the
-        PID file only when the OS cannot report it — a missing or
-        divergent file cannot leave a live display un-reaped. A dead
-        socket's files are cleared; a live socket is never unlinked until
-        its owner has exited.
+        Identity is the socket's OS peer credential, never a PID file. A
+        dead socket's files are cleared. A live socket is never unlinked
+        until its owner exits; an owner that cannot be resolved or that
+        outlives ``SIGKILL`` raises ``RuntimeError`` rather than leaving
+        an orphan a restart would spawn a second window over.
         """
         if not self.is_running():
             self._clear_dead_files()
             return
-        pid = self._peer_pid() or self._read_pid()
+        pid = self._peer_pid()
         if pid is None:
-            logger.warning(
-                "display alive on %s but owner unresolved — cannot reap",
-                self._socket_path,
+            msg = (
+                f"display alive on {self._socket_path} but its owner could not "
+                "be resolved via the socket peer credential — refusing to reap"
             )
-            return
+            raise RuntimeError(msg)
         self._terminate(pid, timeout)
         if self.is_running():
-            logger.warning(
-                "display PID %d ignored termination on %s",
-                pid,
-                self._socket_path,
-            )
-            return
+            msg = f"display PID {pid} on {self._socket_path} survived termination"
+            raise RuntimeError(msg)
         self._clear_dead_files()
 
     def _peer_pid(self) -> int | None:
@@ -239,55 +248,49 @@ class DisplayPaths:
 
         Reads ``LOCAL_PEERPID`` (macOS) or ``SO_PEERCRED`` (Linux) — the
         true owner independent of the PID file. ``None`` signals an
-        unreadable peer (connection refused or an unsupported platform),
-        so the caller falls back to the recorded PID file.
+        unreadable peer (connection refused or an unsupported platform);
+        on a live socket that is a caller-visible failure, not a fallback.
         """
         opt = _PEER_PID_OPT.get(sys.platform)
         if opt is None:
             return None
         level, optname, size = opt
-        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        probe.settimeout(_PROBE_TIMEOUT)
-        try:
-            probe.connect(str(self._socket_path))
-            cred = probe.getsockopt(level, optname, size)
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
+            probe.settimeout(_PROBE_TIMEOUT)
+            try:
+                probe.connect(str(self._socket_path))
+                cred = probe.getsockopt(level, optname, size)
+            except OSError:
+                return None
             return int.from_bytes(cred[:4], sys.byteorder)
-        except OSError:
-            return None
-        finally:
-            probe.close()
 
     def _clear_dead_files(self) -> None:
-        """Unlink the socket and PID file of a display confirmed not running."""
+        """Unlink the socket and PID file of a display confirmed dead."""
         if self._socket_path.exists() and self._socket_path.is_socket():
+            logger.info("removing dead display socket %s", self._socket_path)
             self._socket_path.unlink(missing_ok=True)
         self.remove_pid()
 
-    def _read_pid(self) -> int | None:
-        """Return the recorded display PID, or ``None`` when unreadable.
+    def _terminate(self, pid: int, timeout: float) -> None:
+        """Send SIGTERM, escalating to SIGKILL if the process outlives *timeout*.
 
-        ``None`` is the documented contract for absence — a missing or
-        corrupt PID file — leaving the caller to decide signallability.
+        A vanished process (``ProcessLookupError``) is success. A
+        ``PermissionError`` propagates — the process is alive but cannot
+        be signalled, which the caller surfaces rather than swallows.
+        ``os.kill`` retries interrupted syscalls itself (PEP 475).
         """
         try:
-            return int(self.pid_path.read_text().strip())
-        except (ValueError, OSError):
-            return None
-
-    def _terminate(self, pid: int, timeout: float) -> None:
-        """Send SIGTERM, escalating to SIGKILL if the process outlives *timeout*."""
-        try:
             os.kill(pid, signal.SIGTERM)
-        except OSError:
+        except ProcessLookupError:
             return  # already gone
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             try:
                 os.kill(pid, 0)
-            except OSError:
+            except ProcessLookupError:
                 return  # exited
             time.sleep(0.1)
-        with contextlib.suppress(OSError):
+        with contextlib.suppress(ProcessLookupError):
             os.kill(pid, signal.SIGKILL)
 
     # -- PID file -----------------------------------------------------------
@@ -346,6 +349,8 @@ def is_hub_running() -> bool:
     try:
         pid = int(pid_path.read_text().strip())
     except (ValueError, OSError):
+        return False
+    if pid <= 0:
         return False
     try:
         os.kill(pid, 0)

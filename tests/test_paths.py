@@ -1,9 +1,11 @@
 """Unit tests for punt_lux.paths — DisplayPaths class.
 
-Liveness is determined by connecting to the socket and confirming a
-``ReadyMessage`` handshake, never by trusting a PID file. These tests
-stand up a real listening Unix socket that answers the handshake to
-exercise the singleton guard, cleanup, spawn idempotency, and reaping.
+The socket is authoritative for both liveness and identity. A connection
+that is accepted proves a live owner — even with a slow or missing
+handshake — so an accepting socket is never spawned over nor unlinked.
+Identity for reaping is the socket's OS peer credential, never a PID
+file. These tests stand up real listening Unix sockets to exercise the
+singleton guard, cleanup, spawn idempotency, and reaping.
 """
 
 from __future__ import annotations
@@ -19,7 +21,7 @@ from unittest.mock import patch
 
 import pytest
 
-from punt_lux.paths import DisplayPaths
+from punt_lux.paths import DisplayPaths, SocketLiveness, is_hub_running
 from punt_lux.protocol import ReadyMessage, send_message
 
 
@@ -159,14 +161,46 @@ class TestIsRunning:
         finally:
             shutil.rmtree(path.parent, ignore_errors=True)
 
-    def test_bound_socket_without_handshake_is_not_alive(self) -> None:
-        """A listener that never sends ReadyMessage is not a live display."""
+    def test_bound_socket_without_handshake_is_alive(self) -> None:
+        """A process that accepts a connection owns the socket, handshake or not.
+
+        A live-but-slow display (mid-render, breakpoint, slow GPU) accepts
+        the connection but may miss the handshake window. Acceptance alone
+        proves a live owner: it must read as running so it is never spawned
+        over nor unlinked.
+        """
         path = _short_socket()
         display = _FakeDisplay(path, answer=False)
         try:
-            assert not DisplayPaths(path).is_running()
+            assert DisplayPaths(path).is_running()
         finally:
             display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_probe_distinguishes_accepting_from_ready(self) -> None:
+        """_probe reports READY on handshake, ACCEPTING on a silent listener."""
+        ready_path = _short_socket()
+        ready = _FakeDisplay(ready_path)
+        silent_path = _short_socket()
+        silent = _FakeDisplay(silent_path, answer=False)
+        try:
+            assert DisplayPaths(ready_path)._probe() is SocketLiveness.READY
+            assert DisplayPaths(silent_path)._probe() is SocketLiveness.ACCEPTING
+        finally:
+            ready.stop()
+            silent.stop()
+            shutil.rmtree(ready_path.parent, ignore_errors=True)
+            shutil.rmtree(silent_path.parent, ignore_errors=True)
+
+    def test_probe_refused_socket_is_dead(self) -> None:
+        """_probe reports DEAD when the file exists but nothing listens."""
+        path = _short_socket()
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.bind(str(path))
+        s.close()
+        try:
+            assert DisplayPaths(path)._probe() is SocketLiveness.DEAD
+        finally:
             shutil.rmtree(path.parent, ignore_errors=True)
 
 
@@ -209,6 +243,24 @@ class TestCleanupStale:
             assert path.exists()  # regular file, not a socket — left intact
             assert not dp.pid_path.exists()
         finally:
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_preserves_accepting_but_silent_socket(self) -> None:
+        """A live-but-slow display's socket is never unlinked on a missing handshake.
+
+        The socket accepts the connection but sends no ReadyMessage within
+        the probe window. Unlinking it would orphan the live owner and let
+        the next spawn stack a second window — the exact bug the accepting
+        invariant closes.
+        """
+        path = _short_socket()
+        display = _FakeDisplay(path, answer=False)
+        dp = DisplayPaths(path)
+        try:
+            dp.cleanup_stale()
+            assert path.exists()  # accepting socket preserved, owner not orphaned
+        finally:
+            display.stop()
             shutil.rmtree(path.parent, ignore_errors=True)
 
 
@@ -268,6 +320,24 @@ class TestEnsure:
             assert result == path
             assert path.exists()  # live socket preserved
             popen.assert_not_called()  # no second display spawned
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_does_not_spawn_over_accepting_socket(self) -> None:
+        """A live-but-slow display is reused, never duplicated.
+
+        The socket accepts the connection but the handshake is absent, so a
+        handshake-only liveness check would spawn a second window. ensure()
+        reuses the accepting owner and never calls Popen.
+        """
+        path = _short_socket()
+        display = _FakeDisplay(path, answer=False)
+        try:
+            with patch("punt_lux.paths.subprocess.Popen") as popen:
+                result = DisplayPaths(path).ensure()
+            assert result == path
+            popen.assert_not_called()  # no duplicate window spawned
         finally:
             display.stop()
             shutil.rmtree(path.parent, ignore_errors=True)
@@ -502,3 +572,117 @@ class TestReap:
         finally:
             display.stop()
             shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_reap_terminates_accepting_but_silent_owner(self) -> None:
+        """A live-but-slow display is reaped via its owner, not unlink-only.
+
+        The socket accepts but never handshakes. reap() must resolve the
+        owner via the peer credential and terminate it — never silently
+        unlink the socket while leaving the process running.
+        """
+        path = _short_socket()
+        display = _FakeDisplay(path, answer=False)
+        dp = DisplayPaths(path)
+        terminated: list[int] = []
+
+        def fake_kill(pid: int, sig: int) -> None:
+            if sig == 0:
+                if terminated:
+                    raise ProcessLookupError
+                return
+            terminated.append(pid)
+            display.stop()
+
+        try:
+            with patch("punt_lux.paths.os.kill", side_effect=fake_kill):
+                dp.reap(timeout=2.0)
+            assert terminated == [os.getpid()]  # owner resolved and terminated
+            assert not path.exists()
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_reap_raises_when_owner_survives_termination(self) -> None:
+        """reap() raises so the caller (make restart) does not spawn over a survivor.
+
+        The owner ignores SIGTERM and SIGKILL — it stays alive on the
+        socket. reap() must raise rather than clear files and let a second
+        display spawn atop the still-held socket.
+        """
+        path = _short_socket()
+        display = _FakeDisplay(path)
+        dp = DisplayPaths(path)
+
+        def stubborn_kill(_pid: int, _sig: int) -> None:
+            return  # every signal ignored; the display keeps serving
+
+        try:
+            with (
+                patch("punt_lux.paths.os.kill", side_effect=stubborn_kill),
+                pytest.raises(RuntimeError, match="survived termination"),
+            ):
+                dp.reap(timeout=0.3)
+            assert path.exists()  # live socket left intact, not orphaned
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_reap_raises_when_owner_unresolved_no_pid_fallback(self) -> None:
+        """A live socket with an unresolvable owner refuses — never a PID fallback.
+
+        When the peer credential cannot be read on a live socket, reap()
+        raises rather than falling back to the untrustworthy PID file,
+        which could SIGTERM a recycled PID.
+        """
+        path = _short_socket()
+        display = _FakeDisplay(path)
+        dp = DisplayPaths(path)
+        dp.pid_path.write_text(str(os.getpid()))  # tempting, but must be ignored
+
+        try:
+            with (
+                patch.object(DisplayPaths, "_peer_pid", return_value=None),
+                patch("punt_lux.paths.os.kill") as kill,
+                pytest.raises(RuntimeError, match="refusing to reap"),
+            ):
+                dp.reap(timeout=0.3)
+            kill.assert_not_called()  # no fallback signal to the PID file value
+            assert path.exists()
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+
+class TestTerminate:
+    """Signal handling distinguishes a vanished process from a live one."""
+
+    def test_process_lookup_error_is_success(self) -> None:
+        """A vanished process (ProcessLookupError) terminates cleanly, no raise."""
+        dp = DisplayPaths(_short_socket())
+        with patch("punt_lux.paths.os.kill", side_effect=ProcessLookupError):
+            dp._terminate(4242, timeout=0.3)  # returns without raising
+
+    def test_permission_error_surfaces(self) -> None:
+        """EPERM means the process is alive but unsignallable — it must surface."""
+        dp = DisplayPaths(_short_socket())
+        with (
+            patch("punt_lux.paths.os.kill", side_effect=PermissionError),
+            pytest.raises(PermissionError),
+        ):
+            dp._terminate(4242, timeout=0.3)
+
+
+class TestIsHubRunning:
+    """A non-positive PID never reaches os.kill."""
+
+    def test_non_positive_pid_is_not_running(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A corrupt PID file of '0' or '-1' reads as not running, never signalled."""
+        pid_file = tmp_path / "hub.pid"
+        monkeypatch.setattr("punt_lux.paths.hub_pid_path", lambda: pid_file)
+        for corrupt in ("0", "-1"):
+            pid_file.write_text(corrupt)
+            with patch("punt_lux.paths.os.kill") as kill:
+                assert is_hub_running() is False
+            kill.assert_not_called()
