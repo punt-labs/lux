@@ -516,15 +516,14 @@ architecture, or contribute a new element kind.
   handler and the Display forwards the interaction back), so the Hub and
   Display can be separate processes, potentially on separate machines.
 
-  This lets the three tiers sit on different machines: today the Display
-  connects to the Hub over a Unix socket, and agents connect to the Hub over a
-  WebSocket bound to localhost (127.0.0.1:8430, localhost-only). A
-  remote agent, for example one running over SSH on another host, reaches the
-  Hub today by tunneling that localhost port. Native TCP, so a remote agent
-  connects to the Hub directly with no
-  tunnel, is planned and not yet shipped. The practical payoff: your most
-  powerful agent can run on a remote box and still drive a GUI on your local
-  screen, because only UI state crosses the wire.
+  This lets the three tiers sit on different machines. The Display connects to
+  the Hub over a Unix socket; agents connect to the Hub over a WebSocket that
+  binds to localhost (127.0.0.1:8430) by default. A remote agent works today,
+  two ways: tunnel that localhost port over SSH, or start the Hub with
+  {\small\texttt{luxd --host}} pointed at a non-local interface for a direct TCP
+  connection (a session key authenticates either way). The practical payoff:
+  your most powerful agent can run on a remote box and still drive a GUI on your
+  local screen, because only UI state crosses the wire.
 \end{faqpair}
 
 \begin{faqpair}{What makes the engineering distinctive?}\label{faq:formal}
