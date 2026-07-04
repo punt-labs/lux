@@ -164,13 +164,13 @@
     Lux Gives Terminal-Based AI Coding Agents a Visual Canvas} \\[0.8em]
   {\large\color{AccentGray}
     For the agent: describe UI as a typed JSON element tree, and Lux renders it
-    natively with GPU-accelerated Dear~ImGui on the developer's own machine, no
-    vendor compute} \\[0.3em]
+    natively with GPU-accelerated Dear~ImGui on the developer's own machine,
+    with no vendor compute} \\[0.3em]
   {\large\color{AccentGray}
     For the developer: see complex agent output as filterable tables,
     dashboards, and diagrams instead of scrollback, and drive a terminal-based
-    agent through the GUI. A fixed, curated element set that composes without
-    limit}
+    agent through the GUI, from a fixed, curated element set that composes
+    without limit}
 \end{center}
 
 \vspace{0.5em}
@@ -207,8 +207,8 @@ most powerful agents run exactly where there are no graphics.
 
 A second problem sits on top of the first: developers rarely run just one agent.
 Several run at once, across repositories, sessions, and machines, and tracking
-what each is doing is hands-on and error-prone. This is an aggregation problem,
-many independent agents and one developer with no shared place to watch them.
+what each is doing is hands-on and error-prone. This is an aggregation problem:
+many independent agents, one developer, and no shared place to watch them.
 
 Vendors are answering with hosted web dashboards that often require running
 the \emph{entire agent} (not just the model call) on the vendor's compute: the
@@ -236,7 +236,11 @@ work. First, a rich data-display core: filterable, searchable tables with row
 selection and detail panels; dashboards that compose metric cards, charts, and
 tables; diagrams and images. The element vocabulary is deliberately limited: a
 curated, fixed set of built-in kinds that compose without limit, the same way
-a small set of ImGui widgets does. Second, and the direction Lux is heading, an
+a small set of ImGui widgets does. This is the core idea. Lux is not an IDE for
+agents; it prescribes no screens and no workflows. It is a medium through which
+an agent composes whatever UI it needs, so agents communicate through arbitrary
+interfaces built from one fixed vocabulary. Second, and the direction Lux is
+heading, an
 ask-the-user interaction loop: an agent can pose a question through a dialog,
 checkbox, or button and receive the answer back. When the user clicks, the
 interaction routes back to the owning Hub, the real handler runs there, and the
@@ -334,9 +338,11 @@ architecture, or contribute a new element kind.
   vendor compute. IDEs such as Cursor manage agents with text-only output.
 
   Lux fills the gap: a native visual surface for terminal-hosted agents, running
-  on the developer's machine. It is not a chat interface and not a cloud
-  console. It is a screen the agents share: one window, one frame per agent,
-  live. See \faqref{faq:competitors} for the detailed competitive analysis.
+  on the developer's machine. It is not a chat interface, not a cloud console,
+  and not an IDE for agents. Lux prescribes no screens or workflows; it lets
+  agents communicate through arbitrary interfaces of their own composition. It is
+  a screen the agents share: one window, one frame per agent, live. See
+  \faqref{faq:competitors} for the detailed competitive analysis.
 \end{faqpair}
 
 \begin{faqpair}{How do I get started?}
@@ -529,31 +535,6 @@ architecture, or contribute a new element kind.
   local screen, because only UI state crosses the wire.
 \end{faqpair}
 
-\begin{faqpair}{What makes the engineering distinctive?}\label{faq:formal}
-  The display-process concurrency is formally specified in Z and model-checked
-  with ProB. The model-check covers only the display singleton
-  spawn/bind/reap \emph{lifecycle}, not the rendering, protocol, or
-  handler-dispatch surface: it is not a claim that the whole system is
-  formally verified. Multiple agents may simultaneously decide no display is
-  running and race to become the one process that owns a single Unix-socket
-  path. Exactly one must win. That spawn/reap/bind singleton lifecycle is
-  modeled in \texttt{docs/display\_lifecycle.tex} as a finite state machine over
-  concurrent agents, type-checked \texttt{fuzz}-clean, and exhaustively
-  model-checked. ProB enumerates every interleaving and confirms five
-  invariants: singleton-serving (never two live owners), never-unlink-live (a
-  probe cannot delete a socket whose owner is alive), no-two-winners across the
-  bind window, lost-racer-clean-exit (the process that loses the race exits
-  before opening a window), and deadlock-freedom under the two-lock spawn/bind
-  discipline.
-
-  This matters because the failure it prevents is exactly the one that bit us in
-  testing: a second agent probing during the window between \texttt{bind} and
-  \texttt{listen} reads the fresh socket as dead, unlinks it, and opens a second
-  window. Proving the interleaving space exhaustively, rather than testing a
-  few orderings, is rare rigor for a developer tool, and the specification is
-  a regression artifact for any future lifecycle change.
-\end{faqpair}
-
 \begin{faqpair}{What is the v1-to-v2 roadmap, and what is the migration risk?}\label{faq:roadmap}
   \textbf{v1 (shipped):} the agent shows the developer complex data and
   visualizations. The rich data-display core, plus the ask-the-user loop
@@ -581,32 +562,6 @@ architecture, or contribute a new element kind.
   feasibility risk (see the Risk Assessment). It is mitigated by incremental
   crossing: each kind flips independently and mixed scenes keep working, with the
   legacy path deleted only after the last kind crosses.
-\end{faqpair}
-
-\begin{faqpair}{What is the development approach and delivery order?}\label{faq:timeline}
-  Delivery is ordered by dependency, not by calendar. The pattern is established
-  on the lowest-risk element kinds first and then climbs interactivity and
-  composite complexity:
-
-  \begin{enumerate}[nosep]
-    \item Reconcile the four migrated exemplars into one source of truth.
-    \item Invert the handler-wrapping seam so each interactive element declares
-      its own interaction (prerequisite for migrating the input kinds).
-    \item Basics display-only leaves (image, separator, progress, spinner,
-      markdown).
-    \item Interactive value inputs (slider, combo, text/number inputs, radio,
-      color picker, selectable).
-    \item Simple composites (group, tab bar, collapsing header).
-    \item Stateful composites (window, modal).
-    \item Draw and plot.
-    \item Table, on its own (it carries built-in filter/selection state).
-    \item Retire the legacy render path once every kind has crossed.
-  \end{enumerate}
-
-  What gets cut if scope compresses: v2 element coverage is a fast-follow, not a
-  v1 blocker. The data-display core and the interaction loop already ship; the
-  migration improves internal structure and widens the built-in vocabulary
-  without gating the value already in daily use.
 \end{faqpair}
 
 \begin{faqpair}{If Lux succeeds, what breaks first?}\label{faq:scaling}
