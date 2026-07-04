@@ -70,7 +70,7 @@ class LaunchdBackend(ServiceBackend):  # pylint: disable=too-few-public-methods
 
     def install(self, exec_args: list[str]) -> None:
         """Write the plist and load luxd into launchd."""
-        from punt_lux.paths import hub_log_dir
+        from punt_lux.hub_paths import hub_log_dir
 
         hub_log_dir().mkdir(parents=True, exist_ok=True)
         self._DIR.mkdir(mode=0o700, parents=True, exist_ok=True)

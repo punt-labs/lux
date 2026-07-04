@@ -439,7 +439,7 @@ def _restart_hub() -> None:
     import signal
     import time
 
-    from punt_lux.paths import hub_pid_path, is_hub_running, read_hub_port
+    from punt_lux.hub_paths import hub_pid_path, is_hub_running, read_hub_port
 
     pid_path = hub_pid_path()
     try:
@@ -489,7 +489,7 @@ def ensure_hub(
     restart: bool = typer.Option(False, "--restart", help="Restart luxd if running"),
 ) -> None:
     """Ensure luxd is running. Restart if --restart flag is set."""
-    from punt_lux.paths import is_hub_running, read_hub_port
+    from punt_lux.hub_paths import is_hub_running, read_hub_port
 
     if restart and is_hub_running():
         _restart_hub()
@@ -512,7 +512,7 @@ def hub_status() -> None:
     import json
     import urllib.request
 
-    from punt_lux.paths import hub_pid_path, is_hub_running, read_hub_port
+    from punt_lux.hub_paths import hub_pid_path, is_hub_running, read_hub_port
 
     if not is_hub_running():
         print("luxd not running")

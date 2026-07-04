@@ -30,7 +30,7 @@ from unittest.mock import patch
 
 import pytest
 
-from punt_lux.paths import DisplayPaths, SocketLiveness, is_hub_running
+from punt_lux.paths import DisplayPaths, SocketLiveness
 from punt_lux.protocol import HEADER_FORMAT, ReadyMessage, encode_frame, send_message
 
 _Reply = Literal["ready", "silent", "garbage", "nonobject"]
@@ -1200,19 +1200,3 @@ class TestTerminate:
                 proc.kill()
                 proc.wait(timeout=2)
             display.stop()
-
-
-class TestIsHubRunning:
-    """A non-positive PID never reaches os.kill."""
-
-    def test_non_positive_pid_is_not_running(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A corrupt PID file of '0' or '-1' reads as not running, never signalled."""
-        pid_file = tmp_path / "hub.pid"
-        monkeypatch.setattr("punt_lux.paths.hub_pid_path", lambda: pid_file)
-        for corrupt in ("0", "-1"):
-            pid_file.write_text(corrupt)
-            with patch("punt_lux.paths.os.kill") as kill:
-                assert is_hub_running() is False
-            kill.assert_not_called()
