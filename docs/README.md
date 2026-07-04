@@ -41,6 +41,16 @@ policy and ratchet enforcement live. It is not an architecture document.
 
 These documents describe the intended Hub-authoritative architecture.
 
+## Element Migration (active plan)
+
+- [architecture/migration/README.md](./architecture/migration/README.md)
+- [architecture/element-migration-audit.md](./architecture/element-migration-audit.md)
+- [architecture/migration/progress-element-design.md](./architecture/migration/progress-element-design.md)
+
+The ratified plan to move the 25 element kinds onto the Element-ABC / Hub-Display
+path: five design decisions, 7-batch sequencing, and the per-element
+verify-as-you-go process. Tracked as beads epic `lux-xs7r`.
+
 ## Current Architecture
 
 - [architecture/system.tex](./architecture/system.tex)
@@ -50,13 +60,18 @@ This is the current/intermediate system view, not the rewrite target.
 
 ## Formal Specs
 
+Current and authoritative:
+
+- [display_lifecycle.tex](./display_lifecycle.tex) → [display_lifecycle.pdf](./display_lifecycle.pdf) — the ProB-verified display-singleton lifecycle (DES-037/038); partition [coverage](./display_lifecycle_coverage.md). Rebuild the PDF when the model changes.
+
+Legacy (model the pre-Hub/Display single-process design):
+
 - [architecture/display-server.tex](./architecture/display-server.tex)
 - [architecture/workspace-model.tex](./architecture/workspace-model.tex)
 
-These are formal or appendix-style documents modeling the legacy
-single-process design. They are useful, and their refinement tests still hold
-the current display code to their models, but they are not the main narrative
-architecture set and they predate the Hub/Display split.
+The legacy specs' refinement tests still hold the current display code to their
+models, but they predate the Hub/Display split and are not the main narrative
+architecture set.
 
 ## ImGui Reference
 
@@ -87,9 +102,9 @@ not under active development.
 
 ## Product Thesis
 
-- [concepts/prfaq.tex](./concepts/prfaq.tex)
+- [prfaq.tex](../prfaq.tex) → [prfaq.pdf](../prfaq.pdf)
 
-The Working-Backwards PR/FAQ. Unlike the alternative concepts above, this is a
+The Working-Backwards PR/FAQ (at the repo root, not under `concepts/`). Unlike the alternative concepts above, this is a
 living product-thesis document under the org's release workflow — it is updated
 when a change shifts product direction or validates a risk assumption, not an
 abandoned concept.
