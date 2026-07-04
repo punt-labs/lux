@@ -3578,7 +3578,7 @@ proven against a real socket).
 
 For the class of change that is **concurrency, a lock discipline, or a
 safety-critical state machine** — and, as a hard rule, the moment the
-*same class of defect recurs across two or more fix rounds** — the design
+**same class of defect recurs across two or more fix rounds** — the design
 is **formally specified in Z and model-checked with ProB** before merge.
 The model check, not a green test run, is the merge gate. Specifically:
 
