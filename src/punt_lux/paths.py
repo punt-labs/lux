@@ -25,6 +25,15 @@ logger = logging.getLogger(__name__)
 # Seconds to wait for the handshake probe and for a spawned display to answer.
 _PROBE_TIMEOUT = 1.0
 
+# Peer-credential socket options by platform: (level, optname, buflen).
+# macOS LOCAL_PEERPID (SOL_LOCAL=0) and Linux SO_PEERCRED (SOL_SOCKET=1) both
+# carry the owning PID in the first 4 bytes. Raw values sidestep the socket
+# module's platform-guarded symbols, keeping the query reachable everywhere.
+_PEER_PID_OPT: dict[str, tuple[int, int, int]] = {
+    "darwin": (0, 0x002, 4),
+    "linux": (1, 17, 12),
+}
+
 
 # ---------------------------------------------------------------------------
 # DisplayPaths — OO API for socket/pid/log path resolution and lifecycle
@@ -34,11 +43,12 @@ _PROBE_TIMEOUT = 1.0
 class DisplayPaths:
     """Resolve socket/PID/log paths and own the display process lifecycle.
 
-    Liveness is authoritative: it is determined by connecting to the
-    socket and confirming a ``ReadyMessage`` handshake, never by trusting
-    a PID file (a recycled PID would read as alive). The socket a live
-    server answers on is never unlinked. The PID file next to the socket
-    is the single source of truth for reaping the owning process.
+    The socket is authoritative for both liveness and identity.
+    Liveness is a ``ReadyMessage`` handshake, never a PID-file lookup (a
+    recycled PID would read as alive). Identity — which process to reap —
+    is the socket's OS peer credential, so a missing or divergent PID
+    file cannot leave a live display un-reaped. The socket a live server
+    answers on is never unlinked; the PID file is only a reap fallback.
     """
 
     _socket_path: Path
@@ -196,21 +206,21 @@ class DisplayPaths:
         self._clear_dead_files()
 
     def reap(self, timeout: float = 5.0) -> None:
-        """Terminate the display owning this socket and clear its files.
+        """Terminate the display serving this socket and clear its files.
 
-        Signals the recorded PID only when a live display answers the
-        socket, so a stale PID file whose PID was recycled is never
-        signalled. A live socket is never unlinked: if the owner cannot
-        be identified or refuses to exit, the files are left intact
-        rather than orphaning a running window.
+        The owner is the socket's OS peer credential, falling back to the
+        PID file only when the OS cannot report it — a missing or
+        divergent file cannot leave a live display un-reaped. A dead
+        socket's files are cleared; a live socket is never unlinked until
+        its owner has exited.
         """
         if not self.is_running():
             self._clear_dead_files()
             return
-        pid = self._read_pid()
+        pid = self._peer_pid() or self._read_pid()
         if pid is None:
             logger.warning(
-                "display alive on %s but PID file absent — cannot reap",
+                "display alive on %s but owner unresolved — cannot reap",
                 self._socket_path,
             )
             return
@@ -224,6 +234,29 @@ class DisplayPaths:
             return
         self._clear_dead_files()
 
+    def _peer_pid(self) -> int | None:
+        """Return the PID bound to the socket via its OS peer credential.
+
+        Reads ``LOCAL_PEERPID`` (macOS) or ``SO_PEERCRED`` (Linux) — the
+        true owner independent of the PID file. ``None`` signals an
+        unreadable peer (connection refused or an unsupported platform),
+        so the caller falls back to the recorded PID file.
+        """
+        opt = _PEER_PID_OPT.get(sys.platform)
+        if opt is None:
+            return None
+        level, optname, size = opt
+        probe = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        probe.settimeout(_PROBE_TIMEOUT)
+        try:
+            probe.connect(str(self._socket_path))
+            cred = probe.getsockopt(level, optname, size)
+            return int.from_bytes(cred[:4], sys.byteorder)
+        except OSError:
+            return None
+        finally:
+            probe.close()
+
     def _clear_dead_files(self) -> None:
         """Unlink the socket and PID file of a display confirmed not running."""
         if self._socket_path.exists() and self._socket_path.is_socket():
@@ -234,8 +267,7 @@ class DisplayPaths:
         """Return the recorded display PID, or ``None`` when unreadable.
 
         ``None`` is the documented contract for absence — a missing or
-        corrupt PID file — not a failed value production (PY-EH-8): the
-        caller decides whether an unknown owner is signallable.
+        corrupt PID file — leaving the caller to decide signallability.
         """
         try:
             return int(self.pid_path.read_text().strip())

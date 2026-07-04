@@ -349,6 +349,45 @@ class TestEnsure:
             shutil.rmtree(path.parent, ignore_errors=True)
 
 
+class TestPeerPid:
+    """The socket's OS peer credential resolves the true owner PID."""
+
+    def test_live_socket_returns_owner_pid(self) -> None:
+        """A live listener's peer credential names its owning process."""
+        path = _short_socket()
+        display = _FakeDisplay(path)
+        try:
+            # The FakeDisplay binds in this process, so it owns the socket.
+            assert DisplayPaths(path)._peer_pid() == os.getpid()
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_dead_socket_returns_none(self) -> None:
+        """A stale socket with no listener yields no peer (connection refused)."""
+        path = _short_socket()
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.bind(str(path))
+        s.close()  # file remains, nothing listens
+        try:
+            assert DisplayPaths(path)._peer_pid() is None
+        finally:
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_unsupported_platform_returns_none(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A platform without a peer-credential option yields None."""
+        path = _short_socket()
+        display = _FakeDisplay(path)
+        monkeypatch.setattr("punt_lux.paths.sys.platform", "sunos5")
+        try:
+            assert DisplayPaths(path)._peer_pid() is None
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+
 class TestReap:
     def test_reap_dead_clears_files_without_kill(self) -> None:
         """A stale/recycled PID is never signalled when the socket is dead."""
@@ -368,11 +407,15 @@ class TestReap:
             shutil.rmtree(path.parent, ignore_errors=True)
 
     def test_reap_live_terminates_owner(self) -> None:
-        """A live display is terminated via its recorded PID, then cleaned."""
+        """A live display is terminated via its socket owner, then cleaned.
+
+        The ``_FakeDisplay`` binds in this process, so the socket's peer
+        credential and the recorded PID file agree on this test's PID.
+        """
         path = _short_socket()
         display = _FakeDisplay(path)
         dp = DisplayPaths(path)
-        dp.pid_path.write_text("4242")
+        dp.pid_path.write_text(str(os.getpid()))
         terminated: list[int] = []
 
         def fake_kill(pid: int, sig: int) -> None:
@@ -388,23 +431,74 @@ class TestReap:
         try:
             with patch("punt_lux.paths.os.kill", side_effect=fake_kill):
                 dp.reap(timeout=2.0)
-            assert terminated == [4242]
+            assert terminated == [os.getpid()]
             assert not path.exists()
             assert not dp.pid_path.exists()
         finally:
             display.stop()
             shutil.rmtree(path.parent, ignore_errors=True)
 
-    def test_reap_live_without_pid_leaves_socket_intact(self) -> None:
-        """A live display with no PID file is never orphaned by an unlink."""
+    def test_reap_live_without_pid_uses_socket_owner(self) -> None:
+        """A live display with NO PID file is still reaped via the socket.
+
+        The round-2 gap: identity comes from the socket's OS peer
+        credential, not the PID file. reap() resolves the true owner
+        with getsockopt and terminates it, then clears the dead socket —
+        so a restart spawns exactly one display instead of orphaning the
+        old one and stacking a second window.
+
+        The ``_FakeDisplay`` binds in this process, so the resolved owner
+        is this test's own PID; ``os.kill`` is patched so the SIGTERM is
+        observed, not delivered.
+        """
         path = _short_socket()
         display = _FakeDisplay(path)
         dp = DisplayPaths(path)  # no PID file written
+        terminated: list[int] = []
+
+        def fake_kill(pid: int, sig: int) -> None:
+            if sig == 0:
+                if terminated:
+                    raise ProcessLookupError
+                return
+            terminated.append(pid)
+            display.stop()  # simulate the display exiting on SIGTERM
+
         try:
-            with patch("punt_lux.paths.os.kill") as kill:
-                dp.reap()
-            kill.assert_not_called()
-            assert path.exists()  # live socket preserved, not orphaned
+            with patch("punt_lux.paths.os.kill", side_effect=fake_kill):
+                dp.reap(timeout=2.0)
+            assert terminated == [os.getpid()]  # resolved via peer-pid, not file
+            assert not path.exists()  # dead socket cleared → restart spawns one
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_reap_live_prefers_socket_owner_over_stale_pid(self) -> None:
+        """A divergent PID file does not misdirect the kill.
+
+        With a live display and a PID file naming a different, unrelated
+        PID, reap() must signal the socket's true owner (this process),
+        never the stale file value — the socket wins on identity.
+        """
+        path = _short_socket()
+        display = _FakeDisplay(path)
+        dp = DisplayPaths(path)
+        dp.pid_path.write_text("4242")  # stale/divergent — must be ignored
+        terminated: list[int] = []
+
+        def fake_kill(pid: int, sig: int) -> None:
+            if sig == 0:
+                if terminated:
+                    raise ProcessLookupError
+                return
+            terminated.append(pid)
+            display.stop()
+
+        try:
+            with patch("punt_lux.paths.os.kill", side_effect=fake_kill):
+                dp.reap(timeout=2.0)
+            assert terminated == [os.getpid()]  # peer-pid beats the stale file
+            assert not path.exists()
         finally:
             display.stop()
             shutil.rmtree(path.parent, ignore_errors=True)
