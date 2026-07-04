@@ -120,8 +120,9 @@ class DisplayPaths:
                 return SocketLiveness.DEAD  # refused, non-socket, or vanished
             try:
                 reply = recv_message(probe, timeout=_PROBE_TIMEOUT)
-            except (OSError, ValueError, KeyError, TypeError):
-                return SocketLiveness.ACCEPTING  # a live owner answered
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                # a live owner answered (a non-object payload raises AttributeError)
+                return SocketLiveness.ACCEPTING
             if isinstance(reply, ReadyMessage):
                 return SocketLiveness.READY
             return SocketLiveness.ACCEPTING
@@ -215,8 +216,7 @@ class DisplayPaths:
             return
         pid = self._peer_pid()
         if pid is None:
-            # The owner may have exited cleanly between the liveness probe
-            # and the peer read (TOCTOU) — re-check before refusing.
+            # TOCTOU: the owner may have exited between the probe and peer read.
             if not self.is_running():
                 self._clear_dead_files()
                 return
@@ -231,9 +231,8 @@ class DisplayPaths:
     def _peer_pid(self) -> int | None:
         """Return the socket owner's PID from its OS peer credential, or ``None``.
 
-        ``LOCAL_PEERPID`` (macOS) or ``SO_PEERCRED`` (Linux). ``None`` is an
-        unresolvable owner — unreadable peer, unsupported platform, or a
-        non-positive PID the signal path must never os.kill.
+        ``None`` is an unresolvable owner — unreadable peer, unsupported
+        platform, or a non-positive PID the signal path must never os.kill.
         """
         opt = _PEER_PID_OPT.get(sys.platform)
         if opt is None:
@@ -278,9 +277,8 @@ class DisplayPaths:
         msg = f"PID {pid} survived SIGKILL"
         raise RuntimeError(msg)
 
-    @staticmethod
-    def _await_exit(pid: int, timeout: float) -> bool:
-        """Return ``True`` once *pid* exits (reaping a child zombie), else ``False``."""
+    def _await_exit(self, pid: int, timeout: float) -> bool:
+        """Return ``True`` once *pid* has exited (by PID slot or released socket)."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             with contextlib.suppress(ChildProcessError):
@@ -288,6 +286,8 @@ class DisplayPaths:
             try:
                 os.kill(pid, 0)
             except ProcessLookupError:
+                return True
+            if not self.is_running():  # zombie released the socket — owner gone
                 return True
             time.sleep(0.05)
         return False

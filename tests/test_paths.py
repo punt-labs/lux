@@ -11,10 +11,12 @@ singleton guard, cleanup, spawn idempotency, and reaping.
 from __future__ import annotations
 
 import contextlib
+import json
 import os
 import shutil
 import signal
 import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -27,9 +29,15 @@ from unittest.mock import patch
 import pytest
 
 from punt_lux.paths import DisplayPaths, SocketLiveness, is_hub_running
-from punt_lux.protocol import ReadyMessage, encode_frame, send_message
+from punt_lux.protocol import HEADER_FORMAT, ReadyMessage, encode_frame, send_message
 
-_Reply = Literal["ready", "silent", "garbage"]
+_Reply = Literal["ready", "silent", "garbage", "nonobject"]
+
+
+def _frame_json(value: object) -> bytes:
+    """Frame an arbitrary JSON value (including non-objects) as a wire frame."""
+    data = json.dumps(value).encode()
+    return struct.pack(HEADER_FORMAT, len(data)) + data
 
 
 class _FakeDisplay:
@@ -73,6 +81,8 @@ class _FakeDisplay:
                     send_message(conn, ReadyMessage())
                 elif self._reply == "garbage":
                     conn.sendall(encode_frame({"no_type_field": 1}))
+                elif self._reply == "nonobject":
+                    conn.sendall(_frame_json(42))  # valid JSON, not an object
             conn.close()
 
     def stop(self) -> None:
@@ -225,6 +235,24 @@ class TestIsRunning:
         display = _FakeDisplay(path, reply="garbage")
         try:
             assert DisplayPaths(path)._probe() is SocketLiveness.ACCEPTING
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_probe_nonobject_payload_is_accepting(self) -> None:
+        """A live owner replying with a JSON non-object does not crash the probe.
+
+        A valid frame whose JSON payload is ``42`` (not an object) makes the
+        decoder's ``d.get("type")`` raise AttributeError. Connect already
+        proved a live owner, so the probe must read ACCEPTING — not let the
+        exception escape and crash is_running().
+        """
+        path = _short_socket()
+        display = _FakeDisplay(path, reply="nonobject")
+        try:
+            dp = DisplayPaths(path)
+            assert dp._probe() is SocketLiveness.ACCEPTING
+            assert dp.is_running() is True  # never raised
         finally:
             display.stop()
             shutil.rmtree(path.parent, ignore_errors=True)
@@ -725,6 +753,45 @@ class TestReap:
             display.stop()
             shutil.rmtree(path.parent, ignore_errors=True)
 
+    def test_reap_zombie_owner_confirmed_dead_via_socket(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A dead-but-unreaped owner that released its socket is confirmed dead.
+
+        The owner exits but lingers as a zombie its real parent has not
+        waited, so ``os.kill(pid, 0)`` still succeeds. Its listening fd is
+        closed, though, so the authoritative socket reads DEAD. reap() must
+        honor the socket and clear files — never SIGKILL a corpse for the
+        full grace and then falsely raise 'survived'.
+        """
+        path = _short_socket()
+        display = _FakeDisplay(path)
+        dp = DisplayPaths(path)
+        monkeypatch.setattr("punt_lux.paths._SIGKILL_GRACE", 2.0)
+        sent: list[int] = []
+
+        def zombie_kill(_pid: int, sig: int) -> None:
+            if sig == 0:
+                return  # zombie: PID slot occupied, never ProcessLookupError
+            sent.append(sig)
+            if sig == signal.SIGTERM:
+                display.stop()  # owner exits, releasing the socket (now DEAD)
+
+        def no_child(_pid: int, _flags: int) -> tuple[int, int]:
+            raise ChildProcessError  # not our child — cannot reap the zombie
+
+        try:
+            with (
+                patch("punt_lux.paths.os.kill", side_effect=zombie_kill),
+                patch("punt_lux.paths.os.waitpid", side_effect=no_child),
+            ):
+                dp.reap(timeout=2.0)  # no raise
+            assert sent == [signal.SIGTERM]  # socket confirmed death; no SIGKILL
+            assert not path.exists()  # dead socket cleared
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
     def test_reap_clean_exit_between_probes_is_not_an_error(self) -> None:
         """An owner that exits between the liveness probe and the peer read.
 
@@ -832,16 +899,23 @@ class TestTerminate:
             kill.assert_not_called()
 
     def test_await_exit_reaps_child_zombie(self) -> None:
-        """A dead-but-unwaited child is confirmed exited, not falsely 'alive'.
+        """A dead-but-unwaited child is confirmed exited via waitpid, not 'alive'.
 
-        When the reaper is the process's parent, a killed child lingers as
-        a zombie and ``os.kill(pid, 0)`` still succeeds. _await_exit must
-        reap it so death is confirmed rather than mistaken for survival.
+        When the reaper is the process's parent, a killed child lingers as a
+        zombie and ``os.kill(pid, 0)`` still succeeds. With a *live* socket
+        (so the socket check does not short-circuit), _await_exit must reap
+        the zombie so death is confirmed rather than mistaken for survival.
         """
+        path = _short_socket()
+        display = _FakeDisplay(path)  # live socket stays 'alive', isolating waitpid
+        dp = DisplayPaths(path)
         proc = subprocess.Popen([sys.executable, "-c", "pass"])  # exits at once
         time.sleep(0.1)  # let it die; deliberately not waited → zombie
-        # A live check on the raw pid would read alive; _await_exit reaps it.
-        assert DisplayPaths._await_exit(proc.pid, timeout=2.0) is True
+        try:
+            assert dp._await_exit(proc.pid, timeout=2.0) is True
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
 
 
 class TestIsHubRunning:
