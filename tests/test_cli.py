@@ -38,10 +38,12 @@ class TestStatus:
     def test_status_running(self, tmp_path: Path) -> None:
         sock = tmp_path / "display.sock"
         pid_path = tmp_path / "display.sock.pid"
-        sock.touch()
         pid_path.write_text(str(os.getpid()))
 
-        result = runner.invoke(app, ["status", "--socket", str(sock)])
+        # Liveness is a socket handshake, not a PID-file lookup; patch the
+        # probe so the CLI wiring is exercised without a real display.
+        with patch.object(DisplayPaths, "is_running", return_value=True):
+            result = runner.invoke(app, ["status", "--socket", str(sock)])
         assert result.exit_code == 0
         assert "running" in result.output
         assert str(os.getpid()) in result.output

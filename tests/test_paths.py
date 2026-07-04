@@ -1,14 +1,76 @@
-"""Unit tests for punt_lux.paths — DisplayPaths class."""
+"""Unit tests for punt_lux.paths — DisplayPaths class.
+
+Liveness is determined by connecting to the socket and confirming a
+``ReadyMessage`` handshake, never by trusting a PID file. These tests
+stand up a real listening Unix socket that answers the handshake to
+exercise the singleton guard, cleanup, spawn idempotency, and reaping.
+"""
 
 from __future__ import annotations
 
+import contextlib
 import os
+import shutil
+import socket
+import tempfile
+import threading
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 
 from punt_lux.paths import DisplayPaths
+from punt_lux.protocol import ReadyMessage, send_message
+
+
+class _FakeDisplay:
+    """A minimal listening socket that answers the ReadyMessage handshake.
+
+    Stands in for a live display server: it binds the socket, accepts
+    connections on a background thread, and sends a ``ReadyMessage`` to
+    each client so :meth:`DisplayPaths.is_running` reads it as alive.
+    """
+
+    _path: Path
+    _sock: socket.socket
+    _thread: threading.Thread
+    _stop: threading.Event
+    _answer: bool
+
+    def __new__(cls, path: Path, *, answer: bool = True) -> _FakeDisplay:
+        self = super().__new__(cls)
+        self._path = path
+        self._answer = answer
+        self._stop = threading.Event()
+        self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._sock.bind(str(path))
+        self._sock.listen(5)
+        self._sock.settimeout(0.2)
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+        return self
+
+    def _serve(self) -> None:
+        while not self._stop.is_set():
+            try:
+                conn, _ = self._sock.accept()
+            except (TimeoutError, OSError):
+                continue
+            if self._answer:
+                with contextlib.suppress(OSError):
+                    send_message(conn, ReadyMessage())
+            conn.close()
+
+    def stop(self) -> None:
+        """Stop serving and close the listening socket."""
+        self._stop.set()
+        self._thread.join(timeout=2)
+        self._sock.close()
+
+
+def _short_socket() -> Path:
+    """Return a fresh short socket path (macOS AF_UNIX 104-char limit)."""
+    return Path(tempfile.mkdtemp(prefix="lux-")) / "d.sock"
 
 
 class TestDefaultPath:
@@ -56,69 +118,98 @@ class TestProperties:
 
 
 class TestIsRunning:
-    def test_no_pid_file(self, tmp_path: Path) -> None:
-        dp = DisplayPaths(tmp_path / "display.sock")
+    """Liveness is a socket handshake, not a PID-file lookup."""
+
+    def test_no_socket_file(self) -> None:
+        dp = DisplayPaths(_short_socket())
         assert not dp.is_running()
 
-    def test_stale_pid(self, tmp_path: Path) -> None:
-        dp = DisplayPaths(tmp_path / "display.sock")
-        dp.pid_path.write_text("999999999")
-        assert not dp.is_running()
+    def test_live_server_answers(self) -> None:
+        path = _short_socket()
+        display = _FakeDisplay(path)
+        try:
+            assert DisplayPaths(path).is_running()
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
 
-    def test_current_pid(self, tmp_path: Path) -> None:
-        dp = DisplayPaths(tmp_path / "display.sock")
+    def test_stale_socket_no_listener(self) -> None:
+        """A socket file with no listener is dead (connection refused)."""
+        path = _short_socket()
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.bind(str(path))
+        s.close()  # leaves the file, but nothing is listening
+        try:
+            assert not DisplayPaths(path).is_running()
+        finally:
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_recycled_pid_is_not_alive(self) -> None:
+        """A PID file naming a live unrelated process must not read as alive.
+
+        The PID file records this test process (very much alive), but no
+        server listens on the socket. Trusting the PID would be a false
+        positive; the socket probe correctly reports dead.
+        """
+        path = _short_socket()
+        dp = DisplayPaths(path)
         dp.pid_path.write_text(str(os.getpid()))
-        assert dp.is_running()
+        try:
+            assert not dp.is_running()
+        finally:
+            shutil.rmtree(path.parent, ignore_errors=True)
 
-    def test_corrupt_pid_file(self, tmp_path: Path) -> None:
-        dp = DisplayPaths(tmp_path / "display.sock")
-        dp.pid_path.write_text("not_a_number")
-        assert not dp.is_running()
+    def test_bound_socket_without_handshake_is_not_alive(self) -> None:
+        """A listener that never sends ReadyMessage is not a live display."""
+        path = _short_socket()
+        display = _FakeDisplay(path, answer=False)
+        try:
+            assert not DisplayPaths(path).is_running()
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
 
 
 class TestCleanupStale:
-    def test_removes_stale_socket(self, tmp_path: Path) -> None:
-        import socket
-        import tempfile
-
-        short_dir = tempfile.mkdtemp(prefix="lux-")
-        sock_path = Path(short_dir) / "d.sock"
-        dp = DisplayPaths(sock_path)
-
+    def test_removes_dead_socket(self) -> None:
+        path = _short_socket()
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.bind(str(path))
+        s.close()
+        dp = DisplayPaths(path)
+        dp.pid_path.write_text("999999999")
         try:
-            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            s.bind(str(sock_path))
-            s.close()
-            dp.pid_path.write_text("999999999")
-
             dp.cleanup_stale()
-
-            assert not sock_path.exists()
+            assert not path.exists()
             assert not dp.pid_path.exists()
         finally:
-            import shutil
+            shutil.rmtree(path.parent, ignore_errors=True)
 
-            shutil.rmtree(short_dir, ignore_errors=True)
-
-    def test_preserves_non_socket_file(self, tmp_path: Path) -> None:
-        dp = DisplayPaths(tmp_path / "display.sock")
-        dp.socket_path.touch()
-        dp.pid_path.write_text("999999999")
-
-        dp.cleanup_stale()
-
-        assert dp.socket_path.exists()
-        assert not dp.pid_path.exists()
-
-    def test_preserves_running(self, tmp_path: Path) -> None:
-        dp = DisplayPaths(tmp_path / "display.sock")
-        dp.socket_path.touch()
+    def test_preserves_live_socket(self) -> None:
+        """A live display's socket and PID file are never removed."""
+        path = _short_socket()
+        display = _FakeDisplay(path)
+        dp = DisplayPaths(path)
         dp.pid_path.write_text(str(os.getpid()))
+        try:
+            dp.cleanup_stale()
+            assert path.exists()
+            assert dp.pid_path.exists()
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
 
-        dp.cleanup_stale()
-
-        assert dp.socket_path.exists()
-        assert dp.pid_path.exists()
+    def test_preserves_non_socket_file(self) -> None:
+        path = _short_socket()
+        path.write_text("not a socket")
+        dp = DisplayPaths(path)
+        dp.pid_path.write_text("999999999")
+        try:
+            dp.cleanup_stale()
+            assert path.exists()  # regular file, not a socket — left intact
+            assert not dp.pid_path.exists()
+        finally:
+            shutil.rmtree(path.parent, ignore_errors=True)
 
 
 class TestWriteRemovePid:
@@ -133,39 +224,187 @@ class TestWriteRemovePid:
 
 
 class TestEnsure:
-    def test_already_running(self, tmp_path: Path) -> None:
-        dp = DisplayPaths(tmp_path / "display.sock")
-        dp.socket_path.touch()
-        dp.pid_path.write_text(str(os.getpid()))
+    def test_already_running_reuses(self) -> None:
+        """A live display is reused — ensure() does not spawn."""
+        path = _short_socket()
+        display = _FakeDisplay(path)
+        try:
+            with patch("punt_lux.paths.subprocess.Popen") as popen:
+                result = DisplayPaths(path).ensure()
+            assert result == path
+            popen.assert_not_called()
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
 
-        result = dp.ensure()
-        assert result == dp.socket_path
+    def test_idempotent_second_ensure_does_not_spawn(self) -> None:
+        """Once a display answers, a second ensure() reuses it with no spawn."""
+        path = _short_socket()
+        display = _FakeDisplay(path)
+        try:
+            dp = DisplayPaths(path)
+            with patch("punt_lux.paths.subprocess.Popen") as popen:
+                dp.ensure()
+                dp.ensure()
+            popen.assert_not_called()
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
 
-    def test_spawns_subprocess(self, tmp_path: Path) -> None:
-        dp = DisplayPaths(tmp_path / "display.sock")
+    def test_stale_pid_file_preserves_live_socket(self) -> None:
+        """The core regression: a live display with a missing/stale PID file.
 
-        def fake_popen(*args: object, **kwargs: object) -> object:
-            dp.socket_path.touch()
-            dp.pid_path.write_text(str(os.getpid()))
+        Remove the PID file while the display is alive. ensure() must NOT
+        unlink the live socket and must NOT spawn a second process — it
+        reuses the live server confirmed by the handshake.
+        """
+        path = _short_socket()
+        display = _FakeDisplay(path)
+        try:
+            dp = DisplayPaths(path)
+            dp.remove_pid()  # PID file absent, but the display is alive
+            with patch("punt_lux.paths.subprocess.Popen") as popen:
+                result = dp.ensure()
+            assert result == path
+            assert path.exists()  # live socket preserved
+            popen.assert_not_called()  # no second display spawned
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_spawns_when_dead(self) -> None:
+        path = _short_socket()
+        dp = DisplayPaths(path)
+
+        def fake_popen(*_args: object, **_kwargs: object) -> object:
+            _FakeDisplay(path)
 
             class FakeProc:
                 pid = os.getpid()
 
             return FakeProc()
 
-        with patch("punt_lux.paths.subprocess.Popen", side_effect=fake_popen):
-            result = dp.ensure(timeout=2.0)
+        try:
+            with patch(
+                "punt_lux.paths.subprocess.Popen", side_effect=fake_popen
+            ) as popen:
+                result = dp.ensure(timeout=2.0)
+            assert result == path
+            popen.assert_called_once()
+        finally:
+            shutil.rmtree(path.parent, ignore_errors=True)
 
-        assert result == dp.socket_path
-
-    def test_timeout_raises(self, tmp_path: Path) -> None:
-        dp = DisplayPaths(tmp_path / "display.sock")
+    def test_timeout_raises(self) -> None:
+        path = _short_socket()
+        dp = DisplayPaths(path)
 
         class FakeProc:
             pid = 1
 
-        with (
-            patch("punt_lux.paths.subprocess.Popen", return_value=FakeProc()),
-            pytest.raises(RuntimeError, match="failed to start"),
-        ):
-            dp.ensure(timeout=0.3)
+        try:
+            with (
+                patch("punt_lux.paths.subprocess.Popen", return_value=FakeProc()),
+                pytest.raises(RuntimeError, match="failed to start"),
+            ):
+                dp.ensure(timeout=0.3)
+        finally:
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_concurrent_ensure_spawns_once(self) -> None:
+        """Two near-simultaneous ensure() calls spawn exactly one display.
+
+        The spawn lock serializes the callers; the first spawns a display,
+        the second observes it on the re-check and reuses it.
+        """
+        path = _short_socket()
+        spawn_count = 0
+        lock = threading.Lock()
+
+        def fake_popen(*_args: object, **_kwargs: object) -> object:
+            nonlocal spawn_count
+            with lock:
+                spawn_count += 1
+            _FakeDisplay(path)
+
+            class FakeProc:
+                pid = os.getpid()
+
+            return FakeProc()
+
+        results: list[Path] = []
+
+        def worker() -> None:
+            results.append(DisplayPaths(path).ensure(timeout=3.0))
+
+        try:
+            with patch("punt_lux.paths.subprocess.Popen", side_effect=fake_popen):
+                threads = [threading.Thread(target=worker) for _ in range(2)]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join(timeout=5)
+            assert spawn_count == 1
+            assert results == [path, path]
+        finally:
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+
+class TestReap:
+    def test_reap_dead_clears_files_without_kill(self) -> None:
+        """A stale/recycled PID is never signalled when the socket is dead."""
+        path = _short_socket()
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.bind(str(path))
+        s.close()
+        dp = DisplayPaths(path)
+        dp.pid_path.write_text(str(os.getpid()))
+        try:
+            with patch("punt_lux.paths.os.kill") as kill:
+                dp.reap()
+            kill.assert_not_called()  # recycled-PID friendly-fire avoided
+            assert not path.exists()
+            assert not dp.pid_path.exists()
+        finally:
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_reap_live_terminates_owner(self) -> None:
+        """A live display is terminated via its recorded PID, then cleaned."""
+        path = _short_socket()
+        display = _FakeDisplay(path)
+        dp = DisplayPaths(path)
+        dp.pid_path.write_text("4242")
+        terminated: list[int] = []
+
+        def fake_kill(pid: int, sig: int) -> None:
+            if sig == 0:
+                # First liveness re-check: still alive. After termination
+                # is recorded, report the process as gone.
+                if terminated:
+                    raise ProcessLookupError
+                return
+            terminated.append(pid)
+            display.stop()  # simulate the display exiting on SIGTERM
+
+        try:
+            with patch("punt_lux.paths.os.kill", side_effect=fake_kill):
+                dp.reap(timeout=2.0)
+            assert terminated == [4242]
+            assert not path.exists()
+            assert not dp.pid_path.exists()
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_reap_live_without_pid_leaves_socket_intact(self) -> None:
+        """A live display with no PID file is never orphaned by an unlink."""
+        path = _short_socket()
+        display = _FakeDisplay(path)
+        dp = DisplayPaths(path)  # no PID file written
+        try:
+            with patch("punt_lux.paths.os.kill") as kill:
+                dp.reap()
+            kill.assert_not_called()
+            assert path.exists()  # live socket preserved, not orphaned
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
