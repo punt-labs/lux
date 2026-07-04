@@ -77,7 +77,7 @@
 
 % ── Document version ─────────────────────────────────────────────────────────
 \newcommand{\prfaqversion}[2]{\def\theprfaqmajor{#1}\def\theprfaqminor{#2}}
-\prfaqversion{1}{1}
+\prfaqversion{1}{2}
 
 % ── Header/footer ────────────────────────────────────────────────────────────
 \usepackage{fancyhdr}
@@ -420,13 +420,15 @@ data is local, and the install is one command.
   question and receiving the answer through a dialog --- is exercised in real
   sessions, not just tests.
 
-  The honest gap: this evidence is \emph{internal}, and the ``customer'' is
-  currently the company itself. External adoption is zero --- no usage data, no
-  retention figures, no third-party testimonials. In the four-risks framing, a
-  customer that is the company is a High Value-risk signal, and this document
-  rates it as such. Every ``value'' claim here should be read against that
-  boundary (see~\faqref{faq:next-step} and the Value risk in the Risk
-  Assessment).
+  The honest gap: this evidence is \emph{internal}. The target customer --- an
+  external developer running several terminal agents at once, the profile in the
+  press-release quote --- has not used Lux yet. Punt Labs is the current
+  \emph{user} and proof point, not the market. External adoption is zero --- no
+  usage data, no retention figures, no third-party testimonials. Validation
+  confined to the company that built the product is, in the four-risks framing, a
+  High Value-risk signal, and this document rates it as such. Every ``value''
+  claim here should be read against that boundary (see~\faqref{faq:next-step} and
+  the Value risk in the Risk Assessment).
 \end{faqpair}
 
 \begin{faqpair}{Who are the competitors and why will we win?}\label{faq:competitors}
@@ -696,13 +698,14 @@ data is local, and the install is one command.
 \textbf{\color{SectionBlue}Risk} & \textbf{\color{SectionBlue}Rating} & \textbf{\color{SectionBlue}Assessment} \\
 \midrule
 Value      & \textcolor{RiskRed}{High} &
-  All demonstrated value is \emph{internal}, and the ``customer'' is currently
-  the company itself --- one primary human developer plus his agent fleet
-  (see~\faqref{faq:evidence}). ``Runs in every session'' counts agent sessions,
-  not distinct humans; external adoption is zero. In the four-risks framework a
-  customer that is the company is a High Value-risk signal, so this row is rated
-  High, not Medium. It is why \faqref{faq:next-step} makes the day-7 external
-  trial the single most important next step. \\
+  All demonstrated value is \emph{internal}: the current users are one Punt Labs
+  developer plus his agent fleet (see~\faqref{faq:evidence}), not the target
+  customer the product is built for --- external developers running several
+  terminal agents. ``Runs in every session'' counts agent sessions, not distinct
+  humans; external adoption is zero. Validation confined to the company that
+  built Lux is a High Value-risk signal in the four-risks framework, so this row
+  is rated High, not Medium. It is why \faqref{faq:next-step} makes the day-7
+  external trial the single most important next step. \\
 Usability  & \textcolor{RiskAmber}{Medium} &
   Install is one command and the display opens automatically on first output, so
   the intended onboarding is simple --- but that flow is proven \emph{internally}
