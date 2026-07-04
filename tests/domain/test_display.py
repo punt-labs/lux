@@ -26,7 +26,7 @@ from punt_lux.domain.event import (
     ElementUpdated,
     Event,
 )
-from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.domain.interaction_errors import (
     UnauthorizedInteractionError,
     UnknownClientError,
@@ -37,6 +37,7 @@ from punt_lux.domain.interaction_errors import (
 from punt_lux.domain.ownership import OwnershipError
 from punt_lux.domain.snapshot import SceneSnapshot
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
+from punt_lux.protocol.elements import CheckboxElement
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 
 
@@ -613,6 +614,59 @@ def test_interact_button_returns_typed_button_clicked() -> None:
     assert event.scene_id == SceneId("s1")
 
 
+def test_interact_checkbox_returns_value_changed_and_fires_handler() -> None:
+    """A toggle on the migrated CheckboxElement yields ValueChanged and fires.
+
+    Before the fix, ``_build_event`` raised ``WrongKindError`` for any
+    non-button kind, so the migrated checkbox exemplar could not dispatch
+    through ``Display.interact`` even though the live Hub path handled it.
+    The real ABC element is used so ``element.fire`` runs end to end.
+    """
+    display = Display()
+    alice = display.connect_client(name="alice")
+    display.add_scene(SceneId("s1"))
+    checkbox = CheckboxElement(id="c1", label="Bold", value=False)
+    display.apply(alice, AddElement(scene_id=SceneId("s1"), element=checkbox))
+
+    observed: list[ValueChanged] = []
+    checkbox.add_handler(ValueChanged, observed.append)
+
+    event = display.interact(
+        alice,
+        RemoteEventHandlerInvocation(
+            element_id="c1", action="changed", value=True, scene_id="s1"
+        ),
+    )
+
+    assert isinstance(event, ValueChanged)
+    assert event.value is True
+    assert event.owner_id == alice
+    assert event.element_id == ElementId("c1")
+    assert observed == [event]  # fired exactly once on the real ABC element
+
+
+def test_interact_checkbox_rejects_non_bool_value() -> None:
+    """A checkbox toggle with a non-bool wire value is a WrongKindError."""
+    display = Display()
+    alice = display.connect_client(name="alice")
+    display.add_scene(SceneId("s1"))
+    display.apply(
+        alice,
+        AddElement(
+            scene_id=SceneId("s1"),
+            element=CheckboxElement(id="c1", label="Bold"),
+        ),
+    )
+
+    with pytest.raises(WrongKindError):
+        display.interact(
+            alice,
+            RemoteEventHandlerInvocation(
+                element_id="c1", action="changed", value="yes", scene_id="s1"
+            ),
+        )
+
+
 def test_interact_does_not_fan_out_through_apply_subscribers() -> None:
     """``Display.interact`` runs through ``Element.fire``, not ``_emit``.
 
@@ -743,7 +797,7 @@ def test_interact_raises_wrong_kind_for_non_button_element() -> None:
     with pytest.raises(WrongKindError) as exc_info:
         display.interact(alice, _click_msg("s1", "s1elem"))
 
-    assert exc_info.value.expected == "button"
+    assert exc_info.value.expected == "button or checkbox"
     assert exc_info.value.got == "slider"
 
 

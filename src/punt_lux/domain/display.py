@@ -1,9 +1,28 @@
-"""Display — the authoritative scene state holder.
+"""Display — the display-side authoritative scene-state mirror.
 
 Holds Scenes, routes Updates from Clients, validates ownership and
 typing, emits Events to subscribers. Pure domain — no ImGui, no socket,
 no JSON. The single-runtime testability requirement from
 ``docs/architecture/domain-model.md`` §"Testability" lives here.
+
+Role, and how it differs from ``HubDisplay``. There are two authoritative
+stores, one per tier:
+
+- ``Display`` (this class) is the **display-process mirror**. It is the
+  live store the display-side dual-write pump writes into: ``DisplayServer``
+  constructs one (``server._domain_display``) and ``DomainPump.route`` mirrors
+  every native-kind scene into it. It is not vestigial.
+- ``HubDisplay`` (``domain/hub/hub_display.py``) is the **luxd-process**
+  authoritative store; the live D21 click dispatch resolves and fires against
+  it (``domain/hub/clients.py``), not against this class.
+
+``interact`` is this class's domain-level dispatch surface — the single
+validation-and-fire site used by the test suite to drive the handler path in
+one process. Under D21 the display forwards interactions to the Hub rather
+than dispatching locally, so production interaction dispatch runs on the Hub
+side; ``interact`` here stays the in-process dispatch contract and now
+constructs the same two-tier event set (``ButtonClicked`` + ``ValueChanged``)
+the Hub does, so a migrated ``checkbox`` dispatches through it too.
 """
 
 from __future__ import annotations
@@ -29,7 +48,7 @@ from punt_lux.domain.event import (
     Event,
 )
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.domain.interaction_errors import (
     ElementDismissedError,
     UnauthorizedInteractionError,
@@ -75,11 +94,12 @@ class Display:
 
     Interaction discipline:
       ``interact`` is the single domain-validation site for a wire
-      ``RemoteEventHandlerInvocation``. It either constructs a typed event (today
-      only ``ButtonClicked``) via the module-private factory token,
-      fires it through the resolved Element's handler registry, and
-      returns the event; or it raises a typed ``InteractionError``
-      subclass on validation failure. The ``element.fire`` call is the
+      ``RemoteEventHandlerInvocation``. It constructs the typed event for
+      the element's kind (``ButtonClicked`` for a button, ``ValueChanged``
+      for a checkbox), fires it through the resolved Element's handler
+      registry, and returns the event; or it raises a typed
+      ``InteractionError`` subclass on validation failure. The
+      ``element.fire`` call is the
       single dispatch site downstream of ``Display.interact`` — handlers
       run exactly once, on validated input.
     """
@@ -231,7 +251,7 @@ class Display:
         self,
         client_id: ClientId,
         msg: RemoteEventHandlerInvocation,
-    ) -> ButtonClicked:
+    ) -> ButtonClicked | ValueChanged:
         """Validate the wire message, construct the typed event, fire it.
 
         Callers must pass a wire-shape-valid message: ``msg.action`` is
@@ -243,9 +263,9 @@ class Display:
         Raises ``UnknownClientError`` / ``UnknownInteractionSceneError``
         / ``UnknownInteractionElementError`` /
         ``UnauthorizedInteractionError`` / ``WrongKindError`` on any
-        domain validation failure. Returns the constructed
-        ``ButtonClicked`` after dispatching it through the resolved
-        Element's handler registry.
+        domain validation failure. Returns the constructed event
+        (``ButtonClicked`` for a button, ``ValueChanged`` for a checkbox)
+        after dispatching it through the resolved Element's handler registry.
         """
         if not self.is_client(client_id):
             raise UnknownClientError(client_id=client_id)
@@ -315,31 +335,47 @@ class Display:
         element_id: ElementId,
         owner_id: ClientId,
         value: object,
-    ) -> ButtonClicked:
+    ) -> ButtonClicked | ValueChanged:
         """Construct the typed event for ``element``'s kind + wire ``value``.
 
-        Currently only ``button`` + ``value is True`` produces a typed
-        event. Other kinds raise ``WrongKindError`` (future PRs add
-        their own typed events here).
+        ``button`` + ``value is True`` → ``ButtonClicked``; ``checkbox`` +
+        a ``bool`` value → ``ValueChanged`` — the same two-tier event set the
+        live Hub dispatch constructs (``domain.hub.clients``). Other kinds
+        raise ``WrongKindError`` (future kinds add their own typed events
+        here).
         """
-        if element.kind != "button":
-            raise WrongKindError(
+        if element.kind == "button":
+            if value is not True:
+                raise WrongKindError(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    expected="button click (value is True)",
+                    got=f"value={value!r}",
+                )
+            return ButtonClicked(
                 scene_id=scene_id,
                 element_id=element_id,
-                expected="button",
-                got=element.kind,
+                owner_id=owner_id,
             )
-        if value is not True:
-            raise WrongKindError(
+        if element.kind == "checkbox":
+            if not isinstance(value, bool):
+                raise WrongKindError(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    expected="checkbox toggle (bool value)",
+                    got=f"value={value!r}",
+                )
+            return ValueChanged(
                 scene_id=scene_id,
                 element_id=element_id,
-                expected="button click (value is True)",
-                got=f"value={value!r}",
+                owner_id=owner_id,
+                value=value,
             )
-        return ButtonClicked(
+        raise WrongKindError(
             scene_id=scene_id,
             element_id=element_id,
-            owner_id=owner_id,
+            expected="button or checkbox",
+            got=element.kind,
         )
 
     # -- per-Update handlers ------------------------------------------------
