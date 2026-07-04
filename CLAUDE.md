@@ -252,6 +252,62 @@ Lux's biggest testing gap is the rendering layer. `display/server.py` and `displ
 - **Vox** (`../vox/`) — audio counterpart; follows the same plugin/release patterns
 - **claude-plugins** (`../claude-plugins/`) — marketplace catalog entry
 
+## Formal Verification (z-spec)
+
+Some defects are not fixable by writing another test. When a change involves
+**concurrency, a lock discipline, a stateful protocol, or a safety-critical
+state machine**, model-checking finds in one pass what empirical testing chases
+across many rounds. The display singleton lifecycle proved it: 13 review rounds
+on lux-w8t5 plus 3 on lux-h29e, each surfacing another interleaving — then one
+ProB model-check verified all five invariants and deadlock-freedom exhaustively,
+and the coverage audit exposed that "passing" tests were exercising a
+monkeypatched premise, not the real mechanism.
+
+**z-spec is REQUIRED — not optional — for a change in any of these classes:**
+
+- **Concurrency / interleaving.** Multiple processes or threads contending for a
+  shared resource (sockets, files, locks): spawn/reap/cleanup lifecycles, the
+  Hub/Display dispatch path, connection registries. If two agents can interleave
+  on shared state, model-check the interleaving.
+- **Lock disciplines.** Any change that introduces or alters a lock, especially
+  more than one. Deadlock-freedom must be **proven**, not assumed — encode the
+  acquisition order and run the ProB deadlock check.
+- **Stateful protocols / lifecycle state machines.** Anything with a safety
+  invariant of the form "at most one X", "never X while Y", "operations must
+  follow order Z", or a defined set of states and transitions.
+- **The recurrence signal (the hard rule).** The MOMENT the *same class* of
+  defect surfaces across **two or more** fix/review rounds — stop. Do not open a
+  third empirical round. Formalize the state machine and model-check it.
+  Recurrence means the problem is a state-space problem, and the state space is
+  finite and checkable.
+
+**The workflow (the z-spec plugin skills):**
+
+1. `z-spec:code2model` — model the stateful entity as a Z spec (flat state
+   schema, operations, invariants; bounded carrier, single `Init` for ProB).
+2. `z-spec:check` — `fuzz` type-check; must be clean.
+3. `z-spec:test` / probcli `-model_check` — model-check **every** invariant AND
+   the deadlock check over a bounded carrier (setsize 2–3 usually exhibits the
+   races). **This is the merge gate** for the change — "provably no interleaving
+   violates it", not "the flaky test passed 50 times".
+4. **Fidelity check (mandatory).** The model must reproduce the *known* defect
+   when the fix is removed (drop the lock → ProB returns the exact bad
+   interleaving). A model that cannot reproduce the bug it guards against is too
+   abstract to trust — refine it until it can, then show the fixed design has no
+   such trace.
+5. `z-spec:partition` + `z-spec:audit` — derive the test partitions from the
+   spec and audit which our tests actually cover. Fill every gap. A passing test
+   that stubs the mechanism is a gap, not coverage.
+6. Commit the spec (`docs/<name>.tex`) as a **regression artifact**; re-run
+   `fuzz` + the model-check whenever the modeled code changes.
+
+Purely sequential logic, single-element rendering, a data-format tweak do **not**
+need z-spec — a roundtrip or scene test suffices. z-spec is for the
+interleaving/state-machine class, where testing samples and model-checking
+proves. Reference model: `docs/display_lifecycle.tex` +
+`docs/display_lifecycle_coverage.md`. Toolchain: `/z-spec:setup` installs fuzz +
+probcli.
+
 ## Ethos & Delegation
 
 Identity: `agent: claude` per `.punt-labs/ethos.yaml`. All code delegation uses ethos missions. Every non-trivial delegation has two phases: (1) **design mission** — describes problem, constraints, and invariants but does NOT prescribe a write set; (2) **implementation mission** — uses the write set produced by the design phase. The design mission's output IS the write set — the specialist decides what to create, split, or extract.
