@@ -22,6 +22,8 @@ docs/*.fdb_latexmk
 docs/*.fls
 docs/*.out
 docs/*.pdf
+# Human-facing rendered spec (PDFs for people, source for tools) — tracked, linked from public writing
+!docs/display_lifecycle.pdf
 docs/*.synctex.gz
 
 # IDEs
