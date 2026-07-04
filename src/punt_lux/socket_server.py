@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import logging
 import select
 import socket
@@ -21,6 +22,10 @@ from punt_lux.protocol import (
 from punt_lux.protocol.messages import Message
 
 logger = logging.getLogger(__name__)
+
+# AF_UNIX bind() rejects an already-owned path with EADDRINUSE on Linux and
+# EEXIST on macOS/BSD; either means a concurrent binder won the race.
+_BIND_RACE_ERRNOS = frozenset({errno.EADDRINUSE, errno.EEXIST})
 
 
 class SocketServer:
@@ -87,21 +92,34 @@ class SocketServer:
 
     # -- lifecycle ----------------------------------------------------------
 
-    def setup(self, socket_path: Path) -> None:
-        """Bind and listen on the given Unix socket path."""
-        DisplayPaths(socket_path).cleanup_stale()
+    def setup(self, socket_path: Path) -> bool:
+        """Bind and listen; return ``False`` if a live display already owns it.
+
+        Self-arbitrating: a live owner is never unlinked or bound over, and
+        ``bind()`` is the mutex, so an ``EADDRINUSE`` loss means a concurrent
+        display won the race between the probe and this bind. Raise on a
+        genuine bind failure.
+        """
+        dp = DisplayPaths(socket_path)
+        if dp.is_running():
+            logger.info("display already running at %s; exiting", socket_path)
+            return False
+        dp.cleanup_stale()  # unlinks only a confirmed-dead socket (re-probe guarded)
         socket_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         socket_path.parent.chmod(0o700)
-        if socket_path.exists():
-            if socket_path.is_socket():
-                socket_path.unlink()
-            else:
-                msg = f"Path exists and is not a socket: {socket_path}"
-                raise RuntimeError(msg)
-        self._server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._server_sock.bind(str(socket_path))
-        self._server_sock.listen(5)
-        self._server_sock.setblocking(False)  # noqa: FBT003
+        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            sock.bind(str(socket_path))
+        except OSError as exc:
+            sock.close()
+            if exc.errno not in _BIND_RACE_ERRNOS:
+                raise  # a real bind failure (permissions, bad path) fails loud
+            logger.info("lost bind race at %s; exiting", socket_path)
+            return False
+        sock.listen(5)
+        sock.setblocking(False)  # noqa: FBT003
+        self._server_sock = sock
+        return True
 
     def shutdown(self) -> None:
         """Close all client connections and the server socket."""

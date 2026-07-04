@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import errno
+import os
 import socket
 import tempfile
+import threading
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import pytest
+
+from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     ReadyMessage,
     SceneMessage,
@@ -227,3 +233,147 @@ class TestSendToClient:
                 client.close()
         finally:
             server.shutdown()
+
+
+class _BindRaises:
+    """Fake socket whose bind raises a chosen ``OSError`` — for the race window."""
+
+    _errno: int
+
+    def __new__(cls, errno_val: int) -> _BindRaises:
+        self = super().__new__(cls)
+        self._errno = errno_val
+        return self
+
+    def bind(self, _addr: str) -> None:
+        raise OSError(self._errno, os.strerror(self._errno))
+
+    def close(self) -> None:
+        """No-op close so ``setup`` can release the failed socket."""
+
+
+def _always_dead(_self: DisplayPaths) -> bool:
+    """Force the liveness probe to report DEAD (simulate the race window)."""
+    return False
+
+
+def _skip_cleanup(_self: DisplayPaths) -> None:
+    """No-op cleanup so a pre-bound race socket survives to the bind."""
+
+
+def _bind_eacces(*_args: object, **_kwargs: object) -> _BindRaises:
+    """Socket factory whose bind fails with a non-race ``EACCES``."""
+    return _BindRaises(errno.EACCES)
+
+
+class TestSetupArbitration:
+    """setup() self-arbitrates: exactly one binder wins, live owners survive."""
+
+    def test_returns_true_on_cold_bind(self) -> None:
+        """A cold path binds and serves, reporting True."""
+        sock_path = Path(_make_tmpdir()) / "test.sock"
+        server = _make_server()
+        try:
+            assert server.setup(sock_path) is True
+            assert server.server_sock is not None
+            assert sock_path.is_socket()
+        finally:
+            server.shutdown()
+
+    def test_returns_false_and_preserves_live_owner(self) -> None:
+        """A second setup on a live socket reports False and never unlinks it."""
+        sock_path = Path(_make_tmpdir()) / "test.sock"
+        owner = _make_server()
+        intruder = _make_server()
+        try:
+            assert owner.setup(sock_path) is True
+            owner_fd = owner.server_sock.fileno() if owner.server_sock else -1
+
+            assert intruder.setup(sock_path) is False
+            assert intruder.server_sock is None
+
+            # The live owner's socket is untouched and still answering.
+            assert sock_path.is_socket()
+            assert owner.server_sock is not None
+            assert owner.server_sock.fileno() == owner_fd
+            assert DisplayPaths(sock_path).is_running()
+        finally:
+            intruder.shutdown()
+            owner.shutdown()
+
+    def test_rebinds_over_stale_socket(self) -> None:
+        """A dead leftover socket is cleaned and rebound — normal cold start."""
+        sock_path = Path(_make_tmpdir()) / "test.sock"
+        # A bound-but-closed socket leaves a stale file with no listener.
+        stale = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        stale.bind(str(sock_path))
+        stale.close()
+        assert sock_path.is_socket()  # file survives close()
+
+        server = _make_server()
+        try:
+            assert server.setup(sock_path) is True
+            assert server.server_sock is not None
+        finally:
+            server.shutdown()
+
+    def test_returns_false_on_bind_race(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An EADDRINUSE at bind (concurrent winner) reports False, not an error."""
+        sock_path = Path(_make_tmpdir()) / "test.sock"
+        # A concurrent display bound the path in the window after our probe;
+        # simulate by pre-binding and forcing the probe/cleanup to see nothing.
+        winner = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        winner.bind(str(sock_path))
+        winner.listen(5)
+        monkeypatch.setattr(DisplayPaths, "is_running", _always_dead)
+        monkeypatch.setattr(DisplayPaths, "cleanup_stale", _skip_cleanup)
+
+        server = _make_server()
+        try:
+            assert server.setup(sock_path) is False
+            assert server.server_sock is None
+            assert sock_path.is_socket()  # the winner's socket is intact
+        finally:
+            server.shutdown()
+            winner.close()
+
+    def test_propagates_non_race_oserror(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A bind failure that is not a lost race fails loud, not a False return."""
+        sock_path = Path(_make_tmpdir()) / "test.sock"
+        monkeypatch.setattr(DisplayPaths, "is_running", _always_dead)
+        monkeypatch.setattr(DisplayPaths, "cleanup_stale", _skip_cleanup)
+        monkeypatch.setattr(socket, "socket", _bind_eacces)
+
+        server = _make_server()
+        with pytest.raises(OSError) as exc_info:
+            server.setup(sock_path)
+        assert exc_info.value.errno == errno.EACCES
+        assert server.server_sock is None
+
+    def test_concurrent_setup_single_winner(self) -> None:
+        """Many threads racing on one path: exactly one binds and serves."""
+        sock_path = Path(_make_tmpdir()) / "test.sock"
+        servers = [_make_server() for _ in range(6)]
+        results: list[bool] = []
+        lock = threading.Lock()
+        start = threading.Barrier(len(servers))
+
+        def attempt(srv: SocketServer) -> None:
+            start.wait()  # release all threads at once to maximize contention
+            won = srv.setup(sock_path)
+            with lock:
+                results.append(won)
+
+        threads = [threading.Thread(target=attempt, args=(s,)) for s in servers]
+        try:
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join(timeout=10.0)
+            assert results.count(True) == 1
+            assert results.count(False) == len(servers) - 1
+            bound = [s for s in servers if s.server_sock is not None]
+            assert len(bound) == 1
+        finally:
+            for s in servers:
+                s.shutdown()
