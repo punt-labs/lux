@@ -439,9 +439,10 @@ def _restart_hub() -> None:
     import signal
     import time
 
-    from punt_lux.paths import hub_pid_path, is_hub_running, read_hub_port
+    from punt_lux.hub_paths import HubPaths
 
-    pid_path = hub_pid_path()
+    hub_paths = HubPaths()
+    pid_path = hub_paths.pid_path
     try:
         old_pid = int(pid_path.read_text().strip())
         _os.kill(old_pid, signal.SIGTERM)
@@ -466,7 +467,7 @@ def _restart_hub() -> None:
     # Wait for launchd/systemd to respawn with a new PID
     for _ in range(20):  # 10 seconds
         time.sleep(0.5)
-        if not is_hub_running():
+        if not hub_paths.is_running():
             continue
         try:
             new_pid = int(pid_path.read_text().strip())
@@ -474,7 +475,7 @@ def _restart_hub() -> None:
             continue
         if new_pid == old_pid:
             continue
-        port = read_hub_port()
+        port = hub_paths.read_port()
         if port is not None:
             print(f"luxd restarted (pid {new_pid}, port {port})")
         else:
@@ -489,14 +490,15 @@ def ensure_hub(
     restart: bool = typer.Option(False, "--restart", help="Restart luxd if running"),
 ) -> None:
     """Ensure luxd is running. Restart if --restart flag is set."""
-    from punt_lux.paths import is_hub_running, read_hub_port
+    from punt_lux.hub_paths import HubPaths
 
-    if restart and is_hub_running():
+    hub_paths = HubPaths()
+    if restart and hub_paths.is_running():
         _restart_hub()
         return
 
-    if is_hub_running():
-        port = read_hub_port()
+    if hub_paths.is_running():
+        port = hub_paths.read_port()
         if port is not None:
             print(f"luxd running (port {port})")
         else:
@@ -512,19 +514,19 @@ def hub_status() -> None:
     import json
     import urllib.request
 
-    from punt_lux.paths import hub_pid_path, is_hub_running, read_hub_port
+    from punt_lux.hub_paths import HubPaths
 
-    if not is_hub_running():
+    hub_paths = HubPaths()
+    if not hub_paths.is_running():
         print("luxd not running")
         raise typer.Exit(code=1)
 
-    pid_path = hub_pid_path()
     try:
-        pid = int(pid_path.read_text().strip())
+        pid = int(hub_paths.pid_path.read_text().strip())
     except (ValueError, OSError):
         pid = None
 
-    port = read_hub_port()
+    port = hub_paths.read_port()
     if port is None:
         print(f"luxd running (pid {pid}) but port file unreadable")
         raise typer.Exit(code=1)
