@@ -252,11 +252,11 @@ class DisplayPaths:
             return pid if pid > 0 else None
 
     def _clear_dead_files(self) -> None:
-        """Unlink the dead display's socket (or stale non-socket file) and PID file."""
+        """Unlink the dead display's socket (or stale file/symlink) and PID file."""
         if self.is_running():
             return  # a live owner bound the socket after confirm-dead — leave it
-        if self._socket_path.is_socket() or self._socket_path.is_file():
-            # clear a leftover regular file too — it blocks a fresh bind()
+        if os.path.lexists(self._socket_path) and not self._socket_path.is_dir():
+            # clear a leftover file or broken symlink too — it blocks a fresh bind()
             logger.warning("removing dead display socket %s", self._socket_path)
             self._socket_path.unlink(missing_ok=True)
         self.remove_pid()

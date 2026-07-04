@@ -1105,6 +1105,45 @@ class TestReap:
         finally:
             display.stop()
 
+    def test_clear_dead_files_removes_broken_symlink(
+        self, short_socket: Callable[[], Path]
+    ) -> None:
+        """A broken symlink at the socket path is removed so a fresh bind() succeeds.
+
+        is_file() follows the dangling link (→ False) and is_socket() is False,
+        so the old file/socket-only check would leave the symlink blocking
+        bind(). os.path.lexists() sees the link itself; unlink removes the link,
+        not its (absent) target.
+        """
+        path = short_socket()
+        path.symlink_to(path.parent / "does-not-exist.target")  # broken symlink
+        dp = DisplayPaths(path)
+        dp.pid_path.write_text("999999999")
+        assert path.is_symlink() and not path.exists()  # present but dangling
+        dp._clear_dead_files()
+        assert not os.path.lexists(path)  # the symlink itself is gone
+        assert not dp.pid_path.exists()  # pid file cleared too
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.bind(str(path))  # a fresh bind now succeeds — no leftover blocking it
+        s.close()
+
+    def test_clear_dead_files_preserves_symlink_to_live_socket(
+        self, short_socket: Callable[[], Path]
+    ) -> None:
+        """A symlink to a LIVE socket is preserved by the is_running guard."""
+        real = short_socket()
+        display = _FakeDisplay(real)
+        link = short_socket()  # a separate path for the symlink
+        link.symlink_to(real)  # link → the live socket
+        try:
+            dp = DisplayPaths(link)
+            assert dp.is_running()  # is_socket() follows the link to the live socket
+            dp._clear_dead_files()
+            assert link.is_symlink()  # live owner → symlink left intact
+            assert real.exists()  # the real socket untouched
+        finally:
+            display.stop()
+
 
 class TestTerminate:
     """Signal handling distinguishes a vanished process from a live one."""
