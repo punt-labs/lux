@@ -351,6 +351,38 @@ class TestSetupArbitration:
         assert exc_info.value.errno == errno.EACCES
         assert server.server_sock is None
 
+    def test_closes_socket_on_post_bind_failure(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A listen() failure after a successful bind closes the fd and re-raises.
+
+        A post-bind failure (resource exhaustion) must not leak the bound
+        socket. setup wraps bind+listen+setblocking so any OSError closes the
+        socket before propagating; a non-race errno still fails loud.
+        """
+        sock_path = Path(_make_tmpdir()) / "test.sock"
+        created: list[socket.socket] = []
+        real_socket = socket.socket
+
+        def tracking_socket(family: int, type_: int) -> socket.socket:
+            sock = real_socket(family, type_)
+            created.append(sock)
+            return sock
+
+        def failing_listen(_self: socket.socket, _backlog: int) -> None:
+            raise OSError(errno.ENOMEM, "cannot allocate memory")
+
+        monkeypatch.setattr(socket, "socket", tracking_socket)
+        monkeypatch.setattr(real_socket, "listen", failing_listen)
+
+        server = _make_server()
+        with pytest.raises(OSError) as exc_info:
+            server.setup(sock_path)
+        assert exc_info.value.errno == errno.ENOMEM  # non-race failure fails loud
+        assert server.server_sock is None  # no half-open server retained
+        assert created  # the server socket was created
+        assert created[-1].fileno() == -1  # ...and closed, not leaked
+
     def test_concurrent_setup_single_winner(self) -> None:
         """Many threads racing on one path: exactly one binds and serves.
 
@@ -400,6 +432,7 @@ class TestSetupArbitration:
             stop.set()
             for t in threads:
                 t.join(timeout=10.0)
+                assert not t.is_alive(), "a racing setup thread never terminated"
             for s in servers:
                 s.shutdown()
 
@@ -453,6 +486,7 @@ class TestSetupArbitration:
                 assert worker.is_alive()  # blocked on the bind lock
                 assert server.server_sock is None  # nothing bound yet
             worker.join(timeout=5)
+            assert not worker.is_alive(), "concurrent setup hung after lock release"
             assert result == [True]  # bound only after the lock was released
             assert server.server_sock is not None
         finally:
@@ -495,6 +529,7 @@ class TestSetupArbitration:
                 assert sock_path.stat().st_ino == bound_inode
                 assert server.server_sock is None  # concurrent setup bound nothing
             worker.join(timeout=5)
+            assert not worker.is_alive(), "concurrent setup hung after lock release"
             assert result == [True]  # exactly one winner, only after the lock freed
             assert server.server_sock is not None
         finally:
