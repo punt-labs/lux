@@ -56,8 +56,7 @@ For `progress` specifically:
   (`display/renderers/progress_renderer.py:21`–`:23`). Render calls do not cross
   the wire.
 
-### 1.3 Why a display-only leaf needs `render`/`id`/`_children`/`apply_patch` but
-NOT the handler/wrap machinery
+### 1.3 Why a display-only leaf needs `render`/`id`/`_children`/`apply_patch` but NOT the handler/wrap machinery
 
 The Element ABC (`domain/element_abc.py:49`) carries a wide surface, but a
 display-only leaf uses only part of it:
@@ -207,8 +206,7 @@ the migration must fix an existing inconsistency rather than copy it forward
 
 ---
 
-## 3. The wiring change — flipping progress from SceneManager/legacy to
-HubDisplay/apply
+## 3. The wiring change — flipping progress from SceneManager/legacy to HubDisplay/apply
 
 Migrating progress touches the same set of registration points Text occupies.
 Each is a place the code currently discriminates "ABC kinds" from "legacy
@@ -390,7 +388,7 @@ confirm this placement.)
 
 ### 4.5 How a test calls it — verifying progress without pixels
 
-```
+```python
 resp = query("inspect_scene", {"scene_id": "s1"})
 rec  = next(r for r in resp["element_paths"] if r["id"] == "p1")
 assert rec["render_path"] == "abc"          # the flip
