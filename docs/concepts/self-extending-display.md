@@ -209,7 +209,7 @@ pyte, Qt, etc. via three rendering modes).
 
 ## Related documents
 
-- [Extension architecture concept](concept-extension-architecture.tex) --- detailed
+- [Extension architecture concept](extension-architecture.tex) --- detailed
   technical design for the extension system, service API, and agent SDK
-- [Concept PR/FAQ](concept-prfaq.tex) --- Working Backwards product thinking
+- [Concept PR/FAQ](../../prfaq.tex) --- Working Backwards product thinking
   exploring market positioning and risk assessment
