@@ -12,8 +12,11 @@ Two layers:
 
 from __future__ import annotations
 
+import inspect
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
+
+import pytest
 
 from punt_lux.display import DisplayServer
 from punt_lux.protocol import SceneMessage
@@ -27,6 +30,7 @@ from punt_lux.protocol.elements import (
 from punt_lux.scene_inspection import ElementInspection, SceneInspection
 
 if TYPE_CHECKING:
+    from punt_lux.domain.inspectable import Inspectable
     from punt_lux.protocol import QueryResponse
     from punt_lux.protocol.elements import Element
 
@@ -92,6 +96,57 @@ def test_scene_inspection_keeps_elements_array_and_adds_paths() -> None:
     paths = inspection["element_paths"]
     assert isinstance(paths, list)
     assert len(paths) == 1
+
+
+# -- guardrail: resolved_props covers the settable surface ------------------
+
+# Constructor params that are NOT element props: the DI sentinels the ABC
+# injects and the identity field the inspection reports separately.
+_NON_PROP_PARAMS = frozenset({"renderer_factory", "emit", "id"})
+
+
+def _constructor_prop_fields(cls: type[Inspectable]) -> set[str]:
+    """Return the keyword-only constructor params that are resolved props."""
+    return {
+        name
+        for name, param in inspect.signature(cls).parameters.items()
+        if param.kind is inspect.Parameter.KEYWORD_ONLY and name not in _NON_PROP_PARAMS
+    }
+
+
+def _setter_fields(cls: type[Inspectable]) -> set[str]:
+    """Return the patch-settable fields, one per ``_set_<field>`` method."""
+    return {n.removeprefix("_set_") for n in dir(cls) if n.startswith("_set_")}
+
+
+@pytest.mark.parametrize(
+    "element",
+    [
+        TextElement(id="t1", content="hi"),
+        ButtonElement(id="b1"),
+        CheckboxElement(id="c1"),
+        DialogElement(id="d1"),
+    ],
+    ids=["text", "button", "checkbox", "dialog"],
+)
+def test_resolved_props_covers_the_settable_surface(element: Inspectable) -> None:
+    """Every constructor/patch-settable field must appear in resolved_props.
+
+    The keys are derived from the element's own constructor signature and
+    ``_set_<field>`` methods — not a hardcoded list — so the guardrail keeps
+    holding as new kinds copy the template. A kind that adds a settable field
+    but forgets it in ``resolved_props`` fails here instead of passing every
+    other gate. Derived-only props (dialog's ``visible``/``confirmed``) are
+    allowed to exceed the settable surface; the check is coverage, not
+    equality.
+    """
+    cls = type(element)
+    settable = _constructor_prop_fields(cls) | _setter_fields(cls)
+    resolved = set(element.resolved_props())
+    missing = settable - resolved
+    assert not missing, (
+        f"{cls.__name__}.resolved_props() omits settable field(s): {sorted(missing)}"
+    )
 
 
 # -- integration: the live enriched handler ---------------------------------
