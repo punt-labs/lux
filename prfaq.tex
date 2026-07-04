@@ -1,0 +1,836 @@
+\documentclass[11pt,letterpaper]{article}
+
+% ── Geometry ──────────────────────────────────────────────────────────────────
+\usepackage[margin=1in]{geometry}
+
+% ── Pagination ────────────────────────────────────────────────────────────────
+\usepackage[all]{nowidow}    % Require ≥2 lines on each side of a page break
+\brokenpenalty=10000         % No hyphenated words across page breaks
+\raggedbottom                % Allow uneven page bottoms rather than stretching
+
+% ── Fonts ─────────────────────────────────────────────────────────────────────
+\usepackage[T1]{fontenc}
+\usepackage{newpxtext}     % Palatino-based serif (TeX Gyre Pagella)
+\usepackage{newpxmath}     % Matching math font
+
+% ── Colors ────────────────────────────────────────────────────────────────────
+\usepackage[dvipsnames]{xcolor}
+\definecolor{SectionBlue}{HTML}{1B3A5C}
+\definecolor{AccentGray}{HTML}{4A4A4A}
+\definecolor{QuoteBorder}{HTML}{8B9DAF}
+\definecolor{RiskRed}{HTML}{C0392B}
+\definecolor{RiskAmber}{HTML}{E67E22}
+\definecolor{RiskGreen}{HTML}{27AE60}
+\definecolor{BoxBg}{HTML}{F7F8FA}
+
+% ── Tables ────────────────────────────────────────────────────────────────────
+\usepackage{booktabs}
+\usepackage{tabularx}
+
+% ── Boxes ─────────────────────────────────────────────────────────────────────
+\usepackage[framemethod=tikz]{mdframed}
+
+% ── Lists ─────────────────────────────────────────────────────────────────────
+\usepackage{enumitem}
+\usepackage{needspace}
+
+% ── Hyperlinks ────────────────────────────────────────────────────────────────
+\usepackage{hyperref}
+\hypersetup{
+  colorlinks=true,
+  linkcolor=SectionBlue,
+  urlcolor=SectionBlue,
+  citecolor=SectionBlue,
+  pdfauthor={Punt Labs},
+  pdftitle={Lux PR/FAQ --- A Visual Output Surface for Terminal-Hosted AI Coding Agents},
+  pdfsubject={Working Backwards --- Growth Stage},
+}
+
+% ── Bibliography ─────────────────────────────────────────────────────────────
+\usepackage[style=numeric,backend=biber,sorting=none]{biblatex}
+\addbibresource{prfaq.bib}
+
+% ── Section styling ───────────────────────────────────────────────────────────
+\usepackage{titlesec}
+\titleformat{\section}
+  {\needspace{6\baselineskip}\Large\bfseries\color{SectionBlue}}
+  {}
+  {0pt}
+  {}
+
+\titleformat{\subsection}
+  {\needspace{5\baselineskip}\large\bfseries\color{AccentGray}}
+  {}
+  {0pt}
+  {}
+
+\titleformat{\subsubsection}
+  {\normalsize\bfseries\color{AccentGray}}
+  {}
+  {0pt}
+  {}
+\titlespacing*{\subsubsection}{0pt}{1em}{0.5em}[0pt]
+
+% ── Document stage ───────────────────────────────────────────────────────────
+\newcommand{\prfaqstage}[1]{\def\theprfaqstage{#1}}
+\prfaqstage{growth}
+
+% ── Document version ─────────────────────────────────────────────────────────
+\newcommand{\prfaqversion}[2]{\def\theprfaqmajor{#1}\def\theprfaqminor{#2}}
+\prfaqversion{1}{1}
+
+% ── Header/footer ────────────────────────────────────────────────────────────
+\usepackage{fancyhdr}
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\footnotesize\textcolor{AccentGray}{Stage: \theprfaqstage{} \enspace\textbar\enspace v\theprfaqmajor.\theprfaqminor}}
+\fancyhead[R]{\footnotesize\textcolor{AccentGray}{\thepage}}
+\renewcommand{\headrulewidth}{0pt}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% Custom environments
+% ══════════════════════════════════════════════════════════════════════════════
+
+\newcommand{\prsection}[1]{%
+  \vspace{1em}%
+  {\large\bfseries\color{SectionBlue}#1}%
+  \vspace{0.3em}\par%
+}
+
+\newmdenv[
+  topline=false,
+  bottomline=false,
+  rightline=false,
+  linewidth=3pt,
+  linecolor=QuoteBorder,
+  backgroundcolor=BoxBg,
+  innerleftmargin=12pt,
+  innerrightmargin=12pt,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+  skipabove=\baselineskip,
+  skipbelow=\baselineskip,
+]{customerquote}
+
+\newmdenv[
+  topline=false,
+  bottomline=false,
+  rightline=false,
+  linewidth=3pt,
+  linecolor=SectionBlue,
+  backgroundcolor=BoxBg,
+  innerleftmargin=12pt,
+  innerrightmargin=12pt,
+  innertopmargin=8pt,
+  innerbottommargin=8pt,
+  skipabove=\baselineskip,
+  skipbelow=\baselineskip,
+]{spokespersonquote}
+
+\newcounter{faqnum}
+\newenvironment{faqpair}[1]{%
+  \needspace{4\baselineskip}%
+  \vspace{0.5em}%
+  \refstepcounter{faqnum}%
+  \noindent\textbf{\color{SectionBlue}Q\thefaqnum: #1}\par\nopagebreak[4]%
+  \vspace{0.2em}%
+  \begin{adjustwidth}{1em}{0pt}%
+  \setlength{\parindent}{0pt}%
+}{%
+  \end{adjustwidth}%
+  \vspace{0.5em}%
+}
+\newcommand{\faqref}[1]{\hyperref[#1]{FAQ~\ref*{#1}}}
+
+\newcounter{featurenum}
+\newcommand{\featureitem}[2]{%
+  \refstepcounter{featurenum}%
+  \item[\textbf{\color{SectionBlue}F\thefeaturenum.}]%
+  \textbf{#1} --- #2%
+}
+\newcommand{\featureref}[1]{\hyperref[#1]{Feature~\ref*{#1}}}
+
+\usepackage{changepage}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% Document
+% ══════════════════════════════════════════════════════════════════════════════
+
+\begin{document}
+
+% ── Working Backwards notice ─────────────────────────────────────────────────
+\begin{center}
+  \fbox{\parbox{0.9\textwidth}{\centering\small\textcolor{AccentGray}{%
+    \textbf{Working Backwards document for the current Lux product direction.}
+    This PR/FAQ describes the product Lux actually is and the direction it is
+    shipping toward --- a visual output surface for terminal-hosted AI coding
+    agents. It is a growth-stage decision document: Lux is released, on PyPI as
+    \texttt{punt-lux}, and in daily internal use. Numbers reflect the shipped
+    system; where a claim is aspirational or unproven, it is labeled as such.
+    The canonical architecture target is
+    \texttt{docs/architecture/target/target.md}.}}}
+\end{center}
+\vspace{0.5em}
+
+% ── Headline block ───────────────────────────────────────────────────────────
+\begin{center}
+  {\LARGE\bfseries\color{SectionBlue}
+    Lux Gives Terminal-Hosted AI Coding Agents a Native,\\
+    Local-First Visual Surface --- No Vendor Compute} \\[0.8em]
+  {\large\color{AccentGray}
+    Agents describe UI as a typed JSON element tree; Lux paints it with
+    GPU-accelerated Dear~ImGui in a persistent shared window on the
+    developer's own machine} \\[0.3em]
+  {\large\color{AccentGray}
+    A shipped data-display core --- filterable tables, dashboards,
+    diagrams --- plus an ask-the-user interaction loop, with multiple
+    agents sharing one window, each in its own attributed frame}
+\end{center}
+
+\vspace{0.5em}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% PRESS RELEASE
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section*{Press Release}
+
+AUSTIN, TX --- January 2027 --- Punt Labs today released Lux, a local-first
+visual output surface for terminal-hosted AI coding agents. The most capable
+agentic coding tools --- Claude Code\cite{anthropic2025claudecode} and
+Codex\cite{openai2025codex} --- run in the terminal on the developer's own
+machine, but their structured output is trapped in scrollback: a table, a
+dependency diagram, or a metrics dashboard arrives as monospace text or an
+ad~hoc screenshot. Lux gives those agents a screen. An agent describes what it
+wants as a tree of typed JSON elements; Lux renders it with Dear~ImGui\cite{imgui2025}
+in a persistent, GPU-accelerated window --- everything on the developer's
+machine, no vendor cloud. Unlike web dashboards that require running the agent
+on vendor compute, or the terminal that has no structure at all, Lux keeps the
+agent local and gives its output a surface the developer can actually read,
+filter, and click.
+
+\prsection{Problem}
+
+Developers now run several coding agents at once --- across repositories,
+sessions, and machines. Keeping track of what each one is doing is hands-on,
+error-prone work, and it compounds with every agent added. The most capable
+agents --- Claude Code, Codex --- are terminal-hosted, with full tool use, MCP
+integration, and multi-turn autonomous operation. That power comes with no
+visual surface. When an agent produces a table of failing tests, a diagram of a
+module graph, or a dashboard of build status, the developer reads it as raw
+text or scrolls back to find it. There is no way to filter the table, select a
+row, or keep the view live as the underlying data changes.
+
+Vendors are answering with hosted web dashboards, but those often require
+running the \emph{entire agent} --- not just the model call --- on the vendor's
+compute. The developer trades local control for a viewport
+(see~\faqref{faq:competition}). IDE-hosted tools such as Cursor manage agents
+but keep output all-text. Claude Desktop can render rich interfaces and is
+itself an MCP host, yet it cannot drive a coding session end-to-end --- it
+lacks the terminal agent's autonomous, filesystem-level, multi-turn tool-driven
+workflow. The result is a split: the tools with the most agentic power have no
+visual output, and the tools with visual output lack the agentic power.
+
+\prsection{Solution}
+
+Lux is a persistent local service that agents write to over MCP. An agent calls
+a tool such as \texttt{show\_table} or \texttt{show\_dashboard} with structured
+content; the display renders it in a native GPU-accelerated window using
+Dear~ImGui. Multiple agents share the one window, each in its own frame with
+clear attribution, so a developer glances at a single surface and sees what
+every session is doing. Everything runs on the developer's machine --- the Hub
+holds authoritative UI state, the display renders a replica, and no data leaves
+the box.
+
+Lux is not a passive canvas. It ships two capabilities that matter in daily
+work. First, a solid data-display core: filterable, searchable tables with row
+selection and detail panels; dashboards that compose metric cards, charts, and
+tables; diagrams and images. Second, an ask-the-user interaction loop --- an
+agent can pose a question through a dialog, checkbox, or button and receive the
+answer back. When the user clicks, the interaction routes back to the owning
+Hub, the real handler runs there, and the Hub re-sends the updated view. The
+canonical example is the beads issue browser: a filterable table that
+auto-refreshes on every \texttt{bd} command through a post-tool hook, running
+live in every active agent session (see~\faqref{faq:evidence}).
+
+\prsection{Customer Quote}
+
+\begin{customerquote}
+\textit{``I keep four Claude Code sessions open across three repos. Before Lux I
+had four terminals and no idea what any of them were doing without scrolling
+back. Now one window shows me a beads board, a test-run table, and a build
+dashboard --- one frame per agent, all live. When a migration script needed me
+to confirm a destructive step, the agent didn't dump a wall of text and wait;
+it put a dialog on the screen with the two options. I clicked. That is the
+difference between watching a transcript and using a tool.''}
+
+\raggedleft --- \textbf{Maya Torres}, Staff Engineer at a Series~B DevTools Startup
+\end{customerquote}
+
+\prsection{Getting Started}
+
+Getting started takes one command:
+
+\begin{enumerate}[nosep]
+  \item Install:
+
+    {\small\texttt{curl -fsSL https://raw.githubusercontent.com/\allowbreak punt-labs/lux/main/install.sh | sh}}
+  \item Restart Claude Code. The Lux display window opens automatically the
+    first time any agent sends visual output.
+  \item Ask an agent to show you something --- ``show me the beads board,''
+    ``put the test results in a table.'' The view appears in the window, live.
+\end{enumerate}
+
+No API key is required. Lux runs on macOS and Linux, needs Python~3.13+, and
+installs the \texttt{punt-lux} package plus the Claude Code plugin.
+
+\prsection{Spokesperson Quote}
+
+\begin{spokespersonquote}
+``The most powerful coding agents live in the terminal, and the terminal gives
+them one output mode: text. We built Lux so an agent can hand the developer a
+real surface --- a table you filter, a dashboard you scan, a dialog you click
+--- without moving the agent onto someone's cloud. The part I care most about is
+the interaction loop: the agent asks, the user answers, and the answer flows
+back to the handler that asked. That turns a display into a conversation. And
+because the whole thing is local and native, `Lux is showing me stale data' is
+not a failure mode --- the Hub owns the state and re-sends the view when it
+changes.''
+
+\raggedleft --- \textbf{Jim Freeman}, Punt Labs
+\end{spokespersonquote}
+
+\prsection{Call to Action}
+
+Lux is free and open-source under the MIT license. Visit
+{\small\texttt{https://github.com/punt-labs/lux}} to install, read the target
+architecture, or contribute a new element kind. The rendering is native, the
+data is local, and the install is one command.
+
+\newpage
+
+% ══════════════════════════════════════════════════════════════════════════════
+% FREQUENTLY ASKED QUESTIONS
+% ══════════════════════════════════════════════════════════════════════════════
+
+\section*{Frequently Asked Questions}
+
+% ── External FAQs (Customer-facing) ──────────────────────────────────────────
+
+\subsection*{External FAQs}
+
+\begin{faqpair}{What is Lux and who is it for?}\label{faq:what}
+  Lux is a visual output surface for terminal-hosted AI coding agents. It is a
+  persistent, GPU-accelerated window --- built on Dear~ImGui\cite{imgui2025} ---
+  that agents write to and read from. It is for developers who run terminal
+  agents such as Claude Code\cite{anthropic2025claudecode} or
+  Codex\cite{openai2025codex} and want their structured output as something they
+  can see and act on: filterable tables, dashboards, diagrams, and interactive
+  prompts, rather than scrollback text. Everything renders and runs on the
+  developer's own machine. Lux runs on macOS and Linux.
+\end{faqpair}
+
+\begin{faqpair}{How is this different from terminal scrollback, Claude Desktop, or vendor dashboards?}\label{faq:competition}
+  Terminal agents (Claude Code, Codex) are the most capable but output only
+  text. Claude Desktop renders rich interfaces and is itself an MCP host, but it
+  cannot drive a coding session end-to-end --- it lacks the terminal agent's
+  autonomous, filesystem-level, multi-turn tool-driven workflow. Vendor web
+  dashboards give you visuals but often require running the whole agent on vendor
+  compute. IDEs such as Cursor manage agents with text-only output.
+
+  Lux fills the gap: a native visual surface for terminal-hosted agents, running
+  on the developer's machine. It is not a chat interface and not a cloud
+  console. It is a screen the agents share --- one window, one frame per agent,
+  live. See \faqref{faq:competitors} for the detailed competitive analysis.
+\end{faqpair}
+
+\begin{faqpair}{How do I get started?}
+  One command installs Lux and registers the Claude Code plugin. Restart Claude
+  Code. The display window opens by itself the first time an agent sends visual
+  output --- there is no separate app to launch and no configuration to edit. Ask
+  an agent to show you a table or a board and it appears.
+\end{faqpair}
+
+\begin{faqpair}{How much does it cost?}
+  Free and open-source under the MIT license. There is no paid tier, no account,
+  and no API key requirement for the display itself. Lux consumes the same agent
+  you already run; it adds no per-call cost of its own.
+\end{faqpair}
+
+\begin{faqpair}{What happens to my data?}
+  Everything stays local. Agents talk to the Hub over MCP; the Hub talks to the
+  display over a Unix domain socket under \texttt{/tmp/lux-<user>/}. Per-project
+  configuration lives in your repository at
+  \texttt{<repo>/.punt-labs/lux.md}. There is no telemetry and no cloud
+  dependency --- nothing about your code, your data, or your agents' output
+  leaves the machine. The Hub owns authoritative UI state and the display renders
+  a replica; render calls never cross the wire, only UI state does.
+\end{faqpair}
+
+\begin{faqpair}{What can Lux actually render today, and can agents ask me questions?}\label{faq:capabilities}
+  Two things ship and are in daily use. The data-display core covers filterable
+  and searchable tables with row selection and detail panels, dashboards
+  (metric cards, charts, tables), diagrams, and images --- 25 element kinds in
+  all. The interaction loop lets an agent ask you a question through the UI: a
+  dialog, a checkbox, or a button, with your answer routed back to the agent's
+  handler. That ask-the-user loop shipped with the Hub/Display interaction model.
+  Completing coverage of every ImGui widget as a built-in element is the v2
+  direction (see~\faqref{faq:roadmap}).
+\end{faqpair}
+
+% ── Internal FAQs (Business-facing) ──────────────────────────────────────────
+
+\newpage
+\subsection*{Internal FAQs}
+
+\subsubsection*{Value \& Market}
+
+\begin{faqpair}{What is the total addressable market?}\label{faq:tam}
+  The primary market is a large and fast-growing cohort of developers running
+  terminal-hosted AI coding agents --- Claude Code\cite{anthropic2025claudecode}
+  and Codex are the leading tools, both terminal-hosted. That population is a
+  subset of professional developers and is expanding as agentic coding moves from
+  novelty to daily practice. We decline a precise headcount --- no reliable public figure for active
+  terminal-agent developers exists to cite without inventing it. As an
+  order-of-magnitude \emph{assumption} only --- not a measurement --- the cohort
+  is plausibly $10^5$--$10^6$ today, a small fraction of the world's professional
+  developers, and growing. We would rather label that estimate as an assumption
+  than anchor on a fabricated precise number.
+
+  Positioning, not sizing, is the point. Lux is free and MIT-licensed; its value
+  to Punt Labs is ecosystem pull, not license revenue (see~\faqref{faq:revenue}).
+  The relevant question is not ``how many will pay'' but ``how many terminal-agent
+  developers would keep a local visual surface open once they have one.'' That is
+  the hypothesis current internal use supports and external use has not yet
+  tested.
+\end{faqpair}
+
+\begin{faqpair}{What evidence do we have that customers want this?}\label{faq:evidence}
+  Lux is released --- v0.19.1 on PyPI as \texttt{punt-lux} and on the plugin
+  marketplace --- and used daily. The precise scope matters and we state it
+  plainly: the daily user is \emph{one} primary human developer (Jim Freeman)
+  plus the agent fleet he runs across the Punt Labs repositories. When we say the
+  beads issue browser --- a filterable table that auto-refreshes on every
+  \texttt{bd} command through a post-tool hook --- ``runs in every session,''
+  that counts \emph{agent} sessions, not distinct human users. It is a genuine
+  daily-driver signal, but n${=}$1 human. That single view still demonstrates the
+  two claims the product rests on: the data-display core has real daily value,
+  and the live-refresh hook makes the surface feel current without the agent
+  having to coordinate updates. The interaction loop --- an agent asking a
+  question and receiving the answer through a dialog --- is exercised in real
+  sessions, not just tests.
+
+  The honest gap: this evidence is \emph{internal}, and the ``customer'' is
+  currently the company itself. External adoption is zero --- no usage data, no
+  retention figures, no third-party testimonials. In the four-risks framing, a
+  customer that is the company is a High Value-risk signal, and this document
+  rates it as such. Every ``value'' claim here should be read against that
+  boundary (see~\faqref{faq:next-step} and the Value risk in the Risk
+  Assessment).
+\end{faqpair}
+
+\begin{faqpair}{Who are the competitors and why will we win?}\label{faq:competitors}
+  The landscape divides on two axes: agentic power and visual surface.
+
+  \begin{itemize}[nosep]
+    \item \textbf{Claude Code / Codex} --- Terminal-hosted, the most capable
+      agentic tools: full tool use, MCP, multi-turn autonomy. No visual output
+      beyond scrollback. \emph{These are Lux's integration targets, not rivals.}
+    \item \textbf{Claude Desktop} --- Renders novel visual interfaces and is the
+      canonical MCP host, but it cannot drive a coding session end-to-end. It
+      lacks the terminal agent's autonomous, filesystem-level, multi-turn
+      tool-driven workflow.
+    \item \textbf{Cursor} --- IDE with strong agent management, but structured
+      output stays text. Extensible via VS~Code extensions, which are IDE-scoped
+      and hand-written.
+    \item \textbf{Vendor web dashboards} --- Provide visual management, but often
+      require running the whole agent on vendor compute. The developer gives up
+      local control for a viewport.
+    \item \textbf{Jupyter} --- Rich visual output via the display protocol, but
+      notebook-first, not agent-first.
+  \end{itemize}
+
+  \textbf{Primary threat: Anthropic-native visual output.} Anthropic has every
+  incentive to build visual panels into Claude Code. A basic built-in display
+  would narrow Lux's advantage to ``native GPU-accelerated and fully local vs.
+  vendor-native.'' Survival rests on two structural facts a competitor cannot
+  copy cheaply: Lux renders natively with ImGui on the developer's GPU and keeps
+  the agent local, and Lux is a shared surface across \emph{multiple} agents and
+  tools, not a panel bolted onto one vendor's client. A web-native competitor
+  would have to abandon web-only rendering to match the local-native path --- a
+  platform decision they are unlikely to reverse.
+\end{faqpair}
+
+\begin{faqpair}{What is the next step to validate external demand?}\label{faq:next-step}
+  The riskiest assumption is that Lux's internal value transfers to developers
+  outside Punt Labs. The next growth experiment is to put Lux in front of
+  external developers who run 2+ concurrent agent sessions daily and measure
+  whether they keep the window open past the first day. Concretely: recruit a
+  small cohort, ship them the one-command install, and instrument nothing on
+  their machine (no telemetry by design) --- instead, interview at day~7. The
+  decision threshold: if fewer than half describe the display as something they
+  would miss if it were removed, revisit the positioning before investing in the
+  v2 element-coverage buildout.
+\end{faqpair}
+
+\begin{faqpair}{How do external developers discover an MIT-licensed tool?}\label{faq:acquisition}
+  Three concrete channels, none of them yet proven for Lux.
+
+  \begin{itemize}[nosep]
+    \item \textbf{The Claude Code plugin marketplace.} Lux is published there; a
+      developer browsing plugins can find and install it. This is the most direct
+      channel and requires no separate discovery of Punt Labs.
+    \item \textbf{GitHub.} The repository is public and MIT-licensed; the
+      one-command install lives in the README. This is organic search and
+      word-of-mouth --- real, but slow and unmeasured.
+    \item \textbf{Cross-surfacing from the companion suite.} A developer who
+      adopts vox, biff, or quarry encounters Lux as the surface those tools
+      render into, and vice versa. The suite is the distribution flywheel the
+      ecosystem thesis depends on (see~\faqref{faq:revenue}).
+  \end{itemize}
+
+  The honest position: distribution is currently a hope, not a proven motion.
+  ``Organic and word-of-mouth'' is not a strategy, and we have no acquisition
+  data. The marketplace listing and the suite cross-surfacing are the two levers
+  we can actually pull; whether either converts external installs is exactly what
+  the day-7 cohort (see~\faqref{faq:next-step}) begins to answer.
+\end{faqpair}
+
+\subsubsection*{Technical}
+
+\begin{faqpair}{What is the architecture?}\label{faq:architecture}
+  Lux is a three-tier distributed Hub/Display system. The target design lives
+  in {\small\texttt{docs/architecture/\allowbreak target/\allowbreak target.md}}.
+
+  \begin{itemize}[nosep]
+    \item \textbf{\texttt{luxd}} --- the session Hub. It decodes wire elements,
+      holds authoritative UI state, ownership, and handler dispatch in
+      \texttt{HubDisplay}, pushes element replicas to the display, and
+      re-dispatches interactions that come back from clicks.
+    \item \textbf{\texttt{lux-display}} --- the ImGui renderer. It stores a full
+      copy of the UI, renders it every frame, and wraps handlers so that a click
+      forwards back to the owning Hub instead of executing locally.
+    \item \textbf{\texttt{mcp-proxy}} --- the transport bridge from Claude
+      Code's stdio to the \texttt{luxd} WebSocket.
+  \end{itemize}
+
+  MCP is a first-class front door into the Hub, not a thin adapter over some
+  other API. The boundary rule is strict: UI state crosses the wire (scene
+  trees, serialized element objects, interaction messages); render calls do not.
+  Interactive elements use two-tier handler dispatch --- the Hub owns the real
+  handler and the Display forwards the interaction back --- so the Hub and
+  Display can be separate processes, potentially on separate machines.
+\end{faqpair}
+
+\begin{faqpair}{What makes the engineering distinctive?}\label{faq:formal}
+  The display-process concurrency is formally specified in Z and model-checked
+  with ProB. To be precise about scope: the model-check covers the display
+  singleton spawn/bind/reap \emph{lifecycle} only --- not the rendering, the
+  protocol, or the handler-dispatch surface. It is not a claim that the whole
+  system is formally verified. Multiple agents may, at the same instant, decide
+  no display is
+  running and race to become the one process that owns a single Unix-socket
+  path. Exactly one must win. That spawn/reap/bind singleton lifecycle is
+  modeled in \texttt{docs/display\_lifecycle.tex} as a finite state machine over
+  concurrent agents, type-checked \texttt{fuzz}-clean, and exhaustively
+  model-checked. ProB enumerates every interleaving and confirms five
+  invariants: singleton-serving (never two live owners), never-unlink-live (a
+  probe cannot delete a socket whose owner is alive), no-two-winners across the
+  bind window, lost-racer-clean-exit (the process that loses the race exits
+  before opening a window), and deadlock-freedom under the two-lock spawn/bind
+  discipline.
+
+  This matters because the failure it prevents is exactly the one that bit us in
+  testing: a second agent probing during the window between \texttt{bind} and
+  \texttt{listen} reads the fresh socket as dead, unlinks it, and opens a second
+  window. Proving the interleaving space exhaustively --- rather than testing a
+  few orderings --- is rare rigor for a developer tool, and the specification is
+  a regression artifact for any future lifecycle change.
+\end{faqpair}
+
+\begin{faqpair}{What is the v1-to-v2 roadmap, and what is the migration risk?}\label{faq:roadmap}
+  \textbf{v1 (shipped):} the data-display core plus the ask-the-user interaction
+  loop, on the Hub/Display model.
+
+  \textbf{v2 (direction):} complete ImGui element coverage --- every widget
+  available as a curated, built-in Lux element. This is Punt Labs building one
+  fixed, complete vocabulary. It is explicitly \emph{not} agents authoring
+  arbitrary extensions and not a plugin registry.
+
+  The honest risk is the migration itself. Lux is mid-rewrite from an older
+  single-process design onto a distributed Element-ABC path with two-tier remote
+  handler dispatch. Four of the 25 element kinds --- text, button, checkbox, and
+  dialog --- are on the new Element-ABC path today; the other 21 are legacy
+  dataclasses being migrated family by family into curated built-ins. The
+  sequencing, per-kind contract, and open design decisions are mapped in
+  \texttt{docs/architecture/element-migration-audit.md}. The scope is real work
+  --- interactive inputs need a handler-wrapping seam, composites need typed
+  children, the table kind carries built-in view state --- and it is the primary
+  feasibility risk (see the Risk Assessment). It is mitigated by incremental
+  crossing: each kind flips independently and mixed scenes keep working, with the
+  legacy path deleted only after the last kind crosses.
+\end{faqpair}
+
+\begin{faqpair}{What is the development approach and delivery order?}\label{faq:timeline}
+  Delivery is ordered by dependency, not by calendar. The pattern is established
+  on the lowest-risk element kinds first and then climbs interactivity and
+  composite complexity:
+
+  \begin{enumerate}[nosep]
+    \item Reconcile the four migrated exemplars into one source of truth.
+    \item Invert the handler-wrapping seam so each interactive element declares
+      its own interaction (prerequisite for migrating the input kinds).
+    \item Basics display-only leaves (image, separator, progress, spinner,
+      markdown).
+    \item Interactive value inputs (slider, combo, text/number inputs, radio,
+      color picker, selectable).
+    \item Simple composites (group, tab bar, collapsing header).
+    \item Stateful composites (window, modal).
+    \item Draw and plot.
+    \item Table (alone --- it carries built-in filter/selection state).
+    \item Retire the legacy render path once every kind has crossed.
+  \end{enumerate}
+
+  What gets cut if scope compresses: v2 element coverage is a fast-follow, not a
+  v1 blocker. The data-display core and the interaction loop already ship; the
+  migration improves internal structure and widens the built-in vocabulary
+  without gating the value already in daily use.
+\end{faqpair}
+
+\begin{faqpair}{If Lux succeeds, what breaks first?}\label{faq:scaling}
+  Three known limits, stated with their current status rather than reassurance.
+
+  \begin{enumerate}[nosep]
+    \item \textbf{The image texture cache grows without eviction.} Every image
+      an agent shows uploads a texture that is never freed --- an unbounded
+      memory leak under sustained image use. Status: known and tracked only as a
+      Should-Do (a texture-cache eviction policy, \featureref{feat:texture}); it
+      is a real limitation today, not a solved problem. It is the first thing
+      that breaks under a long-running session that renders many distinct images.
+    \item \textbf{Renderer maintainability debt.} \texttt{display/server.py} is
+      roughly 1,550 lines, well over the 300-line target, and
+      \texttt{element\_renderer.py} is also over. Decomposition is in progress
+      (the original monolith was already split once). This does not break at
+      runtime, but it slows every rendering change and is why the render layer is
+      undertested. Status: actively being decomposed, incrementally.
+    \item \textbf{Many-agent contention on one window.} The shared window is a
+      single surface; a large agent fleet all pushing scenes contends for one
+      display and one Hub. The whole-tree resend replication policy is simple but
+      re-sends the whole affected UI on change. Status: adequate at the current
+      fleet size; a heavy multi-agent load is untested and would be the first
+      place the simple replication model needs a diff protocol.
+  \end{enumerate}
+\end{faqpair}
+
+\subsubsection*{Business}
+
+\begin{faqpair}{What is the revenue model?}\label{faq:revenue}
+  Lux has no direct revenue. It is free and MIT-licensed. Its strategic value is
+  ecosystem pull for the Punt Labs agent-tool suite. Lux is the visual
+  counterpart to the other tools --- vox (voice), biff (presence), quarry
+  (search) --- and it surfaces them: the beads board, presence panels, and
+  status views render in the Lux window. A developer who adopts Lux is one step
+  from the rest of the suite. On the cost side there is no COGS --- Lux runs
+  entirely on the developer's own machine --- so Punt Labs' development and
+  maintenance time is the only real expense. This is an infrastructure and
+  ecosystem play; it is
+  acceptable precisely because it is treated as a public good with strategic
+  return, not a profit center. If Lux does not pull adoption of the companion
+  tools, the investment is a public good without business return --- that is the
+  viability risk, stated plainly.
+\end{faqpair}
+
+\begin{faqpair}{What are the key metrics for success?}\label{faq:metrics}
+  \begin{enumerate}[nosep]
+    \item \textbf{External retention} --- of developers who install Lux outside
+      Punt Labs, the share still running it after one week. This is the metric
+      that converts the internal-only evidence into external validation.
+    \item \textbf{Companion-tool pull} --- share of Lux installers who adopt at
+      least one other Punt Labs tool (biff, vox, quarry). This measures the
+      ecosystem thesis directly.
+    \item \textbf{Element-coverage progress} --- element kinds migrated onto the
+      Element-ABC path (4 of 25 today), tracking the v2 buildout.
+    \item \textbf{Interaction usage} --- sessions that use the ask-the-user loop,
+      distinguishing Lux-as-display from Lux-as-interaction-surface.
+  \end{enumerate}
+
+  Decision threshold: if external one-week retention stays near zero after a
+  genuine external trial, the product is an internal tool, not a market one, and
+  the roadmap should stop treating external adoption as a near-term goal.
+\end{faqpair}
+
+\begin{faqpair}{Why now? What has changed?}
+  Three things converged. First, terminal-hosted agents --- Claude Code, Codex
+  --- became the most capable agentic coding tools, and developers now run
+  several at once, all producing output invisible beyond scrollback. Second, the
+  vendor response is web dashboards that pull the agent onto remote compute,
+  opening a clear gap for a local-first visual surface. Third, Lux itself proved
+  the display and the interaction loop have real daily value internally, and the
+  Hub/Display architecture that makes the shared, attributed, multi-agent window
+  possible is shipped, not speculative.
+\end{faqpair}
+
+\begin{faqpair}{What are we explicitly not building?}\label{faq:wont}
+  Lux is a curated visual surface, not a platform for arbitrary code. It will not
+  become a self-extending display where agents author and register their own
+  extensions; there is no extension registry, no community extension store, and
+  no in-display LLM authoring agent. It exposes no HTTP or Ollama-shaped service
+  API --- MCP is the interface. It has one rendering mode (native ImGui), not
+  several. It does not host local model inference, does not render to the web or
+  Electron, and does not target mobile or tablet. Applications and applets ---
+  clocks, calculators, standalone viewers --- are out of scope. These exclusions
+  are what keep the built-in vocabulary coherent and the trust model simple; the
+  full list is in the Feature Appendix.
+\end{faqpair}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% FOUR RISKS ASSESSMENT
+% ══════════════════════════════════════════════════════════════════════════════
+
+\newpage
+\section*{Risk Assessment}
+
+\renewcommand{\arraystretch}{1.6}
+\begin{tabularx}{\textwidth}{@{} l l X @{}}
+\toprule
+\textbf{\color{SectionBlue}Risk} & \textbf{\color{SectionBlue}Rating} & \textbf{\color{SectionBlue}Assessment} \\
+\midrule
+Value      & \textcolor{RiskRed}{High} &
+  All demonstrated value is \emph{internal}, and the ``customer'' is currently
+  the company itself --- one primary human developer plus his agent fleet
+  (see~\faqref{faq:evidence}). ``Runs in every session'' counts agent sessions,
+  not distinct humans; external adoption is zero. In the four-risks framework a
+  customer that is the company is a High Value-risk signal, so this row is rated
+  High, not Medium. It is why \faqref{faq:next-step} makes the day-7 external
+  trial the single most important next step. \\
+Usability  & \textcolor{RiskAmber}{Medium} &
+  Install is one command and the display opens automatically on first output, so
+  the intended onboarding is simple --- but that flow is proven \emph{internally}
+  only; it has never completed on a machine outside Punt Labs. Real prerequisites
+  add friction: Python~3.13+, macOS/Linux only, and a curl-pipe-to-sh install
+  that asks the user to trust a script. The day-7 external cohort
+  (see~\faqref{faq:next-step}) is the first real measurement of
+  onboarding-completion; until then the Low-friction claim is a design intent,
+  not a measured result. \\
+Feasibility & \textcolor{RiskAmber}{Medium} &
+  The core is shipped and works: Hub/Display, MCP front door, the data-display
+  core, the interaction loop, and a formally-verified singleton lifecycle. The
+  open work is the v1-to-v2 element migration --- 21 of 25 kinds still on the
+  legacy path, with a handler-wrapping seam refactor and the table kind as the
+  hard cases. No single step is high-risk, but the aggregate is substantial and
+  is the primary feasibility exposure. Mitigated by incremental crossing with the
+  legacy path deleted last (see~\faqref{faq:roadmap}). \\
+Viability  & \textcolor{RiskAmber}{Medium} &
+  MIT-licensed with no direct revenue. Strategic value depends entirely on
+  ecosystem pull for the companion Punt Labs tools. If Lux does not drive
+  adoption of biff, vox, and quarry, it is a public good without business
+  return. Acceptable only if treated as infrastructure, which is the stated
+  intent (see~\faqref{faq:revenue}). \\
+\bottomrule
+\end{tabularx}
+\renewcommand{\arraystretch}{1.0}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% FEATURE APPENDIX
+% ══════════════════════════════════════════════════════════════════════════════
+
+\newpage
+\section*{Feature Appendix}
+
+Defines the scope boundary for Lux. Must Do is the shipped v1 identity; Should
+Do is the v2 direction; Won't Do is the firm exclusion set that keeps the
+built-in vocabulary coherent and the trust model simple.
+
+\subsection*{Must Do}
+
+The core that makes Lux what it is. These ship in v1.
+
+\begin{enumerate}[nosep,leftmargin=2.5em]
+  \featureitem{Typed JSON element protocol}{agents describe UI as a tree of
+    typed elements --- tables, text, plots, groups, buttons, and more; the
+    protocol is the API surface}\label{feat:protocol}
+  \featureitem{Native GPU-accelerated rendering}{a persistent, shared ImGui
+    window painting every frame on the developer's own GPU --- no web stack, no
+    vendor compute}\label{feat:render}
+  \featureitem{Hub/Display io-model}{\texttt{luxd} holds authoritative UI state;
+    the display renders a replica; UI state crosses the wire, render calls do
+    not}\label{feat:hubdisplay}
+  \featureitem{Data-display core}{filterable, searchable tables with row
+    selection and detail panels; dashboards; diagrams; images --- 25 element
+    kinds}\label{feat:data}
+  \featureitem{Ask-the-user interaction loop}{an agent poses a question through a
+    dialog, checkbox, or button and receives the answer back via Hub-side handler
+    dispatch}\label{feat:interaction}
+  \featureitem{Two-tier remote handler dispatch}{the Hub owns handlers; the
+    Display forwards interactions back and the real handler runs on the Hub's
+    copy}\label{feat:d21}
+  \featureitem{Multi-agent shared window}{multiple agents share one window, each
+    in its own frame with clear attribution}\label{feat:multiagent}
+  \featureitem{MCP front door}{a first-class entry point --- \texttt{mcp-proxy}
+    bridges Claude Code stdio to the \texttt{luxd} WebSocket}\label{feat:mcp}
+  \featureitem{Introspection and control surface}{\texttt{inspect\_scene},
+    \texttt{list\_scenes}, \texttt{screenshot}, and related tools let an agent
+    verify what actually rendered}\label{feat:introspect}
+  \featureitem{One-command install with auto-open display}{a single curl command
+    installs the package and plugin; the window opens on first
+    output}\label{feat:install}
+  \featureitem{Formally-verified singleton lifecycle}{the spawn/reap/bind
+    concurrency --- the display singleton lifecycle only, not rendering,
+    protocol, or dispatch --- is specified in Z and ProB-model-checked for
+    singleton-serving, never-unlink-live, no-two-winners, clean-exit, and
+    deadlock-freedom}\label{feat:formal}
+\end{enumerate}
+
+\subsection*{Should Do}
+
+The v2 direction. Valuable, not v1-blocking.
+
+\begin{enumerate}[nosep,leftmargin=2.5em]
+  \featureitem{Complete ImGui element coverage}{every ImGui widget available as a
+    curated, built-in Lux element --- one fixed, complete vocabulary built by
+    Punt Labs}\label{feat:coverage}
+  \featureitem{Element-ABC migration}{move the remaining 21 legacy element kinds
+    onto the distributed Element-ABC / Hub-Display path, retiring the legacy
+    render dispatch when the last kind crosses}\label{feat:migration}
+  \featureitem{Texture-cache eviction policy}{bound the image texture cache,
+    which today grows without eviction}\label{feat:texture}
+  \featureitem{Companion-tool surfacing}{render biff presence panels, vox
+    controls, and quarry search as first-class Lux views alongside the beads
+    board}\label{feat:companion}
+\end{enumerate}
+
+\subsection*{Won't Do}
+
+Explicitly excluded to keep the vocabulary curated and the trust model simple.
+
+\begin{enumerate}[nosep,leftmargin=2.5em]
+  \featureitem{Self-extending extension registry}{agents will not author and
+    register arbitrary display extensions at runtime; Lux is a curated built-in
+    vocabulary, not a plugin platform}\label{feat:no-registry}
+  \featureitem{Community extension store}{no marketplace of third-party
+    extensions with ratings and verification badges --- outside the trust model
+    Lux commits to}\label{feat:no-store}
+  \featureitem{In-display LLM authoring agent}{Lux does not embed a model that
+    writes new UI code inside the display}\label{feat:no-agent}
+  \featureitem{HTTP or Ollama-shaped service API}{MCP is the interface; Lux does
+    not expose a general HTTP service surface}\label{feat:no-http}
+  \featureitem{Multiple rendering modes}{one native ImGui mode only --- no
+    texture-buffer or separate-OS-window rendering modes}\label{feat:no-modes}
+  \featureitem{Applications and applets}{clocks, calculators, docks, and
+    standalone viewers are out of scope}\label{feat:no-apps}
+  \featureitem{Local model inference}{Lux renders; it does not host models}\label{feat:no-inference}
+  \featureitem{Web or Electron rendering}{Lux renders natively via ImGui on the
+    developer's GPU --- HTML, Electron, and webviews are out of scope, since web
+    rendering leads to the vendor-compute dependency Lux exists to
+    avoid}\label{feat:no-web}
+  \featureitem{Mobile or tablet}{desktop only (macOS, Linux)}\label{feat:no-mobile}
+\end{enumerate}
+
+% ══════════════════════════════════════════════════════════════════════════════
+% REFERENCES
+% ══════════════════════════════════════════════════════════════════════════════
+
+\newpage
+\printbibliography[title={References}]
+
+\end{document}
