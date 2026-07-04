@@ -8,7 +8,7 @@ from collections import deque
 from collections.abc import Callable
 from typing import Any, Self
 
-from punt_lux.protocol import QueryResponse, element_to_dict
+from punt_lux.protocol import QueryResponse
 from punt_lux.scene import SceneManager
 
 logger = logging.getLogger(__name__)
@@ -46,7 +46,6 @@ class QueryDispatcher:
         self._get_agent_menus = get_agent_menus
 
         self._query_handlers = {
-            "inspect_scene": self._query_inspect_scene,
             "list_scenes": self._query_list_scenes,
             "list_clients": self._query_list_clients,
             "list_menus": self._query_list_menus,
@@ -94,19 +93,6 @@ class QueryDispatcher:
         )
 
     # -- built-in query handlers -----------------------------------------------
-
-    def _query_inspect_scene(
-        self, scene_id: str = "", **_kwargs: Any
-    ) -> dict[str, Any]:
-        """Query handler for inspect_scene."""
-        scene = self._scene_manager.resolve_scene(scene_id)
-        if scene is None:
-            msg = f"Scene '{scene_id}' not found"
-            raise LookupError(msg)
-        return {
-            "scene_id": scene_id,
-            "elements": [element_to_dict(e) for e in scene.elements],
-        }
 
     def _query_list_scenes(self, **_kwargs: Any) -> dict[str, Any]:
         """Query handler for list_scenes."""
