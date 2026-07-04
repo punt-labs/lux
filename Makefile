@@ -76,18 +76,18 @@ restart: install ## Install + restart luxd (via launchd) and display
 	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" 2>/dev/null || \
 		echo "warning: launchctl kickstart failed — luxd may not be a launchd service"
 	@sleep 1
-	@# Reap the running display, identifying its owner from the socket's OS peer
-	@# credential (not a PID file) so a live owner is always terminated — no
-	@# orphaned window — regardless of how it was started. reap() exits non-zero
-	@# if the owner cannot be resolved or survives termination; abort rather than
-	@# spawn a second display atop a socket the survivor still holds.
-	@uv run --extra display python -c "from punt_lux.paths import DisplayPaths; DisplayPaths().reap()" || \
-		{ echo "error: could not reap the running display — aborting restart (see log above)" >&2; exit 1; }
-	@sleep 1
-	@# Start the display — it writes its own <socket>.sock.pid on startup.
-	@LUX_LOG_LEVEL=$${LUX_LOG_LEVEL:-DEBUG} lux display &
-	@sleep 1
-	@echo "luxd restarted via launchd; display reaped and restarted"
+	@# Reap the running display, then ensure exactly one — via the LOCKED, idempotent
+	@# path, never a bare unlocked `lux display &`. reap() holds the spawn lock to
+	@# terminate the owner (by its socket peer credential); ensure() re-acquires the
+	@# lock, checks is_running() UNDER it, and REUSES any display a concurrent ensure()
+	@# (e.g. the beads hook) raced into the reap->ensure gap — else spawns one. So a
+	@# concurrent spawn can never stack a second window. ensure() waits for the READY
+	@# handshake, so a display that cannot start (no monitor) fails LOUDLY here instead
+	@# of backgrounding a dead process and printing success. LUX_LOG_LEVEL propagates:
+	@# ensure()'s _spawn inherits this process's environment.
+	@LUX_LOG_LEVEL=$${LUX_LOG_LEVEL:-DEBUG} uv run --extra display python -c "from punt_lux.paths import DisplayPaths; dp = DisplayPaths(); dp.reap(); dp.ensure()" || \
+		{ echo "error: could not reap and restart the display — aborting restart (see log above)" >&2; exit 1; }
+	@echo "luxd restarted via launchd; display reaped and exactly one live display ensured"
 
 reload: install ## Install + restart luxd only (display keeps running)
 	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" 2>/dev/null || \

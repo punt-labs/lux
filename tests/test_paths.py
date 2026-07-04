@@ -550,6 +550,66 @@ class TestEnsure:
             for display in displays:
                 display.stop()
 
+    def test_make_restart_ensure_reuses_display_spawned_in_reap_gap(
+        self, short_socket: Callable[[], Path]
+    ) -> None:
+        """`make restart`'s reap()+ensure() reuses a display raced in mid-gap.
+
+        Models the Makefile sequence (reap then ensure) with the beads hook's
+        ensure() sneaking a spawn into the gap after reap releases the lock.
+        make-restart's ensure() checks is_running() under the lock and REUSES
+        it — exactly one display, never the two the old bare `lux display &`
+        produced. A dead socket means reap just clears (no signal), so no
+        os.kill is patched.
+        """
+        path = short_socket()
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.bind(str(path))
+        s.close()  # dead socket → reap clears, no owner to signal
+        spawn_count = 0
+        displays: list[_FakeDisplay] = []
+        reap_done = threading.Event()
+        hook_spawned = threading.Event()
+
+        def fake_popen(*_a: object, **_k: object) -> object:
+            nonlocal spawn_count
+            spawn_count += 1
+            displays.append(_FakeDisplay(path))
+
+            class FakeProc:
+                pid = os.getpid()
+
+            return FakeProc()
+
+        restart_dp = DisplayPaths(path)
+        hook_dp = DisplayPaths(path)
+
+        def make_restart() -> None:
+            restart_dp.reap(timeout=2.0)  # dead → clears the socket
+            reap_done.set()  # now in the reap->ensure gap
+            assert hook_spawned.wait(timeout=5), "hook never spawned"
+            restart_dp.ensure(timeout=3.0)  # must reuse, not spawn a second
+
+        def beads_hook() -> None:
+            assert reap_done.wait(timeout=5), "reap never released"
+            hook_dp.ensure(timeout=3.0)  # spawns the single display
+            hook_spawned.set()
+
+        try:
+            with patch("punt_lux.paths.subprocess.Popen", side_effect=fake_popen):
+                threads = [
+                    threading.Thread(target=make_restart),
+                    threading.Thread(target=beads_hook),
+                ]
+                for t in threads:
+                    t.start()
+                for t in threads:
+                    t.join(timeout=10)
+            assert spawn_count == 1  # exactly one display despite the race
+        finally:
+            for display in displays:
+                display.stop()
+
 
 class TestPeerPid:
     """The socket's OS peer credential resolves the true owner PID."""
