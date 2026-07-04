@@ -23,8 +23,10 @@ from punt_lux.protocol import ReadyMessage, recv_message
 
 logger = logging.getLogger(__name__)
 
-# Seconds to wait for the handshake probe and for a spawned display to answer.
+# connect() timeout — generous, since a live-but-overloaded owner's accept can lag.
 _PROBE_TIMEOUT = 1.0
+# Short READY read — connect-success already proves ACCEPTING; _await_ready polls.
+_HANDSHAKE_TIMEOUT = 0.2
 
 # Seconds to confirm a process has exited after SIGKILL (asynchronous delivery).
 _SIGKILL_GRACE = 2.0
@@ -122,7 +124,7 @@ class DisplayPaths:
             except OSError:
                 return SocketLiveness.ACCEPTING  # timeout/EMFILE/ambiguous — not dead
             try:
-                reply = recv_message(probe, timeout=_PROBE_TIMEOUT)
+                reply = recv_message(probe, timeout=_HANDSHAKE_TIMEOUT)
             except _RECV_ERRS:
                 return SocketLiveness.ACCEPTING  # a live owner answered
             if isinstance(reply, ReadyMessage):
@@ -200,8 +202,7 @@ class DisplayPaths:
     # -- cleanup / reap -----------------------------------------------------
 
     def cleanup_stale(self) -> None:
-        """Unlink the socket and PID file only when no owner accepts —
-        never orphan a live owner (deadness confirmed by :meth:`is_running`)."""
+        """Unlink the socket and PID file only when no owner accepts the socket."""
         if self.is_running():
             return
         self._clear_dead_files()
@@ -209,9 +210,8 @@ class DisplayPaths:
     def reap(self, timeout: float = 5.0) -> None:
         """Terminate the socket's owner and clear its files; raise on failure.
 
-        Holds the spawn lock across kill→confirm→cleanup so a concurrent
-        ``ensure()`` cannot bind a new display mid-reap. An unresolved owner
-        or one outliving ``SIGKILL`` raises (the lock releases on every path).
+        Holds the spawn lock across kill→confirm→cleanup so a concurrent ``ensure()``
+        cannot bind mid-reap; an unresolved or SIGKILL-surviving owner raises.
         """
         with self._spawn_lock():
             if not self.is_running():
