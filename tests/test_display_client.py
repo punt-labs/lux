@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import socket
 import threading
 import time
@@ -535,7 +536,74 @@ class TestErrorHandling:
 # ---------------------------------------------------------------------------
 
 
+def _persistent_display(
+    sock_path: Path, stop: threading.Event, ready: threading.Event
+) -> None:
+    """Serve ReadyMessage on every accepted connection until stopped.
+
+    Unlike :func:`_mini_display` (single accept), this keeps answering so
+    the auto-spawn liveness probe and the client's own connection each get
+    a ``ReadyMessage`` handshake from the same live server.
+    """
+    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    server.bind(str(sock_path))
+    server.listen(5)
+    server.settimeout(0.2)
+    conns: list[socket.socket] = []
+    ready.set()
+    while not stop.is_set():
+        try:
+            conn, _ = server.accept()
+        except (TimeoutError, OSError):
+            continue
+        conns.append(conn)  # keep alive so buffered ReadyMessage is readable
+        with contextlib.suppress(OSError):
+            send_message(conn, ReadyMessage())
+    for c in conns:
+        c.close()
+    server.close()
+
+
 class TestAutoSpawn:
+    def test_auto_spawn_reuses_live_display_with_stale_pid(self) -> None:
+        """Regression: auto-spawn reuses a live display when the PID file is gone.
+
+        A live display answers the handshake but its PID file was removed.
+        connect(auto_spawn=True) must reuse the live socket and must NOT
+        spawn a second display (no ``subprocess.Popen``), preventing the
+        orphaned-window duplication.
+        """
+        import subprocess
+        import tempfile
+
+        from punt_lux.paths import DisplayPaths
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        stop = threading.Event()
+        ready = threading.Event()
+        t = threading.Thread(
+            target=_persistent_display, args=(sock_path, stop, ready), daemon=True
+        )
+        t.start()
+        ready.wait(timeout=5)
+
+        try:
+            DisplayPaths(sock_path).remove_pid()  # stale/missing PID file
+            with patch.object(subprocess, "Popen") as popen:
+                client = DisplayClient(sock_path, auto_spawn=True, connect_timeout=3.0)
+                client.connect()
+                assert client.is_connected
+                popen.assert_not_called()  # no second display spawned
+                client.close()
+            assert sock_path.exists()  # live socket preserved
+        finally:
+            stop.set()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
     def test_auto_spawn_calls_ensure(self, tmp_path: Path) -> None:
         """With auto_spawn=True, connect() calls DisplayPaths.ensure()."""
         import tempfile

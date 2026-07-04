@@ -70,26 +70,22 @@ install: build ## Build and install locally (with display extras)
 	uv tool install --force "$$(ls dist/punt_lux-*.whl)[display]"
 
 LUX_LAUNCHD_LABEL := com.punt-labs.lux
-DISPLAY_PID_FILE := .tmp/.lux-display.pid
 
 restart: install ## Install + restart luxd (via launchd) and display
-	@mkdir -p .tmp
 	@# Restart luxd — launchd manages the daemon (KeepAlive: true)
 	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" 2>/dev/null || \
 		echo "warning: launchctl kickstart failed — luxd may not be a launchd service"
 	@sleep 1
-	@# Kill old display
-	@if [ -f $(DISPLAY_PID_FILE) ]; then \
-		kill $$(cat $(DISPLAY_PID_FILE)) 2>/dev/null || true; \
-		rm -f $(DISPLAY_PID_FILE); \
-	else \
-		pkill -f "^Lux$$" 2>/dev/null || true; \
-	fi
+	@# Reap the running display via its authoritative PID file (<socket>.sock.pid) —
+	@# the single source of truth owned by DisplayPaths. This terminates a live
+	@# owner (no orphaned window) and cleans a dead/stale socket without a blind
+	@# kill, regardless of how the display was started (make restart or auto-spawn).
+	@uv run --extra display python -c "from punt_lux.paths import DisplayPaths; DisplayPaths().reap()"
 	@sleep 1
-	@# Start display
-	@LUX_LOG_LEVEL=$${LUX_LOG_LEVEL:-DEBUG} lux display & echo $$! > $(DISPLAY_PID_FILE)
+	@# Start the display — it writes its own <socket>.sock.pid on startup.
+	@LUX_LOG_LEVEL=$${LUX_LOG_LEVEL:-DEBUG} lux display &
 	@sleep 1
-	@echo "luxd restarted via launchd, display pid=$$(cat $(DISPLAY_PID_FILE))"
+	@echo "luxd restarted via launchd; display reaped and restarted"
 
 reload: install ## Install + restart luxd only (display keeps running)
 	@launchctl kickstart -k "gui/$$(id -u)/$(LUX_LAUNCHD_LABEL)" 2>/dev/null || \
