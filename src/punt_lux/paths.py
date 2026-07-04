@@ -38,6 +38,10 @@ _PEER_PID_OPT: dict[str, tuple[int, int, int]] = {
     "linux": (1, 17, 12),
 }
 
+# An undecodable reply from a connected peer still proves a live owner (ACCEPTING):
+# non-object payloads raise AttributeError; over-deep JSON raises RecursionError.
+_RECV_ERRS = (OSError, ValueError, KeyError, TypeError, AttributeError, RecursionError)
+
 
 class SocketLiveness(Enum):
     """Observed socket state: dead (no owner), accepting, or handshake-ready."""
@@ -70,8 +74,7 @@ class DisplayPaths:
     @staticmethod
     def _default_path() -> Path:
         """Return the default socket path: ``$LUX_SOCKET``, else
-        ``$XDG_RUNTIME_DIR/lux/display.sock``, else ``/tmp/lux-$USER/display.sock``.
-        """
+        ``$XDG_RUNTIME_DIR/lux/`` or ``/tmp/lux-$USER/``, plus ``display.sock``."""
         env = os.environ.get("LUX_SOCKET")
         if env:
             return Path(env)
@@ -114,15 +117,14 @@ class DisplayPaths:
             probe.settimeout(_PROBE_TIMEOUT)
             try:
                 probe.connect(str(self._socket_path))
-            except TimeoutError:
-                return SocketLiveness.ACCEPTING  # live but slow — presence wins
+            except (ConnectionRefusedError, FileNotFoundError):
+                return SocketLiveness.DEAD  # no listener / file gone
             except OSError:
-                return SocketLiveness.DEAD  # refused, non-socket, or vanished
+                return SocketLiveness.ACCEPTING  # timeout/EMFILE/ambiguous — not dead
             try:
                 reply = recv_message(probe, timeout=_PROBE_TIMEOUT)
-            except (OSError, ValueError, KeyError, TypeError, AttributeError):
-                # a live owner answered (a non-object payload raises AttributeError)
-                return SocketLiveness.ACCEPTING
+            except _RECV_ERRS:
+                return SocketLiveness.ACCEPTING  # a live owner answered
             if isinstance(reply, ReadyMessage):
                 return SocketLiveness.READY
             return SocketLiveness.ACCEPTING

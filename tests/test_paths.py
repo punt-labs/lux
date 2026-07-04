@@ -11,6 +11,7 @@ singleton guard, cleanup, spawn idempotency, and reaping.
 from __future__ import annotations
 
 import contextlib
+import errno
 import json
 import os
 import shutil
@@ -277,6 +278,47 @@ class TestIsRunning:
         finally:
             shutil.rmtree(path.parent, ignore_errors=True)
 
+    def test_probe_connect_resource_error_is_accepting_and_preserves_socket(
+        self,
+    ) -> None:
+        """A non-refused connect error (fd exhaustion) reads ACCEPTING, not dead.
+
+        Reaper-side EMFILE/ENFILE makes connect raise a generic OSError. That
+        is ambiguous, not proof of a dead owner, so _probe must read ACCEPTING
+        and cleanup_stale must never unlink a possibly-live socket.
+        """
+        path = _short_socket()
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.bind(str(path))
+        s.close()  # socket file exists; connect is what we force to fail
+        dp = DisplayPaths(path)
+        emfile = OSError(errno.EMFILE, "too many open files")
+        try:
+            with patch("socket.socket.connect", side_effect=emfile):
+                assert dp._probe() is SocketLiveness.ACCEPTING
+                dp.cleanup_stale()
+            assert path.exists()  # ambiguous error never unlinks the socket
+        finally:
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_probe_recursion_error_reply_is_accepting(self) -> None:
+        """A pathological reply that raises RecursionError does not crash the probe.
+
+        Deeply-nested JSON overflows the decoder's recursion limit. The connect
+        already proved a live owner, so the probe must read ACCEPTING rather
+        than let RecursionError escape and crash is_running().
+        """
+        path = _short_socket()
+        display = _FakeDisplay(path)  # live socket; connect succeeds
+        dp = DisplayPaths(path)
+        try:
+            with patch("punt_lux.paths.recv_message", side_effect=RecursionError):
+                assert dp._probe() is SocketLiveness.ACCEPTING
+                assert dp.is_running() is True  # never raised
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
 
 class TestCleanupStale:
     def test_removes_dead_socket(self) -> None:
@@ -308,14 +350,21 @@ class TestCleanupStale:
             shutil.rmtree(path.parent, ignore_errors=True)
 
     def test_preserves_non_socket_file(self) -> None:
+        """A non-socket file at the path is ambiguous — nothing is unlinked.
+
+        Connecting to a regular file raises a generic OSError (ENOTSOCK),
+        not ConnectionRefused/ENOENT, so the probe reads ACCEPTING (ambiguous
+        never means dead). cleanup_stale leaves the file and its PID file
+        intact rather than destroying a path that might belong to a live owner.
+        """
         path = _short_socket()
         path.write_text("not a socket")
         dp = DisplayPaths(path)
         dp.pid_path.write_text("999999999")
         try:
             dp.cleanup_stale()
-            assert path.exists()  # regular file, not a socket — left intact
-            assert not dp.pid_path.exists()
+            assert path.exists()  # ambiguous — never unlinked
+            assert dp.pid_path.exists()
         finally:
             shutil.rmtree(path.parent, ignore_errors=True)
 
