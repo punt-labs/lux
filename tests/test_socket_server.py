@@ -457,3 +457,48 @@ class TestSetupArbitration:
             assert server.server_sock is not None
         finally:
             server.shutdown()
+
+    def test_fresh_bind_survives_concurrent_setup_in_window(self) -> None:
+        """A freshly bound (not-yet-listening) socket is never unlinked mid-window.
+
+        The round-2 defect was a concurrent cleanup unlinking a socket another
+        process had bound but not yet listened on. A binder holds the bind lock
+        and binds without ``listen`` — the exact window. A concurrent ``setup``
+        must block on the bind lock, so it can neither unlink the fresh bind nor
+        bind over it. The inode is unchanged and the concurrent setup has bound
+        nothing until the lock frees; only then does exactly one binder proceed.
+        This is the executable counterpart of the model's buggy-variant
+        counterexample.
+        """
+        sock_path = Path(_make_tmpdir()) / "test.sock"
+        dp = DisplayPaths(sock_path)
+        server = _make_server()
+        fresh = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        result: list[bool] = []
+        entered = threading.Event()
+        worker: threading.Thread | None = None
+
+        def concurrent_setup() -> None:
+            entered.set()
+            result.append(server.setup(sock_path))
+
+        try:
+            with dp.bind_lock():
+                fresh.bind(str(sock_path))  # bound, no listen() — the window
+                bound_inode = sock_path.stat().st_ino
+                worker = threading.Thread(target=concurrent_setup)
+                worker.start()
+                assert entered.wait(timeout=2)
+                worker.join(timeout=0.5)
+                assert worker.is_alive()  # blocked on the bind lock
+                # Cleanup cannot run: the fresh bind's inode is untouched.
+                assert sock_path.stat().st_ino == bound_inode
+                assert server.server_sock is None  # concurrent setup bound nothing
+            worker.join(timeout=5)
+            assert result == [True]  # exactly one winner, only after the lock freed
+            assert server.server_sock is not None
+        finally:
+            fresh.close()
+            server.shutdown()
+            if worker is not None:
+                worker.join(timeout=5)

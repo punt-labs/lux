@@ -372,6 +372,28 @@ class TestIsRunning:
         finally:
             display.stop()
 
+    def test_bound_not_listening_socket_probes_dead(
+        self, short_socket: Callable[[], Path]
+    ) -> None:
+        """A socket bound but not yet listening refuses connect, so it reads DEAD.
+
+        This is the bind window: between ``bind`` and ``listen`` the path exists
+        as a socket file, but a probe's ``connect`` gets ECONNREFUSED. That the
+        window reads DEAD is the entire justification for the bind lock — without
+        it a concurrent cleanup would unlink this fresh bind. Exercised with a
+        real bound socket, not a monkeypatched probe.
+        """
+        path = short_socket()
+        bound = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        bound.bind(str(path))  # bound, fd held open, listen() deliberately skipped
+        try:
+            dp = DisplayPaths(path)
+            assert path.is_socket()  # the file is present in the window
+            assert dp._probe() is SocketLiveness.DEAD
+            assert dp.is_running() is False
+        finally:
+            bound.close()
+
 
 class TestCleanupStale:
     def test_removes_dead_socket(self, short_socket: Callable[[], Path]) -> None:
@@ -1143,6 +1165,87 @@ class TestReap:
             assert real.exists()  # the real socket untouched
         finally:
             display.stop()
+
+    def test_reap_cleanup_holds_bind_lock_against_binder(
+        self, short_socket: Callable[[], Path]
+    ) -> None:
+        """reap's dead-file cleanup takes the bind lock, so a binder serializes it.
+
+        ``reap`` clears a dead socket via ``_clear_dead_files_locked``, which
+        acquires the bind lock. A concurrent binder holding that lock must block
+        reap's cleanup: the stale socket is not unlinked while the binder holds
+        the lock, and reap completes the unlink only once the binder releases.
+        This is the reap-side counterpart of the setup arbitration serialization.
+        """
+        path = short_socket()
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.bind(str(path))
+        s.close()  # dead socket file → reap takes the clear-files branch
+        assert path.exists()
+        binder = DisplayPaths(path)
+        reaper = DisplayPaths(path)
+        result: list[str] = []
+        reaping = threading.Event()
+        worker: threading.Thread | None = None
+
+        def do_reap() -> None:
+            reaping.set()
+            reaper.reap(timeout=2.0)
+            result.append("done")
+
+        try:
+            with binder.bind_lock():
+                worker = threading.Thread(target=do_reap)
+                worker.start()
+                assert reaping.wait(timeout=2)
+                worker.join(timeout=0.5)
+                assert worker.is_alive()  # blocked on the bind lock in cleanup
+                assert path.exists()  # dead socket not unlinked while binder holds lock
+            worker.join(timeout=5)
+            assert result == ["done"]
+            assert not path.exists()  # unlinked only after the binder released
+        finally:
+            if worker is not None:
+                worker.join(timeout=5)
+
+
+class TestLockOrdering:
+    """The spawn and bind locks obey a fixed order (spawn→bind), so no cycle forms."""
+
+    def test_spawn_and_bind_locks_coexist_without_deadlock(
+        self, short_socket: Callable[[], Path]
+    ) -> None:
+        """Two agents taking spawn-then-bind never deadlock (Invariant 4).
+
+        ``ensure`` holds the spawn lock while the display it spawns takes the
+        bind lock; the design claim is that the fixed order — spawn outer, bind
+        inner, never both by one agent in the reverse order — makes a cyclic
+        wait impossible. Two threads acquire the real flocks in that order under
+        a barrier; a deadlock would hang the joins. Both completing proves the
+        ordering is safe.
+        """
+        path = short_socket()
+        start = threading.Barrier(2)
+        completed: list[int] = []
+        lock = threading.Lock()
+
+        def acquire_in_order(tag: int) -> None:
+            start.wait()  # release both threads together to force contention
+            dp = DisplayPaths(path)
+            with dp._spawn_lock(), dp.bind_lock():
+                time.sleep(0.05)  # hold both, widening the contention window
+            with lock:
+                completed.append(tag)
+
+        threads = [
+            threading.Thread(target=acquire_in_order, args=(i,)) for i in range(2)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+        assert all(not t.is_alive() for t in threads)  # neither hung on a cycle
+        assert sorted(completed) == [0, 1]  # both acquired and released both locks
 
 
 class TestTerminate:
