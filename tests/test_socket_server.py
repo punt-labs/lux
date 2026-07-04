@@ -403,6 +403,30 @@ class TestSetupArbitration:
             for s in servers:
                 s.shutdown()
 
+    def test_stalled_server_not_misread_as_dead(self) -> None:
+        """A bound server with many unaccepted connects still probes live.
+
+        Connects queued below the listen backlog do not exhaust it, so a
+        liveness probe still connects instead of getting ECONNREFUSED -- a
+        briefly-stalled display (not draining accepts) is not misread as dead.
+        With the old backlog of 5, this many queued connects would refuse the
+        probe and the live server would read as dead.
+        """
+        sock_path = Path(_make_tmpdir()) / "test.sock"
+        server = _make_server()
+        pending: list[socket.socket] = []
+        try:
+            assert server.setup(sock_path) is True
+            for _ in range(20):  # a stalled render loop never accepts these
+                client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                client.connect(str(sock_path))
+                pending.append(client)
+            assert DisplayPaths(sock_path).is_running()  # live, not refused
+        finally:
+            for client in pending:
+                client.close()
+            server.shutdown()
+
     def test_bind_lock_blocks_concurrent_setup(self) -> None:
         """Holding the bind lock stalls a concurrent setup until it is released.
 

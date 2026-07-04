@@ -27,6 +27,13 @@ logger = logging.getLogger(__name__)
 # EEXIST on macOS/BSD; either means a concurrent binder won the race.
 _BIND_RACE_ERRNOS = frozenset({errno.EADDRINUSE, errno.EEXIST})
 
+# Large backlog so a briefly-stalled display (hung render loop, GPU stall,
+# breakpoint) that is not draining accepts isn't misread as dead: a probe would
+# get ECONNREFUSED only once 128+ connects are queued, far beyond lux's real
+# client count (luxd's one persistent connection plus occasional probes).
+# See lux-h29e.
+_LISTEN_BACKLOG = 128
+
 
 class SocketServer:
     """Accept, poll, read from, send to, and remove Unix socket clients.
@@ -121,7 +128,7 @@ class SocketServer:
                     raise  # a real bind failure (permissions, bad path) fails loud
                 logger.info("lost bind race at %s; exiting", socket_path)
                 return False
-            sock.listen(5)
+            sock.listen(_LISTEN_BACKLOG)
             sock.setblocking(False)  # noqa: FBT003
             self._server_sock = sock
             return True
