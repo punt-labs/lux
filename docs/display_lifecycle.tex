@@ -462,10 +462,11 @@ No operation carries \texttt{socketStatus} from \texttt{slistening} to
 \texttt{sabsent} except a legitimate \texttt{Reap} of that owner.  This is
 a property of the transition relation, established by construction: the
 only operations that assign \texttt{socketStatus' = sabsent} are
-\texttt{CleanupStale} (guarded \texttt{socketStatus $\in$ \{sstale,
-sbound\}}), \texttt{Bind}'s precondition path (from \texttt{sabsent}),
-\texttt{Reap} (guarded \texttt{socketStatus = slistening}), and
-\texttt{ReapDead} (guarded \texttt{socketStatus $\neq$ slistening}).  Of
+\texttt{CleanupStale}, \texttt{Bind}'s pre-condition path, \texttt{Reap},
+and \texttt{ReapDead}.  Their guards are, respectively,
+\texttt{socketStatus} $\in$ \texttt{\{sstale, sbound\}}; a start from
+\texttt{sabsent}; \texttt{socketStatus = slistening}; and
+\texttt{socketStatus} $\neq$ \texttt{slistening}.  Of
 these, only \texttt{Reap} starts from \texttt{slistening}, and it does so
 only after terminating the owner.  \texttt{CleanupStale}'s guard
 excludes \texttt{slistening} outright, so a live socket is never
