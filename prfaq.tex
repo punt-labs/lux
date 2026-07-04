@@ -161,16 +161,16 @@
 % ── Headline block ───────────────────────────────────────────────────────────
 \begin{center}
   {\LARGE\bfseries\color{SectionBlue}
-    Lux Gives Terminal-Hosted AI Coding Agents a Native,\\
-    Local-First Visual Surface, No Vendor Compute} \\[0.8em]
+    Lux Gives Terminal-Based AI Coding Agents a Visual Canvas} \\[0.8em]
   {\large\color{AccentGray}
-    Agents describe UI as a typed JSON element tree; Lux paints it with
-    GPU-accelerated Dear~ImGui in a persistent shared window on the
-    developer's own machine} \\[0.3em]
+    For the agent: describe UI as a typed JSON element tree, and Lux renders it
+    natively with GPU-accelerated Dear~ImGui on the developer's own machine, no
+    vendor compute} \\[0.3em]
   {\large\color{AccentGray}
-    Today the agent shows me complex data and visualizations; next, I
-    drive a terminal-based agent through the GUI itself. The element set is
-    fixed and curated, but the ways elements compose are unlimited}
+    For the developer: see complex agent output as filterable tables,
+    dashboards, and diagrams instead of scrollback, and drive a terminal-based
+    agent through the GUI. A fixed, curated element set that composes without
+    limit}
 \end{center}
 
 \vspace{0.5em}
@@ -197,15 +197,18 @@ and click.
 
 \prsection{Problem}
 
-Developers now run several coding agents at once, across repositories,
-sessions, and machines. Tracking what each one is doing is hands-on and
-error-prone, and it compounds with every agent added. The most capable
-agents, Claude Code and Codex, are terminal-hosted, with full tool use, MCP
-integration, and multi-turn autonomous operation. That power comes with no
-visual surface. When an agent produces a table of failing tests, a diagram of a
-module graph, or a dashboard of build status, the developer reads it as raw
-text or scrolls back to find it. There is no way to filter the table, select a
-row, or keep the view live as the underlying data changes.
+The most capable coding agents, Claude Code and Codex, live in the terminal:
+full tool use, MCP integration, multi-turn autonomous operation, and output that
+is all text. That power comes with no graphical surface. When an agent produces a
+table of failing tests, a diagram of a module graph, or a dashboard of build
+status, the developer reads it as raw scrollback. There is no way to filter the
+table, select a row, or keep the view live as the underlying data changes. The
+most powerful agents run exactly where there are no graphics.
+
+A second problem sits on top of the first: developers rarely run just one agent.
+Several run at once, across repositories, sessions, and machines, and tracking
+what each is doing is hands-on and error-prone. This is an aggregation problem,
+many independent agents and one developer with no shared place to watch them.
 
 Vendors are answering with hosted web dashboards that often require running
 the \emph{entire agent} (not just the model call) on the vendor's compute: the
@@ -552,13 +555,13 @@ architecture, or contribute a new element kind.
 \end{faqpair}
 
 \begin{faqpair}{What is the v1-to-v2 roadmap, and what is the migration risk?}\label{faq:roadmap}
-  \textbf{v1 (shipped):} ``my agent can show me complex data and
-  visualizations.'' The rich data-display core, plus the ask-the-user loop
+  \textbf{v1 (shipped):} the agent shows the developer complex data and
+  visualizations. The rich data-display core, plus the ask-the-user loop
   (dialog, checkbox, button) as the first interaction primitive, on the
   Hub/Display model.
 
-  \textbf{v2 (direction):} ``I can use a GUI to interact with my agent.'' The
-  surface turns two-way, so the user drives a terminal-based agent through a GUI
+  \textbf{v2 (direction):} the developer interacts with the agent through a GUI.
+  The surface turns two-way, so the user drives a terminal-based agent through a GUI
   instead of only viewing its output. Completing ImGui widget coverage is the
   means to that end, not the end in itself: richer interaction needs more input
   primitives (sliders, inputs, selects) and the composites that arrange them.
