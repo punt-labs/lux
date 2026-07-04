@@ -13,36 +13,46 @@ from __future__ import annotations
 import contextlib
 import os
 import shutil
+import signal
 import socket
+import subprocess
+import sys
 import tempfile
 import threading
+import time
 from pathlib import Path
+from typing import Literal
 from unittest.mock import patch
 
 import pytest
 
 from punt_lux.paths import DisplayPaths, SocketLiveness, is_hub_running
-from punt_lux.protocol import ReadyMessage, send_message
+from punt_lux.protocol import ReadyMessage, encode_frame, send_message
+
+_Reply = Literal["ready", "silent", "garbage"]
 
 
 class _FakeDisplay:
-    """A minimal listening socket that answers the ReadyMessage handshake.
+    """A minimal listening socket standing in for a live display server.
 
-    Stands in for a live display server: it binds the socket, accepts
-    connections on a background thread, and sends a ``ReadyMessage`` to
-    each client so :meth:`DisplayPaths.is_running` reads it as alive.
+    Binds the socket and accepts connections on a background thread. Each
+    accepted connection is answered per ``reply``: a ``ReadyMessage``
+    (``"ready"``), nothing (``"silent"`` — accepts but never handshakes),
+    or a present-but-malformed frame (``"garbage"``).
     """
 
     _path: Path
     _sock: socket.socket
     _thread: threading.Thread
     _stop: threading.Event
-    _answer: bool
+    _reply: _Reply
 
-    def __new__(cls, path: Path, *, answer: bool = True) -> _FakeDisplay:
+    def __new__(
+        cls, path: Path, *, answer: bool = True, reply: _Reply | None = None
+    ) -> _FakeDisplay:
         self = super().__new__(cls)
         self._path = path
-        self._answer = answer
+        self._reply = reply if reply is not None else ("ready" if answer else "silent")
         self._stop = threading.Event()
         self._sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self._sock.bind(str(path))
@@ -58,9 +68,11 @@ class _FakeDisplay:
                 conn, _ = self._sock.accept()
             except (TimeoutError, OSError):
                 continue
-            if self._answer:
-                with contextlib.suppress(OSError):
+            with contextlib.suppress(OSError):
+                if self._reply == "ready":
                     send_message(conn, ReadyMessage())
+                elif self._reply == "garbage":
+                    conn.sendall(encode_frame({"no_type_field": 1}))
             conn.close()
 
     def stop(self) -> None:
@@ -200,6 +212,40 @@ class TestIsRunning:
         s.close()
         try:
             assert DisplayPaths(path)._probe() is SocketLiveness.DEAD
+        finally:
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_probe_malformed_frame_is_accepting(self) -> None:
+        """A live owner answering with a malformed first frame reads ACCEPTING.
+
+        A present-but-undecodable frame proves a live owner answered, so it
+        must not crash the probe nor read as dead.
+        """
+        path = _short_socket()
+        display = _FakeDisplay(path, reply="garbage")
+        try:
+            assert DisplayPaths(path)._probe() is SocketLiveness.ACCEPTING
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_probe_connect_timeout_is_accepting_and_preserves_socket(self) -> None:
+        """A connect that times out is a live-but-overloaded owner → ACCEPTING.
+
+        settimeout applies to connect() too; a slow owner whose connect
+        can't complete in the probe window must read ACCEPTING (presence
+        wins), and cleanup_stale must never unlink its socket.
+        """
+        path = _short_socket()
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.bind(str(path))
+        s.close()  # socket file exists; connect is what we force to time out
+        dp = DisplayPaths(path)
+        try:
+            with patch("socket.socket.connect", side_effect=TimeoutError):
+                assert dp._probe() is SocketLiveness.ACCEPTING
+                dp.cleanup_stale()  # must not unlink a possibly-live socket
+            assert path.exists()
         finally:
             shutil.rmtree(path.parent, ignore_errors=True)
 
@@ -457,6 +503,21 @@ class TestPeerPid:
             display.stop()
             shutil.rmtree(path.parent, ignore_errors=True)
 
+    def test_non_positive_credential_returns_none(self) -> None:
+        """A zeroed/partial credential (pid 0) resolves to None, never a target.
+
+        os.kill(0, ...) signals the whole process group; a non-positive
+        peer PID must never leave _peer_pid as a signallable value.
+        """
+        path = _short_socket()
+        display = _FakeDisplay(path)
+        try:
+            with patch("socket.socket.getsockopt", return_value=b"\x00\x00\x00\x00"):
+                assert DisplayPaths(path)._peer_pid() is None
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
 
 class TestReap:
     def test_reap_dead_clears_files_without_kill(self) -> None:
@@ -602,27 +663,115 @@ class TestReap:
             display.stop()
             shutil.rmtree(path.parent, ignore_errors=True)
 
-    def test_reap_raises_when_owner_survives_termination(self) -> None:
+    def test_reap_raises_when_owner_survives_termination(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """reap() raises so the caller (make restart) does not spawn over a survivor.
 
-        The owner ignores SIGTERM and SIGKILL — it stays alive on the
-        socket. reap() must raise rather than clear files and let a second
-        display spawn atop the still-held socket.
+        The owner ignores SIGTERM and SIGKILL — os.kill(pid, 0) keeps
+        reporting it alive. reap() must raise rather than clear files and
+        let a second display spawn atop the still-held socket.
+        """
+        path = _short_socket()
+        display = _FakeDisplay(path)
+        dp = DisplayPaths(path)
+        monkeypatch.setattr("punt_lux.paths._SIGKILL_GRACE", 0.2)
+
+        def stubborn_kill(_pid: int, _sig: int) -> None:
+            return  # every signal ignored; the process never exits
+
+        try:
+            with (
+                patch("punt_lux.paths.os.kill", side_effect=stubborn_kill),
+                pytest.raises(RuntimeError, match="survived SIGKILL"),
+            ):
+                dp.reap(timeout=0.2)
+            assert path.exists()  # live socket left intact, not orphaned
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_reap_confirms_sigkill_death_no_spurious_raise(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A process that dies only on SIGKILL is confirmed dead, not falsely raised.
+
+        The owner ignores SIGTERM and exits on SIGKILL, whose delivery is
+        asynchronous. _terminate must poll until the process is gone —
+        never judge survival from the lingering socket — so reap() clears
+        the files without a spurious 'survived' error.
+        """
+        path = _short_socket()
+        display = _FakeDisplay(path)
+        dp = DisplayPaths(path)
+        monkeypatch.setattr("punt_lux.paths._SIGKILL_GRACE", 0.5)
+        signalled: list[int] = []
+
+        def fake_kill(pid: int, sig: int) -> None:
+            if sig == 0:
+                if signal.SIGKILL in signalled:
+                    raise ProcessLookupError  # confirmed dead after SIGKILL
+                return  # still alive after SIGTERM
+            signalled.append(sig)
+            if sig == signal.SIGKILL:
+                display.stop()
+
+        try:
+            with patch("punt_lux.paths.os.kill", side_effect=fake_kill):
+                dp.reap(timeout=0.2)  # no raise
+            assert signalled == [signal.SIGTERM, signal.SIGKILL]
+            assert not path.exists()  # dead socket cleared
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_reap_clean_exit_between_probes_is_not_an_error(self) -> None:
+        """An owner that exits between the liveness probe and the peer read.
+
+        is_running() is True at the top of reap(), the owner then exits
+        cleanly, and _peer_pid() returns None. reap() must re-check
+        liveness, find the socket dead, clear files, and NOT raise a
+        scary 'owner unresolved' error.
+        """
+        path = _short_socket()
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.bind(str(path))
+        s.close()  # a real dead socket file for _clear_dead_files to remove
+        dp = DisplayPaths(path)
+
+        try:
+            with (
+                # First probe: alive. Re-check after the None peer: dead.
+                patch.object(DisplayPaths, "is_running", side_effect=[True, False]),
+                patch.object(DisplayPaths, "_peer_pid", return_value=None),
+                patch("punt_lux.paths.os.kill") as kill,
+            ):
+                dp.reap(timeout=0.2)  # no raise
+            kill.assert_not_called()
+            assert not path.exists()  # treated as a clean exit, files cleared
+        finally:
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_reap_refuses_non_positive_peer_pid(self) -> None:
+        """A zeroed/partial peer credential (pid<=0) refuses — never os.kill(0).
+
+        os.kill(0, SIGTERM) would signal the whole process group — under
+        `make restart` that is make, uv, and the shell. A non-positive
+        peer PID must resolve to None and reap() must refuse, never signal.
         """
         path = _short_socket()
         display = _FakeDisplay(path)
         dp = DisplayPaths(path)
 
-        def stubborn_kill(_pid: int, _sig: int) -> None:
-            return  # every signal ignored; the display keeps serving
-
         try:
             with (
-                patch("punt_lux.paths.os.kill", side_effect=stubborn_kill),
-                pytest.raises(RuntimeError, match="survived termination"),
+                # getsockopt yields a zeroed credential → pid 0 → None.
+                patch("socket.socket.getsockopt", return_value=b"\x00\x00\x00\x00"),
+                patch("punt_lux.paths.os.kill") as kill,
+                pytest.raises(RuntimeError, match="refusing to reap"),
             ):
-                dp.reap(timeout=0.3)
-            assert path.exists()  # live socket left intact, not orphaned
+                dp.reap(timeout=0.2)
+            kill.assert_not_called()  # never signalled a non-positive PID
         finally:
             display.stop()
             shutil.rmtree(path.parent, ignore_errors=True)
@@ -670,6 +819,29 @@ class TestTerminate:
             pytest.raises(PermissionError),
         ):
             dp._terminate(4242, timeout=0.3)
+
+    def test_non_positive_pid_raises_and_never_signals(self) -> None:
+        """The signal path refuses pid<=0 — os.kill(0/-1) hits a process group."""
+        dp = DisplayPaths(_short_socket())
+        for bad in (0, -1):
+            with (
+                patch("punt_lux.paths.os.kill") as kill,
+                pytest.raises(ValueError, match="non-positive PID"),
+            ):
+                dp._terminate(bad, timeout=0.2)
+            kill.assert_not_called()
+
+    def test_await_exit_reaps_child_zombie(self) -> None:
+        """A dead-but-unwaited child is confirmed exited, not falsely 'alive'.
+
+        When the reaper is the process's parent, a killed child lingers as
+        a zombie and ``os.kill(pid, 0)`` still succeeds. _await_exit must
+        reap it so death is confirmed rather than mistaken for survival.
+        """
+        proc = subprocess.Popen([sys.executable, "-c", "pass"])  # exits at once
+        time.sleep(0.1)  # let it die; deliberately not waited → zombie
+        # A live check on the raw pid would read alive; _await_exit reaps it.
+        assert DisplayPaths._await_exit(proc.pid, timeout=2.0) is True
 
 
 class TestIsHubRunning:

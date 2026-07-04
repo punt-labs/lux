@@ -1001,12 +1001,12 @@
     "future_annotations": 1.0
   },
   "src/punt_lux/paths.py": {
-    "method_ratio": 0.76,
+    "method_ratio": 0.769,
     "encapsulation_ratio": 1.0,
-    "avg_params": 0.24,
+    "avg_params": 0.31,
     "max_complexity": 6.0,
-    "avg_complexity": 2.16,
-    "module_size": 298.0,
+    "avg_complexity": 2.27,
+    "module_size": 299.0,
     "classes_per_module": 2.0,
     "class_to_func_ratio": 0.25,
     "init_violations": 0.0,
