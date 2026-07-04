@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.19.1] - 2026-07-04
+
 ### Changed
 
 - **Starlette upgraded to 1.x** — `luxd` now requires `starlette>=1.3.1,<2`
