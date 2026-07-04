@@ -441,13 +441,13 @@ Release scripts: `scripts/release-plugin.sh` (swap `lux-dev` → `lux`), `script
 
 - [`DESIGN.md`](DESIGN.md) — ADR log (38 entries). **Do not read start to finish** — grep for a specific `DES-NNN` when you need the rationale behind a settled decision. Append new ADRs at the end; do not reorganize existing ones.
 - [`docs/display_lifecycle.tex`](docs/display_lifecycle.tex) → [`docs/display_lifecycle.pdf`](docs/display_lifecycle.pdf) — the ProB-verified display-singleton lifecycle spec (DES-037/038); partition [coverage](docs/display_lifecycle_coverage.md). Keep the PDF in sync with the `.tex` (rebuild + commit together).
-- [`prfaq.tex`](prfaq.tex) → `prfaq.pdf` — the Working Backwards PR/FAQ (product direction, hypothesis stage). Update when the change shifts product direction.
+- [`prfaq.tex`](prfaq.tex) → [`prfaq.pdf`](prfaq.pdf) — the Working Backwards PR/FAQ (product direction, hypothesis stage). Update when the change shifts product direction.
 - [`CHANGELOG.md`](CHANGELOG.md) — release history; add entries under `## [Unreleased]`.
 - [`README.md`](README.md) — user-facing overview; update when user-facing behavior changes.
 
 **Current/intermediate — NOT the target:**
 
-- [`docs/architecture/system.tex`](docs/architecture/system.tex) → `docs/architecture/system.pdf` — the current/intermediate architecture, not the rewrite target. Aligns to `target.md` on any conflict.
+- [`docs/architecture/system.tex`](docs/architecture/system.tex) → [`docs/architecture/system.pdf`](docs/architecture/system.pdf) — the current/intermediate architecture, not the rewrite target. Aligns to `target.md` on any conflict.
 
 Do **not** use [`docs/concepts/*`](docs/concepts/) to guide implementation. Those
 are alternative concepts, not approved plans, and not under active development.
