@@ -144,3 +144,13 @@ class CheckboxElement(Element):
     def widget_value(self) -> bool:
         """Return the value SceneManager mirrors into WidgetState after a patch."""
         return self._value
+
+    # -- introspection (Inspectable) ---------------------------------------
+
+    def resolved_props(self) -> Mapping[str, object]:
+        """Return the full resolved state, including defaulted fields."""
+        return {
+            "label": self._label,
+            "value": self._value,
+            "tooltip": self._tooltip,
+        }

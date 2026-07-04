@@ -259,3 +259,14 @@ class DialogElement(Element):
             ),
         )
         return cast("Self", decoder.decode(d))
+
+    # -- introspection (Inspectable) ---------------------------------------
+
+    def resolved_props(self) -> Mapping[str, object]:
+        """Return the full resolved state, including model-derived fields."""
+        return {
+            "title": self._title,
+            "visible": self._model.visible,
+            "confirmed": self._model.confirmed,
+            "tooltip": self._tooltip,
+        }

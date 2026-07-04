@@ -180,3 +180,16 @@ class ButtonElement(Element):
             ),
         )
         return cast("Self", decoder.decode(d))
+
+    # -- introspection (Inspectable) ---------------------------------------
+
+    def resolved_props(self) -> Mapping[str, object]:
+        """Return the full resolved state, including defaulted fields."""
+        return {
+            "label": self._label,
+            "action": self._action,
+            "disabled": self._disabled,
+            "small": self._small,
+            "arrow": self._arrow,
+            "tooltip": self._tooltip,
+        }
