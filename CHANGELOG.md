@@ -10,6 +10,12 @@
   no upper bound, so it resolves cleanly. Verified: 1347 tests pass and luxd
   serves the MCP round-trip on 127.0.0.1:8430 under 1.3.1. Fresh `lux install`
   now resolves the patched 1.x rather than 0.x.
+- **rich upgraded 13 → 15** (`rich>=15,<16`) — lux has no direct rich usage
+  (only via typer's CLI output); `make check` and the CLI verified on 15.0.0.
+- **imgui-bundle upgraded 1.92.600 → 1.92.801** — the display renderer.
+  Verified live: the display spawns and renders (OpenGL3, ~47 fps, zero
+  errors). This build ships `imspinner` and `imgui_md`, so the two
+  previously-skipped renderer import tests now run and pass (1347 → 1349).
 
 ### Security
 
