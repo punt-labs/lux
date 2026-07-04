@@ -176,10 +176,11 @@ def serve(
     port: int = DEFAULT_HUB_PORT,
 ) -> None:
     """Start the luxd hub. Blocks until shutdown."""
-    from punt_lux.hub_paths import hub_pid_path, hub_port_path
+    from punt_lux.hub_paths import HubPaths
 
-    pid_path = hub_pid_path()
-    port_path = hub_port_path()
+    hub_paths = HubPaths()
+    pid_path = hub_paths.pid_path
+    port_path = hub_paths.port_path
 
     @asynccontextmanager
     async def lifespan(_app: Starlette) -> AsyncGenerator[None]:
