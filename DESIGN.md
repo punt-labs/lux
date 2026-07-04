@@ -3435,3 +3435,204 @@ re-proposed as polling or as point-to-point.
   the long-form spec.
 - `docs/oo-refactor/migration-plan.md` PR 11 — the migration PR that
   introduces this subsystem.
+
+## DES-037: Display Singleton Lifecycle — Socket-Authoritative Liveness, Two-Lock Discipline, Self-Arbitrating Bind
+
+**Date:** 2026-07-04
+**Status:** ACCEPTED
+**Decided by:** the operator
+**Companion doc:** `docs/display_lifecycle.tex` (Z spec, ProB-verified) + `docs/display_lifecycle_coverage.md`
+
+### Problem
+
+There must be exactly one `lux-display` process bound to a given
+socket path. Multiple front doors can spawn one — a `DisplayClient`
+with `auto_spawn=True` (the beads render hook fires it on every `bd`
+command), `make restart`, and a human running `lux display` directly —
+and any of them can run concurrently with a `reap()` or a stale-file
+cleanup. The original guard (lux-w8t5's predecessor) decided liveness
+from a PID **file** and unlinked the socket on a stale read; that leaked
+orphaned windows across a session. Fixing it empirically took 16 review
+rounds (13 on lux-w8t5, 3 on lux-h29e), each surfacing another
+interleaving: recycled-PID false-alive, a live socket unlinked while its
+owner was slow to handshake, a zombie read as alive, a two-winner race
+where a concurrent cleanup unlinked a freshly-bound socket, a
+`make restart` spawn outside the lock, a stalled display misread as dead.
+
+The recurrence itself was the signal: this is a finite-state concurrency
+problem, and empirical testing samples interleavings rather than proving
+them.
+
+### Decision
+
+The display lifecycle is a state machine over the socket path, governed
+by four architectural commitments:
+
+1. **The socket is authoritative for both liveness and identity — never
+   the PID file.** Liveness is a tri-state probe (`SocketLiveness`:
+   `DEAD` / `ACCEPTING` / `READY`) that *connects* to the socket. A
+   process that accepts a connection is a live owner and is never
+   unlinked or spawned over, even before it completes the `ReadyMessage`
+   handshake. Identity (which PID owns the socket, for reaping) is read
+   from the OS peer credential of the connected socket (`LOCAL_PEERPID`
+   on macOS, `SO_PEERCRED` on Linux) — not from a file that can go stale,
+   be recycled, or be deleted.
+
+2. **Two locks, acquired only in the order spawn → bind.** The
+   **spawn-lock** (`<sock>.sock.lock`) is held by `ensure()`/`reap()`
+   end-to-end (through `_await_ready`) to serialize spawn/reap decisions.
+   The **bind-lock** (`<sock>.sock.bindlock`) is held by the display
+   server's `setup()` across its `{probe, cleanup_stale, bind, listen}`
+   critical section. `setup()` takes *only* the bind-lock; `ensure()`/
+   `reap()` take the spawn-lock and, briefly and inner, the bind-lock for
+   cleanup — releasing it before `_await_ready`. The order never inverts,
+   so the two cannot deadlock.
+
+3. **The server self-arbitrates at bind; `setup()` must not take the
+   spawn-lock.** `setup()` cannot hold the spawn-lock, because `ensure()`
+   holds that lock while waiting for the very display whose `setup()`
+   would then block on it — a self-deadlock. Instead the OS's atomic
+   `AF_UNIX` `bind()` is the mutex: `setup()` probes for a live owner
+   (exits `0` if one is serving — before opening any window), clears only
+   a confirmed-dead socket under the bind-lock, then `bind()`s. A lost
+   race (`EADDRINUSE`/`EEXIST`) means another instance won → exit `0`; any
+   other `OSError` fails loud.
+
+4. **The design is formally specified and model-checked (see DES-038),
+   not merely tested.** `docs/display_lifecycle.tex` is the source of
+   truth for the invariants; the code refines it.
+
+### Rationale
+
+- **PID files lie; sockets don't.** A PID file can name a recycled PID
+  (false-alive), be missing while the owner lives (false-dead → unlink
+  the live socket), or be deleted. The kernel's socket state and peer
+  credential are ground truth for "is someone serving here, and who".
+- **Two locks because one cannot cover both concerns without
+  deadlocking.** A single lock held from spawn through serving would
+  block the spawned display's own bind. Splitting spawn-serialization
+  from bind-serialization, with a fixed acquisition order, gives mutual
+  exclusion where each is needed and provable deadlock-freedom.
+- **Bind-as-mutex closes the last race the locks can't.** A hand-run
+  `lux display` bypasses `ensure()`'s spawn-lock entirely; the atomic
+  `bind()` is the one arbiter every path shares, so making the server
+  self-arbitrate there (rather than trusting an external lock) covers
+  the bypass.
+- **`ECONNREFUSED` is ambiguous, so mitigate rather than disambiguate.**
+  A backlog-saturated live socket and a dead socket both refuse
+  `connect`. The probe cannot tell them apart, so the `listen()` backlog
+  is large (128) to make a live-but-briefly-stalled display's queue
+  effectively un-fillable at lux's client count, rather than pretending
+  the probe can distinguish the two.
+
+### Alternatives considered
+
+- **PID-file liveness (the original).** Rejected: recycled-PID and
+  stale-file false reads are the entire defect class this ADR closes.
+- **A single lock covering spawn → serving.** Rejected: deadlocks the
+  spawned display's bind against the spawner still holding the lock.
+- **`setup()` acquires the spawn-lock.** Rejected: self-deadlock, since
+  `ensure()` holds it awaiting readiness. This is the specific trap the
+  bind-lock avoids.
+- **Disambiguate `ECONNREFUSED` (backlog-full vs no-listener) at the
+  probe.** Rejected: impossible at the socket API level; the large
+  backlog is the pragmatic mitigation.
+- **Keep hardening empirically (round 17+).** Rejected by the operator:
+  a recurring concurrency defect warrants formalization (DES-038).
+
+### Relationship to prior ADRs
+
+- Sits under the Hub/Display topology (DES-030 onward): this ADR governs
+  the *process lifecycle* of the display, orthogonal to the rendering,
+  Update/Event, and MCP-boundary concerns of DES-031–036.
+- `DisplayPaths` (display lifecycle) and `HubPaths` (luxd lifecycle,
+  extracted in lux-bsrs) are the two symmetric lifecycle owners.
+
+### References
+
+- `src/punt_lux/paths.py` (`DisplayPaths`), `src/punt_lux/socket_server.py`
+  (`SocketServer.setup`), `src/punt_lux/display/server.py` (`run()` guard).
+- `docs/display_lifecycle.tex` + `docs/display_lifecycle_coverage.md`.
+- Beads lux-w8t5 (liveness/reap) and lux-h29e (bind arbitration).
+
+## DES-038: Formal Verification (Z + ProB) for Concurrency and State-Machine Defects
+
+**Date:** 2026-07-04
+**Status:** ACCEPTED
+**Decided by:** the operator
+**Companion doc:** `CLAUDE.md` §"Formal Verification (z-spec)"
+
+### Problem
+
+The display-lifecycle defect (DES-037) was chased across 16 empirical
+fix/review rounds. Every round a new interleaving surfaced, was fixed,
+and a test was added — yet the next round found another. Tests *sample*
+the interleaving space; they cannot prove its absence of violations. A
+"50/50 green" concurrency test is confidence, not proof, and a passing
+test can silently exercise a stubbed premise rather than the real
+mechanism (the partition audit found exactly this: the bind-window
+"bound-not-listening reads dead" premise was monkeypatched, never
+proven against a real socket).
+
+### Decision
+
+For the class of change that is **concurrency, a lock discipline, or a
+safety-critical state machine** — and, as a hard rule, the moment the
+*same class of defect recurs across two or more fix rounds** — the design
+is **formally specified in Z and model-checked with ProB** before merge.
+The model check, not a green test run, is the merge gate. Specifically:
+
+1. `z-spec:code2model` → a Z spec of the state machine (flat state,
+   bounded carrier, single `Init`).
+2. `fuzz` type-check; `probcli -model_check` every safety invariant plus
+   the deadlock check over a bounded carrier (setsize 2–3 exhibits the
+   races).
+3. **Fidelity check (mandatory):** the model must reproduce the *known*
+   defect when the fix is removed (drop the lock → ProB returns the exact
+   bad interleaving). A model that cannot reproduce the bug it guards is
+   too abstract to trust.
+4. `z-spec:partition` + `z-spec:audit` — derive the test partitions from
+   the spec and fill every coverage gap; a test that stubs the mechanism
+   is a gap, not coverage.
+5. Commit the spec (`docs/*.tex`) as a regression artifact; re-check when
+   the modeled code changes.
+
+The full rule is codified as a standard in `CLAUDE.md`.
+
+### Rationale
+
+- **A finite state space is provable; testing only samples it.** The
+  spawn/reap/bind/cleanup interleaving under two locks is finite and
+  exhaustively checkable. Model-checking replaces N rounds of "find one
+  more interleaving" with one exhaustive pass.
+- **The fidelity check prevents false confidence.** A model that passes
+  because it is too abstract to express the bug is worse than no model.
+  Requiring it to reproduce the known counterexample makes the green
+  result meaningful.
+- **Formal verification and code review are complementary, not
+  redundant.** ProB proves the concurrency invariants it models; it does
+  not model signal-handler timing or fd cleanup on error paths. On this
+  very change, Bugbot and Copilot caught a SIGTERM-teardown window and an
+  fd leak that were out of the model's scope. Both layers are required.
+
+### Alternatives considered
+
+- **Keep hardening empirically.** Rejected — it had failed 16 times.
+- **TLA+ / Alloy instead of Z + ProB.** Not adopted: the org already
+  standardizes on z-spec (fuzz + probcli), and Z + ProB was sufficient to
+  model the lifecycle and find/verify the races. Revisit only if a future
+  problem exceeds ProB's practical model-checking capacity.
+- **Model-check but skip the partition/audit coverage step.** Rejected:
+  the audit is what caught the tests stubbing the mechanism; proving the
+  design without proving the tests exercise it leaves a real gap.
+
+### Relationship to prior ADRs
+
+- The reference application of this methodology is DES-037. This ADR
+  captures the *methodology* decision; DES-037 captures the *architecture*
+  it verified.
+
+### References
+
+- `CLAUDE.md` §"Formal Verification (z-spec)"; `docs/display_lifecycle.tex`;
+  `docs/display_lifecycle_coverage.md`. Toolchain: `/z-spec:setup`.
