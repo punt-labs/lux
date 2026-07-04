@@ -1,0 +1,569 @@
+%
+% display_lifecycle.tex
+%
+% A Z specification of the lux display singleton lifecycle: concurrent
+% agents contending for one Unix-socket path under a two-lock discipline
+% (spawn lock + bind lock).  Formalises the design hardened empirically
+% across lux-w8t5 and lux-h29e.
+%
+% Source of record:
+%   src/punt_lux/paths.py         -- DisplayPaths: probe, spawn/bind locks,
+%                                    cleanup_stale, reap
+%   src/punt_lux/socket_server.py -- SocketServer.setup: the
+%                                    probe -> cleanup -> bind -> listen
+%                                    critical section under bind_lock
+%
+% Type-check:  fuzz -t docs/display_lifecycle.tex
+% Model-check (see Section "Verification" for the exact goal predicates):
+%   probcli docs/display_lifecycle.tex -model_check -p DEFAULT_SETSIZE 2
+%   probcli docs/display_lifecycle.tex -model_check -nodead \
+%       -goal "card({a|a:AGENT & phase(a):{bound,listening,serving}})>1" \
+%       -p DEFAULT_SETSIZE 2
+%
+% Formatting follows the fuzz house rules: \quad~ for continuation
+% indent (never \t1..\t9), schema lines under 80 columns, predicates
+% broken at \land/\lor/\implies with the operator starting the
+% continuation line.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{The lux Display Singleton Lifecycle: a Z Specification}
+\author{Formal model of the two-lock bind-race discipline}
+\date{July 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+Two or more agents may, at the same instant, decide that no display is
+running and try to become the one display that owns a single Unix-socket
+path.  Exactly one must win.  The mechanism that arbitrates the race is a
+pair of advisory file locks --- a \emph{spawn lock} held end-to-end by
+\texttt{ensure} and \texttt{reap}, and a \emph{bind lock} held by
+\texttt{setup} across the whole
+\texttt{probe $\to$ cleanup $\to$ bind $\to$ listen} critical section.
+
+The subtlety the design must survive is the \emph{bind window}.  A socket
+that has been \texttt{bind}-ed but not yet \texttt{listen}-ed refuses
+connections; a liveness probe therefore reads it as \emph{dead}.  Without
+serialisation, a second agent probing during that window concludes the
+path is stale, unlinks the first agent's fresh socket, and binds its own
+--- and now two displays believe they own the path.  That is the round-2
+defect fixed on branch \texttt{fix/lux-h29e-bind-race}.
+
+This document models the lifecycle as a finite state machine over a small
+fixed set of agents, so that ProB can enumerate every interleaving and
+either confirm the five invariants or produce the exact offending trace.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [AGENT]
+\end{zed}
+
+\texttt{AGENT} is the set of concurrent processes contending for the
+path.  Two agents suffice to exhibit the two-winner race; three exercise
+lock contention more thoroughly.  The carrier is bounded by ProB's
+\texttt{DEFAULT\_SETSIZE}, so no explicit cardinality constant is needed.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  SOCKSTATUS ::= sabsent | sbound | slistening | sstale
+\end{zed}
+
+The status of the \emph{file at the socket path}, as a liveness probe
+would observe it.  \texttt{sabsent}: no file.  \texttt{sbound}: a socket
+is bound but \texttt{listen} has not been called --- the bind window; a
+probe reads it dead.  \texttt{slistening}: a live owner is accepting
+connections.  \texttt{sstale}: a leftover socket file whose owner has
+died --- a probe reads it dead.
+
+\begin{zed}
+  PHASE ::= \\
+  \quad~ idle | hasSpawn | hasBind | probed | bound | \\
+  \quad~ listening | serving | lostRace | exited | reaping
+\end{zed}
+
+Each agent's own progress.  \texttt{idle} before it acts;
+\texttt{hasSpawn}/\texttt{hasBind} once it holds the corresponding lock;
+\texttt{probed} after it has observed the path; \texttt{bound} after a
+successful \texttt{bind}; \texttt{listening} after \texttt{listen};
+\texttt{serving} once it has released the bind lock and is the running
+display; \texttt{lostRace} for an agent that observed a live owner or
+lost the bind; \texttt{exited} for a terminated agent; \texttt{reaping}
+for a reaper mid-teardown.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema, five components.  Its predicate carries
+only \emph{structural} invariants --- cardinality bounds on the locks and
+owner, and the correspondence between the path's status and whether it
+has an owner.  These hold in every design, correct or buggy, so they act
+as coherence constraints, not as the safety properties under test.  The
+safety properties (Section~\ref{sec:inv}) are deliberately \emph{absent}
+here, so that a violating state remains reachable and ProB can find it.
+
+\begin{schema}{Sys}
+  socketStatus : SOCKSTATUS \\
+  owner : \power AGENT \\
+  spawnLock : \power AGENT \\
+  bindLock : \power AGENT \\
+  phase : AGENT \fun PHASE
+\where
+  \# owner \leq 1 \\
+  \# spawnLock \leq 1 \\
+  \# bindLock \leq 1 \\
+  socketStatus = sabsent \implies owner = \emptyset \\
+  socketStatus = sstale \implies owner = \emptyset \\
+  socketStatus = sbound \implies \# owner = 1 \\
+  socketStatus = slistening \implies \# owner = 1
+\end{schema}
+
+\texttt{owner} is the singleton (or empty) set naming the agent whose
+socket is currently installed at the path; a lock component names its
+current holder.  Modelling these as sets of size at most one lets the
+empty set stand for ``none'' without an extra sentinel value.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Sys'
+\where
+  socketStatus' = sabsent \\
+  owner' = \emptyset \\
+  spawnLock' = \emptyset \\
+  bindLock' = \emptyset \\
+  phase' = (\lambda a : AGENT @ idle)
+\end{schema}
+
+A single initial state: no file, no locks held, every agent idle.
+
+% ============================================================
+\section{Lock Operations}
+% ============================================================
+
+The two locks are acquired non-blockingly: an acquire is \emph{enabled}
+only when the lock is free, so a ``blocked'' agent is simply an agent
+whose acquire is not enabled.  Cyclic waiting --- and hence deadlock ---
+is what ProB's deadlock check must rule out.
+
+The lock order is spawn-outer, bind-inner.  An agent that already holds
+the bind lock never asks for the spawn lock, and vice versa: each agent
+holds at most one of the two.  This is encoded directly in the acquire
+guards, and is the syntactic reason no cyclic wait can form.
+
+\begin{schema}{AcquireBindLock}
+  \Delta Sys \\
+  a? : AGENT
+\where
+  phase~a? = idle \\
+  a? \notin spawnLock \\
+  bindLock = \emptyset \\
+  bindLock' = \{ a? \} \\
+  phase' = phase \oplus \{ a? \mapsto hasBind \} \\
+  socketStatus' = socketStatus \\
+  owner' = owner \\
+  spawnLock' = spawnLock
+\end{schema}
+
+\begin{schema}{ReleaseBindLock}
+  \Delta Sys \\
+  a? : AGENT
+\where
+  a? \in bindLock \\
+  phase~a? = listening \\
+  bindLock' = \emptyset \\
+  phase' = phase \oplus \{ a? \mapsto serving \} \\
+  socketStatus' = socketStatus \\
+  owner' = owner \\
+  spawnLock' = spawnLock
+\end{schema}
+
+Releasing the bind lock is the last step of the critical section: the
+agent has bound and listened, and now becomes the running display.
+
+\begin{schema}{AcquireSpawnLock}
+  \Delta Sys \\
+  a? : AGENT
+\where
+  phase~a? = idle \\
+  a? \notin bindLock \\
+  spawnLock = \emptyset \\
+  spawnLock' = \{ a? \} \\
+  phase' = phase \oplus \{ a? \mapsto hasSpawn \} \\
+  socketStatus' = socketStatus \\
+  owner' = owner \\
+  bindLock' = bindLock
+\end{schema}
+
+\begin{schema}{ReleaseSpawnLock}
+  \Delta Sys \\
+  a? : AGENT
+\where
+  a? \in spawnLock \\
+  phase~a? = reaping \\
+  spawnLock' = \emptyset \\
+  phase' = phase \oplus \{ a? \mapsto exited \} \\
+  socketStatus' = socketStatus \\
+  owner' = owner \\
+  bindLock' = bindLock
+\end{schema}
+
+% ============================================================
+\section{The Bind Critical Section}
+% ============================================================
+
+Every operation in this section is guarded by \texttt{a? $\in$ bindLock}:
+in the current design the probe, the stale cleanup, the bind, and the
+listen all run under the one held bind lock.  That single guard is the
+whole serialisation; removing it from \texttt{CleanupStale} and
+\texttt{Bind} yields the buggy variant of Section~\ref{sec:fidelity}.
+
+\texttt{Probe} records that the agent has observed the path.  Observation
+and the action taken on it are separate steps, so the state may change
+between them --- this is the time-of-check/time-of-use gap the bind lock
+must close.
+
+\begin{schema}{Probe}
+  \Delta Sys \\
+  a? : AGENT
+\where
+  a? \in bindLock \\
+  phase~a? = hasBind \\
+  phase' = phase \oplus \{ a? \mapsto probed \} \\
+  socketStatus' = socketStatus \\
+  owner' = owner \\
+  spawnLock' = spawnLock \\
+  bindLock' = bindLock
+\end{schema}
+
+\texttt{CleanupStale} unlinks a socket that probes \emph{dead}: a stale
+leftover (\texttt{sstale}) or --- and this is the dangerous case --- one
+that is bound but not yet listening (\texttt{sbound}).  It never touches
+a live (\texttt{slistening}) socket.  A probing agent never owns the path
+(it has not bound), so this only ever removes another agent's file.
+
+\begin{schema}{CleanupStale}
+  \Delta Sys \\
+  a? : AGENT
+\where
+  a? \in bindLock \\
+  phase~a? = probed \\
+  socketStatus \in \{ sstale, sbound \} \\
+  socketStatus' = sabsent \\
+  owner' = \emptyset \\
+  phase' = phase \\
+  spawnLock' = spawnLock \\
+  bindLock' = bindLock
+\end{schema}
+
+Under the bind lock this operation's \texttt{sbound} branch is
+unreachable: the only agent that could hold the lock is \texttt{a?}
+itself, and it has not bound, so no socket is in the bind window.  ProB
+confirms the branch never fires (Section~\ref{sec:verify}).  In the
+buggy variant it fires, and that is precisely the two-winner defect.
+
+\begin{schema}{Bind}
+  \Delta Sys \\
+  a? : AGENT
+\where
+  a? \in bindLock \\
+  phase~a? = probed \\
+  socketStatus = sabsent \\
+  socketStatus' = sbound \\
+  owner' = \{ a? \} \\
+  phase' = phase \oplus \{ a? \mapsto bound \} \\
+  spawnLock' = spawnLock \\
+  bindLock' = bindLock
+\end{schema}
+
+\texttt{Bind} is atomic and succeeds only from \texttt{sabsent}.  A
+concurrent binder that finds the path already taken loses the race:
+
+\begin{schema}{BindFail}
+  \Delta Sys \\
+  a? : AGENT
+\where
+  a? \in bindLock \\
+  phase~a? = probed \\
+  socketStatus = sbound \\
+  a? \notin owner \\
+  phase' = phase \oplus \{ a? \mapsto lostRace \} \\
+  bindLock' = \emptyset \\
+  socketStatus' = socketStatus \\
+  owner' = owner \\
+  spawnLock' = spawnLock
+\end{schema}
+
+\texttt{Listen} promotes the bound socket to live.  An agent listens on
+its \emph{own} descriptor: if it still owns the path the path goes live;
+if its file was unlinked from under it (the buggy variant), it listens on
+an orphaned descriptor and the path's status is unchanged.
+
+\begin{schema}{Listen}
+  \Delta Sys \\
+  a? : AGENT
+\where
+  a? \in bindLock \\
+  phase~a? = bound \\
+  phase' = phase \oplus \{ a? \mapsto listening \} \\
+  socketStatus' = \\
+  \quad~ \IF a? \in owner \THEN slistening \ELSE socketStatus \\
+  owner' = owner \\
+  spawnLock' = spawnLock \\
+  bindLock' = bindLock
+\end{schema}
+
+An agent that probed a \emph{live} path concedes without binding:
+
+\begin{schema}{LoseRaceLive}
+  \Delta Sys \\
+  a? : AGENT
+\where
+  a? \in bindLock \\
+  phase~a? = probed \\
+  socketStatus = slistening \\
+  phase' = phase \oplus \{ a? \mapsto lostRace \} \\
+  bindLock' = \emptyset \\
+  socketStatus' = socketStatus \\
+  owner' = owner \\
+  spawnLock' = spawnLock
+\end{schema}
+
+A lost racer exits, changing nothing but its own phase:
+
+\begin{schema}{Exit}
+  \Delta Sys \\
+  a? : AGENT
+\where
+  phase~a? = lostRace \\
+  phase' = phase \oplus \{ a? \mapsto exited \} \\
+  socketStatus' = socketStatus \\
+  owner' = owner \\
+  spawnLock' = spawnLock \\
+  bindLock' = bindLock
+\end{schema}
+
+% ============================================================
+\section{Failure and Teardown}
+% ============================================================
+
+An owner may crash, leaving a stale file.  Killing the process releases
+any lock it held:
+
+\begin{schema}{Crash}
+  \Delta Sys \\
+  a? : AGENT
+\where
+  a? \in owner \\
+  phase~a? \in \{ listening, serving \} \\
+  socketStatus' = sstale \\
+  owner' = \emptyset \\
+  phase' = phase \oplus \{ a? \mapsto exited \} \\
+  bindLock' = bindLock \setminus \{ a? \} \\
+  spawnLock' = spawnLock
+\end{schema}
+
+A reaper terminates the live owner under the spawn lock, then clears the
+files.  The file-clearing step needs the bind lock free (it mirrors
+\texttt{reap}'s \texttt{\_clear\_dead\_files\_locked}), so a concurrent
+binder is never unlinked mid-bind:
+
+\begin{schema}{Reap}
+  \Delta Sys \\
+  a? : AGENT
+\where
+  a? \in spawnLock \\
+  phase~a? = hasSpawn \\
+  socketStatus = slistening \\
+  bindLock = \emptyset \\
+  phase' = \\
+  \quad~ (phase \oplus (owner \cross \{ exited \})) \\
+  \quad~ \oplus \{ a? \mapsto reaping \} \\
+  socketStatus' = sabsent \\
+  owner' = \emptyset \\
+  spawnLock' = spawnLock \\
+  bindLock' = bindLock
+\end{schema}
+
+When there is no live owner, the reaper simply clears any dead file,
+again only with the bind lock free:
+
+\begin{schema}{ReapDead}
+  \Delta Sys \\
+  a? : AGENT
+\where
+  a? \in spawnLock \\
+  phase~a? = hasSpawn \\
+  socketStatus \neq slistening \\
+  bindLock = \emptyset \\
+  socketStatus' = sabsent \\
+  owner' = \emptyset \\
+  phase' = phase \oplus \{ a? \mapsto reaping \} \\
+  spawnLock' = spawnLock \\
+  bindLock' = bindLock
+\end{schema}
+
+An exited agent may re-enter as a fresh process.  This keeps the system
+live --- it never runs out of enabled operations at a benign terminal
+state --- so that the deadlock check reports only genuine lock
+deadlocks, never mere termination:
+
+\begin{schema}{Reset}
+  \Delta Sys \\
+  a? : AGENT
+\where
+  phase~a? = exited \\
+  a? \notin spawnLock \\
+  a? \notin bindLock \\
+  phase' = phase \oplus \{ a? \mapsto idle \} \\
+  socketStatus' = socketStatus \\
+  owner' = owner \\
+  spawnLock' = spawnLock \\
+  bindLock' = bindLock
+\end{schema}
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+Five properties must hold across all reachable states.  They are stated
+here as predicates over \texttt{Sys}; how each is discharged is given in
+Section~\ref{sec:verify}.  None is placed in the \texttt{Sys} schema: a
+predicate placed there would be enforced as a guard on every successor,
+silently disabling any operation that would break it and thereby masking
+the very defect this model exists to catch.
+
+\paragraph{Invariant 1 --- singleton serving.}
+At most one agent is in \texttt{serving}:
+\[
+  \# \{ a : AGENT | phase~a = serving \} \leq 1.
+\]
+
+\paragraph{Invariant 2 --- never unlink live.}
+No operation carries \texttt{socketStatus} from \texttt{slistening} to
+\texttt{sabsent} except a legitimate \texttt{Reap} of that owner.  This is
+a property of the transition relation, established by construction: the
+only operations that assign \texttt{socketStatus' = sabsent} are
+\texttt{CleanupStale} (guarded \texttt{socketStatus $\in$ \{sstale,
+sbound\}}), \texttt{Bind}'s precondition path (from \texttt{sabsent}),
+\texttt{Reap} (guarded \texttt{socketStatus = slistening}), and
+\texttt{ReapDead} (guarded \texttt{socketStatus $\neq$ slistening}).  Of
+these, only \texttt{Reap} starts from \texttt{slistening}, and it does so
+only after terminating the owner.  \texttt{CleanupStale}'s guard
+excludes \texttt{slistening} outright, so a live socket is never
+unlinked.
+
+\paragraph{Invariant 3 --- no two winners.}
+At most one agent holds a non-absent claim on the path:
+\[
+  \# \{ a : AGENT | phase~a \in \{ bound, listening, serving \} \}
+    \leq 1.
+\]
+
+\paragraph{Invariant 4 --- deadlock freedom.}
+No reachable state leaves every agent unable to progress while some agent
+is non-terminal.  The two-lock order (spawn-outer, bind-inner, never both
+held by one agent, an agent holding one never requesting the other) makes
+a cyclic wait impossible.
+
+\paragraph{Invariant 5 --- lost-racer clean exit.}
+An agent in \texttt{lostRace} can only reach \texttt{exited}, via
+\texttt{Exit}, which changes nothing but its own phase.  By construction
+\texttt{lostRace} is produced only by \texttt{BindFail} and
+\texttt{LoseRaceLive} and consumed only by \texttt{Exit}; the \texttt{Exit}
+schema frames \texttt{socketStatus}, \texttt{owner}, \texttt{spawnLock},
+and \texttt{bindLock} unchanged.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz -t docs/display_lifecycle.tex
+\end{verbatim}
+
+Invariants 1 and 3 are state properties, checked by asking ProB whether
+their negation is \emph{reachable}.  A goal that is not found means the
+invariant holds on every reachable state:
+\begin{verbatim}
+  # Invariant 1 (must report: goal NOT found)
+  probcli docs/display_lifecycle.tex -model_check -nodead \
+    -goal "card({a|a:AGENT & phase(a)=serving})>1" \
+    -p DEFAULT_SETSIZE 2
+
+  # Invariant 3 (must report: goal NOT found)
+  probcli docs/display_lifecycle.tex -model_check -nodead \
+    -goal "card({a|a:AGENT & phase(a):{bound,listening,serving}})>1" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Invariant 4 is the deadlock check over the full reachable state space:
+\begin{verbatim}
+  # Invariant 4 (must report: no deadlock)
+  probcli docs/display_lifecycle.tex -model_check \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Invariants 2 and 5 are transition/structural properties, established by
+the shape of the operation schemas as argued in Section~\ref{sec:inv} and
+corroborated by ProB's operation-coverage report (\texttt{CleanupStale}
+never fires from a \texttt{slistening} state; \texttt{Exit} is the sole
+consumer of \texttt{lostRace}).
+
+% ============================================================
+\section{Fidelity: reproducing the two-winner defect}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce the known defect proves nothing.  The
+buggy variant is the current specification with one change: the bind-lock
+serialisation is removed from the critical section, so cleanup and bind
+no longer run under a single held lock.  Concretely, delete the guard
+\texttt{a? $\in$ bindLock} from \texttt{CleanupStale} and \texttt{Bind}
+(and, to let a second agent enter the window, from \texttt{Probe} and
+\texttt{Listen}).  The two-winner interleaving then becomes reachable:
+
+\begin{enumerate}
+  \item Agent $x$ probes the absent path and binds it:
+    \texttt{socketStatus = sbound}, \texttt{owner = \{x\}},
+    \texttt{phase~x = bound}.
+  \item Agent $y$ probes during the bind window and reads
+    \texttt{sbound} as dead.
+  \item Agent $y$ runs \texttt{CleanupStale}, unlinking $x$'s fresh
+    socket: \texttt{socketStatus = sabsent}, \texttt{owner = $\emptyset$}
+    --- while \texttt{phase~x} is still \texttt{bound}.
+  \item Agent $y$ binds its own socket: \texttt{owner = \{y\}},
+    \texttt{phase~y = bound}.
+  \item Now \texttt{phase~x = bound} and \texttt{phase~y = bound}: two
+    agents hold a non-absent claim, violating Invariant~3.
+\end{enumerate}
+
+Under the intact bind lock this interleaving is impossible: step~2
+cannot occur because $y$ cannot acquire the bind lock while $x$ holds it,
+and $x$ holds it from before step~1 until after it has listened and
+released.  The reachability search for Invariant~3 therefore returns
+\emph{goal not found} for the current design and \emph{goal found} --- the
+trace above --- for the buggy variant.  That difference is the evidence
+that the model detects the race the code was changed to prevent.
+
+\end{document}
