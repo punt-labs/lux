@@ -61,3 +61,15 @@ demos/
 
 # Per-user plugin local config (vox/biff/etc.) — never tracked
 *.local.md
+
+# LaTeX build artifacts for root prfaq.tex (PDF is committed for the README badge link)
+/prfaq.aux
+/prfaq.bbl
+/prfaq.bcf
+/prfaq.blg
+/prfaq.log
+/prfaq.out
+/prfaq.run.xml
+/prfaq.toc
+/prfaq.fdb_latexmk
+/prfaq.fls
