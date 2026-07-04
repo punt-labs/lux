@@ -209,26 +209,27 @@ class DisplayPaths:
     def reap(self, timeout: float = 5.0) -> None:
         """Terminate the socket's owner and clear its files; raise on failure.
 
-        The owner is the socket's OS peer credential. A dead socket is
-        cleared. An unresolved owner or one that outlives ``SIGKILL`` raises
-        rather than orphaning a window a restart would stack a second over.
+        Holds the spawn lock across kill→confirm→cleanup so a concurrent
+        ``ensure()`` cannot bind a new display mid-reap. An unresolved owner
+        or one outliving ``SIGKILL`` raises (the lock releases on every path).
         """
-        if not self.is_running():
-            self._clear_dead_files()
-            return
-        pid = self._peer_pid()
-        if pid is None:
-            # TOCTOU: the owner may have exited between the probe and peer read.
+        with self._spawn_lock():
             if not self.is_running():
                 self._clear_dead_files()
                 return
-            msg = (
-                f"display alive on {self._socket_path} but its owner could not "
-                "be resolved via the socket peer credential — refusing to reap"
-            )
-            raise RuntimeError(msg)
-        self._terminate(pid, timeout)  # raises if the owner outlives SIGKILL
-        self._clear_dead_files()
+            pid = self._peer_pid()
+            if pid is None:
+                # TOCTOU: the owner may have exited between probe and peer read.
+                if not self.is_running():
+                    self._clear_dead_files()
+                    return
+                msg = (
+                    f"display alive on {self._socket_path} but its owner could "
+                    "not be resolved via the socket peer credential — refusing to reap"
+                )
+                raise RuntimeError(msg)
+            self._terminate(pid, timeout)  # raises if the owner outlives SIGKILL
+            self._clear_dead_files()
 
     def _peer_pid(self) -> int | None:
         """Return the socket owner's PID from its OS peer credential, or ``None``.
@@ -252,9 +253,10 @@ class DisplayPaths:
 
     def _clear_dead_files(self) -> None:
         """Unlink the dead display's socket (or stale non-socket file) and PID file."""
+        if self.is_running():
+            return  # a live owner bound the socket after confirm-dead — leave it
         if self._socket_path.is_socket() or self._socket_path.is_file():
-            # Clear a leftover regular file too — it blocks a fresh bind() and has
-            # no live owner. WARNING surfaces the unlink from the reap `python -c`.
+            # clear a leftover regular file too — it blocks a fresh bind()
             logger.warning("removing dead display socket %s", self._socket_path)
             self._socket_path.unlink(missing_ok=True)
         self.remove_pid()
@@ -262,9 +264,7 @@ class DisplayPaths:
     def _terminate(self, pid: int, timeout: float) -> None:
         """Terminate *pid* (SIGTERM→SIGKILL), confirming death; raise if it survives.
 
-        Death is confirmed by polling ``os.kill(pid, 0)`` — SIGKILL is async,
-        so the caller trusts this over the lingering socket. ``PermissionError``
-        propagates; ``os.kill`` retries EINTR itself (PEP 475).
+        ``PermissionError`` propagates; ``os.kill`` retries EINTR itself (PEP 475).
         """
         if pid <= 0:  # never signal a process group; the caller must resolve one
             msg = f"refusing to signal non-positive PID {pid}"

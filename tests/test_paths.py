@@ -865,8 +865,11 @@ class TestReap:
 
         try:
             with (
-                # First probe: alive. Re-check after the None peer: dead.
-                patch.object(DisplayPaths, "is_running", side_effect=[True, False]),
+                # Probe 1: alive. Probe 2 (after None peer): dead. Probe 3
+                # (_clear_dead_files re-probe before unlink): dead.
+                patch.object(
+                    DisplayPaths, "is_running", side_effect=[True, False, False]
+                ),
                 patch.object(DisplayPaths, "_peer_pid", return_value=None),
                 patch("punt_lux.paths.os.kill") as kill,
             ):
@@ -921,6 +924,80 @@ class TestReap:
                 dp.reap(timeout=0.3)
             kill.assert_not_called()  # no fallback signal to the PID file value
             assert path.exists()
+        finally:
+            display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_reap_holds_lock_against_concurrent_ensure(self) -> None:
+        """reap holds the spawn lock so a concurrent ensure() cannot spawn mid-reap.
+
+        While reap is inside its locked cleanup, a second thread's ensure()
+        blocks on the same flock and must not spawn a display until reap
+        releases — closing the TOCTOU where ensure would bind a socket that
+        reap's cleanup then unlinks.
+        """
+        path = _short_socket()
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.bind(str(path))
+        s.close()  # dead socket → reap takes the clear-files branch
+        reaper = DisplayPaths(path)
+        spawner = DisplayPaths(path)
+        in_cleanup = threading.Event()
+        release = threading.Event()
+        spawned: list[_FakeDisplay] = []
+        orig_clear = DisplayPaths._clear_dead_files
+
+        def blocking_clear(self: DisplayPaths) -> None:
+            in_cleanup.set()  # reap now holds the lock
+            assert release.wait(timeout=5), "release never signalled"
+            orig_clear(self)
+
+        def fake_popen(*_a: object, **_k: object) -> object:
+            spawned.append(_FakeDisplay(path))
+
+            class FakeProc:
+                pid = os.getpid()
+
+            return FakeProc()
+
+        try:
+            with patch.object(DisplayPaths, "_clear_dead_files", blocking_clear):
+                t_reap = threading.Thread(target=reaper.reap)
+                t_reap.start()
+                assert in_cleanup.wait(timeout=5), "reap never entered cleanup"
+                with patch(
+                    "punt_lux.paths.subprocess.Popen", side_effect=fake_popen
+                ) as popen:
+                    t_ensure = threading.Thread(
+                        target=lambda: spawner.ensure(timeout=3.0)
+                    )
+                    t_ensure.start()
+                    time.sleep(0.3)  # ensure would spawn by now if not blocked
+                    assert popen.call_count == 0, "ensure spawned while reap held lock"
+                    release.set()  # let reap finish and release the lock
+                    t_ensure.join(timeout=5)
+                    assert popen.call_count > 0  # ensure proceeded after reap released
+                t_reap.join(timeout=5)
+        finally:
+            for display in spawned:
+                display.stop()
+            shutil.rmtree(path.parent, ignore_errors=True)
+
+    def test_clear_dead_files_skips_live_socket(self) -> None:
+        """_clear_dead_files re-probes and never unlinks a socket a live owner bound.
+
+        Defense in depth for the reap-vs-spawn race: if a new owner binds the
+        socket between confirm-dead and cleanup, the re-probe reads it live and
+        skips the unlink, leaving the new window's socket and PID file intact.
+        """
+        path = _short_socket()
+        display = _FakeDisplay(path)  # a live owner holds the socket
+        dp = DisplayPaths(path)
+        dp.pid_path.write_text(str(os.getpid()))
+        try:
+            dp._clear_dead_files()  # re-probe sees a live owner → no unlink
+            assert path.exists()  # live socket preserved
+            assert dp.pid_path.exists()  # live owner's PID file preserved
         finally:
             display.stop()
             shutil.rmtree(path.parent, ignore_errors=True)
