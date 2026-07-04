@@ -122,14 +122,14 @@ class SocketServer:
             sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
             try:
                 sock.bind(str(socket_path))
+                sock.listen(_LISTEN_BACKLOG)
+                sock.setblocking(False)  # noqa: FBT003
             except OSError as exc:
-                sock.close()
+                sock.close()  # close on every failure path — never leak the bound fd
                 if exc.errno not in _BIND_RACE_ERRNOS:
-                    raise  # a real bind failure (permissions, bad path) fails loud
+                    raise  # real failure (permissions, bad path, listen) fails loud
                 logger.info("lost bind race at %s; exiting", socket_path)
                 return False
-            sock.listen(_LISTEN_BACKLOG)
-            sock.setblocking(False)  # noqa: FBT003
             self._server_sock = sock
             return True
 
