@@ -27,7 +27,7 @@
   missing PID file can no longer orphan a live display or spawn a duplicate
   window. Spawn, reap, and cleanup are serialized under a single per-socket
   lock, and `make restart` now ensures exactly one live display (and fails
-  loudly if one can't start, instead of silently backgrounding a dead process).
+  loudly if one cannot start, instead of silently backgrounding a dead process).
   (lux-w8t5)
 
 ### Security
