@@ -349,22 +349,24 @@ class TestCleanupStale:
             display.stop()
             shutil.rmtree(path.parent, ignore_errors=True)
 
-    def test_preserves_non_socket_file(self) -> None:
-        """A non-socket file at the path is ambiguous — nothing is unlinked.
+    def test_removes_non_socket_file(self) -> None:
+        """A regular file at the socket path is dead and fully cleared.
 
-        Connecting to a regular file raises a generic OSError (ENOTSOCK),
-        not ConnectionRefused/ENOENT, so the probe reads ACCEPTING (ambiguous
-        never means dead). cleanup_stale leaves the file and its PID file
-        intact rather than destroying a path that might belong to a live owner.
+        Classification is by ``is_socket()`` (stat/S_ISSOCK), not by the
+        errno ``connect()`` raises — which differs by platform (macOS
+        ENOTSOCK vs Linux ECONNREFUSED). A non-socket file has no live
+        owner, so cleanup_stale removes both it and the PID file so a
+        fresh display can bind. The assertion is platform-agnostic.
         """
         path = _short_socket()
         path.write_text("not a socket")
         dp = DisplayPaths(path)
         dp.pid_path.write_text("999999999")
         try:
+            assert not dp.is_running()  # non-socket => DEAD on both platforms
             dp.cleanup_stale()
-            assert path.exists()  # ambiguous — never unlinked
-            assert dp.pid_path.exists()
+            assert not path.exists()  # stale file cleared for a fresh bind
+            assert not dp.pid_path.exists()
         finally:
             shutil.rmtree(path.parent, ignore_errors=True)
 

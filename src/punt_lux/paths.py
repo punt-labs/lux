@@ -109,9 +109,9 @@ class DisplayPaths:
     # -- liveness -----------------------------------------------------------
 
     def _probe(self) -> SocketLiveness:
-        """Return the socket's liveness: ``DEAD`` only on a definitive
-        no-listener, else ``ACCEPTING`` (or ``READY`` on a clean handshake)."""
-        if not self._socket_path.exists():
+        """Return the socket's liveness (``DEAD`` / ``ACCEPTING`` / ``READY``)."""
+        if not self._socket_path.is_socket():
+            # absent or non-socket, by stat — not connect()'s platform errno
             return SocketLiveness.DEAD
         with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
             probe.settimeout(_PROBE_TIMEOUT)
@@ -251,10 +251,10 @@ class DisplayPaths:
             return pid if pid > 0 else None
 
     def _clear_dead_files(self) -> None:
-        """Unlink the socket and PID file of a display confirmed dead."""
-        if self._socket_path.exists() and self._socket_path.is_socket():
-            # WARNING so the destructive unlink surfaces even from the reap
-            # `python -c`, which configures no handler (lastResort is WARNING).
+        """Unlink the dead display's socket (or stale non-socket file) and PID file."""
+        if self._socket_path.is_socket() or self._socket_path.is_file():
+            # Clear a leftover regular file too — it blocks a fresh bind() and has
+            # no live owner. WARNING surfaces the unlink from the reap `python -c`.
             logger.warning("removing dead display socket %s", self._socket_path)
             self._socket_path.unlink(missing_ok=True)
         self.remove_pid()
