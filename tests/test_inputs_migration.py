@@ -121,6 +121,58 @@ def test_checkbox_round_trip() -> None:
     assert restored.value is True
 
 
+def test_checkbox_encode_via_encoder_factory_does_not_raise() -> None:
+    """Regression guard for the checkbox reconcile (foundation item 1).
+
+    Before the reconcile, ``JsonEncoderFactory().encode(checkbox)`` raised
+    ``TypeError`` and JSON encode only worked by falling through to an
+    un-removed legacy ``InputsRegistry`` registration. The four coupled
+    edits (remove from ``InputsRegistry``; add to ``JsonEncoderFactory``,
+    ``_element_to_dict``, and ``_ABC_TYPES``) make the encoder factory the
+    single encode path. This asserts it directly — if any edit regresses,
+    the encoder factory raises here.
+    """
+    from punt_lux.protocol.encoder_factory import JsonEncoderFactory
+
+    payload = JsonEncoderFactory().encode(
+        CheckboxElement(id="c1", label="Bold", value=True)
+    )
+    assert payload == {"kind": "checkbox", "id": "c1", "label": "Bold", "value": True}
+
+
+def test_checkbox_tooltip_round_trips_through_abc_path() -> None:
+    """The per-kind ``JsonCheckboxEncoder`` owns tooltip emission.
+
+    For ABC kinds ``_element_to_dict`` skips the generic trailing tooltip
+    append, so the per-kind codec must emit and re-read tooltip itself. A
+    checkbox with a tooltip therefore survives the encode/decode round-trip.
+    """
+    elem = CheckboxElement(id="c1", label="Bold", value=True, tooltip="toggle bold")
+    payload = element_to_dict(elem)
+    assert payload["tooltip"] == "toggle bold"
+    restored = agent_element_factory().element_from_dict(payload)
+    assert isinstance(restored, CheckboxElement)
+    assert restored.tooltip == "toggle bold"
+    assert restored.value is True
+
+
+def test_checkbox_absent_from_legacy_codec_table() -> None:
+    """No dual live path: the migrated ABC kinds leave the ``ElementCodec``.
+
+    text/button/checkbox/dialog decode and encode through the per-kind ABC
+    path; leaving any of them in the legacy ``ElementCodec`` table would be
+    two live registrations for one kind. A still-legacy input kind
+    (``slider``) remains registered as the negative control.
+    """
+    from punt_lux.protocol.elements import build_element_codec
+
+    kinds = build_element_codec().registered_kinds
+    assert "checkbox" not in kinds
+    assert "button" not in kinds
+    assert "text" not in kinds
+    assert "slider" in kinds
+
+
 def test_combo_round_trip_with_items() -> None:
     elem = ComboElement(id="co1", label="Pick", items=["x", "y", "z"], selected=2)
     payload = element_to_dict(elem)

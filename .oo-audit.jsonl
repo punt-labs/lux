@@ -334,3 +334,5 @@
 {"ts":"2026-07-04T15:53:19Z","commit":"85dd1a2","files_scored":161,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-07-04T16:19:02Z","commit":"4d2718a","files_scored":161,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-07-04T16:32:05Z","commit":"a18ddc7","files_scored":161,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-04T22:31:48Z","commit":"5374b57","files_scored":161,"files_improved":1,"files_regressed":3,"verdict":"fail","deltas":{"src/punt_lux/protocol/elements/inputs.py":{"module_size":[68.0,61.0]}}}
+{"ts":"2026-07-04T22:32:28Z","commit":"5374b57","files_scored":161,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}

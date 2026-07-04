@@ -1,12 +1,12 @@
 """Inputs-family codec registration — wires each per-kind module's codec.
 
-Per-kind classes live in ``slider.py``, ``checkbox.py``, ``combo.py``,
-``input_text.py``, ``input_number.py``, ``radio.py``, ``color_picker.py``,
-``selectable.py``.  ``button.py`` is registered separately through
+Per-kind classes live in ``slider.py``, ``combo.py``, ``input_text.py``,
+``input_number.py``, ``radio.py``, ``color_picker.py``, ``selectable.py``.
+``button.py`` and ``checkbox.py`` are registered separately through
 ``JsonElementFactory`` (Element ABC dispatch — see ``__init__.py``);
-the entry is removed here to avoid double registration.
+their entries are removed here to avoid double registration.
 
-The ``InputsRegistry`` class consolidates the eight remaining register
+The ``InputsRegistry`` class consolidates the seven remaining register
 calls behind a single ``apply`` method so the package ``__init__`` does
 not grow as each family migrates.
 """
@@ -15,7 +15,6 @@ from __future__ import annotations
 
 from typing import Self
 
-from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.codec import Register
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.combo import ComboElement
@@ -44,12 +43,6 @@ class InputsRegistry:
         """Register every inputs-family element kind's codec."""
         register(
             "slider", SliderElement, SliderElement.to_dict, SliderElement.from_dict
-        )
-        register(
-            "checkbox",
-            CheckboxElement,
-            CheckboxElement.to_dict,
-            CheckboxElement.from_dict,
         )
         register("combo", ComboElement, ComboElement.to_dict, ComboElement.from_dict)
         register(

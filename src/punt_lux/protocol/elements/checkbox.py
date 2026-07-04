@@ -17,11 +17,16 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, Self, cast
 
 from punt_lux.domain.element_abc import Element
+from punt_lux.domain.handlers.decorators import PublishSink
 from punt_lux.protocol.elements.checkbox_codec import (
     JsonCheckboxDecoder,
     JsonCheckboxEncoder,
 )
+from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from punt_lux.protocol.standalone_checkbox_handler import (
+    build_standalone_checkbox_handler_decoder,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -147,20 +152,20 @@ class CheckboxElement(Element):
 
     @classmethod
     def from_dict(cls, d: Mapping[str, object]) -> Self:
-        """Construct a CheckboxElement from a JSON-decoded mapping."""
-        from punt_lux.protocol.raising_publish_sink import (  # noqa: PLC0415
-            RaisingPublishSink,
-        )
-        from punt_lux.protocol.standalone_checkbox_handler import (  # noqa: PLC0415
-            build_standalone_checkbox_handler_decoder,
-        )
+        """Construct a CheckboxElement from a JSON-decoded mapping.
 
+        Wires a noop-only handler decoder so test/agent callers that
+        decode a Checkbox with no ``handlers`` work without a real publish
+        bus. A spec whose decorator chain invokes ``publish`` raises at
+        change time through the ``RaisingPublishSink`` — the directive
+        bans silent swallowing of decorator side effects.
+        """
         decoder = JsonCheckboxDecoder(
             renderer_factory=_RAISING_FACTORY,
             emit=_no_emit,
             element_cls=cls,
             handler_decoder=build_standalone_checkbox_handler_decoder(
-                RaisingPublishSink("CheckboxElement.from_dict"),  # type: ignore[arg-type]  # structural Protocol match
+                cast("PublishSink", RaisingPublishSink("CheckboxElement.from_dict")),
             ),
         )
         return cast("Self", decoder.decode(d))

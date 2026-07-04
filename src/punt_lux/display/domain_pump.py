@@ -18,6 +18,7 @@ from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.update import AddElement, RemoveElement
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements.button import ButtonElement
+from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.text import TextElement
 
@@ -29,7 +30,12 @@ _log = logging.getLogger(__name__)
 # ABC elements carry runtime state (renderer factory, emit, handler
 # registry) and cannot pass through dataclasses.replace, which the basic
 # native-kind path uses for anonymous-id synthesis.
-_ABC_TYPES: tuple[type, ...] = (TextElement, ButtonElement, DialogElement)
+_ABC_TYPES: tuple[type, ...] = (
+    TextElement,
+    ButtonElement,
+    CheckboxElement,
+    DialogElement,
+)
 
 
 class DomainPump:
