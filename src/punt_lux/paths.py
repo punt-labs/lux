@@ -108,6 +108,11 @@ class DisplayPaths:
         """Return the spawn-lock file path for this socket."""
         return self._socket_path.with_suffix(".sock.lock")
 
+    @property
+    def _bind_lock_path(self) -> Path:
+        """Return the bind-lock file path for this socket."""
+        return self._socket_path.with_suffix(".sock.bindlock")
+
     # -- liveness -----------------------------------------------------------
 
     def _probe(self) -> SocketLiveness:
@@ -151,20 +156,43 @@ class DisplayPaths:
             # spawned the display while we waited to acquire it.
             if self.is_running():
                 return self._socket_path
-            self.cleanup_stale()
+            self._clear_dead_files_locked()
             self._spawn()
             return self._await_ready(timeout)
 
     @contextlib.contextmanager
-    def _spawn_lock(self) -> Generator[None]:
-        """Serialize spawns across processes and threads via a file lock."""
+    def _file_lock(self, lock_path: Path) -> Generator[None]:
+        """Hold an exclusive advisory lock on *lock_path* for the block's duration."""
         self._socket_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        lock_file = self._lock_path.open("w")
+        lock_file = lock_path.open("w")
         try:
             fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
             yield
         finally:
             lock_file.close()  # closing the fd releases the advisory lock
+
+    def _spawn_lock(self) -> contextlib.AbstractContextManager[None]:
+        """Serialize spawns across processes and threads via a file lock."""
+        return self._file_lock(self._lock_path)
+
+    def bind_lock(self) -> contextlib.AbstractContextManager[None]:
+        """Serialize the cleanup+bind+listen critical section across binders.
+
+        Distinct from the spawn lock: ``ensure()`` holds the spawn lock through
+        ``_await_ready`` while the display it spawns takes this bind lock, so the
+        two are never awaited in a cycle. Held only across bind arbitration
+        (probe, stale cleanup, ``bind``, ``listen``), never through serving.
+        """
+        return self._file_lock(self._bind_lock_path)
+
+    def _clear_dead_files_locked(self) -> None:
+        """Clear dead socket/PID files while holding the bind lock.
+
+        Serializes the unlink against a concurrent binder so cleanup can never
+        remove a socket another process has just bound but not yet listened on.
+        """
+        with self.bind_lock():
+            self._clear_dead_files()
 
     def _spawn(self) -> None:
         """Launch the display server subprocess, detached from this session."""
@@ -215,13 +243,13 @@ class DisplayPaths:
         """
         with self._spawn_lock():
             if not self.is_running():
-                self._clear_dead_files()
+                self._clear_dead_files_locked()
                 return
             pid = self._peer_pid()
             if pid is None:
                 # TOCTOU: the owner may have exited between probe and peer read.
                 if not self.is_running():
-                    self._clear_dead_files()
+                    self._clear_dead_files_locked()
                     return
                 msg = (
                     f"display alive on {self._socket_path} but its owner could "
@@ -229,7 +257,7 @@ class DisplayPaths:
                 )
                 raise RuntimeError(msg)
             self._terminate(pid, timeout)  # raises if the owner outlives SIGKILL
-            self._clear_dead_files()
+            self._clear_dead_files_locked()
 
     def _peer_pid(self) -> int | None:
         """Return the socket owner's PID from its OS peer credential, or ``None``.

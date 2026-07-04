@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- **No stacked display windows from a direct `lux display` or a concurrent
+  spawn** — the display server now self-arbitrates at bind. `SocketServer.setup()`
+  probes for a live display and exits cleanly if one is already serving,
+  serializes its cleanup→bind→listen critical section under a dedicated bind-lock
+  (distinct from the spawn lock, with a fixed spawn→bind acquisition order so the
+  two can't deadlock), and treats a lost `bind()` race (`EEXIST`/`EADDRINUSE`) as
+  "another instance won → exit 0" — the losing process exits before opening a
+  window. The `listen()` backlog was raised (5→128) so a briefly-stalled display
+  (not draining accepts) isn't misread as dead by a probe getting `ECONNREFUSED`
+  on a full queue. (lux-h29e)
+
+### Changed
+
+- **`hub_*` path helpers promoted to a `HubPaths` class** (`hub_paths.py`),
+  mirroring `DisplayPaths` — extracted from `paths.py`, no behavior change.
+  (lux-bsrs)
+- **Display lifecycle formally specified and model-checked** — `docs/display_lifecycle.tex`
+  is a Z specification of the spawn/reap/bind concurrency, `fuzz`-clean and
+  ProB-verified for singleton-serving, never-unlink-live, no-two-winners,
+  lost-racer-clean-exit, and deadlock-freedom. A regression artifact for future
+  lifecycle changes.
+
 ## [0.19.1] - 2026-07-04
 
 ### Changed

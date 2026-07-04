@@ -16,6 +16,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import platform
+import signal
 import socket
 import time
 from pathlib import Path
@@ -406,7 +407,17 @@ class DisplayServer:
     # -- public entry point ------------------------------------------------
 
     def run(self) -> None:
-        """Start the display server (blocking -- ImGui owns the main loop)."""
+        """Start the display server (blocking -- ImGui owns the main loop).
+
+        Claims the socket before opening the window: if a live display already
+        owns it, this returns immediately so a redundant or racing spawn exits
+        cleanly instead of flashing a second window.
+        """
+        if not self._socket_server.setup(self._socket_path):
+            return
+        signal.signal(signal.SIGTERM, self._handle_sigterm)  # arm before ImGui init
+        self._display_paths.write_pid()
+        logger.info("Display server listening on %s", self._socket_path)
         # Set process name (visible in ps, top, Activity Monitor)
         try:
             import setproctitle  # pyright: ignore[reportMissingImports]
@@ -457,8 +468,6 @@ class DisplayServer:
 
     def _on_post_init(self) -> None:
         """Called once the OpenGL context is ready."""
-        import signal
-
         from imgui_bundle import hello_imgui, imgui
 
         # Ensure docking is enabled (drag-merge frames into tabs).
@@ -468,12 +477,6 @@ class DisplayServer:
         hide_from_dock_and_cmd_tab()
 
         self._themes = list(hello_imgui.ImGuiTheme_)
-        self._socket_server.setup(self._socket_path)
-        self._display_paths.write_pid()
-
-        signal.signal(signal.SIGTERM, self._handle_sigterm)
-
-        logger.info("Display server listening on %s", self._socket_path)
 
     def _on_frame(self) -> None:
         """Called every frame by ImGui."""

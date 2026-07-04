@@ -23,7 +23,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Generator, Iterator
 from pathlib import Path
 from typing import Literal
 from unittest.mock import patch
@@ -32,6 +32,7 @@ import pytest
 
 from punt_lux.paths import DisplayPaths, SocketLiveness
 from punt_lux.protocol import HEADER_FORMAT, ReadyMessage, encode_frame, send_message
+from punt_lux.socket_server import SocketServer
 
 _Reply = Literal["ready", "silent", "garbage", "nonobject"]
 
@@ -371,6 +372,28 @@ class TestIsRunning:
                 assert dp.is_running() is True  # never raised
         finally:
             display.stop()
+
+    def test_bound_not_listening_socket_probes_dead(
+        self, short_socket: Callable[[], Path]
+    ) -> None:
+        """A socket bound but not yet listening refuses connect, so it reads DEAD.
+
+        This is the bind window: between ``bind`` and ``listen`` the path exists
+        as a socket file, but a probe's ``connect`` gets ECONNREFUSED. That the
+        window reads DEAD is the entire justification for the bind lock — without
+        it a concurrent cleanup would unlink this fresh bind. Exercised with a
+        real bound socket, not a monkeypatched probe.
+        """
+        path = short_socket()
+        bound = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        bound.bind(str(path))  # bound, fd held open, listen() deliberately skipped
+        try:
+            dp = DisplayPaths(path)
+            assert path.is_socket()  # the file is present in the window
+            assert dp._probe() is SocketLiveness.DEAD
+            assert dp.is_running() is False
+        finally:
+            bound.close()
 
 
 class TestCleanupStale:
@@ -1143,6 +1166,177 @@ class TestReap:
             assert real.exists()  # the real socket untouched
         finally:
             display.stop()
+
+    def test_reap_cleanup_holds_bind_lock_against_binder(
+        self, short_socket: Callable[[], Path]
+    ) -> None:
+        """reap's dead-file cleanup takes the bind lock, so a binder serializes it.
+
+        ``reap`` clears a dead socket via ``_clear_dead_files_locked``, which
+        acquires the bind lock. A concurrent binder holding that lock must block
+        reap's cleanup: the stale socket is not unlinked while the binder holds
+        the lock, and reap completes the unlink only once the binder releases.
+        This is the reap-side counterpart of the setup arbitration serialization.
+        """
+        path = short_socket()
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.bind(str(path))
+        s.close()  # dead socket file → reap takes the clear-files branch
+        assert path.exists()
+        binder = DisplayPaths(path)
+        reaper = DisplayPaths(path)
+        result: list[str] = []
+        reaping = threading.Event()
+        worker: threading.Thread | None = None
+
+        def do_reap() -> None:
+            reaping.set()
+            reaper.reap(timeout=2.0)
+            result.append("done")
+
+        try:
+            with binder.bind_lock():
+                worker = threading.Thread(target=do_reap)
+                worker.start()
+                assert reaping.wait(timeout=2)
+                worker.join(timeout=0.5)
+                assert worker.is_alive()  # blocked on the bind lock in cleanup
+                assert path.exists()  # dead socket not unlinked while binder holds lock
+            worker.join(timeout=5)
+            assert not worker.is_alive(), "reap did not finish after the lock released"
+            assert result == ["done"]
+            assert not path.exists()  # unlinked only after the binder released
+        finally:
+            if worker is not None:
+                worker.join(timeout=5)
+
+
+class TestLockOrdering:
+    """The spawn and bind locks obey a fixed order (spawn→bind), so no cycle forms."""
+
+    def test_spawn_and_bind_locks_coexist_without_deadlock(
+        self, short_socket: Callable[[], Path]
+    ) -> None:
+        """Two agents taking spawn-then-bind never deadlock (Invariant 4).
+
+        ``ensure`` holds the spawn lock while the display it spawns takes the
+        bind lock; the design claim is that the fixed order — spawn outer, bind
+        inner, never both by one agent in the reverse order — makes a cyclic
+        wait impossible. Two threads acquire the real flocks in that order under
+        a barrier; a deadlock would hang the joins. Both completing proves the
+        ordering is safe.
+        """
+        path = short_socket()
+        start = threading.Barrier(2)
+        completed: list[int] = []
+        lock = threading.Lock()
+
+        def acquire_in_order(tag: int) -> None:
+            start.wait()  # release both threads together to force contention
+            dp = DisplayPaths(path)
+            with dp._spawn_lock(), dp.bind_lock():
+                time.sleep(0.05)  # hold both, widening the contention window
+            with lock:
+                completed.append(tag)
+
+        threads = [
+            threading.Thread(target=acquire_in_order, args=(i,)) for i in range(2)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+        assert all(not t.is_alive() for t in threads)  # neither hung on a cycle
+        assert sorted(completed) == [0, 1]  # both acquired and released both locks
+
+    def test_lock_acquisition_order_invariant(
+        self, short_socket: Callable[[], Path], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The real setup/ensure/reap paths take locks in spawn→bind order.
+
+        Deadlock-freedom rests on a fixed acquisition order: the spawn lock is
+        always outer, the bind lock always inner, and no path takes them in the
+        reverse order. The coexist test proves only that two agents using the
+        SAME order do not hang — it cannot catch an order INVERSION introduced
+        later inside a real method. This spies on ``_file_lock`` and asserts the
+        exact order the real methods record, so inverting the order — or having
+        ``setup`` start taking the spawn lock — fails deterministically.
+        """
+        events: list[tuple[str, str]] = []
+        original_file_lock = DisplayPaths._file_lock
+
+        @contextlib.contextmanager
+        def spy_file_lock(dp: DisplayPaths, lock_path: Path) -> Generator[None]:
+            which = "bind" if lock_path == dp._bind_lock_path else "spawn"
+            with original_file_lock(dp, lock_path):
+                events.append(("acquire", which))
+                try:
+                    yield
+                finally:
+                    events.append(("release", which))
+
+        monkeypatch.setattr(DisplayPaths, "_file_lock", spy_file_lock)
+
+        def noop_message(_sock: socket.socket, _msg: object) -> None:
+            """Discard inbound messages — the server never serves here."""
+
+        def noop_disconnect(_fd: int) -> None:
+            """Ignore client disconnects."""
+
+        def noop_error(_sev: str, _msg: str, _ctx: str) -> None:
+            """Ignore error reports."""
+
+        # setup(): only ever the bind lock — never the spawn lock.
+        events.clear()
+        server = SocketServer(
+            on_message=noop_message,
+            on_client_disconnected=noop_disconnect,
+            on_error=noop_error,
+        )
+        try:
+            assert server.setup(short_socket()) is True
+        finally:
+            server.shutdown()
+        assert events == [("acquire", "bind"), ("release", "bind")]
+        assert ("acquire", "spawn") not in events  # setup must not take the spawn lock
+
+        # ensure(): spawn lock outer, bind lock inner and RELEASED before _spawn,
+        # so the cross-process bind never nests inside a held spawn lock.
+        events.clear()
+        ensure_path = short_socket()
+
+        def record_spawn(_dp: DisplayPaths) -> None:
+            events.append(("spawn_process", ""))
+
+        def skip_await(_dp: DisplayPaths, _timeout: float) -> Path:
+            return ensure_path
+
+        with (
+            patch.object(DisplayPaths, "_spawn", record_spawn),
+            patch.object(DisplayPaths, "_await_ready", skip_await),
+        ):
+            assert DisplayPaths(ensure_path).ensure(timeout=1.0) == ensure_path
+        assert events == [
+            ("acquire", "spawn"),
+            ("acquire", "bind"),
+            ("release", "bind"),
+            ("spawn_process", ""),
+            ("release", "spawn"),
+        ]
+
+        # reap(): dead path → spawn lock outer, bind lock inner, no kill.
+        events.clear()
+        reap_path = short_socket()
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        s.bind(str(reap_path))
+        s.close()  # stale socket → reap clears under the locks, no owner to signal
+        DisplayPaths(reap_path).reap(timeout=1.0)
+        assert events == [
+            ("acquire", "spawn"),
+            ("acquire", "bind"),
+            ("release", "bind"),
+            ("release", "spawn"),
+        ]
 
 
 class TestTerminate:

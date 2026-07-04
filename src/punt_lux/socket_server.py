@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import errno
 import logging
 import select
 import socket
@@ -21,6 +22,17 @@ from punt_lux.protocol import (
 from punt_lux.protocol.messages import Message
 
 logger = logging.getLogger(__name__)
+
+# AF_UNIX bind() rejects an already-owned path with EADDRINUSE on Linux and
+# EEXIST on macOS/BSD; either means a concurrent binder won the race.
+_BIND_RACE_ERRNOS = frozenset({errno.EADDRINUSE, errno.EEXIST})
+
+# Large backlog so a briefly-stalled display (hung render loop, GPU stall,
+# breakpoint) that is not draining accepts isn't misread as dead: a probe would
+# get ECONNREFUSED only once 128+ connects are queued, far beyond lux's real
+# client count (luxd's one persistent connection plus occasional probes).
+# See lux-h29e.
+_LISTEN_BACKLOG = 128
 
 
 class SocketServer:
@@ -87,21 +99,39 @@ class SocketServer:
 
     # -- lifecycle ----------------------------------------------------------
 
-    def setup(self, socket_path: Path) -> None:
-        """Bind and listen on the given Unix socket path."""
-        DisplayPaths(socket_path).cleanup_stale()
-        socket_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        socket_path.parent.chmod(0o700)
-        if socket_path.exists():
-            if socket_path.is_socket():
-                socket_path.unlink()
-            else:
-                msg = f"Path exists and is not a socket: {socket_path}"
-                raise RuntimeError(msg)
-        self._server_sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        self._server_sock.bind(str(socket_path))
-        self._server_sock.listen(5)
-        self._server_sock.setblocking(False)  # noqa: FBT003
+    def setup(self, socket_path: Path) -> bool:
+        """Bind and listen; return ``False`` if a live display already owns it.
+
+        Self-arbitrating: the whole probe → stale-cleanup → ``bind`` → ``listen``
+        critical section runs under ``DisplayPaths.bind_lock`` so concurrent
+        binders serialize. Without that lock a racing caller can unlink a socket
+        another process bound but has not yet listened on -- a freshly-bound
+        socket refuses connections until ``listen``, so a probe reads it dead --
+        letting two displays bind the same path. A live owner is never unlinked
+        or bound over; a lost bind race (``EADDRINUSE``/``EEXIST``) returns
+        ``False``; any other ``OSError`` fails loud.
+        """
+        dp = DisplayPaths(socket_path)
+        with dp.bind_lock():
+            if dp.is_running():
+                logger.info("display already running at %s; exiting", socket_path)
+                return False
+            dp.cleanup_stale()  # unlinks only a confirmed-dead socket, under the lock
+            socket_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            socket_path.parent.chmod(0o700)
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                sock.bind(str(socket_path))
+                sock.listen(_LISTEN_BACKLOG)
+                sock.setblocking(False)  # noqa: FBT003
+            except OSError as exc:
+                sock.close()  # close on every failure path — never leak the bound fd
+                if exc.errno not in _BIND_RACE_ERRNOS:
+                    raise  # real failure (permissions, bad path, listen) fails loud
+                logger.info("lost bind race at %s; exiting", socket_path)
+                return False
+            self._server_sock = sock
+            return True
 
     def shutdown(self) -> None:
         """Close all client connections and the server socket."""
