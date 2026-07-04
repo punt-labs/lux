@@ -470,9 +470,10 @@ class TestEnsure:
     def test_spawns_when_dead(self) -> None:
         path = _short_socket()
         dp = DisplayPaths(path)
+        displays: list[_FakeDisplay] = []
 
         def fake_popen(*_args: object, **_kwargs: object) -> object:
-            _FakeDisplay(path)
+            displays.append(_FakeDisplay(path))
 
             class FakeProc:
                 pid = os.getpid()
@@ -487,6 +488,8 @@ class TestEnsure:
             assert result == path
             popen.assert_called_once()
         finally:
+            for display in displays:
+                display.stop()
             shutil.rmtree(path.parent, ignore_errors=True)
 
     def test_timeout_raises(self) -> None:
@@ -514,12 +517,13 @@ class TestEnsure:
         path = _short_socket()
         spawn_count = 0
         lock = threading.Lock()
+        displays: list[_FakeDisplay] = []
 
         def fake_popen(*_args: object, **_kwargs: object) -> object:
             nonlocal spawn_count
             with lock:
                 spawn_count += 1
-            _FakeDisplay(path)
+                displays.append(_FakeDisplay(path))
 
             class FakeProc:
                 pid = os.getpid()
@@ -541,6 +545,8 @@ class TestEnsure:
             assert spawn_count == 1
             assert results == [path, path]
         finally:
+            for display in displays:
+                display.stop()
             shutil.rmtree(path.parent, ignore_errors=True)
 
 

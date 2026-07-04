@@ -76,7 +76,7 @@ class TestConnect:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
@@ -112,7 +112,7 @@ class TestConnect:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             with DisplayClient(
@@ -150,7 +150,7 @@ class TestConnect:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
@@ -195,7 +195,7 @@ class TestSendMessages:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             with DisplayClient(
@@ -244,7 +244,7 @@ class TestSendMessages:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             with DisplayClient(
@@ -285,7 +285,7 @@ class TestSendMessages:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             with DisplayClient(
@@ -323,7 +323,7 @@ class TestSendMessages:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             with DisplayClient(
@@ -360,7 +360,7 @@ class TestSendMessages:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             with DisplayClient(
@@ -408,7 +408,7 @@ class TestRecvEvents:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
@@ -449,7 +449,7 @@ class TestRecvEvents:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             with DisplayClient(
@@ -505,7 +505,7 @@ class TestErrorHandling:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             with DisplayClient(
@@ -586,7 +586,7 @@ class TestAutoSpawn:
             target=_persistent_display, args=(sock_path, stop, ready), daemon=True
         )
         t.start()
-        ready.wait(timeout=5)
+        assert ready.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             DisplayPaths(sock_path).remove_pid()  # stale/missing PID file
@@ -621,7 +621,7 @@ class TestAutoSpawn:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             with patch.object(
@@ -668,7 +668,7 @@ class TestRegisterMenuItem:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             with DisplayClient(
@@ -713,7 +713,7 @@ class TestRegisterMenuItem:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             with DisplayClient(
@@ -757,7 +757,7 @@ class TestRegisterMenuItem:
         ready_event = threading.Event()
         t = threading.Thread(target=serve_two, args=(server, ready_event), daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             # First connection: register an item
@@ -819,7 +819,7 @@ class TestBackgroundListener:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
@@ -869,7 +869,7 @@ class TestBackgroundListener:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
@@ -912,7 +912,7 @@ class TestBackgroundListener:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
@@ -949,7 +949,7 @@ class TestBackgroundListener:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
@@ -996,7 +996,7 @@ class TestBackgroundListener:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
@@ -1059,7 +1059,7 @@ class TestBackgroundListener:
         ready_event = threading.Event()
         t = threading.Thread(target=serve_two, args=(server, ready_event), daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
@@ -1137,7 +1137,7 @@ class TestBackgroundListener:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
@@ -1192,7 +1192,7 @@ class TestBackgroundListener:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
@@ -1257,7 +1257,7 @@ class TestBackgroundListener:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
@@ -1312,7 +1312,7 @@ class TestBackgroundListener:
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
-        ready_event.wait(timeout=5)
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
 
         try:
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
