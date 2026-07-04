@@ -95,31 +95,36 @@ class SocketServer:
     def setup(self, socket_path: Path) -> bool:
         """Bind and listen; return ``False`` if a live display already owns it.
 
-        Self-arbitrating: a live owner is never unlinked or bound over, and
-        ``bind()`` is the mutex, so an ``EADDRINUSE`` loss means a concurrent
-        display won the race between the probe and this bind. Raise on a
-        genuine bind failure.
+        Self-arbitrating: the whole probe → stale-cleanup → ``bind`` → ``listen``
+        critical section runs under ``DisplayPaths.bind_lock`` so concurrent
+        binders serialize. Without that lock a racing caller can unlink a socket
+        another process bound but has not yet listened on -- a freshly-bound
+        socket refuses connections until ``listen``, so a probe reads it dead --
+        letting two displays bind the same path. A live owner is never unlinked
+        or bound over; a lost bind race (``EADDRINUSE``/``EEXIST``) returns
+        ``False``; any other ``OSError`` fails loud.
         """
         dp = DisplayPaths(socket_path)
-        if dp.is_running():
-            logger.info("display already running at %s; exiting", socket_path)
-            return False
-        dp.cleanup_stale()  # unlinks only a confirmed-dead socket (re-probe guarded)
-        socket_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        socket_path.parent.chmod(0o700)
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        try:
-            sock.bind(str(socket_path))
-        except OSError as exc:
-            sock.close()
-            if exc.errno not in _BIND_RACE_ERRNOS:
-                raise  # a real bind failure (permissions, bad path) fails loud
-            logger.info("lost bind race at %s; exiting", socket_path)
-            return False
-        sock.listen(5)
-        sock.setblocking(False)  # noqa: FBT003
-        self._server_sock = sock
-        return True
+        with dp.bind_lock():
+            if dp.is_running():
+                logger.info("display already running at %s; exiting", socket_path)
+                return False
+            dp.cleanup_stale()  # unlinks only a confirmed-dead socket, under the lock
+            socket_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            socket_path.parent.chmod(0o700)
+            sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                sock.bind(str(socket_path))
+            except OSError as exc:
+                sock.close()
+                if exc.errno not in _BIND_RACE_ERRNOS:
+                    raise  # a real bind failure (permissions, bad path) fails loud
+                logger.info("lost bind race at %s; exiting", socket_path)
+                return False
+            sock.listen(5)
+            sock.setblocking(False)  # noqa: FBT003
+            self._server_sock = sock
+            return True
 
     def shutdown(self) -> None:
         """Close all client connections and the server socket."""

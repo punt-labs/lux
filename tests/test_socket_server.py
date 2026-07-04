@@ -7,6 +7,7 @@ import os
 import socket
 import tempfile
 import threading
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -351,29 +352,84 @@ class TestSetupArbitration:
         assert server.server_sock is None
 
     def test_concurrent_setup_single_winner(self) -> None:
-        """Many threads racing on one path: exactly one binds and serves."""
+        """Many threads racing on one path: exactly one binds and serves.
+
+        Repeated across rounds because the bind→listen window is timing
+        dependent; a single round can pass by luck. Each round uses a fresh
+        path and a tight barrier so all threads enter ``setup`` together.
+        """
+        for _ in range(4):
+            self._assert_single_winner(thread_count=10)
+
+    @staticmethod
+    def _assert_single_winner(*, thread_count: int) -> None:
+        """Race ``thread_count`` setups on one path; assert exactly one wins.
+
+        The winner mimics the render loop by draining its accept backlog: a
+        bound socket that never accepts would fill ``listen()`` and start
+        refusing the losers' liveness probes, making a live winner look dead.
+        """
         sock_path = Path(_make_tmpdir()) / "test.sock"
-        servers = [_make_server() for _ in range(6)]
+        servers = [_make_server() for _ in range(thread_count)]
         results: list[bool] = []
         lock = threading.Lock()
-        start = threading.Barrier(len(servers))
+        start = threading.Barrier(thread_count)
+        stop = threading.Event()
 
         def attempt(srv: SocketServer) -> None:
             start.wait()  # release all threads at once to maximize contention
             won = srv.setup(sock_path)
             with lock:
                 results.append(won)
+            while won and not stop.wait(0.002):
+                srv.accept_connections()  # drain the backlog like the render loop
 
         threads = [threading.Thread(target=attempt, args=(s,)) for s in servers]
+        for t in threads:
+            t.start()
         try:
-            for t in threads:
-                t.start()
+            deadline = time.monotonic() + 20.0
+            while len(results) < thread_count and time.monotonic() < deadline:
+                time.sleep(0.01)
+            assert results.count(True) == 1
+            assert results.count(False) == thread_count - 1
+            assert sum(s.server_sock is not None for s in servers) == 1
+            # The one live socket is the winner's — it answers a liveness probe.
+            assert DisplayPaths(sock_path).is_running()
+        finally:
+            stop.set()
             for t in threads:
                 t.join(timeout=10.0)
-            assert results.count(True) == 1
-            assert results.count(False) == len(servers) - 1
-            bound = [s for s in servers if s.server_sock is not None]
-            assert len(bound) == 1
-        finally:
             for s in servers:
                 s.shutdown()
+
+    def test_bind_lock_blocks_concurrent_setup(self) -> None:
+        """Holding the bind lock stalls a concurrent setup until it is released.
+
+        Directly exercises the bind→listen window: while one caller owns the
+        bind lock, a second ``setup`` cannot probe-cleanup-bind, so it cannot
+        unlink or bind over the first. It proceeds only once the lock frees.
+        """
+        sock_path = Path(_make_tmpdir()) / "test.sock"
+        dp = DisplayPaths(sock_path)
+        server = _make_server()
+        result: list[bool] = []
+        entered = threading.Event()
+
+        def attempt() -> None:
+            entered.set()
+            result.append(server.setup(sock_path))
+
+        try:
+            with dp.bind_lock():
+                worker = threading.Thread(target=attempt)
+                worker.start()
+                assert entered.wait(timeout=2)
+                worker.join(timeout=0.5)
+                assert worker.is_alive()  # blocked on the bind lock
+                assert server.server_sock is None  # nothing bound yet
+            worker.join(timeout=5)
+            assert result == [True]  # bound only after the lock was released
+            assert server.server_sock is not None
+        finally:
+            server.shutdown()
