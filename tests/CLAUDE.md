@@ -29,7 +29,9 @@ modules for state-machine testing even when no GPU is present.
 **Protocol tests are the primary safety net.** Every element kind must
 have a test that verifies the serialization roundtrip: build → serialize →
 deserialize → compare. Protocol changes without roundtrip tests are
-unshippable.
+unshippable. This is Level 1 of the [Round-trip test
+procedure](#round-trip-test-procedure) below — the full migration gate runs
+Levels 1–5 against the real boundary, never a stub.
 
 **Scene tests verify composition.** Multi-element scenes, tab switching,
 window management, and detail panels must be tested at the scene level
@@ -42,6 +44,65 @@ for a boundary condition. Happy-path-only tests are incomplete.
 **Coverage increases with every change.** When you touch a file, its test
 coverage must not decrease. New functions get tests; bug fixes get
 regression tests.
+
+## Round-trip test procedure
+
+Every element kind must survive the full round trip — agent → wire → Hub →
+Display → (interaction) → Hub — verified at each level. This is the **migration
+gate**: an element kind is not "migrated" until Levels 1–5 pass against the
+**real** boundary (never a stub), and Level 6 is operator-confirmed. The levels
+build on each other; run every level each cycle. A green Level 1 over a stubbed
+Level 4 is the exact failure mode that has bitten this project before.
+
+### Level 1 — Serialization roundtrip (unit, `make test`)
+
+Build the element → `to_dict` → `from_dict` → assert equal. This exercises the
+JSON codec surface. Every kind has one; a protocol change without it is
+unshippable.
+
+### Level 2 — Wire roundtrip (unit/integration)
+
+The real Hub→Display wire path is native **pickle**, not the JSON codec
+(`protocol/messages/scene.py`). Build a scene containing the element → serialize
+the scene message → deserialize → assert the element compares equal. Levels 1 and
+2 are **different surfaces**; both must pass. (The `checkbox` half-migration
+slipped through review precisely because only the pickle path was exercised and
+the JSON encode asymmetry went untested.)
+
+### Level 3 — Hub/Display crossing (integration)
+
+Install the element into `HubDisplay` (the authoritative Hub store, `domain/hub/`)
+→ push to the Display → assert the Display holds an equal replica. Use the real
+domain objects, not a stub. This proves UI state crosses the process boundary
+intact.
+
+### Level 4 — Interaction roundtrip / D21 (integration, interactive kinds only)
+
+For kinds that fire events (button, checkbox, dialog, future inputs), drive the
+**full leg** end to end: Display-side `fire(event)` → the wrapped handler emits a
+`RemoteEventHandlerInvocation` over the **real socket** → the Hub resolves the
+element and fires the real handler **once** on its authoritative copy → the Hub
+re-pushes the updated scene. The test **must not** hand-construct the invocation
+or `MagicMock` the client — that stubs the exact boundary the round trip exists to
+prove. Assert: the handler ran exactly once, on the Hub's copy, and the re-push
+reflects the mutation.
+
+### Level 5 — Introspection verification (integration)
+
+Query `inspect_scene` and assert, without looking at pixels: `render_path` is
+`"abc"` for the migrated element (`"legacy"` for a not-yet-migrated one), and
+`resolved_props` reads back the element's state including defaults. This is how
+each migration is verified programmatically rather than by eyeballing the window.
+Note: Hub-authoritative post-interaction state is a Batch-2 concern — the
+display-side query reads the display snapshot, not luxd's `HubDisplay`, so do not
+assert Hub authority from the display side.
+
+### Level 6 — Manual visual confirmation (tier 4, required for rendering)
+
+`make restart`, render the element live, confirm it looks right. Introspection
+confirms the scene was received; a human eye confirms fidelity. Capture the
+introspection snapshot (`inspect_scene`, `list_recent_events`) and get operator
+confirmation before calling the element done.
 
 ## Conventions
 
