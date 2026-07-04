@@ -17,6 +17,19 @@
   errors). This build ships `imspinner` and `imgui_md`, so the two
   previously-skipped renderer import tests now run and pass (1347 → 1349).
 
+### Fixed
+
+- **Display windows no longer accumulate; `make restart` reaps reliably** — the
+  display singleton guard now reads liveness from the Unix socket (a tri-state
+  connect/handshake probe) instead of a PID file, and resolves the running
+  display's owner via the OS peer credential (macOS `LOCAL_PEERPID` / Linux
+  `SO_PEERCRED`) so it is reaped regardless of how it was started. A stale or
+  missing PID file can no longer orphan a live display or spawn a duplicate
+  window. Spawn, reap, and cleanup are serialized under a single per-socket
+  lock, and `make restart` now ensures exactly one live display (and fails
+  loudly if one can't start, instead of silently backgrounding a dead process).
+  (lux-w8t5)
+
 ### Security
 
 - **Cleared 17 Dependabot advisories.** Required `starlette>=1.3.1` (5 alerts:
