@@ -18,6 +18,15 @@ Lux is a **visual output surface for Claude Code**. Vox gives agents a voice; Lu
 - **MCP server**: via `mcp-proxy` → `luxd` WebSocket
 - **Python**: 3.13+, managed with `uv`
 
+## Mandatory Reading
+
+Source-of-truth documents, `@`-imported so they stay in context. Read them before
+writing code; on any conflict, [`target.md`](docs/architecture/target/target.md)
+wins. The full linked index is in [Key Documents](#key-documents) below.
+
+@docs/README.md
+@docs/architecture/target/target.md
+
 ## Read This First
 
 **This codebase is being rewritten toward a new architecture.** The repo
@@ -409,18 +418,39 @@ Release scripts: `scripts/release-plugin.sh` (swap `lux-dev` → `lux`), `script
 
 ## Key Documents
 
-- `docs/architecture/target/target.md` — **start here**; canonical design target for the rewrite
-- `docs/README.md` — docs map and conflict triage
-- `docs/standards/python-oo.md` — mandatory OO implementation standard and ratchet policy
-- `DESIGN.md` — ADR log (36 entries, ~3,400 lines). **Do not read start to finish** — the accumulated historical detail confuses agents. Search or grep for a specific `DES-NNN` entry when you need the rationale behind a settled decision. Append new ADRs at the end; do not reorganize or summarize existing entries.
-- `docs/architecture/target/topology.md` — process topology target
-- `docs/architecture/target/ui-model.md` — authoritative UI model target
-- `docs/architecture/target/introspection-api.md` — introspection and control surface
-- `docs/architecture/system.tex` → `docs/architecture/system.pdf` — current/intermediate architecture
+**Read before writing code** (the first two are `@`-imported in [Mandatory Reading](#mandatory-reading)):
 
-Do **not** use `docs/concepts/*` to guide implementation. Those are
-alternative concepts, not approved plans, and not under active
-development.
+- [`docs/architecture/target/target.md`](docs/architecture/target/target.md) — **start here**; canonical design target for the rewrite. On any conflict, this wins.
+- [`docs/README.md`](docs/README.md) — docs map and conflict triage; says what is current vs legacy vs concept.
+- [`docs/standards/python-oo.md`](docs/standards/python-oo.md) — mandatory OO implementation standard and ratchet policy.
+
+**Target architecture:**
+
+- [`docs/architecture/target/topology.md`](docs/architecture/target/topology.md) — process topology target.
+- [`docs/architecture/target/ui-model.md`](docs/architecture/target/ui-model.md) — authoritative UI model target.
+- [`docs/architecture/target/element-contract.md`](docs/architecture/target/element-contract.md) — the Element-ABC contract every migrated kind satisfies.
+- [`docs/architecture/target/introspection-api.md`](docs/architecture/target/introspection-api.md) — introspection and control surface.
+
+**Element migration (active plan):**
+
+- [`docs/architecture/migration/README.md`](docs/architecture/migration/README.md) — the migration approach: five ratified decisions, 7-batch sequencing, the per-element verify-as-you-go process. Tracked as beads epic `lux-xs7r`.
+- [`docs/architecture/element-migration-audit.md`](docs/architecture/element-migration-audit.md) — per-element map of all 25 kinds (4 on the Element-ABC path, 21 legacy).
+- [`docs/architecture/migration/progress-element-design.md`](docs/architecture/migration/progress-element-design.md) — the element-#1 (`progress`) worked-example design.
+
+**Decisions, specs, product:**
+
+- [`DESIGN.md`](DESIGN.md) — ADR log (38 entries). **Do not read start to finish** — grep for a specific `DES-NNN` when you need the rationale behind a settled decision. Append new ADRs at the end; do not reorganize existing ones.
+- [`docs/display_lifecycle.tex`](docs/display_lifecycle.tex) → [`docs/display_lifecycle.pdf`](docs/display_lifecycle.pdf) — the ProB-verified display-singleton lifecycle spec (DES-037/038); partition [coverage](docs/display_lifecycle_coverage.md). Keep the PDF in sync with the `.tex` (rebuild + commit together).
+- [`prfaq.tex`](prfaq.tex) → `prfaq.pdf` — the Working Backwards PR/FAQ (product direction, hypothesis stage). Update when the change shifts product direction.
+- [`CHANGELOG.md`](CHANGELOG.md) — release history; add entries under `## [Unreleased]`.
+- [`README.md`](README.md) — user-facing overview; update when user-facing behavior changes.
+
+**Current/intermediate — NOT the target:**
+
+- [`docs/architecture/system.tex`](docs/architecture/system.tex) → `docs/architecture/system.pdf` — the current/intermediate architecture, not the rewrite target. Aligns to `target.md` on any conflict.
+
+Do **not** use [`docs/concepts/*`](docs/concepts/) to guide implementation. Those
+are alternative concepts, not approved plans, and not under active development.
 
 <!-- quarry:begin -->
 ## Quarry
