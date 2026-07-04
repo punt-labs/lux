@@ -30,7 +30,7 @@ The design draws on X11's client/server split and Smalltalk-style live introspec
 ## Quick Start
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/f3bc9b9/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/92d9172/install.sh | sh
 ```
 
 Restart Claude Code twice. The Lux display window opens automatically when agents send visual output.
@@ -68,7 +68,7 @@ This pulls ~2 MB of lightweight deps. The 66 MB display stack (imgui-bundle, num
 <summary>Verify before running</summary>
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/f3bc9b9/install.sh -o install.sh
+curl -fsSL https://raw.githubusercontent.com/punt-labs/lux/92d9172/install.sh -o install.sh
 shasum -a 256 install.sh
 cat install.sh
 sh install.sh
