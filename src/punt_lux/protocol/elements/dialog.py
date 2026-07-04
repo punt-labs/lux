@@ -27,24 +27,18 @@ from typing import TYPE_CHECKING, ClassVar, Literal, Self, cast
 
 from punt_lux.domain.element_abc import Element
 from punt_lux.domain.handlers.decorators import PublishSink
+from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.dialog_codec import (
     JsonDialogDecoder,
     JsonDialogEncoder,
 )
+from punt_lux.protocol.elements.patch_field import PatchField
 from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
-from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 
 if TYPE_CHECKING:
     from punt_lux.protocol.renderer import Emit, RendererFactory
 
 __all__ = ["DialogElement"]
-
-
-_RAISING_FACTORY: RendererFactory = RaisingRendererFactory()
-
-
-def _no_emit(_msg: object) -> None:
-    """Sentinel emit channel — Hub-tier no-op (PY-DP-9 Null Object)."""
 
 
 class DialogModel:
@@ -147,8 +141,8 @@ class DialogElement(Element):
     def __new__(
         cls,
         *,
-        renderer_factory: RendererFactory = _RAISING_FACTORY,
-        emit: Emit = _no_emit,
+        renderer_factory: RendererFactory = RAISING_FACTORY,
+        emit: Emit = NO_EMIT,
         id: str,
         title: str = "",
         tooltip: str | None = None,
@@ -230,29 +224,13 @@ class DialogElement(Element):
 
     # -- minimal setters for the scene patch path --------------------------
 
-    @staticmethod
-    def _str_or_raise(value: object, field: str) -> str:
-        """Return ``value`` as ``str`` or raise ``TypeError`` (PY-EH-1)."""
-        if not isinstance(value, str):
-            msg = f"{field} must be str, got {type(value).__name__}"
-            raise TypeError(msg)
-        return value
-
-    @staticmethod
-    def _opt_str_or_raise(value: object, field: str) -> str | None:
-        """Return ``value`` as ``str | None`` or raise ``TypeError`` (PY-EH-1)."""
-        if value is None or isinstance(value, str):
-            return value
-        msg = f"{field} must be str or None, got {type(value).__name__}"
-        raise TypeError(msg)
-
     def _set_title(self, value: object) -> None:
         """Replace the dialog title."""
-        self._title = self._str_or_raise(value, "title")
+        self._title = PatchField("title").as_str(value)
 
     def _set_tooltip(self, value: object) -> None:
         """Replace the tooltip text."""
-        self._tooltip = self._opt_str_or_raise(value, "tooltip")
+        self._tooltip = PatchField("tooltip").as_optional_str(value)
 
     # -- codec delegators --------------------------------------------------
 
@@ -273,8 +251,8 @@ class DialogElement(Element):
         ``JsonDialogDecoder`` directly with a real sink.
         """
         decoder = JsonDialogDecoder(
-            renderer_factory=_RAISING_FACTORY,
-            emit=_no_emit,
+            renderer_factory=RAISING_FACTORY,
+            emit=NO_EMIT,
             element_cls=cls,
             publish_sink=cast(
                 "PublishSink", RaisingPublishSink("DialogElement.from_dict")

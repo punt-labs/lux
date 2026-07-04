@@ -1,10 +1,11 @@
 """CheckboxElement — boolean toggle on the Element ABC.
 
-ABC subclass with ``__new__`` keyword-only construction.  Sentinel defaults
-on ``renderer_factory`` and ``emit`` keep direct-construction call sites
-(tests, agent fixtures) compiling without a tier injection; the wire
-decode path through ``JsonCheckboxDecoder`` always passes real values, so
-the runtime DI shape on the wire path is unchanged.
+ABC subclass with ``__new__`` keyword-only construction.  Sentinel
+defaults on ``renderer_factory`` and ``emit`` (shared through
+``abc_di_defaults``) keep direct-construction call sites (tests, agent
+fixtures) compiling without a tier injection; the wire decode path
+through ``JsonCheckboxDecoder`` always passes real values, so the runtime
+DI shape on the wire path is unchanged.
 
 The codec body lives in ``checkbox_codec.py`` (``JsonCheckboxEncoder`` /
 ``JsonCheckboxDecoder``); ``to_dict`` and ``from_dict`` remain on the class
@@ -18,12 +19,13 @@ from typing import TYPE_CHECKING, Literal, Self, cast
 
 from punt_lux.domain.element_abc import Element
 from punt_lux.domain.handlers.decorators import PublishSink
+from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.checkbox_codec import (
     JsonCheckboxDecoder,
     JsonCheckboxEncoder,
 )
+from punt_lux.protocol.elements.patch_field import PatchField
 from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
-from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.protocol.standalone_checkbox_handler import (
     build_standalone_checkbox_handler_decoder,
 )
@@ -34,13 +36,6 @@ if TYPE_CHECKING:
     from punt_lux.protocol.renderer import Emit, RendererFactory
 
 __all__ = ["CheckboxElement"]
-
-
-_RAISING_FACTORY: RendererFactory = RaisingRendererFactory()
-
-
-def _no_emit(_msg: object) -> None:
-    """Sentinel emit channel — Hub-tier no-op (PY-DP-9 Null Object)."""
 
 
 class CheckboxElement(Element):
@@ -59,8 +54,8 @@ class CheckboxElement(Element):
     def __new__(
         cls,
         *,
-        renderer_factory: RendererFactory = _RAISING_FACTORY,
-        emit: Emit = _no_emit,
+        renderer_factory: RendererFactory = RAISING_FACTORY,
+        emit: Emit = NO_EMIT,
         id: str,
         label: str = "",
         value: bool = False,
@@ -108,41 +103,17 @@ class CheckboxElement(Element):
 
     # -- minimal setters for the scene patch path --------------------------
 
-    @staticmethod
-    def _str_or_raise(value: object, field: str) -> str:
-        """Return ``value`` as ``str`` or raise ``TypeError`` (PY-EH-1)."""
-        if not isinstance(value, str):
-            msg = f"{field} must be str, got {type(value).__name__}"
-            raise TypeError(msg)
-        return value
-
-    @staticmethod
-    def _opt_str_or_raise(value: object, field: str) -> str | None:
-        """Return ``value`` as ``str | None`` or raise ``TypeError`` (PY-EH-1)."""
-        if value is None or isinstance(value, str):
-            return value
-        msg = f"{field} must be str or None, got {type(value).__name__}"
-        raise TypeError(msg)
-
-    @staticmethod
-    def _bool_or_raise(value: object, field: str) -> bool:
-        """Return ``value`` as ``bool`` or raise ``TypeError`` (PY-EH-1)."""
-        if not isinstance(value, bool):
-            msg = f"{field} must be bool, got {type(value).__name__}"
-            raise TypeError(msg)
-        return value
-
     def _set_value(self, value: object) -> None:
         """Replace the checkbox boolean state."""
-        self._value = self._bool_or_raise(value, "value")
+        self._value = PatchField("value").as_bool(value)
 
     def _set_label(self, value: object) -> None:
         """Replace the checkbox label."""
-        self._label = self._str_or_raise(value, "label")
+        self._label = PatchField("label").as_str(value)
 
     def _set_tooltip(self, value: object) -> None:
         """Replace the tooltip text."""
-        self._tooltip = self._opt_str_or_raise(value, "tooltip")
+        self._tooltip = PatchField("tooltip").as_optional_str(value)
 
     # -- codec delegators --------------------------------------------------
 
@@ -161,8 +132,8 @@ class CheckboxElement(Element):
         bans silent swallowing of decorator side effects.
         """
         decoder = JsonCheckboxDecoder(
-            renderer_factory=_RAISING_FACTORY,
-            emit=_no_emit,
+            renderer_factory=RAISING_FACTORY,
+            emit=NO_EMIT,
             element_cls=cls,
             handler_decoder=build_standalone_checkbox_handler_decoder(
                 cast("PublishSink", RaisingPublishSink("CheckboxElement.from_dict")),

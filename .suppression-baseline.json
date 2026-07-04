@@ -1,8 +1,8 @@
 {
-  "total": 127,
+  "total": 122,
   "by_category": {
-    "noqa": 42,
-    "type_ignore": 10,
+    "noqa": 38,
+    "type_ignore": 9,
     "pylint_disable": 2,
     "pyright_ignore": 11,
     "per_file_ignores": 62
@@ -53,10 +53,6 @@
     "src/punt_lux/paths.py": {
       "noqa": 2
     },
-    "src/punt_lux/protocol/elements/checkbox.py": {
-      "noqa": 2,
-      "type_ignore": 1
-    },
     "src/punt_lux/protocol/elements/layout.py": {
       "type_ignore": 1
     },
@@ -84,13 +80,10 @@
     "src/punt_lux/tools/connection.py": {
       "pyright_ignore": 1
     },
-    "src/punt_lux/tools/server.py": {
-      "noqa": 2
-    },
     "src/punt_lux/tools/tools.py": {
       "noqa": 2,
       "type_ignore": 1
     }
   },
-  "updated_at": "2026-05-26T22:06:16Z"
+  "updated_at": "2026-07-04T22:42:24Z"
 }
