@@ -33,6 +33,7 @@ from punt_lux.display.renderers.imgui import ImGuiRendererFactory
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.domain.display import Display
+from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.ids import ClientId
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
@@ -931,18 +932,16 @@ class DisplayServer:
             self._auto_click_buttons(msg)
 
     def _wrap_abc_elements(self, msg: SceneMessage) -> None:
-        """Install remote_dispatch handlers on deserialized ABC elements.
+        """Rebind the real renderer factory and wrap handlers on received elements.
 
-        After native deserialization, ABC elements carry their Hub-side
-        handlers. This method replaces them with ``remote_dispatch``
-        wrappers so clicks route back to the Hub instead of executing
-        locally. Must run BEFORE ``_route_to_domain_display`` so the
-        DomainPump sees wrapped elements.
+        Deserialized ABC elements carry the Hub-tier sentinel factory and
+        Hub-side handlers. This rebinds the Display's real ``ImGuiRendererFactory``
+        and swaps handlers for ``remote_dispatch`` wrappers, both recursing
+        ``_children()``. It runs before ``_route_to_domain_display``.
         """
-        from punt_lux.domain.element_abc import Element as AbcElement
-
         for elem in msg.elements:
             if isinstance(elem, AbcElement):
+                elem.bind_renderer_factory(self._imgui_renderer_factory)
                 elem.wrap_handlers_for_remote(self._emit_event)
 
     def _route_to_domain_display(self, msg: SceneMessage) -> None:
