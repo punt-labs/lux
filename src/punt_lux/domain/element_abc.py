@@ -200,9 +200,9 @@ class Element(EventHandlerHost, ABC):
 
         For each ``(key, value)`` pair, call ``_set_{key}(value)``.
         Subclasses override only when patch semantics differ from one
-        setter per field. Public (not ``_patch``) because
-        ``SceneManager._apply_patch_set`` invokes it from outside the
-        class. Returns ``self`` so the call site is a drop-in replacement
+        setter per field. Public (not ``_patch``) because the scene patch
+        path invokes it from outside the class through the element
+        location. Returns ``self`` so the call site is a drop-in replacement
         for the dataclass ``replace(...)`` path (ABC elements mutate in
         place; dataclass elements are frozen).
         """
