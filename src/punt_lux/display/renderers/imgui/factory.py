@@ -1,13 +1,11 @@
 """ImGuiRendererFactory — surface-shared mediator for ImGui per-kind renderers.
 
 The production RendererFactory. Constructed once at Display startup and
-threaded through every element constructed during decode. Holds the
-three pieces of Display-tier surface-shared state — ``WidgetState``,
-``TextureCache``, ``Emit`` — and dispatches by element type to the
-per-kind adapter.
-
-Per-kind renderers receive the factory (not the shared pieces) so the
-factory remains the single mediator.
+bound onto received elements by the Display's post-receive rebind
+(``Element.bind_renderer_factory``) — not threaded through elements at
+decode. Holds the Display-tier surface-shared state (``WidgetState``,
+``TextureCache``, ``Emit``) and dispatches by element type to the per-kind
+adapter, which receives the factory so it stays the single mediator.
 """
 
 from __future__ import annotations
@@ -75,10 +73,10 @@ class ImGuiRendererFactory:
         return self._element_renderer
 
     def __call__(self, elem: object) -> Renderer:
-        """Dispatch by element type to its ImGui adapter.
+        """Return the ImGui adapter for ``elem``, or raise if unsupported.
 
-        Text only for now; Button/Panel/Dialog/Window/… cases are added
-        as their families gain dedicated renderer adapters.
+        Resolves ``TextElement`` to ``ImGuiTextRenderer``; any other kind
+        raises ``ValueError``.
         """
         if isinstance(elem, TextElement):
             return ImGuiTextRenderer(elem, self)

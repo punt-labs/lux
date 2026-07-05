@@ -2,9 +2,9 @@
 
 ABC subclass with ``__new__``-keyword-only construction. Sentinel
 defaults on ``renderer_factory`` and ``emit`` (shared through
-``abc_di_defaults``) keep existing keyword call sites compiling; decode
-through ``JsonTextDecoder`` always passes real values, so the runtime DI
-shape on the wire path is unchanged.
+``abc_di_defaults``) keep keyword call sites compiling. Decode passes the
+tier's sentinel factory; the display-capable factory is bound later by the
+Display's post-receive rebind (``Element.bind_renderer_factory``), not the decoder.
 
 The codec body lives in ``text_codec.py`` (``JsonTextEncoder`` /
 ``JsonTextDecoder``); ``to_dict`` and ``from_dict`` remain on the class

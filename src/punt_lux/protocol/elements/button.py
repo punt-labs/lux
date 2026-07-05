@@ -1,22 +1,16 @@
 """ButtonElement — button on the Element ABC.
 
-ABC subclass with ``__new__`` keyword-only construction. Sentinel
-defaults on ``renderer_factory`` and ``emit`` (shared through
-``abc_di_defaults``) keep direct-construction call sites (tests, agent
-fixtures) compiling without a tier injection; the wire decode path
-through ``JsonButtonDecoder`` always passes real values, so the runtime
-DI shape on the wire path is unchanged.
+ABC subclass with keyword-only ``__new__``. The ``abc_di_defaults``
+sentinels on ``renderer_factory`` / ``emit`` keep direct construction
+compiling; the wire decode passes the tier's sentinel factory and the
+Display binds the real one in its post-receive rebind.
 
 The codec body lives in ``button_codec.py`` (``JsonButtonEncoder`` /
 ``JsonButtonDecoder``); ``to_dict`` and ``from_dict`` remain on the class
 as short delegators so the runtime-checkable ``domain.element.Element``
-Protocol stays satisfied.
-
-Click handlers installed via ``add_handler(ButtonClicked, handler)`` are
-populated by the wire ``HandlerDecoder`` against ``ButtonHandlers`` from
-the per-Element handler catalog. The Element ABC owns the registry and
-dispatch loop; this class adds only the wire-facing fields the renderer
-reads.
+Protocol stays satisfied. The Element ABC / ``EventHandlerHost`` mixin
+owns the click-handler registry and dispatch; this class adds only the
+wire-facing fields the renderer reads and the remote-dispatch spec.
 """
 
 from __future__ import annotations
@@ -25,6 +19,8 @@ from typing import TYPE_CHECKING, Literal, Self, cast
 
 from punt_lux.domain.element_abc import Element
 from punt_lux.domain.handlers.decorators import PublishSink
+from punt_lux.domain.interaction import ButtonClicked
+from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.button_codec import (
     JsonButtonDecoder,
@@ -153,6 +149,10 @@ class ButtonElement(Element):
     def _set_tooltip(self, value: object) -> None:
         """Replace the tooltip text."""
         self._tooltip = PatchField("tooltip").as_optional_str(value)
+
+    def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
+        """Return the click bucket's spec; a None action falls back to the id."""
+        return (RemoteDispatchSpec(ButtonClicked, self._action, "button_clicked"),)
 
     # -- codec delegators --------------------------------------------------
 

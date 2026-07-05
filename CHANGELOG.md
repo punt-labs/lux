@@ -36,6 +36,16 @@
 
 ### Changed
 
+- **Element-ABC renderer-factory DI made real and honest** — the Display now
+  rebinds its real `ImGuiRendererFactory` onto every received ABC element (a new
+  `Element.bind_renderer_factory`), so `Element.render()`'s dependency is
+  production-wired rather than the fail-loud sentinel it silently carried. The
+  renderer-factory docstrings were corrected to describe what the code actually
+  does (they had claimed a decode-time factory threading that never happened),
+  and the interactive remote-dispatch wrap was made Open-Closed via a per-element
+  `RemoteDispatchSpec` hook (removing an `isinstance` switch and a domain→protocol
+  layering inversion). Internal only — wire output byte-identical. Prerequisite
+  for the render-path unification.
 - **Table and layout element codecs moved onto their dataclasses** — the
   module-level `_<kind>_to_dict`/`_from_dict` functions became `to_dict`/
   `from_dict` methods (PY-OO-5), and the container-recursion dispatcher was

@@ -1,16 +1,13 @@
 """CheckboxElement — boolean toggle on the Element ABC.
 
-ABC subclass with ``__new__`` keyword-only construction.  Sentinel
-defaults on ``renderer_factory`` and ``emit`` (shared through
-``abc_di_defaults``) keep direct-construction call sites (tests, agent
-fixtures) compiling without a tier injection; the wire decode path
-through ``JsonCheckboxDecoder`` always passes real values, so the runtime
-DI shape on the wire path is unchanged.
+ABC subclass with keyword-only ``__new__``. The ``abc_di_defaults``
+sentinels on ``renderer_factory`` / ``emit`` keep direct construction
+compiling; the Display binds the real factory in its post-receive rebind.
 
-The codec body lives in ``checkbox_codec.py`` (``JsonCheckboxEncoder`` /
-``JsonCheckboxDecoder``); ``to_dict`` and ``from_dict`` remain on the class
-as short delegators so the runtime-checkable ``domain.element.Element``
-Protocol stays satisfied.
+The codec body lives in ``checkbox_codec.py``; ``to_dict`` / ``from_dict``
+stay on the class as short delegators so the runtime-checkable
+``domain.element.Element`` Protocol stays satisfied. The Element ABC /
+``EventHandlerHost`` mixin owns the value-changed registry and dispatch.
 """
 
 from __future__ import annotations
@@ -19,6 +16,8 @@ from typing import TYPE_CHECKING, Literal, Self, cast
 
 from punt_lux.domain.element_abc import Element
 from punt_lux.domain.handlers.decorators import PublishSink
+from punt_lux.domain.interaction import ValueChanged
+from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.checkbox_codec import (
     JsonCheckboxDecoder,
@@ -115,6 +114,10 @@ class CheckboxElement(Element):
         """Replace the tooltip text."""
         self._tooltip = PatchField("tooltip").as_optional_str(value)
 
+    def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
+        """Return the value-changed bucket's spec under the fixed 'changed' action."""
+        return (RemoteDispatchSpec(ValueChanged, self.action, "value_changed"),)
+
     # -- codec delegators --------------------------------------------------
 
     def to_dict(self) -> dict[str, object]:
@@ -125,11 +128,9 @@ class CheckboxElement(Element):
     def from_dict(cls, d: Mapping[str, object]) -> Self:
         """Construct a CheckboxElement from a JSON-decoded mapping.
 
-        Wires a noop-only handler decoder so test/agent callers that
-        decode a Checkbox with no ``handlers`` work without a real publish
-        bus. A spec whose decorator chain invokes ``publish`` raises at
-        change time through the ``RaisingPublishSink`` — the directive
-        bans silent swallowing of decorator side effects.
+        Wires a noop-only handler decoder so callers that decode a Checkbox
+        with no ``handlers`` work without a real publish bus; a spec whose
+        decorator chain invokes ``publish`` raises via ``RaisingPublishSink``.
         """
         decoder = JsonCheckboxDecoder(
             renderer_factory=RAISING_FACTORY,

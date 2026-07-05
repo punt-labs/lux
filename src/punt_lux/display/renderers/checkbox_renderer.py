@@ -20,10 +20,10 @@ class CheckboxRenderer:
     """Render a CheckboxElement via imgui.checkbox.
 
     On toggle, fires ``ValueChanged`` through the element's handler
-    registry. On the display side, handlers are wrapped by
-    ``remote_dispatch`` which sends a ``RemoteEventHandlerInvocation``
-    to the Hub over the socket instead of executing the real handler
-    body.
+    registry. On the display side, handlers are wrapped for
+    ``remote_dispatch`` by ``DisplayServer._wrap_abc_elements`` (via
+    ``elem.wrap_handlers_for_remote``), which sends the invocation to the
+    Hub instead of executing the real handler body.
     """
 
     _widget_state: WidgetState

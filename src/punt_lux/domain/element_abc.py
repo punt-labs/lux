@@ -3,15 +3,19 @@
 The ABC carries:
 
 - ``render()`` — template method per Composite pattern; never overridden.
+  Not yet the production paint path (the Display paints via
+  ``_paint_element``); a later PR revives it as the live path.
 - ``_children()`` — hook composites override to return their children.
-- ``renderer_factory`` + ``emit`` — injected at construction.
+- ``renderer_factory`` + ``emit`` — set at construction. Off the display
+  tier the factory is the fail-loud ``RaisingRendererFactory`` sentinel;
+  the Display rebinds the real factory onto each received ABC element and
+  its ABC ``_children`` (ABC nested in a legacy container is not reached).
 - ``apply_patch()`` — template for scene-graph in-place mutation; the
   default walks the patch dict calling ``_set_<key>`` per entry.
-- A per-Element handler registry keyed by ``Event`` subclass, with
-  ``add_handler`` / ``remove_handler`` / ``fire`` methods. The dispatch
-  loop snapshots the handler list so a handler that mutates the registry
-  cannot affect the in-flight call. The registry is the single dispatch
-  site downstream of ``Display.interact``.
+- The event handler registry and remote-dispatch behavior come from the
+  ``EventHandlerHost`` mixin (``add_handler`` / ``remove_handler`` /
+  ``fire`` / ``wrap_handlers_for_remote``), kept in its own module so the
+  render core and the dispatch concern each stay one responsibility.
 - A small property-observer surface — ``_removed``, ``_observers``,
   ``add_observer``, ``mark_removed`` — used by parent composites to
   react to a child element being removed (agent ``RemoveElement``,
@@ -28,18 +32,15 @@ from __future__ import annotations
 
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Self, cast
+from typing import TYPE_CHECKING, Self
 
-from punt_lux.tracing import trace
+from punt_lux.domain.event_handler_host import EventHandlerHost
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from punt_lux.domain.event_protocol import Event, Handler
     from punt_lux.domain.validation import ValidationError
-    from punt_lux.protocol.messages.remote_invocation import (
-        RemoteEventHandlerInvocation,
-    )
     from punt_lux.protocol.renderer import Emit, RendererFactory
 
 __all__ = ["Element"]
@@ -47,13 +48,14 @@ __all__ = ["Element"]
 logger = logging.getLogger(__name__)
 
 
-class Element(ABC):
+class Element(EventHandlerHost, ABC):
     """Domain core for the ABC element kinds.
 
     Subclasses add fields and (optionally) behavior methods. They do NOT
     override ``render()`` — Composite + the template handle it. Composites
     override ``_children()`` to return their children tuple; leaves
-    inherit the empty default.
+    inherit the empty default. Event registration and dispatch come from
+    the ``EventHandlerHost`` mixin.
     """
 
     _renderer_factory: RendererFactory
@@ -104,7 +106,14 @@ class Element(ABC):
         """Return the element's stable identity within its enclosing Scene."""
 
     def render(self) -> None:
-        """Template method per Composite pattern. NEVER overridden."""
+        """Resolve a renderer and paint this subtree. NEVER overridden.
+
+        Composite template method. Off the display tier
+        ``_renderer_factory`` is the fail-loud sentinel, so a call raises
+        unless the Display first rebinds the real factory via
+        ``bind_renderer_factory``. Not yet the production paint path — the
+        Display paints through ``_paint_element`` until a later PR flips it.
+        """
         renderer = self._renderer_factory(self)
         children = self._children()
         if children:
@@ -121,6 +130,19 @@ class Element(ABC):
         """Hook — composites override to return their children. Leaves
         inherit the empty default."""
         return ()
+
+    def bind_renderer_factory(self, factory: RendererFactory) -> None:
+        """Rebind the renderer factory on this element and its subtree.
+
+        Elements arrive off the wire carrying the sentinel factory (pickle
+        preserves the constructing tier's). The Display calls this after
+        receiving an element so ``render()`` resolves a real renderer.
+        Recurses into ``_children()`` so a dialog and its buttons are
+        rebound in one call.
+        """
+        self._renderer_factory = factory
+        for child in self._children():
+            child.bind_renderer_factory(factory)
 
     def validate(self) -> tuple[ValidationError, ...]:
         """Return this element's own validation errors.
@@ -170,139 +192,6 @@ class Element(ABC):
                 raise AttributeError(msg)
             setter(value)
         return self
-
-    def add_handler[E: Event](
-        self,
-        event_type: type[E],
-        handler: Handler[E],
-    ) -> None:
-        """Register a handler for ``event_type`` on this Element."""
-        bucket = self._handlers.setdefault(cast("type[Event]", event_type), [])
-        bucket.append(cast("Handler[Event]", handler))
-
-    def remove_handler[E: Event](
-        self,
-        event_type: type[E],
-        handler: Handler[E],
-    ) -> None:
-        """Deregister a handler for ``event_type``. No-op if not present."""
-        bucket = self._handlers.get(cast("type[Event]", event_type))
-        if bucket is None:
-            return
-        try:
-            bucket.remove(cast("Handler[Event]", handler))
-        except ValueError:
-            return
-        if not bucket:
-            del self._handlers[cast("type[Event]", event_type)]
-
-    @trace
-    def fire(self, event: Event) -> None:
-        """Dispatch ``event`` to every handler registered for its type.
-
-        Handlers are invoked in registration order against a snapshot of
-        the list so a handler that mutates the registry mid-dispatch
-        cannot affect the in-flight call. A handler that raises is
-        logged with full traceback; remaining handlers still run — this
-        is a fan-out boundary where one bad subscriber must not stop
-        delivery to the others (PY-EH-6 system-boundary exemption).
-        """
-        snapshot = tuple(self._handlers.get(type(event), ()))
-        for handler in snapshot:
-            try:
-                handler(event)
-            except Exception:
-                logger.exception(
-                    "handler raised on %s for element %s",
-                    type(event).__name__,
-                    self.id,
-                )
-
-    def handler_count(self, event_type: type[Event]) -> int:
-        """Return the number of handlers registered for ``event_type``."""
-        bucket = self._handlers.get(event_type, ())
-        return sum(self._logical_handler_count(handler) for handler in bucket)
-
-    def handler_summary(self) -> dict[str, int]:
-        """Return a name-to-count mapping of all registered handler types."""
-        return {
-            event_type.__name__: sum(
-                self._logical_handler_count(handler) for handler in handlers
-            )
-            for event_type, handlers in self._handlers.items()
-        }
-
-    @trace
-    def wrap_handlers_for_remote(
-        self,
-        send_fn: Callable[[RemoteEventHandlerInvocation], None],
-    ) -> None:
-        """Wrap each event bucket in one remote-dispatch group.
-
-        Recurses into children via ``_children()``. Each handler on a
-        ``ButtonElement`` or ``CheckboxElement`` stays part of the
-        original semantic handler chain, but the Display-side transport
-        wrapper batches each event bucket into one
-        ``RemoteEventHandlerInvocation``. The Hub replays the full
-        original handler chain once on its authoritative copy.
-        """
-        from punt_lux.domain.handlers.remote_dispatch import RemoteDispatchGroup
-        from punt_lux.domain.interaction import ButtonClicked, ValueChanged
-        from punt_lux.protocol.elements.button import ButtonElement
-        from punt_lux.protocol.elements.checkbox import CheckboxElement
-
-        if isinstance(self, ButtonElement):
-            action = self.action or self.id
-            button_handlers = self._handlers.get(ButtonClicked, ())
-            if button_handlers and not (
-                len(button_handlers) == 1
-                and self._is_remote_dispatch_group(button_handlers[0])
-            ):
-                grouped = RemoteDispatchGroup(
-                    handlers=tuple(button_handlers),
-                    send=send_fn,
-                    element_id=self.id,
-                    action=action,
-                    event_kind="button_clicked",
-                )
-                self._handlers[ButtonClicked] = [
-                    cast("Handler[Event]", grouped),
-                ]
-        if isinstance(self, CheckboxElement):
-            action = self.action
-            value_handlers = self._handlers.get(ValueChanged, ())
-            if value_handlers and not (
-                len(value_handlers) == 1
-                and self._is_remote_dispatch_group(value_handlers[0])
-            ):
-                grouped = RemoteDispatchGroup(
-                    handlers=tuple(value_handlers),
-                    send=send_fn,
-                    element_id=self.id,
-                    action=action,
-                    event_kind="value_changed",
-                )
-                self._handlers[ValueChanged] = [
-                    cast("Handler[Event]", grouped),
-                ]
-        for child in self._children():
-            child.wrap_handlers_for_remote(send_fn)
-
-    @staticmethod
-    def _logical_handler_count(handler: object) -> int:
-        """Return the logical handler count represented by ``handler``."""
-        from punt_lux.domain.handlers.remote_dispatch import RemoteDispatchGroup
-
-        if isinstance(handler, RemoteDispatchGroup):
-            return handler.wrapped_count
-        return 1
-
-    @staticmethod
-    def _is_remote_dispatch_group(handler: object) -> bool:
-        """Return True when ``handler`` is the grouped remote wrapper."""
-        from punt_lux.domain.handlers.remote_dispatch import RemoteDispatchGroup
-
-        return isinstance(handler, RemoteDispatchGroup)
 
     def add_observer(self, observer: Callable[[str], None]) -> None:
         """Register a property-change observer.
