@@ -1,9 +1,10 @@
 """TextElement — text block on the Element ABC.
 
 ABC subclass with ``__new__``-keyword-only construction. Sentinel
-defaults on ``renderer_factory`` and ``emit`` keep existing keyword
-call sites compiling; decode through ``JsonTextDecoder`` always passes
-real values, so the runtime DI shape on the wire path is unchanged.
+defaults on ``renderer_factory`` and ``emit`` (shared through
+``abc_di_defaults``) keep existing keyword call sites compiling; decode
+through ``JsonTextDecoder`` always passes real values, so the runtime DI
+shape on the wire path is unchanged.
 
 The codec body lives in ``text_codec.py`` (``JsonTextEncoder`` /
 ``JsonTextDecoder``); ``to_dict`` and ``from_dict`` remain on the class
@@ -11,7 +12,8 @@ as ≤ 3-line delegators so the runtime-checkable
 ``domain.element.Element`` Protocol stays satisfied.
 
 ``apply_patch`` is inherited from ``Element`` ABC; ``_set_<field>``
-setters cover the patch fields exercised by the scene patch path.
+setters cover the patch fields exercised by the scene patch path and
+coerce the wire value through ``PatchField`` at the boundary (PY-EH-1).
 """
 
 from __future__ import annotations
@@ -19,8 +21,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, Self, cast
 
 from punt_lux.domain.element_abc import Element
+from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
+from punt_lux.protocol.elements.patch_field import PatchField
 from punt_lux.protocol.elements.text_codec import JsonTextDecoder, JsonTextEncoder
-from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -28,20 +31,6 @@ if TYPE_CHECKING:
     from punt_lux.protocol.renderer import Emit, RendererFactory
 
 __all__ = ["TextElement"]
-
-
-# Module-level sentinels — fail-loud defaults for the direct-construction
-# path. The decode path through ``JsonTextDecoder`` always passes a real
-# tier-specific RendererFactory; these defaults exist so existing keyword
-# call sites that construct ``TextElement(id=..., content=...)`` directly
-# keep compiling. Any accidental ``elem.render()`` on such an instance
-# raises ``RuntimeError`` instead of silently no-oping (a silent paint
-# would hide the bug).
-_RAISING_FACTORY: RendererFactory = RaisingRendererFactory()
-
-
-def _no_emit(_msg: object) -> None:
-    """Sentinel emit channel — Hub-tier no-op (PY-DP-9 Null Object)."""
 
 
 class TextElement(Element):
@@ -68,8 +57,8 @@ class TextElement(Element):
     def __new__(
         cls,
         *,
-        renderer_factory: RendererFactory = _RAISING_FACTORY,
-        emit: Emit = _no_emit,
+        renderer_factory: RendererFactory = RAISING_FACTORY,
+        emit: Emit = NO_EMIT,
         id: str,
         content: str,
         style: str | None = None,
@@ -123,37 +112,21 @@ class TextElement(Element):
     # setters, so each ``value`` arrives as ``object`` and PY-EH-1 demands
     # boundary validation before we assign to a narrowly-typed attribute.
 
-    @staticmethod
-    def _str_or_raise(value: object, field: str) -> str:
-        """Return ``value`` as ``str`` or raise ``TypeError`` (PY-EH-1)."""
-        if not isinstance(value, str):
-            msg = f"{field} must be str, got {type(value).__name__}"
-            raise TypeError(msg)
-        return value
-
-    @staticmethod
-    def _opt_str_or_raise(value: object, field: str) -> str | None:
-        """Return ``value`` as ``str | None`` or raise ``TypeError`` (PY-EH-1)."""
-        if value is None or isinstance(value, str):
-            return value
-        msg = f"{field} must be str or None, got {type(value).__name__}"
-        raise TypeError(msg)
-
     def _set_content(self, value: object) -> None:
         """Replace the text content (used by ``Element.apply_patch``)."""
-        self._content = self._str_or_raise(value, "content")
+        self._content = PatchField("content").as_str(value)
 
     def _set_style(self, value: object) -> None:
         """Replace the style hint (used by ``Element.apply_patch``)."""
-        self._style = self._opt_str_or_raise(value, "style")
+        self._style = PatchField("style").as_optional_str(value)
 
     def _set_tooltip(self, value: object) -> None:
         """Replace the tooltip text (used by ``Element.apply_patch``)."""
-        self._tooltip = self._opt_str_or_raise(value, "tooltip")
+        self._tooltip = PatchField("tooltip").as_optional_str(value)
 
     def _set_color(self, value: object) -> None:
         """Replace the color (``null`` coerces to "" matching decoder)."""
-        self._color = "" if value is None else self._str_or_raise(value, "color")
+        self._color = "" if value is None else PatchField("color").as_str(value)
 
     # -- codec delegators ---------------------------------------------------
 
@@ -165,9 +138,20 @@ class TextElement(Element):
     def from_dict(cls, d: Mapping[str, object]) -> Self:
         """Construct a TextElement from a JSON-decoded mapping."""
         decoder = JsonTextDecoder(
-            renderer_factory=_RAISING_FACTORY, emit=_no_emit, element_cls=cls
+            renderer_factory=RAISING_FACTORY, emit=NO_EMIT, element_cls=cls
         )
         # ``element_cls=cls`` guarantees the decoder builds the concrete
         # subtype; the decoder's annotation is the supertype TextElement
         # so narrow back to ``Self`` for the Protocol contract.
         return cast("Self", decoder.decode(d))
+
+    # -- introspection (Inspectable) ---------------------------------------
+
+    def resolved_props(self) -> Mapping[str, object]:
+        """Return the full resolved state, including defaulted fields."""
+        return {
+            "content": self._content,
+            "style": self._style,
+            "tooltip": self._tooltip,
+            "color": self._color,
+        }

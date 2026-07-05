@@ -76,6 +76,7 @@ from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.query_dispatcher import QueryDispatcher
 from punt_lux.scene import Frame, SceneManager, WidgetState
+from punt_lux.scene_inspector import SceneInspector
 from punt_lux.socket_server import SocketServer
 from punt_lux.tracing import trace
 
@@ -145,6 +146,7 @@ class DisplayServer:
     _current_theme: str
     _current_scene_id: str | None
     _query_dispatcher: QueryDispatcher
+    _scene_inspector: SceneInspector
     _display_paths: DisplayPaths
     _element_renderer: ElementRenderer
     _imgui_renderer_factory: ImGuiRendererFactory
@@ -267,7 +269,12 @@ class DisplayServer:
         )
 
         # Register display-specific query handlers that need ImGui state.
+        self._scene_inspector = SceneInspector(
+            scene_manager=self._scene_manager,
+            domain_display=self._domain_display,
+        )
         qd = self._query_dispatcher
+        qd.register_handler("inspect_scene", self._scene_inspector.inspect)
         qd.register_handler("screenshot", self._query_screenshot)
         qd.register_handler("get_display_info", self._query_get_display_info)
         qd.register_handler("get_window_settings", self._query_get_window_settings)
