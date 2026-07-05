@@ -72,10 +72,12 @@ class JsonGroupDecoder:
 
         Returns the offending descendant's ``kind`` (``"layout=<x>"`` for a
         non-stack layout, ``"pages"`` / ``"page_source"`` for a paged wire
-        shape — the ABC group carries no paged fields, so any group bearing
-        them forks legacy lest its panels be dropped), or ``None`` when the
-        whole subtree is a migrated-ABC stack group (the documented
-        "no offender" contract :meth:`is_all_abc` reads as True, PY-TS-14).
+        shape — the ABC group carries no paged fields, so a group bearing
+        *non-empty* paged data forks legacy lest its panels be dropped; an
+        empty ``pages: []`` / ``page_source: ""`` holds no panels, so nothing
+        is dropped and it decodes ABC), or ``None`` when the whole subtree is
+        a migrated-ABC stack group (the documented "no offender" contract
+        :meth:`is_all_abc` reads as True, PY-TS-14).
         """
         layout = raw.get("layout", "rows")
         if layout not in _STACK_LAYOUTS:

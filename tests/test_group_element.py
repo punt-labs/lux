@@ -178,6 +178,41 @@ class TestForkGate:
         assert not JsonGroupDecoder.is_all_abc(wire)
         assert isinstance(_decode(wire), LegacyGroupElement)
 
+    def test_nonempty_paged_fields_force_legacy(self) -> None:
+        # A rows-layout group carrying real paged data forks legacy so its
+        # panels are not dropped by the ABC group (which has no paged fields).
+        with_pages = {
+            "kind": "group",
+            "id": "g",
+            "layout": "rows",
+            "children": [],
+            "pages": [[{"kind": "text", "id": "p", "content": "panel"}]],
+        }
+        assert not JsonGroupDecoder.is_all_abc(with_pages)
+        with_source = {
+            "kind": "group",
+            "id": "g",
+            "layout": "rows",
+            "children": [],
+            "page_source": "combo1",
+        }
+        assert not JsonGroupDecoder.is_all_abc(with_source)
+
+    def test_empty_paged_fields_decode_abc(self) -> None:
+        # Present-but-empty pages/page_source carry no panels, so nothing is
+        # dropped and the group correctly decodes ABC (the truthiness gate is
+        # intentional, not a falsy-key oversight).
+        wire = {
+            "kind": "group",
+            "id": "g",
+            "layout": "rows",
+            "children": [{"kind": "text", "id": "t", "content": "x"}],
+            "pages": [],
+            "page_source": "",
+        }
+        assert JsonGroupDecoder.is_all_abc(wire)
+        assert isinstance(_decode(wire), GroupElement)
+
     def test_nested_all_abc_group_stays_abc(self) -> None:
         wire = {
             "kind": "group",
