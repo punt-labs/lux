@@ -24,7 +24,7 @@ from punt_lux.display.texture_cache import TextureCache
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.dialog import DialogElement
-from punt_lux.protocol.elements.layout import GroupElement, WindowElement
+from punt_lux.protocol.elements.layout import LegacyGroupElement, WindowElement
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.scene.widget_state import WidgetState
@@ -75,7 +75,7 @@ def test_group_leaves_dispatch_to_per_kind_renderer() -> None:
     text = TextElement(id="t", content="hi")
     button = ButtonElement(id="b", label="Go")
     checkbox = CheckboxElement(id="c", label="On")
-    group = GroupElement(id="g", children=[text, button, checkbox])
+    group = LegacyGroupElement(id="g", children=[text, button, checkbox])
 
     for child in group.children:
         # True == resolved to a per-kind renderer, NOT the unsupported fallback.

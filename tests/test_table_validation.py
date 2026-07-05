@@ -9,7 +9,7 @@ integration are covered in ``tests/domain/test_validation_walk.py`` and
 
 from __future__ import annotations
 
-from punt_lux.protocol.elements.layout import GroupElement
+from punt_lux.protocol.elements.layout import LegacyGroupElement
 from punt_lux.protocol.elements.table import TableElement
 
 
@@ -142,14 +142,14 @@ class TestTableValidate:
 class TestGroupChildElements:
     def test_visible_children_are_exposed(self) -> None:
         child = TableElement(id="t", columns=["A"], rows=[["x"]])
-        group = GroupElement(id="g", children=[child])
+        group = LegacyGroupElement(id="g", children=[child])
         assert group.child_elements() == (child,)
 
     def test_paged_children_are_exposed(self) -> None:
         nav = TableElement(id="nav", columns=["A"], rows=[["x"]])
         paged = TableElement(id="paged", columns=["B"], rows=[["y"]])
-        group = GroupElement(id="g", children=[nav], pages=[[paged]])
+        group = LegacyGroupElement(id="g", children=[nav], pages=[[paged]])
         assert group.child_elements() == (nav, paged)
 
     def test_empty_group_has_no_children(self) -> None:
-        assert GroupElement(id="g").child_elements() == ()
+        assert LegacyGroupElement(id="g").child_elements() == ()

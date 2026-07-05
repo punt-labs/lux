@@ -53,10 +53,10 @@ from punt_lux.protocol.elements import (
     ColorPickerElement,
     ComboElement,
     DrawElement,
-    GroupElement,
     ImageElement,
     InputNumberElement,
     InputTextElement,
+    LegacyGroupElement,
     MarkdownElement,
     ModalElement,
     PlotElement,
@@ -177,11 +177,11 @@ def _collect_kinds(elements: list[Element]) -> frozenset[str]:
         kinds.add(elem.kind)
         if isinstance(
             elem,
-            GroupElement | CollapsingHeaderElement | WindowElement | ModalElement,
+            LegacyGroupElement | CollapsingHeaderElement | WindowElement | ModalElement,
         ):
             kinds |= _collect_kinds(elem.children)
-        if isinstance(elem, GroupElement):
-            # GroupElement(layout="paged") puts indexed content panels in
+        if isinstance(elem, LegacyGroupElement):
+            # LegacyGroupElement(layout="paged") puts indexed content panels in
             # ``pages`` — recurse into every page so paged content counts
             # toward coverage.
             for page in elem.pages:
@@ -597,7 +597,9 @@ class SmokeRunner:
                 content="Layout & Containers",
                 style="heading",
             ),
-            GroupElement(id="layout-group", layout="rows", children=group_children),
+            LegacyGroupElement(
+                id="layout-group", layout="rows", children=group_children
+            ),
             CollapsingHeaderElement(
                 id="layout-header",
                 label="Disclosure region",

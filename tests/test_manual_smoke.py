@@ -19,7 +19,7 @@ from punt_lux.protocol.elements import (
     CheckboxElement,
     CollapsingHeaderElement,
     ComboElement,
-    GroupElement,
+    LegacyGroupElement,
     ModalElement,
     SeparatorElement,
     TabBarElement,
@@ -61,7 +61,7 @@ def test_collect_kinds_paged_group(manual_smoke: ModuleType) -> None:
         [ButtonElement(id="p2-btn", label="page 2")],
         [CheckboxElement(id="p3-check", label="page 3")],
     ]
-    group = GroupElement(
+    group = LegacyGroupElement(
         id="paged",
         layout="paged",
         children=[ComboElement(id="picker", label="page", items=["a", "b"])],
@@ -79,7 +79,7 @@ def test_collect_kinds_recurses_into_containers(manual_smoke: ModuleType) -> Non
         TextElement(id="inner-text", content="x"),
         SeparatorElement(id="inner-sep"),
     ]
-    group = GroupElement(id="g", layout="rows", children=inner)
+    group = LegacyGroupElement(id="g", layout="rows", children=inner)
     header = CollapsingHeaderElement(id="h", children=inner)
     window = WindowElement(id="w", children=inner)
     modal = ModalElement(id="m", children=inner)

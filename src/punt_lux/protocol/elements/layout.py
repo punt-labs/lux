@@ -11,7 +11,7 @@ from punt_lux.protocol.elements.container_dispatch import dispatch as _dispatche
 
 __all__ = [
     "CollapsingHeaderElement",
-    "GroupElement",
+    "LegacyGroupElement",
     "ModalElement",
     "TabBarElement",
     "TreeElement",
@@ -21,7 +21,7 @@ __all__ = [
 
 
 @dataclass(frozen=True, slots=True)
-class GroupElement:
+class LegacyGroupElement:
     """A layout container that arranges children in rows or columns.
 
     Layout modes:
@@ -67,8 +67,8 @@ class GroupElement:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:
-        """Construct a GroupElement from a JSON-decoded mapping."""
-        recurse = _dispatchers.from_dict
+        """Construct a LegacyGroupElement from a JSON-decoded mapping."""
+        recurse = cls.decode_child
         pages_raw = d.get("pages", [])
         pages = [[recurse(e) for e in page] for page in pages_raw]
         return cls(
@@ -78,6 +78,25 @@ class GroupElement:
             pages=pages,
             page_source=d.get("page_source"),
         )
+
+    @staticmethod
+    def decode_child(raw: dict[str, Any]) -> Any:
+        """Decode one container child, forcing any nested group legacy.
+
+        A legacy container must never hold an ABC ``GroupElement`` — the
+        legacy render path has no adapter for it and would fall back to the
+        ``[unsupported element]`` placeholder. Routing a nested ``group``
+        straight to ``LegacyGroupElement`` keeps every group inside a legacy
+        subtree legacy, so an ABC container can never nest inside a legacy
+        one. Non-group children decode through the shared dispatcher, where
+        migrated leaves (text, button, …) still decode to their ABC form.
+
+        Shared by every legacy container codec in this module (tab-bar,
+        window, header, modal) so the invariant holds at every nesting site.
+        """
+        if raw.get("kind") == "group":
+            return LegacyGroupElement.from_dict(raw)
+        return _dispatchers.from_dict(raw)
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,7 +130,7 @@ class TabBarElement:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:
         """Construct a TabBarElement from a JSON-decoded mapping."""
-        recurse = _dispatchers.from_dict
+        recurse = LegacyGroupElement.decode_child
         tabs: list[dict[str, Any]] = [
             {
                 "label": t.get("label", "Tab"),
@@ -153,7 +172,7 @@ class CollapsingHeaderElement:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:
         """Construct a CollapsingHeaderElement from a JSON-decoded mapping."""
-        recurse = _dispatchers.from_dict
+        recurse = LegacyGroupElement.decode_child
         return cls(
             id=d["id"],
             label=d.get("label", ""),
@@ -216,7 +235,7 @@ class WindowElement:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:
         """Construct a WindowElement from a JSON-decoded mapping."""
-        recurse = _dispatchers.from_dict
+        recurse = LegacyGroupElement.decode_child
         return cls(
             id=d["id"],
             title=d.get("title", ""),
@@ -365,7 +384,7 @@ class ModalElement:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:
         """Construct a ModalElement from a JSON-decoded mapping."""
-        recurse = _dispatchers.from_dict
+        recurse = LegacyGroupElement.decode_child
         return cls(
             id=d["id"],
             title=d.get("title", ""),
@@ -376,7 +395,12 @@ class ModalElement:
 
 def register_codecs(register: Register) -> None:
     """Register this module's element codecs into an ElementCodec."""
-    register("group", GroupElement, GroupElement.to_dict, GroupElement.from_dict)
+    register(
+        "group",
+        LegacyGroupElement,
+        LegacyGroupElement.to_dict,
+        LegacyGroupElement.from_dict,
+    )
     register(
         "tab_bar",
         TabBarElement,

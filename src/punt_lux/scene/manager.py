@@ -13,9 +13,9 @@ from punt_lux.protocol import (
     CollapsingHeaderElement,
     ComboElement,
     Element,
-    GroupElement,
     InputNumberElement,
     InputTextElement,
+    LegacyGroupElement,
     RadioElement,
     SceneMessage,
     SelectableElement,
@@ -35,11 +35,13 @@ from punt_lux.types import OnSceneReplacedFn
 
 def _get_children(elem: Element) -> list[list[Any]]:
     """Return all child lists owned by a container element."""
-    if isinstance(elem, (GroupElement, CollapsingHeaderElement, WindowElement)):
+    if isinstance(elem, LegacyGroupElement):
         result: list[list[Any]] = [elem.children]
-        if isinstance(elem, GroupElement) and elem.pages:
+        if elem.pages:
             result.extend(elem.pages)
         return result
+    if isinstance(elem, (CollapsingHeaderElement, WindowElement)):
+        return [elem.children]
     if isinstance(elem, TabBarElement):
         return [t.get("children", []) for t in elem.tabs]
     return []
