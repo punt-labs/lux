@@ -28,16 +28,11 @@ from punt_lux.display.renderers import (
     SpinnerRenderer,
     TextRenderer,
 )
+from punt_lux.display.renderers.container_renderer import ContainerRenderer
 from punt_lux.display.renderers.draw_element_renderer import DrawElementRenderer
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
-from punt_lux.protocol import (
-    CollapsingHeaderElement,
-    GroupElement,
-    RemoteEventHandlerInvocation,
-    TabBarElement,
-    WindowElement,
-)
+from punt_lux.protocol import RemoteEventHandlerInvocation
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
@@ -100,6 +95,9 @@ class ElementRenderer:
     _color_picker_renderer: ColorPickerRenderer
     _selectable_renderer: SelectableRenderer
     _draw_element_renderer: DrawElementRenderer
+    # Layout containers (group, tab bar, collapsing header, window) recurse
+    # their children back through ``render_element`` via a callback.
+    _container_renderer: ContainerRenderer
 
     _RENDERERS: ClassVar[dict[str, str]] = {
         "draw": "_render_draw",
@@ -145,6 +143,9 @@ class ElementRenderer:
         self._color_picker_renderer = ColorPickerRenderer(widget_state, emit_event)
         self._selectable_renderer = SelectableRenderer(widget_state, emit_event)
         self._draw_element_renderer = DrawElementRenderer()
+        self._container_renderer = ContainerRenderer(
+            widget_state, check_dirty_window, self.render_element
+        )
         return self
 
     # Per-kind dispatch table: (element type, renderer-attribute name).  Single
@@ -180,6 +181,7 @@ class ElementRenderer:
         "_radio_renderer",
         "_color_picker_renderer",
         "_selectable_renderer",
+        "_container_renderer",
     )
 
     @property
@@ -258,7 +260,11 @@ class ElementRenderer:
             else:
                 imgui.text(f"[unsupported element: {elem.kind}]")
 
-        self.apply_tooltip(elem)
+        # A dialog applies its own tooltip in ImGuiDialogRenderer.end (both the
+        # top-level ABC path and the nested _render_dialog path); skip the
+        # generic post-pass so the tooltip is not applied twice.
+        if not isinstance(elem, DialogElement):
+            self.apply_tooltip(elem)
 
     def apply_tooltip(self, elem: Element) -> None:
         """Paint ``elem``'s generic hover tooltip, if it has one.
@@ -296,132 +302,20 @@ class ElementRenderer:
     # -- container rendering ---------------------------------------------------
 
     def _render_group(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        grp = cast("GroupElement", elem)
-        layout = grp.layout
-
-        if layout == "paged":
-            self._render_paged_group(grp)
-            return
-
-        for i, child in enumerate(grp.children):
-            if layout == "columns" and i > 0:
-                imgui.same_line()
-            self.render_element(child)
-
-    def _paged_group_state_key(self, grp_id: str, page_source: str | None) -> str:
-        """Return the widget_state key for a paged group's page index."""
-        return page_source if page_source else f"{grp_id}__pg_idx"
-
-    def _paged_group_read_index(self, state_key: str, total: int) -> int:
-        """Read and clamp the current page index from widget_state."""
-        raw = self._widget_state.get(state_key)
-        page_idx = raw if isinstance(raw, int) else 0
-        return max(0, min(page_idx, total - 1)) if total else 0
-
-    def _render_paged_group(self, grp: Any) -> None:
-        """Render a paged group with built-in Prev/Next navigation."""
-        from imgui_bundle import imgui
-
-        pages = grp.pages
-        total = len(pages) if pages else 0
-        page_source: str | None = grp.page_source
-        state_key = self._paged_group_state_key(grp.id, page_source)
-        page_idx = self._paged_group_read_index(state_key, total)
-
-        # Nav row: << Prev | [combo] | Next >>
-        if imgui.button(f"<< Prev##{grp.id}_prev") and page_idx > 0:
-            page_idx -= 1
-            self._widget_state.set(state_key, page_idx)
-        imgui.same_line()
-
-        other_children = self._render_paged_inline_children(grp)
-
-        if imgui.button(f"Next >>##{grp.id}_next") and page_idx < total - 1:
-            page_idx += 1
-            self._widget_state.set(state_key, page_idx)
-
-        # Re-read after all interactions (Prev, combo change, Next) so the
-        # page content always reflects the final widget_state value.
-        page_idx = self._paged_group_read_index(state_key, total)
-
-        for child in other_children:
-            self.render_element(child)
-
-        if pages and 0 <= page_idx < total:
-            for child in pages[page_idx]:
-                self.render_element(child)
-
-    def _render_paged_inline_children(self, grp: Any) -> list[Any]:
-        """Render the page-source combo inline; return the remaining children."""
-        from imgui_bundle import imgui
-
-        page_source: str | None = grp.page_source
-        other_children: list[Any] = []
-        for child in grp.children:
-            if page_source and getattr(child, "id", None) == page_source:
-                self.render_element(child)
-                imgui.same_line()
-            else:
-                other_children.append(child)
-        return other_children
+        """Delegate group rendering to the ContainerRenderer."""
+        self._container_renderer.render_group(elem)
 
     def _render_tab_bar(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        tb = cast("TabBarElement", elem)
-        if imgui.begin_tab_bar(f"##{tb.id}"):
-            for tab in tb.tabs:
-                tab_label: str = tab.get("label", "Tab")
-                if imgui.begin_tab_item(tab_label)[0]:
-                    for child in tab.get("children", []):
-                        self.render_element(child)
-                    imgui.end_tab_item()
-            imgui.end_tab_bar()
+        """Delegate tab-bar rendering to the ContainerRenderer."""
+        self._container_renderer.render_tab_bar(elem)
 
     def _render_collapsing_header(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        ch = cast("CollapsingHeaderElement", elem)
-        flags = imgui.TreeNodeFlags_.default_open.value if ch.default_open else 0
-        if imgui.collapsing_header(f"{ch.label}##{ch.id}", flags=flags):
-            for child in ch.children:
-                self.render_element(child)
+        """Delegate collapsing-header rendering to the ContainerRenderer."""
+        self._container_renderer.render_collapsing_header(elem)
 
     def _render_window(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        win = cast("WindowElement", elem)
-        flags = 0
-        if win.no_move:
-            flags |= imgui.WindowFlags_.no_move.value
-        if win.no_resize:
-            flags |= imgui.WindowFlags_.no_resize.value
-        if win.no_collapse:
-            flags |= imgui.WindowFlags_.no_collapse.value
-        if win.no_title_bar:
-            flags |= imgui.WindowFlags_.no_title_bar.value
-        if win.no_scrollbar:
-            flags |= imgui.WindowFlags_.no_scrollbar.value
-        if win.auto_resize:
-            flags |= imgui.WindowFlags_.always_auto_resize.value
-
-        # check_dirty_window returns True and clears the flag when
-        # the window was marked dirty by a scene update.
-        if self._check_dirty_window(win.id):
-            cond = imgui.Cond_.always.value
-        else:
-            cond = imgui.Cond_.first_use_ever.value
-        imgui.set_next_window_pos((win.x, win.y), cond)
-        imgui.set_next_window_size((win.width, win.height), cond)
-
-        title = win.title or win.id
-        expanded, _ = imgui.begin(f"{title}##{win.id}", flags=flags)
-        if expanded:
-            for child in win.children:
-                self.render_element(child)
-        imgui.end()
+        """Delegate window rendering to the ContainerRenderer."""
+        self._container_renderer.render_window(elem)
 
     # -- tree rendering --------------------------------------------------------
 
@@ -608,13 +502,17 @@ class ElementRenderer:
             raise TypeError(msg)
         renderer = self._imgui_renderer_factory(elem)
         opened = renderer.begin()
-        if opened:
-            renderer.paint()
-            # Dialog children are ABC Buttons; the legacy dispatch is typed
-            # for the wire-kind union, of which ButtonElement is a member.
-            for child in elem.children:
-                self.render_element(cast("Element", child))
-        renderer.end(opened=opened)
+        try:
+            if opened:
+                renderer.paint()
+                # Dialog children are ABC Buttons; the legacy dispatch is typed
+                # for the wire-kind union, of which ButtonElement is a member.
+                for child in elem.children:
+                    self.render_element(cast("Element", child))
+        finally:
+            # ``end`` closes the popup and applies the dialog's tooltip; run it
+            # even if a child raises so the opened modal surface stays balanced.
+            renderer.end(opened=opened)
 
     # -- draw element rendering ------------------------------------------------
 

@@ -2,10 +2,9 @@
 
 Refactored into the ``begin``/``paint``/``end`` Renderer Protocol so the
 Element render skeleton drives it: ``begin`` opens the modal (or reports it
-hidden) and stashes the prior-frame latch; the skeleton then draws the
-dialog's child Buttons through the default child recursion (the unified
-button path); ``end`` closes the popup and runs the Escape/outside dismiss
-cascade.
+hidden) and stashes the prior-frame latch; the skeleton draws the dialog's
+child Buttons through the default recursion; ``end`` closes the popup, applies
+the hover tooltip, and runs the Escape/outside dismiss cascade.
 
 Visibility is sourced from the dialog's own ``DialogModel`` so one state
 machine — agent ``RemoveElement``, model dismiss, connection disconnect —
@@ -86,11 +85,12 @@ class ImGuiDialogRenderer:
         """No-op — the dialog's only body is its children (default recursion)."""
 
     def end(self, *, opened: bool) -> None:
-        """Close the popup (only if open) and run the external-close cascade."""
+        """Close the popup (only if open), apply the tooltip, run the cascade."""
         if opened:
             imgui.end_popup()
         if self._was_open and not opened:
             self._handle_external_close()
+        self._factory.element_renderer.apply_tooltip(self._elem)
 
     def _handle_external_close(self) -> None:
         """Sync latches and close the model after an ImGui-driven close.

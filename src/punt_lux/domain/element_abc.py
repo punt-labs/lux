@@ -100,19 +100,19 @@ class Element(EventHandlerHost, ABC):
     def render(self) -> None:
         """Fixed template skeleton over four step hooks. NEVER overridden.
 
-        Runs ``_begin`` (open the surface; a container that did not open
-        short-circuits the inner steps), ``_paint_self``, ``_render_children``,
-        then ``_end``. Each step is an overridable hook with a default, so a
-        leaf and a plain box override nothing. Off the display tier the
-        factory is the fail-loud sentinel until the Display rebinds the real
-        one via ``bind_renderer_factory``.
+        Runs ``_begin`` → ``_paint_self`` → ``_render_children`` → ``_end``;
+        ``_end`` runs in a ``finally`` so an opened ImGui surface stays
+        balanced even if a paint or a child ``render`` raises. Off the display
+        tier the factory is the fail-loud sentinel until rebound on the Display.
         """
         renderer = self._renderer_factory(self)
         opened = self._begin(renderer)
-        if opened:
-            self._paint_self(renderer)
-            self._render_children(renderer)
-        self._end(renderer, opened=opened)
+        try:
+            if opened:
+                self._paint_self(renderer)
+                self._render_children(renderer)
+        finally:
+            self._end(renderer, opened=opened)
 
     def _begin(self, renderer: Renderer) -> bool:
         """Open this node's surface; return whether the inner steps run.
