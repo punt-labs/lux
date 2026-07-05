@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Self-validating elements (proof)** — elements now check their own inputs.
+  `show` decodes the element tree, then a hierarchy walk calls each element's
+  `validate()` and collects *every* error across the tree (no fail-fast). An
+  invalid tree is rejected before render and the full error set is returned to
+  the agent so it can self-correct; a valid tree renders unchanged. Validation
+  is component-appropriate and lives on the element: `TableElement.validate()`
+  checks that every row's cell count matches the column count and that cells are
+  renderable scalars. Contract: `SelfValidating` / `HasChildElements` protocols,
+  a `ValidationError` value object, and a `ValidationReport` aggregate; the
+  Element ABC supplies an empty-leaf default so every kind participates.
+
 ### Fixed
 
 - **No stacked display windows from a direct `lux display` or a concurrent

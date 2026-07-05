@@ -13,6 +13,7 @@ from punt_lux.config import ConfigManager
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub_display
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import Element as WireElement, Patch
 from punt_lux.tools.connection import _query_tool
@@ -123,11 +124,20 @@ def show(
     if frame_id is None:
         frame_id = scene_id
     if frame_title is None:
-        frame_title = title or scene_id
+        frame_title = title if title else scene_id
 
     connection_id = ConnectionId(_session_key.get())
     factory = hub_element_factory(connection_id)
     typed_elements: list[WireElement] = [factory.element_from_dict(e) for e in elements]
+
+    # Self-validation runs after decode and before render: walk the decoded
+    # tree, let every element check its own inputs, and collect all errors.
+    # An invalid tree is never handed to the Hub/Display — the agent gets
+    # every problem back at once so it can self-correct.
+    report = ElementTreeValidator().validate_tree(typed_elements)
+    if not report.ok:
+        return f"error: scene not rendered — {report.describe()}"
+
     size_tuple: tuple[int, int] | None = None
     if frame_size is not None:
         if len(frame_size) != 2:

@@ -491,6 +491,83 @@ class TestShowTool:
         assert result == "timeout"
         assert isolated_display.resolve(SceneId("s1"), ElementId("t1")).id == "t1"
 
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_show_valid_table_renders(self, mock_get: MagicMock) -> None:
+        # Demonstration (a): a well-formed table validates clean and renders.
+        client = _mock_client()
+        client.show.return_value = AckMessage(scene_id="s1", ts=time.time())
+        mock_get.return_value = client
+
+        result = show(
+            "s1",
+            [
+                {
+                    "kind": "table",
+                    "id": "sales",
+                    "columns": ["Name", "Score"],
+                    "rows": [["Alice", 95], ["Bob", 87]],
+                },
+            ],
+        )
+        assert result == "ack:s1"
+        client.show.assert_called_once()
+
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_show_rejects_table_with_mismatched_row(self, mock_get: MagicMock) -> None:
+        # Demonstration (b): a short row collects an actionable error and the
+        # tree is NOT rendered — the client is never called.
+        client = _mock_client()
+        mock_get.return_value = client
+
+        result = show(
+            "s1",
+            [
+                {
+                    "kind": "table",
+                    "id": "sales",
+                    "columns": ["Name", "Score", "Rank"],
+                    "rows": [["Alice", 95]],
+                },
+            ],
+        )
+        assert result.startswith("error: scene not rendered")
+        assert "[table 'sales']" in result
+        assert "2 cell(s)" in result
+        assert "3 column(s)" in result
+        client.show.assert_not_called()
+
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_show_collects_error_from_table_nested_in_group(
+        self, mock_get: MagicMock
+    ) -> None:
+        # Demonstration (c): a bad table nested in a group beside a valid
+        # element — the walk collects the table's error across the hierarchy.
+        client = _mock_client()
+        mock_get.return_value = client
+
+        result = show(
+            "s1",
+            [
+                {
+                    "kind": "group",
+                    "id": "g1",
+                    "children": [
+                        {"kind": "text", "id": "ok", "content": "fine"},
+                        {
+                            "kind": "table",
+                            "id": "nested",
+                            "columns": ["A", "B"],
+                            "rows": [["only-one"]],
+                        },
+                    ],
+                },
+            ],
+        )
+        assert result.startswith("error: scene not rendered")
+        assert "[table 'nested']" in result
+        assert "1 validation error(s):" in result
+        client.show.assert_not_called()
+
 
 class TestShowTableTool:
     @patch("punt_lux.domain.hub.clients.client_registry.get")
