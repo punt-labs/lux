@@ -199,16 +199,20 @@ class JsonElementFactory:
             raise AssertionError(msg)
         # ``group`` forks by all-ABC-ness: a rows/columns group whose entire
         # subtree is migrated-ABC decodes onto the ABC ``GroupElement``; any
-        # legacy descendant or a paged layout falls through to the legacy
-        # container below.
+        # legacy descendant or a paged layout falls through to the legacy path.
         if kind == "group" and JsonGroupDecoder.is_all_abc(d):
             return self._group_decoder.decode(d)
+        return self._decode_legacy(d)
+
+    def _decode_legacy(self, d: dict[str, Any]) -> Any:
+        """Decode a dataclass kind through the codec, validating tooltip.
+
+        The codec returns each Element with its declared tooltip default
+        (``None``); the cross-element tooltip read here validates the wire
+        value at the boundary (PY-EH-1) so a non-str never reaches a
+        renderer via ``dataclasses.replace``.
+        """
         elem = self._codec.from_dict(d)
-        # Validate tooltip at the boundary (PY-EH-1). The codec returns
-        # each Element with its declared tooltip default (``None``); the
-        # cross-element tooltip read here would otherwise trust whatever
-        # value the wire carried and forward non-str into renderers via
-        # ``dataclasses.replace``.
         tooltip_ctx = ElementWireContext.for_kind(elem.kind)
         tooltip = tooltip_ctx.optional_nullable_str(d, "tooltip")
         if tooltip is None:
