@@ -28,7 +28,9 @@ __all__ = ["JsonGroupDecoder", "JsonGroupEncoder"]
 # The wire kinds that decode onto the Element ABC. A group is all-ABC only
 # when every element in its subtree is one of these AND every nested group
 # is itself all-ABC with a stack layout.
-_MIGRATED_ABC_KINDS = frozenset({"text", "button", "checkbox", "dialog", "group"})
+_MIGRATED_ABC_KINDS = frozenset(
+    {"text", "button", "checkbox", "dialog", "group", "progress"}
+)
 
 # The two layouts an ABC group renders; ``paged`` stays on the legacy path.
 _STACK_LAYOUTS = frozenset({"rows", "columns"})
@@ -68,16 +70,10 @@ class JsonGroupDecoder:
 
     @classmethod
     def first_non_abc_kind(cls, raw: Mapping[str, object]) -> str | None:
-        """Return the first reason ``raw`` is not an all-ABC stack group.
-
-        Returns the offending descendant's ``kind`` (``"layout=<x>"`` for a
-        non-stack layout, ``"pages"`` / ``"page_source"`` for a paged wire
-        shape — the ABC group carries no paged fields, so a group bearing
-        *non-empty* paged data forks legacy lest its panels be dropped; an
-        empty ``pages: []`` / ``page_source: ""`` holds no panels, so nothing
-        is dropped and it decodes ABC), or ``None`` when the whole subtree is
-        a migrated-ABC stack group (the documented "no offender" contract
-        :meth:`is_all_abc` reads as True, PY-TS-14).
+        """Return the first reason ``raw`` forks legacy, or ``None`` if it is
+        an all-ABC stack group. A non-stack ``layout``, a legacy descendant
+        ``kind``, or non-empty ``pages`` / ``page_source`` (panels the ABC
+        group cannot hold) each fork legacy; empty paged fields decode ABC.
         """
         layout = raw.get("layout", "rows")
         if layout not in _STACK_LAYOUTS:

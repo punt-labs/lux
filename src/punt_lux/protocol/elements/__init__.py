@@ -122,11 +122,8 @@ __all__ = [
     "build_element_codec",
     "element_to_dict",
 ]
-# The four underscore-prefixed names above are package-internal API:
-# used by protocol/messages.py and other internal codecs, not by external
-# callers. They remain in __all__ so pyright's reportPrivateUsage does not
-# fire on intentional cross-module imports within the protocol package.
-# The leading underscore signals "do not import from outside protocol/".
+# The underscore-prefixed names above are package-internal API kept in
+# __all__ so pyright's reportPrivateUsage accepts intra-protocol imports.
 
 
 Element = (
@@ -175,10 +172,8 @@ def build_element_codec() -> ElementCodec:
     return codec
 
 
-# Module-level codec used for the encode (to_dict) side, which has no
-# DI dependency. The decode side (from_dict) lives on
-# :class:`JsonElementFactory` so the tier-injected ``PublishSink`` /
-# ``RendererFactory`` / ``Emit`` flow into every decoded element.
+# Encode-side codec (to_dict) has no DI; decode (from_dict) lives on
+# JsonElementFactory so tier-injected DI flows into every decoded element.
 _to_dict_codec: ElementCodec = build_element_codec()
 _ENCODER_FACTORY = JsonEncoderFactory()
 
@@ -187,7 +182,12 @@ def _element_to_dict(elem: Element) -> dict[str, Any]:
     """Serialize an Element dataclass to a JSON-compatible dict."""
     if isinstance(
         elem,
-        TextElement | ButtonElement | CheckboxElement | DialogElement | GroupElement,
+        TextElement
+        | ButtonElement
+        | CheckboxElement
+        | DialogElement
+        | GroupElement
+        | ProgressElement,
     ):
         # Each per-kind encoder owns its own tooltip emission.
         return _ENCODER_FACTORY.encode(elem)

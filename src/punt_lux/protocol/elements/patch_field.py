@@ -47,3 +47,15 @@ class PatchField:
             msg = f"{self._name} must be bool, got {type(value).__name__}"
             raise TypeError(msg)
         return value
+
+    def as_number(self, value: object) -> float:
+        """Return ``value`` as ``float`` or raise ``TypeError``.
+
+        Rejects ``bool`` (a JSON ``true``/``false`` is not a fraction) and
+        coerces ``int`` to ``float``, mirroring the wire boundary's
+        ``ElementWireContext.require_number`` contract.
+        """
+        if isinstance(value, bool) or not isinstance(value, int | float):
+            msg = f"{self._name} must be a number, got {type(value).__name__}"
+            raise TypeError(msg)
+        return float(value)
