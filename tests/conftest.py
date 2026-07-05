@@ -17,6 +17,8 @@ from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 if TYPE_CHECKING:
     from collections.abc import Generator
 
+    from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
+
 
 class _TestRecordingSink:
     """Publish sink that records every ``(topic, payload)`` for assertions.
@@ -65,6 +67,51 @@ def element_factory() -> JsonElementFactory:
 def recording_sink() -> _TestRecordingSink:
     """Return a fresh :class:`_TestRecordingSink` for direct construction."""
     return _TestRecordingSink()
+
+
+@pytest.fixture
+def real_imgui_factory() -> ImGuiRendererFactory:
+    """Return the production ``ImGuiRendererFactory`` — real, not a stand-in.
+
+    Used by the DI-rebind tests to assert a display-tier element resolves a
+    real renderer where the fail-loud sentinel would raise. Display imports are
+    local so importing this conftest never requires the display extra.
+    """
+    from punt_lux.display.element_renderer import ElementRenderer
+    from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
+    from punt_lux.display.table_renderer import TableRenderer
+    from punt_lux.display.texture_cache import TextureCache
+    from punt_lux.protocol.messages.remote_invocation import (
+        RemoteEventHandlerInvocation,
+    )
+    from punt_lux.scene.widget_state import WidgetState
+
+    def _no_emit(_msg: object) -> None:
+        """Display-tier no-op emit (matches production wiring)."""
+
+    def _no_emit_event(_msg: RemoteEventHandlerInvocation) -> None:
+        """No-op interaction emit (matches production wiring)."""
+
+    def _no_check_dirty(_window_id: str) -> bool:
+        return False
+
+    widget_state = WidgetState()
+    textures = TextureCache()
+    element_renderer = ElementRenderer(
+        widget_state=widget_state,
+        texture_cache=textures,
+        table_renderer=TableRenderer(
+            widget_state=widget_state, emit_event=_no_emit_event
+        ),
+        emit_event=_no_emit_event,
+        check_dirty_window=_no_check_dirty,
+    )
+    return ImGuiRendererFactory(
+        widget_state=widget_state,
+        texture_cache=textures,
+        emit=_no_emit,
+        element_renderer=element_renderer,
+    )
 
 
 # ---------------------------------------------------------------------------

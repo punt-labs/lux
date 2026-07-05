@@ -10,25 +10,21 @@ shape ``element_from_dict`` accepts.
 
 from __future__ import annotations
 
-import tempfile
 import threading
-from collections.abc import Mapping
-from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING
 
+import pytest
+
+from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.element_abc import Element as DomainElement
-from punt_lux.domain.handlers.decorators import PublishSink
-from punt_lux.protocol.element_factory import JsonElementFactory
-from punt_lux.protocol.elements import build_element_codec
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.in_memory_connection import InMemoryConnection
-from punt_lux.protocol.renderers.recording import RecordingLog, RecordingRendererFactory
+from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 
-
-def _no_publish(_topic: str, _payload: Mapping[str, object]) -> None:
-    """Test-local publish sink — Text decode never invokes it."""
+if TYPE_CHECKING:
+    from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 
 
 def test_text_dict_decodes_to_domain_element_abc_subclass() -> None:
@@ -67,52 +63,48 @@ def test_in_memory_backend() -> None:
     assert isinstance(elem, DomainElement)
 
 
-def test_in_memory_backend_roundtrip_with_factories() -> None:
-    """Full client→hub→decode roundtrip exercising both factories.
+def test_in_memory_backend_roundtrip_binds_production_di(
+    real_imgui_factory: ImGuiRendererFactory,
+) -> None:
+    """Full client→hub→decode roundtrip asserting the real two-phase DI.
 
-    Constructs a ``TextElement`` on the client, encodes it via
-    ``JsonEncoderFactory``, ships the wire dict through an
-    ``InMemoryConnection`` pair, and decodes the received payload with a
-    ``JsonElementFactory`` bound to a hub-tier ``RecordingRendererFactory``.
-    Confirms the decoded element preserves identity and content, that the
-    injected renderer factory is the one the hub constructed, and that
-    invoking ``render()`` actually routes through it.
+    Constructs a ``TextElement``, encodes it via ``JsonEncoderFactory``, ships
+    the wire dict through an ``InMemoryConnection`` pair, and decodes it with
+    the production agent-side factory. In production no tier decodes with a
+    display-capable factory: the decoded element carries the fail-loud
+    ``RaisingRendererFactory`` sentinel, so ``render()`` raises off the display
+    tier. Only the Display's post-receive rebind binds the real
+    ``ImGuiRendererFactory``, after which the factory resolves a renderer.
     """
-    with tempfile.TemporaryDirectory(prefix="lux-") as raw_dir:
-        log = RecordingLog(Path(raw_dir) / "trace.jsonl")
-        hub_factory = RecordingRendererFactory(log)
-        decoder = JsonElementFactory(
-            renderer_factory=hub_factory,
-            emit=lambda _m: None,
-            publish_sink=cast("PublishSink", _no_publish),
-            codec=build_element_codec(),
-        )
+    original = TextElement(id="t1", content="Hello")
+    encoded = JsonEncoderFactory().encode(original)
 
-        original = TextElement(id="t1", content="Hello")
-        encoded = JsonEncoderFactory().encode(original)
+    client, hub = InMemoryConnection.paired()
+    received: list[dict[str, object]] = []
 
-        client, hub = InMemoryConnection.paired()
-        received: list[dict[str, object]] = []
+    def hub_reader() -> None:
+        received.extend(hub.iter_lines())
 
-        def hub_reader() -> None:
-            received.extend(hub.iter_lines())
+    reader_thread = threading.Thread(target=hub_reader, daemon=True)
+    reader_thread.start()
 
-        reader_thread = threading.Thread(target=hub_reader, daemon=True)
-        reader_thread.start()
+    client.send_line(encoded)
+    client.close()
+    reader_thread.join(timeout=2.0)
+    hub.close()
 
-        client.send_line(encoded)
-        client.close()
-        reader_thread.join(timeout=2.0)
-        hub.close()
+    assert len(received) == 1
+    decoded = agent_element_factory().element_from_dict(received[0])
+    assert isinstance(decoded, TextElement)
+    assert decoded.id == original.id
+    assert decoded.content == original.content
 
-        assert len(received) == 1
-        decoded = decoder.decode(received[0])
-        assert isinstance(decoded, TextElement)
-
-        assert decoded.id == original.id
-        assert decoded.content == original.content
-        # The decoder must bind the hub's renderer factory onto the element
-        # so render() routes through the tier-local factory, not a sentinel.
-        assert decoded._renderer_factory is hub_factory
+    # Production pre-rebind DI: the decode tier binds the fail-loud sentinel,
+    # not a display-capable stand-in, so an off-display render() raises.
+    assert isinstance(decoded._renderer_factory, RaisingRendererFactory)
+    with pytest.raises(RuntimeError, match=r"cannot be rendered on this tier"):
         decoded.render()
-        assert log.lines() == ({"op": "render", "kind": "text", "id": "t1"},)
+
+    # Post-rebind: the Display binds the real factory, which resolves a renderer.
+    decoded.bind_renderer_factory(real_imgui_factory)
+    assert isinstance(decoded._renderer_factory(decoded), ImGuiTextRenderer)
