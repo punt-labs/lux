@@ -19,15 +19,16 @@ Of the 21: ~9 are interactive (need the full D21 remote-dispatch treatment) and
 handler wrapping); `table` sits on the boundary because it carries built-in
 view state.
 
-## Self-validation gate
+## Self-validation travels with each migration
 
-Independent of the ABC migration, **every current element kind must be
-self-validating before any new element kind is added** (DES-039). Each kind
-implements a component-appropriate `validate()`; the walk collects errors
-across the hierarchy and returns them to the agent, and an invalid tree is
-never rendered. This axis moves faster than the ABC crossing — the proven
-exemplar, `table`, is still a legacy wire dataclass — so it is tracked
-separately from the 7-batch sequence below. See
+Self-validation is **part of what "migrated" means**, not a separate pass over
+legacy elements (DES-039). Each element gains its component-appropriate
+`validate()` — the walk collects errors across the hierarchy, returns them to
+the agent, and an invalid tree is never rendered — as part of its migration in
+the per-element process below. A migrated kind that is not self-validating is
+not done. The `table` exemplar proved the contract on a known-good shape to
+lock its design; from here `validate()` rides with the migration, and there is
+no standalone validation sweep on not-yet-migrated kinds. See
 [`../target/element-contract.md`](../target/element-contract.md)
 §"Validation Contract".
 

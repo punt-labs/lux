@@ -98,11 +98,13 @@ family.
 carries the `button_clicked` interaction. `text` and `dialog` complete the
 migrated set as passive-display and composite exemplars respectively.
 
-Self-validation (see [Validation Contract](#validation-contract)) is a
-separate axis from the ABC migration and is being rolled out to *every*
-current kind ahead of it: the proven exemplar is `table`, itself a
-not-yet-ABC-migrated wire dataclass. The rule is that every current kind is
-self-validating before any new kind is added.
+Self-validation (see [Validation Contract](#validation-contract)) is part of
+what "migrated" means: each kind gains its component-appropriate `validate()`
+**as part of its migration** to the new design, not through a separate pass
+over legacy kinds. The contract was proven on `table` — itself still a
+not-yet-ABC-migrated wire dataclass — to lock the shape; from here `validate()`
+travels with each element's migration. New kinds land self-validating on the
+new path only after the current kinds migrate.
 
 ## Framing Contract
 
@@ -294,9 +296,8 @@ The contract has four parts (see [DES-039](../../../DESIGN.md)):
    render is protected, and the agent has what it needs to fix its data and
    retry.
 
-The contract is universal (every kind has `validate()`), the logic is
-component-appropriate (each kind checks its own invariants), and it applies to
-legacy kinds too — it does not wait on the ABC migration. Composite coverage
+The contract is universal (every kind has `validate()`) and the logic is
+component-appropriate (each kind checks its own invariants). Composite coverage
 is enforced structurally: every child-bearing kind exposes its children to the
 walk, and a derivation-based guard test fails if a new container kind is added
 without doing so, so a nested element can never silently skip validation.
@@ -307,8 +308,10 @@ interactive element (an inert control that reports success), rather than
 leaving it a silent no-op (see [ui-model.md](./ui-model.md) and
 [DES-040](../../../DESIGN.md)).
 
-**Gate:** every current element kind becomes self-validating before any new
-element kind is added.
+**Gate:** the current kinds migrate to the new design — each gaining its
+`validate()` as it crosses — before any new element kind is added. Validation
+travels with migration; there is no separate validation-only pass over legacy
+kinds.
 
 ## Related Target Docs
 

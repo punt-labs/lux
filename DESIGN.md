@@ -3692,11 +3692,14 @@ child-bearing container implements `child_elements()`; a structural guard
 test derives the container set from the `Element` union and fails if a new
 container kind omits it — so coverage cannot silently regress.
 
-The contract is **universal** (every kind has `validate()`), the **logic
-is component-appropriate**, and it applies to **legacy kinds too**: the
-exemplar was proven on `table`, itself a not-yet-ABC-migrated kind. Making
-every current element kind self-validating is the gate before any new
-element is added.
+The contract is **universal** (every kind has `validate()`) and the **logic
+is component-appropriate**. The exemplar was proven on `table`, itself a
+not-yet-ABC-migrated kind, to lock the contract shape on a known-good element.
+Going forward `validate()` is added **as part of migrating each element** to the
+new design (DES-030+ and the migration plan), not as a separate validation-only
+pass over legacy kinds: a migrated element that is not self-validating is not
+done, and new kinds land self-validating on the new path only after the current
+kinds migrate.
 
 ### Rationale
 
