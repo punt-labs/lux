@@ -616,18 +616,11 @@ The result:
 
 Both paths reuse the **same** per-kind renderer instances owned by
 `ElementRenderer` (the factory adapters delegate to them through the narrow
-accessor from §2), so the pixels are identical. Nested ABC-*interactive*
-handlers remain the documented C3 limitation (a nested leaf is not rebound, so
-its handlers are unwrapped) — acceptable for the mixed period, **and this is
-why the "do not nest an ABC-interactive element in a legacy container" rule is
-load-bearing, not cosmetic**: a nested-in-legacy ABC button now *renders and is
-clickable*, but its handler runs the raw pickled Hub handler on the Display
-instead of routing to the Hub — and `publish` on the Display resolves to
-`RaisingPublishSink`, so a click can **raise in the render loop** rather than
-silently no-op. It has low v1 exposure (the ask-user loop uses top-level
-dialogs); if nested ABC-interactive elements become reachable in v1 this needs a
-Level-4 interaction test. The prune lands at fork completion, once containers
-migrate and no legacy container can hold an ABC leaf.
+accessor from §2), so the pixels are identical. This is not coexistence
+machinery — it is leaving the legacy path in place while it is still in use. The
+mixed case is not serviced or characterized here; it is **dissolved by the next
+fork step** — migrate a container, so composites are all-ABC and no legacy
+container holds an ABC leaf. The prune lands at that fork completion.
 
 `element_kind_count`
 ([element_renderer.py](../../../src/punt_lux/display/element_renderer.py)) counts
