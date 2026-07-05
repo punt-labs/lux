@@ -268,6 +268,10 @@ class DisplayServer:
             # working through the per-kind renderer dispatch path.
             element_renderer=self._element_renderer,
         )
+        # Bind the factory back so ElementRenderer can build the dialog
+        # renderer for a dialog held by a legacy container (the factory needs
+        # the ElementRenderer first, so the link is completed here).
+        self._element_renderer.imgui_renderer_factory = self._imgui_renderer_factory
 
         # Register display-specific query handlers that need ImGui state.
         self._scene_inspector = SceneInspector(
@@ -778,12 +782,11 @@ class DisplayServer:
             "pid": os.getpid(),
             "uptime_seconds": round(time.time() - self._start_time, 1),
             "protocol_version": "1.0",
-            # Legacy dispatch count + the ABC kinds pruned from it, so the
-            # reported total stays stable across the render-path migration.
-            "element_kinds": (
-                self._element_renderer.element_kind_count
-                + self._imgui_renderer_factory.migrated_kind_count
-            ),
+            # The four migrated ABC kinds stay in the legacy dispatch tables
+            # during the fork's mixed period (they paint via the per-kind
+            # renderer when nested in a legacy container), so the count is
+            # honest without a separate factory addend.
+            "element_kinds": self._element_renderer.element_kind_count,
         }
 
     def _query_get_window_settings(self, **_kwargs: Any) -> dict[str, Any]:

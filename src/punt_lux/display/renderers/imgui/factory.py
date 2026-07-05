@@ -90,16 +90,6 @@ class ImGuiRendererFactory:
         """
         return self._element_renderer
 
-    @property
-    def migrated_kind_count(self) -> int:
-        """Return how many element kinds paint through this factory.
-
-        Introspection's ``element_kinds`` total adds this to the legacy
-        ``ElementRenderer`` count so pruning the migrated kinds from the
-        legacy dispatch leaves the reported total unchanged.
-        """
-        return len(self._DISPATCH)
-
     def __call__(self, elem: object) -> Renderer:
         """Return the ImGui adapter for ``elem``, or raise if unsupported."""
         for element_type, adapter in self._DISPATCH:

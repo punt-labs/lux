@@ -16,7 +16,7 @@ constructed fresh each frame, so the latch it stashes never leaks frames.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Self
+from typing import TYPE_CHECKING, ClassVar, Self, final
 
 from imgui_bundle import imgui
 
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
 __all__ = ["ImGuiDialogRenderer"]
 
 
+@final
 class ImGuiDialogRenderer:
     """Paint a ``DialogElement`` as an ImGui modal popup (begin/paint/end)."""
 

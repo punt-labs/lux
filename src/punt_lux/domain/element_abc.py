@@ -116,13 +116,14 @@ class Element(EventHandlerHost, ABC):
 
     def _begin(self, renderer: Renderer) -> bool:
         """Open this node's surface; return whether the inner steps run.
-        Default: no container to open, so proceed."""
-        _ = renderer
-        return True
+        Default: delegate to the renderer's ``begin`` — a leaf renderer
+        returns True (nothing to open), a container renderer opens its
+        surface and may report it hidden."""
+        return renderer.begin()
 
     def _paint_self(self, renderer: Renderer) -> None:
         """Paint this node's own body. Default: delegate to the renderer.
-        A pure container overrides this to nothing."""
+        A pure container's renderer ``paint`` is a no-op."""
         renderer.paint()
 
     def _render_children(self, renderer: Renderer) -> None:
@@ -133,10 +134,10 @@ class Element(EventHandlerHost, ABC):
             child.render()
 
     def _end(self, renderer: Renderer, *, opened: bool) -> None:
-        """Close this node's surface. Default: nothing (a leaf has none).
-        ``opened`` is ``_begin``'s verdict, so a container closes only what
-        actually opened."""
-        _ = (renderer, opened)
+        """Close this node's surface. Default: delegate to the renderer's
+        ``end`` — a leaf renderer's ``end`` is a no-op, a container renderer
+        closes only what ``opened`` says it opened."""
+        renderer.end(opened=opened)
 
     def _children(self) -> tuple[Element, ...]:
         """Hook — composites override to return their children. Leaves

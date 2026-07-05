@@ -11,7 +11,7 @@ dispatch and the draw subsystem each stay one responsibility (PY-IC-6).
 from __future__ import annotations
 
 import logging
-from typing import Any, Self
+from typing import Any, Self, final
 
 from imgui_bundle import ImVec2, ImVec4, imgui
 
@@ -27,6 +27,7 @@ __all__ = ["DrawElementRenderer"]
 logger = logging.getLogger(__name__)
 
 
+@final
 class DrawElementRenderer:
     """Paint a ``DrawElement`` — canvas, command dispatch, and primitives."""
 

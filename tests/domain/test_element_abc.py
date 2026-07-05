@@ -1,11 +1,13 @@
 """Element ABC — the fixed render() skeleton over four step hooks.
 
 ``render()`` runs ``_begin`` → ``_paint_self`` → ``_render_children`` →
-``_end``. The defaults require no overrides: a leaf paints only itself; a
-plain composite paints itself then recurses its children (no bracketing,
-because the default ``_begin``/``_end`` do not drive the renderer). A
-container overrides ``_begin``/``_end`` to open and close a surface and to
-short-circuit the inner steps when it does not open.
+``_end``. The defaults delegate to the renderer: ``_begin`` drives
+``renderer.begin()``, ``_paint_self`` drives ``renderer.paint()``, ``_end``
+drives ``renderer.end(opened=...)``. So every element drives its renderer's
+full begin/paint/end lifecycle and no element overrides a step for the common
+case — a leaf renderer's ``begin`` returns True and ``end`` is a no-op, a
+container renderer opens and closes its surface. A component overrides a step
+only to customise it (Open-Closed).
 """
 
 from __future__ import annotations
@@ -70,7 +72,7 @@ def _emit(_evt: object) -> None:
 
 
 class _Leaf(Element):
-    """Concrete leaf — uses every default hook (paints only itself)."""
+    """Concrete leaf — uses every default hook (drives begin/paint/end)."""
 
     _tag: str
 
@@ -89,7 +91,7 @@ class _Leaf(Element):
 
 
 class _Composite(_Leaf):
-    """Plain composite — owns children, uses the default (unbracketed) hooks."""
+    """Plain composite — owns children, uses every default hook."""
 
     _kids: tuple[Element, ...]
 
@@ -108,23 +110,20 @@ class _Composite(_Leaf):
         return self._kids
 
 
-class _Container(_Composite):
-    """Container — overrides begin/end to open a surface (like the dialog)."""
+class _BodylessComposite(_Composite):
+    """Composite whose own body is only its children (overrides _paint_self)."""
 
-    def _begin(self, renderer: Renderer) -> bool:
-        return renderer.begin()
-
-    def _end(self, renderer: Renderer, *, opened: bool) -> None:
-        renderer.end(opened=opened)
+    def _paint_self(self, renderer: Renderer) -> None:
+        _ = renderer
 
 
-def test_leaf_render_paints_only_itself() -> None:
+def test_leaf_render_drives_renderer_begin_paint_end() -> None:
     log: list[str] = []
     _Leaf(factory=_RecordingFactory(log), tag="leaf").render()
-    assert log == ["paint:leaf"]
+    assert log == ["begin:leaf", "paint:leaf", "end:leaf:True"]
 
 
-def test_plain_composite_paints_self_then_children_unbracketed() -> None:
+def test_composite_brackets_children_with_begin_and_end() -> None:
     log: list[str] = []
     factory = _RecordingFactory(log)
     _Composite(
@@ -132,30 +131,42 @@ def test_plain_composite_paints_self_then_children_unbracketed() -> None:
         tag="parent",
         children=(_Leaf(factory=factory, tag="a"), _Leaf(factory=factory, tag="b")),
     ).render()
-    assert log == ["paint:parent", "paint:a", "paint:b"]
+    assert log == [
+        "begin:parent",
+        "paint:parent",
+        "begin:a",
+        "paint:a",
+        "end:a:True",
+        "begin:b",
+        "paint:b",
+        "end:b:True",
+        "end:parent:True",
+    ]
 
 
-def test_container_brackets_children_with_begin_and_end() -> None:
-    log: list[str] = []
-    factory = _RecordingFactory(log)
-    _Container(
-        factory=factory,
-        tag="p",
-        children=(_Leaf(factory=factory, tag="a"),),
-    ).render()
-    assert log == ["begin:p", "paint:p", "paint:a", "end:p:True"]
-
-
-def test_container_that_does_not_open_short_circuits_but_ends() -> None:
+def test_composite_that_does_not_open_short_circuits_but_ends() -> None:
     log: list[str] = []
     factory = _RecordingFactory(log, opens=False)
-    _Container(
+    _Composite(
         factory=factory,
         tag="p",
         children=(_Leaf(factory=factory, tag="a"),),
     ).render()
     # begin returns False → no paint, no children — but end still runs.
     assert log == ["begin:p", "end:p:False"]
+
+
+def test_step_override_customises_a_single_step() -> None:
+    # Overriding _paint_self drops the parent's own body while the skeleton
+    # and every other step keep the default (Open-Closed).
+    log: list[str] = []
+    factory = _RecordingFactory(log)
+    _BodylessComposite(
+        factory=factory,
+        tag="p",
+        children=(_Leaf(factory=factory, tag="a"),),
+    ).render()
+    assert log == ["begin:p", "begin:a", "paint:a", "end:a:True", "end:p:True"]
 
 
 def test_abc_validate_default_returns_no_errors() -> None:

@@ -82,15 +82,11 @@ def test_factory_raises_for_unmigrated_kind() -> None:
         _factory()(object())
 
 
-def test_migrated_kind_count_is_four() -> None:
-    assert _factory().migrated_kind_count == 4
-
-
-def test_introspection_element_kind_total_is_unchanged() -> None:
-    # Pruning the four ABC kinds from the legacy tables and adding the
-    # factory count must leave the reported total at 25.
+def test_introspection_element_kind_total_is_25() -> None:
+    # The four ABC kinds stay in the legacy dispatch tables during the fork's
+    # mixed period, so the honest total is 25 with no factory addend.
     er = _element_renderer(WidgetState())
-    assert er.element_kind_count + _factory().migrated_kind_count == 25
+    assert er.element_kind_count == 25
 
 
 # -- leaf adapters ---------------------------------------------------------
@@ -193,3 +189,36 @@ def test_dialog_external_close_fires_model_close_cascade() -> None:
     assert removed == ["removed"]
     assert ws.get("dlg__open") == 0
     assert ws.get("dlg__dismissed") == 1
+
+
+def test_dialog_end_fires_external_close_when_was_open_and_not_opened() -> None:
+    # was_open=True this-frame-not-opened == Escape/outside close → dismiss.
+    ws = WidgetState()
+    dialog = DialogElement(id="dlg", title="?")
+    removed: list[str] = []
+    dialog.add_observer(removed.append)
+
+    renderer = ImGuiDialogRenderer(dialog, _factory(ws))
+    renderer._was_open = True
+    renderer.end(opened=False)  # opened=False → no end_popup, GL-free
+
+    assert dialog.visible is False
+    assert dialog.removed is True
+    assert removed == ["removed"]
+    assert ws.get("dlg__dismissed") == 1
+
+
+def test_dialog_end_does_not_dismiss_a_never_opened_dialog() -> None:
+    # Regression guard: was_open=False must NOT spuriously dismiss the model.
+    ws = WidgetState()
+    dialog = DialogElement(id="dlg", title="?")
+    removed: list[str] = []
+    dialog.add_observer(removed.append)
+
+    renderer = ImGuiDialogRenderer(dialog, _factory(ws))
+    renderer._was_open = False
+    renderer.end(opened=False)
+
+    assert dialog.visible is True
+    assert dialog.removed is False
+    assert removed == []

@@ -38,8 +38,11 @@ from punt_lux.protocol import (
     TabBarElement,
     WindowElement,
 )
+from punt_lux.protocol.elements.button import ButtonElement
+from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.combo import ComboElement
+from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.graphics import DrawElement
 from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
@@ -51,9 +54,11 @@ from punt_lux.protocol.elements.selectable import SelectableElement
 from punt_lux.protocol.elements.separator import SeparatorElement
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
+from punt_lux.protocol.elements.text import TextElement
 from punt_lux.scene import WidgetState
 
 if TYPE_CHECKING:
+    from punt_lux.display.renderers.imgui import ImGuiRendererFactory
     from punt_lux.protocol import Element
     from punt_lux.types import EmitEventFn
 
@@ -72,6 +77,11 @@ class ElementRenderer:
     _emit_event: EmitEventFn
     _current_scene_id: str | None
     _check_dirty_window: DirtyWindowFn
+    # Bound after construction (the factory needs this ElementRenderer first).
+    # Used only by ``_render_dialog`` to build the dialog's ImGui renderer for
+    # a dialog held by a legacy container; a top-level dialog paints through
+    # the ABC ``render()`` template and never reaches that method.
+    _imgui_renderer_factory: ImGuiRendererFactory
     # Per-kind renderer classes for the basics + inputs families.
     # Other families still go through ``_RENDERERS`` until extracted.
     _text_renderer: TextRenderer
@@ -101,6 +111,7 @@ class ElementRenderer:
         "table": "_render_table",
         "plot": "_render_plot",
         "modal": "_render_modal",
+        "dialog": "_render_dialog",
     }
 
     def __new__(
@@ -140,12 +151,15 @@ class ElementRenderer:
     # source of truth for both _dispatch_native and element_kind_count — adding
     # a per-kind renderer here updates both call sites at once.
     _NATIVE_DISPATCH: ClassVar[tuple[tuple[type, str], ...]] = (
+        (TextElement, "_text_renderer"),
         (ImageElement, "_image_renderer"),
         (SeparatorElement, "_separator_renderer"),
         (ProgressElement, "_progress_renderer"),
         (SpinnerElement, "_spinner_renderer"),
         (MarkdownElement, "_markdown_renderer"),
+        (ButtonElement, "_button_renderer"),
         (SliderElement, "_slider_renderer"),
+        (CheckboxElement, "_checkbox_renderer"),
         (ComboElement, "_combo_renderer"),
         (InputTextElement, "_input_text_renderer"),
         (InputNumberElement, "_input_number_renderer"),
@@ -220,6 +234,15 @@ class ElementRenderer:
     @current_scene_id.setter
     def current_scene_id(self, value: str | None) -> None:
         self._current_scene_id = value
+
+    @property
+    def imgui_renderer_factory(self) -> ImGuiRendererFactory:
+        """Return the ImGui factory bound after construction."""
+        return self._imgui_renderer_factory
+
+    @imgui_renderer_factory.setter
+    def imgui_renderer_factory(self, value: ImGuiRendererFactory) -> None:
+        self._imgui_renderer_factory = value
 
     # -- dispatch --------------------------------------------------------------
 
@@ -568,6 +591,30 @@ class ElementRenderer:
                     value=None,
                 )
             )
+
+    # -- dialog rendering ------------------------------------------------------
+
+    def _render_dialog(self, elem: Element) -> None:
+        """Paint a DialogElement held by a legacy container.
+
+        A top-level dialog paints through the ABC ``render()`` template; one
+        nested in a legacy container reaches here via ``render_element``. Drive
+        the same begin/paint/end dialog renderer and recurse its child Buttons
+        through the legacy per-kind dispatch so they paint via the shared
+        ButtonRenderer — identical pixels to the top-level path.
+        """
+        if not isinstance(elem, DialogElement):
+            msg = f"_render_dialog expected DialogElement; got {type(elem).__name__}"
+            raise TypeError(msg)
+        renderer = self._imgui_renderer_factory(elem)
+        opened = renderer.begin()
+        if opened:
+            renderer.paint()
+            # Dialog children are ABC Buttons; the legacy dispatch is typed
+            # for the wire-kind union, of which ButtonElement is a member.
+            for child in elem.children:
+                self.render_element(cast("Element", child))
+        renderer.end(opened=opened)
 
     # -- draw element rendering ------------------------------------------------
 

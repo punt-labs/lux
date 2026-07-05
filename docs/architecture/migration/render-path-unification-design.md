@@ -27,11 +27,13 @@ factory has no adapter for them. This design gives each of the three a factory
 renderer that reuses the existing per-kind paint logic verbatim, replaces the
 ABC's *hardcoded* leaf-vs-composite branch in `Element.render()` with a fixed
 skeleton that calls four overridable step hooks (`begin` / `paint_self` /
-`render_children` / `end`), flips `_paint_element` to enter the ABC template for
-every migrated kind, and prunes the ABC kinds out of the legacy dispatch. After
-the change the invariant **"migrated to the ABC ≡ renders via
-`Element.render()`"** holds for all four exemplars, and the load-bearing
-subtlety the migration README warns about disappears for them. The whole
+`render_children` / `end`), and flips `_paint_element` to enter the ABC template
+for every top-level migrated kind. After the change the invariant **"migrated to
+the ABC ≡ renders via `Element.render()`"** holds for all four exemplars at the
+top level. The **legacy-dispatch prune is DEFERRED to fork completion** (see §6):
+during the mixed period the four kinds stay in the legacy dispatch tables so an
+ABC leaf nested inside a still-legacy container keeps rendering through the
+per-kind renderer instead of hitting the unsupported-element fallback. The whole
 unification lands as one rollback-coherent PR.
 
 ## Motivation
@@ -202,20 +204,21 @@ having none.
 
 `ImGuiTextRenderer`
 ([text.py](../../../src/punt_lux/display/renderers/imgui/text.py)) is the
-template, but its current delegation to
+template, but its original delegation to
 `self._factory.element_renderer.render_element(self._elem)`
 ([text.py:38-45](../../../src/punt_lux/display/renderers/imgui/text.py)) **must
-change** — because §6 prunes `TextElement` from `_NATIVE_DISPATCH`, that call
-would break. After the prune `render_element(text)` finds no native match and
-no `_RENDERERS["text"]` entry, so it paints the literal
-`"[unsupported element: text]"` fallback
-([element_renderer.py:213-219](../../../src/punt_lux/display/element_renderer.py))
-instead of the text. The text adapter therefore adopts the **same
-narrow-accessor + `apply_tooltip` pattern** as the two new adapters: `paint`
-obtains the surviving per-kind `TextRenderer` instance through the narrow
-accessor — §6 keeps `_text_renderer` owned by `ElementRenderer`, so it survives
-the prune — runs it, and applies the shared `apply_tooltip` pass. It does **not**
-route back through `render_element`.
+change**. The factory adapter is the *top-level* paint path
+(`elem.render()` → adapter); routing it back through `render_element` would
+re-enter the legacy dispatch, double-dispatch the element, and (had the §6 prune
+not been deferred) hit the `"[unsupported element: text]"` fallback
+([element_renderer.py:236](../../../src/punt_lux/display/element_renderer.py)).
+The text adapter therefore adopts the **same narrow-accessor + `apply_tooltip`
+pattern** as the two new adapters: `paint` obtains the per-kind `TextRenderer`
+instance through the narrow accessor — `_text_renderer` stays owned by
+`ElementRenderer` — runs it, and applies the shared `apply_tooltip` pass. It does
+**not** route back through `render_element`. (The same instance is what the
+*nested-in-legacy* path reaches directly through `_NATIVE_DISPATCH`, so both
+paths paint identical pixels.)
 
 The `Renderer` Protocol is `begin`/`paint`/`end` (see §4). Three leaf adapters
 reuse the existing per-kind renderers verbatim — **no paint logic is
@@ -577,26 +580,55 @@ That is what §7's live check verifies; it is a confirmation that a merged
 mechanism works when finally driven, not a guard against an unwired step in this
 PR.
 
-**Prune the ABC kinds from the legacy dispatch.** Remove `TextElement`,
-`ButtonElement`, `CheckboxElement` from `_NATIVE_DISPATCH`
-([element_renderer.py:152-168](../../../src/punt_lux/display/element_renderer.py))
-and delete the `"dialog"` key from `_RENDERERS`
-([element_renderer.py:114](../../../src/punt_lux/display/element_renderer.py)).
-After this, `render_element` handles **only** not-yet-migrated legacy kinds
-(image, separator, progress, spinner, markdown, slider, combo, input_text,
-input_number, radio, color_picker, selectable, and the container/table/plot/
-modal/tree/draw families). The per-kind `TextRenderer`/`ButtonRenderer`/
-`CheckboxRenderer` instances stay owned by `ElementRenderer`
-([element_renderer.py:132-146](../../../src/punt_lux/display/element_renderer.py))
-so per-scene widget_state threading is unchanged; the new renderers reach them
-through the narrow accessor from §2.
+**The dispatch prune is DEFERRED to fork completion — NOT done in this PR.**
+The original design pruned `TextElement`, `ButtonElement`, `CheckboxElement`
+from `_NATIVE_DISPATCH` and deleted the `"dialog"` key from `_RENDERERS`. That
+prune is **withdrawn from this PR** and moved to fork completion (legacy
+retirement, when the container kinds — group, window, tab_bar,
+collapsing_header, paged group, table — are themselves migrated).
+
+The reason is a fork-mixed-period invariant this section originally got wrong:
+**`render_element` does NOT see only legacy kinds while legacy containers hold
+ABC leaves.** A legacy container recurses its children via
+`render_element(child)`
+([element_renderer.py:288,341,356,367,400,557](../../../src/punt_lux/display/element_renderer.py)),
+so a `TextElement` / `ButtonElement` / `CheckboxElement` / `DialogElement`
+nested inside a legacy `group` / `window` / `tab_bar` / `collapsing_header` /
+paged group / `table` reaches `render_element`. Pruning the four kinds out of
+`_NATIVE_DISPATCH` / `_RENDERERS` makes that nested leaf hit the
+`[unsupported element: <kind>]` fallback
+([element_renderer.py:236](../../../src/punt_lux/display/element_renderer.py)) —
+a visible regression. The reviewers' alternative — recursing the factory rebind
+into legacy containers and routing nested ABC to `render()` — is exactly the
+legacy+ABC coexistence machinery [DES-041](../../../DESIGN.md) forbids ("fork,
+don't mix; don't build coexistence machinery"), so it is rejected.
+
+**During the mixed period the four kinds STAY in the legacy dispatch tables.**
+The result:
+
+- a **top-level** ABC element paints through the ABC `render()` template
+  (`_paint_element` → `elem.render()`), which resolves the factory adapter
+  (`ImGuiTextRenderer` / `ImGuiButtonRenderer` / `ImGuiCheckboxRenderer` /
+  `ImGuiDialogRenderer`);
+- a **nested-in-legacy** ABC element paints through the legacy per-kind renderer
+  (`render_element` → `_dispatch_native` → the per-kind renderer, or
+  `_RENDERERS["dialog"]` → `_render_dialog`).
+
+Both paths reuse the **same** per-kind renderer instances owned by
+`ElementRenderer` (the factory adapters delegate to them through the narrow
+accessor from §2), so the pixels are identical. Nested ABC-*interactive*
+handlers remain the documented C3 limitation (a nested leaf is not rebound, so
+its handlers are unwrapped) — acceptable for the mixed period. The prune lands
+at fork completion, once containers migrate and no legacy container can hold an
+ABC leaf.
 
 `element_kind_count`
-([element_renderer.py:184-187](../../../src/punt_lux/display/element_renderer.py))
-counts `len(_RENDERERS) + len(_NATIVE_DISPATCH)`. Removing four entries drops the
-count; the migrated kinds must be counted at the factory instead so
-introspection reports the same total. This is a real coupling to fix in the same
-change, not a follow-up.
+([element_renderer.py](../../../src/punt_lux/display/element_renderer.py)) counts
+`len(_RENDERERS) + len(_NATIVE_DISPATCH)`. Because the four kinds stay in those
+tables, the count is **25 on its own** — the introspection total is honest with
+no separate factory addend. The earlier `migrated_kind_count` factory property
+and its addition in `_query_get_display_info` are removed (they existed only to
+compensate for the now-withdrawn prune and would double-count the four kinds).
 
 **Relationship to Batch 7.** The migration plan puts the paint flip in Batch 7
 ([README.md:121-128](./README.md)). This change performs the flip for the four
@@ -706,12 +738,16 @@ The remaining open items are narrow confirmations:
   than the factory owning the renderers and re-threading per-scene state.
   **Recommend confirm.** Lowest-risk: reuses the exact interactive path with zero
   re-plumbing of widget_state, emit, or D21.
-- **D2 — Prune now vs defer to Batch 7.** Remove the four ABC kinds from the
-  legacy dispatch in this PR (add the narrow accessor, extract `apply_tooltip`,
-  fix `element_kind_count`) rather than leaving them in `_NATIVE_DISPATCH`.
-  **Recommend confirm.** The stated goal is that `render_element` handle only
-  legacy kinds after this change; deferring the prune would leave the very
-  fragmentation this PR removes.
+- **D2 — Prune now vs defer to fork completion. RESOLVED: defer.** The prune was
+  originally planned for this PR, but three reviewers confirmed it regresses an
+  ABC leaf nested inside a still-legacy container to the `[unsupported element]`
+  fallback (see §6). The prune is therefore **deferred to fork completion**, when
+  the container kinds migrate and no legacy container can hold an ABC leaf. This
+  PR still adds the narrow accessor and extracts `apply_tooltip` (both needed by
+  the factory adapters); `element_kind_count` is left counting all 25 kinds and
+  the `migrated_kind_count` addend is removed. The fragmentation this PR removes
+  is the *top-level* paint path; the nested-in-legacy path is intentionally left
+  on the legacy per-kind renderer for the mixed period — the fork, not a bridge.
 - **D4 — Renderer DI.** The renderers take only `(elem, factory)` and pull the
   per-kind renderer + current widget_state from the factory's `element_renderer`
   property

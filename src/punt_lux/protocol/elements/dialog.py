@@ -25,7 +25,7 @@ from punt_lux.protocol.elements.patch_field import PatchField
 from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
 
 if TYPE_CHECKING:
-    from punt_lux.protocol.renderer import Emit, Renderer, RendererFactory
+    from punt_lux.protocol.renderer import Emit, RendererFactory
 
 __all__ = ["DialogElement"]
 
@@ -196,20 +196,13 @@ class DialogElement(Element):
         return self._children_tuple
 
     def _children(self) -> tuple[Element, ...]:
-        """Hook override — Composite render walks these in order."""
+        """Hook override — Composite render walks these in order.
+
+        The dialog overrides no render step hook: the ABC defaults already
+        drive its renderer's ``begin``/``paint``/``end``, and the dialog's
+        ImGui renderer encodes the modal open/close + Escape-dismiss seam.
+        """
         return self._children_tuple
-
-    # -- render step hooks (the dialog overrides only begin/end) ------------
-
-    def _begin(self, renderer: Renderer) -> bool:
-        """Open the modal popup; return whether it opened. The skeleton
-        then draws the body and children only inside an open popup."""
-        return renderer.begin()
-
-    def _end(self, renderer: Renderer, *, opened: bool) -> None:
-        """Close the modal popup (only if it opened) and run the
-        Escape/outside dismissal cascade."""
-        renderer.end(opened=opened)
 
     # -- decoder seam ------------------------------------------------------
 
