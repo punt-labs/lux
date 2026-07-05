@@ -17,16 +17,17 @@ type Emit = Callable[[object], None]
 
 @runtime_checkable
 class Renderer(Protocol):
-    """Per-kind renderer for one surface.
+    """Per-kind ImGui surface driven by the Element render skeleton.
 
-    Leaves implement ``render()``; composites implement ``begin()`` and
-    ``end()`` to bracket their children. The Element ABC's template method
-    chooses which path to take based on whether ``_children()`` is empty.
+    ``begin`` opens the surface and returns whether the inner steps run;
+    ``paint`` fills the node's own body; ``end`` closes it (``opened`` says
+    whether ``begin`` opened anything). A leaf is a degenerate container:
+    ``begin`` returns True, ``paint`` draws the widget, ``end`` is a no-op.
     """
 
-    def render(self) -> None: ...
-    def begin(self) -> None: ...
-    def end(self) -> None: ...
+    def begin(self) -> bool: ...
+    def paint(self) -> None: ...
+    def end(self, *, opened: bool) -> None: ...
 
 
 @runtime_checkable

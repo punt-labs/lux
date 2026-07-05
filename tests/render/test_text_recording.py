@@ -1,9 +1,9 @@
 """TextElement renders through RecordingRenderer per the renderer contract.
 
-When a Text element is constructed with a ``RecordingRendererFactory``
-and its template-method ``render()`` is invoked, the recording log
-captures one ``{"op": "render", "kind": "text", "id": ...}`` entry — the
-leaf shape.
+Text is a leaf that uses every default step hook, so its ``render()``
+skeleton drives only ``paint`` (``_begin``/``_end`` defaults do not touch
+the renderer). The recording log captures one
+``{"op": "paint", "kind": "text", "id": ...}`` entry — the leaf shape.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ def _emit(_msg: object) -> None:
     """No-op emit for the leaf Text element."""
 
 
-def test_text_element_render_emits_single_leaf_entry() -> None:
+def test_text_element_render_emits_single_paint_entry() -> None:
     with tempfile.TemporaryDirectory(prefix="lux-rec-") as raw_dir:
         log = RecordingLog(Path(raw_dir) / "text.jsonl")
         factory = RecordingRendererFactory(log)
@@ -30,4 +30,4 @@ def test_text_element_render_emits_single_leaf_entry() -> None:
             content="Hello",
         )
         elem.render()
-        assert log.lines() == ({"op": "render", "kind": "text", "id": "t1"},)
+        assert log.lines() == ({"op": "paint", "kind": "text", "id": "t1"},)

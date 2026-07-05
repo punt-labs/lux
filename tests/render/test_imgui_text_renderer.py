@@ -76,52 +76,65 @@ def test_factory_returns_imgui_text_renderer_for_text_element() -> None:
     assert isinstance(renderer, ImGuiTextRenderer)
 
 
-def test_imgui_text_renderer_lifecycle_methods_are_no_ops() -> None:
+def test_imgui_text_renderer_begin_opens_and_end_is_a_no_op() -> None:
     renderer = ImGuiTextRenderer(TextElement(id="t1", content="x"), _factory())
-    renderer.begin()
-    renderer.end()
+    # Leaf: begin proceeds (True), end closes nothing — safe without a frame.
+    assert renderer.begin() is True
+    renderer.end(opened=True)
+
+
+class _StubElementRenderer:
+    """Records the paint delegation without a live ImGui context.
+
+    Exposes the same narrow seam ``ImGuiTextRenderer.paint`` uses — a
+    ``text_renderer`` with a ``render`` method and an ``apply_tooltip``
+    pass — so the delegation hop is the only thing under test.
+    """
+
+    _text_renderer: MagicMock
+    _tooltip: MagicMock
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._text_renderer = MagicMock()
+        self._tooltip = MagicMock()
+        return self
+
+    @property
+    def text_renderer(self) -> MagicMock:
+        return self._text_renderer
+
+    def apply_tooltip(self, elem: object) -> None:
+        self._tooltip(elem)
 
 
 class _StubFactory:
-    """Minimal RendererFactory stub that only exposes ``element_renderer``.
+    """Minimal RendererFactory stub exposing only ``element_renderer``."""
 
-    Lets ``ImGuiTextRenderer.render`` be exercised without a live ImGui
-    context — only the delegation hop is under test.
-    """
+    _element_renderer: _StubElementRenderer
 
-    _element_renderer: ElementRenderer
-
-    def __new__(cls, element_renderer: ElementRenderer) -> Self:
+    def __new__(cls, element_renderer: _StubElementRenderer) -> Self:
         self = super().__new__(cls)
         self._element_renderer = element_renderer
         return self
 
     @property
-    def element_renderer(self) -> ElementRenderer:
+    def element_renderer(self) -> _StubElementRenderer:
         return self._element_renderer
 
 
-def test_render_delegates_to_element_renderer_so_styled_tooltip_fires() -> None:
-    """render() must go through ElementRenderer.
+def test_paint_runs_text_renderer_then_shared_tooltip_pass() -> None:
+    """paint() must drive ElementRenderer's TextRenderer AND apply_tooltip.
 
-    ``ElementRenderer.render_element`` runs the native ``TextRenderer``
-    paint AND the generic tooltip post-processing for styled text.
-    Calling ``TextRenderer.render`` directly would skip that post step,
-    dropping the tooltip for styled text. Stub the method and assert
-    ``ImGuiTextRenderer.render`` dispatches into it with the styled
-    tooltipped element.
+    After the dispatch prune the adapter cannot route through
+    ``render_element`` (text would hit the unsupported fallback). It paints
+    the surviving per-kind ``TextRenderer`` through the narrow accessor and
+    runs the shared tooltip pass, so styled text keeps its hover hint.
     """
-    widget_state = WidgetState()
-    textures = TextureCache()
-    element_renderer = _element_renderer(widget_state, textures)
-    element_renderer.render_element = MagicMock()  # type: ignore[method-assign]
-    elem = TextElement(
-        id="styled-tt",
-        content="hello",
-        style="heading",
-        tooltip="more info",
-    )
+    er = _StubElementRenderer()
+    elem = TextElement(id="styled-tt", content="hello", style="heading", tooltip="hi")
 
-    ImGuiTextRenderer(elem, _StubFactory(element_renderer)).render()  # type: ignore[arg-type]
+    ImGuiTextRenderer(elem, _StubFactory(er)).paint()  # type: ignore[arg-type]
 
-    element_renderer.render_element.assert_called_once_with(elem)
+    er.text_renderer.render.assert_called_once_with(elem)
+    er._tooltip.assert_called_once_with(elem)

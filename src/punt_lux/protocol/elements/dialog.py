@@ -1,23 +1,12 @@
 """DialogElement — composite Element with a private model and child Buttons.
 
-A DialogElement is the canonical example of the MVC component pattern:
-
-- The ``DialogModel`` (private to this module) holds the dialog's own
-  state — visibility and confirmation — and publishes a typed verb
-  vocabulary the child controllers may invoke.
-- The ``DialogElement`` itself is the view: its ``visible`` property
-  reflects the model, its ``_children()`` hook exposes the child
-  controllers to the Composite render loop.
-- The child Buttons are the controllers. The wire decoder
-  (``JsonDialogDecoder``) constructs the model first, binds
-  ``model.on_dismiss`` to the dialog's own ``mark_removed``, then
-  decodes each child Button with a ``HandlerDecoder`` that closes over
-  the model — so a child Button's ``call_model`` factory resolves the
-  wire verb against the model's vocabulary at decode time.
-
-The model's ``_dismiss`` reaches the Element ABC's ``mark_removed``
-through the bound callback; the Element ABC's observer cascade is what
-notifies the dialog's parent composite that the dialog is gone.
+The canonical MVC component: the private ``DialogModel`` holds state
+(visibility, confirmation) and a typed verb vocabulary; the
+``DialogElement`` is the view (its ``visible`` reflects the model, its
+``_children()`` exposes the child controllers); the child Buttons are the
+controllers. The decoder binds ``model.on_dismiss`` to the dialog's
+``mark_removed``, so ``_dismiss`` flows through the Element ABC's observer
+cascade to notify the parent composite.
 """
 
 from __future__ import annotations
@@ -36,7 +25,7 @@ from punt_lux.protocol.elements.patch_field import PatchField
 from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
 
 if TYPE_CHECKING:
-    from punt_lux.protocol.renderer import Emit, RendererFactory
+    from punt_lux.protocol.renderer import Emit, Renderer, RendererFactory
 
 __all__ = ["DialogElement"]
 
@@ -209,6 +198,18 @@ class DialogElement(Element):
     def _children(self) -> tuple[Element, ...]:
         """Hook override — Composite render walks these in order."""
         return self._children_tuple
+
+    # -- render step hooks (the dialog overrides only begin/end) ------------
+
+    def _begin(self, renderer: Renderer) -> bool:
+        """Open the modal popup; return whether it opened. The skeleton
+        then draws the body and children only inside an open popup."""
+        return renderer.begin()
+
+    def _end(self, renderer: Renderer, *, opened: bool) -> None:
+        """Close the modal popup (only if it opened) and run the
+        Escape/outside dismissal cascade."""
+        renderer.end(opened=opened)
 
     # -- decoder seam ------------------------------------------------------
 

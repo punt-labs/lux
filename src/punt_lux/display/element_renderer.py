@@ -38,8 +38,6 @@ from punt_lux.protocol import (
     TabBarElement,
     WindowElement,
 )
-from punt_lux.protocol.elements.button import ButtonElement
-from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.graphics import DrawElement
@@ -53,7 +51,6 @@ from punt_lux.protocol.elements.selectable import SelectableElement
 from punt_lux.protocol.elements.separator import SeparatorElement
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
-from punt_lux.protocol.elements.text import TextElement
 from punt_lux.scene import WidgetState
 
 if TYPE_CHECKING:
@@ -104,7 +101,6 @@ class ElementRenderer:
         "table": "_render_table",
         "plot": "_render_plot",
         "modal": "_render_modal",
-        "dialog": "_render_dialog",
     }
 
     def __new__(
@@ -144,15 +140,12 @@ class ElementRenderer:
     # source of truth for both _dispatch_native and element_kind_count — adding
     # a per-kind renderer here updates both call sites at once.
     _NATIVE_DISPATCH: ClassVar[tuple[tuple[type, str], ...]] = (
-        (TextElement, "_text_renderer"),
         (ImageElement, "_image_renderer"),
         (SeparatorElement, "_separator_renderer"),
         (ProgressElement, "_progress_renderer"),
         (SpinnerElement, "_spinner_renderer"),
         (MarkdownElement, "_markdown_renderer"),
-        (ButtonElement, "_button_renderer"),
         (SliderElement, "_slider_renderer"),
-        (CheckboxElement, "_checkbox_renderer"),
         (ComboElement, "_combo_renderer"),
         (InputTextElement, "_input_text_renderer"),
         (InputNumberElement, "_input_number_renderer"),
@@ -320,14 +313,7 @@ class ElementRenderer:
             self._widget_state.set(state_key, page_idx)
         imgui.same_line()
 
-        # Render the combo (from page_source) inline; other children after.
-        other_children: list[Any] = []
-        for child in grp.children:
-            if page_source and getattr(child, "id", None) == page_source:
-                self.render_element(child)
-                imgui.same_line()
-            else:
-                other_children.append(child)
+        other_children = self._render_paged_inline_children(grp)
 
         if imgui.button(f"Next >>##{grp.id}_next") and page_idx < total - 1:
             page_idx += 1
@@ -343,6 +329,20 @@ class ElementRenderer:
         if pages and 0 <= page_idx < total:
             for child in pages[page_idx]:
                 self.render_element(child)
+
+    def _render_paged_inline_children(self, grp: Any) -> list[Any]:
+        """Render the page-source combo inline; return the remaining children."""
+        from imgui_bundle import imgui
+
+        page_source: str | None = grp.page_source
+        other_children: list[Any] = []
+        for child in grp.children:
+            if page_source and getattr(child, "id", None) == page_source:
+                self.render_element(child)
+                imgui.same_line()
+            else:
+                other_children.append(child)
+        return other_children
 
     def _render_tab_bar(self, elem: Element) -> None:
         from imgui_bundle import imgui
@@ -568,18 +568,6 @@ class ElementRenderer:
                     value=None,
                 )
             )
-
-    # -- dialog rendering ------------------------------------------------------
-
-    def _render_dialog(self, elem: Element) -> None:
-        """Paint a DialogElement frame and recurse into its child Buttons."""
-        from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
-        from punt_lux.protocol.elements.dialog import DialogElement
-
-        if not isinstance(elem, DialogElement):
-            msg = f"_render_dialog expected DialogElement; got {type(elem).__name__}"
-            raise TypeError(msg)
-        ImGuiDialogRenderer(elem, self._widget_state, self._button_renderer).render()
 
     # -- draw element rendering ------------------------------------------------
 

@@ -1,20 +1,15 @@
 """ImGuiTextRenderer — Renderer-Protocol adapter for ``TextElement``.
 
-The production text renderer delegates to the legacy
-``ElementRenderer.render_element`` — rather than ``TextRenderer``
-directly — which dispatches the TextElement to its native ``TextRenderer``
-(style branches, color) AND runs the generic post-processing pass
-(styled-text tooltip hover) that per-kind renderer dispatch would
-otherwise bypass. The adapter satisfies the Renderer Protocol shape
-(``render`` / ``begin`` / ``end``) so the production ``_paint_element``
-call site resolves it; the template-method ``Element.render()`` resolves
-it the same way once PR2 revives ``render()`` as the paint path. Text is
-a leaf so ``begin`` / ``end`` are no-ops.
+Paints through ``ElementRenderer``'s per-kind ``TextRenderer`` (style +
+color) plus the shared ``apply_tooltip`` pass, reached via the factory's
+narrow accessor — not ``render_element``, which after the dispatch prune
+would paint the unsupported-element fallback for text. Text is a leaf, so
+``begin`` proceeds and ``end`` is a no-op.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -23,8 +18,9 @@ if TYPE_CHECKING:
 __all__ = ["ImGuiTextRenderer"]
 
 
+@final
 class ImGuiTextRenderer:
-    """Delegate ImGui paint for a TextElement to the legacy ``ElementRenderer``."""
+    """Paint a TextElement via ElementRenderer's TextRenderer + tooltip pass."""
 
     _elem: TextElement
     _factory: ImGuiRendererFactory
@@ -35,17 +31,16 @@ class ImGuiTextRenderer:
         self._factory = factory
         return self
 
-    def render(self) -> None:
-        """Paint the text — delegates to ``ElementRenderer.render_element``.
+    def begin(self) -> bool:
+        """Leaf — no surface to open; proceed to paint."""
+        return True
 
-        ``ElementRenderer`` runs the native ``TextRenderer`` (style + color)
-        AND the generic tooltip post-processing, so styled text with a
-        tooltip still gets the hover hint.
-        """
-        self._factory.element_renderer.render_element(self._elem)
+    def paint(self) -> None:
+        """Paint the text (style + color) and apply the shared tooltip pass."""
+        er = self._factory.element_renderer
+        er.text_renderer.render(self._elem)
+        er.apply_tooltip(self._elem)
 
-    def begin(self) -> None:
-        """No-op — Text is a leaf, ``Element.render()`` never calls this."""
-
-    def end(self) -> None:
-        """No-op — Text is a leaf, ``Element.render()`` never calls this."""
+    def end(self, *, opened: bool) -> None:
+        """Leaf — no surface to close."""
+        _ = opened

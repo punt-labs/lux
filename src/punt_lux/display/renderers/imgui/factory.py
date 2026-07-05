@@ -10,12 +10,20 @@ adapter, which receives the factory so it stays the single mediator.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, ClassVar, Self
 
+from punt_lux.display.renderers.imgui.button import ImGuiButtonRenderer
+from punt_lux.display.renderers.imgui.checkbox import ImGuiCheckboxRenderer
+from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
+from punt_lux.protocol.elements.button import ButtonElement
+from punt_lux.protocol.elements.checkbox import CheckboxElement
+from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.text import TextElement
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from punt_lux.display.element_renderer import ElementRenderer
     from punt_lux.display.texture_cache import TextureCache
     from punt_lux.protocol.renderer import Emit, Renderer
@@ -31,6 +39,16 @@ class ImGuiRendererFactory:
     _texture_cache: TextureCache
     _emit: Emit
     _element_renderer: ElementRenderer
+
+    # Element type -> adapter constructor. One table both dispatches
+    # ``__call__`` and sizes the introspection ``migrated_kind_count``.
+    # Every adapter shares the ``(elem, factory)`` constructor shape.
+    _DISPATCH: ClassVar[tuple[tuple[type, Callable[..., Renderer]], ...]] = (
+        (TextElement, ImGuiTextRenderer),
+        (ButtonElement, ImGuiButtonRenderer),
+        (CheckboxElement, ImGuiCheckboxRenderer),
+        (DialogElement, ImGuiDialogRenderer),
+    )
 
     def __new__(
         cls,
@@ -59,26 +77,33 @@ class ImGuiRendererFactory:
 
     @property
     def emit(self) -> Emit:
-        """Return the Display-tier emit channel (a no-op; interactions route to Hub)."""
+        """Return the Display-tier emit channel (a no-op; clicks route to Hub)."""
         return self._emit
 
     @property
     def element_renderer(self) -> ElementRenderer:
-        """Return the legacy ElementRenderer for delegated post-processing.
+        """Return the ElementRenderer that owns the per-kind renderers.
 
-        The per-kind renderers delegate paint to ``ElementRenderer``
-        so generic post-processing (e.g. styled-text tooltip hover) keeps
-        working. Removed once every kind has its own renderer adapter.
+        The adapters paint through its ``text_renderer`` / ``button_renderer``
+        / ``checkbox_renderer`` (per-scene widget_state) and its shared
+        ``apply_tooltip`` post-processing.
         """
         return self._element_renderer
 
-    def __call__(self, elem: object) -> Renderer:
-        """Return the ImGui adapter for ``elem``, or raise if unsupported.
+    @property
+    def migrated_kind_count(self) -> int:
+        """Return how many element kinds paint through this factory.
 
-        Resolves ``TextElement`` to ``ImGuiTextRenderer``; any other kind
-        raises ``ValueError``.
+        Introspection's ``element_kinds`` total adds this to the legacy
+        ``ElementRenderer`` count so pruning the migrated kinds from the
+        legacy dispatch leaves the reported total unchanged.
         """
-        if isinstance(elem, TextElement):
-            return ImGuiTextRenderer(elem, self)
+        return len(self._DISPATCH)
+
+    def __call__(self, elem: object) -> Renderer:
+        """Return the ImGui adapter for ``elem``, or raise if unsupported."""
+        for element_type, adapter in self._DISPATCH:
+            if isinstance(elem, element_type):
+                return adapter(elem, self)
         msg = f"no imgui renderer for {type(elem).__name__}"
         raise ValueError(msg)

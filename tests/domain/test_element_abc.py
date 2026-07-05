@@ -1,9 +1,11 @@
-"""Element ABC — template-method render() walks children; leaves render directly.
+"""Element ABC — the fixed render() skeleton over four step hooks.
 
-The ABC's template method is the contract the ABC element kinds inherit.
-Leaves call ``renderer.render()``; composites bracket their children with
-``renderer.begin()`` / ``renderer.end()`` and recurse into each child's
-own ``render()``.
+``render()`` runs ``_begin`` → ``_paint_self`` → ``_render_children`` →
+``_end``. The defaults require no overrides: a leaf paints only itself; a
+plain composite paints itself then recurses its children (no bracketing,
+because the default ``_begin``/``_end`` do not drive the renderer). A
+container overrides ``_begin``/``_end`` to open and close a surface and to
+short-circuit the inner steps when it does not open.
 """
 
 from __future__ import annotations
@@ -15,35 +17,44 @@ from punt_lux.protocol.renderer import Renderer
 
 
 class _RecordingRenderer:
-    """Minimal Renderer that appends each lifecycle call to a shared log."""
+    """Minimal Renderer that appends each step call to a shared log.
+
+    ``begin`` reports ``_opens`` so a test can drive the short-circuit
+    branch; ``paint`` and ``end`` record unconditionally.
+    """
 
     _log: list[str]
     _tag: str
+    _opens: bool
 
-    def __new__(cls, log: list[str], tag: str) -> Self:
+    def __new__(cls, log: list[str], tag: str, *, opens: bool = True) -> Self:
         self = super().__new__(cls)
         self._log = log
         self._tag = tag
+        self._opens = opens
         return self
 
-    def render(self) -> None:
-        self._log.append(f"render:{self._tag}")
-
-    def begin(self) -> None:
+    def begin(self) -> bool:
         self._log.append(f"begin:{self._tag}")
+        return self._opens
 
-    def end(self) -> None:
-        self._log.append(f"end:{self._tag}")
+    def paint(self) -> None:
+        self._log.append(f"paint:{self._tag}")
+
+    def end(self, *, opened: bool) -> None:
+        self._log.append(f"end:{self._tag}:{opened}")
 
 
 class _RecordingFactory:
     """Renderer factory that mints _RecordingRenderer instances per element."""
 
     _log: list[str]
+    _opens: bool
 
-    def __new__(cls, log: list[str]) -> Self:
+    def __new__(cls, log: list[str], *, opens: bool = True) -> Self:
         self = super().__new__(cls)
         self._log = log
+        self._opens = opens
         return self
 
     def __call__(self, elem: object) -> Renderer:
@@ -51,7 +62,7 @@ class _RecordingFactory:
         if not isinstance(tag, str):
             msg = f"element {type(elem).__name__} has non-str tag"
             raise TypeError(msg)
-        return _RecordingRenderer(self._log, tag)
+        return _RecordingRenderer(self._log, tag, opens=self._opens)
 
 
 def _emit(_evt: object) -> None:
@@ -59,7 +70,7 @@ def _emit(_evt: object) -> None:
 
 
 class _Leaf(Element):
-    """Concrete leaf element — adds a ``tag`` field for log identification."""
+    """Concrete leaf — uses every default hook (paints only itself)."""
 
     _tag: str
 
@@ -77,10 +88,9 @@ class _Leaf(Element):
         return self._tag
 
 
-class _Composite(Element):
-    """Concrete composite element — owns a tuple of child elements."""
+class _Composite(_Leaf):
+    """Plain composite — owns children, uses the default (unbracketed) hooks."""
 
-    _tag: str
     _kids: tuple[Element, ...]
 
     def __new__(
@@ -90,53 +100,65 @@ class _Composite(Element):
         tag: str,
         children: tuple[Element, ...],
     ) -> Self:
-        self = super().__new__(cls, renderer_factory=factory, emit=_emit)
-        self._tag = tag
+        self = super().__new__(cls, factory=factory, tag=tag)
         self._kids = children
         return self
-
-    @property
-    def id(self) -> str:
-        return self._tag
-
-    @property
-    def tag(self) -> str:
-        return self._tag
 
     def _children(self) -> tuple[Element, ...]:
         return self._kids
 
 
-def test_leaf_render_calls_renderer_render() -> None:
-    log: list[str] = []
-    factory = _RecordingFactory(log)
-    leaf = _Leaf(factory=factory, tag="leaf")
-    leaf.render()
-    assert log == ["render:leaf"]
+class _Container(_Composite):
+    """Container — overrides begin/end to open a surface (like the dialog)."""
+
+    def _begin(self, renderer: Renderer) -> bool:
+        return renderer.begin()
+
+    def _end(self, renderer: Renderer, *, opened: bool) -> None:
+        renderer.end(opened=opened)
 
 
-def test_composite_render_brackets_children_with_begin_and_end() -> None:
+def test_leaf_render_paints_only_itself() -> None:
+    log: list[str] = []
+    _Leaf(factory=_RecordingFactory(log), tag="leaf").render()
+    assert log == ["paint:leaf"]
+
+
+def test_plain_composite_paints_self_then_children_unbracketed() -> None:
     log: list[str] = []
     factory = _RecordingFactory(log)
-    composite = _Composite(
+    _Composite(
         factory=factory,
         tag="parent",
         children=(_Leaf(factory=factory, tag="a"), _Leaf(factory=factory, tag="b")),
-    )
-    composite.render()
-    assert log == ["begin:parent", "render:a", "render:b", "end:parent"]
+    ).render()
+    assert log == ["paint:parent", "paint:a", "paint:b"]
 
 
-def test_composite_with_no_children_renders_as_leaf() -> None:
+def test_container_brackets_children_with_begin_and_end() -> None:
     log: list[str] = []
     factory = _RecordingFactory(log)
-    composite = _Composite(factory=factory, tag="empty", children=())
-    composite.render()
-    assert log == ["render:empty"]
+    _Container(
+        factory=factory,
+        tag="p",
+        children=(_Leaf(factory=factory, tag="a"),),
+    ).render()
+    assert log == ["begin:p", "paint:p", "paint:a", "end:p:True"]
+
+
+def test_container_that_does_not_open_short_circuits_but_ends() -> None:
+    log: list[str] = []
+    factory = _RecordingFactory(log, opens=False)
+    _Container(
+        factory=factory,
+        tag="p",
+        children=(_Leaf(factory=factory, tag="a"),),
+    ).render()
+    # begin returns False → no paint, no children — but end still runs.
+    assert log == ["begin:p", "end:p:False"]
 
 
 def test_abc_validate_default_returns_no_errors() -> None:
-    # Sensible leaf default: an ABC element with no override self-validates clean.
     leaf = _Leaf(factory=_RecordingFactory([]), tag="leaf")
     assert leaf.validate() == ()
 
@@ -145,7 +167,6 @@ def test_abc_child_elements_bridges_children_hook() -> None:
     factory = _RecordingFactory([])
     kids = (_Leaf(factory=factory, tag="a"), _Leaf(factory=factory, tag="b"))
     composite = _Composite(factory=factory, tag="parent", children=kids)
-    # child_elements() is the public walk accessor over the protected hook.
     assert composite.child_elements() == kids
 
 
