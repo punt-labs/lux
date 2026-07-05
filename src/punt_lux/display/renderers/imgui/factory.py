@@ -40,9 +40,8 @@ class ImGuiRendererFactory:
     _emit: Emit
     _element_renderer: ElementRenderer
 
-    # Element type -> adapter constructor. One table both dispatches
-    # ``__call__`` and sizes the introspection ``migrated_kind_count``.
-    # Every adapter shares the ``(elem, factory)`` constructor shape.
+    # Element type -> adapter constructor. This table drives ``__call__``
+    # dispatch. Every adapter shares the ``(elem, factory)`` constructor shape.
     _DISPATCH: ClassVar[tuple[tuple[type, Callable[..., Renderer]], ...]] = (
         (TextElement, ImGuiTextRenderer),
         (ButtonElement, ImGuiButtonRenderer),
