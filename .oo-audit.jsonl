@@ -373,3 +373,5 @@
 {"ts":"2026-07-05T10:07:01Z","commit":"5fe1c93","files_scored":177,"files_improved":0,"files_regressed":5,"verdict":"fail","deltas":{}}
 {"ts":"2026-07-05T10:08:48Z","commit":"5fe1c93","files_scored":177,"files_improved":0,"files_regressed":5,"verdict":"fail","deltas":{}}
 {"ts":"2026-07-05T10:11:32Z","commit":"37fe148","files_scored":178,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-05T10:14:43Z","commit":"67aa5e4","files_scored":178,"files_improved":0,"files_regressed":2,"verdict":"fail","deltas":{}}
+{"ts":"2026-07-05T10:14:49Z","commit":"67aa5e4","files_scored":178,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}

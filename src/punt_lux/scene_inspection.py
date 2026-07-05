@@ -15,10 +15,11 @@ later batch.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Self
+from typing import TYPE_CHECKING, Literal, Self, cast
 
 from punt_lux.domain.element_abc import Element as ElementABC
 from punt_lux.domain.inspectable import Inspectable
+from punt_lux.domain.validation_walk import HasChildElements
 from punt_lux.protocol.elements import element_to_dict
 
 if TYPE_CHECKING:
@@ -138,14 +139,28 @@ class SceneInspection:
         )
 
     def to_dict(self) -> dict[str, object]:
-        """Return the enriched ``inspect_scene`` response."""
+        """Return the enriched ``inspect_scene`` response.
+
+        ``element_paths`` recurses every container's children so a nested
+        child's ``render_path`` is emitted too — a top-level ``"abc"`` group
+        says nothing about whether its children also flipped.
+        """
+        records: list[dict[str, object]] = []
+        for element in self._elements:
+            self._append_records(element, records)
         return {
             "scene_id": self._scene_id,
             "elements": [element_to_dict(e) for e in self._elements],
-            "element_paths": [
-                ElementInspection.from_element(
-                    e, domain_mirror_present=e.id in self._mirror_ids
-                ).to_dict()
-                for e in self._elements
-            ],
+            "element_paths": records,
         }
+
+    def _append_records(self, element: Element, sink: list[dict[str, object]]) -> None:
+        """Append ``element``'s record, then recurse into its children."""
+        sink.append(
+            ElementInspection.from_element(
+                element, domain_mirror_present=element.id in self._mirror_ids
+            ).to_dict()
+        )
+        if isinstance(element, HasChildElements):
+            for child in element.child_elements():
+                self._append_records(cast("Element", child), sink)

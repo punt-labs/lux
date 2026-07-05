@@ -19,6 +19,8 @@ from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.checkbox_codec import JsonCheckboxEncoder
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogEncoder
+from punt_lux.protocol.elements.group import GroupElement
+from punt_lux.protocol.elements.group_codec import JsonGroupEncoder
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.text_codec import JsonTextEncoder
 
@@ -43,5 +45,7 @@ class JsonEncoderFactory:
             return JsonCheckboxEncoder().encode(elem)
         if isinstance(elem, DialogElement):
             return JsonDialogEncoder().encode(elem)
+        if isinstance(elem, GroupElement):
+            return JsonGroupEncoder().encode(elem)
         msg = f"JsonEncoderFactory has no encoder for {type(elem).__name__}"
         raise TypeError(msg)
