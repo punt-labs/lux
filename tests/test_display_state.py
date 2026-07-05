@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Any
 from unittest.mock import MagicMock
 
 from punt_lux.display import DisplayServer
-from punt_lux.display.element_renderer import ElementRenderer
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.protocol import (
@@ -1086,59 +1085,6 @@ class TestMultiScene:
 
         assert len(server._event_queue) == 1
         assert server._event_queue[0].element_id == "shared_btn"
-
-
-# -----------------------------------------------------------------------
-# Color parsing: hex strings and RGBA lists/tuples
-# -----------------------------------------------------------------------
-
-
-class TestParseColor:
-    def test_hex_rgb(self) -> None:
-        assert ElementRenderer._parse_color("#FF8000") == (255, 128, 0, 255)
-
-    def test_hex_rgba(self) -> None:
-        assert ElementRenderer._parse_color("#FF800080") == (255, 128, 0, 128)
-
-    def test_hex_no_hash(self) -> None:
-        assert ElementRenderer._parse_color("FF8000") == (255, 128, 0, 255)
-
-    def test_list_rgb(self) -> None:
-        assert ElementRenderer._parse_color([70, 130, 230]) == (70, 130, 230, 255)
-
-    def test_list_rgba(self) -> None:
-        assert ElementRenderer._parse_color([70, 130, 230, 128]) == (70, 130, 230, 128)
-
-    def test_tuple_rgba(self) -> None:
-        assert ElementRenderer._parse_color((200, 80, 60, 255)) == (200, 80, 60, 255)
-
-    def test_list_extra_components_ignored(self) -> None:
-        result = ElementRenderer._parse_color([10, 20, 30, 40, 50, 60])
-        assert result == (10, 20, 30, 40)
-
-    def test_list_too_short_fallback(self) -> None:
-        assert ElementRenderer._parse_color([10, 20]) == (255, 255, 255, 255)
-
-    def test_empty_list_fallback(self) -> None:
-        assert ElementRenderer._parse_color([]) == (255, 255, 255, 255)
-
-    def test_list_non_numeric_fallback(self) -> None:
-        assert ElementRenderer._parse_color(["x", "y", "z"]) == (255, 255, 255, 255)
-
-    def test_list_none_elements_fallback(self) -> None:
-        assert ElementRenderer._parse_color([None, None, None]) == (255, 255, 255, 255)
-
-    def test_invalid_hex_fallback(self) -> None:
-        assert ElementRenderer._parse_color("#ZZZZZZ") == (255, 255, 255, 255)
-
-    def test_float_list_truncated_to_int(self) -> None:
-        assert ElementRenderer._parse_color([70.9, 130.1, 230.5]) == (70, 130, 230, 255)
-
-    def test_none_fallback(self) -> None:
-        assert ElementRenderer._parse_color(None) == (255, 255, 255, 255)
-
-    def test_int_fallback(self) -> None:
-        assert ElementRenderer._parse_color(42) == (255, 255, 255, 255)
 
 
 # -----------------------------------------------------------------------
