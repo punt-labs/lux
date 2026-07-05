@@ -142,12 +142,16 @@ The 25 kinds are the `Element` union at `__init__.py:130`.
 | 24 | `plot` | `PlotElement` (`plot_element.py:17`) | Legacy dataclass | Display-only | `series: list[dict]` — untyped (`plot_element.py:27`) |
 | 25 | `draw` | `DrawElement` (`graphics.py:27`) | Legacy dataclass | Display-only | typed draw-command family (curve/line/shape/text) |
 
-Summary: **4 migrated, 21 legacy.** Of the 21: **9 interactive**
-(slider, combo, input_text, input_number, radio, color_picker, selectable,
-modal, and — structurally — the table/plot only if selection becomes
-Hub-authoritative), **12 display-only** (image, separator, progress, spinner,
-markdown, group, tab_bar, collapsing_header, window, tree, plot, draw), with
-table sitting on the boundary.
+Summary: **as of this audit, 4 migrated, 21 legacy.** Since then `group`
+(the first container, PR #240) and `progress` (the first display-only
+primitive, PR #241) have crossed — **6 migrated, 19 legacy**. The authoritative
+live status is [`migration/README.md`](migration/README.md) §"Where we are";
+this table is the original per-element analysis. Of the 19 legacy: **~8
+interactive** (slider, combo, input_text, input_number, radio, color_picker,
+selectable, modal, and — structurally — the table/plot only if selection
+becomes Hub-authoritative), **~11 display-only** (image, separator, spinner,
+markdown, tab_bar, collapsing_header, window, tree, plot, draw), with table
+sitting on the boundary.
 
 ## 4. What "migrated" means per class
 
