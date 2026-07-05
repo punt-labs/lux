@@ -296,9 +296,8 @@ The contract has four parts (see [DES-039](../../../DESIGN.md)):
    render is protected, and the agent has what it needs to fix its data and
    retry.
 
-The contract is universal (every kind has `validate()`), the logic is
-component-appropriate (each kind checks its own invariants), and it applies to
-legacy kinds too — it does not wait on the ABC migration. Composite coverage
+The contract is universal (every kind has `validate()`) and the logic is
+component-appropriate (each kind checks its own invariants). Composite coverage
 is enforced structurally: every child-bearing kind exposes its children to the
 walk, and a derivation-based guard test fails if a new container kind is added
 without doing so, so a nested element can never silently skip validation.
