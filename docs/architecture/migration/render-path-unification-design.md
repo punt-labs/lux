@@ -39,7 +39,7 @@ unification lands as one rollback-coherent PR.
 ### What is fragmented today
 
 `DisplayServer._paint_element`
-([server.py:1462](../../../src/punt_lux/display/server.py)) has a per-kind
+([server.py:1461-1466](../../../src/punt_lux/display/server.py)) has a per-kind
 special case:
 
 ```python
@@ -52,7 +52,10 @@ def _paint_element(self, elem: Element) -> None:
 
 The `if` branch is the ABC render path. The `else` branch is the legacy path.
 The same two-branch code is duplicated in `_render_scene_tab`
-([server.py:1509](../../../src/punt_lux/display/server.py)).
+([server.py:1508-1511](../../../src/punt_lux/display/server.py)).
+(`_render_framed_scene` already delegates to `_paint_element`
+([server.py:1458](../../../src/punt_lux/display/server.py)), so flipping
+`_paint_element` covers the framed path automatically.)
 
 The `isinstance(TextElement)` special case exists only because the factory can
 build exactly one adapter. `ImGuiRendererFactory.__call__`
@@ -98,7 +101,7 @@ and shrinks Batch 7 to deleting a now-legacy-only dispatch table.
 
 The core change. `Element.render()` today hardcodes a leaf-vs-composite branch
 and a fixed child-iteration step into the base class
-([element_abc.py:106-118](../../../src/punt_lux/domain/element_abc.py)):
+([element_abc.py:108-127](../../../src/punt_lux/domain/element_abc.py)):
 
 **Before:**
 
@@ -381,7 +384,7 @@ short-circuit is expressible. The Protocol docstring's current claim that "the
 Element ABC's template method chooses which path to take based on whether
 `_children()` is empty" ([renderer.py:22-25](../../../src/punt_lux/protocol/renderer.py))
 becomes false and is rewritten as above. The `render()` and module docstrings on
-the ABC ([element_abc.py:1-14, 106-107](../../../src/punt_lux/domain/element_abc.py))
+the ABC ([element_abc.py:1-29, 108-116](../../../src/punt_lux/domain/element_abc.py))
 are updated in the same PR so the source describes the fixed skeleton + four
 step hooks, not a leaf-vs-composite branch.
 
@@ -403,10 +406,10 @@ needs.
 - **`wrap_handlers_for_remote` and the validation walk are UNCHANGED.** Only the
   render path changes. `wrap_handlers_for_remote` still recurses via
   `self._children()`
-  ([element_abc.py:288-289](../../../src/punt_lux/domain/element_abc.py)) — the
-  dialog buttons' D21 wrapping is untouched — and the validation walk still
+  ([event_handler_host.py:117](../../../src/punt_lux/domain/event_handler_host.py))
+  — the dialog buttons' D21 wrapping is untouched — and the validation walk still
   recurses via the public `child_elements()` bridge
-  ([element_abc.py:137-145](../../../src/punt_lux/domain/element_abc.py)). So
+  ([element_abc.py:159-167](../../../src/punt_lux/domain/element_abc.py)). So
   `_children()` keeps two live consumers (wrapping + validation) plus the render
   default. This is exactly why the dialog does **not** empty `_children()`: doing
   so would strip the buttons' D21 wrapping and validation. The dialog reports its
@@ -452,10 +455,11 @@ element, not the renderer:
   ([checkbox_renderer.py:52-59](../../../src/punt_lux/display/renderers/checkbox_renderer.py)).
 
 `elem.fire` dispatches to the element's handler registry
-([element_abc.py:200-219](../../../src/punt_lux/domain/element_abc.py)). On the
-Display side those handlers were replaced by a `RemoteDispatchGroup` in
+([event_handler_host.py:81](../../../src/punt_lux/domain/event_handler_host.py)).
+On the Display side those handlers were replaced by a `RemoteDispatchGroup` in
 `wrap_handlers_for_remote`
-([element_abc.py:235-289](../../../src/punt_lux/domain/element_abc.py)), which
+([event_handler_host.py:117](../../../src/punt_lux/domain/event_handler_host.py)),
+which
 sends a `RemoteEventHandlerInvocation` to the Hub instead of running the real
 handler. **Because the new renderers call the *same* `ButtonRenderer` /
 `CheckboxRenderer` instances, `elem.fire` and the D21 wrapping are untouched.**
@@ -498,9 +502,9 @@ def _paint_element(self, elem: Element) -> None:
         self._element_renderer.render_element(elem)
 ```
 
-Applied at [server.py:1462](../../../src/punt_lux/display/server.py) and the
+Applied at [server.py:1461-1466](../../../src/punt_lux/display/server.py) and the
 duplicated block at
-[server.py:1509](../../../src/punt_lux/display/server.py). (`ElementABC` is
+[server.py:1508-1511](../../../src/punt_lux/display/server.py). (`ElementABC` is
 `punt_lux.domain.element_abc.Element` — imported under the disambiguating alias
 already used in
 [scene_inspection.py:75](../../../src/punt_lux/scene_inspection.py).) The two
@@ -512,64 +516,66 @@ Entering the template via `elem.render()` (rather than the current
 `self._imgui_renderer_factory(elem).render()`, which called the renderer's paint
 directly and bypassed the template) is what makes "migrated ≡ renders via
 `Element.render()`" literally true. But that same bypass is load-bearing today,
-and deleting it exposes a wiring gap the `text`-only path hides. The
-factory-rebind step below closes it; this design makes the rebind **mandatory**,
-not a worker confirmation.
+and deleting it depends on a wiring step the `text`-only path never exercised:
+the factory carried **on the element** must be the real Display factory, not the
+Hub's raising sentinel. **That rebind is already merged in PR #237** — this
+design adds nothing here; it *relies* on the merged rebind and the flip is what
+finally reads it.
 
-**Rebind the real ImGui factory into every inbound ABC element (mandatory
-design step).** Today `_paint_element`'s `text` branch paints through the
-*server's* live factory —
-`self._imgui_renderer_factory(elem).render()`
-([server.py:1462](../../../src/punt_lux/display/server.py)) — and never touches
-`elem._renderer_factory`. The flip deletes that bypass: `elem.render()` calls
-`self._renderer_factory(self)`
-([element_abc.py:108](../../../src/punt_lux/domain/element_abc.py)) — the factory
-carried **on the element**. On the Display that factory raises. The chain is:
+**The factory rebind is a merged prerequisite (PR #237), not a step this PR
+adds.** Today `_paint_element`'s `text` branch paints through the *server's* live
+factory — `self._imgui_renderer_factory(elem).render()`
+([server.py:1463-1464](../../../src/punt_lux/display/server.py)) — and never
+reads `elem._renderer_factory`. The flip deletes that bypass: `elem.render()`
+calls `self._renderer_factory(self)`
+([element_abc.py:117](../../../src/punt_lux/domain/element_abc.py)) — the factory
+carried **on the element**. Off the Display that factory raises. The chain is:
 
 - scene transport is pickle
   ([scene.py:83](../../../src/punt_lux/protocol/messages/scene.py) dumps,
   [scene.py:121-128](../../../src/punt_lux/protocol/messages/scene.py) loads);
 - `Element.__reduce__` keeps `_renderer_factory` in the pickled state — it
   excludes only `_observers`
-  ([element_abc.py:92](../../../src/punt_lux/domain/element_abc.py));
+  ([element_abc.py:94](../../../src/punt_lux/domain/element_abc.py));
 - the element was built Hub-side with `RaisingRendererFactory`
-  ([server.py:232-233](../../../src/punt_lux/display/server.py)), whose `__call__`
+  ([server.py:233-234](../../../src/punt_lux/display/server.py)), whose `__call__`
   raises `RuntimeError` unconditionally
   ([raising.py:38-45](../../../src/punt_lux/protocol/renderers/raising.py)).
 
 So every inbound ABC element arrives on the Display carrying a factory that
-raises on `render()`, and nothing rebinds it — `_wrap_abc_elements`
-([server.py:933-946](../../../src/punt_lux/display/server.py)) only wraps
-handlers. (The `RaisingRendererFactory` docstring claims the display "sidesteps
-this factory at decode time"
-([raising.py:11-13](../../../src/punt_lux/protocol/renderers/raising.py)), but no
-such sidestep is implemented — the only sidestep today is the `_paint_element`
-call-site bypass this change removes.)
+raises on `render()`. **PR #237 closes this**: `Element.bind_renderer_factory`
+([element_abc.py:134-145](../../../src/punt_lux/domain/element_abc.py)) assigns
+the passed factory to `self._renderer_factory` and **recurses into
+`_children()`**, and the inbound `_wrap_abc_elements` pass calls it with the
+Display's real factory on every top-level ABC element
+([server.py:941-945](../../../src/punt_lux/display/server.py)) before the scene
+is stored and painted. The rebound element instances are the *same* objects the
+paint loop walks: `_wrap_abc_elements(msg)` runs before
+`SceneManager.handle_scene`, which stores `self._scenes[msg.id] = msg` by
+reference ([manager.py:195](../../../src/punt_lux/scene/manager.py)), and
+`_render_scene_tab` iterates `scene.elements` from that same stored message. The
+`RaisingRendererFactory` docstring now describes this correctly
+([raising.py:11-13](../../../src/punt_lux/protocol/renderers/raising.py)).
 
-The step: **add a `bind_renderer_factory(self, factory)` method on the Element
-ABC** that assigns the passed factory to `self._renderer_factory` and **recurses
-into `_children()`**; the Display calls it with `self._imgui_renderer_factory` on
-every inbound ABC element **before paint**. Rules:
+What the rebind guarantees for this design's four exemplars, all covered by the
+merged code:
 
-- The rebind is the element's own operation. Do **not** assign
-  `elem._renderer_factory` from outside the element (encapsulation) — call the
-  bind method.
-- **It must recurse.** A dialog's child Buttons now paint via the default
-  `child.render()` recursion (§3), and each child carries its own raising
-  factory, so a top-level-only rebind leaves the children raising. Mirror the
-  recursion `wrap_handlers_for_remote` already does over `_children()`
-  ([element_abc.py:288-289](../../../src/punt_lux/domain/element_abc.py)).
-- **It runs in the inbound `_wrap_abc_elements` pass** — the natural home, since
-  that pass already runs per-element setup before `_route_to_domain_display`.
-  Because that loop iterates **only top-level** `msg.elements`, the rebind must
-  reach deeper than the loop: either `bind_renderer_factory` recurses internally
-  (recommended — symmetric with `wrap_handlers_for_remote`) or the pass itself is
-  made recursive. Co-locating the rebind with the wrap pass keeps both
-  per-element setup steps in one place.
+- **text / button / checkbox** (top-level leaves): rebound directly by the
+  `_wrap_abc_elements` loop.
+- **dialog** (top-level composite): rebound, **and** its child Buttons rebound by
+  `bind_renderer_factory`'s `_children()` recursion — the buttons now paint via
+  the default `child.render()` recursion (§3), so each must carry the real
+  factory. The merged recursion delivers exactly that.
 
-Without this step every Display-side ABC element raises on paint — a total
-crash, not a silent degradation. §7 explains why only the live e2e check catches
-it.
+The flip therefore does **not** add or alter the rebind. Nothing in this PR
+touches `bind_renderer_factory` or `_wrap_abc_elements`. The one live risk the
+flip introduces is that the rebound factory was **dormant** until now — nothing
+in production reads `elem._renderer_factory`, because `render()` is not yet the
+paint path. The flip makes it the paint path, so the live e2e check (§7) is the
+first time the merged rebind is exercised end-to-end through `Element.render()`.
+That is what §7's live check verifies; it is a confirmation that a merged
+mechanism works when finally driven, not a guard against an unwired step in this
+PR.
 
 **Prune the ABC kinds from the legacy dispatch.** Remove `TextElement`,
 `ButtonElement`, `CheckboxElement` from `_NATIVE_DISPATCH`
@@ -617,14 +623,16 @@ opens**, not after:
 
    **Neither check #1 nor check #2 calls `Element.render()`.** The snapshot is
    read from introspection state and the `render_path` from `isinstance` — both
-   sidestep the paint path entirely. Therefore **neither can catch the
-   factory-rebind gap from §6**: an element whose `_renderer_factory` was never
-   rebound still snapshots correctly and still reports `render_path == "abc"`,
-   yet raises `RuntimeError` the instant it is painted. The **live e2e check (#3)
-   is the only guard against a `RaisingRendererFactory` leak** — and it surfaces
-   the leak as a total render crash, not a subtle visual regression. The rebind
-   must be verified live, per kind, including the dialog's recursed child
-   Buttons.
+   sidestep the paint path entirely. Therefore **neither exercises the merged
+   factory rebind from §6**: an element whose `_renderer_factory` was somehow not
+   the real Display factory still snapshots correctly and still reports
+   `render_path == "abc"`, yet would raise `RuntimeError` the instant it is
+   painted. The rebind is merged (PR #237) and runs on every inbound scene, but
+   until this flip nothing in production reads the rebound factory. The **live
+   e2e check (#3) is therefore the first time the merged rebind is driven through
+   `Element.render()`** — and any leak of a `RaisingRendererFactory` surfaces as
+   a total render crash, not a subtle visual regression. The flip must be
+   verified live, per kind, including the dialog's recursed child Buttons.
 3. **LIVE interactivity re-confirmed (the part snapshot parity cannot cover).**
    Through the real entry points, with `list_recent_events` / `list_errors`
    capture and operator confirmation:
@@ -665,13 +673,15 @@ with defaults; the dialog is a plain instance overriding only `begin`/`end`; one
 PR.
 
 An independent design review found five wiring gaps between the ratified
-template shape and the source; all are now **explicit design steps**, not worker
-notes:
+template shape and the source. Four are **explicit design steps** in this PR; the
+first is now a **merged prerequisite** the flip depends on, not work this PR does:
 
-- **Factory rebind (§6).** The flip to `elem.render()` makes every inbound
-  Display-side ABC element raise, because the pickled `_renderer_factory` is the
-  Hub's `RaisingRendererFactory`. Fixed by a mandatory `bind_renderer_factory`
-  step that recurses into children, run in the inbound wrap pass.
+- **Factory rebind (§6) — MERGED in PR #237, not a step this PR adds.** The flip
+  to `elem.render()` makes every inbound Display-side ABC element read the
+  factory pickled on it, which off-Display is the Hub's `RaisingRendererFactory`.
+  `Element.bind_renderer_factory` (recurses into children) plus the inbound
+  `_wrap_abc_elements` call that invokes it with the real Display factory are
+  both merged. The flip relies on them and touches neither.
 - **Text adapter (§2).** After the `_NATIVE_DISPATCH` prune, the text adapter
   cannot delegate to `render_element` (it would paint the unsupported-element
   fallback). Fixed by switching text to the narrow-accessor + `apply_tooltip`
@@ -719,9 +729,10 @@ changes:
 
 - **Additive:** a public accessor + `apply_tooltip` on `ElementRenderer`; two new
   leaf renderers; four overridable step hooks (`_begin`, `_paint_self`,
-  `_render_children`, `_end`) on the Element ABC, all with defaults; a
-  `bind_renderer_factory` method on the Element ABC (recurses into children); a
-  Display-side rebind call in the inbound wrap pass.
+  `_render_children`, `_end`) on the Element ABC, all with defaults.
+- **Merged prerequisite (PR #237), not introduced here:** `bind_renderer_factory`
+  on the Element ABC (recurses into children) and the Display-side rebind call in
+  the inbound wrap pass. This PR consumes them; it does not add them.
 - **Changed (internal only):** the `Renderer` Protocol renames `render()` →
   `paint()` and gives `begin()` a `bool` return / `end()` an `opened` parameter;
   `ImGuiDialogRenderer` is refactored from a monolithic `render()` into
@@ -749,4 +760,3 @@ recurses.
 - `apply_tooltip` moves post-processing behavior onto the class that owns the
   renderers rather than duplicating it per renderer (PY-OO-5, PY-OO-7).
 - No new `str`-with-comment or `| None` fields are introduced.
-</content>

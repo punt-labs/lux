@@ -1,4 +1,4 @@
-# Migrating `progress` onto the Element-ABC / HubDisplay Path — Step 1
+# Migrating `progress` onto the Element-ABC / HubDisplay Path — Display-Only Leaf Worked Example
 
 > **Partly superseded by [DES-041](../../../DESIGN.md).** The
 > display-only-leaf design (copy the `Text` exemplar; the field set; the codec;
