@@ -574,18 +574,32 @@ class TestApplyUpdateAbcGroup:
         assert isinstance(child, TextElement)
         assert child.content == "Updated"
 
-    def test_remove_patch_marks_abc_group_child_removed(self) -> None:
-        """A remove-patch marks the nested ABC child removed (no tuple mutation)."""
+    def test_remove_patch_drops_abc_group_child_from_render(self) -> None:
+        """A remove-patch physically drops the child from what the display paints.
+
+        The display renders whatever the group's ``_children()`` yields, so
+        the fix must remove the child from that tuple — not merely flip a
+        ``_removed`` flag that the render path never consults. Assert the
+        removed child is ABSENT from the render-visible children and the
+        kept sibling survives.
+        """
         mgr, _ = _make_manager()
-        child = TextElement(id="t1", content="x")
-        group = GroupElement(id="g1", layout="rows", children=(child,))
+        gone = TextElement(id="t1", content="x")
+        kept = TextElement(id="t2", content="y")
+        group = GroupElement(id="g1", layout="rows", children=(gone, kept))
         mgr.handle_scene(_make_scene(elements=[group]), owner_fd=10)
 
         mgr.apply_update(
             UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
         )
 
-        assert child.removed is True
+        stored = mgr._scenes["s1"].elements[0]
+        assert isinstance(stored, GroupElement)
+        # ``children`` is the render source (== ``_children()``); the removed
+        # child must be gone from it, so the Display no longer paints it.
+        rendered_ids = [c.id for c in stored.children]
+        assert "t1" not in rendered_ids
+        assert rendered_ids == ["t2"]
 
     def test_scene_replace_reports_child_in_abc_group_stale(self) -> None:
         """Replacing the scene reports the nested child's id stale."""

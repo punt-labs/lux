@@ -104,17 +104,10 @@ class GroupElement(Element):
         """Return the hover-tooltip text, or ``None`` for no tooltip."""
         return self._tooltip
 
-    # -- render hook --------------------------------------------------------
-
-    def _children(self) -> tuple[Element, ...]:
-        """Return the render-visible children for the default recursion.
-
-        For a rows/columns group this is every child; the layout surface
-        is opened by the ImGui adapter's ``begin``/``end`` around them.
-        The inherited ``child_elements()`` bridges this to the validation
-        walk, so a rows/columns group needs no override of its own.
-        """
-        return self._children_tuple
+    # The render-visible children, remove_child (physical removal), and the
+    # validation-walk bridge all come from the Element ABC, which stores the
+    # tuple this group populates in ``__new__``. A rows/columns group needs no
+    # override — the layout surface is opened by the ImGui adapter's begin/end.
 
     # -- codec delegators ---------------------------------------------------
 

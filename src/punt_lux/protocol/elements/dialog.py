@@ -195,14 +195,10 @@ class DialogElement(Element):
         """Return the dialog's child controllers (read-only view)."""
         return self._children_tuple
 
-    def _children(self) -> tuple[Element, ...]:
-        """Hook override — Composite render walks these in order.
-
-        The dialog overrides no render step hook: the ABC defaults already
-        drive its renderer's ``begin``/``paint``/``end``, and the dialog's
-        ImGui renderer encodes the modal open/close + Escape-dismiss seam.
-        """
-        return self._children_tuple
+    # ``_children()`` and ``remove_child`` come from the Element ABC, backed by
+    # the ``_children_tuple`` the decoder installs. The dialog overrides no
+    # render step hook: the ABC defaults drive its renderer's begin/paint/end,
+    # and the ImGui renderer encodes the modal open/close + Escape-dismiss seam.
 
     # -- decoder seam ------------------------------------------------------
 

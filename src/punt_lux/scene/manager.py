@@ -347,10 +347,9 @@ class SceneManager:
     ) -> None:
         """Surface a patch whose target is present but unreachable.
 
-        Every reachable id resolves to a location; an id that ``collect_ids``
-        finds in the scene yet ``find`` cannot reach signals a tree-walk gap
-        the state machine must not swallow (the exact bug an all-ABC group's
-        missing traversal produced). A truly-absent id is a normal no-op.
+        Every id ``collect_ids`` reports must be reachable by ``find``; an id
+        present yet unreachable signals a tree-walk coverage gap the state
+        machine must not swallow. A truly-absent id is a normal no-op.
         """
         present = any(
             target_id in self._walk.collect_ids(elem) for elem in scene.elements
