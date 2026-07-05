@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
 
     from punt_lux.domain.event_protocol import Event, Handler
+    from punt_lux.domain.validation import ValidationError
     from punt_lux.protocol.messages.remote_invocation import (
         RemoteEventHandlerInvocation,
     )
@@ -120,6 +121,28 @@ class Element(ABC):
         """Hook — composites override to return their children. Leaves
         inherit the empty default."""
         return ()
+
+    def validate(self) -> tuple[ValidationError, ...]:
+        """Return this element's own validation errors.
+
+        Sensible leaf default: no errors. Each kind overrides this to
+        check what is *component-appropriate* for its widget — a table
+        checks that rows fit its columns, a dialog would check its
+        buttons are wired. The tree walk calls this on every element and
+        accumulates the results; an element with nothing to check simply
+        returns the empty default.
+        """
+        return ()
+
+    def child_elements(self) -> tuple[Element, ...]:
+        """Return direct children for the validation walk.
+
+        Public bridge onto the protected ``_children()`` hook so the
+        hierarchy-walking collector can recurse without reaching into
+        renderer-facing internals. Composites get the right answer for
+        free by virtue of overriding ``_children()``.
+        """
+        return self._children()
 
     def apply_patch(self, patch: Mapping[str, object]) -> Self:
         """Apply a field patch in place by dispatching to ``_set_<key>``.

@@ -43,6 +43,16 @@ class GroupElement:
     page_source: str | None = None  # id of ComboElement driving page index
     tooltip: str | None = None
 
+    def child_elements(self) -> tuple[object, ...]:
+        """Return direct children for the validation walk.
+
+        Includes both the always-visible ``children`` and every element
+        across ``pages`` — an invalid element hidden on a non-active page
+        is still installed into the scene and must be caught.
+        """
+        paged = [element for page in self.pages for element in page]
+        return (*self.children, *paged)
+
 
 @dataclass(frozen=True, slots=True)
 class TabBarElement:

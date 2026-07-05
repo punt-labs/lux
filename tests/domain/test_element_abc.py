@@ -133,3 +133,22 @@ def test_composite_with_no_children_renders_as_leaf() -> None:
     composite = _Composite(factory=factory, tag="empty", children=())
     composite.render()
     assert log == ["render:empty"]
+
+
+def test_abc_validate_default_returns_no_errors() -> None:
+    # Sensible leaf default: an ABC element with no override self-validates clean.
+    leaf = _Leaf(factory=_RecordingFactory([]), tag="leaf")
+    assert leaf.validate() == ()
+
+
+def test_abc_child_elements_bridges_children_hook() -> None:
+    factory = _RecordingFactory([])
+    kids = (_Leaf(factory=factory, tag="a"), _Leaf(factory=factory, tag="b"))
+    composite = _Composite(factory=factory, tag="parent", children=kids)
+    # child_elements() is the public walk accessor over the protected hook.
+    assert composite.child_elements() == kids
+
+
+def test_abc_leaf_child_elements_is_empty() -> None:
+    leaf = _Leaf(factory=_RecordingFactory([]), tag="leaf")
+    assert leaf.child_elements() == ()

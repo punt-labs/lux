@@ -1,0 +1,100 @@
+"""Component-appropriate self-validation on the table element.
+
+The table decides what "valid" means for *itself*: rows must fit the
+declared columns and cells must be renderable scalars. These tests cover
+the table's ``validate()`` in isolation; the tree-walk and ``show``
+integration are covered in ``tests/domain/test_validation_walk.py`` and
+``tests/test_tools.py``.
+"""
+
+from __future__ import annotations
+
+from punt_lux.protocol.elements.layout import GroupElement
+from punt_lux.protocol.elements.table import TableElement
+
+
+class TestTableValidate:
+    def test_well_formed_table_has_no_errors(self) -> None:
+        table = TableElement(
+            id="sales",
+            columns=["Name", "Score"],
+            rows=[["Alice", 95], ["Bob", 87]],
+        )
+        assert table.validate() == ()
+
+    def test_scalar_cell_kinds_are_all_renderable(self) -> None:
+        table = TableElement(
+            id="mixed",
+            columns=["s", "i", "f", "b", "n"],
+            rows=[["x", 1, 2.5, True, None]],
+        )
+        assert table.validate() == ()
+
+    def test_short_row_reports_a_mismatch(self) -> None:
+        table = TableElement(
+            id="sales",
+            columns=["Name", "Score", "Rank"],
+            rows=[["Alice", 95]],
+        )
+        errors = table.validate()
+        assert len(errors) == 1
+        assert errors[0].element_id == "sales"
+        assert errors[0].element_kind == "table"
+        assert "2 cell(s)" in errors[0].message
+        assert "3 column(s)" in errors[0].message
+
+    def test_long_row_reports_a_mismatch(self) -> None:
+        table = TableElement(
+            id="sales",
+            columns=["Name"],
+            rows=[["Alice", "extra"]],
+        )
+        errors = table.validate()
+        assert len(errors) == 1
+        assert "2 cell(s)" in errors[0].message
+
+    def test_unrenderable_cell_reports_its_type(self) -> None:
+        table = TableElement(
+            id="nested",
+            columns=["Name", "Tags"],
+            rows=[["Alice", ["a", "b"]]],
+        )
+        errors = table.validate()
+        assert len(errors) == 1
+        assert "column 1" in errors[0].message
+        assert "list" in errors[0].message
+
+    def test_every_bad_row_and_cell_collects_at_once(self) -> None:
+        # One short row AND one dict cell: two independent errors, no fail-fast.
+        table = TableElement(
+            id="messy",
+            columns=["A", "B"],
+            rows=[
+                ["only-one"],  # short row
+                ["ok", {"k": "v"}],  # unrenderable cell
+            ],
+        )
+        errors = table.validate()
+        assert len(errors) == 2
+        messages = " ".join(e.message for e in errors)
+        assert "1 cell(s)" in messages
+        assert "dict" in messages
+
+    def test_empty_table_is_valid(self) -> None:
+        assert TableElement(id="empty").validate() == ()
+
+
+class TestGroupChildElements:
+    def test_visible_children_are_exposed(self) -> None:
+        child = TableElement(id="t", columns=["A"], rows=[["x"]])
+        group = GroupElement(id="g", children=[child])
+        assert group.child_elements() == (child,)
+
+    def test_paged_children_are_exposed(self) -> None:
+        nav = TableElement(id="nav", columns=["A"], rows=[["x"]])
+        paged = TableElement(id="paged", columns=["B"], rows=[["y"]])
+        group = GroupElement(id="g", children=[nav], pages=[[paged]])
+        assert group.child_elements() == (nav, paged)
+
+    def test_empty_group_has_no_children(self) -> None:
+        assert GroupElement(id="g").child_elements() == ()

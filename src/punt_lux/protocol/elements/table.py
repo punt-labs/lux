@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import InitVar, dataclass, field
 from typing import Any, Literal
 
+from punt_lux.domain.validation import ValidationError
 from punt_lux.protocol.elements.codec import Register
 
 __all__ = [
@@ -99,6 +100,56 @@ class TableElement:
                 f"detail.rows length ({len(d.rows)}) must match rows ({len(self.rows)})"
             )
             raise ValueError(msg)
+
+    def validate(self) -> tuple[ValidationError, ...]:
+        """Return errors where the agent's data does not fit the table widget.
+
+        Component-appropriate checks — what "valid" means for a *table*:
+
+        - every row has exactly one cell per declared column;
+        - every cell is a scalar the widget can render as text
+          (``str``, ``int``, ``float``, ``bool``, or ``None``). A list or
+          dict in a cell is a data-shape mistake the agent should fix
+          rather than a value the table can paint.
+        """
+        column_count = len(self.columns)
+        errors: list[ValidationError] = []
+        for row_index, row in enumerate(self.rows):
+            if len(row) != column_count:
+                errors.append(
+                    ValidationError(
+                        element_id=self.id,
+                        element_kind=self.kind,
+                        message=(
+                            f"row {row_index} has {len(row)} cell(s) but the "
+                            f"table declares {column_count} column(s)"
+                        ),
+                    ),
+                )
+            errors.extend(self._cell_errors(row_index, row))
+        return tuple(errors)
+
+    def _cell_errors(
+        self,
+        row_index: int,
+        row: list[Any],
+    ) -> tuple[ValidationError, ...]:
+        """Return one error per cell in ``row`` that the widget can't render."""
+        errors: list[ValidationError] = []
+        for col_index, cell in enumerate(row):
+            if not isinstance(cell, str | int | float | type(None)):
+                errors.append(
+                    ValidationError(
+                        element_id=self.id,
+                        element_kind=self.kind,
+                        message=(
+                            f"row {row_index} column {col_index} holds a "
+                            f"{type(cell).__name__}; table cells must be a "
+                            "string, number, boolean, or null"
+                        ),
+                    ),
+                )
+        return tuple(errors)
 
 
 def _table_detail_to_dict(d: TableDetail) -> dict[str, Any]:
