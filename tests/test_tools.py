@@ -717,6 +717,30 @@ class TestShowTool:
         assert "2 validation error(s):" in result
         client.show.assert_not_called()
 
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_show_rejects_bad_table_on_group_page(self, mock_get: MagicMock) -> None:
+        # A group's non-active pages are still installed into the scene, so a
+        # bad table hidden on a page must be caught end-to-end through show() —
+        # the exact "invalid element on a non-active page" case GroupElement's
+        # paged child exposure exists to cover.
+        client = _mock_client()
+        mock_get.return_value = client
+
+        result = show(
+            "s1",
+            [
+                {
+                    "kind": "group",
+                    "id": "g1",
+                    "children": [{"kind": "text", "id": "nav", "content": "page 1"}],
+                    "pages": [[_bad_table("on_page")]],
+                },
+            ],
+        )
+        assert result.startswith("error: scene not rendered")
+        assert "[table 'on_page']" in result
+        client.show.assert_not_called()
+
 
 class TestShowTableTool:
     @patch("punt_lux.domain.hub.clients.client_registry.get")

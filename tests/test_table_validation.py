@@ -110,6 +110,34 @@ class TestTableValidate:
         assert "1 column(s)" in messages
         assert "dict" in messages
 
+    def test_null_rows_reports_error_not_crash(self) -> None:
+        # ``{"rows": null}`` decodes to ``None`` (dict.get returns the present
+        # value, not the default); ``len``/iteration would crash without the
+        # guard. It must be reported like any other malformation.
+        table = TableElement(id="nr", columns=["A"], rows=None)  # type: ignore[arg-type]  # wire present-null
+        errors = table.validate()
+        assert len(errors) == 1
+        assert "rows must be a list of rows" in errors[0].message
+        assert errors[0].element_kind == "table"
+
+    def test_null_columns_reports_error_not_crash(self) -> None:
+        table = TableElement(id="nc", columns=None, rows=[["x"]])  # type: ignore[arg-type]  # wire present-null
+        errors = table.validate()
+        assert len(errors) == 1
+        assert "columns must be a list of column names" in errors[0].message
+
+    def test_scalar_rows_field_reports_error_not_crash(self) -> None:
+        table = TableElement(id="sr", columns=["A"], rows=5)  # type: ignore[arg-type]  # deliberately malformed
+        errors = table.validate()
+        assert len(errors) == 1
+        assert "rows must be a list of rows" in errors[0].message
+
+    def test_scalar_columns_field_reports_error_not_crash(self) -> None:
+        table = TableElement(id="sc", columns=3, rows=[["x"]])  # type: ignore[arg-type]  # deliberately malformed
+        errors = table.validate()
+        assert len(errors) == 1
+        assert "columns must be a list of column names" in errors[0].message
+
 
 class TestGroupChildElements:
     def test_visible_children_are_exposed(self) -> None:

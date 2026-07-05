@@ -67,7 +67,8 @@ class ContainerDispatch:
             msg = (
                 "layout codecs used before decode dispatcher installed — "
                 "construct a JsonElementFactory at tier startup and call "
-                "layout.install_from_dict(factory.element_from_dict)"
+                "container_dispatch.dispatch.install_from_dict("
+                "factory.element_from_dict)"
             )
             raise RuntimeError(msg)
         return self._from_dict

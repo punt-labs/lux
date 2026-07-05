@@ -145,6 +145,8 @@ class TableElement:
 
         Component-appropriate checks — what "valid" means for a *table*:
 
+        - ``columns`` and ``rows`` are each a list (a present-but-``null``
+          field decodes to ``None`` and must be reported, not crash the walk);
         - every row is itself a list of cells;
         - every row has exactly one cell per declared column;
         - every cell is a scalar the widget can render as text
@@ -152,9 +154,28 @@ class TableElement:
           dict in a cell is a data-shape mistake the agent should fix
           rather than a value the table can paint.
         """
-        column_count = len(self.columns)
+        return self._data_errors(self.columns, self.rows)
+
+    def _data_errors(
+        self,
+        columns: object,
+        rows: object,
+    ) -> tuple[ValidationError, ...]:
+        """Return errors for the ``columns``/``rows`` pair.
+
+        Takes ``object`` parameters because the wire boundary can hand us a
+        present ``null`` for either field (``dict.get`` returns the value,
+        not the default), so the declared list types do not hold at decode
+        time. The function boundary re-widens to ``object`` for the runtime
+        list check, mirroring ``TreeElement._node_errors``.
+        """
+        if not isinstance(columns, list):
+            return (self._error("columns must be a list of column names"),)
+        if not isinstance(rows, list):
+            return (self._error("rows must be a list of rows"),)
+        column_count = len(cast("list[object]", columns))
         errors: list[ValidationError] = []
-        for row_index, row in enumerate(cast("list[object]", self.rows)):
+        for row_index, row in enumerate(cast("list[object]", rows)):
             if not isinstance(row, list):
                 errors.append(self._error(f"row {row_index} is not a list of cells"))
                 continue
