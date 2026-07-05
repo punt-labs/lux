@@ -11,6 +11,7 @@ same behaviors seen through ``apply_update``.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 
 import pytest
 
@@ -91,6 +92,45 @@ class TestApplySet:
         elem = scene.elements[0]
         assert elem.id == "t1"
         assert elem.kind == "text"
+
+
+class TestSetterOrder:
+    """A multi-field set reaches the element's setters in the patch's dict order."""
+
+    @pytest.mark.parametrize(
+        "field_order",
+        [("fraction", "label"), ("label", "fraction")],
+    )
+    def test_multi_field_patch_preserves_setter_order(
+        self, field_order: tuple[str, str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The setters run in the order the agent wrote the patch, not hash order.
+
+        ``Element.apply_patch`` dispatches ``_set_<field>`` in dict order, so an
+        order-dependent multi-field patch must reach it in the patch's insertion
+        order. Building the applied dict by set intersection would let hash order
+        pick the sequence; asserting both field orderings round-trip proves the
+        applier preserves the agent's order rather than reordering it.
+        """
+        applier, _ = _make_applier()
+        progress = ProgressElement(id="p1", fraction=0.25)
+        scene = _scene(progress)
+        patch_set = {
+            name: (0.5 if name == "fraction" else "loading") for name in field_order
+        }
+
+        seen: list[list[str]] = []
+        original = progress.apply_patch
+
+        def record(fields: Mapping[str, object]) -> ProgressElement:
+            seen.append(list(fields))
+            return original(fields)
+
+        monkeypatch.setattr(progress, "apply_patch", record)
+
+        applier.apply(scene, _update(Patch(id="p1", set=patch_set)), None)
+
+        assert seen == [list(field_order)]
 
 
 class TestApplyRemove:

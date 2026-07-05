@@ -13,8 +13,8 @@
 % Source of record:
 %   src/punt_lux/scene/patch_applier.py   -- PatchApplier.apply: the batch
 %                                            loop; _apply_patch_set: unknown
-%                                            field check (raises BEFORE the
-%                                            value-rejection try) then
+%                                            field check (LOGS and SKIPS per
+%                                            patch) then
 %                                            apply_set under
 %                                            try/except (ValueError, TypeError)
 %   src/punt_lux/scene/element_walk.py     -- find: locate or None; a missing
@@ -22,9 +22,10 @@
 %   src/punt_lux/domain/element_abc.py     -- apply_patch: snapshot + rollback
 %                                            (atomic multi-field set)
 %   src/punt_lux/scene/manager.py:207      -- apply_update -> applier.apply
-%   src/punt_lux/display/server.py:678     -- the display message loop:
+%   src/punt_lux/display/server.py:681     -- _handle_update: the message loop
 %                                            self._scene_manager.apply_update(msg)
-%                                            with NO boundary try/except
+%                                            inside a last-resort try/except that
+%                                            logs and still acks (residual guard)
 %
 % Type-check:  fuzz -t docs/patch_application.tex
 % Model-check (see Section "Verification" for the exact goal predicates):
@@ -77,12 +78,14 @@ recurred across four fix/review rounds:
 
 Rounds~1 and~2 were closed by catching \texttt{(ValueError, TypeError)}
 around the setter call; round~3 by an all-or-nothing snapshot/rollback in
-\texttt{Element.apply\_patch}; round~4 is \emph{live} --- a test has
-confirmed that \texttt{\{"set":\{"bogus":5\}\}} raises out of
-\texttt{\_apply\_patch\_set} and kills the loop.  Empirical case-by-case
-patching keeps missing cases.  This document models the boundary as a
-finite state machine over a bounded batch, so ProB can enumerate every
-patch class exhaustively.
+\texttt{Element.apply\_patch}; round~4 by surfacing an unknown field per
+patch --- logging and skipping it --- rather than letting it raise out of
+\texttt{\_apply\_patch\_set} and kill the loop.  All four are now fixed;
+each survives only as a fidelity variant (Section~\ref{sec:fidelity}) that
+reintroduces the defect to confirm the model still detects it.  Empirical
+case-by-case patching kept missing cases, so this document models the
+boundary as a finite state machine over a bounded batch, letting ProB
+enumerate every patch class exhaustively.
 
 % ============================================================
 \section{Basic Types}
@@ -462,12 +465,13 @@ multi-field set applied its first field before the second was rejected, and
 nothing restored it).  The loop stays alive, but Invariant~AT's goal
 \texttt{partial /= \{\}} is now \emph{found}.
 
-\paragraph{Round 4 --- crash on unknown-field structural error (live).}
-This is the current production behaviour.  In \texttt{ApplySurface} replace
-\texttt{live' = live} with \texttt{live' = terminated}: the field-name
-\texttt{ValueError} is raised before the value-rejection \texttt{try} and
-propagates through \texttt{apply\_update} to the message loop.  Invariant~CF's
-goal \texttt{live=terminated} is \emph{found}, and so is Invariant~BC's goal
+\paragraph{Round 4 --- crash on unknown-field structural error.}
+This defect --- since fixed by surfacing the unknown field per patch, logging
+and skipping it --- is reproduced by making \texttt{ApplySurface} replace
+\texttt{live' = live} with \texttt{live' = terminated}, modelling a field-name
+check that raises before the value-rejection \texttt{try} and propagates
+through \texttt{apply\_update} to the message loop.  Invariant~CF's goal
+\texttt{live=terminated} is then \emph{found}, and so is Invariant~BC's goal
 \texttt{live=terminated \& queue /= <>} --- an unknown-field patch not only
 kills the loop but strands every patch after it in the batch.
 

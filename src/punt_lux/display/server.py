@@ -691,7 +691,7 @@ class DisplayServer:
             self._scene_manager.apply_update(msg)
         except Exception:
             logger.exception(
-                "update for scene %r raised past the applier; scene left unchanged",
+                "scene %r update aborted mid-batch; earlier patches may have applied",
                 msg.scene_id,
             )
         self._socket_server.send_to_client(

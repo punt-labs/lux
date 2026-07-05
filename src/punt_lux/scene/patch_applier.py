@@ -22,13 +22,11 @@ class PatchApplier:
     """Apply an update's patch batch to a resolved scene's element tree.
 
     Owns the "apply a batch of patches" responsibility split out of
-    :class:`SceneManager`: locate each patch target and remove it or set
-    fields. The scene-lifecycle role — storing scenes, frames, and ownership —
-    stays on the manager.
-
-    Tree navigation is delegated to a shared :class:`SceneTreeWalk`; mirroring
-    a patched value into :class:`WidgetState` (and marking moved windows dirty)
-    is delegated to a :class:`WidgetSync`.
+    :class:`SceneManager` — locate each patch target and remove it or set
+    fields — while scene lifecycle (storing scenes, frames, ownership) stays on
+    the manager. Tree navigation is delegated to a shared :class:`SceneTreeWalk`;
+    mirroring a patched value into :class:`WidgetState` (and marking moved
+    windows dirty) is delegated to a :class:`WidgetSync`.
     """
 
     __slots__ = ("_walk", "_widget_sync")
@@ -69,11 +67,11 @@ class PatchApplier:
     def _warn_unreachable_patch(
         self, scene: SceneMessage, target_id: str, scene_id: str
     ) -> None:
-        """Surface a patch whose target is present but unreachable.
+        """Warn when a target is present in the scene but unreachable by ``find``.
 
-        Every id ``collect_ids`` reports must be reachable by ``find``; an id
-        present yet unreachable signals a tree-walk coverage gap the state
-        machine must not swallow. A truly-absent id is a normal no-op.
+        Every id ``collect_ids`` reports must be reachable; a present-yet-
+        unreachable id signals a tree-walk coverage gap, not the normal no-op of
+        a truly-absent id.
         """
         present = any(
             target_id in self._walk.collect_ids(elem) for elem in scene.elements
@@ -96,22 +94,14 @@ class PatchApplier:
     ) -> None:
         """Apply a set-patch to a located element and sync widget state.
 
-        Validation happens here, at the boundary; the location owns the
-        mutation strategy (in-place ``apply_patch`` for an ABC element,
-        ``dataclasses.replace`` + rebind for a legacy one), so this method
-        never branches on which element model it found.
-
-        A patch is rejected two ways, and both are handled per-patch so the
-        surrounding batch continues and the display's message loop never dies:
-
-        - a *structural* error — the patch names a field the element does not
-          have — is logged and skipped;
-        - a *value* error — a validated setter rejects an out-of-range or NaN
-          ``fraction`` (``ValueError``) or a wrong-typed value (``TypeError``)
-          — is caught around ``apply_set``, logged, and skipped.
-
-        Either way one bad patch is a clean no-op (``Element.apply_patch``
-        leaves the element unchanged) rather than an uncaught exception.
+        Validation happens here at the boundary; the location owns the mutation
+        strategy, so this method never branches on the element model. A patch is
+        rejected two ways, both handled per patch so the batch continues and the
+        message loop never dies: a structural error (unknown field) is skipped;
+        a value error (a setter's ``ValueError``/``TypeError`` on an
+        out-of-range, NaN, or wrong-typed value) is caught around ``apply_set``
+        and skipped. Either way the bad patch is a clean no-op, not an uncaught
+        exception.
         """
         elem = location.element
         valid, unknown = self._partition_fields(elem, fields)
@@ -138,24 +128,24 @@ class PatchApplier:
     def _partition_fields(
         self, elem: Element, fields: dict[str, Any]
     ) -> tuple[dict[str, Any], set[str]]:
-        """Split a patch's fields into (patchable values, unknown field names).
+        """Split a patch's fields into (ordered patchable values, unknown names).
 
-        ``id`` and ``kind`` are identity fields — dropped from both sets, so
-        they are never applied and never reported as unknown.
+        ``valid`` keeps the patch's insertion order so ``Element.apply_patch``
+        runs the setters in the order the agent wrote them; a set intersection
+        would let hash order pick a non-deterministic sequence. ``id`` and
+        ``kind`` are excluded by ``_known_patch_fields``, never flagged unknown.
         """
         known = self._known_patch_fields(elem)
-        patchable = fields.keys() - {"id", "kind"}
-        valid = {k: fields[k] for k in patchable & known}
-        return valid, patchable - known
+        valid = {name: value for name, value in fields.items() if name in known}
+        unknown = fields.keys() - known - {"id", "kind"}
+        return valid, unknown
 
     def _warn_skipped(self, elem: Element, scene_id: str, reason: str) -> None:
         """Log a set-patch skipped at the boundary; the caller then continues.
 
-        A structural rejection (an unknown field) or a value rejection (a setter
-        ``ValueError``/``TypeError``) is surfaced per patch so it stays
-        diagnosable without aborting the batch or reaching the display's message
-        loop. ``reason`` names which kind of rejection occurred and carries the
-        offending detail.
+        A structural rejection (unknown field) or value rejection (setter
+        ``ValueError``/``TypeError``) is surfaced per patch — diagnosable
+        without aborting the batch. ``reason`` carries the offending detail.
         """
         _log.warning(
             "patch for scene %r element %r skipped: %s",
@@ -165,15 +155,22 @@ class PatchApplier:
         )
 
     def _known_patch_fields(self, elem: Element) -> set[str]:
-        """Return the patchable field names for ``elem``.
+        """Return ``elem``'s patchable field names, minus the identity fields.
 
         ABC elements expose a ``_set_<field>`` setter per patchable field;
-        legacy dataclasses expose their declared fields.
+        legacy dataclasses expose their declared fields. ``id`` and ``kind``
+        are dropped so an identity field is never applied nor flagged unknown.
         """
         if isinstance(elem, ABCElement):
-            return {
-                name.removeprefix("_set_")
-                for name in dir(elem)
-                if name.startswith("_set_") and callable(getattr(elem, name))
-            }
-        return {f.name for f in dataclasses.fields(elem)}
+            names = self._abc_setter_fields(elem)
+        else:
+            names = {f.name for f in dataclasses.fields(elem)}
+        return names - {"id", "kind"}
+
+    def _abc_setter_fields(self, elem: ABCElement) -> set[str]:
+        """Return the field names an ABC element exposes a ``_set_`` setter for."""
+        return {
+            name.removeprefix("_set_")
+            for name in dir(elem)
+            if name.startswith("_set_") and callable(getattr(elem, name))
+        }

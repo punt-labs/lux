@@ -502,7 +502,13 @@ class TestUpdateBackstop:
             server._handle_message(sock, update)  # must NOT raise
 
         assert sock.sendall.called  # loop survived and acked the client
-        assert any("raised past the applier" in r.message for r in caplog.records)
+        # The log is honest about a mid-batch abort: earlier patches may have
+        # applied, so it must NOT claim the scene was left unchanged.
+        messages = [r.message for r in caplog.records]
+        assert any(
+            "aborted mid-batch" in m and "may have applied" in m for m in messages
+        )
+        assert not any("unchanged" in m for m in messages)
 
 
 # -----------------------------------------------------------------------
