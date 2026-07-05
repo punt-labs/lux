@@ -142,9 +142,13 @@ That can be added later only if needed.
 ### Outbound
 
 1. A client submits UI to the Hub.
-2. The Hub installs that UI into `HubDisplay`.
-3. The Hub sends a full replica to the Display.
-4. The Display stores that replica and wraps handlers for remote dispatch.
+2. The Hub decodes the UI and every element self-validates. If any element
+   reports an error, the Hub returns the collected errors to the client and
+   stops — the tree is not installed and nothing is sent to the Display (see
+   [element-contract.md](./element-contract.md), [DES-039](../../../DESIGN.md)).
+3. The Hub installs the validated UI into `HubDisplay`.
+4. The Hub sends a full replica to the Display.
+5. The Display stores that replica and wraps handlers for remote dispatch.
 
 ### Inbound
 
@@ -186,3 +190,5 @@ The architecture should not depend on co-location.
 - The Display is a full replica, not an incremental state owner.
 - Full-tree resend is acceptable until proven otherwise.
 - A single Hub may aggregate many independent clients.
+- Malformed UI is rejected at the Hub, before install and before replication;
+  an invalid tree never becomes authoritative and never crosses to the Display.

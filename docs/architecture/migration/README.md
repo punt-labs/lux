@@ -19,6 +19,18 @@ Of the 21: ~9 are interactive (need the full D21 remote-dispatch treatment) and
 handler wrapping); `table` sits on the boundary because it carries built-in
 view state.
 
+## Self-validation gate
+
+Independent of the ABC migration, **every current element kind must be
+self-validating before any new element kind is added** (DES-039). Each kind
+implements a component-appropriate `validate()`; the walk collects errors
+across the hierarchy and returns them to the agent, and an invalid tree is
+never rendered. This axis moves faster than the ABC crossing — the proven
+exemplar, `table`, is still a legacy wire dataclass — so it is tracked
+separately from the 7-batch sequence below. See
+[`../target/element-contract.md`](../target/element-contract.md)
+§"Validation Contract".
+
 ## Ratified design decisions
 
 These five were escalated to the operator and ratified before any implementation
@@ -80,7 +92,9 @@ deliberately slow, verifying direction at each step:
    This is the checkpoint that catches a wrong model before it becomes wrong
    code.
 3. **Implement** (only after ratification) — one element, `make check`,
-   incrementally.
+   incrementally. Implement the kind's component-appropriate `validate()`
+   (DES-039) with its validation tests as part of this step; a migrated kind
+   that is not self-validating is not done.
 4. **Extend introspection so behavior is programmatically verifiable.**
    Introspection must scale with functionality (grounded in
    [`../target/introspection-api.md`](../target/introspection-api.md)). The

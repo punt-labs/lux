@@ -37,6 +37,38 @@ Together these let an agent confirm things like:
 - a scene changed after a handler ran
 - the display encountered or did not encounter an error
 
+### `inspect_scene` render fidelity
+
+Beyond scene structure, `inspect_scene` reports per element:
+
+- `render_path` — `"abc"` for an element on the Element-ABC path, `"legacy"`
+  for a not-yet-migrated wire dataclass. This lets a migration be verified
+  programmatically ("this kind now renders via the ABC") without looking at
+  pixels.
+- `resolved_props` — the element's full resolved state including defaults, so
+  an agent can read back both what it sent and what Lux filled in.
+- `domain_mirror_present` — honestly named: whether the *display-side* mirror
+  of the element is present. It is not a claim about the Hub's authoritative
+  `HubDisplay`; do not read Hub authority from a display-side query.
+
+## Pre-Render Validation
+
+Introspection verifies what the running system *did*. Self-validation lets an
+agent verify what it is *about to* render, before anything is drawn.
+
+When an agent submits a UI, every element self-validates (see
+[element-contract.md](./element-contract.md) and [DES-039](../../../DESIGN.md)).
+If any element's data does not fit its widget, the render call returns the
+collected errors instead of an ack — each naming the offending element's `id`
+and `kind` — and the invalid tree is not rendered. This is a verification
+surface in its own right: the agent gets a precise, machine-readable account of
+what was wrong with its own tree and can correct it in one round, rather than
+rendering garbage and inspecting the damage afterward.
+
+The two surfaces compose: validation catches malformed input before render;
+read-only introspection (`inspect_scene`, `list_recent_events`, `list_errors`)
+confirms what the valid tree became once rendered.
+
 ## Control
 
 Some operations may change live display or Hub state. Those belong to the
