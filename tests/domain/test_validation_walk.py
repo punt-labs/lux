@@ -83,27 +83,27 @@ class TestElementTreeValidator:
     def test_leaf_errors_collect(self) -> None:
         report = ElementTreeValidator().validate_tree([_Leaf("a", (_error("a"),))])
         assert not report.ok
-        assert len(report) == 1
+        assert report.error_count == 1
 
     def test_errors_accumulate_across_siblings_not_fail_fast(self) -> None:
         report = ElementTreeValidator().validate_tree(
             [_Leaf("a", (_error("a"),)), _Leaf("b", (_error("b"),))],
         )
-        assert len(report) == 2
+        assert report.error_count == 2
         ids = {err.element_id for err in report.errors}
         assert ids == {"a", "b"}
 
     def test_walk_recurses_into_children(self) -> None:
         tree = [_Container((_Leaf("deep", (_error("deep"),)),))]
         report = ElementTreeValidator().validate_tree(tree)
-        assert len(report) == 1
+        assert report.error_count == 1
         assert report.errors[0].element_id == "deep"
 
     def test_walk_collects_across_the_hierarchy(self) -> None:
         # A bad leaf and a good leaf under one container: only the bad one errors.
         tree = [_Container((_Leaf("bad", (_error("bad"),)), _Leaf("good", ())))]
         report = ElementTreeValidator().validate_tree(tree)
-        assert len(report) == 1
+        assert report.error_count == 1
         assert report.errors[0].element_id == "bad"
 
     def test_inert_element_contributes_nothing(self) -> None:

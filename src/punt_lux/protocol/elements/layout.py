@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Self, cast
 
+from punt_lux.domain.validation import ValidationError
 from punt_lux.protocol.elements.codec import Register
+from punt_lux.protocol.elements.container_dispatch import dispatch as _dispatchers
 
 __all__ = [
     "CollapsingHeaderElement",
@@ -15,9 +16,6 @@ __all__ = [
     "TabBarElement",
     "TreeElement",
     "WindowElement",
-    "from_dict_dispatcher",
-    "install_from_dict",
-    "install_to_dict",
     "register_codecs",
 ]
 
@@ -91,6 +89,10 @@ class TabBarElement:
     tabs: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
     tooltip: str | None = None
 
+    def child_elements(self) -> tuple[object, ...]:
+        """Return every tab's children for the validation walk."""
+        return tuple(c for tab in self.tabs for c in tab.get("children", []))
+
     def to_dict(self) -> dict[str, Any]:
         """Return the JSON-compatible wire representation."""
         recurse = _dispatchers.to_dict
@@ -130,6 +132,10 @@ class CollapsingHeaderElement:
     default_open: bool = False
     children: list[Any] = field(default_factory=lambda: list[Any]())
     tooltip: str | None = None
+
+    def child_elements(self) -> tuple[object, ...]:
+        """Return direct children for the validation walk."""
+        return tuple(self.children)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the JSON-compatible wire representation."""
@@ -175,6 +181,10 @@ class WindowElement:
     auto_resize: bool = False
     children: list[Any] = field(default_factory=lambda: list[Any]())
     tooltip: str | None = None
+
+    def child_elements(self) -> tuple[object, ...]:
+        """Return direct children for the validation walk."""
+        return tuple(self.children)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the JSON-compatible wire representation."""
@@ -245,6 +255,55 @@ class TreeElement:
     flat: bool = False
     tooltip: str | None = None
 
+    def child_elements(self) -> tuple[object, ...]:
+        """Return no child elements — a tree's nodes are plain mappings.
+
+        Tree nodes carry ``label`` / ``children`` data, not nested Lux
+        elements, so the walk has nothing to recurse into. The node
+        structure is checked by :meth:`validate` instead.
+        """
+        return ()
+
+    def validate(self) -> tuple[ValidationError, ...]:
+        """Return errors where a node is not a labeled mapping.
+
+        Component-appropriate structural check for a *tree*: every node
+        must be a mapping carrying a string ``label``, and a node's
+        optional ``children`` must be a list obeying the same rule at
+        every depth. Malformed nodes are reported, never dropped.
+        """
+        return tuple(self._node_errors(self.nodes))
+
+    def _node_errors(self, nodes: object) -> list[ValidationError]:
+        """Return errors for a node list, recursing into each node's children."""
+        if not isinstance(nodes, list):
+            return [self._error("nodes must be a list of nodes")]
+        errors: list[ValidationError] = []
+        for index, node in enumerate(cast("list[object]", nodes)):
+            errors.extend(self._one_node_errors(node, index))
+        return errors
+
+    def _one_node_errors(self, node: object, index: int) -> list[ValidationError]:
+        """Return errors for a single node at ``index``, recursing into children."""
+        if not isinstance(node, dict):
+            return [self._error(f"node {index} is not a mapping")]
+        mapping = cast("dict[str, object]", node)
+        errors: list[ValidationError] = []
+        if not isinstance(mapping.get("label"), str):
+            errors.append(self._error(f"node {index} is missing a string 'label'"))
+        children = mapping.get("children")
+        if children is not None:
+            errors.extend(self._node_errors(children))
+        return errors
+
+    def _error(self, message: str) -> ValidationError:
+        """Build a tree ValidationError carrying this tree's identity."""
+        return ValidationError(
+            element_id=self.id,
+            element_kind=self.kind,
+            message=message,
+        )
+
     def to_dict(self) -> dict[str, Any]:
         """Return the JSON-compatible wire representation."""
         d: dict[str, Any] = {
@@ -259,30 +318,17 @@ class TreeElement:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:
-        """Construct a TreeElement from a JSON-decoded mapping."""
+        """Construct a TreeElement from a JSON-decoded mapping.
+
+        Nodes are stored as received — malformed nodes are surfaced by
+        :meth:`validate` before render, not silently discarded here.
+        """
         return cls(
             id=d["id"],
             label=d.get("label", ""),
-            nodes=cls._normalize_nodes(d.get("nodes", [])),
+            nodes=d.get("nodes", []),
             flat=d.get("flat", False),
         )
-
-    @classmethod
-    def _normalize_nodes(cls, raw: Any) -> list[dict[str, Any]]:
-        """Coerce tree nodes to a valid list of node dicts, non-mutating."""
-        if not isinstance(raw, list):
-            return []
-        result: list[dict[str, Any]] = []
-        for item in cast("list[Any]", raw):  # type: ignore[redundant-cast]
-            if not isinstance(item, dict):
-                continue
-            src = cast("dict[str, Any]", item)
-            node: dict[str, Any] = {k: v for k, v in src.items() if k != "children"}
-            raw_children = src.get("children")
-            if raw_children is not None:
-                node["children"] = cls._normalize_nodes(raw_children)
-            result.append(node)
-        return result
 
 
 @dataclass(frozen=True, slots=True)
@@ -300,6 +346,10 @@ class ModalElement:
     open: bool = True
     children: list[Any] = field(default_factory=lambda: list[Any]())
     tooltip: str | None = None
+
+    def child_elements(self) -> tuple[object, ...]:
+        """Return direct children for the validation walk."""
+        return tuple(self.children)
 
     def to_dict(self) -> dict[str, Any]:
         """Return the JSON-compatible wire representation."""
@@ -322,102 +372,6 @@ class ModalElement:
             open=d.get("open", True),
             children=[recurse(c) for c in d.get("children", [])],
         )
-
-
-# Container codecs recurse via the package-level dispatcher in
-# protocol/elements/__init__.py. Importing element_to_dict /
-# JsonElementFactory.element_from_dict at module import time would
-# create a circular import — the aggregator imports this module to
-# build the union and dispatch tables, so this module cannot import the
-# dispatchers eagerly. The aggregator calls ``install_to_dict()`` once
-# at import time with the encode-side function; each tier calls
-# ``install_from_dict()`` at startup with its
-# :meth:`JsonElementFactory.element_from_dict` bound method.
-_RecurseToDict = Callable[[Any], dict[str, Any]]
-_RecurseFromDict = Callable[[dict[str, Any]], Any]
-
-
-class _DispatcherRegistry:
-    """Holds the package-level encode/decode container recursion targets.
-
-    A single shared instance lives at module scope. Encapsulating the
-    two pointers in a class (instead of bare module-level globals)
-    avoids the ``global`` statement and the corresponding
-    ``PLW0603`` suppressions while preserving the install-once semantics
-    container codecs need.
-    """
-
-    _to_dict: _RecurseToDict | None
-    _from_dict: _RecurseFromDict | None
-
-    def __new__(cls) -> Self:
-        self = super().__new__(cls)
-        self._to_dict = None
-        self._from_dict = None
-        return self
-
-    def install_to_dict(self, to_dict: _RecurseToDict) -> None:
-        """Bind the encode-side container recursion function."""
-        self._to_dict = to_dict
-
-    def install_from_dict(self, from_dict: _RecurseFromDict) -> None:
-        """Bind the decode-side container recursion function."""
-        self._from_dict = from_dict
-
-    @property
-    def to_dict(self) -> _RecurseToDict:
-        """Return the encode-side recursion function, or raise."""
-        if self._to_dict is None:
-            msg = "layout codecs used before encode dispatcher installed"
-            raise RuntimeError(msg)
-        return self._to_dict
-
-    @property
-    def from_dict(self) -> _RecurseFromDict:
-        """Return the decode-side recursion function, or raise."""
-        if self._from_dict is None:
-            msg = (
-                "layout codecs used before decode dispatcher installed — "
-                "construct a JsonElementFactory at tier startup and call "
-                "layout.install_from_dict(factory.element_from_dict)"
-            )
-            raise RuntimeError(msg)
-        return self._from_dict
-
-
-_dispatchers = _DispatcherRegistry()
-
-
-def install_to_dict(to_dict: _RecurseToDict) -> None:
-    """Inject the encode-side container recursion function.
-
-    The encode side has no DI dependency — :mod:`elements` calls this
-    once at import time with the module-level ``_element_to_dict``.
-    """
-    _dispatchers.install_to_dict(to_dict)
-
-
-def install_from_dict(from_dict: _RecurseFromDict) -> None:
-    """Inject the decode-side container recursion function.
-
-    Each tier calls this once at startup with its
-    :meth:`JsonElementFactory.element_from_dict` bound method, so the
-    layout container codecs route child decode through the same
-    tier-injected DI as the parent. No module-level default exists —
-    a tier that forgets to install gets a ``RuntimeError`` from the
-    decode dispatcher on the first container decode.
-    """
-    _dispatchers.install_from_dict(from_dict)
-
-
-def from_dict_dispatcher() -> _RecurseFromDict:
-    """Return the installed decode-side recursion function.
-
-    Exposes the per-tier decode dispatcher so sibling protocol modules
-    (e.g. :mod:`protocol.messages.scene`) can recurse via the same
-    tier-injected factory without reaching into private state.
-    """
-    return _dispatchers.from_dict
 
 
 def register_codecs(register: Register) -> None:

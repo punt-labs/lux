@@ -13,7 +13,7 @@ from punt_lux.protocol.elements import (
     Patch,
     _element_to_dict,
     _strip_none,
-    layout as _layout,
+    container_dispatch,
 )
 from punt_lux.protocol.elements.patch import _patch_from_dict, _patch_to_dict
 
@@ -116,7 +116,7 @@ def _scene_from_dict(d: dict[str, Any]) -> SceneMessage:
     # JsonElementFactory.element_from_dict there at startup. No module
     # default: a tier that forgets to install gets a ``RuntimeError``
     # naming the fix instead of silently dispatching with the wrong DI.
-    recurse = _layout.from_dict_dispatcher()
+    recurse = container_dispatch.dispatch.from_dict
 
     def _decode_element(e: dict[str, Any]) -> Element:
         if "_pickled" in e:

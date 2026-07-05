@@ -402,6 +402,16 @@ def _mock_client() -> MagicMock:
     return client
 
 
+def _bad_table(element_id: str = "bad") -> dict[str, object]:
+    """A table dict whose single row is short — one validation error."""
+    return {
+        "kind": "table",
+        "id": element_id,
+        "columns": ["A", "B"],
+        "rows": [["only-one"]],
+    }
+
+
 class TestSetMenuTool:
     @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_set_menu_returns_ok(self, mock_get: MagicMock) -> None:
@@ -566,6 +576,145 @@ class TestShowTool:
         assert result.startswith("error: scene not rendered")
         assert "[table 'nested']" in result
         assert "1 validation error(s):" in result
+        client.show.assert_not_called()
+
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_show_rejects_bad_table_nested_in_window(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+
+        result = show(
+            "s1",
+            [
+                {
+                    "kind": "window",
+                    "id": "w1",
+                    "children": [_bad_table("in_window")],
+                },
+            ],
+        )
+        assert result.startswith("error: scene not rendered")
+        assert "[table 'in_window']" in result
+        client.show.assert_not_called()
+
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_show_rejects_bad_table_nested_in_tab_bar(
+        self, mock_get: MagicMock
+    ) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+
+        result = show(
+            "s1",
+            [
+                {
+                    "kind": "tab_bar",
+                    "id": "tb1",
+                    "tabs": [{"label": "One", "children": [_bad_table("in_tab")]}],
+                },
+            ],
+        )
+        assert result.startswith("error: scene not rendered")
+        assert "[table 'in_tab']" in result
+        client.show.assert_not_called()
+
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_show_rejects_bad_table_nested_in_collapsing_header(
+        self, mock_get: MagicMock
+    ) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+
+        result = show(
+            "s1",
+            [
+                {
+                    "kind": "collapsing_header",
+                    "id": "ch1",
+                    "label": "Details",
+                    "children": [_bad_table("in_header")],
+                },
+            ],
+        )
+        assert result.startswith("error: scene not rendered")
+        assert "[table 'in_header']" in result
+        client.show.assert_not_called()
+
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_show_rejects_bad_table_nested_in_modal(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+
+        result = show(
+            "s1",
+            [
+                {
+                    "kind": "modal",
+                    "id": "m1",
+                    "title": "Confirm",
+                    "children": [_bad_table("in_modal")],
+                },
+            ],
+        )
+        assert result.startswith("error: scene not rendered")
+        assert "[table 'in_modal']" in result
+        client.show.assert_not_called()
+
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_show_rejects_tree_with_malformed_node(self, mock_get: MagicMock) -> None:
+        # A tree's nodes are mappings, not elements — the tree self-validates
+        # its own structure. A node that is not a mapping is reported, not
+        # silently dropped, and the scene is never rendered.
+        client = _mock_client()
+        mock_get.return_value = client
+
+        result = show(
+            "s1",
+            [{"kind": "tree", "id": "files", "label": "Files", "nodes": [42]}],
+        )
+        assert result.startswith("error: scene not rendered")
+        assert "[tree 'files']" in result
+        assert "node 0 is not a mapping" in result
+        client.show.assert_not_called()
+
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_show_recurses_three_levels_deep(self, mock_get: MagicMock) -> None:
+        # container -> container -> bad leaf: the walk reaches a table two
+        # containers down and still collects its error.
+        client = _mock_client()
+        mock_get.return_value = client
+
+        result = show(
+            "s1",
+            [
+                {
+                    "kind": "window",
+                    "id": "w1",
+                    "children": [
+                        {
+                            "kind": "collapsing_header",
+                            "id": "ch1",
+                            "label": "Nested",
+                            "children": [_bad_table("deep")],
+                        },
+                    ],
+                },
+            ],
+        )
+        assert result.startswith("error: scene not rendered")
+        assert "[table 'deep']" in result
+        client.show.assert_not_called()
+
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_show_aggregates_two_bad_tables(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+
+        result = show("s1", [_bad_table("first"), _bad_table("second")])
+        assert result.startswith("error: scene not rendered")
+        assert "[table 'first']" in result
+        assert "[table 'second']" in result
+        assert "2 validation error(s):" in result
         client.show.assert_not_called()
 
 

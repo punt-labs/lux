@@ -42,14 +42,6 @@ class ValidationError:
     def __str__(self) -> str:
         return f"[{self.element_kind} '{self.element_id}'] {self.message}"
 
-    def to_dict(self) -> dict[str, str]:
-        """Return the JSON-compatible wire representation."""
-        return {
-            "element_id": self.element_id,
-            "element_kind": self.element_kind,
-            "message": self.message,
-        }
-
 
 @dataclass(frozen=True, slots=True)
 class ValidationReport:
@@ -67,7 +59,9 @@ class ValidationReport:
         """Whether the tree passed validation (no errors collected)."""
         return not self.errors
 
-    def __len__(self) -> int:
+    @property
+    def error_count(self) -> int:
+        """Return how many validation errors were collected."""
         return len(self.errors)
 
     def describe(self) -> str:

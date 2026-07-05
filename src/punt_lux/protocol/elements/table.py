@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import InitVar, dataclass, field
-from typing import Any, Literal, Self
+from typing import Any, Literal, Self, cast
 
 from punt_lux.domain.validation import ValidationError
 from punt_lux.protocol.elements.codec import Register
@@ -145,6 +145,7 @@ class TableElement:
 
         Component-appropriate checks — what "valid" means for a *table*:
 
+        - every row is itself a list of cells;
         - every row has exactly one cell per declared column;
         - every cell is a scalar the widget can render as text
           (``str``, ``int``, ``float``, ``bool``, or ``None``). A list or
@@ -153,25 +154,33 @@ class TableElement:
         """
         column_count = len(self.columns)
         errors: list[ValidationError] = []
-        for row_index, row in enumerate(self.rows):
-            if len(row) != column_count:
+        for row_index, row in enumerate(cast("list[object]", self.rows)):
+            if not isinstance(row, list):
+                errors.append(self._error(f"row {row_index} is not a list of cells"))
+                continue
+            cells = cast("list[object]", row)
+            if len(cells) != column_count:
                 errors.append(
-                    ValidationError(
-                        element_id=self.id,
-                        element_kind=self.kind,
-                        message=(
-                            f"row {row_index} has {len(row)} cell(s) but the "
-                            f"table declares {column_count} column(s)"
-                        ),
+                    self._error(
+                        f"row {row_index} has {len(cells)} cell(s) but the "
+                        f"table declares {column_count} column(s)",
                     ),
                 )
-            errors.extend(self._cell_errors(row_index, row))
+            errors.extend(self._cell_errors(row_index, cells))
         return tuple(errors)
+
+    def _error(self, message: str) -> ValidationError:
+        """Build a table ValidationError carrying this table's identity."""
+        return ValidationError(
+            element_id=self.id,
+            element_kind=self.kind,
+            message=message,
+        )
 
     def _cell_errors(
         self,
         row_index: int,
-        row: list[Any],
+        row: list[object],
     ) -> tuple[ValidationError, ...]:
         """Return one error per cell in ``row`` that the widget can't render."""
         errors: list[ValidationError] = []

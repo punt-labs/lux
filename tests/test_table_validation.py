@@ -83,6 +83,33 @@ class TestTableValidate:
     def test_empty_table_is_valid(self) -> None:
         assert TableElement(id="empty").validate() == ()
 
+    def test_non_list_row_reports_error_not_crash(self) -> None:
+        # A scalar row would make ``len(row)`` raise TypeError; the guard
+        # turns it into an actionable error instead of a crash.
+        table = TableElement(id="scalars", columns=["A"], rows=[1, 2])  # type: ignore[list-item]  # deliberately malformed
+        errors = table.validate()
+        assert len(errors) == 2
+        assert all("is not a list of cells" in e.message for e in errors)
+        assert errors[0].element_kind == "table"
+
+    def test_zero_columns_with_nonempty_row_is_a_mismatch(self) -> None:
+        table = TableElement(id="empty_cols", columns=[], rows=[["x"]])
+        errors = table.validate()
+        assert len(errors) == 1
+        assert "1 cell(s)" in errors[0].message
+        assert "0 column(s)" in errors[0].message
+
+    def test_row_wrong_length_and_bad_cell_reports_two_errors(self) -> None:
+        # A single row that is BOTH too long AND holds an unrenderable cell
+        # yields two independent errors — no fail-fast.
+        table = TableElement(id="both", columns=["A"], rows=[["x", {"k": "v"}]])
+        errors = table.validate()
+        assert len(errors) == 2
+        messages = " ".join(e.message for e in errors)
+        assert "2 cell(s)" in messages
+        assert "1 column(s)" in messages
+        assert "dict" in messages
+
 
 class TestGroupChildElements:
     def test_visible_children_are_exposed(self) -> None:

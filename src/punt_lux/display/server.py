@@ -217,15 +217,15 @@ class DisplayServer:
         )
         # Install the luxd-tier element factory so inbound scene
         # decoding (via reader.drain_typed → _scene_from_dict →
-        # layout.from_dict_dispatcher) routes through a real factory.
-        # The Display is not allowed to own business publish behavior;
-        # if a handler ever runs locally before remote wrapping, that
-        # path must fail loudly instead of silently dropping the publish.
+        # container_dispatch.dispatch.from_dict) routes through a real
+        # factory. The Display is not allowed to own business publish
+        # behavior; if a handler ever runs locally before remote wrapping,
+        # that path must fail loudly instead of silently dropping the publish.
         from punt_lux.display_client import no_op_emit
         from punt_lux.protocol.element_factory import JsonElementFactory
-        from punt_lux.protocol.elements import (
-            build_element_codec,
-            layout as _element_layout,
+        from punt_lux.protocol.elements import build_element_codec
+        from punt_lux.protocol.elements.container_dispatch import (
+            dispatch as _container_dispatch,
         )
         from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
 
@@ -238,7 +238,7 @@ class DisplayServer:
             ),
             codec=build_element_codec(),
         )
-        _element_layout.install_from_dict(self._luxd_factory.element_from_dict)
+        _container_dispatch.install_from_dict(self._luxd_factory.element_from_dict)
         self._event_queue = []
         self._textures = TextureCache()
         self._widget_state = WidgetState()  # active scene's state (swapped)
