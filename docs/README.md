@@ -47,9 +47,12 @@ These documents describe the intended Hub-authoritative architecture.
 - [architecture/element-migration-audit.md](./architecture/element-migration-audit.md)
 - [architecture/migration/progress-element-design.md](./architecture/migration/progress-element-design.md)
 
-The ratified plan to move the 25 element kinds onto the Element-ABC / Hub-Display
-path: five design decisions, 7-batch sequencing, and the per-element
-verify-as-you-go process. Tracked as beads epic `lux-xs7r`.
+The plan to move the 25 element kinds onto the Element-ABC / Hub-Display path.
+Strategy is [DES-041](../DESIGN.md): **fork, don't mix** (build the new path in
+parallel; duplicate an element rather than mixing legacy + ABC in a composite,
+new class gets the canonical name), ordered **by testability** (a container +
+primitives first, complex widgets last), one element at a time, each with a
+per-element verify-as-you-go process. Tracked as beads epic `lux-xs7r`.
 
 ## Current Architecture
 

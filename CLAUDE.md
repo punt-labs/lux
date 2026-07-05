@@ -433,7 +433,7 @@ Release scripts: `scripts/release-plugin.sh` (swap `lux-dev` → `lux`), `script
 
 **Element migration (active plan):**
 
-- [`docs/architecture/migration/README.md`](docs/architecture/migration/README.md) — the migration approach: five ratified decisions, 7-batch sequencing, the per-element verify-as-you-go process. Tracked as beads epic `lux-xs7r`.
+- [`docs/architecture/migration/README.md`](docs/architecture/migration/README.md) — the migration approach ([DES-041](DESIGN.md)): **fork, don't mix** (parallel new path; duplicate rather than mix legacy + ABC in composites, new class gets the canonical name), ordered **by testability** (container + primitives first, complex widgets last), per-element verify-as-you-go. Tracked as beads epic `lux-xs7r`.
 - [`docs/architecture/element-migration-audit.md`](docs/architecture/element-migration-audit.md) — per-element map of all 25 kinds (4 on the Element-ABC path, 21 legacy).
 - [`docs/architecture/migration/progress-element-design.md`](docs/architecture/migration/progress-element-design.md) — the element-#1 (`progress`) worked-example design.
 

@@ -1,5 +1,15 @@
 # Element Migration Audit — Distributed Element-ABC / Hub-Display
 
+> **Superseded in part by [DES-041](../../DESIGN.md).** The migration
+> **strategy and sequencing** in this document — "incremental crossing,
+> big-bang deletion," mixed-scene coexistence, and the lowest-risk-first
+> "Batch 0–7" order — are replaced by DES-041: **fork, don't mix; duplicate on
+> need (new class gets the canonical name); order by testability (a container +
+> primitives first, complex widgets last).** The **per-element map** below
+> (which kinds are migrated, what "migrated" means per class, the display-only
+> vs interactive vs composite split) still holds; read the ordering and
+> coexistence recommendations as historical.
+
 **Status:** read-only audit and proposed epic. No code changes.
 **Scope:** the 25 element kinds in `src/punt_lux/protocol/elements/` and their
 migration from the legacy `SceneManager` + dual-write path onto the Element ABC

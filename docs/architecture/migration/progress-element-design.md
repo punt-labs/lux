@@ -1,7 +1,17 @@
 # Migrating `progress` onto the Element-ABC / HubDisplay Path — Step 1
 
+> **Partly superseded by [DES-041](../../../DESIGN.md).** The
+> display-only-leaf design (copy the `Text` exemplar; the field set; the codec;
+> `validate()`) and the introspection primitive (now shipped) still hold. But
+> `progress` is **not** element #1: under DES-041 a **container comes first**,
+> then display-only primitives — `progress` is one of those primitives. And
+> §3.1's "mixed-scene coexistence stays intact" and the "paint waits until Batch
+> 7" framing are superseded: we **fork, don't mix**, and the render engine makes
+> `Element.render()` the paint path before any kind migrates. Read this as the
+> display-only-leaf worked example, not the sequencing.
+
 **Status:** design + verification plan for operator direction-check. No code.
-**Type:** migration design (Batch 1, first kind).
+**Type:** migration design (display-only primitive; the leaf worked example).
 **Element:** `progress` — a display-only leaf.
 **Exemplar copied:** `TextElement` — the display-only leaf already on the ABC path.
 **Ground truth:** `docs/architecture/target/{target,ui-model,element-contract,introspection-api}.md`
