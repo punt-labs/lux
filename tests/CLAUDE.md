@@ -62,6 +62,26 @@ Build the element → `to_dict` → `from_dict` → assert equal. This exercises
 JSON codec surface. Every kind has one; a protocol change without it is
 unshippable.
 
+### Self-validation (every kind)
+
+Every element kind must have tests for its `validate()` contract (DES-039).
+At minimum:
+
+- **valid input** → `validate()` returns `()` and the element renders;
+- **malformed input** → the component-appropriate error is returned and the
+  tree is NOT rendered — drive it through `show()` and assert the client is
+  never called (`client.show.assert_not_called()`);
+- **nested malformed input** → a bad element inside a composite is collected by
+  the walk across the hierarchy — assert via `show()` with the element nested
+  in every child-bearing container, not just `group`.
+
+Boundary cases count: a table validates ragged rows, non-scalar cells, and
+non-list `columns`/`rows` (a present-but-`null` field decodes to `None` and
+must report, not crash); a tree validates non-mapping and label-less nodes. A
+structural guard test must fail if a new container kind omits `child_elements()`
+so nested elements can never silently skip the walk. An element kind is not
+"self-validating" — the migration gate — until these pass.
+
 ### Level 2 — Wire roundtrip (unit/integration)
 
 The Hub→Display wire is the `SceneMessage` codec (`protocol/messages/scene.py`):

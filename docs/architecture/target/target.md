@@ -24,8 +24,11 @@ live system rather than asking the user to report what they saw.
 Lux is a Hub/Display system with one authority.
 
 1. Clients submit UI to the Hub.
-2. The Hub decodes or constructs typed UI objects and installs them in
-   `HubDisplay`.
+2. The Hub decodes or constructs typed UI objects. Every element self-validates
+   first; a tree with any invalid element is rejected back to the client and is
+   never installed or rendered (see
+   [element-contract.md](./element-contract.md)). Valid UI objects are
+   installed in `HubDisplay`.
 3. `HubDisplay` is the authoritative store for UI state, ownership, and
    handler dispatch.
 4. The Display receives a full replica of the UI and uses it only for
@@ -50,6 +53,13 @@ Lux should support multiple front doors:
 
 A headless Python app can keep its authoritative UI in the Hub. An agent can
 also create ad hoc UI directly through the Hub. Both fit the same model.
+
+The MCP surface stays small on purpose. `show()` is the one universal render
+API — it takes an arbitrary element tree — and widget conveniences
+(`show_table`, dashboards, ask-user flows) are composed from it as skills
+rather than added as standing tools, so the tool contract every agent carries
+does not grow per widget. The elements are limited; the ways they combine are
+unlimited. See [DES-040](../../../DESIGN.md).
 
 ## Communication Model
 
@@ -171,6 +181,9 @@ The architecture includes introspection so agents can verify real outcomes.
 
 An agent should be able to:
 
+- verify its own UI *before* render — self-validation returns any malformed
+  element to the agent instead of rendering it (see
+  [introspection-api.md](./introspection-api.md))
 - render UI through its real entry point
 - trigger real interactions
 - inspect live Hub/Display state

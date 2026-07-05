@@ -60,7 +60,7 @@ from punt_lux.protocol import (
     send_message,
 )
 from punt_lux.protocol.element_factory import JsonElementFactory
-from punt_lux.protocol.elements import build_element_codec, layout as _element_layout
+from punt_lux.protocol.elements import build_element_codec, container_dispatch
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.tracing import trace
 
@@ -120,7 +120,7 @@ def _build_agent_side_factory() -> JsonElementFactory:
 # message decode in ``recv_message`` / ``FrameReader.drain_typed``)
 # routes through this factory's bound method.
 _AGENT_FACTORY: JsonElementFactory = _build_agent_side_factory()
-_element_layout.install_from_dict(_AGENT_FACTORY.element_from_dict)
+container_dispatch.dispatch.install_from_dict(_AGENT_FACTORY.element_from_dict)
 
 
 def agent_element_factory() -> JsonElementFactory:

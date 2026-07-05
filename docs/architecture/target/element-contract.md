@@ -46,6 +46,9 @@ Every Element must:
   semantic identity
 - render deterministically from its current state
 - fit the two-tier model: authoritative on the Hub, replicated on the Display
+- self-validate its inputs: report, in a component-appropriate way, any state
+  that does not fit the widget, so a malformed element is never rendered (see
+  [Validation Contract](#validation-contract))
 
 Every Element may:
 
@@ -94,6 +97,12 @@ family.
 `value_changed`, which routes to the Hub for authoritative dispatch. `button`
 carries the `button_clicked` interaction. `text` and `dialog` complete the
 migrated set as passive-display and composite exemplars respectively.
+
+Self-validation (see [Validation Contract](#validation-contract)) is a
+separate axis from the ABC migration and is being rolled out to *every*
+current kind ahead of it: the proven exemplar is `table`, itself a
+not-yet-ABC-migrated wire dataclass. The rule is that every current kind is
+self-validating before any new kind is added.
 
 ## Framing Contract
 
@@ -250,6 +259,56 @@ Elements must not become:
 
 The target model is a standard Lux UI vocabulary with authoritative Hub-side
 behavior and replicated Display-side rendering.
+
+## Validation Contract
+
+Every Element self-validates. This is a required part of the common contract,
+not an optional feature, and it exists to close a silent-accept-invalid-input
+class: an element that quietly accepts malformed data and lets the renderer
+draw garbage — or fault downstream, far from the cause — while the producing
+agent gets an `ack` it cannot distinguish from a correct render.
+
+The contract has four parts (see [DES-039](../../../DESIGN.md)):
+
+1. **Placement — on the element.** Each kind implements
+   `validate() -> tuple[ValidationError, ...]` returning its *own*
+   component-appropriate errors. What "valid" means is decided per kind:
+   - a `table` checks each row's length equals the column count and that
+     cells are renderable scalars (string, number, boolean, or null — a list
+     or dict in a cell is a data-shape mistake);
+   - a `tree` checks its nodes are well-formed mappings carrying a label;
+   - a passive kind with no invariant to fail (`text`, `separator`,
+     `spinner`) validates vacuously via the ABC default (`()`).
+   There is no universal validity rule and no central validator.
+2. **Trigger — the render call, between decode and render.** After a `show`
+   (or equivalent) decodes the tree, a hierarchy walk runs before the tree is
+   installed or rendered. The render call is the trigger; it does not itself
+   know what any element considers valid.
+3. **Aggregation — collect across the hierarchy, no fail-fast.** The walk
+   recurses the whole tree — every composite exposes its children to the walk
+   — calls each element's `validate()`, and accumulates *all* errors. The
+   agent sees every problem at once, not the first.
+4. **Return to the agent; never render invalid.** The collected errors are
+   returned in the render response, each naming the offending element's `id`
+   and `kind`. An invalid tree is **not** handed to the Hub/Display — the
+   render is protected, and the agent has what it needs to fix its data and
+   retry.
+
+The contract is universal (every kind has `validate()`), the logic is
+component-appropriate (each kind checks its own invariants), and it applies to
+legacy kinds too — it does not wait on the ABC migration. Composite coverage
+is enforced structurally: every child-bearing kind exposes its children to the
+walk, and a derivation-based guard test fails if a new container kind is added
+without doing so, so a nested element can never silently skip validation.
+
+Validation reports data problems, not interaction wiring — but the same
+mechanism is the intended home for surfacing a missing business handler on an
+interactive element (an inert control that reports success), rather than
+leaving it a silent no-op (see [ui-model.md](./ui-model.md) and
+[DES-040](../../../DESIGN.md)).
+
+**Gate:** every current element kind becomes self-validating before any new
+element kind is added.
 
 ## Related Target Docs
 

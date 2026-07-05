@@ -3636,3 +3636,212 @@ The full rule is codified as a standard in `CLAUDE.md`.
 
 - `CLAUDE.md` §"Formal Verification (z-spec)"; `docs/display_lifecycle.tex`;
   `docs/display_lifecycle_coverage.md`. Toolchain: `/z-spec:setup`.
+
+## DES-039: Self-Validating Elements — Component-Appropriate `validate()`, Collect Across the Hierarchy, Return to the Agent
+
+**Date:** 2026-07-04
+**Status:** ACCEPTED
+**Decided by:** the operator
+**Companion docs:** `docs/architecture/target/element-contract.md`,
+`docs/architecture/target/ui-model.md`
+
+### Problem
+
+Elements silently accepted malformed input. A table whose rows did not
+match its column count, or held an unrenderable cell (a list or dict), was
+handed straight to the renderer — which drew a mis-columned table, or the
+render layer faulted downstream, far from the cause. The agent that sent
+the bad UI got `ack:` (success) back, indistinguishable from a correct
+render, with no actionable signal and no chance to self-correct. This is a
+silent-accept-invalid-input class: the same class Lux's introspection and
+error machinery exist to eliminate, reappearing at the element data layer.
+
+### Decision
+
+Elements **self-validate**. The contract has four parts:
+
+1. **Placement — on the component.** Each element kind implements
+   `validate() -> tuple[ValidationError, ...]` returning its *own*
+   component-appropriate errors. What "valid" means is decided per kind:
+   a table checks rows fit the declared columns and cells are renderable
+   scalars; a tree checks its nodes are well-formed mappings with labels.
+   There is no universal validity rule and no central validator switch.
+   The default (`Element` ABC) returns `()` — a kind with no invariant to
+   fail self-validates vacuously.
+2. **Trigger — `show()`, between decode and render.** After `show`
+   decodes the wire tree, an `ElementTreeValidator` walk runs before the
+   tree is installed/rendered. `show` is the trigger; it does not itself
+   know what any element considers valid.
+3. **Aggregation — collect across the hierarchy, no fail-fast.** The walk
+   recurses the whole tree (via each container's `child_elements()`),
+   calls every element's `validate()`, and accumulates *all* errors. The
+   agent sees every problem at once, not the first.
+4. **Return to the agent; never render invalid.** The collected set is
+   returned in the `show` response (`error: scene not rendered — N
+   validation error(s): …`, each naming the offending element's id/kind).
+   An invalid tree is **not** handed to the Hub/Display — the render is
+   protected, and the agent gets exactly what it needs to fix its data and
+   retry.
+
+Supporting types: `ValidationError` (frozen value class — `element_id`,
+`element_kind`, `message`); `ValidationReport` (aggregate — `ok`,
+`error_count`, `describe()`); `SelfValidating` and `HasChildElements`
+`runtime_checkable` protocols (structural, so frozen wire dataclasses and
+the `Element` ABC satisfy the same walk with no shared base). Every
+child-bearing container implements `child_elements()`; a structural guard
+test derives the container set from the `Element` union and fails if a new
+container kind omits it — so coverage cannot silently regress.
+
+The contract is **universal** (every kind has `validate()`), the **logic
+is component-appropriate**, and it applies to **legacy kinds too**: the
+exemplar was proven on `table`, itself a not-yet-ABC-migrated kind. Making
+every current element kind self-validating is the gate before any new
+element is added.
+
+### Rationale
+
+- **Data and behavior belong together (PY-OO-5).** "What is a valid
+  table" is knowledge the table owns; putting it on the table (not in a
+  `show`-side switch) is the object-oriented placement and scales per kind.
+- **Aggregation beats fail-fast for a non-interactive producer.** The
+  agent is not in the render loop; a single round-trip that reports every
+  error lets it fix the whole tree at once instead of one-error-per-retry.
+- **Rejecting before render protects two processes.** The Hub and Display
+  are separate processes; an invalid tree that reaches the renderer can
+  fault it far from the cause. Validating at the Hub boundary keeps the
+  malformation on the producer's side of the wire.
+- **Prior art, synthesized.** ImGui (immediate mode) validates each
+  widget's arguments *on the widget call* — component-appropriate
+  placement, but fail-fast and no aggregation. Retained-mode form
+  frameworks (Django `Form.full_clean`, WTForms) put validators on each
+  field, then the form walks every field, aggregates all errors, and
+  refuses to commit an invalid form. The decision keeps ImGui's placement
+  and adopts the form frameworks' aggregation.
+
+### Alternatives considered
+
+- **Validate inside `show()` (a central validator).** Rejected — not
+  component-appropriate, does not scale as kinds are added, and puts table
+  knowledge in the tool layer instead of on the table (PY-OO-5 violation).
+- **Fail-fast on the first error.** Rejected — a non-interactive agent
+  should see every problem in one response to self-recover in one round.
+- **Document the footgun only.** Rejected — documentation fixes neither
+  the crash nor the silent-accept. Automate (reject before render) and
+  validate (surface the error) first; document second.
+- **Render the invalid tree and let ImGui cope.** Rejected — reintroduces
+  the silent-garbage class and can crash the renderer downstream of the
+  cause.
+- **Per-container `child_elements()` with no structural guard.** Rejected
+  during review — the "add a method to each of N containers and hope none
+  are missed" shape is exactly what let four of five containers ship
+  unvalidated in the first implementation round. The derivation-based guard
+  test makes a forgotten container a test failure, not a silent gap.
+
+### Relationship to prior ADRs
+
+- Builds on the introspection primitive (`render_path`/`resolved_props`,
+  bead lux-b5wy) — the same "verify the running system programmatically"
+  posture, now extended so the agent verifies its *own* UI before it
+  renders.
+- Complements DES-021 (two-tier handler dispatch): D21 governs how
+  interactions cross the Hub/Display boundary; DES-039 governs what UI is
+  allowed to cross it in the first place.
+
+### References
+
+- `src/punt_lux/domain/validation.py`, `validation_walk.py`,
+  `element_abc.py`; `src/punt_lux/protocol/elements/table.py`,
+  `layout.py`; `src/punt_lux/tools/tools.py` (`show`).
+- Tests: `tests/domain/test_validation.py`, `test_validation_walk.py`,
+  `tests/test_table_validation.py`, `tests/protocol/test_layout_containers.py`,
+  `tests/test_tools.py`.
+
+## DES-040: Interaction Model and Tool/Skill Surface — View Logic vs Business Logic, `show` as the Universal API, Widgets as Skills
+
+**Date:** 2026-07-04
+**Status:** ACCEPTED (design direction; implementation downstream)
+**Decided by:** the operator
+**Companion docs:** `docs/architecture/target/ui-model.md`,
+`docs/architecture/target/introspection-api.md`
+
+### Problem
+
+Two related design questions surfaced alongside self-validation and were
+settled by the operator; capturing them here prevents re-litigation.
+
+1. **Interactions have two halves that Lux conflates.** A dialog's
+   "dismiss on OK" is *view logic* (built into the widget); "what OK
+   *does*" (delete a ticket, save a form) is *business logic* that only
+   the agent knows. Today an interactive element with no wired business
+   handler (a dialog button with no `click` verb; a handler-less button)
+   is silently inert and still returns `ack:` — a second instance of the
+   silent-accept class.
+2. **The MCP tool surface does not scale by adding a tool per widget.**
+   `show_table` / `show_dashboard` are data schemas that ultimately
+   `return show(...)`; a tool per widget makes every agent carry the
+   complexity of every widget.
+
+### Decision
+
+- **View logic is built-in and may be automatic; business logic is
+  agent-wired.** A dialog's dismiss/confirmed/cancelled state is view
+  logic the widget owns. The consequence of a click is wired
+  out-of-band by the agent (publish a topic → the agent `recv`s it, or a
+  Hub-side handler). The `OK → confirm` auto-mapping covers only the view
+  half. Rationale via the ImGui lens: immediate mode colocates click and
+  consequence because the application is in the loop; Lux's agent is *not*
+  in the loop (it sends JSON), so the consequence is necessarily wired
+  separately.
+- **A silently-inert interactive element is a defect, to be closed by
+  automate + validate, not documentation.** Auto-wire the view half where
+  unambiguous; self-validation (DES-039, extended to interactive kinds)
+  surfaces missing business wiring as a validation error rather than a
+  dead control that reports success.
+- **`show` is the one universal render API.** It takes an arbitrary
+  element tree. `show_table` / `show_dashboard` are thin data-shaping
+  conveniences over `show`; the direction is to express widget
+  conveniences as **skills** (opt-in, low-consequence, composed from
+  `show`) rather than as standing MCP tools (every tool is complexity
+  every agent carries). "The elements are limited; the ways they combine
+  are unlimited" — the tool surface should reflect that.
+- **`register_tool` → `register_action`.** The call registers a menu
+  action that calls back to the agent (via `recv`); "tool" collided with
+  both MCP-tool and the on-screen "Tools" menu. The name changes to
+  `register_action`.
+- **No migration shims.** Lux's users are internal only; renamed or
+  retired surfaces change directly (PL-PP-1), with no compatibility
+  aliases.
+
+### Rationale
+
+- The view/business split is the honest consequence of the agent being
+  out of the render loop; naming it prevents the recurring instinct to
+  "just make OK do the thing" inside the display.
+- A universal `show` plus skills keeps the MCP contract small and stable
+  while letting convenience grow without taxing every agent — the same
+  closed-core / open-composition posture the architecture favors
+  elsewhere.
+
+### Alternatives considered
+
+- **A tool per widget.** Rejected — does not scale; grows the MCP surface
+  every agent carries for conveniences most calls never use.
+- **Auto-wire business logic too.** Rejected — the display cannot know what
+  OK *means*; guessing would produce confident-but-wrong side effects.
+- **Document the inert-control footgun instead of validating it.**
+  Rejected for the same reason as DES-039's documentation alternative.
+
+### Relationship to prior ADRs
+
+- Extends DES-039: the same self-validation mechanism that rejects
+  malformed *data* is the mechanism that will surface missing interaction
+  *wiring*.
+- Refines DES-021 (two-tier dispatch) and DES-036 (observer at the MCP
+  boundary) on the producer-facing side — how agents *describe*
+  interactions and menu actions, not how the Hub dispatches them.
+
+### References
+
+- `src/punt_lux/tools/tools.py`, `tools/subscribe_tools.py`,
+  `tools/server.py`; `docs/architecture/skill-tool-reusability-audit.md`
+  (the audit that scoped this); `docs/architecture/target/ui-model.md`.

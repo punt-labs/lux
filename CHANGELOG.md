@@ -2,6 +2,25 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Self-validating elements** — elements now check their own inputs. `show`
+  decodes the element tree, then a hierarchy walk calls each element's
+  `validate()` and collects *every* error across the tree (no fail-fast),
+  recursing into every container (`group`, `window`, `modal`, `tab_bar`,
+  `collapsing_header`, `tree`). An invalid tree is rejected before render and
+  the full error set is returned to the agent so it can self-correct; a valid
+  tree renders unchanged. Validation is component-appropriate and lives on the
+  element: `TableElement.validate()` checks each row's cell count against the
+  column count and that cells are renderable scalars — reporting, not crashing,
+  when `columns`/`rows` arrive malformed; `TreeElement.validate()` checks its
+  node structure instead of silently dropping malformed nodes. Contract:
+  `SelfValidating` / `HasChildElements` protocols, a `ValidationError` value
+  object, and a `ValidationReport` aggregate; the Element ABC supplies an
+  empty-leaf default so every kind participates. A structural guard test fails
+  if a new container kind is added without exposing its children, so nested
+  elements can never silently skip validation. See DES-039.
+
 ### Fixed
 
 - **No stacked display windows from a direct `lux display` or a concurrent
@@ -17,6 +36,11 @@
 
 ### Changed
 
+- **Table and layout element codecs moved onto their dataclasses** — the
+  module-level `_<kind>_to_dict`/`_from_dict` functions became `to_dict`/
+  `from_dict` methods (PY-OO-5), and the container-recursion dispatcher was
+  extracted to `container_dispatch.py`. Wire output is byte-identical (132
+  characterization snapshots unchanged).
 - **`hub_*` path helpers promoted to a `HubPaths` class** (`hub_paths.py`),
   mirroring `DisplayPaths` — extracted from `paths.py`, no behavior change.
   (lux-bsrs)

@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from punt_lux.protocol.elements import layout
+from punt_lux.protocol.elements import container_dispatch
 
 # _strip_none is re-exported for protocol.messages.scene; lives in
 # _util because the codec layer above the per-element modules uses it.
@@ -201,6 +201,6 @@ def element_to_dict(elem: Element) -> dict[str, Any]:
 # Encode-side container recursion has no factory dependency. Install
 # once at import time. Decode-side recursion is injected per-tier by
 # the tier-boundary code: each tier calls
-# ``layout.install_from_dict(factory.element_from_dict)`` after
-# constructing its :class:`JsonElementFactory`.
-layout.install_to_dict(_element_to_dict)
+# ``container_dispatch.dispatch.install_from_dict(factory.element_from_dict)``
+# after constructing its :class:`JsonElementFactory`.
+container_dispatch.dispatch.install_to_dict(_element_to_dict)
