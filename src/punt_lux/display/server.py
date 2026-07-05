@@ -26,6 +26,7 @@ from PIL import Image
 
 from punt_lux.display.domain_pump import DomainPump
 from punt_lux.display.element_renderer import ElementRenderer
+from punt_lux.display.glfw_window import GlfwWindow
 from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.macos import hide_from_dock_and_cmd_tab
 from punt_lux.display.menu_manager import MenuManager
@@ -548,12 +549,12 @@ class DisplayServer:
     def _on_decorated_toggled(self, decorated: bool) -> None:  # noqa: FBT001
         """Callback for MenuManager: toggle window decoration."""
         self._decorated = decorated
-        self._set_glfw_decorated(decorated=decorated)
+        self._glfw_window().set_decorated(decorated=decorated)
 
     def _on_opacity_changed(self, opacity: float) -> None:
         """Callback for MenuManager: change window opacity."""
         self._opacity = opacity
-        self._set_glfw_opacity(opacity=opacity)
+        self._glfw_window().set_opacity(opacity=opacity)
 
     def _on_font_scale_changed(self, scale: float) -> None:
         """Callback for MenuManager: change font scale."""
@@ -602,47 +603,12 @@ class DisplayServer:
         logger.warning("Unknown theme %r", theme_name)
 
     @staticmethod
-    def _set_glfw_decorated(*, decorated: bool) -> None:
-        """Toggle window decoration at runtime via GLFW.
-
-        Uses RTLD_NOLOAD to grab the already-loaded libglfw handle
-        rather than loading a second copy (which triggers duplicate
-        Objective-C class warnings on macOS).
-        """
-        import ctypes
-
+    def _glfw_window() -> GlfwWindow:
+        """Return a control handle to the process's live GLFW window."""
         from imgui_bundle import hello_imgui
 
-        glfw_decorated = 0x00020005  # GLFW_DECORATED
-        window_addr = hello_imgui.get_glfw_window_address()  # type: ignore[attr-defined]
-
-        # RTLD_NOLOAD (0x10 on macOS) returns the existing handle
-        # without loading a second copy of the library.
-        rtld_noload = 0x10
-        glfw_lib = ctypes.CDLL("libglfw.3.dylib", mode=rtld_noload)
-        glfw_lib.glfwSetWindowAttrib.argtypes = [
-            ctypes.c_void_p,
-            ctypes.c_int,
-            ctypes.c_int,
-        ]
-        glfw_lib.glfwSetWindowAttrib(
-            ctypes.c_void_p(window_addr),
-            glfw_decorated,
-            int(decorated),
-        )
-
-    @staticmethod
-    def _set_glfw_opacity(*, opacity: float) -> None:
-        """Set window opacity at runtime via GLFW."""
-        import ctypes
-
-        from imgui_bundle import hello_imgui
-
-        window_addr = hello_imgui.get_glfw_window_address()  # type: ignore[attr-defined]
-        rtld_noload = 0x10
-        glfw_lib = ctypes.CDLL("libglfw.3.dylib", mode=rtld_noload)
-        glfw_lib.glfwSetWindowOpacity.argtypes = [ctypes.c_void_p, ctypes.c_float]
-        glfw_lib.glfwSetWindowOpacity(ctypes.c_void_p(window_addr), opacity)
+        address = hello_imgui.get_glfw_window_address()  # type: ignore[attr-defined]
+        return GlfwWindow(address)
 
     # -- socket callbacks ---------------------------------------------------
 
@@ -671,19 +637,14 @@ class DisplayServer:
 
     # -- message handling --------------------------------------------------
 
-    def _handle_message(self, sock: socket.socket, msg: Message) -> None:  # noqa: C901
+    def _handle_message(self, sock: socket.socket, msg: Message) -> None:
+        """Dispatch a scene/menu/theme-mutating message; read-only kinds delegate."""
         if isinstance(msg, SceneMessage):
             self._handle_scene(sock, msg)
         elif isinstance(msg, UpdateMessage):
-            self._scene_manager.apply_update(msg)
-            self._socket_server.send_to_client(
-                sock,
-                AckMessage(scene_id=msg.scene_id, ts=time.time()),
-            )
+            self._handle_update(sock, msg)
         elif isinstance(msg, ClearMessage):
-            self._scene_manager.clear_all()
-            self._event_queue.clear()
-            self._widget_state = WidgetState()
+            self._handle_clear()
         elif isinstance(msg, RegisterMenuMessage):
             self._handle_register_menu(sock, msg)
         elif isinstance(msg, MenuMessage):
@@ -692,7 +653,18 @@ class DisplayServer:
             self._apply_theme(msg.theme)
         elif isinstance(msg, ConnectMessage):
             self._handle_connect(sock, msg)
-        elif isinstance(msg, PingMessage):
+        else:
+            self._handle_readonly_message(sock, msg)
+
+    def _handle_clear(self) -> None:
+        """Drop all scenes and reset the display's per-frame state."""
+        self._scene_manager.clear_all()
+        self._event_queue.clear()
+        self._widget_state = WidgetState()
+
+    def _handle_readonly_message(self, sock: socket.socket, msg: Message) -> None:
+        """Dispatch a read-only introspect/query/ping message; unknown kinds ignored."""
+        if isinstance(msg, PingMessage):
             pong = PongMessage(ts=msg.ts, display_ts=time.time())
             self._socket_server.send_to_client(sock, pong)
         elif isinstance(msg, IntrospectRequest):
@@ -705,6 +677,27 @@ class DisplayServer:
             self._handle_query(sock, msg)
         elif isinstance(msg, UnknownMessage):
             logger.debug("Ignoring unknown message type %r", msg.raw_type)
+
+    def _handle_update(self, sock: socket.socket, msg: UpdateMessage) -> None:
+        """Apply an update's patch batch, then acknowledge the client.
+
+        The applier handles every malformed patch per-patch without raising.
+        This ``except`` is the crash-freedom boundary guard for the residual
+        class it cannot catch — a setter raising something other than
+        ``ValueError`` or ``TypeError`` — so one malformed update can never
+        terminate the display's message loop.
+        """
+        try:
+            self._scene_manager.apply_update(msg)
+        except Exception:
+            logger.exception(
+                "update for scene %r raised past the applier; scene left unchanged",
+                msg.scene_id,
+            )
+        self._socket_server.send_to_client(
+            sock,
+            AckMessage(scene_id=msg.scene_id, ts=time.time()),
+        )
 
     def _handle_connect(self, sock: socket.socket, msg: ConnectMessage) -> None:
         """Record a client's display name (idempotent)."""
@@ -835,7 +828,7 @@ class DisplayServer:
             val = float(kwargs["opacity"])
             val = max(0.1, min(1.0, val))
             self._opacity = val
-            self._set_glfw_opacity(opacity=val)
+            self._glfw_window().set_opacity(opacity=val)
             changed["opacity"] = val
 
         if "font_scale" in kwargs:
@@ -847,7 +840,7 @@ class DisplayServer:
         if "decorated" in kwargs:
             decorated = bool(kwargs["decorated"])
             self._decorated = decorated
-            self._set_glfw_decorated(decorated=decorated)
+            self._glfw_window().set_decorated(decorated=decorated)
             changed["decorated"] = decorated
 
         if "fps_idle" in kwargs:

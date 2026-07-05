@@ -7,20 +7,10 @@ import logging
 from typing import TYPE_CHECKING, Any, Self, final
 
 from punt_lux.domain.element_abc import Element as ABCElement
-from punt_lux.protocol import (
-    CheckboxElement,
-    ComboElement,
-    Element,
-    InputNumberElement,
-    InputTextElement,
-    RadioElement,
-    SelectableElement,
-    SliderElement,
-    WindowElement,
-)
+from punt_lux.scene.widget_sync import WidgetSync
 
 if TYPE_CHECKING:
-    from punt_lux.protocol import SceneMessage, UpdateMessage
+    from punt_lux.protocol import Element, SceneMessage, UpdateMessage
     from punt_lux.scene.element_walk import ElementLocation, SceneTreeWalk
     from punt_lux.scene.widget_state import WidgetState
 
@@ -32,25 +22,24 @@ class PatchApplier:
     """Apply an update's patch batch to a resolved scene's element tree.
 
     Owns the "apply a batch of patches" responsibility split out of
-    :class:`SceneManager`: locate each patch target, remove it or set fields,
-    mirror value-bearing inputs into :class:`WidgetState`, and mark moved or
-    resized windows dirty. The scene-lifecycle role — storing scenes, frames,
-    and ownership — stays on the manager.
+    :class:`SceneManager`: locate each patch target and remove it or set
+    fields. The scene-lifecycle role — storing scenes, frames, and ownership —
+    stays on the manager.
 
-    Tree navigation is delegated to a shared :class:`SceneTreeWalk`; the
-    dirty-windows set is the manager's own set, mutated in place so the
-    rendering layer sees marked windows through ``SceneManager.dirty_windows``.
+    Tree navigation is delegated to a shared :class:`SceneTreeWalk`; mirroring
+    a patched value into :class:`WidgetState` (and marking moved windows dirty)
+    is delegated to a :class:`WidgetSync`.
     """
 
-    __slots__ = ("_dirty_windows", "_walk")
+    __slots__ = ("_walk", "_widget_sync")
 
     _walk: SceneTreeWalk
-    _dirty_windows: set[str]
+    _widget_sync: WidgetSync
 
     def __new__(cls, *, walk: SceneTreeWalk, dirty_windows: set[str]) -> Self:
         self = super().__new__(cls)
         self._walk = walk
-        self._dirty_windows = dirty_windows
+        self._widget_sync = WidgetSync(dirty_windows=dirty_windows)
         return self
 
     def apply(
@@ -107,62 +96,72 @@ class PatchApplier:
     ) -> None:
         """Apply a set-patch to a located element and sync widget state.
 
-        Validation of unknown fields happens here (at the boundary); the
-        location owns the mutation strategy (in-place ``apply_patch`` for an
-        ABC element, ``dataclasses.replace`` + rebind for a legacy one), so
-        this method never branches on which element model it found.
+        Validation happens here, at the boundary; the location owns the
+        mutation strategy (in-place ``apply_patch`` for an ABC element,
+        ``dataclasses.replace`` + rebind for a legacy one), so this method
+        never branches on which element model it found.
 
-        A setter rejects a bad value two ways — an out-of-range or NaN
-        ``fraction`` raises ``ValueError``, a non-number or ``bool`` raises
-        ``TypeError`` — and both mean "bad patch value". Either is caught around
-        ``apply_set``, logged, and skipped, so one bad patch is a clean no-op
-        (``Element.apply_patch`` leaves the element unchanged) rather than an
-        uncaught exception that terminates the display's message loop. The catch
-        is scoped to ``apply_set`` so the structural unknown-field error above
-        still propagates.
+        A patch is rejected two ways, and both are handled per-patch so the
+        surrounding batch continues and the display's message loop never dies:
+
+        - a *structural* error — the patch names a field the element does not
+          have — is logged and skipped;
+        - a *value* error — a validated setter rejects an out-of-range or NaN
+          ``fraction`` (``ValueError``) or a wrong-typed value (``TypeError``)
+          — is caught around ``apply_set``, logged, and skipped.
+
+        Either way one bad patch is a clean no-op (``Element.apply_patch``
+        leaves the element unchanged) rather than an uncaught exception.
         """
         elem = location.element
-        known = self._known_patch_fields(elem)
-        valid = {
-            k: v for k, v in fields.items() if k not in ("id", "kind") and k in known
-        }
-        unknown = fields.keys() - {"id", "kind"} - valid.keys()
+        valid, unknown = self._partition_fields(elem, fields)
         if unknown:
-            element_id = getattr(elem, "id", None)
-            msg = (
-                f"patch for scene {scene_id!r} element {element_id!r} "
-                f"contains unknown fields: {sorted(unknown)}"
+            self._warn_skipped(
+                elem,
+                scene_id,
+                f"unknown field(s) {sorted(unknown)!r}; element unchanged",
             )
-            raise ValueError(msg)
+            return
         if valid:
             try:
                 elem = location.apply_set(valid)
             except (ValueError, TypeError) as exc:
-                self._warn_rejected_patch(elem, valid, scene_id, exc)
+                self._warn_skipped(
+                    elem,
+                    scene_id,
+                    f"rejected: {exc}; offending fields {valid!r}; "
+                    "element keeps its previous value",
+                )
                 return
-        self._sync_widget_state(elem, valid, ws)
+        self._widget_sync.sync(elem, valid, ws)
 
-    def _warn_rejected_patch(
-        self,
-        elem: Element,
-        fields: dict[str, Any],
-        scene_id: str,
-        exc: ValueError | TypeError,
-    ) -> None:
-        """Log a set-patch a validated setter rejected; the caller then skips it.
+    def _partition_fields(
+        self, elem: Element, fields: dict[str, Any]
+    ) -> tuple[dict[str, Any], set[str]]:
+        """Split a patch's fields into (patchable values, unknown field names).
 
-        Names the scene, the element, the offending fields, and the setter's
-        message so the rejection stays diagnosable — mirroring the
-        unreachable-patch warning — without the rejection (a ``ValueError`` or
-        ``TypeError``) aborting the batch or reaching the display's message loop.
+        ``id`` and ``kind`` are identity fields — dropped from both sets, so
+        they are never applied and never reported as unknown.
+        """
+        known = self._known_patch_fields(elem)
+        patchable = fields.keys() - {"id", "kind"}
+        valid = {k: fields[k] for k in patchable & known}
+        return valid, patchable - known
+
+    def _warn_skipped(self, elem: Element, scene_id: str, reason: str) -> None:
+        """Log a set-patch skipped at the boundary; the caller then continues.
+
+        A structural rejection (an unknown field) or a value rejection (a setter
+        ``ValueError``/``TypeError``) is surfaced per patch so it stays
+        diagnosable without aborting the batch or reaching the display's message
+        loop. ``reason`` names which kind of rejection occurred and carries the
+        offending detail.
         """
         _log.warning(
-            "patch for scene %r element %r rejected: %s; offending fields %r; "
-            "element keeps its previous value",
+            "patch for scene %r element %r skipped: %s",
             scene_id,
             getattr(elem, "id", None),
-            exc,
-            fields,
+            reason,
         )
 
     def _known_patch_fields(self, elem: Element) -> set[str]:
@@ -178,51 +177,3 @@ class PatchApplier:
                 if name.startswith("_set_") and callable(getattr(elem, name))
             }
         return {f.name for f in dataclasses.fields(elem)}
-
-    def _sync_widget_state(
-        self, elem: Element, valid: dict[str, Any], ws: WidgetState | None
-    ) -> None:
-        """Mirror a post-patch element's value into WidgetState.
-
-        A value-bearing input writes its new ``widget_value()``; a kind
-        excluded from that dispatch (e.g. ColorPickerElement) has its cache
-        DISCARDED so the next render re-seeds from the patched fields rather
-        than reading a poisoned ``None``. A moved/resized window is marked
-        dirty so its next frame re-applies position.
-        """
-        eid = getattr(elem, "id", None)
-        has_value_key = valid.keys() & {"value", "selected", "items"}
-        if eid is not None and ws is not None and has_value_key:
-            new_value = self._widget_value(elem)
-            if new_value is None:
-                ws.discard(eid)
-            else:
-                ws.set(eid, new_value)
-        has_pos_key = valid.keys() & {"x", "y", "width", "height"}
-        if eid is not None and isinstance(elem, WindowElement) and has_pos_key:
-            self._dirty_windows.add(eid)
-
-    def _widget_value(self, elem: Element) -> Any:
-        """Extract the current widget value from an element for WidgetState.
-
-        Direct ``isinstance`` dispatch against the seven value-bearing input
-        element classes — each owns a ``widget_value()`` method that returns
-        the field ``SceneManager`` mirrors into ``WidgetState`` after a patch.
-        ``ColorPickerElement`` is intentionally excluded: its renderer seeds
-        ``WidgetState`` with an ``ImVec4`` via ``ensure()``, so returning the
-        raw hex string here would corrupt that state.
-        """
-        if isinstance(
-            elem,
-            (
-                CheckboxElement,
-                ComboElement,
-                InputNumberElement,
-                InputTextElement,
-                RadioElement,
-                SelectableElement,
-                SliderElement,
-            ),
-        ):
-            return elem.widget_value()
-        return None

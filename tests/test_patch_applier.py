@@ -121,25 +121,64 @@ class TestApplyRemove:
 
 
 class TestUnknownFields:
-    def test_unknown_field_raises(self) -> None:
-        """A structural error — an unknown field — propagates as ValueError."""
+    """A structural error — an unknown field — is a per-patch no-op, never a crash."""
+
+    def test_unknown_field_is_skipped(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An unknown field alongside a known one skips the whole set-patch, logged.
+
+        The applier surfaces the structural error instead of raising it, so the
+        element keeps its value and the batch continues. Skipping the whole
+        patch (not just the bad field) keeps a mixed set-patch atomic.
+        """
         applier, _ = _make_applier()
         scene = _scene(TextElement(id="t1", content="Hello"))
 
-        with pytest.raises(ValueError, match="bogus"):
+        with caplog.at_level("WARNING"):
             applier.apply(
                 scene,
                 _update(Patch(id="t1", set={"content": "x", "bogus": 1})),
                 None,
             )
 
-    def test_all_unknown_fields_raises(self) -> None:
-        """A patch of only unknown fields still raises."""
+        elem = scene.elements[0]
+        assert isinstance(elem, TextElement)
+        assert elem.content == "Hello"
+        assert any(
+            "unknown field" in r.message and "t1" in r.message for r in caplog.records
+        )
+
+    def test_all_unknown_fields_skipped(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A patch of only unknown fields is logged and skipped, never raised."""
         applier, _ = _make_applier()
         scene = _scene(TextElement(id="t1", content="Hello"))
 
-        with pytest.raises(ValueError, match="nope"):
+        with caplog.at_level("WARNING"):
             applier.apply(scene, _update(Patch(id="t1", set={"nope": 1})), None)
+
+        assert scene.elements[0].content == "Hello"  # type: ignore[union-attr]
+        assert any("unknown field" in r.message for r in caplog.records)
+
+
+class TestMalformedPatch:
+    """A patch naming neither a removal nor any fields is a safe no-op."""
+
+    def test_empty_set_is_noop(self) -> None:
+        """A patch with an empty ``set`` mutation changes nothing and never raises."""
+        applier, _ = _make_applier()
+        scene = _scene(TextElement(id="t1", content="Hello"))
+
+        applier.apply(scene, _update(Patch(id="t1", set={})), None)
+
+        assert scene.elements[0].content == "Hello"  # type: ignore[union-attr]
+
+    def test_neither_set_nor_remove_is_noop(self) -> None:
+        """A patch that neither sets fields nor removes is a safe no-op."""
+        applier, _ = _make_applier()
+        scene = _scene(TextElement(id="t1", content="Hello"))
+
+        applier.apply(scene, _update(Patch(id="t1")), None)
+
+        assert scene.elements[0].content == "Hello"  # type: ignore[union-attr]
 
 
 class TestRejectedValue:
@@ -255,11 +294,12 @@ class TestPatchRejectionPartition:
 
     Enumerates every way a progress ``fraction`` patch is rejected — out of
     range (``ValueError``), NaN (``ValueError``), non-number (``TypeError``),
-    bool (``TypeError``) — plus the structural unknown-field error and
-    multi-field atomicity. The rejection cases assert the batch survives: no
-    crash, the target unchanged, the rejection logged, and a valid patch
-    elsewhere in the same batch still applies. The unknown-field case asserts
-    the opposite: a structural error propagates rather than being swallowed.
+    bool (``TypeError``) — plus the structural unknown-field error, the
+    absent-id no-op, and multi-field atomicity. Every case asserts the batch
+    survives: no crash, the target unchanged, the rejection logged where
+    applicable, and a valid patch elsewhere in the same batch still applies.
+    An unknown field is surfaced per patch (logged, skipped) rather than
+    propagated, so a structural error never terminates the message loop.
 
     Unlike the ``PatchApplier``-in-isolation tests above, these drive the real
     ``SceneManager.apply_update`` so the whole scene-patch path — resolve,
@@ -328,17 +368,65 @@ class TestPatchRejectionPartition:
         )
         assert self._text(manager).content == "after"  # (d) valid patch applied
 
-    def test_unknown_field_propagates_not_rejected(self) -> None:
-        """An unknown field is a structural error — it raises, never a no-op."""
+    def test_unknown_field_is_logged_not_raised(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An unknown field is a structural no-op: logged, unchanged, never raised.
+
+        The applier surfaces the structural error at the boundary rather than
+        letting it propagate through ``apply_update`` to the display's message
+        loop, so the target keeps its value and the loop stays alive.
+        """
         manager = self._manager()
         update = UpdateMessage(
             scene_id="s1", patches=[Patch(id="p1", set={"bogus": 1})]
         )
 
-        with pytest.raises(ValueError, match="unknown fields"):
+        with caplog.at_level("WARNING"):
             manager.apply_update(update)
 
         assert self._progress(manager).fraction == 0.25
+        assert any(
+            "unknown field" in r.message and "p1" in r.message for r in caplog.records
+        )
+
+    def test_unknown_field_does_not_strand_later_patches(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A surfaced unknown-field error still lets later patches in the batch apply.
+
+        Batch = [unknown-field set on p1, valid set on t1]: p1 is skipped and
+        t1 still updates, so one structural error never abandons the rest of
+        the batch.
+        """
+        manager = self._manager()
+        update = UpdateMessage(
+            scene_id="s1",
+            patches=[
+                Patch(id="p1", set={"bogus": 1}),
+                Patch(id="t1", set={"content": "after"}),
+            ],
+        )
+
+        with caplog.at_level("WARNING"):
+            manager.apply_update(update)
+
+        assert self._progress(manager).fraction == 0.25
+        assert self._text(manager).content == "after"
+
+    def test_remove_of_absent_id_is_a_safe_noop(self) -> None:
+        """Removing an id not in the scene changes nothing and never raises.
+
+        The tree walk finds no location, so the patch is skipped; a truly-absent
+        target is a normal no-op, so both existing elements survive.
+        """
+        manager = self._manager()
+        update = UpdateMessage(scene_id="s1", patches=[Patch(id="ghost", remove=True)])
+
+        manager.apply_update(update)
+
+        assert self._progress(manager).fraction == 0.25
+        assert self._text(manager).content == "before"
 
     def test_multi_field_patch_is_atomic(
         self, caplog: pytest.LogCaptureFixture

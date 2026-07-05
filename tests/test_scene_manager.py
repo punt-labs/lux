@@ -8,8 +8,7 @@ as a pure state machine — no ImGui, no sockets, no DisplayServer.
 from __future__ import annotations
 
 import math
-
-import pytest
+from typing import TYPE_CHECKING
 
 from punt_lux.protocol import (
     ButtonElement,
@@ -25,6 +24,9 @@ from punt_lux.protocol import (
 )
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.scene import SceneManager, WidgetState
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _make_scene(
@@ -340,8 +342,15 @@ class TestApplyUpdate:
         assert elem.id == "t1"
         assert elem.kind == "text"
 
-    def test_patch_unknown_fields_raises(self) -> None:
-        """Unknown field names in a patch raise ValueError instead of silent drop."""
+    def test_patch_unknown_fields_is_skipped(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """An unknown field skips the whole set-patch, logged; the loop survives.
+
+        The structural error is surfaced at the boundary rather than propagated
+        through ``apply_update``, so the element keeps its value and the display's
+        message loop is never terminated.
+        """
         mgr, _ = _make_manager()
         scene = _make_scene(elements=[TextElement(id="t1", content="Hello")])
         mgr.handle_scene(scene, owner_fd=10)
@@ -350,11 +359,21 @@ class TestApplyUpdate:
             scene_id="s1",
             patches=[Patch(id="t1", set={"content": "Updated", "bogus_key": "x"})],
         )
-        with pytest.raises(ValueError, match="bogus_key"):
+        with caplog.at_level("WARNING"):
             mgr.apply_update(update)
 
-    def test_patch_all_unknown_fields_raises(self) -> None:
-        """A patch containing only unknown fields raises ValueError."""
+        elem = mgr.scenes["s1"].elements[0]
+        assert isinstance(elem, TextElement)
+        assert elem.content == "Hello"
+        assert any(
+            "unknown field" in r.message and "bogus_key" in r.message
+            for r in caplog.records
+        )
+
+    def test_patch_all_unknown_fields_is_skipped(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A patch of only unknown fields is logged and skipped, never raised."""
         mgr, _ = _make_manager()
         scene = _make_scene(elements=[TextElement(id="t1", content="Hello")])
         mgr.handle_scene(scene, owner_fd=10)
@@ -363,8 +382,13 @@ class TestApplyUpdate:
             scene_id="s1",
             patches=[Patch(id="t1", set={"nonexistent": "value"})],
         )
-        with pytest.raises(ValueError, match="nonexistent"):
+        with caplog.at_level("WARNING"):
             mgr.apply_update(update)
+
+        elem = mgr.scenes["s1"].elements[0]
+        assert isinstance(elem, TextElement)
+        assert elem.content == "Hello"
+        assert any("nonexistent" in r.message for r in caplog.records)
 
     def test_patch_value_on_input_number_writes_widget_state(self) -> None:
         """Regression for code-reviewer IMPORTANT on f3bd2bb.
