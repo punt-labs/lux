@@ -15,10 +15,12 @@ from typing import TYPE_CHECKING, ClassVar, Self
 from punt_lux.display.renderers.imgui.button import ImGuiButtonRenderer
 from punt_lux.display.renderers.imgui.checkbox import ImGuiCheckboxRenderer
 from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
+from punt_lux.display.renderers.imgui.group import ImGuiGroupRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.dialog import DialogElement
+from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.text import TextElement
 
 if TYPE_CHECKING:
@@ -47,6 +49,7 @@ class ImGuiRendererFactory:
         (ButtonElement, ImGuiButtonRenderer),
         (CheckboxElement, ImGuiCheckboxRenderer),
         (DialogElement, ImGuiDialogRenderer),
+        (GroupElement, ImGuiGroupRenderer),
     )
 
     def __new__(

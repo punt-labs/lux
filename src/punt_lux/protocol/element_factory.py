@@ -27,6 +27,8 @@ from punt_lux.protocol.elements.checkbox_codec import JsonCheckboxDecoder
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder
 from punt_lux.protocol.elements.element_wire import ElementWireContext
+from punt_lux.protocol.elements.group import GroupElement
+from punt_lux.protocol.elements.group_codec import JsonGroupDecoder
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.text_codec import JsonTextDecoder
 from punt_lux.protocol.standalone_button_handler import (
@@ -73,6 +75,7 @@ class JsonElementFactory:
     _button_decoder: JsonButtonDecoder
     _checkbox_decoder: JsonCheckboxDecoder
     _dialog_decoder: JsonDialogDecoder
+    _group_decoder: JsonGroupDecoder
 
     def __new__(
         cls,
@@ -109,6 +112,13 @@ class JsonElementFactory:
             emit=emit,
             element_cls=DialogElement,
             publish_sink=publish_sink,
+        )
+        # The group decoder recurses each child through this factory's own
+        # ``element_from_dict`` so a nested all-ABC group decodes to ABC
+        # children exactly as a top-level group would.
+        self._group_decoder = JsonGroupDecoder(
+            decode_element=self.element_from_dict,
+            element_cls=GroupElement,
         )
         return self
 
@@ -187,18 +197,33 @@ class JsonElementFactory:
                 return abc_elem
             msg = f"JsonElementFactory returned unexpected type for kind={kind!r}"
             raise AssertionError(msg)
+        # ``group`` forks by all-ABC-ness: a rows/columns group whose entire
+        # subtree is migrated-ABC decodes onto the ABC ``GroupElement``; any
+        # legacy descendant or a paged layout falls through to the legacy path.
+        if kind == "group" and JsonGroupDecoder.is_all_abc(d):
+            return self._group_decoder.decode(d)
+        return self._decode_legacy(d)
+
+    def _decode_legacy(self, d: dict[str, Any]) -> Any:
+        """Decode a dataclass kind through the codec, validating tooltip.
+
+        The codec returns each Element with its declared tooltip default
+        (``None``); the cross-element tooltip read here validates the wire
+        value at the boundary (PY-EH-1) so a non-str never reaches a
+        renderer via ``dataclasses.replace``.
+        """
         elem = self._codec.from_dict(d)
-        # Validate tooltip at the boundary (PY-EH-1). The codec returns
-        # each Element with its declared tooltip default (``None``); the
-        # cross-element tooltip read here would otherwise trust whatever
-        # value the wire carried and forward non-str into renderers via
-        # ``dataclasses.replace``.
         tooltip_ctx = ElementWireContext.for_kind(elem.kind)
         tooltip = tooltip_ctx.optional_nullable_str(d, "tooltip")
         if tooltip is None:
             return elem
         if isinstance(  # pragma: no cover - dispatch invariant
-            elem, TextElement | ButtonElement | CheckboxElement | DialogElement
+            elem,
+            TextElement
+            | ButtonElement
+            | CheckboxElement
+            | DialogElement
+            | GroupElement,
         ):
             msg = f"kind {elem.kind!r} must route through ABC decoder"
             raise AssertionError(msg)

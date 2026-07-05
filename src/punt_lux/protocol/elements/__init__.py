@@ -45,13 +45,14 @@ from punt_lux.protocol.elements.graphics import (
     PlotElement,
     register_codecs as _register_graphics,
 )
+from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.inputs import InputsRegistry
 from punt_lux.protocol.elements.layout import (
     CollapsingHeaderElement,
-    GroupElement,
+    LegacyGroupElement,
     ModalElement,
     TabBarElement,
     TreeElement,
@@ -96,6 +97,7 @@ __all__ = [
     "ImageElement",
     "InputNumberElement",
     "InputTextElement",
+    "LegacyGroupElement",
     "MarkdownElement",
     "ModalElement",
     "Patch",
@@ -142,6 +144,7 @@ Element = (
     | ColorPickerElement
     | DrawElement
     | GroupElement
+    | LegacyGroupElement
     | TabBarElement
     | CollapsingHeaderElement
     | WindowElement
@@ -182,7 +185,10 @@ _ENCODER_FACTORY = JsonEncoderFactory()
 
 def _element_to_dict(elem: Element) -> dict[str, Any]:
     """Serialize an Element dataclass to a JSON-compatible dict."""
-    if isinstance(elem, TextElement | ButtonElement | CheckboxElement | DialogElement):
+    if isinstance(
+        elem,
+        TextElement | ButtonElement | CheckboxElement | DialogElement | GroupElement,
+    ):
         # Each per-kind encoder owns its own tooltip emission.
         return _ENCODER_FACTORY.encode(elem)
     result = _to_dict_codec.to_dict(elem)

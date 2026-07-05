@@ -24,6 +24,7 @@ from punt_lux.protocol import (
     InputTextElement,
     IntrospectRequest,
     IntrospectResponse,
+    LegacyGroupElement,
     ListScenesRequest,
     ListScenesResponse,
     MarkdownElement,
@@ -169,7 +170,7 @@ class TestElements:
     def test_group_element_defaults(self):
         e = GroupElement(id="g1")
         assert e.layout == "rows"
-        assert e.children == []
+        assert e.children == ()
 
     def test_tab_bar_element(self):
         e = TabBarElement(
@@ -1308,7 +1309,7 @@ class TestSerialization:
         assert "default_open" not in d["elements"][0]
 
     def test_nested_group_in_tab_bar_roundtrip(self):
-        inner = GroupElement(
+        inner = LegacyGroupElement(
             id="g1",
             layout="columns",
             children=[
@@ -1327,7 +1328,9 @@ class TestSerialization:
         tb = restored.elements[0]
         assert isinstance(tb, TabBarElement)
         grp = tb.tabs[0]["children"][0]
-        assert isinstance(grp, GroupElement)
+        # A group nested in a legacy container is forced legacy so an ABC
+        # container can never appear inside a legacy render subtree.
+        assert isinstance(grp, LegacyGroupElement)
         assert len(grp.children) == 2
 
     def test_window_roundtrip(self):
@@ -1399,7 +1402,7 @@ class TestSerialization:
         assert restored.elements[1].title == "Right"
 
     def test_window_with_nested_containers_roundtrip(self):
-        grp = GroupElement(
+        grp = LegacyGroupElement(
             id="g1",
             layout="columns",
             children=[
@@ -1425,19 +1428,19 @@ class TestSerialization:
         assert isinstance(restored, SceneMessage)
         r_win = restored.elements[0]
         assert isinstance(r_win, WindowElement)
-        assert isinstance(r_win.children[0], GroupElement)
+        assert isinstance(r_win.children[0], LegacyGroupElement)
         assert isinstance(r_win.children[1], CollapsingHeaderElement)
 
     def test_deeply_nested_containers_roundtrip(self):
         leaf = TextElement(id="leaf", content="deep")
         ch = CollapsingHeaderElement(id="ch1", label="Inner", children=[leaf])
-        grp = GroupElement(id="g1", children=[ch])
+        grp = LegacyGroupElement(id="g1", children=[ch])
         scene = SceneMessage(id="s1", elements=[grp])
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
         r_grp = restored.elements[0]
-        assert isinstance(r_grp, GroupElement)
+        assert isinstance(r_grp, LegacyGroupElement)
         r_ch = r_grp.children[0]
         assert isinstance(r_ch, CollapsingHeaderElement)
         r_leaf = r_ch.children[0]

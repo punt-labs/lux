@@ -55,6 +55,7 @@ class Element(EventHandlerHost, ABC):
     _handlers: dict[type[Event], list[Handler[Event]]]
     _removed: bool
     _observers: list[Callable[[str], None]]
+    _children_tuple: tuple[Element, ...]
 
     def __new__(
         cls,
@@ -68,6 +69,7 @@ class Element(EventHandlerHost, ABC):
         self._handlers = {}
         self._removed = False
         self._observers = []
+        self._children_tuple = ()
         return self
 
     def __reduce__(self) -> tuple[object, ...]:
@@ -140,9 +142,14 @@ class Element(EventHandlerHost, ABC):
         renderer.end(opened=opened)
 
     def _children(self) -> tuple[Element, ...]:
-        """Hook — composites override to return their children. Leaves
-        inherit the empty default."""
-        return ()
+        """Return this node's children — the render walk paints these.
+
+        Backed by ``_children_tuple``: a composite populates it (in its
+        constructor or a decoder seam) and a leaf leaves it empty. A kind
+        whose children are computed rather than stored may still override
+        this hook.
+        """
+        return self._children_tuple
 
     def bind_renderer_factory(self, factory: RendererFactory) -> None:
         """Rebind the renderer factory on this element and its subtree.
@@ -172,9 +179,21 @@ class Element(EventHandlerHost, ABC):
         Public bridge onto the protected ``_children()`` hook so the
         hierarchy-walking collector can recurse without reaching into
         renderer-facing internals. Composites get the right answer for
-        free by virtue of overriding ``_children()``.
+        free by populating ``_children_tuple``.
         """
         return self._children()
+
+    def remove_child(self, child: Element) -> None:
+        """Physically remove a direct child so the render stops painting it.
+
+        Rebinds ``_children_tuple`` to exclude ``child`` by identity, so the
+        render walk over ``_children()`` no longer paints it — keeping the
+        Display's replica consistent with the Hub store (a removed element is
+        gone from both, never a lingering node flagged removed but still
+        rendered). Removing a child a node does not hold is a no-op; a leaf,
+        whose tuple is always empty, is unaffected.
+        """
+        self._children_tuple = tuple(c for c in self._children_tuple if c is not child)
 
     def apply_patch(self, patch: Mapping[str, object]) -> Self:
         """Apply a field patch in place by dispatching to ``_set_<key>``.

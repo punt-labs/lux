@@ -11,6 +11,7 @@ import pytest
 
 from punt_lux.protocol import (
     ButtonElement,
+    GroupElement,
     InputNumberElement,
     Patch,
     SceneMessage,
@@ -529,3 +530,87 @@ class TestClearAll:
         mgr, _ = _make_manager()
         mgr.clear_all()
         assert mgr._active_tab is None
+
+
+# -------------------------------------------------------------------
+# 9. test_apply_update inside an all-ABC group (F8)
+# -------------------------------------------------------------------
+
+
+class TestApplyUpdateAbcGroup:
+    """The state machine must traverse an all-ABC group's subtree.
+
+    Before the Protocol-driven walk, ``find`` treated an all-ABC group as a
+    childless leaf: a set-patch on a nested child was silently discarded and
+    the child's id was never reported stale on scene replace.
+    """
+
+    @staticmethod
+    def _abc_group_scene() -> SceneMessage:
+        """A scene whose single element is a rows group with one text child."""
+        group = GroupElement(
+            id="g1",
+            layout="rows",
+            children=(TextElement(id="t1", content="Original"),),
+        )
+        return _make_scene(elements=[group])
+
+    def test_set_patch_on_child_in_abc_group_is_applied(self) -> None:
+        """A set-patch reaches a child nested in an all-ABC group."""
+        mgr, _ = _make_manager()
+        mgr.handle_scene(self._abc_group_scene(), owner_fd=10)
+
+        mgr.apply_update(
+            UpdateMessage(
+                scene_id="s1",
+                patches=[Patch(id="t1", set={"content": "Updated"})],
+            )
+        )
+
+        group = mgr._scenes["s1"].elements[0]
+        assert isinstance(group, GroupElement)
+        # ABC elements patch IN PLACE — the group's own tuple entry changed.
+        child = group.children[0]
+        assert isinstance(child, TextElement)
+        assert child.content == "Updated"
+
+    def test_remove_patch_drops_abc_group_child_from_render(self) -> None:
+        """A remove-patch physically drops the child from what the display paints.
+
+        The display renders whatever the group's ``_children()`` yields, so
+        the fix must remove the child from that tuple — not merely flip a
+        ``_removed`` flag that the render path never consults. Assert the
+        removed child is ABSENT from the render-visible children and the
+        kept sibling survives.
+        """
+        mgr, _ = _make_manager()
+        gone = TextElement(id="t1", content="x")
+        kept = TextElement(id="t2", content="y")
+        group = GroupElement(id="g1", layout="rows", children=(gone, kept))
+        mgr.handle_scene(_make_scene(elements=[group]), owner_fd=10)
+
+        mgr.apply_update(
+            UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
+        )
+
+        stored = mgr._scenes["s1"].elements[0]
+        assert isinstance(stored, GroupElement)
+        # ``children`` is the render source (== ``_children()``); the removed
+        # child must be gone from it, so the Display no longer paints it.
+        rendered_ids = [c.id for c in stored.children]
+        assert "t1" not in rendered_ids
+        assert rendered_ids == ["t2"]
+
+    def test_scene_replace_reports_child_in_abc_group_stale(self) -> None:
+        """Replacing the scene reports the nested child's id stale."""
+        mgr, stale_calls = _make_manager()
+        mgr.handle_scene(self._abc_group_scene(), owner_fd=10)
+
+        mgr.handle_scene(
+            _make_scene(elements=[TextElement(id="t2", content="New")]),
+            owner_fd=10,
+        )
+
+        assert len(stale_calls) == 1
+        assert "t1" in stale_calls[0]
+        assert "g1" in stale_calls[0]

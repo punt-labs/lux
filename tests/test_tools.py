@@ -182,7 +182,7 @@ class TestElementFromDict:
         elem = agent_element_factory().element_from_dict({"kind": "group", "id": "g1"})
         assert isinstance(elem, GroupElement)
         assert elem.layout == "rows"
-        assert elem.children == []
+        assert elem.children == ()
 
     def test_tab_bar_element(self) -> None:
         elem = agent_element_factory().element_from_dict(

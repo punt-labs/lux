@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from punt_lux.protocol import (
         CollapsingHeaderElement,
         Element,
-        GroupElement,
+        LegacyGroupElement,
         TabBarElement,
         WindowElement,
     )
@@ -77,7 +77,7 @@ class ContainerRenderer:
 
     def render_group(self, elem: Element) -> None:
         """Render a group's children in rows, columns, or paged layout."""
-        grp = cast("GroupElement", elem)
+        grp = cast("LegacyGroupElement", elem)
         layout = grp.layout
 
         if layout == "paged":
@@ -99,7 +99,7 @@ class ContainerRenderer:
         page_idx = raw if isinstance(raw, int) else 0
         return max(0, min(page_idx, total - 1)) if total else 0
 
-    def _render_paged_group(self, grp: GroupElement) -> None:
+    def _render_paged_group(self, grp: LegacyGroupElement) -> None:
         """Render a paged group with built-in Prev/Next navigation."""
         pages = grp.pages
         total = len(pages) if pages else 0
@@ -130,11 +130,11 @@ class ContainerRenderer:
             for child in pages[page_idx]:
                 self._render_child(child)
 
-    def _render_paged_inline_children(self, grp: GroupElement) -> list[Any]:
+    def _render_paged_inline_children(self, grp: LegacyGroupElement) -> list[Any]:
         """Render the page-source combo inline; return the remaining children.
 
         Children are the wire element union — heterogeneous and typed ``Any``
-        on ``GroupElement`` itself, so the list stays ``Any`` at this boundary.
+        on ``LegacyGroupElement`` itself, so the list stays ``Any`` at this boundary.
         """
         page_source = grp.page_source
         other_children: list[Any] = []
