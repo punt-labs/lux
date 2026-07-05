@@ -376,6 +376,17 @@ class SceneManager:
         location owns the mutation strategy (in-place ``apply_patch`` for an
         ABC element, ``dataclasses.replace`` + rebind for a legacy one), so
         this method never branches on which element model it found.
+
+        A range-validated setter (e.g. a progress ``fraction`` outside
+        ``[0, 1]``, or NaN) rejects a bad value by raising ``ValueError`` after
+        restoring the prior value. That rejection is caught around the
+        ``apply_set`` call, logged, and skipped: one bad patch is a clean no-op
+        — the element keeps its previous valid value — instead of unwinding into
+        the ``apply_update`` loop and out to the message loop, where an uncaught
+        ``ValueError`` would terminate the display process. Future
+        range-validated kinds (slider, input_number) rely on this same guard.
+        The catch is scoped to ``apply_set`` alone so the unknown-field
+        ``ValueError`` above — a structural, not value, error — still propagates.
         """
         elem = location.element
         known = self._known_patch_fields(elem)
@@ -391,8 +402,35 @@ class SceneManager:
             )
             raise ValueError(msg)
         if valid:
-            elem = location.apply_set(valid)
+            try:
+                elem = location.apply_set(valid)
+            except ValueError as exc:
+                self._warn_rejected_patch(elem, valid, scene_id, exc)
+                return
         self._sync_widget_state(elem, valid, ws)
+
+    def _warn_rejected_patch(
+        self,
+        elem: Element,
+        fields: dict[str, Any],
+        scene_id: str,
+        exc: ValueError,
+    ) -> None:
+        """Log a set-patch a validated setter rejected; the caller then skips it.
+
+        Names the scene, the element, the offending fields, and the setter's
+        message so the rejection stays diagnosable — mirroring the
+        unreachable-patch warning — without the ``ValueError`` aborting the
+        patch batch or reaching the display's message loop.
+        """
+        _log.warning(
+            "patch for scene %r element %r rejected: %s; offending fields %r; "
+            "element keeps its previous value",
+            scene_id,
+            getattr(elem, "id", None),
+            exc,
+            fields,
+        )
 
     def _known_patch_fields(self, elem: Element) -> set[str]:
         """Return the patchable field names for ``elem``.

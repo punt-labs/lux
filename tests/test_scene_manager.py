@@ -7,6 +7,8 @@ as a pure state machine — no ImGui, no sockets, no DisplayServer.
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from punt_lux.protocol import (
@@ -21,6 +23,7 @@ from punt_lux.protocol import (
     UpdateMessage,
     WindowElement,
 )
+from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.scene import SceneManager, WidgetState
 
 
@@ -51,6 +54,13 @@ def _make_scene(
         frame_flags=frame_flags,
         frame_layout=frame_layout,  # type: ignore[arg-type]
         title=title,
+    )
+
+
+def _logged_rejection(caplog: pytest.LogCaptureFixture, element_id: str) -> bool:
+    """Report whether a rejected-patch warning named ``element_id``."""
+    return any(
+        element_id in r.message and "rejected" in r.message for r in caplog.records
     )
 
 
@@ -455,6 +465,89 @@ class TestApplyUpdate:
 
         frame_scene = mgr._frames["f1"].scenes["s1"]
         assert frame_scene.elements[0].content == "Updated"  # type: ignore[union-attr]
+
+
+class TestApplyUpdateRejectedPatch:
+    """A validated setter's rejection is a per-patch no-op, never a crash.
+
+    ``ProgressElement._set_fraction`` raises ``ValueError`` on an out-of-range
+    or NaN value (PY-EN-4). Driving that through the real ``apply_update``
+    handler — the display's message-loop entry point — must not let the
+    exception escape: the display process would terminate. The handler catches
+    the rejection, logs it, keeps the element's prior value, and returns.
+    """
+
+    @staticmethod
+    def _progress_scene(fraction: float = 0.25) -> SceneMessage:
+        """A scene whose single element is a progress bar."""
+        return _make_scene(elements=[ProgressElement(id="p1", fraction=fraction)])
+
+    def test_out_of_range_fraction_does_not_crash(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A ``fraction`` above 1 is skipped; the bar keeps its prior value."""
+        mgr, _ = _make_manager()
+        mgr.handle_scene(self._progress_scene(0.25), owner_fd=10)
+
+        update = UpdateMessage(
+            scene_id="s1",
+            patches=[Patch(id="p1", set={"fraction": 1.5})],
+        )
+        with caplog.at_level("WARNING"):
+            mgr.apply_update(update)  # must return normally — no ValueError escapes
+
+        progress = mgr._scenes["s1"].elements[0]
+        assert isinstance(progress, ProgressElement)
+        assert progress.fraction == 0.25  # rejected patch installed nothing
+        assert _logged_rejection(caplog, "p1")
+
+    def test_nan_fraction_does_not_crash(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A NaN ``fraction`` is skipped the same way; the bar keeps its value."""
+        mgr, _ = _make_manager()
+        mgr.handle_scene(self._progress_scene(0.25), owner_fd=10)
+
+        update = UpdateMessage(
+            scene_id="s1",
+            patches=[Patch(id="p1", set={"fraction": math.nan})],
+        )
+        with caplog.at_level("WARNING"):
+            mgr.apply_update(update)
+
+        progress = mgr._scenes["s1"].elements[0]
+        assert isinstance(progress, ProgressElement)
+        assert progress.fraction == 0.25
+        assert _logged_rejection(caplog, "p1")
+
+    def test_bad_patch_does_not_abort_later_patches(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """One rejected patch in a batch does not block the patches after it."""
+        mgr, _ = _make_manager()
+        scene = _make_scene(
+            elements=[
+                ProgressElement(id="p1", fraction=0.25),
+                TextElement(id="t1", content="before"),
+            ]
+        )
+        mgr.handle_scene(scene, owner_fd=10)
+
+        update = UpdateMessage(
+            scene_id="s1",
+            patches=[
+                Patch(id="p1", set={"fraction": 1.5}),
+                Patch(id="t1", set={"content": "after"}),
+            ],
+        )
+        with caplog.at_level("WARNING"):
+            mgr.apply_update(update)
+
+        elements = mgr._scenes["s1"].elements
+        assert isinstance(elements[0], ProgressElement)
+        assert elements[0].fraction == 0.25  # rejected
+        assert isinstance(elements[1], TextElement)
+        assert elements[1].content == "after"  # applied despite the earlier reject
 
 
 # -------------------------------------------------------------------
