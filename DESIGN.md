@@ -3848,3 +3848,96 @@ settled by the operator; capturing them here prevents re-litigation.
 - `src/punt_lux/tools/tools.py`, `tools/subscribe_tools.py`,
   `tools/server.py`; `docs/architecture/skill-tool-reusability-audit.md`
   (the audit that scoped this); `docs/architecture/target/ui-model.md`.
+
+## DES-041: Migration Strategy — Fork, Don't Mix; Order by Testability
+
+**Date:** 2026-07-05
+**Status:** ACCEPTED
+**Decided by:** the operator
+**Companion doc:** `docs/architecture/migration/README.md`
+**Supersedes:** the "incremental crossing, big-bang deletion" migration
+decision (prior `migration/README.md` §"Ratified design decisions" #2).
+
+### Problem
+
+The prior migration approach crossed element kinds onto the Element-ABC /
+Hub-Display path one family at a time while keeping the legacy render/dispatch
+path alive for everything not yet crossed (the pump's mixed-scene skip). That
+coexistence window is the cost: every migration had to navigate the seam
+between the two paths, and **mixed composites** — an ABC element inside a
+legacy dataclass container, and the reverse — required factory-rebind walks
+through legacy containers, mixed-scene routing, and wiring ABC handler closures
+across the legacy container's JSON leg, which cannot be made to work cleanly.
+The DI-truth review (PR #237) surfaced a latent first-frame crash from exactly
+this mix. Servicing the mix is friction on every element, indefinitely.
+
+### Decision
+
+Stop servicing the mix; eliminate it.
+
+1. **Fork, don't mix.** Build the new ABC path as a parallel track. Do not
+   invest in making legacy and ABC elements interoperate inside composites.
+2. **Duplicate only on need.** When both a legacy and a new version of one
+   element must exist short-term, the **new ABC class takes the canonical
+   (real) name and the legacy class is renamed out of the way**. Do not
+   duplicate unless something forces it.
+3. **Order by testability, bottom-up.** Testing is our choice, so the order
+   optimizes for what makes the system composable and testable soonest:
+   migrate a **container** ("a frame") and element **primitives** first, so
+   real layouts can be composed and tested, then build up to more complete
+   widgets. Complex widgets (`table`, `plot`, `draw`) come **last**.
+4. **One element (and 1–2 containers) at a time.** Each migrated kind is an
+   Element-ABC subclass that paints via `Element.render()` and self-validates
+   (`validate()`, DES-039).
+
+### Consequence
+
+The mix problems dissolve by construction. Because a container is migrated
+early and composites are built all-ABC, a new element is never nested inside a
+legacy container (and where a scene would force it, the element is duplicated
+instead). So the C3 limitation (don't nest an ABC element in a legacy
+container, `abc-baseline-debt-audit.md`) is **avoided, not fixed**, and the
+coexistence machinery — factory-rebind walks through legacy containers,
+mixed-scene routing, ABC-handler wiring across the legacy JSON leg — is **not
+built**.
+
+### Rationale
+
+- **A fork avoids a long, friction-heavy coexistence period.** Two parallel
+  representations short-term are cheaper than a bridge between two incompatible
+  ones.
+- **Bottom-up buys testability immediately.** A frame plus primitives let us
+  compose and drive real UI through the introspection + interaction surface
+  from the first migration; a complex widget migrated early buys nothing
+  testable and costs the most.
+- **Duplicating an element is cheap; bridging is not.** A renamed legacy class
+  beside a canonical ABC class is a mechanical, reversible state that the
+  migration retires as each kind crosses.
+
+### Alternatives considered
+
+- **Incremental crossing with mixed-scene coexistence** (the prior decision).
+  Superseded — it pays the mixed-state tax on every element and produced a
+  latent crash class.
+- **Full big-bang** (convert all 25 kinds at once). Not adopted — too large a
+  single change to review and verify; the bottom-up fork reaches the same clean
+  end state incrementally and testably.
+- **Batch-by-risk sequencing** (the prior 7-batch order). Superseded by
+  testability-order (containers + primitives first, `table`/`plot`/`draw`
+  last).
+
+### Relationship to prior ADRs
+
+- The render-path unification (the Template Method `Element.render()` engine +
+  per-kind adapters) is the **fork's render engine** and the prerequisite for
+  migrating any kind onto the new path (see
+  `docs/architecture/migration/render-path-unification-design.md`).
+- DES-039 stands: `validate()` rides with each element's migration.
+- The Element-ABC contract (DES-030+) and the "one `ElementABC` for everything"
+  decision are unchanged; only the *coexistence and sequencing* strategy is
+  replaced.
+
+### References
+
+- `docs/architecture/migration/README.md` (the plan, reconciled to this ADR),
+  `render-path-unification-design.md`, `abc-baseline-debt-audit.md` (C3).

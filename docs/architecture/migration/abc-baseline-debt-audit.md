@@ -50,7 +50,7 @@ top blocking item.
 | A4 | MODERATE | doc-lie | element + codec docstrings claim decode "passes real values"; the real value is always the sentinel |
 | A5 | MODERATE | doc-lie | `ImGuiTextRenderer` docstring's stated reason ("`Element.render()` calls it polymorphically") is fictional today |
 | C2 | MODERATE | wiring | `_wrap_abc_elements` is the natural rebind site but rebinds nothing |
-| C3 | MODERATE | OPEN | ABC element nested in a legacy dataclass container is not rebound or handler-wrapped — would hit `RAISING_FACTORY` under the PR2 `render()` flip; resolved by the migration strategy, not a legacy-container walk |
+| C3 | MODERATE | RESOLVED (DES-041) | ABC element nested in a legacy dataclass container is not rebound/wrapped — avoided by construction (fork, don't mix; duplicate not bridge), not fixed with a legacy-container walk |
 | D1 | MODERATE | oo | `messages/scene.py` codec is fully procedural; `str`-with-comment + raw-dict boundary |
 | D2 | MODERATE | coupling | `scene.py` imports `_element_to_dict` / `_strip_none` — cross-package private reach-around |
 | E4 | MODERATE | special-case | `Display._build_event` branches on `element.kind == "button"/"checkbox"` strings |
@@ -263,11 +263,14 @@ onto the Element ABC so their whole subtree crosses as `_pickled`; then this gap
 closes with no dedicated walk. Building the walk now risks writing code the
 strategy discards.
 
-**Status:** OPEN — the mid-migration rule is: **do not nest an ABC element inside
-a legacy dataclass container.** Resolution is a migration-strategy decision
-(compress the mixed window / migrate the containers), not a legacy-container walk
-here. The seam carries a one-line comment in `DisplayServer._wrap_abc_elements`
-noting the ABC-subtree-only coverage.
+**Status:** RESOLVED BY STRATEGY ([DES-041](../../../DESIGN.md)) — not fixed,
+avoided by construction. We **fork, don't mix**: a container is migrated early
+and composites are built all-ABC, so an ABC element is never nested in a legacy
+container; where a scene would force it, the element is **duplicated** (new ABC
+class gets the canonical name) rather than bridged. The mid-migration rule
+stands — **do not nest an ABC element inside a legacy dataclass container** —
+and the seam keeps its one-line `DisplayServer._wrap_abc_elements` comment
+noting the ABC-subtree-only coverage. No legacy-container walk is built.
 
 ## (b) Fragmentation / half-migrations
 

@@ -40,10 +40,15 @@ These five were escalated to the operator and ratified before any implementation
 1. **One `ElementABC` for everything, not a lighter display-only base.** The
    unused handler/wrap surface on a display-only element costs nothing at
    runtime; a second base doubles the `isinstance` surface for no gain.
-2. **Incremental crossing, big-bang deletion.** Kinds flip one family at a time
-   (the pump's mixed-scene skip keeps both paths alive during the transition);
-   the legacy `SceneManager` / `DomainPump` / `_RENDERERS` dispatch is deleted
-   only after the last kind crosses.
+2. **Fork, don't mix** (supersedes the earlier "incremental crossing,
+   mixed-scene coexistence"). Build the new ABC path as a parallel track;
+   legacy and ABC elements do **not** interoperate inside composites. Migrate a
+   container early and compose all-ABC, so a new element is never nested in a
+   legacy container; where a scene would force it, **duplicate** the element —
+   the new ABC class takes the canonical name and the legacy is renamed out of
+   the way — rather than bridging. The legacy render/dispatch path is retired
+   once every kind has forked across. See [DES-041](../../../DESIGN.md) and
+   §Sequencing.
 3. **Stateful `table`/`plot`: split by authority.** Ephemeral *view* state
    (filter text, search, scroll, window drag) stays Display-local and is never
    re-pushed; authoritative table *selection* routes to the Hub. `plot` migrates
@@ -52,27 +57,34 @@ These five were escalated to the operator and ratified before any implementation
    `DrawElement` migrates (display-only leaf); `curve`/`line`/`shape`/`text`
    stay composed value objects. Giving line segments ids and handler registries
    is what the element contract warns against.
-5. **Invert the `wrap_handlers_for_remote` seam.** Each interactive element
-   declares its interaction via a typed descriptor; the D21 wrap logic iterates
-   the descriptor instead of switching on concrete type (Open-Closed — new
-   interactive elements just declare, no ABC change). **This is a prerequisite
-   for the interactive-inputs batch, designed before that batch dispatches.**
+5. **Invert the `wrap_handlers_for_remote` seam — DONE (PR #237).** Each
+   interactive element declares its interaction via a per-element
+   `RemoteDispatchSpec`; the D21 wrap logic iterates the specs instead of
+   switching on concrete type (Open-Closed — new interactive elements just
+   declare, no `isinstance` branch).
 
-## Sequencing
+## Sequencing (by testability)
 
-Per the audit, migrate in this order (lowest-risk pattern first, hardest last):
+Testing is our choice, so migrate in the order that makes the system
+composable and testable soonest (DES-041), bottom-up:
 
-0. **Reconcile the exemplars** — one source of truth for the 4 migrated kinds;
-   fix the two shipped inconsistencies (Checkbox omitted from `_ABC_TYPES` and
-   from the `_element_to_dict` encode special-case).
-1. **Basics display-only leaves** — image, separator, progress, spinner, markdown.
-2. **Interactive value inputs** — slider, combo, text/number inputs, radio,
-   color picker, selectable. Carries the decision-#5 wrap-seam refactor.
-3. **Simple composites** — group, tab bar, collapsing header.
-4. **Stateful composites** — window, modal.
-5. **Draw and plot.**
-6. **Table**, on its own (built-in filter/selection state).
-7. **Retire the legacy render path** once every kind has crossed.
+1. **A container first ("a frame")** — `group` or `window` — so there is a
+   surface to compose and test on.
+2. **Display-only primitives** — `text` (done), plus `image`, `separator`,
+   `progress`, `spinner`, `markdown` — content to place in the frame.
+3. **Interactive primitives** — `button`/`checkbox`/`dialog` (done), plus
+   `slider`, `combo`, `input_text`, `input_number`, `radio`, `color_picker`,
+   `selectable`.
+4. **Compose increasingly complete widgets** from the primitives + containers.
+5. **Complex widgets last** — `table`, `plot`, `draw` (built-in state, most
+   surface; nothing testable is gained by taking them early).
+
+**Prerequisite:** the render engine — the Template Method `Element.render()` +
+per-kind adapters ([`render-path-unification-design.md`](./render-path-unification-design.md))
+— lands first so any migrated kind paints via the new path. Each migrated kind
+is an Element-ABC subclass that paints via `Element.render()` and self-validates
+([DES-039](../../../DESIGN.md)). The legacy render/dispatch path is retired once
+every kind has forked across.
 
 ## The per-element process (verify-as-you-go)
 
@@ -118,14 +130,17 @@ One element at a time. No batch dispatch. The grounding-by-exemplar plus the two
 direction-checks (design-time and after-landing) are the guards against the
 recurring "agent did not understand the design" failure.
 
-## A load-bearing subtlety
+## The render engine closes the old "abc ≠ paints" gap
 
-"On the ABC path" does **not** mean the paint path changed. Migrating a
-display-only leaf changes the object's *type*, its mutation (`apply_patch` vs
-`dataclasses.replace`), codec routing, and HubDisplay installation — but the live
-pixels still flow through the legacy renderer until Batch 7. `render_path == "abc"`
-means type/routing/HubDisplay, **not** that `Element.render()` paints. This is the
-subtlety most likely to break a wrong mental model.
+Historically, "on the ABC path" did **not** mean the paint path changed: a
+migrated kind's *type*, mutation, codec routing, and HubDisplay installation
+flipped, but the live pixels still flowed through the legacy renderer, so
+`render_path == "abc"` meant type/routing/HubDisplay, not that
+`Element.render()` painted. The **render engine** (the render-path unification —
+the Template Method `Element.render()` + per-kind adapters) closes that gap: it
+makes `render()` the actual paint path for migrated kinds, so after it lands
+`render_path == "abc"` means the element *paints* via the new path. It is the
+fork's render engine and lands before any kind migrates onto the new path.
 
 ## Tracking
 
