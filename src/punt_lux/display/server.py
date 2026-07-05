@@ -217,7 +217,7 @@ class DisplayServer:
         )
         # Install the luxd-tier element factory so inbound scene
         # decoding (via reader.drain_typed → _scene_from_dict →
-        # layout._from_dict_dispatch) routes through a real factory.
+        # layout.from_dict_dispatcher) routes through a real factory.
         # The Display is not allowed to own business publish behavior;
         # if a handler ever runs locally before remote wrapping, that
         # path must fail loudly instead of silently dropping the publish.
