@@ -35,11 +35,19 @@ under them is complete:
 The other 19 kinds are still legacy frozen dataclasses on the `SceneManager` +
 dual-write `DomainPump` path. Of them: ~8 are interactive (need the full D21
 remote-dispatch treatment) and ~11 are display-only; `table` sits on the
-boundary because it carries built-in view state. Per [DES-041](../../../DESIGN.md)
-(fork, don't mix) a legacy container may still hold an ABC *leaf* (it paints via
-the retained legacy per-kind renderer during the mixed period), but an ABC
-container is never nested in a legacy one — the all-ABC gate makes that
-`[unsupported element]` regression structurally impossible.
+boundary because it carries built-in view state.
+
+Two composition facts, not to be conflated:
+
+- **The rule ([DES-041](../../../DESIGN.md), fork don't mix):** compose
+  all-ABC — you do not author a new element into a legacy container. Under the
+  fork an ABC *container* is never nested inside a legacy one; the all-ABC gate
+  makes that `[unsupported element]` regression structurally impossible.
+- **Transitional compatibility ([DES-042](../../../DESIGN.md)):** a legacy
+  container that *happens* to hold an ABC **leaf** still renders it — via the
+  retained legacy per-kind renderer, because the legacy-dispatch prune is
+  deferred to fork completion. This keeps existing mixed-period scenes working;
+  it is not the intended composition rule.
 
 ## Self-validation travels with each migration
 
