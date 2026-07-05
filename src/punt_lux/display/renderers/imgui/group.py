@@ -7,9 +7,9 @@ through the default recursion, and ``end`` closes the matching surface.
 ``paint`` is a no-op — a container's only body is its children, exactly as
 ``ImGuiDialogRenderer.paint`` is a no-op.
 
-Only the stack layouts render here; a ``paged`` group never reaches this
-adapter (the wire decoder keeps paged groups on the legacy path), so an
-unexpected layout fails loud rather than drawing nothing.
+An ABC ``GroupElement``'s ``layout`` is ``Literal["rows", "columns"]`` —
+``paged`` lives entirely on the legacy path — so ``rows`` and its
+complement are the only two cases this adapter ever sees.
 """
 
 from __future__ import annotations
@@ -40,14 +40,10 @@ class ImGuiGroupRenderer:
 
     def begin(self) -> bool:
         """Open the stack surface for this group's layout; always visible."""
-        layout = self._elem.layout
-        if layout == "rows":
+        if self._elem.layout == "rows":
             imgui.begin_vertical(self._elem.id)
-        elif layout == "columns":
-            imgui.begin_horizontal(self._elem.id)
         else:
-            msg = f"ImGuiGroupRenderer cannot render layout {layout!r}"
-            raise ValueError(msg)
+            imgui.begin_horizontal(self._elem.id)
         return True
 
     def paint(self) -> None:
@@ -57,8 +53,7 @@ class ImGuiGroupRenderer:
         """Close the stack surface ``begin`` opened for this group's layout."""
         if not opened:
             return
-        layout = self._elem.layout
-        if layout == "rows":
+        if self._elem.layout == "rows":
             imgui.end_vertical()
-        elif layout == "columns":
+        else:
             imgui.end_horizontal()

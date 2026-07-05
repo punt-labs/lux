@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock
 
+import pytest
+
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.server import DisplayServer
 from punt_lux.display_client import agent_element_factory
@@ -20,12 +22,17 @@ from punt_lux.domain.validation_walk import ElementTreeValidator, HasChildElemen
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import (
     ButtonElement,
+    CollapsingHeaderElement,
     GroupElement,
     LegacyGroupElement,
+    ModalElement,
+    TabBarElement,
     TableElement,
     TextElement,
+    WindowElement,
 )
 from punt_lux.protocol.elements.group_codec import JsonGroupDecoder
+from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 
@@ -98,6 +105,57 @@ class TestLevel1Serialization:
 # -- the all-ABC fork gate --------------------------------------------------
 
 
+def _inner_abc_group() -> dict[str, Any]:
+    """Return a fresh wire dict for an all-ABC rows group with one text child."""
+    return {
+        "kind": "group",
+        "id": "inner",
+        "children": [{"kind": "text", "id": "t", "content": "x"}],
+    }
+
+
+def _table_wire() -> dict[str, Any]:
+    """Return a legacy-kind child that forces its enclosing subtree legacy."""
+    return {"kind": "table", "id": "tbl", "columns": ["A"], "rows": []}
+
+
+# Each legacy container kind wrapping an all-ABC inner group, paired with the
+# concrete legacy class the whole tree must decode to. A ``group`` becomes
+# legacy only alongside a legacy sibling; the other four kinds have no ABC
+# form, so they are always legacy and force any nested group legacy too.
+_LEGACY_CONTAINER_CASES: tuple[tuple[str, dict[str, Any], type], ...] = (
+    (
+        "legacy_group",
+        {"kind": "group", "id": "o", "children": [_table_wire(), _inner_abc_group()]},
+        LegacyGroupElement,
+    ),
+    (
+        "tab_bar",
+        {
+            "kind": "tab_bar",
+            "id": "tb",
+            "tabs": [{"label": "T", "children": [_inner_abc_group()]}],
+        },
+        TabBarElement,
+    ),
+    (
+        "window",
+        {"kind": "window", "id": "w", "children": [_inner_abc_group()]},
+        WindowElement,
+    ),
+    (
+        "collapsing_header",
+        {"kind": "collapsing_header", "id": "h", "children": [_inner_abc_group()]},
+        CollapsingHeaderElement,
+    ),
+    (
+        "modal",
+        {"kind": "modal", "id": "m", "children": [_inner_abc_group()]},
+        ModalElement,
+    ),
+)
+
+
 class TestForkGate:
     def test_all_abc_stack_group_is_abc(self) -> None:
         assert JsonGroupDecoder.is_all_abc(_stack_group("rows").to_dict())
@@ -136,23 +194,66 @@ class TestForkGate:
         assert isinstance(outer, GroupElement)
         assert isinstance(outer.children[0], GroupElement)
 
-    def test_group_nested_in_legacy_group_is_forced_legacy(self) -> None:
-        """An all-ABC group inside a legacy (mixed) group decodes legacy."""
+    @pytest.mark.parametrize(
+        ("wire", "expected"),
+        [(wire, cls) for _, wire, cls in _LEGACY_CONTAINER_CASES],
+        ids=[name for name, _, _ in _LEGACY_CONTAINER_CASES],
+    )
+    def test_all_abc_group_in_legacy_container_is_forced_legacy(
+        self, wire: dict[str, Any], expected: type
+    ) -> None:
+        """An all-ABC group nested in any legacy container decodes legacy.
+
+        Every legacy container kind — legacy group, tab_bar, window,
+        collapsing_header, modal — must route a nested all-ABC group onto
+        ``LegacyGroupElement`` (its ``child_elements()`` walk exposes it),
+        never leaving an ABC container inside a legacy render subtree.
+        """
+        decoded = _decode(wire)
+        assert isinstance(decoded, expected)
+        assert isinstance(decoded, HasChildElements)
+        nested = decoded.child_elements()
+        assert any(isinstance(child, LegacyGroupElement) for child in nested)
+
+    def test_deep_buried_legacy_forces_whole_tree_legacy(self) -> None:
+        """A legacy leaf two groups deep forces the entire tree legacy."""
         wire = {
             "kind": "group",
             "id": "outer",
+            "layout": "rows",
             "children": [
-                {"kind": "table", "id": "tbl", "columns": ["A"], "rows": []},
                 {
                     "kind": "group",
                     "id": "inner",
-                    "children": [{"kind": "text", "id": "t", "content": "x"}],
-                },
+                    "layout": "rows",
+                    "children": [_table_wire()],
+                }
             ],
         }
-        outer = _decode(wire)
-        assert isinstance(outer, LegacyGroupElement)
-        assert isinstance(outer.children[1], LegacyGroupElement)
+        assert not JsonGroupDecoder.is_all_abc(wire)
+        assert isinstance(_decode(wire), LegacyGroupElement)
+
+    def test_is_all_abc_rejects_non_mapping_child(self) -> None:
+        """A non-mapping child yields False so the tree forks legacy (F6)."""
+        wire = {"kind": "group", "children": ["not-a-dict"]}
+        assert not JsonGroupDecoder.is_all_abc(wire)
+
+    def test_from_dict_rejects_non_abc_subtree(self) -> None:
+        """GroupElement.from_dict guards the all-ABC invariant at its boundary."""
+        wire = {"kind": "group", "id": "g", "children": [_table_wire()]}
+        with pytest.raises(ValueError, match="table"):
+            GroupElement.from_dict(wire)
+
+    def test_from_dict_rejects_paged_layout(self) -> None:
+        """A paged layout is not a stack group — from_dict rejects it."""
+        wire = {
+            "kind": "group",
+            "id": "g",
+            "layout": "paged",
+            "children": [{"kind": "text", "id": "t", "content": "x"}],
+        }
+        with pytest.raises(ValueError, match="paged"):
+            GroupElement.from_dict(wire)
 
 
 # -- Level 2: pickle scene wire ---------------------------------------------
@@ -217,55 +318,51 @@ class TestSelfValidation:
     def test_valid_stack_group_has_no_errors(self) -> None:
         assert ElementTreeValidator().validate_tree([_stack_group("rows")]).ok
 
-    def test_paged_group_with_dangling_page_source_reports(self) -> None:
-        group = GroupElement(
-            id="g1",
-            layout="paged",
-            children=(TextElement(id="t1", content="x"),),
-            page_source="missing",
-        )
-        errors = group.validate()
-        assert len(errors) == 1
-        assert errors[0].element_kind == "group"
-        assert "missing" in errors[0].message
+    def test_group_has_no_structural_errors_of_its_own(self) -> None:
+        """A rows/columns group has no self-structural constraint to check."""
+        assert _stack_group("columns").validate() == ()
 
-    def test_paged_group_with_valid_page_source_is_ok(self) -> None:
-        group = GroupElement(
-            id="g1",
-            layout="paged",
-            children=(TextElement(id="picker", content="x"),),
-            page_source="picker",
-        )
-        assert group.validate() == ()
-
-    def test_walk_catches_nested_group_error(self) -> None:
-        """A bad nested (paged) group is collected by the hierarchy walk."""
-        inner = GroupElement(
-            id="inner",
-            layout="paged",
-            children=(TextElement(id="t1", content="x"),),
-            page_source="nope",
-        )
-        outer = GroupElement(id="outer", children=(inner,))
-        report = ElementTreeValidator().validate_tree([outer])
-        assert not report.ok
-        assert any("nope" in e.message for e in report.errors)
-
-    def test_child_elements_exposes_pages_for_the_walk(self) -> None:
-        """Paged panels are hidden from render but visible to validation."""
-        paged = TextElement(id="paged", content="page 2")
-        group = GroupElement(
-            id="g1",
-            layout="paged",
-            children=(TextElement(id="nav", content="x"),),
-            pages=((paged,),),
-        )
-        assert group.child_elements() == (group.children[0], paged)
+    def test_child_elements_returns_render_children_for_the_walk(self) -> None:
+        """The inherited child_elements() bridges the walk to _children()."""
+        group = _stack_group("rows")
+        assert group.child_elements() == group.children
 
     def test_structural_guard_group_is_a_container(self) -> None:
         """The ABC group satisfies the container contract the walk relies on."""
         assert isinstance(GroupElement(id="g1"), HasChildElements)
         assert isinstance(GroupElement(id="g1"), AbcElement)
+
+
+class TestTooltipRoundTrip:
+    def test_tooltip_round_trips_through_abc_path(self) -> None:
+        """A rows/columns group's tooltip survives encode → decode (F5)."""
+        group = GroupElement(
+            id="g1",
+            layout="rows",
+            children=(TextElement(id="t1", content="x"),),
+            tooltip="hint",
+        )
+        restored = _decode(group.to_dict())
+        assert isinstance(restored, GroupElement)
+        assert restored.tooltip == "hint"
+
+    def test_absent_tooltip_stays_absent(self) -> None:
+        """A group without a tooltip omits it from the wire and decodes None."""
+        wire = _stack_group("rows").to_dict()
+        assert "tooltip" not in wire
+        restored = _decode(wire)
+        assert isinstance(restored, GroupElement)
+        assert restored.tooltip is None
+
+
+class TestEncoderFactoryGuard:
+    def test_encoder_factory_encodes_rows_group_without_raising(self) -> None:
+        """A dedicated encode-path guard so the group branch cannot evaporate (F7)."""
+        encoded = JsonEncoderFactory().encode(_stack_group("rows"))
+        assert encoded["kind"] == "group"
+        assert encoded["layout"] == "rows"
+        children = cast("list[dict[str, Any]]", encoded["children"])
+        assert [child["id"] for child in children] == ["t1", "b1"]
 
 
 # -- Level 5: introspection (render_path recurses into children) ------------

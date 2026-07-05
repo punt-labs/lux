@@ -8,10 +8,11 @@ own. The render template drives its ImGui adapter's ``begin``/``end``
 (the layout choice lives in the renderer); ``paint`` is a no-op because a
 container's only body is its children.
 
-The ``paged`` layout and its ``pages`` / ``page_source`` fields exist on
-the class and codec for wire compatibility, but paged rendering is a
-separate follow-up: an all-ABC ``group`` only decodes onto this class for
-``rows`` / ``columns`` (see :mod:`group_codec`).
+Only stack layouts (``rows`` / ``columns``) live on this class. The
+``paged`` layout stays entirely on :class:`LegacyGroupElement`, which
+owns the paged wire fields (``pages`` / ``page_source``) and the paged
+renderer; the all-ABC gate routes a ``paged`` group there (see
+:mod:`group_codec`), so an ABC ``GroupElement`` never carries them.
 
 The codec body lives in ``group_codec.py`` (``JsonGroupEncoder`` /
 ``JsonGroupDecoder``); ``to_dict`` / ``from_dict`` remain here as thin
@@ -24,7 +25,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, Self, cast
 
 from punt_lux.domain.element_abc import Element
-from punt_lux.domain.validation import ValidationError
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.container_dispatch import dispatch
 from punt_lux.protocol.elements.group_codec import JsonGroupDecoder, JsonGroupEncoder
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
 
 __all__ = ["GroupElement"]
 
-type Layout = Literal["rows", "columns", "paged"]
+type Layout = Literal["rows", "columns"]
 
 
 class GroupElement(Element):
@@ -50,17 +50,12 @@ class GroupElement(Element):
     the legacy container instead.
 
     PY-TS-14: ``tooltip`` stays ``str | None`` — absence is the documented
-    contract for an optional tooltip. ``page_source`` is ``str`` with
-    ``""`` as the discriminated "no page-source" state (the encoder omits
-    it when empty, so the wire shape is unchanged), the same move
-    ``TextElement.color`` made.
+    contract for an optional tooltip.
     """
 
     _id: str
     _layout: Layout
     _children_tuple: tuple[Element, ...]
-    _pages: tuple[tuple[Element, ...], ...]
-    _page_source: str
     _tooltip: str | None
     _kind: Literal["group"]
 
@@ -72,16 +67,12 @@ class GroupElement(Element):
         id: str,
         layout: Layout = "rows",
         children: Iterable[Element] = (),
-        pages: Iterable[Iterable[Element]] = (),
-        page_source: str = "",
         tooltip: str | None = None,
     ) -> Self:
         self = super().__new__(cls, renderer_factory=renderer_factory, emit=emit)
         self._id = id
         self._layout = layout
         self._children_tuple = tuple(children)
-        self._pages = tuple(tuple(page) for page in pages)
-        self._page_source = page_source
         self._tooltip = tooltip
         self._kind = "group"
         return self
@@ -109,61 +100,21 @@ class GroupElement(Element):
         return self._children_tuple
 
     @property
-    def pages(self) -> tuple[tuple[Element, ...], ...]:
-        """Return the paged content panels (empty for a rows/columns group)."""
-        return self._pages
-
-    @property
-    def page_source(self) -> str:
-        """Return the id of the combo driving the page index, ``""`` if none."""
-        return self._page_source
-
-    @property
     def tooltip(self) -> str | None:
         """Return the hover-tooltip text, or ``None`` for no tooltip."""
         return self._tooltip
 
-    # -- render + validation hooks ------------------------------------------
+    # -- render hook --------------------------------------------------------
 
     def _children(self) -> tuple[Element, ...]:
         """Return the render-visible children for the default recursion.
 
         For a rows/columns group this is every child; the layout surface
         is opened by the ImGui adapter's ``begin``/``end`` around them.
+        The inherited ``child_elements()`` bridges this to the validation
+        walk, so a rows/columns group needs no override of its own.
         """
         return self._children_tuple
-
-    def child_elements(self) -> tuple[Element, ...]:
-        """Return children AND every paged element for the validation walk.
-
-        Distinct from :meth:`_children` (the render-visible set): an
-        element installed on a non-active page is not currently painted
-        but is still part of the scene and must be validated.
-        """
-        paged = tuple(elem for page in self._pages for elem in page)
-        return (*self._children_tuple, *paged)
-
-    def validate(self) -> tuple[ValidationError, ...]:
-        """Return this group's own structural errors.
-
-        A group with ``layout='paged'`` and a non-empty ``page_source``
-        must name a child id that exists; a dangling ``page_source``
-        yields a paged group whose combo drives nothing — a silent no-op
-        the agent should see. Child validity is collected by the
-        hierarchy walk, not here.
-        """
-        if self._layout != "paged" or not self._page_source:
-            return ()
-        if any(child.id == self._page_source for child in self._children_tuple):
-            return ()
-        message = f"page_source {self._page_source!r} names no child of this group"
-        return (
-            ValidationError(
-                element_id=self._id,
-                element_kind="group",
-                message=message,
-            ),
-        )
 
     # -- codec delegators ---------------------------------------------------
 
@@ -177,8 +128,18 @@ class GroupElement(Element):
 
         Recurses children through the shared container dispatcher (the
         agent-side ``element_from_dict``), so an all-ABC subtree decodes
-        to ABC children exactly as the tier factory would.
+        to ABC children exactly as the tier factory would. Rejects a wire
+        dict whose subtree is not all-ABC — the invariant belongs at this
+        type's own boundary, not only in the tier factory (PY-EH-1).
         """
+        if not JsonGroupDecoder.is_all_abc(d):
+            offending = JsonGroupDecoder.first_non_abc_kind(d)
+            group_id = d.get("id")
+            msg = (
+                f"group {group_id!r} is not an all-ABC stack group — "
+                f"offending kind or layout: {offending!r}"
+            )
+            raise ValueError(msg)
         decoder = JsonGroupDecoder(
             decode_element=dispatch.from_dict,
             element_cls=cls,
@@ -192,7 +153,5 @@ class GroupElement(Element):
         return {
             "layout": self._layout,
             "children": [child.id for child in self._children_tuple],
-            "pages": [[elem.id for elem in page] for page in self._pages],
-            "page_source": self._page_source,
             "tooltip": self._tooltip,
         }
