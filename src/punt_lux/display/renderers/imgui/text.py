@@ -6,10 +6,10 @@ its native ``TextRenderer`` (style branches, color) AND runs the generic
 post-processing pass (styled-text tooltip hover). Delegating to
 ``ElementRenderer`` — rather than ``TextRenderer`` directly — preserves
 the tooltip post-processing that per-kind renderer dispatch would
-otherwise bypass. The adapter exists to satisfy the Renderer Protocol
-shape (``render`` / ``begin`` / ``end``) so the template-method
-``Element.render()`` can call it polymorphically; Text is a leaf so
-``begin`` / ``end`` are no-ops.
+otherwise bypass. The adapter satisfies the Renderer Protocol shape
+(``render`` / ``begin`` / ``end``) so both the production ``_paint_element``
+call site and the template-method ``Element.render()`` resolve it
+uniformly; Text is a leaf so ``begin`` / ``end`` are no-ops.
 """
 
 from __future__ import annotations

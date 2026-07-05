@@ -3,9 +3,9 @@
 ABC subclass with ``__new__`` keyword-only construction.  Sentinel
 defaults on ``renderer_factory`` and ``emit`` (shared through
 ``abc_di_defaults``) keep direct-construction call sites (tests, agent
-fixtures) compiling without a tier injection; the wire decode path
-through ``JsonCheckboxDecoder`` always passes real values, so the runtime
-DI shape on the wire path is unchanged.
+fixtures) compiling without a tier injection. The wire decode path
+through ``JsonCheckboxDecoder`` passes the tier's sentinel factory; the
+display-capable factory is bound by the Display's post-receive rebind.
 
 The codec body lives in ``checkbox_codec.py`` (``JsonCheckboxEncoder`` /
 ``JsonCheckboxDecoder``); ``to_dict`` and ``from_dict`` remain on the class

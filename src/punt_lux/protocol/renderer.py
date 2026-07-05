@@ -33,8 +33,8 @@ class Renderer(Protocol):
 class RendererFactory(Protocol):
     """Callable that resolves an Element to its per-kind renderer.
 
-    One factory per Display, constructed once at startup and threaded
-    through the element tree at decode time.
+    One factory per Display, bound onto received elements by the Display's
+    post-receive rebind (``Element.bind_renderer_factory``), not at decode.
     """
 
     def __call__(self, elem: object) -> Renderer: ...

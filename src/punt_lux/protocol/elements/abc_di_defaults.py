@@ -3,8 +3,8 @@
 Direct ``TextElement(id=..., content=...)`` construction (tests, agent
 fixtures) supplies no tier injection, so the ABC element ``__new__``
 signatures default ``renderer_factory`` and ``emit`` to these sentinels.
-The wire decode path always passes real tier values, so the runtime DI
-shape on the wire path is unchanged.
+The wire decode path also passes the sentinel factory; the display-capable
+factory is bound later by the Display's post-receive rebind, not the decoder.
 
 ``RAISING_FACTORY`` fails loud on any ``elem.render()`` from a non-display
 tier (see ``RaisingRendererFactory``); ``NO_EMIT`` is the Null-Object emit

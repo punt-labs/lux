@@ -164,10 +164,6 @@ class DomainPump:
     # ``Display.interact``.
     _NON_ELEMENT_ACTIONS: ClassVar[frozenset[str]] = frozenset({"menu", "frame_close"})
 
-    # route_interaction removed by D21: the display no longer dispatches
-    # interactions locally. The remote_dispatch handler on each element
-    # sends RemoteEventHandlerInvocations to the Hub, where the real handler fires.
-
 
 def _warn_on_error(
     result: Result,

@@ -8,9 +8,9 @@ tier, hiding the bug. This factory raises ``RuntimeError`` on call,
 turning any accidental render-outside-the-display-tier into a loud
 failure instead of an invisible paint.
 
-The display tier sidesteps this factory at decode time by injecting its
-own ``_imgui_renderer_factory``; the Hub/Agent tiers, and the sentinel
-defaults on direct ``TextElement(...)`` construction, get this factory.
+This is a Hub/Agent-tier guard that fires only if ``elem.render()`` is
+called off the display tier; the Display rebinds the real factory onto
+received elements (``Element.bind_renderer_factory``) so its own never see it.
 """
 
 from __future__ import annotations
@@ -40,6 +40,6 @@ class RaisingRendererFactory:
         msg = (
             "RaisingRendererFactory.__call__: element "
             f"{type(elem).__name__} cannot be rendered on this tier; "
-            "inject a display-tier RendererFactory at decode time."
+            "the Display rebinds a real factory via bind_renderer_factory."
         )
         raise RuntimeError(msg)

@@ -6,8 +6,8 @@ remain as short delegators so the runtime-checkable
 ``domain.element.Element`` Protocol stays satisfied.
 
 The decoder injects the tier's ``renderer_factory`` + ``emit`` at
-construction so the element is born with its DI wired in. The encoder
-takes the element state directly — no intermediate render product.
+construction — off the display tier that is the fail-loud sentinel, which
+the Display rebinds post-receive. The encoder takes state directly.
 """
 
 from __future__ import annotations
