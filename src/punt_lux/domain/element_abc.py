@@ -1,31 +1,23 @@
-"""Element ABC with template-method ``render()`` + ``_children()`` hook.
+"""Element ABC: the fixed ``render()`` skeleton + four step hooks.
 
 The ABC carries:
 
-- ``render()`` — template method per Composite pattern; never overridden.
-  Not yet the production paint path (the Display paints via
-  ``_paint_element``); a later PR revives it as the live path.
+- ``render()`` — the never-overridden template skeleton (``_begin`` →
+  ``_paint_self`` → ``_render_children`` → ``_end``). Each step is an
+  overridable hook with a default; a leaf and a plain box override none.
 - ``_children()`` — hook composites override to return their children.
 - ``renderer_factory`` + ``emit`` — set at construction. Off the display
   tier the factory is the fail-loud ``RaisingRendererFactory`` sentinel;
-  the Display rebinds the real factory onto each received ABC element and
-  its ABC ``_children`` (ABC nested in a legacy container is not reached).
-- ``apply_patch()`` — template for scene-graph in-place mutation; the
-  default walks the patch dict calling ``_set_<key>`` per entry.
-- The event handler registry and remote-dispatch behavior come from the
-  ``EventHandlerHost`` mixin (``add_handler`` / ``remove_handler`` /
-  ``fire`` / ``wrap_handlers_for_remote``), kept in its own module so the
-  render core and the dispatch concern each stay one responsibility.
-- A small property-observer surface — ``_removed``, ``_observers``,
-  ``add_observer``, ``mark_removed`` — used by parent composites to
-  react to a child element being removed (agent ``RemoveElement``,
-  component self-dismiss, or connection disconnect all route through
-  the one ``mark_removed`` method).
+  the Display rebinds the real factory via ``bind_renderer_factory``.
+- ``apply_patch()`` — walks a patch dict calling ``_set_<key>`` per entry.
+- The event handler registry + remote dispatch come from the
+  ``EventHandlerHost`` mixin, kept separate so render and dispatch each
+  stay one responsibility.
+- The property-observer surface (``add_observer`` / ``mark_removed``) lets
+  parent composites react to a child being removed.
 
-The ``domain.element.Element`` Protocol is the **structural** contract
-for wire dataclasses and continues to type the dataclass element kinds.
-This ABC is the **behavioral** contract for the ABC element kinds. Both
-names coexist; the file names keep them visually distinct.
+``domain.element.Element`` (Protocol) is the structural contract for wire
+dataclasses; this ABC is the behavioral contract for the ABC kinds.
 """
 
 from __future__ import annotations
@@ -41,7 +33,7 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.event_protocol import Event, Handler
     from punt_lux.domain.validation import ValidationError
-    from punt_lux.protocol.renderer import Emit, RendererFactory
+    from punt_lux.protocol.renderer import Emit, Renderer, RendererFactory
 
 __all__ = ["Element"]
 
@@ -106,25 +98,46 @@ class Element(EventHandlerHost, ABC):
         """Return the element's stable identity within its enclosing Scene."""
 
     def render(self) -> None:
-        """Resolve a renderer and paint this subtree. NEVER overridden.
+        """Fixed template skeleton over four step hooks. NEVER overridden.
 
-        Composite template method. Off the display tier
-        ``_renderer_factory`` is the fail-loud sentinel, so a call raises
-        unless the Display first rebinds the real factory via
-        ``bind_renderer_factory``. Not yet the production paint path — the
-        Display paints through ``_paint_element`` until a later PR flips it.
+        Runs ``_begin`` → ``_paint_self`` → ``_render_children`` → ``_end``;
+        ``_end`` runs in a ``finally`` so an opened ImGui surface stays
+        balanced even if a paint or a child ``render`` raises. Off the display
+        tier the factory is the fail-loud sentinel until rebound on the Display.
         """
         renderer = self._renderer_factory(self)
-        children = self._children()
-        if children:
-            renderer.begin()
-            try:
-                for child in children:
-                    child.render()
-            finally:
-                renderer.end()
-        else:
-            renderer.render()
+        opened = self._begin(renderer)
+        try:
+            if opened:
+                self._paint_self(renderer)
+                self._render_children(renderer)
+        finally:
+            self._end(renderer, opened=opened)
+
+    def _begin(self, renderer: Renderer) -> bool:
+        """Open this node's surface; return whether the inner steps run.
+        Default: delegate to the renderer's ``begin`` — a leaf renderer
+        returns True (nothing to open), a container renderer opens its
+        surface and may report it hidden."""
+        return renderer.begin()
+
+    def _paint_self(self, renderer: Renderer) -> None:
+        """Paint this node's own body. Default: delegate to the renderer.
+        A pure container's renderer ``paint`` is a no-op."""
+        renderer.paint()
+
+    def _render_children(self, renderer: Renderer) -> None:
+        """Paint the children between ``_begin`` and ``_end``. Default:
+        recurse ``_children()``; a leaf paints nothing."""
+        _ = renderer
+        for child in self._children():
+            child.render()
+
+    def _end(self, renderer: Renderer, *, opened: bool) -> None:
+        """Close this node's surface. Default: delegate to the renderer's
+        ``end`` — a leaf renderer's ``end`` is a no-op, a container renderer
+        closes only what ``opened`` says it opened."""
+        renderer.end(opened=opened)
 
     def _children(self) -> tuple[Element, ...]:
         """Hook — composites override to return their children. Leaves
@@ -148,11 +161,8 @@ class Element(EventHandlerHost, ABC):
         """Return this element's own validation errors.
 
         Sensible leaf default: no errors. Each kind overrides this to
-        check what is *component-appropriate* for its widget — a table
-        checks that rows fit its columns, a dialog would check its
-        buttons are wired. The tree walk calls this on every element and
-        accumulates the results; an element with nothing to check simply
-        returns the empty default.
+        check what is *component-appropriate* for its widget. The tree
+        walk calls this on every element and accumulates the results.
         """
         return ()
 
@@ -169,21 +179,13 @@ class Element(EventHandlerHost, ABC):
     def apply_patch(self, patch: Mapping[str, object]) -> Self:
         """Apply a field patch in place by dispatching to ``_set_<key>``.
 
-        Default implementation: for each ``(key, value)`` pair, look up
-        ``_set_{key}`` on ``self`` and call it with the value. Subclasses
-        override this only when patch semantics differ from one setter
-        per field; the common case is the default.
-
-        Public method (not ``_patch``) because ``SceneManager._apply_patch_set``
-        invokes it from outside the class — a leading underscore would
-        trigger pyright's ``reportPrivateUsage`` even though the call is
-        the documented contract. Internal ``_set_<key>`` helpers stay
-        private to this class.
-
-        Returns ``self`` so the call site can be a drop-in replacement
-        for the dataclass ``replace(...)`` path. The element is mutated
-        in place (ABC elements are mutable; dataclass elements are frozen
-        — the two branches converge in ``SceneManager._apply_patch_set``).
+        For each ``(key, value)`` pair, call ``_set_{key}(value)``.
+        Subclasses override only when patch semantics differ from one
+        setter per field. Public (not ``_patch``) because
+        ``SceneManager._apply_patch_set`` invokes it from outside the
+        class. Returns ``self`` so the call site is a drop-in replacement
+        for the dataclass ``replace(...)`` path (ABC elements mutate in
+        place; dataclass elements are frozen).
         """
         for key, value in patch.items():
             setter = getattr(self, f"_set_{key}", None)

@@ -1,23 +1,12 @@
 """DialogElement — composite Element with a private model and child Buttons.
 
-A DialogElement is the canonical example of the MVC component pattern:
-
-- The ``DialogModel`` (private to this module) holds the dialog's own
-  state — visibility and confirmation — and publishes a typed verb
-  vocabulary the child controllers may invoke.
-- The ``DialogElement`` itself is the view: its ``visible`` property
-  reflects the model, its ``_children()`` hook exposes the child
-  controllers to the Composite render loop.
-- The child Buttons are the controllers. The wire decoder
-  (``JsonDialogDecoder``) constructs the model first, binds
-  ``model.on_dismiss`` to the dialog's own ``mark_removed``, then
-  decodes each child Button with a ``HandlerDecoder`` that closes over
-  the model — so a child Button's ``call_model`` factory resolves the
-  wire verb against the model's vocabulary at decode time.
-
-The model's ``_dismiss`` reaches the Element ABC's ``mark_removed``
-through the bound callback; the Element ABC's observer cascade is what
-notifies the dialog's parent composite that the dialog is gone.
+The canonical MVC component: the private ``DialogModel`` holds state
+(visibility, confirmation) and a typed verb vocabulary; the
+``DialogElement`` is the view (its ``visible`` reflects the model, its
+``_children()`` exposes the child controllers); the child Buttons are the
+controllers. The decoder binds ``model.on_dismiss`` to the dialog's
+``mark_removed``, so ``_dismiss`` flows through the Element ABC's observer
+cascade to notify the parent composite.
 """
 
 from __future__ import annotations
@@ -207,7 +196,12 @@ class DialogElement(Element):
         return self._children_tuple
 
     def _children(self) -> tuple[Element, ...]:
-        """Hook override — Composite render walks these in order."""
+        """Hook override — Composite render walks these in order.
+
+        The dialog overrides no render step hook: the ABC defaults already
+        drive its renderer's ``begin``/``paint``/``end``, and the dialog's
+        ImGui renderer encodes the modal open/close + Escape-dismiss seam.
+        """
         return self._children_tuple
 
     # -- decoder seam ------------------------------------------------------

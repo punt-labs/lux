@@ -9,6 +9,7 @@ begin/end entries.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Self
 
@@ -41,7 +42,7 @@ class RecordingLog:
         """Return the file path the log writes to."""
         return self._path
 
-    def append(self, entry: dict[str, object]) -> None:
+    def append(self, entry: Mapping[str, object]) -> None:
         """Append one JSON entry as a single line to the log."""
         with self._path.open("a", encoding="utf-8") as fh:
             fh.write(json.dumps(entry) + "\n")
@@ -73,17 +74,20 @@ class RecordingRenderer:
         self._id = elem_id
         return self
 
-    def render(self) -> None:
-        """Record a leaf render."""
-        self._log.append({"op": "render", "kind": self._kind, "id": self._id})
-
-    def begin(self) -> None:
-        """Record a composite begin."""
+    def begin(self) -> bool:
+        """Record a begin and report the surface open (inner steps run)."""
         self._log.append({"op": "begin", "kind": self._kind, "id": self._id})
+        return True
 
-    def end(self) -> None:
-        """Record a composite end."""
-        self._log.append({"op": "end", "kind": self._kind, "id": self._id})
+    def paint(self) -> None:
+        """Record a paint of the node's own body."""
+        self._log.append({"op": "paint", "kind": self._kind, "id": self._id})
+
+    def end(self, *, opened: bool) -> None:
+        """Record an end, carrying ``begin``'s open verdict."""
+        self._log.append(
+            {"op": "end", "kind": self._kind, "id": self._id, "opened": opened}
+        )
 
 
 class RecordingRendererFactory:

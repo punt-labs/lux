@@ -268,6 +268,10 @@ class DisplayServer:
             # working through the per-kind renderer dispatch path.
             element_renderer=self._element_renderer,
         )
+        # Bind the factory back so ElementRenderer can build the dialog
+        # renderer for a dialog held by a legacy container (the factory needs
+        # the ElementRenderer first, so the link is completed here).
+        self._element_renderer.imgui_renderer_factory = self._imgui_renderer_factory
 
         # Register display-specific query handlers that need ImGui state.
         self._scene_inspector = SceneInspector(
@@ -778,6 +782,10 @@ class DisplayServer:
             "pid": os.getpid(),
             "uptime_seconds": round(time.time() - self._start_time, 1),
             "protocol_version": "1.0",
+            # The four migrated ABC kinds stay in the legacy dispatch tables
+            # during the fork's mixed period (they paint via the per-kind
+            # renderer when nested in a legacy container), so the count is
+            # honest without a separate factory addend.
             "element_kinds": self._element_renderer.element_kind_count,
         }
 
@@ -1459,9 +1467,13 @@ class DisplayServer:
 
     @trace
     def _paint_element(self, elem: Element) -> None:
-        """Dispatch one element to its renderer (ImGui factory or legacy path)."""
-        if isinstance(elem, TextElement):
-            self._imgui_renderer_factory(elem).render()
+        """Dispatch one element to its renderer (ABC template or legacy path).
+
+        A migrated ABC element paints through its ``render()`` template
+        skeleton; every other kind takes the legacy ``ElementRenderer``.
+        """
+        if isinstance(elem, AbcElement):
+            elem.render()
         else:
             self._element_renderer.render_element(elem)
 
@@ -1505,10 +1517,7 @@ class DisplayServer:
 
             imgui.separator_text(scene.title)
         for elem in scene.elements:
-            if isinstance(elem, TextElement):
-                self._imgui_renderer_factory(elem).render()
-            else:
-                self._element_renderer.render_element(elem)
+            self._paint_element(elem)
 
     # Element rendering delegated to ElementRenderer -- see element_renderer.py.
 

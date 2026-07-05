@@ -1,9 +1,9 @@
 """RecordingRenderer + RecordingRendererFactory append JSONL traces.
 
 The recording surface is the headless test fixture for the renderer
-Protocol. Each render/begin/end appends one entry; the factory
-dispatches by ``isinstance(elem, Element)`` against the
-runtime-checkable domain Protocol (PY-TS-10 — no hasattr dispatch).
+Protocol. Each begin/paint/end appends one entry; the factory dispatches
+by ``isinstance(elem, Element)`` against the runtime-checkable domain
+Protocol (PY-TS-10 — no hasattr dispatch).
 """
 
 from __future__ import annotations
@@ -53,28 +53,30 @@ def test_recording_log_creates_empty_file_on_construction() -> None:
         assert log.lines() == ()
 
 
-def test_recording_renderer_render_appends_entry() -> None:
+def test_recording_renderer_paint_appends_entry() -> None:
     with tempfile.TemporaryDirectory(prefix="lux-rec-") as raw_dir:
-        log = RecordingLog(_log_path(Path(raw_dir), "render"))
+        log = RecordingLog(_log_path(Path(raw_dir), "paint"))
         renderer = RecordingRenderer(log, "text", "t1")
-        renderer.render()
-        assert log.lines() == ({"op": "render", "kind": "text", "id": "t1"},)
+        renderer.paint()
+        assert log.lines() == ({"op": "paint", "kind": "text", "id": "t1"},)
 
 
-def test_recording_renderer_begin_appends_entry() -> None:
+def test_recording_renderer_begin_appends_entry_and_reports_open() -> None:
     with tempfile.TemporaryDirectory(prefix="lux-rec-") as raw_dir:
         log = RecordingLog(_log_path(Path(raw_dir), "begin"))
         renderer = RecordingRenderer(log, "group", "g1")
-        renderer.begin()
+        assert renderer.begin() is True
         assert log.lines() == ({"op": "begin", "kind": "group", "id": "g1"},)
 
 
-def test_recording_renderer_end_appends_entry() -> None:
+def test_recording_renderer_end_appends_entry_with_opened() -> None:
     with tempfile.TemporaryDirectory(prefix="lux-rec-") as raw_dir:
         log = RecordingLog(_log_path(Path(raw_dir), "end"))
         renderer = RecordingRenderer(log, "group", "g1")
-        renderer.end()
-        assert log.lines() == ({"op": "end", "kind": "group", "id": "g1"},)
+        renderer.end(opened=True)
+        assert log.lines() == (
+            {"op": "end", "kind": "group", "id": "g1", "opened": True},
+        )
 
 
 def test_recording_renderer_factory_dispatches_by_kind_and_id() -> None:
@@ -82,8 +84,8 @@ def test_recording_renderer_factory_dispatches_by_kind_and_id() -> None:
         log = RecordingLog(_log_path(Path(raw_dir), "factory"))
         factory = RecordingRendererFactory(log)
         renderer = factory(_FakeElement(id="x", kind="text"))
-        renderer.render()
-        assert log.lines() == ({"op": "render", "kind": "text", "id": "x"},)
+        renderer.paint()
+        assert log.lines() == ({"op": "paint", "kind": "text", "id": "x"},)
 
 
 def test_recording_renderer_factory_raises_on_non_element() -> None:

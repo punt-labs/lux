@@ -28,28 +28,16 @@ from punt_lux.display.renderers import (
     SpinnerRenderer,
     TextRenderer,
 )
+from punt_lux.display.renderers.container_renderer import ContainerRenderer
+from punt_lux.display.renderers.draw_element_renderer import DrawElementRenderer
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
-from punt_lux.protocol import (
-    CollapsingHeaderElement,
-    GroupElement,
-    RemoteEventHandlerInvocation,
-    TabBarElement,
-    WindowElement,
-)
+from punt_lux.protocol import RemoteEventHandlerInvocation
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.combo import ComboElement
-from punt_lux.protocol.elements.draw_command_kind import DrawCommand
-from punt_lux.protocol.elements.draw_commands_curve import BezierCubic
-from punt_lux.protocol.elements.draw_commands_line import Line, Polyline
-from punt_lux.protocol.elements.draw_commands_shape import (
-    Circle,
-    Rect,
-    Triangle,
-)
-from punt_lux.protocol.elements.draw_commands_text import TextGlyph
+from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.graphics import DrawElement
 from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
@@ -65,6 +53,7 @@ from punt_lux.protocol.elements.text import TextElement
 from punt_lux.scene import WidgetState
 
 if TYPE_CHECKING:
+    from punt_lux.display.renderers.imgui import ImGuiRendererFactory
     from punt_lux.protocol import Element
     from punt_lux.types import EmitEventFn
 
@@ -83,6 +72,11 @@ class ElementRenderer:
     _emit_event: EmitEventFn
     _current_scene_id: str | None
     _check_dirty_window: DirtyWindowFn
+    # Bound after construction (the factory needs this ElementRenderer first).
+    # Used only by ``_render_dialog`` to build the dialog's ImGui renderer for
+    # a dialog held by a legacy container; a top-level dialog paints through
+    # the ABC ``render()`` template and never reaches that method.
+    _imgui_renderer_factory: ImGuiRendererFactory
     # Per-kind renderer classes for the basics + inputs families.
     # Other families still go through ``_RENDERERS`` until extracted.
     _text_renderer: TextRenderer
@@ -100,6 +94,10 @@ class ElementRenderer:
     _radio_renderer: RadioRenderer
     _color_picker_renderer: ColorPickerRenderer
     _selectable_renderer: SelectableRenderer
+    _draw_element_renderer: DrawElementRenderer
+    # Layout containers (group, tab bar, collapsing header, window) recurse
+    # their children back through ``render_element`` via a callback.
+    _container_renderer: ContainerRenderer
 
     _RENDERERS: ClassVar[dict[str, str]] = {
         "draw": "_render_draw",
@@ -144,6 +142,10 @@ class ElementRenderer:
         self._radio_renderer = RadioRenderer(widget_state, emit_event)
         self._color_picker_renderer = ColorPickerRenderer(widget_state, emit_event)
         self._selectable_renderer = SelectableRenderer(widget_state, emit_event)
+        self._draw_element_renderer = DrawElementRenderer()
+        self._container_renderer = ContainerRenderer(
+            widget_state, check_dirty_window, self.render_element
+        )
         return self
 
     # Per-kind dispatch table: (element type, renderer-attribute name).  Single
@@ -179,12 +181,43 @@ class ElementRenderer:
         "_radio_renderer",
         "_color_picker_renderer",
         "_selectable_renderer",
+        "_container_renderer",
     )
 
     @property
     def element_kind_count(self) -> int:
         """Return the number of supported element kinds."""
         return len(self._RENDERERS) + len(self._NATIVE_DISPATCH)
+
+    @property
+    def text_renderer(self) -> TextRenderer:
+        """Return the per-kind text renderer for the ImGui text adapter.
+
+        A narrow seam: the ImGui ``ImGuiTextRenderer`` paints through this
+        instance so the shared ``apply_tooltip`` pass runs against the same
+        renderer the legacy dispatch used.
+        """
+        return self._text_renderer
+
+    @property
+    def button_renderer(self) -> ButtonRenderer:
+        """Return the per-kind button renderer for the ImGui button adapter.
+
+        The instance is owned here, not by the factory, so the D21 fire
+        path and handler wrapping stay on the one renderer the migration
+        exercises.
+        """
+        return self._button_renderer
+
+    @property
+    def checkbox_renderer(self) -> CheckboxRenderer:
+        """Return the per-kind checkbox renderer for the ImGui checkbox adapter.
+
+        This is the instance the ``widget_state`` setter re-threads per
+        scene, so painting through it reads the current scene's state — not
+        the factory's stale construction-time copy.
+        """
+        return self._checkbox_renderer
 
     @property
     def widget_state(self) -> WidgetState:
@@ -204,6 +237,15 @@ class ElementRenderer:
     def current_scene_id(self, value: str | None) -> None:
         self._current_scene_id = value
 
+    @property
+    def imgui_renderer_factory(self) -> ImGuiRendererFactory:
+        """Return the ImGui factory bound after construction."""
+        return self._imgui_renderer_factory
+
+    @imgui_renderer_factory.setter
+    def imgui_renderer_factory(self, value: ImGuiRendererFactory) -> None:
+        self._imgui_renderer_factory = value
+
     # -- dispatch --------------------------------------------------------------
 
     def render_element(self, elem: Element) -> None:
@@ -218,18 +260,32 @@ class ElementRenderer:
             else:
                 imgui.text(f"[unsupported element: {elem.kind}]")
 
-        # Unstyled text with tooltip uses selectable() in TextRenderer
-        # and handles its own tooltip there.  All other elements (including
-        # styled text) use this generic tooltip handler.
+        # A dialog applies its own tooltip in ImGuiDialogRenderer.end (both the
+        # top-level ABC path and the nested _render_dialog path); skip the
+        # generic post-pass so the tooltip is not applied twice.
+        if not isinstance(elem, DialogElement):
+            self.apply_tooltip(elem)
+
+    def apply_tooltip(self, elem: Element) -> None:
+        """Paint ``elem``'s generic hover tooltip, if it has one.
+
+        Shared post-processing for the legacy dispatch and the per-kind
+        ImGui adapters. Unstyled text with a tooltip is skipped: its
+        ``TextRenderer`` paints it with ``selectable()`` and emits the
+        tooltip inline, so a second pass here would double it.
+        """
+        from imgui_bundle import imgui
+
         is_text_with_inline_tooltip = (
             elem.kind == "text"
             and not getattr(elem, "style", None)
             and getattr(elem, "tooltip", None)
         )
-        if not is_text_with_inline_tooltip:
-            tooltip = getattr(elem, "tooltip", None)
-            if tooltip and imgui.is_item_hovered(imgui.HoveredFlags_.for_tooltip.value):
-                imgui.set_tooltip(tooltip)
+        if is_text_with_inline_tooltip:
+            return
+        tooltip = getattr(elem, "tooltip", None)
+        if tooltip and imgui.is_item_hovered(imgui.HoveredFlags_.for_tooltip.value):
+            imgui.set_tooltip(tooltip)
 
     def _dispatch_native(self, elem: Element) -> bool:
         """Route per-kind renderer classes (basics + inputs).
@@ -243,195 +299,23 @@ class ElementRenderer:
                 return True
         return False
 
-    # -- color helpers ---------------------------------------------------------
-
-    @staticmethod
-    def _parse_color(
-        color: str | list[int] | tuple[int, ...] | Any,
-    ) -> tuple[int, int, int, int]:
-        """Parse a color value to (r, g, b, a) ints 0-255."""
-        if isinstance(color, (list, tuple)):
-            try:
-                if len(color) >= 4:
-                    return (
-                        int(color[0]),
-                        int(color[1]),
-                        int(color[2]),
-                        int(color[3]),
-                    )
-                if len(color) == 3:
-                    return (
-                        int(color[0]),
-                        int(color[1]),
-                        int(color[2]),
-                        255,
-                    )
-            except (TypeError, ValueError):
-                pass
-            logger.warning("Invalid RGBA color %r; using fallback white", color)
-            return (255, 255, 255, 255)
-        if not isinstance(color, str):
-            logger.warning(
-                "Invalid color type %r; using fallback white",
-                type(color),
-            )
-            return (255, 255, 255, 255)
-        h = color.lstrip("#")
-        try:
-            if len(h) == 6:
-                r, g, b = (
-                    int(h[0:2], 16),
-                    int(h[2:4], 16),
-                    int(h[4:6], 16),
-                )
-                return (r, g, b, 255)
-            if len(h) == 8:
-                r, g, b, a = (
-                    int(h[0:2], 16),
-                    int(h[2:4], 16),
-                    int(h[4:6], 16),
-                    int(h[6:8], 16),
-                )
-                return (r, g, b, a)
-        except ValueError:
-            logger.warning("Invalid hex color %r; using fallback white", color)
-        return (255, 255, 255, 255)
-
-    @staticmethod
-    def _to_imgui_color(
-        color: str | list[int] | tuple[int, ...] | Any,
-    ) -> int:
-        """Convert a color value to ImGui packed color (ImU32)."""
-        from imgui_bundle import ImVec4, imgui
-
-        r, g, b, a = ElementRenderer._parse_color(color)
-        result: int = imgui.get_color_u32(
-            ImVec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0)
-        )
-        return result
-
     # -- container rendering ---------------------------------------------------
 
     def _render_group(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        grp = cast("GroupElement", elem)
-        layout = grp.layout
-
-        if layout == "paged":
-            self._render_paged_group(grp)
-            return
-
-        for i, child in enumerate(grp.children):
-            if layout == "columns" and i > 0:
-                imgui.same_line()
-            self.render_element(child)
-
-    def _paged_group_state_key(self, grp_id: str, page_source: str | None) -> str:
-        """Return the widget_state key for a paged group's page index."""
-        return page_source if page_source else f"{grp_id}__pg_idx"
-
-    def _paged_group_read_index(self, state_key: str, total: int) -> int:
-        """Read and clamp the current page index from widget_state."""
-        raw = self._widget_state.get(state_key)
-        page_idx = raw if isinstance(raw, int) else 0
-        return max(0, min(page_idx, total - 1)) if total else 0
-
-    def _render_paged_group(self, grp: Any) -> None:
-        """Render a paged group with built-in Prev/Next navigation."""
-        from imgui_bundle import imgui
-
-        pages = grp.pages
-        total = len(pages) if pages else 0
-        page_source: str | None = grp.page_source
-        state_key = self._paged_group_state_key(grp.id, page_source)
-        page_idx = self._paged_group_read_index(state_key, total)
-
-        # Nav row: << Prev | [combo] | Next >>
-        if imgui.button(f"<< Prev##{grp.id}_prev") and page_idx > 0:
-            page_idx -= 1
-            self._widget_state.set(state_key, page_idx)
-        imgui.same_line()
-
-        # Render the combo (from page_source) inline; other children after.
-        other_children: list[Any] = []
-        for child in grp.children:
-            if page_source and getattr(child, "id", None) == page_source:
-                self.render_element(child)
-                imgui.same_line()
-            else:
-                other_children.append(child)
-
-        if imgui.button(f"Next >>##{grp.id}_next") and page_idx < total - 1:
-            page_idx += 1
-            self._widget_state.set(state_key, page_idx)
-
-        # Re-read after all interactions (Prev, combo change, Next) so the
-        # page content always reflects the final widget_state value.
-        page_idx = self._paged_group_read_index(state_key, total)
-
-        for child in other_children:
-            self.render_element(child)
-
-        if pages and 0 <= page_idx < total:
-            for child in pages[page_idx]:
-                self.render_element(child)
+        """Delegate group rendering to the ContainerRenderer."""
+        self._container_renderer.render_group(elem)
 
     def _render_tab_bar(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        tb = cast("TabBarElement", elem)
-        if imgui.begin_tab_bar(f"##{tb.id}"):
-            for tab in tb.tabs:
-                tab_label: str = tab.get("label", "Tab")
-                if imgui.begin_tab_item(tab_label)[0]:
-                    for child in tab.get("children", []):
-                        self.render_element(child)
-                    imgui.end_tab_item()
-            imgui.end_tab_bar()
+        """Delegate tab-bar rendering to the ContainerRenderer."""
+        self._container_renderer.render_tab_bar(elem)
 
     def _render_collapsing_header(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        ch = cast("CollapsingHeaderElement", elem)
-        flags = imgui.TreeNodeFlags_.default_open.value if ch.default_open else 0
-        if imgui.collapsing_header(f"{ch.label}##{ch.id}", flags=flags):
-            for child in ch.children:
-                self.render_element(child)
+        """Delegate collapsing-header rendering to the ContainerRenderer."""
+        self._container_renderer.render_collapsing_header(elem)
 
     def _render_window(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        win = cast("WindowElement", elem)
-        flags = 0
-        if win.no_move:
-            flags |= imgui.WindowFlags_.no_move.value
-        if win.no_resize:
-            flags |= imgui.WindowFlags_.no_resize.value
-        if win.no_collapse:
-            flags |= imgui.WindowFlags_.no_collapse.value
-        if win.no_title_bar:
-            flags |= imgui.WindowFlags_.no_title_bar.value
-        if win.no_scrollbar:
-            flags |= imgui.WindowFlags_.no_scrollbar.value
-        if win.auto_resize:
-            flags |= imgui.WindowFlags_.always_auto_resize.value
-
-        # check_dirty_window returns True and clears the flag when
-        # the window was marked dirty by a scene update.
-        if self._check_dirty_window(win.id):
-            cond = imgui.Cond_.always.value
-        else:
-            cond = imgui.Cond_.first_use_ever.value
-        imgui.set_next_window_pos((win.x, win.y), cond)
-        imgui.set_next_window_size((win.width, win.height), cond)
-
-        title = win.title or win.id
-        expanded, _ = imgui.begin(f"{title}##{win.id}", flags=flags)
-        if expanded:
-            for child in win.children:
-                self.render_element(child)
-        imgui.end()
+        """Delegate window rendering to the ContainerRenderer."""
+        self._container_renderer.render_window(elem)
 
     # -- tree rendering --------------------------------------------------------
 
@@ -516,34 +400,37 @@ class ElementRenderer:
         from imgui_bundle import ImVec2, implot
 
         plt: Any = elem
-        eid: str = plt.id
         title: str = plt.title
-        plot_title = title if "##" in title else f"{title}##{eid}"
+        plot_title = title if "##" in title else f"{title}##{plt.id}"
 
         if implot.begin_plot(plot_title, ImVec2(plt.width, plt.height)):
             if plt.x_label or plt.y_label:
                 implot.setup_axes(plt.x_label or "", plt.y_label or "")
-
             for series in plt.series:
-                s_label: str = series.get("label", "data")
-                s_type: str = series.get("type", "line")
-                x_data = np.array(series.get("x", []), dtype=np.float64)
-                y_data = np.array(series.get("y", []), dtype=np.float64)
-
-                if len(x_data) == 0 or len(y_data) == 0:
-                    continue
-
-                if s_type == "line":
-                    implot.plot_line(s_label, x_data, y_data)
-                elif s_type == "scatter":
-                    implot.plot_scatter(s_label, x_data, y_data)
-                elif s_type == "bar":
-                    try:
-                        implot.plot_bars(s_label, x_data, y_data, 0.67)
-                    except TypeError:
-                        implot.plot_bars(s_label, y_data, 0.67)
-
+                self._plot_series(series)
             implot.end_plot()
+
+    @staticmethod
+    def _plot_series(series: dict[str, Any]) -> None:
+        """Plot one series (line / scatter / bar) from its wire mapping."""
+        from imgui_bundle import implot
+
+        x_data = np.array(series.get("x", []), dtype=np.float64)
+        y_data = np.array(series.get("y", []), dtype=np.float64)
+        if len(x_data) == 0 or len(y_data) == 0:
+            return
+
+        label: str = series.get("label", "data")
+        s_type: str = series.get("type", "line")
+        if s_type == "line":
+            implot.plot_line(label, x_data, y_data)
+        elif s_type == "scatter":
+            implot.plot_scatter(label, x_data, y_data)
+        elif s_type == "bar":
+            try:
+                implot.plot_bars(label, x_data, y_data, 0.67)
+            except TypeError:
+                implot.plot_bars(label, y_data, 0.67)
 
     # -- modal rendering -------------------------------------------------------
 
@@ -602,155 +489,36 @@ class ElementRenderer:
     # -- dialog rendering ------------------------------------------------------
 
     def _render_dialog(self, elem: Element) -> None:
-        """Paint a DialogElement frame and recurse into its child Buttons."""
-        from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
-        from punt_lux.protocol.elements.dialog import DialogElement
+        """Paint a DialogElement held by a legacy container.
 
+        A top-level dialog paints through the ABC ``render()`` template; one
+        nested in a legacy container reaches here via ``render_element``. Drive
+        the same begin/paint/end dialog renderer and recurse its child Buttons
+        through the legacy per-kind dispatch so they paint via the shared
+        ButtonRenderer — identical pixels to the top-level path.
+        """
         if not isinstance(elem, DialogElement):
             msg = f"_render_dialog expected DialogElement; got {type(elem).__name__}"
             raise TypeError(msg)
-        ImGuiDialogRenderer(elem, self._widget_state, self._button_renderer).render()
+        renderer = self._imgui_renderer_factory(elem)
+        opened = renderer.begin()
+        try:
+            if opened:
+                renderer.paint()
+                # Dialog children are ABC Buttons; the legacy dispatch is typed
+                # for the wire-kind union, of which ButtonElement is a member.
+                for child in elem.children:
+                    self.render_element(cast("Element", child))
+        finally:
+            # ``end`` closes the popup and applies the dialog's tooltip; run it
+            # even if a child raises so the opened modal surface stays balanced.
+            renderer.end(opened=opened)
 
     # -- draw element rendering ------------------------------------------------
 
     def _render_draw(self, elem: Element) -> None:
-        from imgui_bundle import ImVec2, imgui
-
+        """Delegate a DrawElement to the extracted ``DrawElementRenderer``."""
         if not isinstance(elem, DrawElement):
             msg = f"_render_draw expected DrawElement; got {type(elem).__name__}"
             raise TypeError(msg)
-
-        canvas_pos = imgui.get_cursor_screen_pos()
-        canvas_min = ImVec2(canvas_pos.x, canvas_pos.y)
-        canvas_max = ImVec2(canvas_pos.x + elem.width, canvas_pos.y + elem.height)
-        draw_list = imgui.get_window_draw_list()
-
-        draw_list.push_clip_rect(canvas_min, canvas_max, True)  # noqa: FBT003
-
-        if elem.bg_color is not None:
-            bg_u32 = self._to_imgui_color(elem.bg_color)
-            draw_list.add_rect_filled(canvas_min, canvas_max, bg_u32)
-
-        ox, oy = canvas_pos.x, canvas_pos.y
-        # Wire decoding ran in DrawCommandDecoder; the renderer cannot
-        # receive a malformed command. The previous try/except that swallowed
-        # KeyError/IndexError/TypeError/ValueError was masking the silent-
-        # default bug the typed decoder now prevents at the wire boundary.
-        for cmd in elem.commands:
-            self._dispatch_draw_cmd(draw_list, cmd, ox, oy)
-
-        draw_list.pop_clip_rect()
-        imgui.dummy(ImVec2(elem.width, elem.height))
-        _ = elem.id  # used for future interaction tracking
-
-    def _dispatch_draw_cmd(
-        self,
-        draw_list: Any,
-        cmd: DrawCommand,
-        ox: float,
-        oy: float,
-    ) -> None:
-        match cmd:
-            case Line():
-                self._draw_line(draw_list, cmd, ox, oy)
-            case Rect():
-                self._draw_rect(draw_list, cmd, ox, oy)
-            case Circle():
-                self._draw_circle(draw_list, cmd, ox, oy)
-            case Triangle():
-                self._draw_triangle(draw_list, cmd, ox, oy)
-            case TextGlyph():
-                self._draw_text(draw_list, cmd, ox, oy)
-            case Polyline():
-                self._draw_polyline(draw_list, cmd, ox, oy)
-            case BezierCubic():
-                self._draw_bezier(draw_list, cmd, ox, oy)
-            case _:
-                # Unreachable in normal use — DrawCommand is the closed union
-                # of the typed records registered with the decoder. Raise so a
-                # new kind added without renderer support fails loud rather
-                # than silently rendering nothing.
-                msg = f"unhandled draw command kind: {type(cmd).__name__}"
-                raise TypeError(msg)
-
-    def _draw_line(self, dl: Any, cmd: Line, ox: float, oy: float) -> None:
-        from imgui_bundle import ImVec2
-
-        color = self._to_imgui_color(cmd.color.value)
-        dl.add_line(
-            ImVec2(ox + cmd.p1.x, oy + cmd.p1.y),
-            ImVec2(ox + cmd.p2.x, oy + cmd.p2.y),
-            color,
-            cmd.thickness.value,
-        )
-
-    def _draw_rect(self, dl: Any, cmd: Rect, ox: float, oy: float) -> None:
-        from imgui_bundle import ImVec2
-
-        color = self._to_imgui_color(cmd.color.value)
-        if cmd.filled:
-            dl.add_rect_filled(
-                ImVec2(ox + cmd.min.x, oy + cmd.min.y),
-                ImVec2(ox + cmd.max.x, oy + cmd.max.y),
-                color,
-                cmd.rounding.value,
-            )
-        else:
-            dl.add_rect(
-                ImVec2(ox + cmd.min.x, oy + cmd.min.y),
-                ImVec2(ox + cmd.max.x, oy + cmd.max.y),
-                color,
-                cmd.rounding.value,
-                0,
-                cmd.thickness.value,
-            )
-
-    def _draw_circle(self, dl: Any, cmd: Circle, ox: float, oy: float) -> None:
-        from imgui_bundle import ImVec2
-
-        color = self._to_imgui_color(cmd.color.value)
-        center = ImVec2(ox + cmd.center.x, oy + cmd.center.y)
-        if cmd.filled:
-            dl.add_circle_filled(center, cmd.radius.value, color)
-        else:
-            dl.add_circle(center, cmd.radius.value, color, 0, cmd.thickness.value)
-
-    def _draw_triangle(self, dl: Any, cmd: Triangle, ox: float, oy: float) -> None:
-        from imgui_bundle import ImVec2
-
-        color = self._to_imgui_color(cmd.color.value)
-        p1 = ImVec2(ox + cmd.p1.x, oy + cmd.p1.y)
-        p2 = ImVec2(ox + cmd.p2.x, oy + cmd.p2.y)
-        p3 = ImVec2(ox + cmd.p3.x, oy + cmd.p3.y)
-        if cmd.filled:
-            dl.add_triangle_filled(p1, p2, p3, color)
-        else:
-            dl.add_triangle(p1, p2, p3, color, cmd.thickness.value)
-
-    def _draw_text(self, dl: Any, cmd: TextGlyph, ox: float, oy: float) -> None:
-        from imgui_bundle import ImVec2
-
-        color = self._to_imgui_color(cmd.color.value)
-        dl.add_text(ImVec2(ox + cmd.pos.x, oy + cmd.pos.y), color, cmd.text)
-
-    def _draw_polyline(self, dl: Any, cmd: Polyline, ox: float, oy: float) -> None:
-        from imgui_bundle import ImVec2
-
-        im_draw_flags_closed = 1
-        color = self._to_imgui_color(cmd.color.value)
-        points = [ImVec2(ox + p.x, oy + p.y) for p in cmd.points]
-        flags = im_draw_flags_closed if cmd.closed else 0
-        dl.add_polyline(points, color, flags, cmd.thickness.value)
-
-    def _draw_bezier(self, dl: Any, cmd: BezierCubic, ox: float, oy: float) -> None:
-        from imgui_bundle import ImVec2
-
-        color = self._to_imgui_color(cmd.color.value)
-        dl.add_bezier_cubic(
-            ImVec2(ox + cmd.p1.x, oy + cmd.p1.y),
-            ImVec2(ox + cmd.p2.x, oy + cmd.p2.y),
-            ImVec2(ox + cmd.p3.x, oy + cmd.p3.y),
-            ImVec2(ox + cmd.p4.x, oy + cmd.p4.y),
-            color,
-            cmd.thickness.value,
-        )
+        self._draw_element_renderer.render(elem)
