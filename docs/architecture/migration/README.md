@@ -10,14 +10,36 @@ ADRs in [`../../../DESIGN.md`](../../../DESIGN.md)).
 
 ## Where we are
 
-**4 of 25 element kinds are on the new Element-ABC path** — the io-model kinds
-`text` (a display-only leaf) plus the interactive `button`, `checkbox`, and
-`dialog`. The other 21 are still
-legacy frozen dataclasses on the `SceneManager` + dual-write `DomainPump` path.
-Of the 21: ~9 are interactive (need the full D21 remote-dispatch treatment) and
-~12 are display-only (need an `ElementABC` with render/id/children but no
-handler wrapping); `table` sits on the boundary because it carries built-in
-view state.
+**6 of 25 element kinds are on the new Element-ABC path**, and the foundation
+under them is complete:
+
+- **Migrated kinds:** the io-model leaves `text`, `button`, `checkbox`,
+  `dialog`; the first container `group` (rows / columns); and the first
+  display-only primitive `progress`.
+- **The render engine (PR #239):** `Element.render()` is now the real paint
+  path — a fixed Template-Method skeleton (`_begin` / `_paint_self` /
+  `_render_children` / `_end`) on the ABC, with per-kind ImGui adapters
+  resolved through the factory. `render_path == "abc"` now means the element
+  *paints* via the new path, not merely that its type/routing flipped.
+- **State-machine coverage:** `SceneManager` reaches ABC subtrees for patching
+  and lifecycle through the `child_elements()` Protocol (extracted
+  `SceneTreeWalk` + `PatchApplier`), so an element nested in an all-ABC `group`
+  is patched, validated, and stale-id-reaped correctly.
+- **Patch crash-freedom (proven):** the patch-application state machine is
+  formalized in [`../../patch_application.tex`](../../patch_application.tex),
+  ProB-model-checked exhaustively (4445 states) — no agent patch of any kind
+  can terminate the display; a rejected patch is atomic and never aborts the
+  batch; no out-of-range value is installed. Committed as a regression artifact
+  (re-run `fuzz` + the model-check whenever the modeled code changes).
+
+The other 19 kinds are still legacy frozen dataclasses on the `SceneManager` +
+dual-write `DomainPump` path. Of them: ~8 are interactive (need the full D21
+remote-dispatch treatment) and ~11 are display-only; `table` sits on the
+boundary because it carries built-in view state. Per [DES-041](../../../DESIGN.md)
+(fork, don't mix) a legacy container may still hold an ABC *leaf* (it paints via
+the retained legacy per-kind renderer during the mixed period), but an ABC
+container is never nested in a legacy one — the all-ABC gate makes that
+`[unsupported element]` regression structurally impossible.
 
 ## Self-validation travels with each migration
 

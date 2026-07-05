@@ -20,6 +20,23 @@
   empty-leaf default so every kind participates. A structural guard test fails
   if a new container kind is added without exposing its children, so nested
   elements can never silently skip validation. See DES-039.
+- **Render engine — `Element.render()` is the paint path** — a fixed
+  Template-Method skeleton (`_begin` / `_paint_self` / `_render_children` /
+  `_end`) on the Element ABC, with per-kind ImGui adapters resolved through the
+  factory, replaces the hardcoded leaf-vs-composite branch. Migrated kinds now
+  *paint* through `render()` — not merely flip type/routing — so
+  `render_path == "abc"` means the element renders via the new path. See
+  DES-042.
+- **`group` container on the ABC path (rows / columns)** — the first container.
+  A `group` decodes to the ABC `GroupElement` only when its whole subtree is
+  migrated-ABC (the all-ABC gate); otherwise the renamed `LegacyGroupElement`.
+  A legacy container forces its nested groups legacy, so an ABC container is
+  never nested in a legacy one — the `[unsupported element]` regression is
+  structurally impossible (DES-041). Columns render via imgui stack layout.
+- **`progress` display-only leaf on the ABC path** — the first display-only
+  primitive; a single ABC `ProgressElement` with a `[0,1]`+NaN `validate()`
+  (the fraction is validated pre-render instead of clamped by ImGui), enforced
+  on both the `show` and the `update`/patch write paths.
 
 ### Fixed
 
@@ -33,6 +50,18 @@
   window. The `listen()` backlog was raised (5→128) so a briefly-stalled display
   (not draining accepts) isn't misread as dead by a probe getting `ECONNREFUSED`
   on a full queue. (lux-h29e)
+- **No agent patch can crash the display (patch-application crash-freedom)** — a
+  bad `update()` patch (out-of-range / NaN / wrong-type value, an unknown field,
+  a remove of a missing id) is now caught per-patch, logged, and skipped as an
+  atomic no-op that never aborts the rest of the batch; a loop-level boundary
+  guard contains any unexpected escape. Previously a rejected patch's exception
+  propagated to the display message loop and terminated the display. The
+  patch-application state machine is formalized and ProB-model-checked
+  (`docs/patch_application.tex`) and committed as a regression artifact. Also:
+  `SceneManager` now reaches ABC-element subtrees for patching and stale-id
+  cleanup via the `child_elements()` Protocol (extracted `SceneTreeWalk` +
+  `PatchApplier`), so patches to an element nested in an all-ABC `group` are no
+  longer silently dropped. See DES-043.
 
 ### Changed
 

@@ -3941,3 +3941,154 @@ built**.
 
 - `docs/architecture/migration/README.md` (the plan, reconciled to this ADR),
   `render-path-unification-design.md`, `abc-baseline-debt-audit.md` (C3).
+
+## DES-042: The Render Engine — `Element.render()` Is the Paint Path (Template Method + Per-Kind Adapters)
+
+**Date:** 2026-07-05
+**Status:** ACCEPTED
+**Decided by:** the operator
+**Companion doc:** `docs/architecture/migration/render-path-unification-design.md`
+**Implemented:** PR #239 (built on the DI-truth fix, PR #237)
+
+### Problem
+
+Before this decision, "a kind is on the ABC path" meant only that its *type*,
+codec routing, and `HubDisplay` installation had flipped — the live pixels
+still flowed through the legacy `ElementRenderer`. Only `text` actually painted
+through `Element.render()`; `button`/`checkbox`/`dialog` were ABC in type but
+still painted via the legacy per-kind dispatch, because the ImGui factory had
+no adapter for them. So `render_path == "abc"` (the introspection signal)
+misrepresented reality, and no kind could be migrated *and painted* through the
+new path. `Element.render()` also hardcoded a leaf-vs-composite branch in the
+base class, so no component could vary a single render step.
+
+### Decision
+
+Make `Element.render()` the real paint path for every ABC kind.
+
+1. **A fixed Template-Method skeleton, never overridden.** `render()` runs the
+   steps in order — `opened = _begin(r); if opened: _paint_self(r);
+   _render_children(r); _end(r, opened)` — and calls four overridable step
+   hooks, **each with a default that delegates to the renderer** (`_begin` →
+   `renderer.begin()`, `_paint_self` → `renderer.paint()`, `_render_children` →
+   recurse `_children()`, `_end` → `renderer.end(opened=...)`). A leaf or plain
+   box overrides nothing; a component overrides only the steps it needs (a
+   `dialog` overrides `begin`/`end` for its modal + dismiss; a `group`'s layout
+   lives entirely in its renderer's begin/end).
+2. **Per-kind ImGui adapters** resolved through the factory (`(type → adapter)`
+   dispatch table) reuse the existing per-kind paint logic verbatim; the DI
+   factory is rebound onto received ABC elements (`bind_renderer_factory`,
+   PR #237) so `render()` resolves a real renderer, not the sentinel.
+3. **`_paint_element` flips** top-level ABC elements to `elem.render()`.
+4. **The legacy-dispatch prune is DEFERRED to fork completion.** During the
+   mixed period an ABC leaf nested in a legacy container still paints via the
+   retained legacy per-kind renderer; the prune (retiring the legacy path)
+   lands only when no legacy container can hold an ABC child. `render()` wraps
+   its inner steps in `try/finally` so a raising child can never leave an ImGui
+   surface unbalanced.
+
+After this, `render_path == "abc"` means the element **paints** via the new
+path, and migrating a kind is: ABC subclass + `validate()` + an adapter.
+
+### Consequence
+
+Any migrated kind paints through `render()` via its adapter; composites recurse
+their children through the default `_render_children`; the "abc ≠ paints" gap
+the migration README warned about is closed. Replication stays whole-UI resend
+(no diff protocol) — UI state crosses IPC, render calls do not (target.md).
+
+### Rationale
+
+Composite + Template-Method: a leaf is a degenerate container, and every
+component varies steps of one fixed algorithm instead of the base class
+deciding for it (open-closed). A `dialog` is an ordinary component, not a
+special case.
+
+### Alternatives considered
+
+- **Keep the `isinstance`-per-kind `_paint_element` switch.** Rejected — it
+  grows a branch per migrated kind and inverts the domain→protocol dependency.
+- **A diff/incremental replication protocol.** Not adopted — whole-UI resend on
+  change is simpler to inspect and reason about (target.md); a diff protocol is
+  deferred until a real performance problem appears.
+
+### References
+
+- `render-path-unification-design.md`, PR #239, PR #237 (DI-truth).
+
+## DES-043: Patch-Application Crash-Freedom — No Agent Input Terminates the Display
+
+**Date:** 2026-07-05
+**Status:** ACCEPTED
+**Decided by:** the operator
+**Companion doc:** `docs/patch_application.tex` (regression artifact)
+**Applies:** DES-038 (formal verification for state-machine defects)
+**Implemented:** PR #241
+
+### Problem
+
+Migrating `progress` — the first kind with a value-*range* invariant
+(`fraction ∈ [0,1]`) — exposed that the display-side patch path did not survive
+a bad agent patch. A rejected setter's exception propagated out of
+`SceneManager.apply_update` to the display message loop and **terminated the
+display process** — one bad `update()` killed the window. The same class
+recurred across **four** rounds (out-of-range `ValueError`, `TypeError`,
+non-atomic partial mutation, unknown-field/structural error); empirical
+case-by-case patching kept missing cases, and one hand-written partition test
+even asserted the crash as the correct contract. Separately, the display-side
+state machine reached elements via a concrete-`isinstance` ladder that never
+learned the ABC kinds, so patches to an element nested in an all-ABC `group`
+were **silently dropped** and its stale ids were missed on scene replace.
+
+### Decision
+
+1. **Crash-freedom is a system invariant.** No agent patch of any kind may
+   terminate the display message loop.
+2. **The state machine reaches ABC subtrees via the `child_elements()`
+   Protocol**, not a concrete-`isinstance` ladder — extracted `SceneTreeWalk`
+   (navigation) and `PatchApplier` (per-patch application). An ABC element
+   patches in place via `apply_patch`; a legacy element via `replace` + list
+   rebind; every legacy container kind is covered (a structural test asserts it,
+   so a new container cannot silently reintroduce the gap).
+3. **A rejected patch is caught per-patch, logged, and skipped.** A validated
+   setter rejects a bad value by raising; `PatchApplier` catches the rejection
+   (value *and* structural) inside the batch loop, logs it, and continues. The
+   catch is **per-patch, not batch-level** — batch-level would satisfy
+   crash-freedom but violate **batch-continuation** (a later valid patch must
+   still apply). `Element.apply_patch` snapshots and rolls back on any setter
+   exception, so a rejected patch is **atomic** (no field partially mutated).
+4. **A loop-level boundary backstop** at the display message handler
+   (`except Exception`, log + continue — the PY-EH-6 system-boundary guard)
+   contains any escape outside the expected rejection classes.
+5. **Formalized per DES-038.** `docs/patch_application.tex` is fuzz-clean and
+   ProB-model-checked: crash-freedom, atomicity, validity-preservation, and
+   batch-continuation all hold exhaustively (4445 states), deadlock-free, and
+   the fidelity variants reproduce all four defects when a guard is removed.
+   Committed as a regression artifact — re-run `fuzz` + the model-check whenever
+   the modeled code changes.
+
+### Consequence
+
+No agent input can crash the display. The four-round recurrence is closed with
+a proof over the whole bounded state space, not another empirical fix. The model
+also showed rounds 1 and 2 were one case class (two `except` clauses patched
+separately) — evidence that empirical enumeration doubled the work.
+
+### Rationale
+
+Crash-freedom is a state-space property: model-checking proves it, testing
+samples it. The recurrence signal (the same defect class across ≥ 2 rounds) is
+exactly DES-038's trigger to formalize; it was applied late (round 4), and the
+lesson — formalize on the second repeat, not the fourth — is recorded.
+
+### Alternatives considered
+
+- **Continue empirical case-by-case fixing.** Rejected — it missed cases across
+  four rounds and encoded a crash as a passing test's contract.
+- **A single batch-level `try/except` around `apply_update`.** Rejected —
+  satisfies crash-freedom but aborts the remaining patches in the batch,
+  violating batch-continuation (the model exhibits this trace).
+
+### References
+
+- `docs/patch_application.tex`, DES-038, DES-039, PR #241.
