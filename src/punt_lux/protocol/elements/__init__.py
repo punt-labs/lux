@@ -179,7 +179,7 @@ _ENCODER_FACTORY = JsonEncoderFactory()
 
 
 def _element_to_dict(elem: Element) -> dict[str, Any]:
-    """Serialize an Element dataclass to a JSON-compatible dict."""
+    """Serialize an element — legacy dataclass or ABC kind — to a wire dict."""
     if isinstance(
         elem,
         TextElement

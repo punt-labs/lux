@@ -112,16 +112,14 @@ class PatchApplier:
         ABC element, ``dataclasses.replace`` + rebind for a legacy one), so
         this method never branches on which element model it found.
 
-        A range-validated setter (e.g. a progress ``fraction`` outside
-        ``[0, 1]``, or NaN) rejects a bad value by raising ``ValueError`` after
-        restoring the prior value. That rejection is caught around the
-        ``apply_set`` call, logged, and skipped: one bad patch is a clean no-op
-        — the element keeps its previous valid value — instead of unwinding into
-        the ``apply`` loop and out to the message loop, where an uncaught
-        ``ValueError`` would terminate the display process. Future
-        range-validated kinds (slider, input_number) rely on this same guard.
-        The catch is scoped to ``apply_set`` alone so the unknown-field
-        ``ValueError`` above — a structural, not value, error — still propagates.
+        A setter rejects a bad value two ways — an out-of-range or NaN
+        ``fraction`` raises ``ValueError``, a non-number or ``bool`` raises
+        ``TypeError`` — and both mean "bad patch value". Either is caught around
+        ``apply_set``, logged, and skipped, so one bad patch is a clean no-op
+        (``Element.apply_patch`` leaves the element unchanged) rather than an
+        uncaught exception that terminates the display's message loop. The catch
+        is scoped to ``apply_set`` so the structural unknown-field error above
+        still propagates.
         """
         elem = location.element
         known = self._known_patch_fields(elem)
@@ -139,7 +137,7 @@ class PatchApplier:
         if valid:
             try:
                 elem = location.apply_set(valid)
-            except ValueError as exc:
+            except (ValueError, TypeError) as exc:
                 self._warn_rejected_patch(elem, valid, scene_id, exc)
                 return
         self._sync_widget_state(elem, valid, ws)
@@ -149,14 +147,14 @@ class PatchApplier:
         elem: Element,
         fields: dict[str, Any],
         scene_id: str,
-        exc: ValueError,
+        exc: ValueError | TypeError,
     ) -> None:
         """Log a set-patch a validated setter rejected; the caller then skips it.
 
         Names the scene, the element, the offending fields, and the setter's
         message so the rejection stays diagnosable — mirroring the
-        unreachable-patch warning — without the ``ValueError`` aborting the
-        patch batch or reaching the display's message loop.
+        unreachable-patch warning — without the rejection (a ``ValueError`` or
+        ``TypeError``) aborting the batch or reaching the display's message loop.
         """
         _log.warning(
             "patch for scene %r element %r rejected: %s; offending fields %r; "

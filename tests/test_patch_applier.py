@@ -27,6 +27,7 @@ from punt_lux.protocol import (
 )
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.scene.element_walk import SceneTreeWalk
+from punt_lux.scene.manager import SceneManager
 from punt_lux.scene.patch_applier import PatchApplier
 from punt_lux.scene.widget_state import WidgetState
 
@@ -247,3 +248,139 @@ class TestUnreachablePatch:
 
         assert scene.elements[0].content == "Hello"  # type: ignore[union-attr]
         assert not any("unreachable" in r.message for r in caplog.records)
+
+
+class TestPatchRejectionPartition:
+    """The full patch-rejection case space, driven through ``apply_update``.
+
+    Enumerates every way a progress ``fraction`` patch is rejected — out of
+    range (``ValueError``), NaN (``ValueError``), non-number (``TypeError``),
+    bool (``TypeError``) — plus the structural unknown-field error and
+    multi-field atomicity. The rejection cases assert the batch survives: no
+    crash, the target unchanged, the rejection logged, and a valid patch
+    elsewhere in the same batch still applies. The unknown-field case asserts
+    the opposite: a structural error propagates rather than being swallowed.
+
+    Unlike the ``PatchApplier``-in-isolation tests above, these drive the real
+    ``SceneManager.apply_update`` so the whole scene-patch path — resolve,
+    walk, apply, reject, log — is exercised end to end.
+    """
+
+    @staticmethod
+    def _manager() -> SceneManager:
+        """Build a manager holding one progress and one text element."""
+        manager = SceneManager(on_scene_replaced=lambda _ids: None)
+        scene = SceneMessage(
+            id="s1",
+            elements=[
+                ProgressElement(id="p1", fraction=0.25),
+                TextElement(id="t1", content="before"),
+            ],
+        )
+        manager.handle_scene(scene, owner_fd=1)
+        return manager
+
+    @staticmethod
+    def _progress(manager: SceneManager) -> ProgressElement:
+        elem = manager.scenes["s1"].elements[0]
+        assert isinstance(elem, ProgressElement)
+        return elem
+
+    @staticmethod
+    def _text(manager: SceneManager) -> TextElement:
+        elem = manager.scenes["s1"].elements[1]
+        assert isinstance(elem, TextElement)
+        return elem
+
+    @pytest.mark.parametrize(
+        ("bad_value", "log_fragment"),
+        [
+            pytest.param(1.5, "in [0, 1]", id="out-of-range-high"),
+            pytest.param(-0.5, "in [0, 1]", id="out-of-range-low"),
+            pytest.param(math.nan, "in [0, 1]", id="nan"),
+            pytest.param("fast", "must be a number", id="non-number"),
+            pytest.param(True, "must be a number", id="bool"),
+        ],
+    )
+    def test_rejected_fraction_is_a_survivable_noop(
+        self,
+        bad_value: object,
+        log_fragment: str,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A rejected fraction — value or type — is a logged, non-fatal no-op."""
+        manager = self._manager()
+        update = UpdateMessage(
+            scene_id="s1",
+            patches=[
+                Patch(id="p1", set={"fraction": bad_value}),
+                Patch(id="t1", set={"content": "after"}),
+            ],
+        )
+
+        with caplog.at_level("WARNING"):
+            manager.apply_update(update)  # (a) returns normally — no crash
+
+        assert self._progress(manager).fraction == 0.25  # (b) target unchanged
+        assert any(  # (c) the right rejection was logged for p1
+            "rejected" in r.message and "p1" in r.message and log_fragment in r.message
+            for r in caplog.records
+        )
+        assert self._text(manager).content == "after"  # (d) valid patch applied
+
+    def test_unknown_field_propagates_not_rejected(self) -> None:
+        """An unknown field is a structural error — it raises, never a no-op."""
+        manager = self._manager()
+        update = UpdateMessage(
+            scene_id="s1", patches=[Patch(id="p1", set={"bogus": 1})]
+        )
+
+        with pytest.raises(ValueError, match="unknown fields"):
+            manager.apply_update(update)
+
+        assert self._progress(manager).fraction == 0.25
+
+    def test_multi_field_patch_is_atomic(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A rejected multi-field patch leaves BOTH fields unchanged.
+
+        ``label`` precedes ``fraction`` in dict order; a naive setter loop would
+        apply ``label`` before ``fraction`` raises. Base-level rollback restores
+        both, so the logged "keeps its previous value" claim is literally true.
+        """
+        manager = self._manager()
+        update = UpdateMessage(
+            scene_id="s1",
+            patches=[Patch(id="p1", set={"label": "new", "fraction": 1.5})],
+        )
+
+        with caplog.at_level("WARNING"):
+            manager.apply_update(update)
+
+        progress = self._progress(manager)
+        assert progress.fraction == 0.25  # unchanged
+        assert progress.label == ""  # label NOT applied — atomic rollback
+        assert any("rejected" in r.message for r in caplog.records)
+
+    def test_multi_field_rejection_mid_batch_preserves_neighbors(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A valid patch before AND after the atomic-reject patch both apply."""
+        manager = self._manager()
+        update = UpdateMessage(
+            scene_id="s1",
+            patches=[
+                Patch(id="t1", set={"content": "first"}),
+                Patch(id="p1", set={"label": "new", "fraction": 1.5}),
+                Patch(id="p1", set={"label": "later"}),
+            ],
+        )
+
+        with caplog.at_level("WARNING"):
+            manager.apply_update(update)
+
+        progress = self._progress(manager)
+        assert progress.fraction == 0.25  # the reject patch rolled back fully
+        assert progress.label == "later"  # the later valid patch still applied
+        assert self._text(manager).content == "first"  # the earlier one too

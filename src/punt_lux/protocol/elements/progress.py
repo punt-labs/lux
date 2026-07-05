@@ -94,11 +94,12 @@ class ProgressElement(Element):
         return self._tooltip
 
     def _set_fraction(self, value: object) -> None:
-        """Coerce, range-check, then install the fraction; reject a bad patch."""
-        previous = self._fraction
+        """Coerce and range-check the fraction; a bad value raises.
+
+        No self-restore — ``Element.apply_patch`` rolls the instance back.
+        """
         self._fraction = PatchField("fraction").as_number(value)
         if self._fraction_out_of_range():
-            self._fraction = previous  # a rejected patch installs nothing
             msg = f"fraction must be in [0, 1], got {value!r}"
             raise ValueError(msg)
 

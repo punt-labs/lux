@@ -385,3 +385,4 @@
 {"ts":"2026-07-05T16:32:45Z","commit":"f3e3959","files_scored":182,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{}}
 {"ts":"2026-07-05T16:34:57Z","commit":"f3e3959","files_scored":182,"files_improved":0,"files_regressed":2,"verdict":"fail","deltas":{}}
 {"ts":"2026-07-05T16:37:02Z","commit":"f3e3959","files_scored":182,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{}}
+{"ts":"2026-07-05T17:01:56Z","commit":"a83cd13","files_scored":182,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/scene/patch_applier.py":{"module_size":[203.0,201.0]}}}

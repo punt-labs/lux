@@ -298,6 +298,27 @@ class TestPatchPath:
         assert progress.label == "Done"
         assert progress.tooltip == "complete"
 
+    def test_apply_patch_is_atomic_on_value_rejection(self) -> None:
+        """A rejected multi-field patch leaves EVERY field unchanged.
+
+        ``label`` precedes ``fraction`` in dict order, so a naive setter loop
+        would apply ``label`` before ``fraction`` raises. ``Element.apply_patch``
+        snapshots and rolls back the whole instance, so both survive.
+        """
+        progress = ProgressElement(id="p1", fraction=0.25, label="orig")
+        with pytest.raises(ValueError, match=r"fraction must be in \[0, 1\]"):
+            progress.apply_patch({"label": "new", "fraction": 1.5})
+        assert progress.label == "orig"
+        assert progress.fraction == 0.25
+
+    def test_apply_patch_is_atomic_on_type_rejection(self) -> None:
+        """A ``TypeError`` from ``as_number`` rolls back the earlier ``label``."""
+        progress = ProgressElement(id="p1", fraction=0.25, label="orig")
+        with pytest.raises(TypeError, match="fraction"):
+            progress.apply_patch({"label": "new", "fraction": "fast"})
+        assert progress.label == "orig"
+        assert progress.fraction == 0.25
+
 
 class TestEncoderFactoryGuard:
     def test_encoder_factory_encodes_progress_without_raising(self) -> None:
