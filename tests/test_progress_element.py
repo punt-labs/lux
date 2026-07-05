@@ -279,6 +279,19 @@ class TestPatchPath:
         with pytest.raises(TypeError, match="fraction"):
             progress.apply_patch({"fraction": "fast"})
 
+    @pytest.mark.parametrize("fraction", [1.5, -0.5, float("nan")])
+    def test_apply_patch_rejects_out_of_range_fraction(self, fraction: float) -> None:
+        """The patch path enforces the same [0, 1]+NaN gate as ``show``.
+
+        A NaN or out-of-range patch is rejected and installs nothing — the
+        prior fraction survives, so the render loop never computes
+        ``int(nan)`` or paints a clamped 150%.
+        """
+        progress = ProgressElement(id="p1", fraction=0.25)
+        with pytest.raises(ValueError, match=r"fraction must be in \[0, 1\]"):
+            progress.apply_patch({"fraction": fraction})
+        assert progress.fraction == 0.25
+
     def test_apply_patch_sets_label_and_tooltip(self) -> None:
         progress = ProgressElement(id="p1", fraction=0.5)
         progress.apply_patch({"label": "Done", "tooltip": "complete"})

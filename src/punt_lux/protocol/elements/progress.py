@@ -9,8 +9,8 @@ no interaction — so it overrides none of the render-template hooks.
 The codec body lives in ``progress_codec.py`` (``JsonProgressEncoder`` /
 ``JsonProgressDecoder``); ``to_dict`` and ``from_dict`` remain on the class
 as short delegators so the runtime-checkable ``domain.element.Element``
-Protocol stays satisfied. ``validate()`` adds the ``[0, 1]`` + NaN semantic
-check (DES-039) the legacy dataclass left to ImGui's visual clamp.
+Protocol stays satisfied. One predicate, ``_fraction_out_of_range``, guards
+both write paths so no unpaintable fraction reaches ImGui's visual clamp.
 """
 
 from __future__ import annotations
@@ -68,8 +68,6 @@ class ProgressElement(Element):
         self._kind = "progress"
         return self
 
-    # -- read-only accessors (the wire-facing surface) ----------------------
-
     @property
     def id(self) -> str:
         """Return the element's stable identity within its enclosing Scene."""
@@ -95,15 +93,14 @@ class ProgressElement(Element):
         """Return the hover-tooltip text, or ``None`` for no tooltip."""
         return self._tooltip
 
-    # -- minimal setters for the scene patch path ---------------------------
-    #
-    # ``Element.apply_patch`` dispatches JSON-decoded values straight to these
-    # setters, so each ``value`` arrives as ``object`` and PY-EH-1 demands
-    # boundary validation before we assign to a narrowly-typed attribute.
-
     def _set_fraction(self, value: object) -> None:
-        """Replace the fill fraction (used by ``Element.apply_patch``)."""
+        """Coerce, range-check, then install the fraction; reject a bad patch."""
+        previous = self._fraction
         self._fraction = PatchField("fraction").as_number(value)
+        if self._fraction_out_of_range():
+            self._fraction = previous  # a rejected patch installs nothing
+            msg = f"fraction must be in [0, 1], got {value!r}"
+            raise ValueError(msg)
 
     def _set_label(self, value: object) -> None:
         """Replace the overlay label (used by ``Element.apply_patch``)."""
@@ -113,23 +110,23 @@ class ProgressElement(Element):
         """Replace the tooltip text (used by ``Element.apply_patch``)."""
         self._tooltip = PatchField("tooltip").as_optional_str(value)
 
-    # -- self-validation (DES-039) ------------------------------------------
+    def _fraction_out_of_range(self) -> bool:
+        """Return whether ``fraction`` is NaN or outside ``[0, 1]``.
 
-    def validate(self) -> tuple[ValidationError, ...]:
-        """Return an error when ``fraction`` is NaN or outside ``[0, 1]``.
-
-        The decoder guarantees ``_fraction`` is a ``float`` at the boundary;
-        NaN passes that type gate but is not a paintable fraction, so the
-        component-appropriate range check lives here (aggregated by the tree
-        walk and rejected before render).
+        NaN is caught explicitly though ``0.0 <= nan <= 1.0`` is already
+        ``False`` — the sole source of the shared range invariant.
         """
         f = self._fraction
-        if math.isnan(f) or not (0.0 <= f <= 1.0):
-            message = f"fraction must be in [0, 1], got {f!r}"
-            return (ValidationError(self._id, self._kind, message),)
-        return ()
+        return math.isnan(f) or not (0.0 <= f <= 1.0)
 
-    # -- codec delegators ---------------------------------------------------
+    def validate(self) -> tuple[ValidationError, ...]:
+        """Return one error when ``fraction`` is NaN or outside ``[0, 1]``."""
+        message = f"fraction must be in [0, 1], got {self._fraction!r}"
+        return (
+            (ValidationError(self._id, self._kind, message),)
+            if self._fraction_out_of_range()
+            else ()
+        )
 
     def to_dict(self) -> dict[str, object]:
         """Return the JSON-compatible wire representation."""
@@ -141,12 +138,9 @@ class ProgressElement(Element):
         decoder = JsonProgressDecoder(
             renderer_factory=RAISING_FACTORY, emit=NO_EMIT, element_cls=cls
         )
-        # ``element_cls=cls`` guarantees the decoder builds the concrete
-        # subtype; the decoder's annotation is the supertype ProgressElement
-        # so narrow back to ``Self`` for the Protocol contract.
+        # ``element_cls=cls`` guarantees the concrete subtype; the decoder's
+        # annotation is the supertype, so narrow to ``Self`` for the Protocol.
         return cast("Self", decoder.decode(d))
-
-    # -- introspection (Inspectable) ---------------------------------------
 
     def resolved_props(self) -> Mapping[str, object]:
         """Return the full resolved state, including defaulted fields."""
