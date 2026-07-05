@@ -10,7 +10,7 @@ failure instead of an invisible paint.
 
 This is a Hub/Agent-tier guard that fires only if ``elem.render()`` is
 called off the display tier; the Display rebinds the real factory onto
-received elements (``Element.bind_renderer_factory``) so its own never see it.
+each received ABC element and its ABC children so those never see it.
 """
 
 from __future__ import annotations

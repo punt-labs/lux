@@ -12,7 +12,6 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, cast
 
-from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
@@ -21,6 +20,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.element_abc import Element
     from punt_lux.domain.event_protocol import Event, Handler
     from punt_lux.domain.interaction import EventKind
+    from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
     from punt_lux.protocol.messages.remote_invocation import (
         RemoteEventHandlerInvocation,
     )
@@ -118,28 +118,28 @@ class EventHandlerHost:
         self,
         send_fn: Callable[[RemoteEventHandlerInvocation], None],
     ) -> None:
-        """Wrap each event bucket in one remote-dispatch group.
+        """Wrap each interactive event bucket in one remote-dispatch group.
 
-        Recurses into children via ``_children()``. Each handler on a
-        ``ButtonElement`` or ``CheckboxElement`` stays part of the
-        original semantic handler chain, but the Display-side transport
-        wrapper batches each event bucket into one
-        ``RemoteEventHandlerInvocation``. The Hub replays the full
-        original handler chain once on its authoritative copy.
+        Recurses into children via ``_children()``. Each element names the
+        buckets to collapse through ``_remote_dispatch_specs`` — a button
+        its ``ButtonClicked`` bucket, a checkbox its ``ValueChanged``
+        bucket — so a new interactive kind is additive (PY-IC-7) instead of
+        adding another branch here. Every handler stays part of the
+        original semantic chain; the Display-side transport wrapper batches
+        each bucket into one ``RemoteEventHandlerInvocation`` the Hub
+        replays once on its authoritative copy.
         """
-        from punt_lux.protocol.elements.button import ButtonElement
-        from punt_lux.protocol.elements.checkbox import CheckboxElement
-
-        if isinstance(self, ButtonElement):
+        for spec in self._remote_dispatch_specs():
+            action = spec.action or self.id
             self._group_bucket_for_remote(
-                ButtonClicked, self.action or self.id, "button_clicked", send_fn
-            )
-        if isinstance(self, CheckboxElement):
-            self._group_bucket_for_remote(
-                ValueChanged, self.action, "value_changed", send_fn
+                spec.event_type, action, spec.event_kind, send_fn
             )
         for child in self._children():
             child.wrap_handlers_for_remote(send_fn)
+
+    def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
+        """Return interactive-event specs to remote-wrap; empty by default."""
+        return ()
 
     def _group_bucket_for_remote(
         self,

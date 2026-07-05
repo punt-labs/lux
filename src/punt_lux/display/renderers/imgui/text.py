@@ -1,15 +1,15 @@
 """ImGuiTextRenderer — Renderer-Protocol adapter for ``TextElement``.
 
 The production text renderer delegates to the legacy
-``ElementRenderer.render_element`` which dispatches the TextElement to
-its native ``TextRenderer`` (style branches, color) AND runs the generic
-post-processing pass (styled-text tooltip hover). Delegating to
-``ElementRenderer`` — rather than ``TextRenderer`` directly — preserves
-the tooltip post-processing that per-kind renderer dispatch would
+``ElementRenderer.render_element`` — rather than ``TextRenderer``
+directly — which dispatches the TextElement to its native ``TextRenderer``
+(style branches, color) AND runs the generic post-processing pass
+(styled-text tooltip hover) that per-kind renderer dispatch would
 otherwise bypass. The adapter satisfies the Renderer Protocol shape
-(``render`` / ``begin`` / ``end``) so both the production ``_paint_element``
-call site and the template-method ``Element.render()`` resolve it
-uniformly; Text is a leaf so ``begin`` / ``end`` are no-ops.
+(``render`` / ``begin`` / ``end``) so the production ``_paint_element``
+call site resolves it; the template-method ``Element.render()`` resolves
+it the same way once PR2 revives ``render()`` as the paint path. Text is
+a leaf so ``begin`` / ``end`` are no-ops.
 """
 
 from __future__ import annotations

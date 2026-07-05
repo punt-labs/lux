@@ -8,8 +8,8 @@ The ABC carries:
 - ``_children()`` — hook composites override to return their children.
 - ``renderer_factory`` + ``emit`` — set at construction. Off the display
   tier the factory is the fail-loud ``RaisingRendererFactory`` sentinel;
-  the Display rebinds the real factory onto each received element (and
-  its children) via ``bind_renderer_factory``.
+  the Display rebinds the real factory onto each received ABC element and
+  its ABC ``_children`` (ABC nested in a legacy container is not reached).
 - ``apply_patch()`` — template for scene-graph in-place mutation; the
   default walks the patch dict calling ``_set_<key>`` per entry.
 - The event handler registry and remote-dispatch behavior come from the

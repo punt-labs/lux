@@ -932,14 +932,14 @@ class DisplayServer:
             self._auto_click_buttons(msg)
 
     def _wrap_abc_elements(self, msg: SceneMessage) -> None:
-        """Rebind the real renderer factory and wrap handlers on received elements.
+        """Rebind the real factory and wrap handlers on received ABC elements.
 
-        Deserialized ABC elements carry the Hub-tier sentinel factory and
-        Hub-side handlers. This rebinds the Display's real ``ImGuiRendererFactory``
-        and swaps handlers for ``remote_dispatch`` wrappers, both recursing
-        ``_children()``. It runs before ``_route_to_domain_display``.
+        Each top-level ABC element and its ``_children()`` ABC subtree get
+        the Display's ``ImGuiRendererFactory`` and ``remote_dispatch`` handler
+        wrapping. ABC nested in a legacy container is NOT reached (audit C3).
         """
         for elem in msg.elements:
+            # ABC subtrees only, by design pending the migration-strategy decision.
             if isinstance(elem, AbcElement):
                 elem.bind_renderer_factory(self._imgui_renderer_factory)
                 elem.wrap_handlers_for_remote(self._emit_event)
