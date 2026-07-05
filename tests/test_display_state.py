@@ -470,6 +470,47 @@ class TestApplyUpdateProtectsIdentity:
 # -----------------------------------------------------------------------
 
 
+class TestUpdateBackstop:
+    """The message-loop guard contains a setter escape the applier cannot catch."""
+
+    def test_non_value_error_does_not_kill_the_loop(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """A setter raising KeyError is logged and swallowed; the loop survives.
+
+        The applier catches ``(ValueError, TypeError)`` per patch; anything else
+        — a custom validation error, KeyError, AttributeError — escapes to the
+        message loop. The boundary guard keeps the display alive and still
+        acknowledges the client rather than letting the exception terminate the
+        loop.
+        """
+        server = _make_server()
+        _inject_scene(server, _make_scene())
+
+        def _boom(_msg: UpdateMessage) -> None:
+            raise KeyError("setter blew up")
+
+        monkeypatch.setattr(server._scene_manager, "apply_update", _boom)
+        sock = _mock_sock()
+        update = UpdateMessage(
+            scene_id="s1", patches=[Patch(id="t1", set={"content": "x"})]
+        )
+
+        with caplog.at_level(logging.ERROR):
+            server._handle_message(sock, update)  # must NOT raise
+
+        assert sock.sendall.called  # loop survived and acked the client
+        # The log is honest about a mid-batch abort: earlier patches may have
+        # applied, so it must NOT claim the scene was left unchanged.
+        messages = [r.message for r in caplog.records]
+        assert any(
+            "aborted mid-batch" in m and "may have applied" in m for m in messages
+        )
+        assert not any("unchanged" in m for m in messages)
+
+
 # -----------------------------------------------------------------------
 # Fix 4: Malformed messages disconnect client instead of crashing
 # -----------------------------------------------------------------------

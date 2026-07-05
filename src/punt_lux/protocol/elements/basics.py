@@ -1,13 +1,13 @@
 """Basics-family codec registration — wires each per-kind module's codec.
 
-Per-kind classes live in ``image.py``, ``separator.py``, ``progress.py``,
-``spinner.py``, ``markdown.py``. ``text.py`` is registered separately
-through ``JsonElementFactory`` (Element ABC dispatch — see
-``__init__.py``); the entry is removed here to avoid double registration.
+Per-kind classes live in ``image.py``, ``separator.py``, ``spinner.py``,
+``markdown.py``. ``text.py`` and ``progress.py`` are registered separately
+through ``JsonElementFactory`` (Element ABC dispatch — see ``__init__.py``);
+their entries are removed here to avoid double registration.
 
-The ``BasicsRegistry`` class consolidates the five remaining register
-calls behind a single ``apply`` method so the package ``__init__`` does
-not grow as each family migrates.
+The ``BasicsRegistry`` class consolidates the remaining register calls
+behind a single ``apply`` method so the package ``__init__`` does not grow
+as each family migrates.
 """
 
 from __future__ import annotations
@@ -17,7 +17,6 @@ from typing import Self
 from punt_lux.protocol.elements.codec import Register
 from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.markdown import MarkdownElement
-from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.separator import SeparatorElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
 
@@ -44,12 +43,6 @@ class BasicsRegistry:
             SeparatorElement,
             SeparatorElement.to_dict,
             SeparatorElement.from_dict,
-        )
-        register(
-            "progress",
-            ProgressElement,
-            ProgressElement.to_dict,
-            ProgressElement.from_dict,
         )
         register(
             "spinner",

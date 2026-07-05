@@ -1,0 +1,487 @@
+%
+% patch_application.tex
+%
+% A Z specification of the lux display-side patch-application boundary:
+% a batch of update patches applied to a scene's element tree by the
+% display message loop.  Formalises the crash-freedom discipline hardened
+% empirically across FOUR fix/review rounds -- crash on out-of-range
+% ValueError, crash on TypeError, non-atomic partial mutation, and crash
+% on an unknown-field structural error -- so that ProB can enumerate every
+% patch class and either confirm the four invariants or produce the exact
+% offending trace.
+%
+% Source of record:
+%   src/punt_lux/scene/patch_applier.py   -- PatchApplier.apply: the batch
+%                                            loop; _apply_patch_set: unknown
+%                                            field check (LOGS and SKIPS per
+%                                            patch) then
+%                                            apply_set under
+%                                            try/except (ValueError, TypeError)
+%   src/punt_lux/scene/element_walk.py     -- find: locate or None; a missing
+%                                            id is warned and skipped
+%   src/punt_lux/domain/element_abc.py     -- apply_patch: snapshot + rollback
+%                                            (atomic multi-field set)
+%   src/punt_lux/scene/manager.py:207      -- apply_update -> applier.apply
+%   src/punt_lux/display/server.py:681     -- _handle_update: the message loop
+%                                            self._scene_manager.apply_update(msg)
+%                                            inside a last-resort try/except that
+%                                            logs and still acks (residual guard)
+%
+% Type-check:  fuzz -t docs/patch_application.tex
+% Model-check (see Section "Verification" for the exact goal predicates):
+%   probcli docs/patch_application.tex -model_check -p DEFAULT_SETSIZE 2
+%   probcli docs/patch_application.tex -model_check -nodead \
+%       -goal "live=terminated" -p DEFAULT_SETSIZE 2
+%
+% Formatting follows the fuzz house rules: \quad~ for continuation indent
+% (never \t1..\t9), schema lines under 80 columns, predicates broken at
+% \land/\lor with the operator starting the continuation line.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{The lux Display Patch-Application Boundary: a Z Specification}
+\author{Formal model of the crash-free patch discipline}
+\date{July 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+An agent sends the display a batch of update patches.  Each patch names an
+element by id and either removes it or sets some of its fields.  A patch may
+be wrong in several ways: the value it sets may be out of range or not a
+number, the field it names may not exist on the element, or the id it names
+may not exist in the scene.  The display processes the batch in a single
+message-loop turn.  The one property that must hold is that \emph{no patch,
+however malformed, terminates that loop}.
+
+The same class of defect --- a patch that terminates the display ---
+recurred across four fix/review rounds:
+
+\begin{enumerate}
+  \item a crash on an out-of-range \texttt{ValueError} from a setter;
+  \item a crash on a \texttt{TypeError} from a setter given the wrong type;
+  \item a non-atomic partial mutation, where a multi-field patch applied
+    some fields before a later field was rejected;
+  \item a crash on an unknown-field structural error, where the field-name
+    check raises \emph{before} the value-rejection \texttt{try} and the
+    exception propagates through \texttt{apply\_update} to the message
+    loop and terminates the display.
+\end{enumerate}
+
+Rounds~1 and~2 were closed by catching \texttt{(ValueError, TypeError)}
+around the setter call; round~3 by an all-or-nothing snapshot/rollback in
+\texttt{Element.apply\_patch}; round~4 by surfacing an unknown field per
+patch --- logging and skipping it --- rather than letting it raise out of
+\texttt{\_apply\_patch\_set} and kill the loop.  All four are now fixed;
+each survives only as a fidelity variant (Section~\ref{sec:fidelity}) that
+reintroduces the defect to confirm the model still detects it.  Empirical
+case-by-case patching kept missing cases, so this document models the
+boundary as a finite state machine over a bounded batch, letting ProB
+enumerate every patch class exhaustively.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [ELEM]
+\end{zed}
+
+\texttt{ELEM} is the set of element ids that may appear in the scene or be
+named by a patch.  Two ids suffice to exhibit batch-continuation across
+distinct targets (one patch rejected, a later patch to another element
+applied); the carrier is bounded by ProB's \texttt{DEFAULT\_SETSIZE}.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  VALID ::= good | bad
+\end{zed}
+
+Whether an element's tracked field value satisfies that field's invariant.
+\texttt{good}: in range, correct type.  \texttt{bad}: out of range, NaN, or
+wrong type --- the value a setter rejects.  The safety goal is that a
+\texttt{bad} value is never \emph{installed}.
+
+\begin{zed}
+  LIVE ::= alive | terminated
+\end{zed}
+
+The display message loop.  \texttt{alive}: still processing messages.
+\texttt{terminated}: an unhandled exception escaped the patch path and
+killed the loop --- the defect this model exists to forbid.
+
+\begin{zed}
+  KIND ::= setGood | setBadVal | setBadType | setUnknown | removeIt
+\end{zed}
+
+The five ways a patch acts on its target.  \texttt{setGood}: set a known
+field to a valid value.  \texttt{setBadVal}: set a known field to an
+out-of-range or NaN value (a setter \texttt{ValueError}).  \texttt{setBadType}:
+set a known field to a value of the wrong type (a setter \texttt{TypeError}).
+\texttt{setUnknown}: name a field the element does not have (the structural
+\texttt{ValueError} raised before the value-rejection \texttt{try}).
+\texttt{removeIt}: remove the element.
+
+A patch is a token carrying its kind and its target id:
+
+\begin{zed}
+  TOKEN ::= tSetGood \ldata ELEM \rdata | tSetBadVal \ldata ELEM \rdata \\
+  \quad~ | tSetBadType \ldata ELEM \rdata | tSetUnknown \ldata ELEM \rdata \\
+  \quad~ | tRemove \ldata ELEM \rdata
+\end{zed}
+
+Each constructor is an injection \texttt{ELEM $\inj$ TOKEN}, so a token
+determines its target and its kind uniquely.  Two total projections
+recover them:
+
+\begin{axdef}
+  targetOf : TOKEN \fun ELEM \\
+  kindOf : TOKEN \fun KIND
+\where
+  \forall e : ELEM @ \\
+  \quad~ targetOf~(tSetGood~e) = e \land targetOf~(tSetBadVal~e) = e \land \\
+  \quad~ targetOf~(tSetBadType~e) = e \land targetOf~(tSetUnknown~e) = e \land \\
+  \quad~ targetOf~(tRemove~e) = e \\
+  \forall e : ELEM @ \\
+  \quad~ kindOf~(tSetGood~e) = setGood \land kindOf~(tSetBadVal~e) = setBadVal \land \\
+  \quad~ kindOf~(tSetBadType~e) = setBadType \land \\
+  \quad~ kindOf~(tSetUnknown~e) = setUnknown \land kindOf~(tRemove~e) = removeIt
+\end{axdef}
+
+Because every \texttt{TOKEN} is exactly one construction, these equations
+pin \texttt{targetOf} and \texttt{kindOf} to a unique total function apiece.
+
+The batch is a bounded sequence of tokens.  The bound keeps the carrier
+finite so ProB can enumerate every ordering:
+
+\begin{axdef}
+  maxlen : \nat
+\where
+  maxlen = 3
+\end{axdef}
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema, five components.  Its predicate carries only
+\emph{structural} invariants --- that the tracked-value map is defined
+exactly on the present elements, that a partially-mutated element is
+present, and the length bound on the queue.  These are coherence
+constraints, true in every design.  The four safety properties
+(Section~\ref{sec:inv}) are deliberately \emph{absent} here, so a violating
+state stays reachable and ProB can find it.
+
+\begin{schema}{PatchSys}
+  live : LIVE \\
+  present : \power ELEM \\
+  prim : ELEM \pfun VALID \\
+  partial : \power ELEM \\
+  queue : \seq TOKEN
+\where
+  \dom prim = present \\
+  partial \subseteq present \\
+  \# queue \leq maxlen
+\end{schema}
+
+\texttt{present} is the set of element ids currently in the scene.
+\texttt{prim} records, for each present element, whether its tracked field
+holds a \texttt{good} or \texttt{bad} value.  \texttt{partial} is a
+history component: the set of elements a \emph{rejected} patch left partly
+mutated.  In a correct design it is always empty; it is the device that
+turns the two-state atomicity property into a one-state invariant ProB can
+check.  \texttt{queue} is the unprocessed tail of the current batch.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  PatchSys'
+\where
+  live' = alive \\
+  present' = ELEM \\
+  prim' = (\lambda e : ELEM @ good) \\
+  partial' = \emptyset \\
+  queue' = \langle \rangle
+\end{schema}
+
+A single initial state: the loop is alive, every element is present with a
+\texttt{good} value, nothing is partially mutated, and the batch is empty.
+
+% ============================================================
+\section{Building a Batch}
+% ============================================================
+
+An agent enqueues patches until the batch is full.  Any token may be
+enqueued --- including one whose target is not present, which models a
+patch for a missing id:
+
+\begin{schema}{Enqueue}
+  \Delta PatchSys \\
+  p? : TOKEN
+\where
+  \# queue < maxlen \\
+  queue' = queue \cat \langle p? \rangle \\
+  live' = live \\
+  present' = present \\
+  prim' = prim \\
+  partial' = partial
+\end{schema}
+
+% ============================================================
+\section{Applying a Patch}
+\label{sec:apply}
+% ============================================================
+
+Each step processes the head of the queue.  The five operation schemas
+partition every head token by target-presence and kind, so whenever the
+loop is alive and the queue is non-empty exactly one is enabled: the
+processing of a batch never gets stuck (Section~\ref{sec:inv},
+Invariant~BC).
+
+A patch whose target is not present is a no-op --- the tree walk returns no
+location, and the applier warns and skips.  This covers both a set and a
+remove for a missing id:
+
+\begin{schema}{ApplyMissing}
+  \Delta PatchSys
+\where
+  live = alive \\
+  queue \neq \langle \rangle \\
+  targetOf~(head~queue) \notin present \\
+  queue' = tail~queue \\
+  live' = live \\
+  present' = present \\
+  prim' = prim \\
+  partial' = partial
+\end{schema}
+
+A remove of a present element detaches it: the id leaves \texttt{present},
+its value map entry and any partial mark go with it.
+
+\begin{schema}{ApplyRemove}
+  \Delta PatchSys
+\where
+  live = alive \\
+  queue \neq \langle \rangle \\
+  targetOf~(head~queue) \in present \\
+  kindOf~(head~queue) = removeIt \\
+  present' = present \setminus \{ targetOf~(head~queue) \} \\
+  prim' = \{ targetOf~(head~queue) \} \ndres prim \\
+  partial' = partial \setminus \{ targetOf~(head~queue) \} \\
+  queue' = tail~queue \\
+  live' = live
+\end{schema}
+
+A set of a valid value on a known field installs \texttt{good}:
+
+\begin{schema}{ApplySetGood}
+  \Delta PatchSys
+\where
+  live = alive \\
+  queue \neq \langle \rangle \\
+  targetOf~(head~queue) \in present \\
+  kindOf~(head~queue) = setGood \\
+  prim' = prim \oplus \{ targetOf~(head~queue) \mapsto good \} \\
+  present' = present \\
+  partial' = partial \\
+  queue' = tail~queue \\
+  live' = live
+\end{schema}
+
+A set that a validated setter \emph{rejects} --- an out-of-range or NaN
+value (\texttt{ValueError}) or a wrong-typed value (\texttt{TypeError}) ---
+is caught around the setter call, logged, and skipped.  Nothing is
+installed, so the \texttt{bad} value never reaches \texttt{prim}; nothing is
+mutated, so no element is marked \texttt{partial}; the loop stays alive and
+the batch continues:
+
+\begin{schema}{ApplyReject}
+  \Delta PatchSys
+\where
+  live = alive \\
+  queue \neq \langle \rangle \\
+  targetOf~(head~queue) \in present \\
+  kindOf~(head~queue) \in \{ setBadVal, setBadType \} \\
+  queue' = tail~queue \\
+  live' = live \\
+  present' = present \\
+  prim' = prim \\
+  partial' = partial
+\end{schema}
+
+A set naming an unknown field is a \emph{structural} error.  The correct
+boundary surfaces it --- logs it and/or returns it to the agent --- per
+patch, then continues.  It installs nothing, mutates nothing, and, above
+all, does not terminate the loop:
+
+\begin{schema}{ApplySurface}
+  \Delta PatchSys
+\where
+  live = alive \\
+  queue \neq \langle \rangle \\
+  targetOf~(head~queue) \in present \\
+  kindOf~(head~queue) = setUnknown \\
+  queue' = tail~queue \\
+  live' = live \\
+  present' = present \\
+  prim' = prim \\
+  partial' = partial
+\end{schema}
+
+In this correct design \texttt{ApplyReject} and \texttt{ApplySurface} have
+the same effect --- skip and continue.  They are kept as separate schemas
+because they diverge under the buggy variants of
+Section~\ref{sec:fidelity}: round~1/2 breaks \texttt{ApplyReject}, round~4
+breaks \texttt{ApplySurface}, and the model must be able to break each
+independently.
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+Four properties must hold across all reachable states.  They are stated
+here as predicates over \texttt{PatchSys}; none is placed in the
+\texttt{PatchSys} schema, because a predicate placed there would be enforced
+as a guard on every successor, silently disabling any operation that would
+break it and thereby masking the very defect this model exists to catch.
+
+\paragraph{Invariant CF --- crash-freedom.}
+The display loop is never terminated:
+\[
+  live = alive.
+\]
+This is the load-bearing property.  Every patch class --- a rejected value,
+a rejected type, an unknown field, a missing id, a malformed remove --- is
+handled at the boundary; none escapes to the loop.
+
+\paragraph{Invariant AT --- atomicity.}
+No element is ever left partially mutated by a rejected patch:
+\[
+  partial = \emptyset.
+\]
+A rejected multi-field set restores every field it touched, so the ``keeps
+its previous value'' claim is literally true.
+
+\paragraph{Invariant VP --- validity-preservation.}
+No \texttt{bad} value is ever installed; every present element's tracked
+value is \texttt{good}:
+\[
+  \ran prim \subseteq \{ good \}.
+\]
+
+\paragraph{Invariant BC --- batch-continuation.}
+A rejected patch never abandons the rest of its batch.  Because the only
+thing that halts processing is termination, and termination never occurs
+(Invariant~CF), the observable failure is a batch left unfinished with the
+loop dead:
+\[
+  \lnot\, (live = terminated \land queue \neq \langle \rangle).
+\]
+Each of \texttt{ApplyReject} and \texttt{ApplySurface} reduces the queue by
+exactly its head and frames \texttt{live} at \texttt{alive}, so the
+successor patch is processed on the next step.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz -t docs/patch_application.tex
+\end{verbatim}
+
+Each safety property is checked by asking ProB whether its negation is
+\emph{reachable}.  A goal that is not found means the property holds on
+every reachable state:
+\begin{verbatim}
+  # Invariant CF (must report: goal NOT found)
+  probcli docs/patch_application.tex -model_check -nodead \
+    -goal "live=terminated" -p DEFAULT_SETSIZE 2
+
+  # Invariant AT (must report: goal NOT found)
+  probcli docs/patch_application.tex -model_check -nodead \
+    -goal "partial /= {}" -p DEFAULT_SETSIZE 2
+
+  # Invariant VP (must report: goal NOT found)
+  probcli docs/patch_application.tex -model_check -nodead \
+    -goal "bad : ran(prim)" -p DEFAULT_SETSIZE 2
+
+  # Invariant BC (must report: goal NOT found)
+  probcli docs/patch_application.tex -model_check -nodead \
+    -goal "live=terminated & queue /= <>" -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Deadlock-freedom is the state-space search with no goal; the loop is kept
+live by \texttt{Enqueue} while the batch has room and by an
+\texttt{ApplyX} while it is non-empty, so a correct design never deadlocks:
+\begin{verbatim}
+  # Deadlock-freedom (must report: no deadlock, no invariant violation)
+  probcli docs/patch_application.tex -model_check -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+% ============================================================
+\section{Fidelity: reproducing the four defects}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce the known defects proves nothing.  Each of
+the four rounds corresponds to breaking one guard of the correct design;
+the correct spec above is what remains once all four are fixed.
+
+\paragraph{Round 1 --- crash on out-of-range \texttt{ValueError}.}
+Remove the catch from the value-rejection path: in \texttt{ApplyReject},
+for \texttt{setBadVal}, replace the frame \texttt{live' = live} with
+\texttt{live' = terminated}.  The reachability search for Invariant~CF then
+returns \emph{goal found} --- a batch containing one \texttt{tSetBadVal}
+token drives \texttt{live} to \texttt{terminated}.
+
+\paragraph{Round 2 --- crash on \texttt{TypeError}.}
+The same edit for \texttt{setBadType}.  A \texttt{tSetBadType} token
+reaches \texttt{terminated}: \emph{goal found}.  Rounds~1 and~2 were two
+review rounds precisely because value-rejection and type-rejection were
+handled by different \texttt{except} clauses; the model shows they are one
+case class.
+
+\paragraph{Round 3 --- non-atomic partial mutation.}
+Model the missing rollback: in \texttt{ApplyReject}, replace
+\texttt{partial' = partial} with
+\texttt{partial' = partial $\cup$ \{targetOf($head$~queue)\}} (a
+multi-field set applied its first field before the second was rejected, and
+nothing restored it).  The loop stays alive, but Invariant~AT's goal
+\texttt{partial /= \{\}} is now \emph{found}.
+
+\paragraph{Round 4 --- crash on unknown-field structural error.}
+This defect --- since fixed by surfacing the unknown field per patch, logging
+and skipping it --- is reproduced by making \texttt{ApplySurface} replace
+\texttt{live' = live} with \texttt{live' = terminated}, modelling a field-name
+check that raises before the value-rejection \texttt{try} and propagates
+through \texttt{apply\_update} to the message loop.  Invariant~CF's goal
+\texttt{live=terminated} is then \emph{found}, and so is Invariant~BC's goal
+\texttt{live=terminated \& queue /= <>} --- an unknown-field patch not only
+kills the loop but strands every patch after it in the batch.
+
+Under the correct design none of these traces exists: \texttt{ApplyReject}
+and \texttt{ApplySurface} frame \texttt{live} at \texttt{alive} and
+\texttt{partial} unchanged, \texttt{prim} is only ever set to \texttt{good},
+and no operation assigns \texttt{terminated}.  The reachability searches for
+CF, AT, VP, and BC therefore return \emph{goal not found} for the correct
+design and \emph{goal found} --- the traces above --- for the corresponding
+buggy variant.  That difference is the evidence that the model detects the
+defects the code was changed, round by round, to prevent.
+
+\end{document}

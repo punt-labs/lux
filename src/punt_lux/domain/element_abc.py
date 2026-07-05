@@ -196,22 +196,22 @@ class Element(EventHandlerHost, ABC):
         self._children_tuple = tuple(c for c in self._children_tuple if c is not child)
 
     def apply_patch(self, patch: Mapping[str, object]) -> Self:
-        """Apply a field patch in place by dispatching to ``_set_<key>``.
+        """Apply a field patch in place, atomically, returning ``self``.
 
-        For each ``(key, value)`` pair, call ``_set_{key}(value)``.
-        Subclasses override only when patch semantics differ from one
-        setter per field. Public (not ``_patch``) because
-        ``SceneManager._apply_patch_set`` invokes it from outside the
-        class. Returns ``self`` so the call site is a drop-in replacement
-        for the dataclass ``replace(...)`` path (ABC elements mutate in
-        place; dataclass elements are frozen).
+        Dispatch each ``(key, value)`` to ``_set_{key}(value)``. All-or-nothing:
+        setters run in dict order, so the state is snapshotted first and restored
+        if any setter raises, then the error re-raised for the caller
+        (``PatchApplier``) to catch, log, and skip — one base rollback for every
+        kind, so per-setter self-restore is unnecessary.
         """
-        for key, value in patch.items():
-            setter = getattr(self, f"_set_{key}", None)
-            if setter is None:
-                msg = f"{type(self).__name__} has no setter for patch field {key!r}"
-                raise AttributeError(msg)
-            setter(value)
+        snapshot = dict(vars(self))
+        try:
+            for key, value in patch.items():
+                getattr(self, f"_set_{key}")(value)
+        except Exception:
+            vars(self).clear()
+            vars(self).update(snapshot)
+            raise
         return self
 
     def add_observer(self, observer: Callable[[str], None]) -> None:

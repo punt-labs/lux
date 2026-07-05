@@ -78,7 +78,7 @@ class TableRenderer:
         table_flags, copy_id = self._parse_table_flags(flags_list, imgui)
 
         # Cache column weights -- recompute when rows object or widths change.
-        # id(rows) changes on update() since _apply_patch_set creates a new list.
+        # id(rows) changes on update() since patching replaces the dataclass.
         weight_cache_key = f"__tbl_wcache_{eid}"
         cached = self._widget_state.get(weight_cache_key)
         rows_id = id(rows)

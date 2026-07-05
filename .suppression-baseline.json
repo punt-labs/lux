@@ -1,8 +1,8 @@
 {
-  "total": 122,
+  "total": 119,
   "by_category": {
-    "noqa": 38,
-    "type_ignore": 9,
+    "noqa": 37,
+    "type_ignore": 7,
     "pylint_disable": 2,
     "pyright_ignore": 11,
     "per_file_ignores": 62
@@ -20,7 +20,7 @@
       "type_ignore": 1
     },
     "src/punt_lux/display/element_renderer.py": {
-      "noqa": 2
+      "noqa": 1
     },
     "src/punt_lux/display/macos.py": {
       "type_ignore": 1,
@@ -29,12 +29,15 @@
     "src/punt_lux/display/menu_manager.py": {
       "noqa": 13
     },
+    "src/punt_lux/display/renderers/draw_element_renderer.py": {
+      "noqa": 1
+    },
     "src/punt_lux/display/renderers/imgui/dialog.py": {
       "noqa": 1
     },
     "src/punt_lux/display/server.py": {
-      "noqa": 2,
-      "type_ignore": 2,
+      "noqa": 1,
+      "type_ignore": 1,
       "pyright_ignore": 1
     },
     "src/punt_lux/domain/handlers/remote_dispatch.py": {
@@ -52,9 +55,6 @@
     },
     "src/punt_lux/paths.py": {
       "noqa": 2
-    },
-    "src/punt_lux/protocol/elements/layout.py": {
-      "type_ignore": 1
     },
     "src/punt_lux/protocol/messages/lifecycle.py": {
       "noqa": 1
@@ -85,5 +85,5 @@
       "type_ignore": 1
     }
   },
-  "updated_at": "2026-07-04T22:54:49Z"
+  "updated_at": "2026-07-05T18:34:06Z"
 }

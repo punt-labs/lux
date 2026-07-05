@@ -1,11 +1,9 @@
 """ImGuiRendererFactory — surface-shared mediator for ImGui per-kind renderers.
 
-The production RendererFactory. Constructed once at Display startup and
-bound onto received elements by the Display's post-receive rebind
-(``Element.bind_renderer_factory``) — not threaded through elements at
-decode. Holds the Display-tier surface-shared state (``WidgetState``,
-``TextureCache``, ``Emit``) and dispatches by element type to the per-kind
-adapter, which receives the factory so it stays the single mediator.
+Constructed once at Display startup and bound onto received elements by the
+Display's post-receive rebind (``Element.bind_renderer_factory``). Holds the
+Display-tier surface-shared state (``WidgetState``, ``TextureCache``, ``Emit``)
+and dispatches by element type to the per-kind adapter, its sole mediator.
 """
 
 from __future__ import annotations
@@ -16,11 +14,13 @@ from punt_lux.display.renderers.imgui.button import ImGuiButtonRenderer
 from punt_lux.display.renderers.imgui.checkbox import ImGuiCheckboxRenderer
 from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
 from punt_lux.display.renderers.imgui.group import ImGuiGroupRenderer
+from punt_lux.display.renderers.imgui.progress import ImGuiProgressRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.group import GroupElement
+from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.text import TextElement
 
 if TYPE_CHECKING:
@@ -50,6 +50,7 @@ class ImGuiRendererFactory:
         (CheckboxElement, ImGuiCheckboxRenderer),
         (DialogElement, ImGuiDialogRenderer),
         (GroupElement, ImGuiGroupRenderer),
+        (ProgressElement, ImGuiProgressRenderer),
     )
 
     def __new__(
@@ -86,8 +87,7 @@ class ImGuiRendererFactory:
     def element_renderer(self) -> ElementRenderer:
         """Return the ElementRenderer that owns the per-kind renderers.
 
-        The adapters paint through its ``text_renderer`` / ``button_renderer``
-        / ``checkbox_renderer`` (per-scene widget_state) and its shared
+        Adapters paint through its per-scene sub-renderers and shared
         ``apply_tooltip`` post-processing.
         """
         return self._element_renderer

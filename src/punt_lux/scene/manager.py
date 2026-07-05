@@ -2,26 +2,17 @@
 
 from __future__ import annotations
 
-import dataclasses
 import logging
-from typing import Any, Self
+from typing import Self
 
-from punt_lux.domain.element_abc import Element as ABCElement
 from punt_lux.protocol import (
-    CheckboxElement,
-    ComboElement,
-    Element,
-    InputNumberElement,
-    InputTextElement,
-    RadioElement,
     SceneMessage,
-    SelectableElement,
-    SliderElement,
     UpdateMessage,
     WindowElement,
 )
-from punt_lux.scene.element_walk import ElementLocation, SceneTreeWalk
+from punt_lux.scene.element_walk import SceneTreeWalk
 from punt_lux.scene.frame import Frame
+from punt_lux.scene.patch_applier import PatchApplier
 from punt_lux.scene.widget_state import WidgetState
 from punt_lux.types import OnSceneReplacedFn
 
@@ -29,11 +20,12 @@ _log = logging.getLogger(__name__)
 
 
 class SceneManager:
-    """Own the scene graph — frames, scenes, scene-to-frame mapping,
-    widget state per scene, and the update/patch pipeline.
+    """Own the scene graph — frames, scenes, scene-to-frame mapping, and
+    widget state per scene.
 
     Pure state machine: no ImGui, no socket, no OpenGL dependency.
-    Tree navigation is delegated to :class:`SceneTreeWalk`.
+    Tree navigation is delegated to :class:`SceneTreeWalk`; applying an
+    update's patch batch is delegated to :class:`PatchApplier`.
     """
 
     _scenes: dict[str, SceneMessage]
@@ -47,6 +39,7 @@ class SceneManager:
     _dirty_windows: set[str]
     _on_scene_replaced: OnSceneReplacedFn
     _walk: SceneTreeWalk
+    _patch_applier: PatchApplier
 
     def __new__(
         cls,
@@ -65,6 +58,9 @@ class SceneManager:
         self._dirty_windows = set()
         self._on_scene_replaced = on_scene_replaced
         self._walk = SceneTreeWalk()
+        self._patch_applier = PatchApplier(
+            walk=self._walk, dirty_windows=self._dirty_windows
+        )
         return self
 
     # -- read-only access for the rendering layer ---------------------------
@@ -208,15 +204,7 @@ class SceneManager:
         if scene is None:
             return
         ws = self._scene_widget_state.get(msg.scene_id)
-        for patch in msg.patches:
-            location = self._walk.find(scene.elements, patch.id)
-            if location is None:
-                self._warn_unreachable_patch(scene, patch.id, msg.scene_id)
-                continue
-            if patch.remove:
-                self._remove_located(location, ws)
-            elif patch.set:
-                self._apply_patch_set(location, patch.set, ws, scene_id=msg.scene_id)
+        self._patch_applier.apply(scene, msg, ws)
 
     def dismiss_scene(self, scene_id: str) -> None:
         """Remove an unframed scene and all its associated state."""
@@ -312,7 +300,7 @@ class SceneManager:
         """Return the WidgetState for a scene, or None."""
         return self._scene_widget_state.get(scene_id)
 
-    # -- replace / patch helpers -------------------------------------------
+    # -- scene-replacement helpers -----------------------------------------
 
     def _replace_scene_state(
         self,
@@ -331,130 +319,6 @@ class SceneManager:
             if stale_ids:
                 self._on_scene_replaced(list(stale_ids))
         self._scene_widget_state[msg.id].clear()
-
-    def _remove_located(
-        self, location: ElementLocation, ws: WidgetState | None
-    ) -> None:
-        """Detach the located element and clear its subtree's widget state."""
-        removed = location.detach()
-        for eid in self._walk.collect_ids(removed):
-            if ws is not None:
-                ws.set(eid, None)
-                ws.clear_suffix(f"_{eid}")
-
-    def _warn_unreachable_patch(
-        self, scene: SceneMessage, target_id: str, scene_id: str
-    ) -> None:
-        """Surface a patch whose target is present but unreachable.
-
-        Every id ``collect_ids`` reports must be reachable by ``find``; an id
-        present yet unreachable signals a tree-walk coverage gap the state
-        machine must not swallow. A truly-absent id is a normal no-op.
-        """
-        present = any(
-            target_id in self._walk.collect_ids(elem) for elem in scene.elements
-        )
-        if present:
-            _log.warning(
-                "patch target %r present in scene %r but unreachable by the "
-                "element walk; patch not applied",
-                target_id,
-                scene_id,
-            )
-
-    def _apply_patch_set(
-        self,
-        location: ElementLocation,
-        fields: dict[str, Any],
-        ws: WidgetState | None = None,
-        *,
-        scene_id: str,
-    ) -> None:
-        """Apply a set-patch to a located element and sync widget state.
-
-        Validation of unknown fields happens here (at the boundary); the
-        location owns the mutation strategy (in-place ``apply_patch`` for an
-        ABC element, ``dataclasses.replace`` + rebind for a legacy one), so
-        this method never branches on which element model it found.
-        """
-        elem = location.element
-        known = self._known_patch_fields(elem)
-        valid = {
-            k: v for k, v in fields.items() if k not in ("id", "kind") and k in known
-        }
-        unknown = fields.keys() - {"id", "kind"} - valid.keys()
-        if unknown:
-            element_id = getattr(elem, "id", None)
-            msg = (
-                f"patch for scene {scene_id!r} element {element_id!r} "
-                f"contains unknown fields: {sorted(unknown)}"
-            )
-            raise ValueError(msg)
-        if valid:
-            elem = location.apply_set(valid)
-        self._sync_widget_state(elem, valid, ws)
-
-    def _known_patch_fields(self, elem: Element) -> set[str]:
-        """Return the patchable field names for ``elem``.
-
-        ABC elements expose a ``_set_<field>`` setter per patchable field;
-        legacy dataclasses expose their declared fields.
-        """
-        if isinstance(elem, ABCElement):
-            return {
-                name.removeprefix("_set_")
-                for name in dir(elem)
-                if name.startswith("_set_") and callable(getattr(elem, name))
-            }
-        return {f.name for f in dataclasses.fields(elem)}
-
-    def _sync_widget_state(
-        self, elem: Element, valid: dict[str, Any], ws: WidgetState | None
-    ) -> None:
-        """Mirror a post-patch element's value into WidgetState.
-
-        A value-bearing input writes its new ``widget_value()``; a kind
-        excluded from that dispatch (e.g. ColorPickerElement) has its cache
-        DISCARDED so the next render re-seeds from the patched fields rather
-        than reading a poisoned ``None``. A moved/resized window is marked
-        dirty so its next frame re-applies position.
-        """
-        eid = getattr(elem, "id", None)
-        has_value_key = valid.keys() & {"value", "selected", "items"}
-        if eid is not None and ws is not None and has_value_key:
-            new_value = self._widget_value(elem)
-            if new_value is None:
-                ws.discard(eid)
-            else:
-                ws.set(eid, new_value)
-        has_pos_key = valid.keys() & {"x", "y", "width", "height"}
-        if eid is not None and isinstance(elem, WindowElement) and has_pos_key:
-            self._dirty_windows.add(eid)
-
-    def _widget_value(self, elem: Element) -> Any:
-        """Extract the current widget value from an element for WidgetState.
-
-        Direct ``isinstance`` dispatch against the seven value-bearing input
-        element classes — each owns a ``widget_value()`` method that returns
-        the field ``SceneManager`` mirrors into ``WidgetState`` after a patch.
-        ``ColorPickerElement`` is intentionally excluded: its renderer seeds
-        ``WidgetState`` with an ``ImVec4`` via ``ensure()``, so returning the
-        raw hex string here would corrupt that state.
-        """
-        if isinstance(
-            elem,
-            (
-                CheckboxElement,
-                ComboElement,
-                InputNumberElement,
-                InputTextElement,
-                RadioElement,
-                SelectableElement,
-                SliderElement,
-            ),
-        ):
-            return elem.widget_value()
-        return None
 
     def _next_cascade_index(self) -> int:
         """Return the smallest unused cascade index."""
