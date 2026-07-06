@@ -26,38 +26,35 @@ class RecordingClickHandler:
 
     The Hub fires this against its authoritative element copy; the test
     holds the same instance and reads ``fire_count`` to prove the
-    element's handler dispatch (D21) ran — and ran exactly once. The
-    recorded ``events`` list stays on the original Hub-side instance; the
-    Display replica gets a pickled copy that never fires (it is folded
-    into a ``RemoteDispatchGroup`` that only sends).
+    element's handler dispatch (D21) ran — and ran exactly once. Only the
+    count is kept, never the event object: the handler is re-serialized on
+    every whole-scene re-push, and the ``ButtonClicked``/``ValueChanged``
+    events are not designed to cross the wire. The Display replica gets a
+    pickled copy that never fires (it is folded into a
+    ``RemoteDispatchGroup`` that only sends).
     """
 
-    _events: list[object]
+    _count: int
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._events = []
+        self._count = 0
         return self
 
     def __reduce__(self) -> tuple[object, ...]:
         """Support native serialization for Hub-to-Display transport."""
-        return (object.__new__, (type(self),), {"_events": list(self._events)})
+        return (object.__new__, (type(self),), {"_count": self._count})
 
     def __setstate__(self, state: dict[str, object]) -> None:
         """Restore state after native deserialization."""
         for key, value in state.items():
             object.__setattr__(self, key, value)
 
-    def __call__(self, event: object) -> None:
-        """Record ``event`` — the view-logic side effect of the click."""
-        self._events.append(event)
+    def __call__(self, _event: object) -> None:
+        """Count the fire — the view-logic side effect of the click."""
+        self._count += 1
 
     @property
     def fire_count(self) -> int:
         """Return how many times the Hub fired this handler."""
-        return len(self._events)
-
-    @property
-    def events(self) -> tuple[object, ...]:
-        """Return the fired events in order, as an immutable snapshot."""
-        return tuple(self._events)
+        return self._count
