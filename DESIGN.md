@@ -4110,8 +4110,10 @@ event a subscriber receives, the agent reacting by pushing a change back, and
 the Hub re-pushing a replica the Display reflects — had **never been verified
 end-to-end on a composed surface**. The strongest prior "e2e" test
 (`test_dialog_interaction_trace.py`) drives the **test-only** `Display.interact`
-(its own docstring: "not production dispatch"), so it never exercised the real
-Hub path. That is the *illusion of progress* — green tests certifying a loop
+— whose own docstring states that under D21 the display forwards interactions to
+the Hub and production interaction dispatch runs on the Hub side, so `interact`
+is the in-process dispatch contract, not the production path — so it never
+exercised the real Hub path. That is the *illusion of progress* — green tests certifying a loop
 nobody has run across the real boundary.
 
 ### Decision
