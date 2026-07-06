@@ -1,8 +1,10 @@
 # End-to-End Business-Event Loop Harness — Design
 
-**Status:** ratified design. In-process, no socket, no subprocess, no GPU.
-No code yet. The leader reviews this revision, then dispatches implementation.
-The three previously-open decisions are resolved (see [Ratified
+**Status:** implemented. In-process, no socket, no subprocess, no GPU. The
+harness ships in [`tests/e2e/`](../../tests/e2e/) as a Tier-2 integration gate
+with **zero `src/` changes** — injection fires the Display replica's own wrapped
+handler (`Element.fire`) rather than adding a test-facing Display method. The
+three previously-open decisions are resolved (see [Ratified
 design](#ratified-design) at the end); the GPU/pixel layer is dropped from
 current scope.
 
@@ -166,16 +168,17 @@ handler-wrapping captures (`server.py:806-809`). No wire control message, no
 ImGui event, no fake path — the injection is the **real event at the real
 layer**.
 
-The only change the harness needs is **addressability**. Today's auto-click
-loop fires **every** interactive element in the scene (`server.py:969-1058`) —
-non-deterministic for a composed scenario with several interactive children.
-The harness targets **one** `element_id` with **one** action and value. The
-design is a thin generalization of the existing loop: a test-facing method (or
-hook) on the Display — call it, for illustration, `inject(element_id, action,
-value)` — that constructs the same `RemoteEventHandlerInvocation` shape
-`_auto_click_emit_loop` already builds for that element kind and passes it to
-`_emit_event`. It is a **test-facing method on the Display, not a
-protocol/wire message**. The specialist owns the exact signature and placement.
+The harness needs **addressability** — and gets it with **zero `src/` change**.
+Today's auto-click loop fires **every** interactive element in the scene
+(`server.py:969-1058`) — non-deterministic for a composed scenario with several
+interactive children. The harness instead targets **one** `element_id`: it
+resolves that replica element (`rig.resolve_replica`) and fires its own wrapped
+handler, `Element.fire(event)` — the exact call `ButtonRenderer.render` makes on
+a real click. The wrap installed by `_wrap_abc_elements` routes that fire through
+the production `_emit_event`, so the emitted `RemoteEventHandlerInvocation` is
+the one a real click produces. No test-facing Display method, no wire control
+message, no ImGui event, no fake path — the injection reuses the shipped
+remote-dispatch wrapping directly.
 
 **Deferred assumption (see [Deferred](#deferred-visual--injection-fidelity-proof)).**
 This asserts our `_emit_event` injection produces the invocation a real click
@@ -456,7 +459,9 @@ assumption is recorded here, not hidden.
 
 The implementing specialist owns the exact module boundaries; the design fixes
 the **shape**, not a predetermined edit list to existing files. Everything below
-is test-tier plus one small test-facing addition on the Display.
+is **test-tier only** — the shipped harness added no `src/` code. Injection
+fires the replica's own wrapped handler (`Element.fire`), so no test-facing
+Display method was needed.
 
 - **New e2e-harness package** (e.g. `tests/e2e/`):
   - **in-process fixtures** — stand up the in-process Hub (`client_registry`,
@@ -475,12 +480,14 @@ is test-tier plus one small test-facing addition on the Display.
     module-level helpers operating on it.
   - **the bidirectional loop-invariant assertions** (I1–I6, including the I5
     return path) expressed once, parametrized over the scenario registry.
-- **One test-facing Display addition** — the **addressable-injection**
-  generalization: a method/hook on the Display (illustratively
-  `inject(element_id, action, value)`) that builds the same
-  `RemoteEventHandlerInvocation` `_auto_click_emit_loop` already builds and hands
-  it to `_emit_event`. Not a protocol/wire message; a thin generalization of the
-  existing test-mode loop.
+- **Addressable injection — no `src/` change.** The harness resolves the target
+  replica element (`rig.resolve_replica(element_id)`) and fires its own wrapped
+  handler (`Element.fire`) — the exact call `ButtonRenderer.render` makes on a
+  real click. The wrapped handler routes through the production `_emit_event`,
+  producing the same `RemoteEventHandlerInvocation` a real click produces. No
+  test-facing Display method, no protocol/wire message: the injection reuses the
+  shipped remote-dispatch wrapping directly, so the crossed invocation is
+  byte-identical to a real click's by construction.
 - **Marker / pyramid slotting:** `@pytest.mark.integration` (Tier-2, **runs in
   CI**). Update [`tests/CLAUDE.md`](../../tests/CLAUDE.md) so the loop gate is
   named in the Round-trip procedure's Level 4.
@@ -501,11 +508,13 @@ The three decisions the prior draft left open are resolved:
    `DisplayServer` receive/wrap logic with no window. The former GPU-layer split
    (headless peer vs ImGui subprocess) is dropped — there is one in-process
    harness.
-2. **Interaction injection — addressable method on the Display, at
-   `_emit_event`.** Resolved by operator ruling plus the existing
-   `_auto_click_emit_loop`, which already emits real
-   `RemoteEventHandlerInvocation`s at `_emit_event`. The harness generalizes it
-   to target one element. No wire/control message; no ImGui; no fake path.
+2. **Interaction injection — fire the replica's own wrapped handler, at
+   `_emit_event`, no `src/` change.** Resolved by operator ruling plus the
+   shipped remote-dispatch wrapping: firing one resolved replica element's
+   `Element.fire` routes through the production `_emit_event` and emits the real
+   `RemoteEventHandlerInvocation` a click produces. The harness targets one
+   element by resolving it rather than adding a Display method. No wire/control
+   message; no ImGui; no fake path.
 3. **GPU/pixel/fidelity layer — dropped from current scope.** Resolved by
    operator ruling: the visual paint and the independent real-click fidelity
    check are deferred to DES-028 (see

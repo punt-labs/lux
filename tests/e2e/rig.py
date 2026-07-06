@@ -64,11 +64,16 @@ class InProcessLoop:
     _hub_conn: InMemoryConnection
     _hub_reader: Iterator[dict[str, object]]
     _scene_id: str
+    _tmpdir: tempfile.TemporaryDirectory[str]
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        raw_dir = tempfile.mkdtemp(prefix="lux-")
-        self._server = DisplayServer(socket_path=str(Path(raw_dir) / "display.sock"))
+        # Owned for the rig's lifetime; close() removes it so repeated runs
+        # leave no /tmp/lux-* behind.
+        self._tmpdir = tempfile.TemporaryDirectory(prefix="lux-")
+        self._server = DisplayServer(
+            socket_path=str(Path(self._tmpdir.name) / "display.sock")
+        )
         # Display end sends interactions; Hub end reads and dispatches them.
         self._display_conn, self._hub_conn = InMemoryConnection.paired()
         self._hub_reader = self._hub_conn.iter_lines()
@@ -170,9 +175,10 @@ class InProcessLoop:
         return self._server._scene_inspector.inspect(scene_id)
 
     def close(self) -> None:
-        """Close both ends of the duplex; idempotent."""
+        """Close both ends of the duplex and remove the temp dir; idempotent."""
         self._display_conn.close()
         self._hub_conn.close()
+        self._tmpdir.cleanup()
 
     def _dispatch_next(self) -> RemoteEventHandlerInvocation:
         """Read one frame on the Hub end and run production dispatch on it."""
