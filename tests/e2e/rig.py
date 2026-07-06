@@ -39,6 +39,7 @@ from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvoc
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
+    from punt_lux.domain.element import Element as DomainElement
     from punt_lux.protocol import Element as WireElement
 
 __all__ = ["InProcessLoop"]
@@ -89,7 +90,7 @@ class InProcessLoop:
         """
         return _HubRepushClient(self)
 
-    def push_scene(self, scene_id: str, roots: Sequence[WireElement]) -> None:
+    def push_scene(self, scene_id: str, roots: Sequence[DomainElement]) -> None:
         """Install a full scene replica into the windowless Display.
 
         Mirrors ``DisplayServer._handle_scene`` minus the socket ack: the
@@ -99,7 +100,10 @@ class InProcessLoop:
         Display's ``_emit_event``.
         """
         self._scene_id = scene_id
-        outbound = SceneMessage(id=scene_id, elements=list(roots))
+        # Every concrete kind satisfies both the domain Protocol and the
+        # protocol wire union; the cast bridges the two names at the codec seam.
+        wire_roots = cast("list[WireElement]", list(roots))
+        outbound = SceneMessage(id=scene_id, elements=wire_roots)
         replica = message_from_dict(message_to_dict(outbound))
         assert isinstance(replica, SceneMessage)
         self._server._wrap_abc_elements(replica)
@@ -203,10 +207,10 @@ class _HubRepushClient:
         self,
         scene_id: str,
         *,
-        elements: Sequence[WireElement],
+        elements: Sequence[DomainElement],
         frame_id: str | None = None,
         **_kwargs: object,
     ) -> None:
         """Re-install ``elements`` into the replica (the re-push leg)."""
         _ = frame_id
-        self._rig.push_scene(scene_id, cast("Sequence[WireElement]", list(elements)))
+        self._rig.push_scene(scene_id, list(elements))
