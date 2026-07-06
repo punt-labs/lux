@@ -263,12 +263,25 @@ never through an internal stub of the dispatch, handler, publish, or inbox.
   `inbox[0].topic == <topic>`, payload matches. Never via a test publish-sink.
 - **I4 — Recv / ask-user response (where applicable).** For ask-user flows the
   handler produces a `recv`-consumable response on the same inbox surface.
-  Asserted through `recv`, not an internal return value.
-- **I5 — Return-path replica fidelity (bidirectional).** After the agent reacts
-  with `update`, the Hub re-pushes and the Display replica reflects the change.
-  Asserted via `inspect_scene` (`render_path`, `resolved_props`) — the mutation
-  is present in the replica, and only via the re-push, not a local Display edit.
-  This is the asserted return half of the loop, not a side note.
+  Asserted through `recv`, not an internal return value. The non-empty check
+  stands on its own, so an empty inbox fails loud here rather than passing a
+  vacuous `all(...)` over zero items.
+- **D — Handler-driven dispatch re-push.** target.md's canonical replication —
+  "when a handler mutates Hub-side state, the Hub re-pushes the full scene tree"
+  — is asserted for real by reading the replica **after dispatch but before any
+  agent `update`**. A mutation present here (a checkbox value flip, a dialog
+  removal) travelled `_hub_interaction_dispatch`'s own re-push leg
+  (`clients.py:199-208`), not the agent's return-path `update`. Each scenario's
+  `RepushEffect` names what the leg must reflect.
+- **I5 — Return-path replica fidelity, causally gated.** The agent reacts with
+  `update` **only when** the subscribed business event was delivered; if nothing
+  arrives it does not react. So I5 proves the agent reacted *because* the event
+  arrived — the closed chain interaction→dispatch→publish→**react**→re-push, not
+  merely "an update landed". Asserted via `inspect_scene` (`render_path`,
+  `resolved_props`): every react patch is present in the re-pushed replica and
+  only via the re-push, and the display-only leaf survived the round trip. The
+  negative — no delivery ⇒ no react — is pinned by
+  `test_undelivered_event_does_not_react`.
 - **I6 — Two mechanisms kept distinct.** UI handler/observer dispatch (D21) and
   Hub application pub/sub are asserted **independently** (see
   [target.md](./target/target.md) §Event Models). A handler may fire UI behavior
@@ -278,12 +291,20 @@ never through an internal stub of the dispatch, handler, publish, or inbox.
 ### The central invariant: no stub of the boundary
 
 Every assertion above observes the running system through the introspection APIs
-or the real subscriber inbox. The harness **must not** stub the loop under test:
-no test `_publish_sink`, no `MagicMock` of the Hub `DisplayClient` or dispatch,
-no hand-constructed `RemoteEventHandlerInvocation` fed straight into
+or the real subscriber inbox. The **benign** loop **must not** stub the loop
+under test: no test `_publish_sink`, no `MagicMock` of the Hub `DisplayClient` or
+dispatch, no hand-constructed `RemoteEventHandlerInvocation` fed straight into
 `_hub_interaction_dispatch`, no `Display.interact`. The interaction originates at
 the Display's `_emit_event`; the Hub dispatch, the real handler, `hub.publish`,
 and the real inbox all run for real.
+
+The **trust-boundary** tests are the one deliberate exception: they feed
+hand-built invocations through `rig.send_raw` on purpose — a real click can
+never produce a malformed or replayed frame, so `send_raw` is the sole path that
+hands the production dispatch a hostile input to prove it denies by default (the
+five fail-closed branches) and to document the un-deduped replay gap. Even then
+the dispatch, resolve, and inbox run for real; only the *origin* of the frame is
+synthetic, and only for the adversarial cases.
 
 The `InMemoryConnection` is **not** a boundary stub under this rule: it
 implements the identical `Connection` interface (`send_line`/`iter_lines`/`close`)
@@ -301,53 +322,84 @@ function.
 
 ### Scenario shape
 
+A `Scenario` is a frozen value class. Every field the invariants read is data,
+so I1/I3 (and the rest) no longer hard-code button semantics — they read the
+scenario. The shape as implemented (`tests/e2e/scenario.py`):
+
 ```text
 Scenario:
-  name:        stable identifier (e.g. "group-button-progress")
-  compose:     the element tree to show()  (e.g. a `group` holding a
-               `button` + a `progress`)
-  handler:     the Hub-side handler wiring for the target element
-               (e.g. call_model verb + publish decorator on topic X)
-  subscribe:   the app topic(s) the agent subscribes before injecting
-  inject:      (target_element_id, action, value) — the single deterministic
-               addressable interaction
-  react:       the agent's update() reaction to the published event —
-               the mutation it pushes back (the return-path half)
-  expect:
-    published:   topic + payload the subscriber inbox must receive (I3)
-    fired_once:  the Hub-side state transition that must occur exactly once (I2)
-    repush:      the replica mutation inspect_scene must reflect after react (I5)
-    ui_effect:   the view-logic effect, asserted independently of publish (I6)
+  name:               stable identifier (e.g. "group-button-progress")
+  scene_id:           the scene the surface installs under
+  elements:           the wire element tree to show()  (e.g. a `group` holding
+                      a `button` + a `progress`; publish sugar/handlers inline)
+  target_element_id:  the single deterministic addressable interaction target
+  interaction:        InteractionExpectation(event_kind, value) — the boundary
+                      shape I1 asserts (button_clicked/True, value_changed/bool)
+  publish:            PublishSource — topic + payload + how the target announces
+                        WirePublish(topic)        → wire sugar/handlers, empty payload
+                        PayloadPublish(topic, payload) → agent-wired handler, non-empty
+  react:              tuple[ReactPatch, ...] — the agent's multi-patch update()
+                      reaction (advance a bar AND relabel it), the return half
+  display_only_id:    the non-interactive leaf whose re-pushed presence proves
+                      a mixed composition round-tripped
+  repush:             RepushEffect — what the handler-driven dispatch re-push
+                      must reflect BEFORE any agent update()
+                        PropAfterDispatch(id, field, value) → value present/unchanged
+                        RemovedAfterDispatch(id)            → element re-pushed away
 ```
 
-The loop invariants (I1–I6) are expressed **once** in the harness and run
-against **every** scenario. Adding an element means adding a `Scenario` value,
-not new assertion code. "Migrated" then means "its full bidirectional
-interaction + business-event loop is green in the harness," not merely "it
-paints."
+`PublishSource` and `RepushEffect` are Protocol families (structural typing,
+no base class); `InteractionExpectation` and `ReactPatch` are frozen value
+classes. The loop invariants (I1–I6, plus the handler-driven re-push) are
+expressed **once** in the harness and read these fields on **every** scenario.
+Adding an element means adding a `Scenario` value — pick the publish mechanism
+and re-push effect that fit — not new assertion code. "Migrated" then means
+"its full bidirectional interaction + business-event loop is green in the
+harness," not merely "it paints."
 
-### First scenario — the composed migrated surface
+### The registered scenarios
 
-A `group` (container) holding an interactive `button` and a display-only
-`progress` — the composition the operator named. The button's Hub-side handler
-runs a `call_model` verb (view logic) **and** publishes a business topic
-(business logic). The harness asserts: the injected click crosses the faithful
-boundary (I1), fires once on the Hub (I2), publishes the topic to the real
-subscriber (I3), the agent reacts with an `update` that the re-pushed replica
-reflects (I5), and the view effect and the published event are each present
-**independently** (I6). `progress` rides as a display-only leaf whose presence in
-the re-pushed replica is asserted, proving the container round-trips a mixed
-interactive/non-interactive composition.
+Four scenarios exercise the extensibility claim across every migrated
+interactive kind and every publish/re-push mechanism:
+
+- **`group-button-progress`** — the composition the operator named: a `group`
+  holding a `button` and a display-only `progress`. The button publishes
+  `ticket_opened` via wire sugar (empty payload). Its noop+publish handler does
+  not touch scene state, so the dispatch re-push carries the button unchanged
+  (`PropAfterDispatch`).
+- **`group-checkbox-progress`** — a `checkbox` crossing as `value_changed`; the
+  built-in state-sync handler flips the Hub value `False`→`True`, so the
+  dispatch re-push carries the mutated value (`PropAfterDispatch` on `value`).
+- **`dialog-confirm-progress`** — a `dialog` whose confirm runs
+  `DialogModel.confirm` → `mark_removed` on the Hub copy; the root-observer
+  cascade drops it from `HubDisplay` and the dispatch re-push carries the
+  shrunken tree (`RemovedAfterDispatch`), exercising the handler-driven re-push
+  leg for real. The sibling `progress` survives and carries the reaction.
+- **`payload-button-progress`** — a `button` whose Hub-side `PublishingHandler`
+  announces a **non-empty** payload through `HubPublishSink`, giving I3's
+  payload assertion teeth (the `publish` sugar can only ever fire an empty
+  payload).
+
+For every scenario the harness asserts: the injected interaction crosses the
+faithful boundary as its expected event/value (I1), fires once on the Hub (I2),
+publishes the expected topic + payload to the real subscriber (I3), the
+handler-driven dispatch re-push reflects the scenario's `RepushEffect`, the
+event arrives on the real recv surface (I4), the agent reacts **because** it was
+delivered and every react patch lands in the re-pushed replica (I5), and the UI
+handler and pub-sub mechanisms each fired independently (I6). The display-only
+`progress` proves a mixed interactive/non-interactive composition round-trips.
 
 ### Per-element extension point
 
 Each newly migrated interactive kind adds one `Scenario` naming its target
-event, its handler wiring, its expected publish, and its agent reaction. The
+event, its publish mechanism (`WirePublish` / `PayloadPublish`), its expected
+re-push effect, and its agent reaction. The
 [Round-trip procedure](../../tests/CLAUDE.md) Level 4 becomes "the kind has a
-green Scenario in this harness." A structural guard scenario asserts that a new
-container kind exposes its children to the injection walk — the same discipline
-as the `child_elements()` guard for validation — so a composite can never
-silently hide an interactive child from the loop gate.
+green Scenario in this harness." A structural-guard test asserts every
+container scenario exposes its interactive target to the `child_elements()`
+injection walk — the same discipline as the `child_elements()` guard for
+validation — so a composite can never silently hide an interactive descendant
+from the loop gate.
 
 ## Security / trust-boundary properties (my lens)
 
@@ -355,18 +407,23 @@ The `Connection` interface is the trust boundary; the harness makes three
 boundary properties standing gates. These are in-scope because they are the same
 loop, asserted for a hostile input rather than a benign one.
 
-- **Fail-closed on malformed invocation.** One scenario injects a malformed
-  `RemoteEventHandlerInvocation` (missing scene, bad `event_kind`). Assert the
-  Hub rejects it and **no handler fires** — `_hub_interaction_dispatch` returns
-  early on missing `scene_id` (`clients.py:122-127`), unresolved element
-  (`clients.py:131-138`), non-ABC element (`clients.py:145-151`), non-bool
-  `value_changed` payload (`clients.py:161-167`), and unknown `event_kind`
-  (`clients.py:180-187`). Deny by default; a bad message must not reach a
-  handler.
-- **Exactly-once as a security property.** I2's single-fire is not only
-  correctness — a double-fire is a duplicated side effect (double publish,
-  double state transition). The harness asserts `delivered == 1`, closing a
-  replay/duplication gap at the boundary.
+- **Fail-closed on malformed invocation (all five branches).** The harness
+  `send_raw`s a malformed `RemoteEventHandlerInvocation` and asserts
+  `fire_count == 0` + `drain() == ()` for **every** deny branch of
+  `_hub_interaction_dispatch`: missing `scene_id` (`clients.py:122-127`),
+  unresolved element (`clients.py:131-138`), non-ABC resolved element
+  (`clients.py:145-151`, a legacy `separator` root), non-bool `value_changed`
+  value (`clients.py:161-167`), and unknown `event_kind` (`clients.py:180-187`).
+  Deny by default; a bad message must not reach a handler.
+- **Single-fire per injection (NOT anti-replay).** I2's single-fire is
+  correctness for **one** injected interaction: one fire, one publish, one
+  state transition — a double-fire on a single injection would double all
+  three. This is **not** a replay defence. `_hub_interaction_dispatch` has no
+  dedup, so the **same** valid invocation sent twice fires twice — the harness
+  proves that observed behaviour in `test_replayed_invocation_double_fires`
+  rather than asserting a defence the system lacks. A replayed frame is a
+  duplicated side effect; closing that gap (a nonce/sequence dedup at the
+  boundary) is separate future work, noted here, not built by this harness.
 - **Connection-scoped isolation on the live loop.** Assert the business event
   lands **only** in the owning connection's inbox — a second subscribed
   connection receives nothing from the first's injected click. `hub.publish`
