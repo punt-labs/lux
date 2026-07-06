@@ -7,12 +7,16 @@ leg lives inside ``_hub_interaction_dispatch`` (``client.show_async`` after
 A ``RepushEffect`` asserts the leg fired *for real* by reading the Display
 replica **after dispatch but before any agent update**:
 
-- ``PropAfterDispatch`` — the target's own handler either mutated a field
-  (checkbox value flips ``False``→``True`` via ``_UpdateValueHandler``) or
-  left scene state untouched (a noop+publish button); either way the
-  re-push carried the element and the assertion reads back the expected
-  post-dispatch value. Non-vacuous: a missing re-push would fail the
-  lookup.
+- ``PropAfterDispatch`` — asserts the replica field after dispatch. Its
+  proof strength depends on the scenario. The checkbox variant is the
+  genuine re-push-carried-a-mutation proof: the value flips
+  ``False``→``True`` only via the dispatch re-push (``_UpdateValueHandler``
+  runs on the Hub copy, and the flipped value reaches the replica only if
+  the leg fired). The button variant is weaker by design: it asserts an
+  unchanged field on an element that persists in the replica from the
+  original ``show``, so it proves only that the element survived the
+  noop+publish dispatch unchanged — the assertion holds whether or not the
+  dispatch re-push leg fired.
 - ``RemovedAfterDispatch`` — a dialog's ``confirm`` runs ``mark_removed``
   on the Hub copy; the root-observer cascade drops it from ``HubDisplay``
   and the re-push carries the shrunken tree. The element is present before
