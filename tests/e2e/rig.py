@@ -35,6 +35,7 @@ from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.in_memory_connection import InMemoryConnection
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
+from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
@@ -107,6 +108,12 @@ class InProcessLoop:
         replica = message_from_dict(message_to_dict(outbound))
         assert isinstance(replica, SceneMessage)
         self._server._wrap_abc_elements(replica)
+        # The wrap rebinds the Display's real ImGui factory; the rig never
+        # renders, so re-bind the fail-loud sentinel to make "no render call"
+        # a proven property — an accidental render() raises rather than passes.
+        for elem in replica.elements:
+            if isinstance(elem, AbcElement):
+                elem.bind_renderer_factory(RaisingRendererFactory())
         self._server._scene_manager.handle_scene(replica, _REPLICA_OWNER_FD)
         self._server._route_to_domain_display(replica)
         # Render would set this before any click; the rig sets it so a

@@ -112,6 +112,23 @@ or `MagicMock` the client — that stubs the exact boundary the round trip exist
 prove. Assert: the handler ran exactly once, on the Hub's copy, and the re-push
 reflects the mutation.
 
+**The standing gate for this level is the business-event-loop harness**
+(`tests/e2e/`, `@pytest.mark.integration`, design of record
+`docs/architecture/e2e-harness-design.md`). It wires a windowless production
+`DisplayServer` to the production Hub dispatch across the shipped
+`InMemoryConnection` — the same `Connection` interface `LineSocket` implements —
+and proves the full bidirectional loop for a **composed** surface: an injected
+interaction crosses the faithful boundary, the real handler runs once on the
+Hub's authoritative `HubDisplay` copy, a business event a real subscriber
+receives is published, the simulated agent reacts by pushing a change back, and
+the re-pushed Display replica reflects it (invariants I1–I6). An interactive
+kind is **Level-4 green** when it has a passing `Scenario` in that harness;
+adding a migrated kind is one more `Scenario` value, not new assertion code. The
+harness injects by firing the replica's own wrapped handler — the exact call
+`ButtonRenderer.render` makes on a real click — so the crossed invocation is
+byte-identical to a real click's; only the GLFW pixel hit-test is deferred (with
+the screenshot layer, DES-028).
+
 ### Level 5 — Introspection verification (integration)
 
 `render_path` and `resolved_props` are the introspection primitive added by the
