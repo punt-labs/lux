@@ -4092,3 +4092,100 @@ lesson — formalize on the second repeat, not the fourth — is recorded.
 ### References
 
 - `docs/patch_application.tex`, DES-038, DES-039, PR #241.
+
+## DES-044: End-to-End Business-Event-Loop Harness — In-Process, Boundary-Faithful Verification
+
+**Date:** 2026-07-06
+**Status:** ACCEPTED
+**Decided by:** the operator
+**Companion doc:** `docs/architecture/e2e-harness-design.md`
+**Implemented:** PR #243
+
+### Problem
+
+Each migrated element is unit-tested for render, validate, and fire in
+isolation, but the full io-model loop — a UI interaction crossing to the Hub,
+running the real handler once on the authoritative copy, publishing a business
+event a subscriber receives, the agent reacting by pushing a change back, and
+the Hub re-pushing a replica the Display reflects — had **never been verified
+end-to-end on a composed surface**. The strongest prior "e2e" test
+(`test_dialog_interaction_trace.py`) drives the **test-only** `Display.interact`
+— whose own docstring states that under D21 the display forwards interactions to
+the Hub and production interaction dispatch runs on the Hub side, so `interact`
+is the in-process dispatch contract, not the production path — so it never
+exercised the real Hub path. That is the *illusion of progress* — green tests certifying a loop
+nobody has run across the real boundary.
+
+### Decision
+
+Build a standing gate (`tests/e2e/`) that proves the full bidirectional loop
+across the real boundary, for composed migrated surfaces.
+
+1. **In-process, no socket / subprocess / GPU.** Wire the Hub and a windowless
+   **production** `DisplayServer` over `InMemoryConnection` — the SAME
+   `Connection` interface `LineSocket` implements — so the boundary is crossed
+   through the real abstraction, not around it. A faithful boundary, not a stub.
+2. **No-stub invariant.** The interaction lands in the production
+   `ClientRegistry._hub_interaction_dispatch` on the authoritative `HubDisplay`,
+   fired exactly once; handlers, `hub.publish`, and the inbox run for real. A
+   `RaisingRendererFactory` binds every replica element so an accidental
+   `render()` **raises** — "no pixels in this loop" is a *proven* property.
+3. **Inject at our own event layer.** Injection fires the replica's own wrapped
+   `Element.fire` — the exact call the button renderer makes on a real click —
+   so the crossed `RemoteEventHandlerInvocation` is byte-identical *by
+   construction*. No test-facing Display method, no wire control message; **zero
+   `src/` changes**.
+4. **Agent-driven and bidirectional.** A simulated agent drives the whole
+   circle, including the **return path**: it reacts to the delivered business
+   event by pushing a change back, and the re-pushed replica reflects it. The
+   react is gated on delivery (no delivery ⇒ no react), so the causal chain is
+   asserted, not assumed.
+5. **Data-driven `Scenario` framework.** Adding a migrated kind is one
+   `Scenario` value; extensibility is proven with `button`, `checkbox`,
+   `dialog`, and `payload` scenarios, plus the five deny-paths, connection
+   isolation, and a container-exposes-children guard.
+
+### Consequence
+
+"Migrated" can now mean "its interaction+business-event loop is green in the
+harness", not just "it renders". An interactive kind is Level-4 (per
+`tests/CLAUDE.md`) when it has a passing `Scenario`. `djb` confirmed the boundary
+is genuinely unstubbed.
+
+### Alternatives considered
+
+- **A GPU-gated visual layer / headless display peer (L1/L2 split).** The
+  original design. Superseded — the loop is *messages, not pixels*; the pixel
+  paint and the proof that a real GLFW click emits the same wire event as the
+  injection are **deferred** with the screenshot layer (DES-028).
+- **A test-only `InjectInteraction` wire control message, or a `--test-click`
+  startup flag.** Rejected — generating the same event at our own layer (fire
+  the wrapped handler) is strictly more faithful and needs no `src` change or
+  protocol addition.
+- **Subprocess + real Unix socket (extend `test_e2e.py`).** Rejected for the
+  standing gate — in-process DI over `InMemoryConnection` crosses the same
+  `Connection` boundary without the socket/GPU/subprocess cost and is
+  CI-capable.
+
+### Deferred (each tracked)
+
+- **CI wiring** — the gate is CI-*capable* but the `integration` tier is
+  excluded from CI (`-m 'not integration'`); land now, wire CI as fast-follow
+  (`lux-lodl`, with `lux-gqai` to stabilize the real-subprocess tests it
+  enables).
+- **Framing-switch** — the harness rides the target `Connection` interface;
+  production `DisplayClient`/`SocketServer` still use bespoke framing
+  (`lux-5zhw`). Until the flip, the harness proves the loop *logic* over a
+  byte-faithful abstraction, not today's exact production wire bytes.
+- **Pixel / injection-fidelity** — the real GLFW paint and the real-click ==
+  injection wire-equality proof, deferred with DES-028 (screenshot).
+- **Interaction dedup / anti-replay** — the dispatch has no dedup; a replayed
+  frame double-fires. The harness documents this honestly (single-fire *per
+  injection*, not replay resistance) rather than claiming a defense the system
+  lacks; whether one is warranted is `lux-x8rb`.
+
+### References
+
+- `docs/architecture/e2e-harness-design.md`, PR #243, `tests/CLAUDE.md`
+  (Level 3–5 gate), DES-028; beads `lux-lodl`, `lux-gqai`, `lux-5zhw`,
+  `lux-x8rb`.
