@@ -127,12 +127,17 @@ class InProcessLoop:
         drives the same ``RemoteDispatchGroup`` a real click drives.
         """
         scene = self._server._scene_manager.scenes.get(self._scene_id)
-        if scene is not None:
-            for root in scene.elements:
-                found = self._find(root, element_id)
-                if found is not None:
-                    return found
-        msg = f"element {element_id!r} not in display replica"
+        if scene is None:
+            msg = (
+                f"scene {self._scene_id!r} absent from display replica "
+                f"(cannot resolve element {element_id!r})"
+            )
+            raise LookupError(msg)
+        for root in scene.elements:
+            found = self._find(root, element_id)
+            if found is not None:
+                return found
+        msg = f"element {element_id!r} not in display replica scene {self._scene_id!r}"
         raise LookupError(msg)
 
     def cross(self) -> tuple[RemoteEventHandlerInvocation, ...]:
