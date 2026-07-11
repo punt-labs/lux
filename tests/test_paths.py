@@ -79,14 +79,18 @@ class _FakeDisplay:
                 conn, _ = self._sock.accept()
             except (TimeoutError, OSError):
                 continue
-            with contextlib.suppress(OSError):
-                if self._reply == "ready":
-                    send_message(conn, ReadyMessage())
-                elif self._reply == "garbage":
-                    conn.sendall(encode_frame({"no_type_field": 1}))
-                elif self._reply == "nonobject":
-                    conn.sendall(_frame_json(42))  # valid JSON, not an object
-            conn.close()
+            try:
+                with contextlib.suppress(OSError):
+                    if self._reply == "ready":
+                        send_message(conn, ReadyMessage())
+                    elif self._reply == "garbage":
+                        conn.sendall(encode_frame({"no_type_field": 1}))
+                    elif self._reply == "nonobject":
+                        conn.sendall(_frame_json(42))  # valid JSON, not an object
+            finally:
+                # Close the accepted connection even if the reply raises a
+                # non-OSError, so a failed handshake never leaks the socket.
+                conn.close()
 
     def stop(self) -> None:
         """Stop serving and close the listening socket."""
@@ -110,23 +114,27 @@ def _silent_holding_server(path: Path) -> Generator[None]:
 
     def serve() -> None:
         srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        srv.bind(str(path))
-        srv.listen(5)
-        srv.settimeout(0.1)
-        listening.set()
         held: list[socket.socket] = []
-        while not stop.is_set():
-            try:
-                conn, _ = srv.accept()
-            except TimeoutError:
-                # The 0.1s accept timeout is the expected idle retry — re-check
-                # the stop event and loop. Any other OSError is a genuine
-                # failure and must surface, not spin.
-                continue
-            held.append(conn)  # hold open: accept but never send or close
-        for conn in held:
-            conn.close()
-        srv.close()
+        try:
+            srv.bind(str(path))
+            srv.listen(5)
+            srv.settimeout(0.1)
+            listening.set()
+            while not stop.is_set():
+                try:
+                    conn, _ = srv.accept()
+                except TimeoutError:
+                    # The 0.1s accept timeout is the expected idle retry —
+                    # re-check the stop event and loop. Any other OSError is a
+                    # genuine failure and must surface, not spin.
+                    continue
+                held.append(conn)  # hold open: accept but never send or close
+        finally:
+            # Close every held connection and the listener even if bind, listen,
+            # or accept raises, so a failed setup never leaks the sockets.
+            for conn in held:
+                conn.close()
+            srv.close()
 
     t = threading.Thread(target=serve, daemon=True)
     try:

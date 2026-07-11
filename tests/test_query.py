@@ -168,15 +168,22 @@ def _mini_query_server(
     the returned connection and the listening socket (closed here).
     """
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    conn: socket.socket | None = None
     try:
         server.bind(str(sock_path))
         server.listen(1)
         ready.set()
         conn, _ = server.accept()
         send_message(conn, ReadyMessage())
-        return conn
+        owned = conn
+        conn = None  # ownership transfers to the caller; do not close here
+        return owned
     finally:
         server.close()
+        if conn is not None:
+            # An error struck after accept but before handoff — close the
+            # orphaned connection so it never leaks.
+            conn.close()
 
 
 def _serve_queries(
@@ -290,6 +297,7 @@ class TestClientQuery:
         def serve() -> None:
             nonlocal server_conn
             server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            conn: socket.socket | None = None
             try:
                 server.bind(str(sock_path))
                 server.listen(1)
@@ -298,7 +306,6 @@ class TestClientQuery:
                 # Loop the accept so a never-connecting client cannot wedge the
                 # thread: each short timeout re-checks done_event, which the
                 # test's finally sets to release us even if no client arrives.
-                conn: socket.socket | None = None
                 while not done_event.is_set():
                     try:
                         conn, _ = server.accept()
@@ -309,14 +316,18 @@ class TestClientQuery:
                         # genuine failure and must surface, not spin.
                         continue
                 if conn is not None:
-                    send_message(conn, ReadyMessage())
                     server_conn = conn
+                    send_message(conn, ReadyMessage())
                     # Hold the connection open — never read or respond — so the
                     # client times out; release the moment the test signals it
                     # is done.
                     done_event.wait(timeout=5)
             finally:
+                # Close the listener and any accepted connection even if bind,
+                # listen, accept, or the handshake raises, so neither leaks.
                 server.close()
+                if conn is not None:
+                    conn.close()
 
         t = threading.Thread(target=serve, daemon=True)
         try:
