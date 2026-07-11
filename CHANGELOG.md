@@ -69,8 +69,10 @@
   now has an `integration` job running `make test-integration` (`pytest -m
   integration`, including the `tests/e2e/` business-event-loop harness, DES-044)
   on every PR and push to main, on the same `ubuntu-latest` runner the `test` job
-  uses. It is **blocking**: the e2e harness — the standing gate against the
-  illusion of progress — can no longer rot into a manually-run-only suite. A
+  uses. It is wired as a **blocking** CI job (no `continue-on-error`) and
+  enforced via a branch-protection required check on `main`: the e2e harness —
+  the standing gate against the illusion of progress — can no longer rot into a
+  manually-run-only suite. A
   separate `slow` job runs `make test-slow` (the `@pytest.mark.slow` timing class)
   with `continue-on-error: true`, so the frame-budget and probe-responsiveness
   smokes run for visibility/anti-rot but a rare timing hiccup on a loaded runner

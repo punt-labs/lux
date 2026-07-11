@@ -22,16 +22,17 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv sync --locked --extra display
-      - name: Unit and integration tests (excludes the characterization corpus)
+      - name: Unit tests (excludes the characterization corpus)
         run: uv run --extra display pytest --ignore=tests/characterization
       - name: Snapshot parity (characterization corpus must replay byte-for-byte)
         run: make snapshot-parity
 
   # Tier-2 integration + e2e gate. `make test-integration` runs `pytest -m integration`,
-  # which includes the tests/e2e/ business-event-loop harness (marked @pytest.mark.integration,
-  # DES-044) — the standing gate against the illusion of progress. Integration tests use
-  # isolated temp AF_UNIX sockets (tempfile.mkdtemp) and no GPU, so they run headless as-is.
-  # BLOCKING: this is a required check.
+  # which includes the tests/e2e/ business-event-loop harness (marked @pytest.mark.integration)
+  # — the standing gate against the illusion of progress. The integration tier needs no GPU
+  # and no display process, so it runs headless as-is. BLOCKING: no continue-on-error here, so
+  # this job must pass; it is enforced as a required status check on main via the
+  # branch-protection ruleset.
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -49,7 +50,7 @@ jobs:
 
   # Slow / timing-sensitive class (@pytest.mark.slow): frame-budget smoke +
   # probe-responsiveness. These assert absolute wall-clock bounds that track machine
-  # load, not code — deliberately quarantined out of the gating path (lux-gqai). This job
+  # load, not code — deliberately quarantined out of the gating path. This job
   # runs them for visibility/anti-rot only. NON-BLOCKING: continue-on-error means a rare
   # timing hiccup on a loaded runner surfaces but never gates a merge.
   slow:
