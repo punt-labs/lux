@@ -293,14 +293,25 @@ class TestClientQuery:
             try:
                 server.bind(str(sock_path))
                 server.listen(1)
+                server.settimeout(0.1)
                 ready_event.set()
-                conn, _ = server.accept()
-                send_message(conn, ReadyMessage())
-                server_conn = conn
-                # Hold the connection open — never read or respond — so the
-                # client times out; release the moment the test signals it is
-                # done.
-                done_event.wait(timeout=5)
+                # Loop the accept so a never-connecting client cannot wedge the
+                # thread: each short timeout re-checks done_event, which the
+                # test's finally sets to release us even if no client arrives.
+                conn: socket.socket | None = None
+                while not done_event.is_set():
+                    try:
+                        conn, _ = server.accept()
+                        break
+                    except (TimeoutError, OSError):
+                        continue
+                if conn is not None:
+                    send_message(conn, ReadyMessage())
+                    server_conn = conn
+                    # Hold the connection open — never read or respond — so the
+                    # client times out; release the moment the test signals it
+                    # is done.
+                    done_event.wait(timeout=5)
             finally:
                 server.close()
 
