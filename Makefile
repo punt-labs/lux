@@ -3,7 +3,7 @@
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
 
-test: ## Run tests — tiers 1-2 (excludes integration and e2e)
+test: ## Run tests — tier 1 unit only (excludes slow, integration, e2e)
 	uv run --extra display pytest
 
 test-integration: ## Run integration tests (tier 2, requires no display)

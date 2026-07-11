@@ -19,11 +19,11 @@ gate.
 ## Running tests
 
 ```bash
-make test                                           # tiers 1-2, standard gate
+make test                                           # tier 1 (unit), standard gate
 make test-integration                               # tier 2 only
 make test-e2e                                       # tier 3 (requires display running)
 make test-slow                                      # slow / timing-sensitive class only
-make coverage                                       # tiers 1-2 with HTML report in htmlcov/
+make coverage                                       # tier 1 with HTML report in htmlcov/
 uv run --extra display pytest tests/test_foo.py -v  # single file, targeted
 ```
 
