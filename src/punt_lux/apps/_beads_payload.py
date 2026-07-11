@@ -6,21 +6,21 @@ import json
 import logging
 import subprocess
 from enum import Enum
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar, cast, final
 
 _log = logging.getLogger(__name__)
 _STDOUT_PREVIEW_CHARS = 80
 _BD_TIMEOUT_SECONDS = 60
 
 
+@final
 class BoardScope(Enum):
     """Which beads the board shows — the query scope the loader owns.
 
-    Each member carries the ``bd`` argument tail that selects its issues;
-    ``ACTIVE`` is the board's default and shows ready work *plus* whatever is
-    currently in progress, so a claimed bead stays visible instead of dropping
-    off the moment its status flips to ``in_progress``. ``ALL`` shows every
-    issue regardless of status.
+    ``ACTIVE``, the default, selects by stored status: every ``open`` issue
+    plus whatever is ``in_progress``. Selecting by status rather than
+    dependency-readiness keeps claimed beads visible once they flip to
+    ``in_progress`` and surfaces open-but-blocked issues too. ``ALL`` shows all.
     """
 
     ACTIVE = ("list", "--json", "--status", "open,in_progress")
