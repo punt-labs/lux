@@ -222,7 +222,11 @@ logic moves.
   *which row is selected* is a candidate for Hub authority (an app reads it to
   drive `openTicket`). Migration must split: view-only filter/search state stays
   Display-local; authoritative selection routes to the Hub. This is the single
-  hardest kind — Decision (c).
+  hardest kind — Decision (c). Row selection addresses rows by a stable `row_id`
+  per [DES-045](../../DESIGN.md) — an agent-designated key or a synthesized stable
+  key, replacing the legacy positional `row_index` — so this batch (B6,
+  `lux-i3ag`) inherits the settled sub-element addressing contract rather than
+  re-deciding it.
 - `plot` (`plot_element.py:17`) is display-only but its `series` is
   `list[dict[str, Any]]` (`plot_element.py:27`) — an untyped anti-pattern the
   module docstring already flags. Migrating it onto the ABC is the moment to

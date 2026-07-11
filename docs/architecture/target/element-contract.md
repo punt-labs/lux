@@ -65,6 +65,22 @@ Every Element must not:
 - bypass the Hub and execute business behavior directly on the Display
 - treat app-level pub-sub as its state replication mechanism
 
+## Sub-Element Addressing
+
+An Element has a stable `id`. So does every **addressable sub-part of a
+composite** that is not itself an Element — a tab in a `tab_bar`, a row in a
+`table`.
+
+Every such sub-part must be identified by a **stable id** — agent-provided, or
+synthesized as a stable key — and **never by a positional index**. Selection
+state and interaction routing reference that id. The id is stable under insert,
+remove, and reorder of its siblings: reordering a `tab_bar`'s tabs, or
+inserting a row into a `table`, never moves the selection to a different
+sub-part.
+
+This is the element-identity rule applied one level down. It is decided once,
+here, and not re-litigated per composite (see [DES-045](../../../DESIGN.md)).
+
 ## Standard Element Vocabulary
 
 Apps and agents compose the standard Lux element catalog. They do not send
