@@ -10,10 +10,11 @@
 | 4 — Visual | manual | no | run lux, look at it | ImGui rendering correctness — cannot be automated without a display |
 | Slow — Timing | `@pytest.mark.slow` | no (wired separately) | `make test-slow` | Latency/frame-budget smokes whose absolute wall-clock bound tracks machine load |
 
-`make test` runs tiers 1 and 2. Tier 3, tier 4, and the slow class are opt-in.
-The default gate excludes `slow` (see the `addopts` marker filter in
-`pyproject.toml`), so a machine-sensitive timing assertion can never fail the
-serial gate.
+`make test` runs tier 1 (unit) only. The default `addopts` marker filter in
+`pyproject.toml` is `-m 'not slow and not integration and not e2e'`, so tier 2
+(integration, via `make test-integration`), tier 3, tier 4, and the slow class
+are all opt-in — a machine-sensitive timing assertion can never fail the serial
+gate.
 
 ## Running tests
 
@@ -43,9 +44,12 @@ and `make check` never run them; they run in isolation via `make test-slow`.
 
 **What belongs here:** timing-, latency-, or concurrency-sensitive assertions
 whose result tracks whole-machine state rather than the code under test.
-Frame-budget smokes are the canonical case — keep the budget loose (an order of
-magnitude above the measured cost) so the guard catches a catastrophic blow-up
-without flaking under load.
+Frame-budget smokes are the canonical case — keep the budget loose (the shipped
+one sits ~70x above its ~0.28 ms measured cost) so the guard catches only a
+catastrophic blow-up (an infinite loop, accidental per-element I/O, O(n^2) work)
+without flaking under load. A loose budget is not a 10x regression guard: a 10x
+slowdown still passes, and re-tightening toward 10x reintroduces the load
+sensitivity the loose bound exists to avoid.
 
 **What does not:** an absolute wall-clock bound must never sit in the default
 serial gate. If a probe or handler is "fast" because of a design property

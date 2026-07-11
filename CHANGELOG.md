@@ -68,14 +68,20 @@
 - **Timing-sensitive tests isolated behind `make test-slow`** — the frame-budget
   smoke now carries `@pytest.mark.slow`, so the default serial gate (`make test`,
   `make check`) no longer runs it; `make test-slow` runs it alone. Its budget is
-  loosened to 20 ms — an absolute wall-clock bound on a pure-CPU loop tracks
-  machine load, not code, so the guard stays loose enough to catch a
-  catastrophic blow-up without flaking under load. The twin absolute-time
-  assertion in the socket-probe test is replaced by a behavior assertion (the
-  probe returns `ACCEPTING`), and the `test_query` harness now joins its server
-  thread before closing the socket and releases the timeout hold via an event —
-  eliminating the recurring `Bad file descriptor` teardown warning and the fixed
-  3 s sleep. See `tests/CLAUDE.md`.
+  loosened to 20 ms — ~70x above the ~0.28 ms measured cost — because an absolute
+  wall-clock bound on a pure-CPU loop tracks machine load, not code. That
+  headroom catches only a catastrophic blow-up (an infinite loop, accidental
+  per-element I/O, O(n^2) work over the 600 render calls); it is deliberately not
+  a 10x regression guard, since a 10x slowdown to 2.8 ms/frame still passes. The
+  socket-probe test now asserts the probe returns `ACCEPTING` in the default gate
+  (behavior, not wall-clock), with the timing guard preserved as a separate
+  `@pytest.mark.slow` test that bounds `_probe` at 0.5 s — between the ~0.2 s
+  handshake window and the ~1.0 s connect timeout — so a regression that blocks
+  the whole connect timeout on a silent-but-live owner is still caught, just out
+  of the serial gate. The `test_query` harness now joins its server thread before
+  closing the socket and releases the timeout hold via an event — eliminating the
+  recurring `Bad file descriptor` teardown warning and the fixed 3 s sleep. See
+  `tests/CLAUDE.md`.
 - **Beads board selects by stored status, not dependency-readiness** — the
   board's default query is now `bd list --json --status open,in_progress`
   instead of `bd ready --json`. Selecting by stored status shows every `open`

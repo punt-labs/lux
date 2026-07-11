@@ -11,8 +11,13 @@ no-I/O, no-GL dispatch loop, and such a bound tracks machine load —
 scheduler preemption, CPU frequency scaling, GC pauses, noisy CI
 neighbors — far more than it tracks algorithmic cost. A tight bound
 would fail deterministically under load without any code regression,
-so the budget is set an order of magnitude above the measured cost:
-it catches a catastrophic blow-up while staying immune to load.
+so the 20 ms budget sits ~70x above the ~0.28 ms measured cost. It
+catches only a catastrophic blow-up — an infinite loop, accidental
+per-element I/O, or O(n^2) work over the 600 render calls (60 frames
+x 10 elements) — while staying immune to load. It is deliberately NOT
+a 10x regression guard: a 10x slowdown to 2.8 ms/frame still passes at
+the 20 ms budget. Do not re-tighten toward 10x — that reintroduces the
+load-sensitivity this budget exists to avoid.
 
 Because the bound is machine-sensitive rather than code-sensitive,
 the test is marked ``slow`` and lives outside the default serial gate.
@@ -37,8 +42,9 @@ from punt_lux.protocol.renderers import RecordingLog, RecordingRendererFactory
 
 _FRAMES: Final[int] = 60
 _ELEMENTS_PER_FRAME: Final[int] = 10
-# 20 ms / frame — an order of magnitude above the ~0.28 ms measured cost.
-# Loose on purpose: an absolute wall-clock bound tracks machine load, not code.
+# 20 ms / frame — ~70x above the ~0.28 ms measured cost. Loose on purpose: an
+# absolute wall-clock bound tracks machine load, not code. Catches a
+# catastrophic blow-up, not a 10x regression (2.8 ms still passes here).
 _BUDGET_SECONDS: Final[float] = 0.020
 
 
