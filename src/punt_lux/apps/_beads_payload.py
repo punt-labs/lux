@@ -5,11 +5,35 @@ from __future__ import annotations
 import json
 import logging
 import subprocess
-from typing import Any, ClassVar, cast
+from enum import Enum
+from typing import Any, ClassVar, cast, final
 
 _log = logging.getLogger(__name__)
 _STDOUT_PREVIEW_CHARS = 80
 _BD_TIMEOUT_SECONDS = 60
+
+
+@final
+class BoardScope(Enum):
+    """Which beads the board shows — the query scope the loader owns.
+
+    ``ACTIVE``, the default, selects by stored status: every ``open`` issue
+    plus whatever is ``in_progress``. Selecting by status rather than
+    dependency-readiness keeps claimed beads visible once they flip to
+    ``in_progress`` and surfaces open-but-blocked issues too. ``ALL`` shows all.
+    """
+
+    ACTIVE = ("list", "--json", "--status", "open,in_progress")
+    ALL = ("list", "--json", "--all")
+
+    @classmethod
+    def for_board(cls, *, all_issues: bool) -> BoardScope:
+        """Return the scope a board load asks for."""
+        return cls.ALL if all_issues else cls.ACTIVE
+
+    def argv(self) -> list[str]:
+        """Return the full ``bd`` command line that selects this scope."""
+        return ["bd", *self.value]
 
 
 class BeadsLoader:
@@ -22,17 +46,13 @@ class BeadsLoader:
         failure (timeout, non-zero exit, empty output, malformed JSON,
         or an unexpected JSON shape).
         """
-        stdout, err = self._invoke(all_issues=all_issues)
+        stdout, err = self._invoke(BoardScope.for_board(all_issues=all_issues))
         if stdout is None:
             return [], err
         return self._parse(stdout)
 
-    def _invoke(self, *, all_issues: bool) -> tuple[str | None, str | None]:
-        cmd: list[str] = (
-            ["bd", "list", "--json", "--all"]
-            if all_issues
-            else ["bd", "ready", "--json"]
-        )
+    def _invoke(self, scope: BoardScope) -> tuple[str | None, str | None]:
+        cmd = scope.argv()
         cmd_str = " ".join(cmd)
         try:
             result = subprocess.run(  # noqa: S603

@@ -107,6 +107,20 @@ class TestLoadBeads:
         assert result[0]["id"] == "beads-002"  # in_progress floats to top
         assert result[1]["id"] == "beads-001"  # P1, open
 
+    def test_default_floats_in_progress_above_open(self) -> None:
+        # The default board query returns open + in_progress issues; the
+        # in_progress bead must float to the top even though its priority is
+        # lower than an open bead's, exercising the default-path sort.
+        active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
+        with patch(
+            "punt_lux.apps._beads_payload.subprocess.run",
+            return_value=_mock_bd_result(active),
+        ):
+            result, _err = BeadsBrowser().load()
+        assert [i["id"] for i in result] == ["beads-002", "beads-001"]
+        assert result[0]["status"] == "in_progress"
+        assert result[1]["priority"] < result[0]["priority"]  # P1 open below P2
+
     def test_subprocess_failure_returns_empty(self) -> None:
         cp = subprocess.CompletedProcess(
             args=["bd", "list", "--json"],
@@ -159,7 +173,7 @@ class TestLoadBeads:
 
     def test_unexpected_json_shape_returns_error(self) -> None:
         cp = subprocess.CompletedProcess(
-            args=["bd", "ready", "--json"],
+            args=["bd", "list", "--json", "--status", "open,in_progress"],
             returncode=0,
             stdout=json.dumps({"issues": _ISSUES}),
             stderr="",
@@ -173,7 +187,9 @@ class TestLoadBeads:
     def test_subprocess_timeout_returns_error(self) -> None:
         with patch(
             "punt_lux.apps._beads_payload.subprocess.run",
-            side_effect=subprocess.TimeoutExpired(cmd="bd ready --json", timeout=60),
+            side_effect=subprocess.TimeoutExpired(
+                cmd="bd list --json --status open,in_progress", timeout=60
+            ),
         ):
             issues, err = BeadsBrowser().load()
         assert issues == []
@@ -184,7 +200,7 @@ class TestLoadBeads:
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
         cp = subprocess.CompletedProcess(
-            args=["bd", "ready", "--json"],
+            args=["bd", "list", "--json", "--status", "open,in_progress"],
             returncode=0,
             stdout=json.dumps([{"id": "beads-001", "title": "ok"}, "garbage", 42]),
             stderr="",
@@ -207,14 +223,14 @@ class TestLoadBeads:
         args = mock_run.call_args[0][0]
         assert "--all" in args
 
-    def test_default_invokes_bd_ready(self) -> None:
+    def test_default_invokes_bd_list_active(self) -> None:
         with patch(
             "punt_lux.apps._beads_payload.subprocess.run",
             return_value=_mock_bd_result(_ISSUES),
         ) as mock_run:
             BeadsBrowser().load()
         args = mock_run.call_args[0][0]
-        assert args == ["bd", "ready", "--json"]
+        assert args == ["bd", "list", "--json", "--status", "open,in_progress"]
 
     def test_all_flag_invokes_bd_list_all(self) -> None:
         with patch(
@@ -312,7 +328,7 @@ class TestBuildBeadsElements:
     def test_error_returns_visible_error_element(self) -> None:
         """When bd fails, surface the reason instead of 'No active issues'."""
         elements = BeadsBrowser().build_elements(
-            ([], "bd ready --json: timed out after 60s"),
+            ([], "bd list --json --status open,in_progress: timed out after 60s"),
         )
         assert len(elements) == 1
         elem = elements[0]

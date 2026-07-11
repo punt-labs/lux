@@ -65,6 +65,13 @@
 
 ### Changed
 
+- **Beads board selects by stored status, not dependency-readiness** — the
+  board's default query is now `bd list --json --status open,in_progress`
+  instead of `bd ready --json`. Selecting by stored status shows every `open`
+  issue plus whatever is `in_progress`, replacing `bd ready`'s
+  dependency-readiness filter. Claimed beads no longer vanish the moment their
+  status flips to `in_progress`, and open-but-dependency-blocked issues that
+  `bd ready` hid are now visible too. The `--all` view is unchanged.
 - **Element-ABC renderer-factory DI made real and honest** — the Display now
   rebinds its real `ImGuiRendererFactory` onto every received ABC element (a new
   `Element.bind_renderer_factory`), so `Element.render()`'s dependency is
