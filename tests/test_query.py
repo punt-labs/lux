@@ -247,8 +247,8 @@ class TestClientQuery:
                 assert resp.error is None
         finally:
             stop_event.set()
-            _cleanup(short_dir, server_conn)
             t.join(timeout=5)
+            _cleanup(short_dir, server_conn)
 
     @pytest.mark.integration
     def test_query_error_response(self) -> None:
@@ -276,8 +276,8 @@ class TestClientQuery:
                 assert resp.error == "deliberate test error"
         finally:
             stop_event.set()
-            _cleanup(short_dir, server_conn)
             t.join(timeout=5)
+            _cleanup(short_dir, server_conn)
 
     @pytest.mark.integration
     def test_query_timeout_returns_none(self) -> None:
@@ -285,6 +285,7 @@ class TestClientQuery:
         short_dir, sock_path = _short_sock_path()
         server_conn: socket.socket | None = None
         ready_event = threading.Event()
+        done_event = threading.Event()
 
         def serve() -> None:
             nonlocal server_conn
@@ -295,8 +296,9 @@ class TestClientQuery:
             conn, _ = server.accept()
             send_message(conn, ReadyMessage())
             server_conn = conn
-            # Do NOT read or respond — let the client time out
-            time.sleep(3)
+            # Hold the connection open — never read or respond — so the client
+            # times out; release the moment the test signals it is done.
+            done_event.wait(timeout=5)
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
@@ -309,8 +311,9 @@ class TestClientQuery:
                 resp = client.query("anything", timeout=0.3)
                 assert resp is None
         finally:
-            _cleanup(short_dir, server_conn)
+            done_event.set()
             t.join(timeout=5)
+            _cleanup(short_dir, server_conn)
 
     @pytest.mark.integration
     def test_query_with_listener(self) -> None:
@@ -340,8 +343,8 @@ class TestClientQuery:
                 assert resp.result == {"echo": {"data": 42}}
         finally:
             stop_event.set()
-            _cleanup(short_dir, server_conn)
             t.join(timeout=5)
+            _cleanup(short_dir, server_conn)
 
     @pytest.mark.integration
     def test_query_interleaved_with_scene(self) -> None:
@@ -378,8 +381,8 @@ class TestClientQuery:
                 assert resp.method == "echo"
         finally:
             stop_event.set()
-            _cleanup(short_dir, server_conn)
             t.join(timeout=5)
+            _cleanup(short_dir, server_conn)
 
 
 # ---------------------------------------------------------------------------
