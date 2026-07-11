@@ -30,9 +30,9 @@ jobs:
   # Tier-2 integration + e2e gate. `make test-integration` runs `pytest -m integration`,
   # which includes the tests/e2e/ business-event-loop harness (marked @pytest.mark.integration)
   # — the standing gate against the illusion of progress. The integration tier needs no GPU
-  # and no display process, so it runs headless as-is. BLOCKING: no continue-on-error here, so
-  # this job must pass; it is enforced as a required status check on main via the
-  # branch-protection ruleset.
+  # and no display process, so it runs headless as-is. BLOCKING in CI: no continue-on-error,
+  # so a failure fails this check run. To gate merges, `integration` must be listed in main's
+  # required status checks (branch-protection settings) — the YAML alone cannot make it required.
   integration:
     runs-on: ubuntu-latest
     timeout-minutes: 20
