@@ -303,7 +303,7 @@ class TestClientQuery:
                     try:
                         conn, _ = server.accept()
                         break
-                    except (TimeoutError, OSError):
+                    except OSError:
                         continue
                 if conn is not None:
                     send_message(conn, ReadyMessage())
