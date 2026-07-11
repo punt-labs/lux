@@ -129,9 +129,9 @@ def _silent_holding_server(path: Path) -> Generator[None]:
         srv.close()
 
     t = threading.Thread(target=serve, daemon=True)
-    t.start()
-    assert listening.wait(timeout=2)  # server has bound and is listening
     try:
+        t.start()
+        assert listening.wait(timeout=2)  # server has bound and is listening
         yield
     finally:
         stop.set()

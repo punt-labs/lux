@@ -232,10 +232,10 @@ class TestClientQuery:
             _serve_queries(server_conn, 1, stop_event)
 
         t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5)
-
         try:
+            t.start()
+            assert ready_event.wait(timeout=5)
+
             with DisplayClient(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
@@ -264,10 +264,10 @@ class TestClientQuery:
             _serve_queries(server_conn, 1, stop_event)
 
         t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5)
-
         try:
+            t.start()
+            assert ready_event.wait(timeout=5)
+
             with DisplayClient(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
@@ -319,10 +319,10 @@ class TestClientQuery:
                 server.close()
 
         t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5)
-
         try:
+            t.start()
+            assert ready_event.wait(timeout=5)
+
             with DisplayClient(
                 sock_path, auto_spawn=False, connect_timeout=2.0, recv_timeout=0.3
             ) as client:
@@ -347,10 +347,10 @@ class TestClientQuery:
             _serve_queries(server_conn, 2, stop_event)
 
         t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5)
-
         try:
+            t.start()
+            assert ready_event.wait(timeout=5)
+
             with DisplayClient(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
@@ -378,10 +378,10 @@ class TestClientQuery:
             _serve_queries(server_conn, 2, stop_event)
 
         t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5)
-
         try:
+            t.start()
+            assert ready_event.wait(timeout=5)
+
             with DisplayClient(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
