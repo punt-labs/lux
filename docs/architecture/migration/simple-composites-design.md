@@ -50,7 +50,8 @@ state crosses IPC; render calls do not** (`target.md:63`–`:71`).
 
 Both kinds belong to the **composite/layout elements** family — role "structure
 and composition," handler expectation "may own child behavior and observer
-cascades" (`element-contract.md:80`, `:246`). Like `group` they own children and
+cascades" (`element-contract.md`, "Standard Element Vocabulary" and "Family
+Expectations"). Like `group` they own children and
 arrange them. Unlike `group`, they also carry one **agent-drivable view
 selection** each:
 

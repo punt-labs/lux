@@ -90,8 +90,8 @@ These are inconsistencies in the current shipped code, not future work. Per the
 "no existing excuse" rule they belong to whoever next touches these files.
 
 - **`domain_pump._ABC_TYPES` omits `CheckboxElement`** (`domain_pump.py:32`).
-  The tuple is `(TextElement, ButtonElement, DialogElement)`. `element-contract.md:86`
-  and `:93` state checkbox is a shipped ABC element, and it *is* an ABC subclass
+  The tuple is `(TextElement, ButtonElement, DialogElement)`. `element-contract.md`'s
+  "Migration status" section states checkbox is a shipped ABC element, and it *is* an ABC subclass
   (`checkbox.py:41`). The tuple gates anonymous-id synthesis (`domain_pump.py:128`):
   an anonymous-id Checkbox would fall through to `dataclasses.replace` on an ABC
   instance instead of raising the intended `ValueError`. In practice checkboxes
@@ -180,7 +180,7 @@ logic moves.
 ### Interactive leaf (slider, combo, input_text, input_number, radio, color_picker, selectable)
 
 - Everything the display-only leaf needs, **plus**:
-- Carry a typed interaction. Per `element-contract.md:143`, value-changing
+- Carry a typed interaction. Per `element-contract.md`, "Interaction Contract", value-changing
   inputs use `event_kind="value_changed"`, `action="changed"`, `value=<new>` —
   the shape `CheckboxElement` already models (`checkbox.py:95`).
 - Register handlers via `add_handler(ValueChanged, ...)` at decode time (the
@@ -217,8 +217,9 @@ logic moves.
 ### Stateful rich-display (table, plot, draw)
 
 - `table` (`table.py:74`) carries `TableFilter` (`table.py:18`) and
-  `TableDetail` (`table.py:49`) plus row selection. `element-contract.md:188`
-  explicitly permits built-in filtering as lightweight element behavior. But
+  `TableDetail` (`table.py:49`) plus row selection. `element-contract.md`,
+  "Built-In Versus App-Defined Behavior", explicitly permits built-in filtering
+  as lightweight element behavior. But
   *which row is selected* is a candidate for Hub authority (an app reads it to
   drive `openTicket`). Migration must split: view-only filter/search state stays
   Display-local; authoritative selection routes to the Hub. This is the single
@@ -328,7 +329,7 @@ dead surface on 12 kinds.
 *Recommend:* **one ABC, no split.** The unused members cost nothing at runtime
 (empty dict, no-op recursion), a single base keeps `_children()`/`render()`/
 `apply_patch` uniform, and the contract doc treats "may be interactive" as a
-per-kind property, not a type split (`element-contract.md:28`). A second base
+per-kind property, not a type split (`element-contract.md`, "Core Definition"). A second base
 class doubles the isinstance surface in `wrap_handlers_for_remote` and
 `domain_pump` for no behavioral gain. Revisit only if a display-only kind must
 forbid handler registration at the type level.
@@ -353,7 +354,8 @@ state?**
 Table carries filter/search/row-selection; plot is static but its render reads
 mutable `series`. The target says render calls never cross the wire and the Hub
 is authoritative (`target.md:65`,`:38`), but it also permits built-in filtering
-as element behavior (`element-contract.md:188`).
+as element behavior (`element-contract.md`, "Built-In Versus App-Defined
+Behavior").
 *Recommend:* **split state by authority.** (1) *View-only* state — active filter
 text, search string, scroll, expansion, window drag position — stays
 Display-local ephemeral state and is NOT re-pushed by the Hub (whole-tree resend
@@ -374,7 +376,8 @@ not elements — they have no id, no handlers, no independent render.
 `DrawElement` migrates onto the ABC (as a display-only leaf). The commands remain
 composed value objects it owns. Promoting them to elements would give ids and
 handler registries to line segments — surface the target explicitly warns
-against (`element-contract.md:241` "Elements must not become … a dumping ground").
+against (`element-contract.md`, "What Elements Must Not Become": "Elements must
+not become … a dumping ground").
 The draw command family is the *model* for how plot's `series` should be typed
 (Decision c), not a migration target itself.
 
