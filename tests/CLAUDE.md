@@ -21,9 +21,8 @@ CI runs tiers 1 and 2 as separate jobs in `.github/workflows/test.yml`. The
 (`pytest -m integration`, including the tests/e2e/ business-event-loop harness)
 as a **blocking** check on the same `ubuntu-latest` runner. The slow class runs
 in its own `slow` job (`make test-slow`) marked `continue-on-error: true`, so a
-timing hiccup on a loaded runner surfaces for visibility while the
-`continue-on-error: true` keeps the slow job **non-gating in CI**, and it is
-kept **non-required in branch protection**. The default `addopts` filter is
+timing hiccup on a loaded runner surfaces for visibility but the job is
+**non-gating in CI** and kept **non-required in branch protection**. The default `addopts` filter is
 untouched; each job overrides the marker via its Make target, exactly as they do
 locally.
 

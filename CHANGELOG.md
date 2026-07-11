@@ -70,9 +70,9 @@
   integration`, including the `tests/e2e/` business-event-loop harness, DES-044)
   on every PR and push to main, on the same `ubuntu-latest` runner the `test` job
   uses. It is wired as a **blocking** CI job (no `continue-on-error`), so a
-  failure fails the check run; enforcement as a required merge gate is
-  configured in main's branch-protection required status checks (listing
-  `integration`). Together these mean the e2e harness — the standing gate
+  failure fails the check run; to enforce it as a required merge gate,
+  `integration` must be added to main's branch-protection required status
+  checks. Together these mean the e2e harness — the standing gate
   against the illusion of progress — can no longer rot into a
   manually-run-only suite. A
   separate `slow` job runs `make test-slow` (the `@pytest.mark.slow` timing class)
