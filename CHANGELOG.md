@@ -65,6 +65,17 @@
 
 ### Changed
 
+- **Timing-sensitive tests isolated behind `make test-slow`** — the frame-budget
+  smoke now carries `@pytest.mark.slow`, so the default serial gate (`make test`,
+  `make check`) no longer runs it; `make test-slow` runs it alone. Its budget is
+  loosened to 20 ms — an absolute wall-clock bound on a pure-CPU loop tracks
+  machine load, not code, so the guard stays loose enough to catch a
+  catastrophic blow-up without flaking under load. The twin absolute-time
+  assertion in the socket-probe test is replaced by a behavior assertion (the
+  probe returns `ACCEPTING`), and the `test_query` harness now joins its server
+  thread before closing the socket and releases the timeout hold via an event —
+  eliminating the recurring `Bad file descriptor` teardown warning and the fixed
+  3 s sleep. See `tests/CLAUDE.md`.
 - **Beads board selects by stored status, not dependency-readiness** — the
   board's default query is now `bd list --json --status open,in_progress`
   instead of `bd ready --json`. Selecting by stored status shows every `open`
