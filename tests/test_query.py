@@ -290,15 +290,19 @@ class TestClientQuery:
         def serve() -> None:
             nonlocal server_conn
             server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            server.bind(str(sock_path))
-            server.listen(1)
-            ready_event.set()
-            conn, _ = server.accept()
-            send_message(conn, ReadyMessage())
-            server_conn = conn
-            # Hold the connection open — never read or respond — so the client
-            # times out; release the moment the test signals it is done.
-            done_event.wait(timeout=5)
+            try:
+                server.bind(str(sock_path))
+                server.listen(1)
+                ready_event.set()
+                conn, _ = server.accept()
+                send_message(conn, ReadyMessage())
+                server_conn = conn
+                # Hold the connection open — never read or respond — so the
+                # client times out; release the moment the test signals it is
+                # done.
+                done_event.wait(timeout=5)
+            finally:
+                server.close()
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
