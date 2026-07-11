@@ -118,7 +118,10 @@ def _silent_holding_server(path: Path) -> Generator[None]:
         while not stop.is_set():
             try:
                 conn, _ = srv.accept()
-            except OSError:
+            except TimeoutError:
+                # The 0.1s accept timeout is the expected idle retry — re-check
+                # the stop event and loop. Any other OSError is a genuine
+                # failure and must surface, not spin.
                 continue
             held.append(conn)  # hold open: accept but never send or close
         for conn in held:

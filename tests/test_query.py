@@ -303,7 +303,10 @@ class TestClientQuery:
                     try:
                         conn, _ = server.accept()
                         break
-                    except OSError:
+                    except TimeoutError:
+                        # The 0.1s accept timeout is the expected idle retry —
+                        # re-check done_event and loop. Any other OSError is a
+                        # genuine failure and must surface, not spin.
                         continue
                 if conn is not None:
                     send_message(conn, ReadyMessage())
