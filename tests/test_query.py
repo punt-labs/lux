@@ -168,15 +168,22 @@ def _mini_query_server(
     the returned connection and the listening socket (closed here).
     """
     server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    conn: socket.socket | None = None
     try:
         server.bind(str(sock_path))
         server.listen(1)
         ready.set()
         conn, _ = server.accept()
         send_message(conn, ReadyMessage())
-        return conn
+        owned = conn
+        conn = None  # ownership transfers to the caller; do not close here
+        return owned
     finally:
         server.close()
+        if conn is not None:
+            # An error struck after accept but before handoff — close the
+            # orphaned connection so it never leaks.
+            conn.close()
 
 
 def _serve_queries(
@@ -232,10 +239,10 @@ class TestClientQuery:
             _serve_queries(server_conn, 1, stop_event)
 
         t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5)
-
         try:
+            t.start()
+            assert ready_event.wait(timeout=5)
+
             with DisplayClient(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
@@ -247,8 +254,8 @@ class TestClientQuery:
                 assert resp.error is None
         finally:
             stop_event.set()
-            _cleanup(short_dir, server_conn)
             t.join(timeout=5)
+            _cleanup(short_dir, server_conn)
 
     @pytest.mark.integration
     def test_query_error_response(self) -> None:
@@ -264,10 +271,10 @@ class TestClientQuery:
             _serve_queries(server_conn, 1, stop_event)
 
         t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5)
-
         try:
+            t.start()
+            assert ready_event.wait(timeout=5)
+
             with DisplayClient(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
@@ -276,8 +283,8 @@ class TestClientQuery:
                 assert resp.error == "deliberate test error"
         finally:
             stop_event.set()
-            _cleanup(short_dir, server_conn)
             t.join(timeout=5)
+            _cleanup(short_dir, server_conn)
 
     @pytest.mark.integration
     def test_query_timeout_returns_none(self) -> None:
@@ -285,32 +292,57 @@ class TestClientQuery:
         short_dir, sock_path = _short_sock_path()
         server_conn: socket.socket | None = None
         ready_event = threading.Event()
+        done_event = threading.Event()
 
         def serve() -> None:
             nonlocal server_conn
             server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            server.bind(str(sock_path))
-            server.listen(1)
-            ready_event.set()
-            conn, _ = server.accept()
-            send_message(conn, ReadyMessage())
-            server_conn = conn
-            # Do NOT read or respond — let the client time out
-            time.sleep(3)
+            conn: socket.socket | None = None
+            try:
+                server.bind(str(sock_path))
+                server.listen(1)
+                server.settimeout(0.1)
+                ready_event.set()
+                # Loop the accept so a never-connecting client cannot wedge the
+                # thread: each short timeout re-checks done_event, which the
+                # test's finally sets to release us even if no client arrives.
+                while not done_event.is_set():
+                    try:
+                        conn, _ = server.accept()
+                        break
+                    except TimeoutError:
+                        # The 0.1s accept timeout is the expected idle retry —
+                        # re-check done_event and loop. Any other OSError is a
+                        # genuine failure and must surface, not spin.
+                        continue
+                if conn is not None:
+                    server_conn = conn
+                    send_message(conn, ReadyMessage())
+                    # Hold the connection open — never read or respond — so the
+                    # client times out; release the moment the test signals it
+                    # is done.
+                    done_event.wait(timeout=5)
+            finally:
+                # Close the listener and any accepted connection even if bind,
+                # listen, accept, or the handshake raises, so neither leaks.
+                server.close()
+                if conn is not None:
+                    conn.close()
 
         t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5)
-
         try:
+            t.start()
+            assert ready_event.wait(timeout=5)
+
             with DisplayClient(
                 sock_path, auto_spawn=False, connect_timeout=2.0, recv_timeout=0.3
             ) as client:
                 resp = client.query("anything", timeout=0.3)
                 assert resp is None
         finally:
-            _cleanup(short_dir, server_conn)
+            done_event.set()
             t.join(timeout=5)
+            _cleanup(short_dir, server_conn)
 
     @pytest.mark.integration
     def test_query_with_listener(self) -> None:
@@ -326,10 +358,10 @@ class TestClientQuery:
             _serve_queries(server_conn, 2, stop_event)
 
         t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5)
-
         try:
+            t.start()
+            assert ready_event.wait(timeout=5)
+
             with DisplayClient(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
@@ -340,8 +372,8 @@ class TestClientQuery:
                 assert resp.result == {"echo": {"data": 42}}
         finally:
             stop_event.set()
-            _cleanup(short_dir, server_conn)
             t.join(timeout=5)
+            _cleanup(short_dir, server_conn)
 
     @pytest.mark.integration
     def test_query_interleaved_with_scene(self) -> None:
@@ -357,10 +389,10 @@ class TestClientQuery:
             _serve_queries(server_conn, 2, stop_event)
 
         t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5)
-
         try:
+            t.start()
+            assert ready_event.wait(timeout=5)
+
             with DisplayClient(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
@@ -378,8 +410,8 @@ class TestClientQuery:
                 assert resp.method == "echo"
         finally:
             stop_event.set()
-            _cleanup(short_dir, server_conn)
             t.join(timeout=5)
+            _cleanup(short_dir, server_conn)
 
 
 # ---------------------------------------------------------------------------

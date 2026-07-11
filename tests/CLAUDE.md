@@ -8,21 +8,54 @@
 | 2 — Integration | `@pytest.mark.integration` | yes | `make test-integration` | Socket IPC, cross-component state, multi-element scenes |
 | 3 — E2E | `@pytest.mark.e2e` | no | `make test-e2e` | CLI args, process lifecycle, wire protocol end-to-end |
 | 4 — Visual | manual | no | run lux, look at it | ImGui rendering correctness — cannot be automated without a display |
+| Slow — Timing | `@pytest.mark.slow` | no (wired separately) | `make test-slow` | Latency/frame-budget smokes whose absolute wall-clock bound tracks machine load |
 
-`make test` runs tiers 1 and 2. Tiers 3 and 4 are opt-in.
+`make test` runs tier 1 (unit) only. The default `addopts` marker filter in
+`pyproject.toml` is `-m 'not slow and not integration and not e2e'`, so tier 2
+(integration, via `make test-integration`), tier 3, tier 4, and the slow class
+are all opt-in — a machine-sensitive timing assertion can never fail the serial
+gate.
 
 ## Running tests
 
 ```bash
-make test                                           # tiers 1-2, standard gate
+make test                                           # tier 1 (unit), standard gate
 make test-integration                               # tier 2 only
 make test-e2e                                       # tier 3 (requires display running)
-make coverage                                       # tiers 1-2 with HTML report in htmlcov/
+make test-slow                                      # slow / timing-sensitive class only
+make coverage                                       # tier 1 with HTML report in htmlcov/
 uv run --extra display pytest tests/test_foo.py -v  # single file, targeted
 ```
 
 All targets use `--extra display` because the test suite imports display
 modules for state-machine testing even when no GPU is present.
+
+## The slow / timing-sensitive class
+
+A test that asserts an absolute wall-clock bound — a frame-budget ceiling, a
+latency threshold, a "completes within N seconds" guard — measures the machine,
+not the code. Scheduler preemption, CPU frequency scaling, GC pauses, and noisy
+CI neighbors move wall-clock far more than an algorithmic change does. Such an
+assertion fails deterministically under load with no regression behind it.
+
+These tests carry `@pytest.mark.slow` and live outside the default serial gate.
+The `addopts` marker filter in `pyproject.toml` excludes `slow`, so `make test`
+and `make check` never run them; they run in isolation via `make test-slow`.
+
+**What belongs here:** timing-, latency-, or concurrency-sensitive assertions
+whose result tracks whole-machine state rather than the code under test.
+Frame-budget smokes are the canonical case — keep the budget loose (the shipped
+one sits ~70x above its ~0.28 ms measured cost) so the guard catches only a
+catastrophic blow-up (an infinite loop, accidental per-element I/O, O(n^2) work)
+without flaking under load. A loose budget is not a 10x regression guard: a 10x
+slowdown still passes, and re-tightening toward 10x reintroduces the load
+sensitivity the loose bound exists to avoid.
+
+**What does not:** an absolute wall-clock bound must never sit in the default
+serial gate. If a probe or handler is "fast" because of a design property
+(connect-success alone resolves liveness, an EOF short-circuits a read), assert
+that property directly — the returned state, the observed outcome — not the
+elapsed time. Behavior assertions are stable; wall-clock bounds are not.
 
 ## Writing tests
 

@@ -79,20 +79,71 @@ class _FakeDisplay:
                 conn, _ = self._sock.accept()
             except (TimeoutError, OSError):
                 continue
-            with contextlib.suppress(OSError):
-                if self._reply == "ready":
-                    send_message(conn, ReadyMessage())
-                elif self._reply == "garbage":
-                    conn.sendall(encode_frame({"no_type_field": 1}))
-                elif self._reply == "nonobject":
-                    conn.sendall(_frame_json(42))  # valid JSON, not an object
-            conn.close()
+            try:
+                with contextlib.suppress(OSError):
+                    if self._reply == "ready":
+                        send_message(conn, ReadyMessage())
+                    elif self._reply == "garbage":
+                        conn.sendall(encode_frame({"no_type_field": 1}))
+                    elif self._reply == "nonobject":
+                        conn.sendall(_frame_json(42))  # valid JSON, not an object
+            finally:
+                # Close the accepted connection even if the reply raises a
+                # non-OSError, so a failed handshake never leaks the socket.
+                conn.close()
 
     def stop(self) -> None:
         """Stop serving and close the listening socket."""
         self._stop.set()
         self._thread.join(timeout=2)
         self._sock.close()
+
+
+@contextlib.contextmanager
+def _silent_holding_server(path: Path) -> Generator[None]:
+    """Run a server that accepts connections and holds them open forever.
+
+    Unlike ``_FakeDisplay`` — which closes each accepted connection, giving a
+    fast EOF — this never sends and never closes, so a probe's READY-upgrade
+    recv actually blocks until ``_HANDSHAKE_TIMEOUT`` elapses. That is the path
+    a live-but-slow owner takes. Yields once the listener is bound, so callers
+    synchronize on the deterministic ``listening`` event instead of sleeping.
+    """
+    stop = threading.Event()
+    listening = threading.Event()
+
+    def serve() -> None:
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        held: list[socket.socket] = []
+        try:
+            srv.bind(str(path))
+            srv.listen(5)
+            srv.settimeout(0.1)
+            listening.set()
+            while not stop.is_set():
+                try:
+                    conn, _ = srv.accept()
+                except TimeoutError:
+                    # The 0.1s accept timeout is the expected idle retry —
+                    # re-check the stop event and loop. Any other OSError is a
+                    # genuine failure and must surface, not spin.
+                    continue
+                held.append(conn)  # hold open: accept but never send or close
+        finally:
+            # Close every held connection and the listener even if bind, listen,
+            # or accept raises, so a failed setup never leaks the sockets.
+            for conn in held:
+                conn.close()
+            srv.close()
+
+    t = threading.Thread(target=serve, daemon=True)
+    try:
+        t.start()
+        assert listening.wait(timeout=2)  # server has bound and is listening
+        yield
+    finally:
+        stop.set()
+        t.join(timeout=2)
 
 
 @pytest.fixture
@@ -226,50 +277,45 @@ class TestIsRunning:
             ready.stop()
             silent.stop()
 
-    def test_probe_silent_owner_is_fast_accepting(
+    def test_probe_silent_owner_is_accepting(
         self, short_socket: Callable[[], Path]
     ) -> None:
-        """A live owner that holds the connection open reads ACCEPTING fast.
+        """A live owner that holds the connection open reads ACCEPTING.
 
-        Connect-success alone proves ACCEPTING, so the READY read uses
-        _HANDSHAKE_TIMEOUT (~0.2s), not the full connect _PROBE_TIMEOUT (~1s).
-        The server here accepts and HOLDS the connection (never sends, never
-        closes), so recv blocks the whole handshake window — the probe must
-        still return in well under _PROBE_TIMEOUT, keeping is_running() and the
-        reap poll responsive. (A _FakeDisplay closes the connection, giving a
-        fast EOF that would not exercise this timeout.)
+        Connect-success proves the owner is not DEAD; whether the probe then
+        returns ACCEPTING or READY depends on the READY-upgrade recv. Here the
+        server accepts and HOLDS the connection (never sends, never closes), so
+        that recv times out after _HANDSHAKE_TIMEOUT and the fall-through yields
+        ACCEPTING. (A _FakeDisplay closes the connection, giving a fast EOF that
+        would not exercise this blocking-recv path.)
         """
         path = short_socket()
-        stop = threading.Event()
+        with _silent_holding_server(path):
+            assert DisplayPaths(path)._probe() is SocketLiveness.ACCEPTING
 
-        def serve() -> None:
-            srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            srv.bind(str(path))
-            srv.listen(5)
-            srv.settimeout(0.1)
-            held: list[socket.socket] = []
-            while not stop.is_set():
-                try:
-                    conn, _ = srv.accept()
-                except OSError:
-                    continue
-                held.append(conn)  # hold open: accept but never send or close
-            for conn in held:
-                conn.close()
-            srv.close()
+    @pytest.mark.slow
+    def test_probe_silent_owner_resolves_before_connect_timeout(
+        self, short_socket: Callable[[], Path]
+    ) -> None:
+        """A silent-but-live owner resolves on the handshake window, not connect.
 
-        t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        time.sleep(0.2)  # let the server bind and listen
-        try:
-            start = time.monotonic()
-            state = DisplayPaths(path)._probe()
-            elapsed = time.monotonic() - start
-            assert state is SocketLiveness.ACCEPTING
-            assert elapsed < 0.5, f"probe took {elapsed:.2f}s, not handshake-bounded"
-        finally:
-            stop.set()
-            t.join(timeout=2)
+        Times _probe against a server that accepts and holds the connection
+        open. The 0.5s bound sits strictly between the two probe constants: the
+        READY-upgrade recv waits at most _HANDSHAKE_TIMEOUT (~0.2s), while the
+        connect budget is the full _PROBE_TIMEOUT (~1.0s). A correct probe
+        returns after the handshake window (~0.2s), so 0.5s passes; a regression
+        that blocks the whole connect timeout on a silent owner (~1.0s) fails.
+
+        Marked slow because an absolute wall-clock bound tracks machine load,
+        not code, and must stay out of the default serial gate.
+        """
+        path = short_socket()
+        with _silent_holding_server(path):
+            start = time.perf_counter()
+            result = DisplayPaths(path)._probe()
+            elapsed = time.perf_counter() - start
+        assert result is SocketLiveness.ACCEPTING
+        assert elapsed < 0.5
 
     def test_probe_refused_socket_is_dead(
         self, short_socket: Callable[[], Path]

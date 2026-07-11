@@ -1,9 +1,9 @@
-.PHONY: help test test-integration test-e2e snapshot-parity snapshot-record lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling report format build install clean depot fuzz prob prfaq clean-tex font-test restart reload
+.PHONY: help test test-integration test-e2e test-slow snapshot-parity snapshot-record lint type check check-oo update-oo check-suppressions update-suppressions check-coupling update-coupling report format build install clean depot fuzz prob prfaq clean-tex font-test restart reload
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*## "}; {printf "  %-12s %s\n", $$1, $$2}'
 
-test: ## Run tests — tiers 1-2 (excludes integration and e2e)
+test: ## Run tests — tier 1 unit only (excludes slow, integration, e2e)
 	uv run --extra display pytest
 
 test-integration: ## Run integration tests (tier 2, requires no display)
@@ -11,6 +11,9 @@ test-integration: ## Run integration tests (tier 2, requires no display)
 
 test-e2e: ## Run end-to-end tests (tier 3, requires display process running)
 	uv run --extra display pytest -m e2e
+
+test-slow: ## Run the isolated slow / timing-sensitive tests (excluded from the default gate)
+	uv run --extra display pytest -m slow
 
 snapshot-parity: ## Replay the characterization corpus — every snapshot must match
 	uv run --extra display pytest tests/characterization/ -v

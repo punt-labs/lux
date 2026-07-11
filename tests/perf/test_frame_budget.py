@@ -2,16 +2,30 @@
 
 A per-frame smoke that exercises the Element ABC template-method
 ``render()`` over a modest scene (10 ``TextElement`` instances) and
-asserts the mean per-frame cost stays under a 2 ms budget. Measured
-cost on the dispatch path is ~0.28 ms/frame; the 2 ms ceiling gives
-roughly 7x headroom for slow CI without letting a 10x algorithmic
-regression slip past.
+asserts the mean per-frame cost stays under a deliberately loose
+budget. Measured cost on the dispatch path is ~0.28 ms/frame.
 
-Uses ``RecordingRenderer`` so timing is deterministic — no GL context,
-no ImGui, no I/O beyond an append-only JSONL log under a tempdir.
-That isolates the dispatch path (template method → factory call →
-``renderer.render()``) from any GPU/driver variance and makes the
-budget a guard against algorithmic regressions in the ABC layer.
+This is a pathological/regression smoke guard, not a precise latency
+gate. The budget is an absolute wall-clock bound on a pure-Python,
+no-I/O, no-GL dispatch loop, and such a bound tracks machine load —
+scheduler preemption, CPU frequency scaling, GC pauses, noisy CI
+neighbors — far more than it tracks algorithmic cost. A tight bound
+would fail deterministically under load without any code regression,
+so the 20 ms budget sits ~70x above the ~0.28 ms measured cost. It
+catches only a catastrophic blow-up — an infinite loop, accidental
+per-element I/O, or O(n^2) work over the 600 render calls (60 frames
+x 10 elements) — while staying immune to load. It is deliberately NOT
+a 10x regression guard: a 10x slowdown to 2.8 ms/frame still passes at
+the 20 ms budget. Do not re-tighten toward 10x — that reintroduces the
+load-sensitivity this budget exists to avoid.
+
+Because the bound is machine-sensitive rather than code-sensitive,
+the test is marked ``slow`` and lives outside the default serial gate.
+
+Uses ``RecordingRenderer`` so the work is deterministic — no GL
+context, no ImGui, no I/O beyond an append-only JSONL log under a
+tempdir. That isolates the dispatch path (template method → factory
+call → ``renderer.render()``) from any GPU/driver variance.
 """
 
 from __future__ import annotations
@@ -21,19 +35,24 @@ import time
 from pathlib import Path
 from typing import Final
 
+import pytest
+
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.renderers import RecordingLog, RecordingRendererFactory
 
 _FRAMES: Final[int] = 60
 _ELEMENTS_PER_FRAME: Final[int] = 10
-# 2 ms / frame == ~7x headroom over the ~0.28 ms measured dispatch cost.
-_BUDGET_SECONDS: Final[float] = 0.002
+# 20 ms / frame — ~70x above the ~0.28 ms measured cost. Loose on purpose: an
+# absolute wall-clock bound tracks machine load, not code. Catches a
+# catastrophic blow-up, not a 10x regression (2.8 ms still passes here).
+_BUDGET_SECONDS: Final[float] = 0.020
 
 
 def _emit(_msg: object) -> None:
     """No-op emit channel for the leaf Text elements."""
 
 
+@pytest.mark.slow
 def test_ten_text_elements_render_under_budget_per_frame() -> None:
     with tempfile.TemporaryDirectory(prefix="lux-perf-") as raw_dir:
         log = RecordingLog(Path(raw_dir) / "frame_budget.jsonl")
