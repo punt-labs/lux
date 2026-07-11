@@ -12,6 +12,10 @@ from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.button_codec import JsonButtonEncoder
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.checkbox_codec import JsonCheckboxEncoder
+from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
+from punt_lux.protocol.elements.collapsing_header_codec import (
+    JsonCollapsingHeaderEncoder,
+)
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogEncoder
 from punt_lux.protocol.elements.group import GroupElement
@@ -36,6 +40,7 @@ class JsonEncoderFactory:
         (CheckboxElement, JsonCheckboxEncoder().encode),
         (DialogElement, JsonDialogEncoder().encode),
         (GroupElement, JsonGroupEncoder().encode),
+        (CollapsingHeaderElement, JsonCollapsingHeaderEncoder().encode),
         (ProgressElement, JsonProgressEncoder().encode),
     )
 

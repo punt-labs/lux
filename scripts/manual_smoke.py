@@ -49,13 +49,13 @@ from punt_lux.protocol import Element
 from punt_lux.protocol.elements import (
     ButtonElement,
     CheckboxElement,
-    CollapsingHeaderElement,
     ColorPickerElement,
     ComboElement,
     DrawElement,
     ImageElement,
     InputNumberElement,
     InputTextElement,
+    LegacyCollapsingHeaderElement,
     LegacyGroupElement,
     MarkdownElement,
     ModalElement,
@@ -177,7 +177,10 @@ def _collect_kinds(elements: list[Element]) -> frozenset[str]:
         kinds.add(elem.kind)
         if isinstance(
             elem,
-            LegacyGroupElement | CollapsingHeaderElement | WindowElement | ModalElement,
+            LegacyGroupElement
+            | LegacyCollapsingHeaderElement
+            | WindowElement
+            | ModalElement,
         ):
             kinds |= _collect_kinds(elem.children)
         if isinstance(elem, LegacyGroupElement):
@@ -600,7 +603,7 @@ class SmokeRunner:
             LegacyGroupElement(
                 id="layout-group", layout="rows", children=group_children
             ),
-            CollapsingHeaderElement(
+            LegacyCollapsingHeaderElement(
                 id="layout-header",
                 label="Disclosure region",
                 default_open=True,

@@ -179,6 +179,119 @@ class Scenario:
         )
 
     @classmethod
+    def collapsing_header_toggle_progress(cls) -> Self:
+        """A collapsing_header beside a display-only progress (the interactive loop).
+
+        The injected interaction is a ``header_toggled`` carrying ``True``; the
+        built-in state-sync flips the Hub ``open`` ``False``→``True``, so the
+        dispatch re-push carries the mutated ``open``. A wire ``handlers`` entry
+        publishes ``header_expanded``; the agent reacts by advancing the bar.
+        This proves the header toggle crosses the faithful boundary, the Hub
+        updates the authoritative view-state once, and the re-push reflects it.
+        """
+        return cls(
+            name="collapsing-header-toggle-progress",
+            scene_id="e2e-header-scene",
+            elements=(
+                {
+                    "kind": "group",
+                    "id": "hdr-surface",
+                    "layout": "rows",
+                    "children": (
+                        {
+                            "kind": "collapsing_header",
+                            "id": "disclosure",
+                            "label": "Details",
+                            "open": False,
+                            "children": (
+                                {"kind": "text", "id": "hdr-body", "content": "hidden"},
+                            ),
+                            "handlers": [
+                                {
+                                    "event": "header_toggled",
+                                    "factory": "noop",
+                                    "wrap": [
+                                        {
+                                            "decorator": "publish",
+                                            "topics": ["header_expanded"],
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "kind": "progress",
+                            "id": "hdr-progress",
+                            "fraction": 0.0,
+                            "label": "idle",
+                        },
+                    ),
+                },
+            ),
+            target_element_id="disclosure",
+            interaction=InteractionExpectation(event_kind="header_toggled", value=True),
+            publish=WirePublish("header_expanded"),
+            react=(
+                ReactPatch(element_id="hdr-progress", field="fraction", value=1.0),
+                ReactPatch(element_id="hdr-progress", field="label", value="expanded"),
+            ),
+            display_only_id="hdr-progress",
+            repush=PropAfterDispatch(element_id="disclosure", field="open", value=True),
+        )
+
+    @classmethod
+    def collapsing_header_button_progress(cls) -> Self:
+        """A collapsing_header whose child publishes (the child-forwarding loop).
+
+        The header holds a publishing ``button`` and a display-only ``progress``.
+        The button — not the header — is the injected target; it publishes
+        ``ticket_opened``. This proves the container forwards its child's D21
+        wrap through the flattened children, complementing the interactive
+        Scenario's proof that the container wraps *itself*.
+        """
+        return cls(
+            name="collapsing-header-button-progress",
+            scene_id="e2e-header-child-scene",
+            elements=(
+                {
+                    "kind": "collapsing_header",
+                    "id": "section",
+                    "label": "Actions",
+                    "open": True,
+                    "children": (
+                        {
+                            "kind": "button",
+                            "id": "open-ticket",
+                            "label": "Open ticket",
+                            "publish": ["ticket_opened"],
+                        },
+                        {
+                            "kind": "progress",
+                            "id": "hdr-child-progress",
+                            "fraction": 0.0,
+                            "label": "idle",
+                        },
+                    ),
+                },
+            ),
+            target_element_id="open-ticket",
+            interaction=InteractionExpectation(event_kind="button_clicked", value=True),
+            publish=WirePublish("ticket_opened"),
+            react=(
+                ReactPatch(
+                    element_id="hdr-child-progress", field="fraction", value=1.0
+                ),
+                ReactPatch(
+                    element_id="hdr-child-progress", field="label", value="done"
+                ),
+            ),
+            display_only_id="hdr-child-progress",
+            repush=PropAfterDispatch(
+                element_id="open-ticket", field="label", value="Open ticket"
+            ),
+        )
+
+    @classmethod
     def dialog_confirm_progress(cls) -> Self:
         """A dialog whose confirm mutates Hub state, beside a display-only leaf.
 

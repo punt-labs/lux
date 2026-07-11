@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, cast
 
+from punt_lux.domain.container_interaction import HeaderToggled
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub import hub, hub_display
 from punt_lux.domain.ids import ClientId, ConnectionId, ElementId, SceneId, Topic
@@ -27,6 +28,7 @@ from punt_lux.domain.update import AddElement, SetProperty
 from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
+from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.tools.hub_factory import hub_element_factory
 from punt_lux.tools.inbox import drain_inbox, ensure_writer, next_event
 
@@ -272,6 +274,13 @@ class SimulatedAgent:
                 owner_id=ClientId("__display__"),
                 value=not element.value,
             )
+        if isinstance(element, CollapsingHeaderElement):
+            return HeaderToggled(
+                scene_id=SceneId("__display__"),
+                element_id=ElementId(element.id),
+                owner_id=ClientId("__display__"),
+                open_=not element.open,
+            )
         msg = f"no synthetic event for element kind of {element.id!r}"
         raise TypeError(msg)
 
@@ -281,5 +290,7 @@ class SimulatedAgent:
             return ButtonClicked
         if isinstance(element, CheckboxElement):
             return ValueChanged
+        if isinstance(element, CollapsingHeaderElement):
+            return HeaderToggled
         msg = f"no interaction event type for element kind of {element.id!r}"
         raise TypeError(msg)

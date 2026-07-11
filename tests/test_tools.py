@@ -202,18 +202,21 @@ class TestElementFromDict:
         assert elem.tabs[0]["label"] == "A"
 
     def test_collapsing_header_element(self) -> None:
+        # An all-ABC subtree (a button child) decodes onto the ABC path, where
+        # the Hub-authoritative view field is ``open`` (default_open collapses
+        # into it).
         elem = agent_element_factory().element_from_dict(
             {
                 "kind": "collapsing_header",
                 "id": "ch1",
                 "label": "Details",
-                "default_open": True,
+                "open": True,
                 "children": [{"kind": "button", "id": "b1", "label": "Go"}],
             }
         )
         assert isinstance(elem, CollapsingHeaderElement)
         assert elem.label == "Details"
-        assert elem.default_open is True
+        assert elem.open is True
         assert len(elem.children) == 1
 
     def test_window_element(self) -> None:

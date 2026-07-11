@@ -18,7 +18,7 @@ import pytest
 from punt_lux.domain.validation_walk import HasChildElements
 from punt_lux.protocol.elements import Element
 from punt_lux.protocol.elements.layout import (
-    CollapsingHeaderElement,
+    LegacyCollapsingHeaderElement,
     ModalElement,
     TabBarElement,
     TreeElement,
@@ -36,7 +36,7 @@ class TestContainerChildElements:
 
     def test_collapsing_header_exposes_children(self) -> None:
         child = TextElement(id="t", content="x")
-        header = CollapsingHeaderElement(id="ch", children=[child])
+        header = LegacyCollapsingHeaderElement(id="ch", children=[child])
         assert header.child_elements() == (child,)
 
     def test_modal_exposes_children(self) -> None:
@@ -58,7 +58,7 @@ class TestContainerChildElements:
 
     def test_empty_containers_have_no_children(self) -> None:
         assert WindowElement(id="w").child_elements() == ()
-        assert CollapsingHeaderElement(id="ch").child_elements() == ()
+        assert LegacyCollapsingHeaderElement(id="ch").child_elements() == ()
         assert ModalElement(id="m").child_elements() == ()
         assert TabBarElement(id="tb").child_elements() == ()
 
@@ -178,7 +178,7 @@ class TestContainerContract:
         found = set(_container_element_classes())
         expected = {
             WindowElement,
-            CollapsingHeaderElement,
+            LegacyCollapsingHeaderElement,
             ModalElement,
             TabBarElement,
             TreeElement,

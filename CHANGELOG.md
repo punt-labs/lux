@@ -37,6 +37,19 @@
   primitive; a single ABC `ProgressElement` with a `[0,1]`+NaN `validate()`
   (the fraction is validated pre-render instead of clamped by ImGui), enforced
   on both the `show` and the `update`/patch write paths.
+- **`collapsing_header` interactive container on the ABC path** — the first
+  interactive container: a `GroupElement`-shaped box composed with a single
+  Hub-authoritative `open` flag (the checkbox interaction pattern). A user
+  toggle fires `header_toggled`, which routes to the Hub (D21), the Hub mirrors
+  the new `open` and re-pushes; an agent drives the same field by patching
+  `open` and the ImGui adapter honours it every frame via `set_next_item_open`.
+  A Hub-driven change never re-fires (echo-suppression), so no fire→Hub→re-push
+  loop can run. The single `open` field replaces the legacy `default_open` on
+  the ABC path. Decodes to the ABC `CollapsingHeaderElement` only when its whole
+  subtree is migrated-ABC; otherwise the renamed `LegacyCollapsingHeaderElement`
+  (a legacy container forces it legacy). `resolved_props()` reports the
+  authoritative `open` view-state. The all-ABC gate is now the shared
+  `ContainerAbcGate`, reused by `group` and `collapsing_header`. See DES-045.
 
 ### Fixed
 

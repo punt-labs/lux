@@ -18,8 +18,8 @@ from imgui_bundle import imgui
 
 if TYPE_CHECKING:
     from punt_lux.protocol import (
-        CollapsingHeaderElement,
         Element,
+        LegacyCollapsingHeaderElement,
         LegacyGroupElement,
         TabBarElement,
         WindowElement,
@@ -164,7 +164,7 @@ class ContainerRenderer:
 
     def render_collapsing_header(self, elem: Element) -> None:
         """Render a collapsing header; children paint only while expanded."""
-        ch = cast("CollapsingHeaderElement", elem)
+        ch = cast("LegacyCollapsingHeaderElement", elem)
         flags = imgui.TreeNodeFlags_.default_open.value if ch.default_open else 0
         if imgui.collapsing_header(f"{ch.label}##{ch.id}", flags=flags):
             for child in ch.children:

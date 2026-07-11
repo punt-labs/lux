@@ -24,6 +24,7 @@ from punt_lux.protocol import (
     InputTextElement,
     IntrospectRequest,
     IntrospectResponse,
+    LegacyCollapsingHeaderElement,
     LegacyGroupElement,
     ListScenesRequest,
     ListScenesResponse,
@@ -181,7 +182,7 @@ class TestElements:
         assert len(e.tabs) == 1
 
     def test_collapsing_header_element(self):
-        e = CollapsingHeaderElement(
+        e = LegacyCollapsingHeaderElement(
             id="ch1",
             label="Details",
             default_open=True,
@@ -192,7 +193,7 @@ class TestElements:
         assert e.label == "Details"
 
     def test_collapsing_header_defaults(self):
-        e = CollapsingHeaderElement(id="ch1")
+        e = LegacyCollapsingHeaderElement(id="ch1")
         assert e.label == ""
         assert e.default_open is False
         assert e.children == []
@@ -979,7 +980,9 @@ class TestSerialization:
         assert len(tb.tabs[1]["children"]) == 2
 
     def test_collapsing_header_roundtrip(self):
-        e = CollapsingHeaderElement(
+        # A legacy slider child keeps the subtree off the all-ABC path, so the
+        # header decodes onto the legacy dataclass that carries ``default_open``.
+        e = LegacyCollapsingHeaderElement(
             id="ch1",
             label="Advanced",
             default_open=True,
@@ -993,7 +996,7 @@ class TestSerialization:
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
         ch = restored.elements[0]
-        assert isinstance(ch, CollapsingHeaderElement)
+        assert isinstance(ch, LegacyCollapsingHeaderElement)
         assert ch.label == "Advanced"
         assert ch.default_open is True
         assert len(ch.children) == 2
@@ -1303,7 +1306,7 @@ class TestSerialization:
         assert txt.tooltip is None
 
     def test_collapsing_header_default_open_excluded_when_false(self):
-        e = CollapsingHeaderElement(id="ch1", label="Section")
+        e = LegacyCollapsingHeaderElement(id="ch1", label="Section")
         scene = SceneMessage(id="s1", elements=[e])
         d = message_to_dict(scene)
         assert "default_open" not in d["elements"][0]
@@ -1415,7 +1418,7 @@ class TestSerialization:
             title="Complex",
             children=[
                 grp,
-                CollapsingHeaderElement(
+                LegacyCollapsingHeaderElement(
                     id="ch1",
                     label="More",
                     children=[TextElement(id="t1", content="nested")],
@@ -1429,9 +1432,13 @@ class TestSerialization:
         r_win = restored.elements[0]
         assert isinstance(r_win, WindowElement)
         assert isinstance(r_win.children[0], LegacyGroupElement)
-        assert isinstance(r_win.children[1], CollapsingHeaderElement)
+        # A legacy window forces every nested container legacy (fork-don't-mix).
+        assert isinstance(r_win.children[1], LegacyCollapsingHeaderElement)
 
     def test_deeply_nested_containers_roundtrip(self):
+        # An all-ABC subtree — a header holding a text — decodes onto the ABC
+        # path even when hand-built as a legacy group: the wire carries no
+        # legacy marker, so decode re-derives the path from the subtree.
         leaf = TextElement(id="leaf", content="deep")
         ch = CollapsingHeaderElement(id="ch1", label="Inner", children=[leaf])
         grp = LegacyGroupElement(id="g1", children=[ch])
@@ -1440,7 +1447,7 @@ class TestSerialization:
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
         r_grp = restored.elements[0]
-        assert isinstance(r_grp, LegacyGroupElement)
+        assert isinstance(r_grp, GroupElement)
         r_ch = r_grp.children[0]
         assert isinstance(r_ch, CollapsingHeaderElement)
         r_leaf = r_ch.children[0]

@@ -12,12 +12,16 @@ from typing import TYPE_CHECKING, ClassVar, Self
 
 from punt_lux.display.renderers.imgui.button import ImGuiButtonRenderer
 from punt_lux.display.renderers.imgui.checkbox import ImGuiCheckboxRenderer
+from punt_lux.display.renderers.imgui.collapsing_header import (
+    ImGuiCollapsingHeaderRenderer,
+)
 from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
 from punt_lux.display.renderers.imgui.group import ImGuiGroupRenderer
 from punt_lux.display.renderers.imgui.progress import ImGuiProgressRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
+from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.progress import ProgressElement
@@ -50,6 +54,7 @@ class ImGuiRendererFactory:
         (CheckboxElement, ImGuiCheckboxRenderer),
         (DialogElement, ImGuiDialogRenderer),
         (GroupElement, ImGuiGroupRenderer),
+        (CollapsingHeaderElement, ImGuiCollapsingHeaderRenderer),
         (ProgressElement, ImGuiProgressRenderer),
     )
 

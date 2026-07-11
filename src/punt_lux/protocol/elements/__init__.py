@@ -37,6 +37,7 @@ from punt_lux.protocol.elements.basics import BasicsRegistry
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.codec import ElementCodec
+from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.dialog import DialogElement
@@ -51,7 +52,7 @@ from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.inputs import InputsRegistry
 from punt_lux.protocol.elements.layout import (
-    CollapsingHeaderElement,
+    LegacyCollapsingHeaderElement,
     LegacyGroupElement,
     ModalElement,
     TabBarElement,
@@ -97,6 +98,7 @@ __all__ = [
     "ImageElement",
     "InputNumberElement",
     "InputTextElement",
+    "LegacyCollapsingHeaderElement",
     "LegacyGroupElement",
     "MarkdownElement",
     "ModalElement",
@@ -144,6 +146,7 @@ Element = (
     | LegacyGroupElement
     | TabBarElement
     | CollapsingHeaderElement
+    | LegacyCollapsingHeaderElement
     | WindowElement
     | SelectableElement
     | TreeElement
@@ -187,6 +190,7 @@ def _element_to_dict(elem: Element) -> dict[str, Any]:
         | CheckboxElement
         | DialogElement
         | GroupElement
+        | CollapsingHeaderElement
         | ProgressElement,
     ):
         # Each per-kind encoder owns its own tooltip emission.

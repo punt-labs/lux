@@ -107,6 +107,7 @@ class ClientRegistry:
         ``ValueChanged`` depending on ``event_kind``, and fires the
         Hub-side handlers (which have real ``HubPublishSink``).
         """
+        from punt_lux.domain.container_interaction import HeaderToggled
         from punt_lux.domain.element_abc import Element as ElementABC
         from punt_lux.domain.hub import hub_display
         from punt_lux.domain.ids import ClientId, ElementId, SceneId
@@ -155,7 +156,7 @@ class ClientRegistry:
             element.handler_summary(),
         )
         event_kind = msg.event_kind
-        event: ButtonClicked | ValueChanged
+        event: ButtonClicked | ValueChanged | HeaderToggled
         if event_kind == "value_changed":
             wire_value = msg.value
             if not isinstance(wire_value, bool):
@@ -170,6 +171,21 @@ class ClientRegistry:
                 element_id=ElementId(element_id),
                 owner_id=ClientId(str(owner)),
                 value=wire_value,
+            )
+        elif event_kind == "header_toggled":
+            open_value = msg.value
+            if not isinstance(open_value, bool):
+                logger.warning(
+                    "hub dispatch header_toggled non-bool value=%r element_id=%s",
+                    open_value,
+                    element_id,
+                )
+                return
+            event = HeaderToggled(
+                scene_id=SceneId(scene_id),
+                element_id=ElementId(element_id),
+                owner_id=ClientId(str(owner)),
+                open_=open_value,
             )
         elif event_kind in (None, "button_clicked"):
             event = ButtonClicked(
