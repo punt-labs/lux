@@ -5,16 +5,26 @@
 | Tier | Marker | Runs in CI | Command | What it covers |
 |------|--------|------------|---------|----------------|
 | 1 — Unit | *(none)* | yes | `make test` | Protocol serialization, scene management, element builders, widget state, display client |
-| 2 — Integration | `@pytest.mark.integration` | yes | `make test-integration` | Socket IPC, cross-component state, multi-element scenes |
+| 2 — Integration | `@pytest.mark.integration` | yes (blocking) | `make test-integration` | Socket IPC, cross-component state, multi-element scenes, the tests/e2e/ business-event-loop harness |
 | 3 — E2E | `@pytest.mark.e2e` | no | `make test-e2e` | CLI args, process lifecycle, wire protocol end-to-end |
 | 4 — Visual | manual | no | run lux, look at it | ImGui rendering correctness — cannot be automated without a display |
-| Slow — Timing | `@pytest.mark.slow` | no (wired separately) | `make test-slow` | Latency/frame-budget smokes whose absolute wall-clock bound tracks machine load |
+| Slow — Timing | `@pytest.mark.slow` | yes (non-blocking) | `make test-slow` | Latency/frame-budget smokes whose absolute wall-clock bound tracks machine load |
 
 `make test` runs tier 1 (unit) only. The default `addopts` marker filter in
 `pyproject.toml` is `-m 'not slow and not integration and not e2e'`, so tier 2
 (integration, via `make test-integration`), tier 3, tier 4, and the slow class
 are all opt-in — a machine-sensitive timing assertion can never fail the serial
 gate.
+
+CI runs tiers 1 and 2 as separate jobs in `.github/workflows/test.yml`. The
+`test` job runs the unit gate; the `integration` job runs `make test-integration`
+(`pytest -m integration`, including the tests/e2e/ business-event-loop harness)
+as a **blocking** check on the same `ubuntu-latest` runner. The slow class runs
+in its own `slow` job (`make test-slow`) marked `continue-on-error: true`, so a
+timing hiccup on a loaded runner surfaces for visibility but the job is
+**non-gating in CI** and kept **non-required in branch protection**. The default `addopts` filter is
+untouched; each job overrides the marker via its Make target, exactly as they do
+locally.
 
 ## Running tests
 

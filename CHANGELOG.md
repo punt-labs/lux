@@ -65,6 +65,22 @@
 
 ### Changed
 
+- **CI runs the integration tier as a standing gate** — `.github/workflows/test.yml`
+  now has an `integration` job running `make test-integration` (`pytest -m
+  integration`, including the `tests/e2e/` business-event-loop harness, DES-044)
+  on every PR and push to main, on the same `ubuntu-latest` runner the `test` job
+  uses. It is wired as a **blocking** CI job (no `continue-on-error`), so a
+  failure fails the check run; to enforce it as a required merge gate,
+  `integration` must be added to main's branch-protection required status
+  checks. Together these mean the e2e harness — the standing gate
+  against the illusion of progress — can no longer rot into a
+  manually-run-only suite. A
+  separate `slow` job runs `make test-slow` (the `@pytest.mark.slow` timing class)
+  with `continue-on-error: true`, so the frame-budget and probe-responsiveness
+  smokes run for visibility/anti-rot but a rare timing hiccup on a loaded runner
+  **never blocks a merge** — preserving the lux-gqai quarantine of wall-clock
+  assertions out of the gating path. The `pyproject.toml` `addopts` default filter
+  is unchanged; each job overrides the marker via its Make target.
 - **Timing-sensitive tests isolated behind `make test-slow`** — the frame-budget
   smoke now carries `@pytest.mark.slow`, so the default serial gate (`make test`,
   `make check`) no longer runs it; `make test-slow` runs it alone. Its budget is

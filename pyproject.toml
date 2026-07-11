@@ -232,7 +232,7 @@ addopts = "-ra -q -m 'not slow and not integration and not e2e'"
 testpaths = ["tests"]
 markers = [
     "slow: marks tests as slow",
-    "integration: marks integration tests requiring display process",
+    "integration: marks integration tests (socket IPC, cross-component; no display process required)",
     "e2e: marks end-to-end tests requiring full stack",
 ]
 

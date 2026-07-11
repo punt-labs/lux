@@ -22,7 +22,49 @@ jobs:
         with:
           python-version: "3.13"
       - run: uv sync --locked --extra display
-      - name: Unit and integration tests (excludes the characterization corpus)
+      - name: Unit tests (excludes the characterization corpus)
         run: uv run --extra display pytest --ignore=tests/characterization
       - name: Snapshot parity (characterization corpus must replay byte-for-byte)
         run: make snapshot-parity
+
+  # Tier-2 integration + e2e gate. `make test-integration` runs `pytest -m integration`,
+  # which includes the tests/e2e/ business-event-loop harness (marked @pytest.mark.integration)
+  # — the standing gate against the illusion of progress. The integration tier needs no GPU
+  # and no display process, so it runs headless as-is. BLOCKING in CI: no continue-on-error,
+  # so a failure fails this check run. To gate merges, `integration` must be listed in main's
+  # required status checks (branch-protection settings) — the YAML alone cannot make it required.
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - run: uv sync --locked --extra display
+      - name: Integration + e2e tests (pytest -m integration, includes tests/e2e/)
+        run: make test-integration
+
+  # Slow / timing-sensitive class (@pytest.mark.slow): frame-budget smoke +
+  # probe-responsiveness. These assert absolute wall-clock bounds that track machine
+  # load, not code — deliberately quarantined out of the gating path. This job
+  # runs them for visibility/anti-rot only. NON-BLOCKING: continue-on-error means a rare
+  # timing hiccup on a loaded runner surfaces but never gates a merge.
+  slow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
+      - uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081 # v5
+        with:
+          enable-cache: true
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: "3.13"
+      - run: uv sync --locked --extra display
+      - name: Slow / timing-sensitive tests (pytest -m slow, non-blocking)
+        run: make test-slow
