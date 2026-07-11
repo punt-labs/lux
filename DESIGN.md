@@ -4189,3 +4189,66 @@ is genuinely unstubbed.
 - `docs/architecture/e2e-harness-design.md`, PR #243, `tests/CLAUDE.md`
   (Level 3–5 gate), DES-028; beads `lux-lodl`, `lux-gqai`, `lux-5zhw`,
   `lux-x8rb`.
+
+## DES-045: Sub-Element Addressing — Stable ID, Never a Positional Index
+
+**Status:** accepted. Cross-cutting invariant for every composite element.
+
+Element-level identity and routing are already settled and uniform. Every
+element — a scene root or a nested child — has a **stable, scene-scoped,
+agent-provided `id`** (`element-contract.md`, "a stable `id` within its enclosing
+scene"). Interaction routing is by `(scene_id, element_id)`: a
+`RemoteEventHandlerInvocation` carries the pair, the Hub resolves the target
+through `ElementIndex` (`(scene_id, element_id) → Element`), and `ChildIndex`
+records parent→child edges so *every* element, however deep, is addressable.
+Identity is decided once, at the element grain.
+
+Addressing a **sub-part of a composite that is not itself an element** — a tab in
+a `tab_bar`, a row in a `table` — had **no contract**, and had already diverged:
+the legacy `table` addresses rows by positional `row_index`
+(`table_renderer.py:165`), while the `tab_bar` migration was about to choose
+id-vs-index independently. Identity was being re-litigated per composite.
+
+### Decision
+
+Every addressable sub-part of a composite is identified by a **stable id** —
+agent-provided, or synthesized as a stable key — and **never by a positional
+index**. Selection state and routing reference that id. A sub-part's identity is
+stable under insert, remove, and reorder of its siblings. This is the element
+identity principle applied one level down; it is decided **once**, here, not per
+element.
+
+### Rejected alternatives
+
+- **Positional index** (the legacy `table` `row_index`). Fragile — a sub-part's
+  index silently mis-points after any insert or reorder, so a whole-UI re-push
+  that reorders siblings moves the selection to the wrong item; and it re-invents
+  addressing per composite. This is the anti-pattern the ADR removes.
+- **Promote every sub-part to a first-class `Element`.** A tab *could* be an
+  element with its own `id`, dissolving the question — but this does not
+  generalize to *data-driven* sub-parts: a `table` with 10 000 rows must not mint
+  10 000 elements. The stable-id invariant covers authored sub-parts (tabs) and
+  data sub-parts (rows) alike; element-promotion covers only the former.
+
+### Consequences
+
+- **`tab_bar`** (`lux-4n5n`): each tab carries a stable `tab_id`; the
+  Hub-authoritative active-tab (see `simple-composites-design.md`) references the
+  `tab_id`, and reconciliation on structural change is a membership check (added
+  tab → selection unchanged; removed active tab → reset to a live tab; relabel →
+  stable). This resolves the per-element "tab_id vs index" question by the
+  contract, not by the kind.
+- **`table`** (`lux-i3ag`, B6): row selection references a stable `row_id` — an
+  agent-designated key column or a synthesized stable key — replacing the legacy
+  `row_index`, fixing the latent reorder bug in the same move.
+- **Every future composite** inherits the invariant; sub-part addressing is not
+  re-decided per element.
+
+### References
+
+- `element-contract.md` (the normative sub-element addressing clause added with
+  this ADR), `simple-composites-design.md` (the `tab_bar` application and the
+  Hub-authoritative view-state decision), `table_renderer.py:165` (the legacy
+  `row_index` anti-pattern), `domain/hub/element_index.py` /
+  `domain/hub/child_index.py` (the element-level routing this extends); beads
+  `lux-4n5n`, `lux-i3ag`.
