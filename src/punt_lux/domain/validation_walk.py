@@ -16,7 +16,7 @@ contributes no errors and no children — the sensible leaf default.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, Self, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
 from punt_lux.domain.validation import ValidationReport
 
@@ -46,13 +46,13 @@ class HasChildElements(Protocol):
         ...
 
 
+@final
 class ElementTreeValidator:
     """Walks an element tree and collects every element's self-validation.
 
-    Stateless: one instance is as good as any other. The walk is a
-    Visitor over the heterogeneous element tree — it asks each element
-    whether it self-validates and whether it has children, and accumulates
-    errors across the whole hierarchy into a single :class:`ValidationReport`.
+    Stateless. The walk is a Visitor over the heterogeneous element tree — it
+    asks each element whether it self-validates and whether it has children, and
+    accumulates errors across the hierarchy into one :class:`ValidationReport`.
     """
 
     __slots__ = ()

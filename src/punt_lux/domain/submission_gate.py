@@ -13,7 +13,7 @@ invalid tree is never partially installed or rendered.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.id_uniqueness import DuplicateIdScanner
 from punt_lux.domain.validation_walk import ElementTreeValidator
@@ -26,12 +26,12 @@ if TYPE_CHECKING:
 __all__ = ["SubmissionGate"]
 
 
+@final
 class SubmissionGate:
     """Runs every pre-install gate and reports the first rejection reason.
 
-    Stateless: one instance is as good as any other. ``first_rejection``
-    returns ``None`` for a clean tree — the documented "install me" contract
-    — and an agent-facing string naming the first problem otherwise.
+    Stateless. ``first_rejection`` returns ``None`` for a clean tree — the
+    "install me" contract — else an agent-facing string naming the first problem.
     """
 
     __slots__ = ()

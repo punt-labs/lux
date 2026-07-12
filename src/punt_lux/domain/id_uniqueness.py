@@ -16,28 +16,28 @@ either side.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.composite import Composite
-from punt_lux.domain.element import Element
+from punt_lux.domain.element_identity import ElementIdentity, HasId
 from punt_lux.domain.error import DuplicateIdError
-from punt_lux.domain.ids import ElementId
+from punt_lux.domain.validation_walk import HasChildElements
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from punt_lux.domain.ids import SceneId
+    from punt_lux.domain.ids import ElementId, SceneId
 
 __all__ = ["DuplicateIdScanner"]
 
 
+@final
 class DuplicateIdScanner:
     """Finds the first repeated element id in a submitted scene tree.
 
-    Stateless between calls: one instance is as good as any other. The walk
-    mirrors the Hub installer's Composite recursion so it visits exactly the
-    elements that would be installed — a root id reused by a buried child is
-    caught, not only sibling-root collisions.
+    Stateless between calls. It recurses the same
+    ``HasChildElements.child_elements()`` node set the validation walk and wire
+    serializer use — so a buried child reusing a root id, or one hidden in a
+    legacy tab or a paged group's off-screen panel, is caught.
     """
 
     __slots__ = ()
@@ -50,9 +50,9 @@ class DuplicateIdScanner:
     ) -> DuplicateIdError | None:
         """Return the first ``DuplicateIdError`` in ``roots``, or ``None``.
 
-        ``None`` is the documented "no collision" contract — the tree's ids
-        are unique and it may be installed. A non-``None`` result is the
-        first clash found in install order, ready to hand back to the client.
+        ``None`` is the "no collision" contract — the ids are unique and the
+        tree may be installed. A non-``None`` result is the first clash in
+        install order, ready to hand back to the client.
         """
         seen: set[ElementId] = set()
         for root in roots:
@@ -66,17 +66,17 @@ class DuplicateIdScanner:
     ) -> DuplicateIdError | None:
         """Record ``element``'s id, then recurse; return the first clash.
 
-        An empty id is the anonymous sentinel — a value meaning "no
-        identity", not a reusable name — so anonymous elements (e.g. bare
-        separators) may repeat freely and are exempt from the scan.
+        Anonymous elements (an empty id — e.g. bare separators) carry no
+        identity to collide, so they are exempt.
         """
-        if isinstance(element, Element) and element.id:
-            element_id = ElementId(element.id)
-            if element_id in seen:
-                return DuplicateIdError(scene_id=scene_id, element_id=element_id)
-            seen.add(element_id)
-        if isinstance(element, Composite):
-            for child in element.children:
+        if isinstance(element, HasId):
+            identity = ElementIdentity.of(element)
+            if not identity.is_anonymous:
+                if identity.key in seen:
+                    return DuplicateIdError(scene_id=scene_id, element_id=identity.key)
+                seen.add(identity.key)
+        if isinstance(element, HasChildElements):
+            for child in element.child_elements():
                 found = self._scan(scene_id, child, seen)
                 if found is not None:
                     return found
