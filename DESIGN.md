@@ -4253,6 +4253,91 @@ element.
   `domain/hub/child_index.py` (the element-level routing this extends); beads
   `lux-4n5n`, `lux-i3ag`.
 
+## DES-046: View-State Locality — Discrete Agent-Drivable Selections Are Hub-Authoritative; Continuous In-Progress Input Is Display-Local
+
+**Status:** accepted. Cross-cutting; determines which UI state crosses the
+Hub/Display boundary and is therefore addressable (see DES-045).
+
+The Hub (`HubDisplay`) is the authoritative store; the Display is a replica for
+rendering and input capture. But some UI state is transient *view* state — which
+tab is active, whether a section is expanded, the scroll offset, the text a user
+is mid-typing into a filter, a window's drag position. For each such piece:
+does it live **Hub-authoritative** (it crosses the wire, the Hub owns it, the
+agent can read and drive it, it is re-pushed and reconciled) or **Display-local**
+(the Display owns it, it never re-pushes, a whole-UI resend never clobbers it)?
+
+Getting the line wrong fails in one of two directions. If *everything* is
+Display-local, the Hub is blind to state an agent needs — it cannot switch a tab
+or expand a section for the user, and the Hub/Display views silently diverge. If
+*everything* is Hub-authoritative, every scroll and keystroke round-trips to the
+Hub, and an unrelated whole-UI re-push clobbers the user's in-progress gesture
+(snapping them back to tab 1, re-collapsing a section, resetting a half-typed
+filter). `table` (DES-018/019/024) drew a first line; `tab_bar`/`collapsing_header`
+(`lux-4n5n`) forced the general rule.
+
+### Decision
+
+The line is drawn by **kind of state**, not by widget:
+
+- **Discrete, agent-drivable selections are Hub-authoritative.** A `tab_bar`'s
+  active tab, a `collapsing_header`'s open/collapsed flag, a paged `group`'s page
+  index, a `table`'s row selection. These cross the wire, the Hub owns them, the
+  agent can drive them (a re-push with a new value moves the Display), a user
+  gesture fires an event the Hub records, and the Hub reconciles the value when
+  the structure changes. Each such selection references a stable id, never a
+  positional index (DES-045).
+- **Continuous, in-progress input is Display-local.** Scroll offset, the text a
+  user is mid-typing into a filter, window-drag position. The Display owns it, it
+  never re-pushes, so an unrelated whole-UI resend never interrupts the gesture.
+
+### Rationale
+
+- **Agent-drive.** Only Hub-authoritative lets the agent navigate for the user
+  (switch a tab, expand a section) — the v2 "interact with my agent through the
+  GUI" direction. Display-local state is unreadable and undrivable by the Hub.
+- **Single source of truth and structural-change coherence.** The Hub reconciles
+  a selection deliberately when the structure changes (an active tab removed →
+  reset to a live tab), instead of leaving it to ImGui's implicit and surprising
+  fallback.
+- **The "re-push snaps to tab 1" fear was wrong.** A faithful Hub re-pushes the
+  *correct* active selection, because it owns and records the user's last
+  gesture. The snap-back only happens under a *stale* re-push, which authority
+  prevents. This corrected an earlier draft that recommended Display-local on
+  that mistaken ground.
+
+### Rejected alternatives
+
+- **All view-state Display-local.** Rejected — the Hub cannot read or drive
+  discrete navigation; agent-driven UX is impossible and the tiers diverge.
+- **All view-state Hub-authoritative.** Rejected — round-trips every scroll event
+  and keystroke, and a whole-UI resend clobbers in-progress continuous input. The
+  discrete/continuous split takes responsiveness for continuous input and
+  authority for discrete selections.
+
+### Consequences
+
+- Kinds whose selection is Hub-authoritative become **interactive** — the full
+  two-tier D21 path (a `RemoteDispatchSpec`, an event such as `tab_changed` /
+  `header_toggled`, Hub re-dispatch, a re-push). `tab_bar` and
+  `collapsing_header` are therefore interactive, not display-only.
+- Hub-authoritative view-navigation **round-trips to the Hub**. Negligible for a
+  local Hub; on a *remote* Hub/Display it adds a network hop before the selection
+  visually changes — a deferred v2-remote optimization (optimistic local render
+  with Hub confirmation), not a v1 concern.
+- Every Hub-authoritative selection needs a **stable identity** to be addressable
+  across re-pushes — the direct reason DES-045 exists.
+- **Follow-up:** the paged-`group` page index, earlier ruled Display-local
+  (`group-element-design.md`), moves to Hub-authoritative to match this rule.
+
+### References
+
+- `simple-composites-design.md` (the `tab_bar`/`collapsing_header` application),
+  DES-045 (the identity a Hub-authoritative selection requires), DES-018 /
+  DES-019 / DES-024 (table filtering, detail, and row-select — filter/scroll
+  Display-local, row selection Hub-authoritative), `element-contract.md` (the
+  Display is a replica, not a second authority), `group-element-design.md` (the
+  paged page-index follow-up); beads `lux-4n5n`, `lux-i3ag`.
+
 ## DES-047: Hub-Authoritative Write Path — One Contract, One Seam, Legacy by Value-Replacement
 
 **Status:** accepted (design-first; ratified with amendments). Full design in
