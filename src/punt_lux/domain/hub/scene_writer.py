@@ -14,6 +14,7 @@ rejected in full, store untouched.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
@@ -39,6 +40,8 @@ if TYPE_CHECKING:
     from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 
 __all__ = ["HubSceneWriter", "SceneScope"]
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,12 +119,20 @@ class HubSceneWriter:
             self._display.replace_scene(connection_id, scene_id, ())
 
     def _stage(self, scope: SceneScope, batch: PatchBatch) -> list[FieldRealization]:
-        """Resolve a realization per field patch; guard every present removal.
+        """Resolve field realizations and guard removals; first bad target rejects.
 
-        Ownership is checked before the seam; the first bad target rejects the
-        batch. A removal of an absent id is skipped, not rejected —
-        ``RemoveElement`` is idempotent, so an already-gone target is a no-op.
+        Ownership is checked before the seam. A removal of an absent id is
+        skipped, not rejected — ``RemoveElement`` is idempotent, so an
+        already-gone target is a no-op.
         """
+        realizations = self._field_realizations(scope, batch)
+        self._guard_removals(scope, batch.removals)
+        return realizations
+
+    def _field_realizations(
+        self, scope: SceneScope, batch: PatchBatch
+    ) -> list[FieldRealization]:
+        """Resolve one owner-checked field realization per field patch."""
         seam = self._display.write_seam
         realizations: list[FieldRealization] = []
         for patch in batch.field_patches:
@@ -129,12 +140,26 @@ class HubSceneWriter:
             realizations.append(
                 seam.field_realization(scope.scene_id, patch.element_id, patch.fields)
             )
-        for element_id in batch.removals:
+        return realizations
+
+    def _guard_removals(self, scope: SceneScope, removals: Sequence[ElementId]) -> None:
+        """Owner-check and structural-guard each present removal.
+
+        An absent target is skipped, not rejected, because ``RemoveElement`` is
+        idempotent — but the skip is logged so a mistyped id (``submit-buton``
+        for ``submit-button``) leaves a diagnosable trace rather than vanishing.
+        """
+        seam = self._display.write_seam
+        for element_id in removals:
             if not seam.is_present(scope.scene_id, element_id):
+                _log.debug(
+                    "remove skipped: element %s absent in scene %s (idempotent no-op)",
+                    element_id,
+                    scope.scene_id,
+                )
                 continue
             self._require_owner(scope, element_id)
             seam.guard_removal(scope.scene_id, element_id)
-        return realizations
 
     @staticmethod
     def _commit(realizations: Sequence[FieldRealization]) -> None:
