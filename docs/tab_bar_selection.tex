@@ -1,0 +1,561 @@
+%
+% tab_bar_selection.tex
+%
+% A Z specification of the lux tab_bar active-tab selection state machine:
+% the per-frame fire / echo / honour discipline that decides when a
+% ``TabChanged'' event is emitted.  Formalises the design hardened
+% empirically across four review rounds of PR lux-4n5n.
+%
+% Source of record:
+%   src/punt_lux/display/renderers/imgui/tab_bar.py
+%       -- ImGuiTabBarRenderer: begin_tab (the fire decision + force-select),
+%          end (the honoured / pending writes)
+%   src/punt_lux/scene/widget_state.py
+%       -- WidgetState: reset_honoured (the re-push reset),
+%          discard_for (the removal clear)
+%   src/punt_lux/scene/manager.py
+%       -- SceneManager._replace_scene_state: drives reset_honoured on re-push
+%
+% Type-check:  fuzz -t docs/tab_bar_selection.tex
+% Model-check (see Section "Verification" for the exact goal predicates):
+%   probcli docs/tab_bar_selection.tex -model_check -p DEFAULT_SETSIZE 2
+%   probcli docs/tab_bar_selection.tex -model_check -nodead \
+%       -goal "spurious=ztrue" -p DEFAULT_SETSIZE 2
+%   probcli docs/tab_bar_selection.tex -model_check -nodead \
+%       -goal "fires>1" -p DEFAULT_SETSIZE 2
+%   probcli docs/tab_bar_selection.tex -model_check -nodead \
+%       -goal "honoured/={} & selected/=active & clicked=zfalse" \
+%       -p DEFAULT_SETSIZE 2
+%
+% Formatting follows the fuzz house rules: \quad~ for continuation
+% indent (never \t1..\t9), schema lines under 80 columns, predicates
+% broken at \land/\lor/\implies with the operator starting the
+% continuation line.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{The lux Tab-Bar Selection Discipline: a Z Specification}
+\author{Formal model of the fire / echo / honour state machine}
+\date{July 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+A \texttt{tab\_bar} carries one Hub-authoritative selection --- the
+\emph{active} tab --- and is rendered every frame by an ImGui tab bar that
+keeps its \emph{own} idea of which tab is selected.  The renderer must
+reconcile the two: it must \emph{honour} the Hub's choice (force-select the
+declared active tab so ImGui's default of tab~0 cannot clobber it), and it
+must \emph{fire} a \texttt{TabChanged} event when, and only when, a genuine
+user click moves ImGui's selection away from the active tab.  An echo --- the
+Hub's own value coming back round on the next frame --- must fire nothing, or
+a \texttt{fire $\to$ Hub $\to$ re-push $\to$ fire} loop would run.
+
+The renderer arbitrates with a small piece of per-render-session bookkeeping
+held in \texttt{WidgetState}: the \emph{honoured} value, the active tab the
+frame last force-selected.  Before anything is honoured the slot is empty
+(\texttt{\_UNHONOURED}); \texttt{end()} writes the current active tab into it
+each frame; a whole-scene re-push resets it (\texttt{reset\_honoured}), and a
+removal clears it (\texttt{discard\_for}).
+
+The honoured value alone is not enough.  It records which \emph{Hub} value was
+honoured; it does not record which \emph{user} selection has already been
+reported.  In the window between a user's click and the Hub's re-push --- the
+click-to-re-push latency window --- ImGui keeps reporting the clicked tab as
+selected while the active tab has not yet moved.  With the honoured value
+equal to the active tab, every frame in that window reads as a fresh user
+switch and re-fires.  Closing that defect is what forces a \emph{second} slot,
+the \emph{pending} selection: the tab for which a \texttt{TabChanged} is
+already outstanding.  This document derives that slot and proves the four
+safety properties the design must have.
+
+This is a finite state machine over one tab bar and a small fixed set of tab
+ids, so ProB can enumerate every interleaving of render frames, user clicks,
+re-pushes, and removals, and either confirm the invariants or produce the
+exact offending trace.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [TABID]
+\end{zed}
+
+\texttt{TABID} is the set of tab identities the bar may hold.  Two ids suffice
+to exhibit every defect: a declared active tab distinct from ImGui's tab-0
+default, and a click that moves the selection between them.  Three exercise the
+click-away-and-back paths more thoroughly.  The carrier is bounded by ProB's
+\texttt{DEFAULT\_SETSIZE}, so no explicit cardinality constant is needed.
+
+% ============================================================
+\section{Free Types and Constants}
+% ============================================================
+
+\begin{zed}
+  ZBOOL ::= ztrue | zfalse
+\end{zed}
+
+A two-valued flag written as a free type rather than the toolkit
+\texttt{\bool}, so ProB animates it as a small enumerated set.
+
+\begin{zed}
+  MAXFIRE == 2
+\end{zed}
+
+The fire counter saturates at \texttt{MAXFIRE}.  A single click may fire at
+most once; a count of two is already a witness to the repeated-fire defect, so
+counting no higher keeps the state space small without hiding the violation.
+
+\begin{axdef}
+  home : TABID
+\end{axdef}
+
+\texttt{home} is ImGui's default selection, tab~0.  A freshly rendered tab bar
+starts with ImGui showing \texttt{home}; the declared active tab may be some
+\emph{other} id, and the first-frame honour must force the declared tab over
+this default.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema, seven components.  Its predicate carries only
+\emph{structural} invariants --- that the two bookkeeping slots hold at most
+one id and the fire counter stays in range.  These hold in every design,
+correct or buggy, so they act as coherence constraints, not as the safety
+properties under test.  The safety properties (Section~\ref{sec:inv}) are
+deliberately \emph{absent} here, so that a violating state remains reachable
+and ProB can find it.
+
+\begin{schema}{TabBar}
+  active : TABID \\
+  selected : TABID \\
+  honoured : \power TABID \\
+  pending : \power TABID \\
+  clicked : ZBOOL \\
+  fires : 0 \upto MAXFIRE \\
+  spurious : ZBOOL
+\where
+  \# honoured \leq 1 \\
+  \# pending \leq 1
+\end{schema}
+
+\texttt{active} is the Hub-authoritative selection.  \texttt{selected} is the
+tab ImGui currently reports open.  \texttt{honoured} is the echo-suppression
+slot: empty for \texttt{\_UNHONOURED}, or the singleton of the active tab the
+last frame force-selected.  \texttt{pending} is the fire-suppression slot:
+empty when no fire is outstanding, or the singleton of the tab a
+\texttt{TabChanged} has already been fired for and not yet ratified by a
+re-push.  Modelling the two slots as sets of size at most one lets the empty
+set stand for ``none'' without a sentinel value.
+
+The remaining three components are pure bookkeeping for the invariant checks,
+not part of the renderer's own state.  \texttt{clicked} records whether the
+current divergence between \texttt{selected} and \texttt{active} was produced
+by a genuine user gesture; a fire raised while \texttt{clicked = zfalse} is
+spurious.  \texttt{fires} counts fires since the last click or re-push --- the
+window in which at most one fire is legitimate.  \texttt{spurious} latches
+\texttt{ztrue} the moment any spurious fire occurs.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  TabBar'
+\where
+  active' = home \\
+  selected' = home \\
+  honoured' = \emptyset \\
+  pending' = \emptyset \\
+  clicked' = zfalse \\
+  fires' = 0 \\
+  spurious' = zfalse
+\end{schema}
+
+A single initial state: nothing honoured, nothing pending, ImGui and the Hub
+both on \texttt{home}, no fire seen.
+
+% ============================================================
+\section{Hub-Driven Operations}
+% ============================================================
+
+Three operations set the active tab from outside the renderer: the client
+declaring the bar, a whole-scene re-push of a surviving bar, and a removal
+followed by re-adding a same-id bar.  All three reset the echo- and
+fire-suppression slots, because a fresh Hub value must be re-honoured from
+scratch.  This reset is the guard that Section~\ref{sec:fidelity} removes to
+reproduce three of the four defects.
+
+\texttt{Declare} models the client installing the bar with a declared active
+tab.  ImGui starts a fresh widget, so \texttt{selected} is its tab-0 default,
+\texttt{home}; the declared active tab may differ.
+
+\begin{schema}{Declare}
+  \Delta TabBar \\
+  v? : TABID
+\where
+  active' = v? \\
+  selected' = home \\
+  honoured' = \emptyset \\
+  pending' = \emptyset \\
+  clicked' = zfalse \\
+  fires' = 0 \\
+  spurious' = spurious
+\end{schema}
+
+\texttt{Repush} models a whole-scene re-push of a bar that \emph{survives} the
+re-push (\texttt{SceneManager.\_replace\_scene\_state} calling
+\texttt{reset\_honoured}).  The ImGui widget persists, so its \texttt{selected}
+is kept; only the Hub value and the suppression slots change.
+
+\begin{schema}{Repush}
+  \Delta TabBar \\
+  v? : TABID
+\where
+  active' = v? \\
+  selected' = selected \\
+  honoured' = \emptyset \\
+  pending' = \emptyset \\
+  clicked' = zfalse \\
+  fires' = 0 \\
+  spurious' = spurious
+\end{schema}
+
+\texttt{RemoveReadd} models the bar being removed and a same-id bar re-added
+(\texttt{discard\_for} clearing the slots).  Its state effect is identical to
+\texttt{Repush} --- a stale ImGui selection kept, the slots cleared --- but it
+travels a different code path (\texttt{discard\_for}, not
+\texttt{reset\_honoured}).  The two operations are kept distinct because each
+guards invariant~1 on a path the other does not cover; removing either guard
+alone must still be caught.
+
+\begin{schema}{RemoveReadd}
+  \Delta TabBar \\
+  v? : TABID
+\where
+  active' = v? \\
+  selected' = selected \\
+  honoured' = \emptyset \\
+  pending' = \emptyset \\
+  clicked' = zfalse \\
+  fires' = 0 \\
+  spurious' = spurious
+\end{schema}
+
+% ============================================================
+\section{The User Click}
+% ============================================================
+
+A user clicks a tab other than the active one.  ImGui moves its selection;
+the click opens the latency window (\texttt{clicked} becomes \texttt{ztrue})
+and starts a fresh fire count.  The click itself fires nothing --- firing is
+the render frame's decision.
+
+\begin{schema}{UserClick}
+  \Delta TabBar \\
+  u? : TABID
+\where
+  u? \neq active \\
+  selected' = u? \\
+  clicked' = ztrue \\
+  fires' = 0 \\
+  active' = active \\
+  honoured' = honoured \\
+  pending' = pending \\
+  spurious' = spurious
+\end{schema}
+
+% ============================================================
+\section{The Render Frame}
+% ============================================================
+
+One frame runs \texttt{begin\_tab} over every tab and then \texttt{end()}.
+Exactly one of three cases applies, so a render step is \emph{always} enabled
+--- the reason the machine never deadlocks (Section~\ref{sec:inv},
+invariant~4).  Every case ends by writing the active tab into
+\texttt{honoured}: that is \texttt{end()}'s honoured write, and it is what
+makes the \emph{next} frame read the current active tab as ``already
+honoured''.
+
+\texttt{FrameForceSelect} is the fresh-value case: the active tab is not the
+honoured one, so \texttt{begin\_tab} force-selects it.  ImGui's selection is
+driven to the active tab, and no fire can occur --- the only tab reported
+selected is the active tab itself, which is never a switch.  This is both the
+first-frame honour and the echo suppression after a Hub-driven change.
+
+\begin{schema}{FrameForceSelect}
+  \Delta TabBar
+\where
+  active \notin honoured \\
+  selected' = active \\
+  honoured' = \{ active \} \\
+  pending' = pending \\
+  clicked' = zfalse \\
+  fires' = fires \\
+  spurious' = spurious \\
+  active' = active
+\end{schema}
+
+\texttt{FrameFire} is the genuine-switch case: the active tab is already
+honoured (no force-select this frame), ImGui reports a \emph{different} tab
+selected, and no fire is yet outstanding for that tab.  The frame fires,
+records the tab in \texttt{pending}, and bumps the counter.  A fire raised
+while \texttt{clicked = zfalse} --- no user gesture behind it --- latches
+\texttt{spurious}.
+
+\begin{schema}{FrameFire}
+  \Delta TabBar
+\where
+  active \in honoured \\
+  selected \neq active \\
+  selected \notin pending \\
+  selected' = selected \\
+  honoured' = \{ active \} \\
+  pending' = \{ selected \} \\
+  clicked' = clicked \\
+  fires' = \IF fires < MAXFIRE \THEN fires + 1 \ELSE MAXFIRE \\
+  spurious' = \IF clicked = zfalse \THEN ztrue \ELSE spurious \\
+  active' = active
+\end{schema}
+
+The guard \texttt{selected $\notin$ pending} is the fix.  Once a tab is
+pending, later frames in the same window see it in \texttt{pending} and fall
+to \texttt{FrameSteady} instead of re-firing.  Deleting that conjunct (and the
+\texttt{pending' = \{selected\}} write that feeds it) is the buggy variant of
+Section~\ref{sec:fidelity}, defect~(d).
+
+\texttt{FrameSteady} is every other honoured frame: ImGui is on the active tab,
+or on a tab whose fire is already outstanding.  Nothing fires; the honoured
+write still happens.
+
+\begin{schema}{FrameSteady}
+  \Delta TabBar
+\where
+  active \in honoured \\
+  (selected = active \lor selected \in pending) \\
+  selected' = selected \\
+  honoured' = \{ active \} \\
+  pending' = pending \\
+  clicked' = clicked \\
+  fires' = fires \\
+  spurious' = spurious \\
+  active' = active
+\end{schema}
+
+The three frame guards partition the state space: \texttt{active $\notin$
+honoured} selects \texttt{FrameForceSelect}; \texttt{active $\in$ honoured}
+splits on the fire condition into \texttt{FrameFire} and \texttt{FrameSteady}.
+Exactly one is enabled in every state, so rendering never stalls.
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+Four safety properties must hold across all reachable states, plus
+deadlock-freedom.  They are stated here as predicates over \texttt{TabBar};
+how each is discharged is given in Section~\ref{sec:verify}.  None is placed in
+the \texttt{TabBar} schema: a predicate placed there would be enforced as a
+guard on every successor, silently disabling any operation that would break it
+and thereby masking the very defect this model exists to catch.
+
+\paragraph{Invariant 1 --- no spurious fire.}
+A \texttt{TabChanged} is fired only on a genuine user switch, never off a Hub
+echo or a stale honoured value.  Equivalently, \texttt{spurious} is never set:
+\[
+  spurious = zfalse.
+\]
+This subsumes echo suppression --- a Hub-driven change (\texttt{Declare},
+\texttt{Repush}, \texttt{RemoveReadd}) carries \texttt{clicked = zfalse}, so
+any fire it provokes is spurious and would trip this invariant.
+
+\paragraph{Invariant 2 --- no repeated fire.}
+A single user click yields at most one fire across all frames until the
+re-push.  With the counter reset on every click and re-push:
+\[
+  fires \leq 1.
+\]
+
+\paragraph{Invariant 3 --- first-frame honour.}
+Once a frame has rendered (\texttt{honoured} is non-empty), if the user has not
+clicked then ImGui shows the Hub's active tab --- the declared active tab is
+never left clobbered by ImGui's tab-0 default:
+\[
+  honoured \neq \emptyset \land clicked = zfalse \implies selected = active.
+\]
+
+\paragraph{Invariant 4 --- deadlock freedom.}
+No reachable state leaves the machine unable to progress.  The three frame
+cases partition the state space, so a render step is enabled in every state.
+
+\paragraph{Echo suppression.}
+A Hub-driven active-tab change fires nothing.  This is not a separate
+reachability goal: \texttt{Declare}, \texttt{Repush}, and \texttt{RemoveReadd}
+never fire, and each resets \texttt{honoured} to empty, so the frame that
+follows is always \texttt{FrameForceSelect}, which cannot fire.  A failure to
+suppress an echo is therefore a spurious fire, caught by invariant~1.  The
+fidelity traces for defects (b) and (c) are exactly echo-suppression failures.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz -t docs/tab_bar_selection.tex
+\end{verbatim}
+
+Invariants 1, 2, and 3 are state properties, checked by asking ProB whether
+their negation is \emph{reachable}.  A goal that is not found means the
+invariant holds on every reachable state:
+\begin{verbatim}
+  # Invariant 1 (must report: goal NOT found)
+  probcli docs/tab_bar_selection.tex -model_check -nodead \
+    -goal "spurious=ztrue" -p DEFAULT_SETSIZE 2
+
+  # Invariant 2 (must report: goal NOT found)
+  probcli docs/tab_bar_selection.tex -model_check -nodead \
+    -goal "fires>1" -p DEFAULT_SETSIZE 2
+
+  # Invariant 3 (must report: goal NOT found)
+  probcli docs/tab_bar_selection.tex -model_check -nodead \
+    -goal "honoured/={} & selected/=active & clicked=zfalse" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Invariant 4 is the deadlock check over the full reachable state space:
+\begin{verbatim}
+  # Invariant 4 (must report: no deadlock, no invariant violation)
+  probcli docs/tab_bar_selection.tex -model_check -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+% ============================================================
+\section{Fidelity: reproducing the four defects}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce the known defects proves nothing.  Each defect is
+the current specification with one guard removed; each then makes the
+corresponding invariant's negation reachable.  Below, each variant names the
+edit, the goal that must change from \emph{not found} to \emph{found}, and the
+shortest offending trace.  Under \texttt{DEFAULT\_SETSIZE 2},
+\texttt{TABID = \{TABID1, TABID2\}} with \texttt{home = TABID1}; write
+$t_1 = home$ and $t_2$ for the other id.
+
+\paragraph{Defect (a) --- first-frame honoured defaulting to active.}
+Edit: \texttt{Declare} seeds \texttt{honoured' = \{v?\}} instead of
+\texttt{$\emptyset$}, modelling the original code reading the honoured slot's
+default as \texttt{active} rather than \texttt{\_UNHONOURED}.  Goals found:
+both invariant~3 (\texttt{honoured/=\{\} \& selected/=active \&
+clicked=zfalse}) and invariant~1 (\texttt{spurious=ztrue}).  Trace:
+\begin{enumerate}
+  \item \texttt{Init}: \texttt{active = selected = $t_1$}.
+  \item \texttt{Declare($t_2$)} in the buggy form: \texttt{active = $t_2$},
+    \texttt{selected = $t_1$}, \texttt{honoured = \{$t_2$\}},
+    \texttt{clicked = zfalse}.  This state alone violates invariant~3:
+    \texttt{honoured} is non-empty, the user has not clicked, yet
+    \texttt{selected = $t_1$ $\neq$ $t_2$ = active} --- ImGui's tab-0 default
+    stands where the declared tab should be.
+  \item \texttt{FrameFire}: \texttt{active = $t_2$ $\in$ honoured},
+    \texttt{selected = $t_1$ $\neq$ $t_2$}, \texttt{$t_1$ $\notin$ pending}, so
+    the frame fires with \texttt{clicked = zfalse} --- \texttt{spurious} is set,
+    violating invariant~1.
+\end{enumerate}
+Under the intact guard, \texttt{Declare($t_2$)} leaves \texttt{honoured =
+$\emptyset$}, so the first frame is \texttt{FrameForceSelect}: it drives
+\texttt{selected} to $t_2$ and fires nothing.
+
+\paragraph{Defect (b) --- honoured surviving a re-push.}
+Edit: \texttt{Repush} omits \texttt{honoured' = $\emptyset$}, keeping
+\texttt{honoured' = honoured} (the original \texttt{reset\_honoured} not
+running on the re-push path).  Goal found: invariant~1
+(\texttt{spurious=ztrue}).  Trace:
+\begin{enumerate}
+  \item \texttt{Init}; \texttt{FrameForceSelect}: \texttt{honoured = \{$t_1$\}},
+    \texttt{selected = active = $t_1$}.
+  \item \texttt{UserClick($t_2$)}: \texttt{selected = $t_2$},
+    \texttt{clicked = ztrue}.
+  \item \texttt{FrameFire}: fires once (legitimately), \texttt{pending =
+    \{$t_2$\}}, \texttt{honoured = \{$t_1$\}}.
+  \item \texttt{Repush($t_1$)} in the buggy form --- a re-push that does not
+    change this bar's active tab: \texttt{active = $t_1$}, \texttt{honoured}
+    kept as \texttt{\{$t_1$\}}, \texttt{pending = $\emptyset$},
+    \texttt{clicked = zfalse}, \texttt{selected = $t_2$} kept.
+  \item \texttt{FrameFire}: \texttt{active = $t_1$ $\in$ honoured},
+    \texttt{selected = $t_2$ $\neq$ $t_1$}, \texttt{$t_2$ $\notin$ pending}, so
+    it fires with \texttt{clicked = zfalse} --- \texttt{spurious} is set.  The
+    stale honoured value made the re-push's own selection read as a fresh user
+    switch.
+\end{enumerate}
+Under the intact guard, \texttt{Repush} empties \texttt{honoured}, so the next
+frame is \texttt{FrameForceSelect}: it drives \texttt{selected} back to the
+Hub's $t_1$ and fires nothing.
+
+\paragraph{Defect (c) --- honoured not cleared on removal.}
+Edit: \texttt{RemoveReadd} omits \texttt{honoured' = $\emptyset$} (the original
+\texttt{discard\_for} not clearing the honoured key).  Goal found:
+invariant~1.  The trace is that of defect~(b) with \texttt{RemoveReadd($t_1$)}
+in place of \texttt{Repush($t_1$)} at step~4: a same-id bar re-added while its
+stale honoured value survives reads its stale ImGui selection as a fresh switch
+and fires spuriously on re-add.  Under the intact guard, the re-add empties
+\texttt{honoured} and the next frame force-selects without firing.
+
+\paragraph{Defect (d) --- honoured not advanced on a user switch (the OPEN
+finding).}
+Edit: \texttt{FrameFire} drops the \texttt{selected $\notin$ pending} guard and
+the \texttt{pending' = \{selected\}} write, modelling the original renderer
+that wrote only the active tab into the honoured slot and kept no record of
+the tab it had already fired for.  Goal found: invariant~2
+(\texttt{fires>1}).  Trace:
+\begin{enumerate}
+  \item \texttt{Init}; \texttt{FrameForceSelect}: \texttt{honoured = \{$t_1$\}},
+    \texttt{selected = active = $t_1$}.
+  \item \texttt{UserClick($t_2$)}: \texttt{selected = $t_2$},
+    \texttt{clicked = ztrue}, \texttt{fires = 0}.
+  \item \texttt{FrameFire}: \texttt{active = $t_1$ $\in$ honoured},
+    \texttt{selected = $t_2$ $\neq$ $t_1$}, so it fires --- \texttt{fires = 1}.
+    In the buggy form nothing records $t_2$ as pending.
+  \item \texttt{FrameFire} again --- the next frame in the same latency window,
+    before any re-push, with \texttt{active = $t_1$}, \texttt{honoured =
+    \{$t_1$\}}, \texttt{selected = $t_2$} unchanged: the guard that would have
+    seen $t_2$ pending is gone, so it fires \emph{again} --- \texttt{fires = 2},
+    violating invariant~2.  Every further frame in the window re-fires.
+\end{enumerate}
+Under the intact guard, step~3 records \texttt{pending = \{$t_2$\}}, so step~4
+is \texttt{FrameSteady}: \texttt{selected = $t_2$ $\in$ pending}, no fire.  The
+window fires exactly once.
+
+\paragraph{Summary.}
+Each defect's guard, removed, makes its invariant's negation reachable; with
+every guard intact, all four reachability goals return \emph{not found} and the
+deadlock check reports none.  That difference is the evidence that the model
+detects the defects the code was changed to prevent --- and, for defect~(d),
+that the \texttt{pending} slot is the correct fix: it is the minimal state that
+makes the latency window fire exactly once.
+
+% ============================================================
+\section{From the Model to the Code}
+% ============================================================
+
+The model's \texttt{pending} slot is a second echo-suppression key in
+\texttt{WidgetState}, beside the honoured key.  \texttt{begin\_tab} reads it,
+fires only when the reported selection is neither the active tab nor the
+pending tab, and records the fired tab into it; \texttt{end()} is unchanged ---
+it still writes only the active tab into the honoured slot.  The re-push and
+removal resets (\texttt{reset\_honoured}, \texttt{discard\_for}) clear the
+pending key alongside the honoured key, which is the model's \texttt{pending' =
+$\emptyset$} in \texttt{Repush} and \texttt{RemoveReadd}.  No other honoured-
+or fire-related behaviour changes.
+
+\end{document}

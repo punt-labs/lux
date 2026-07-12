@@ -447,6 +447,20 @@ class TestWidgetStateDiscardFor:
 
         assert ws.get(f"tb{WidgetState.HONOURED_SUFFIX}") is None
 
+    def test_clears_the_pending_fire_suppression_key(self) -> None:
+        """Removing an id clears its ``:active_pending`` key.
+
+        The pending slot suppresses a re-fire through the click-to-re-push
+        window. A re-added same-id tab bar must start with no outstanding fire,
+        or a genuine first click could be swallowed as already-pending.
+        """
+        ws = WidgetState()
+        ws.set(f"tb{WidgetState.PENDING_SUFFIX}", "tab-2")
+
+        ws.discard_for("tb")
+
+        assert ws.get(f"tb{WidgetState.PENDING_SUFFIX}") is None
+
 
 class TestWidgetStateResetHonoured:
     def test_discards_every_honoured_key(self) -> None:
@@ -460,15 +474,33 @@ class TestWidgetStateResetHonoured:
         assert ws.get(f"tb1{WidgetState.HONOURED_SUFFIX}") is None
         assert ws.get(f"tb2{WidgetState.HONOURED_SUFFIX}") is None
 
+    def test_discards_every_pending_key(self) -> None:
+        """``reset_honoured`` forgets every tab bar's outstanding-fire tab too.
+
+        On a re-push the Hub becomes authoritative again, so the pending slot
+        that suppressed the click-to-re-push window must clear — otherwise it
+        would keep gagging a genuine switch after the window has closed.
+        """
+        ws = WidgetState()
+        ws.set(f"tb1{WidgetState.PENDING_SUFFIX}", "a")
+        ws.set(f"tb2{WidgetState.PENDING_SUFFIX}", "b")
+
+        ws.reset_honoured()
+
+        assert ws.get(f"tb1{WidgetState.PENDING_SUFFIX}") is None
+        assert ws.get(f"tb2{WidgetState.PENDING_SUFFIX}") is None
+
     def test_preserves_user_transient_state(self) -> None:
-        """Only honoured keys reset — selection, scroll, and text survive."""
+        """Only session slots reset — selection, scroll, and text survive."""
         ws = WidgetState()
         ws.set(f"tb{WidgetState.HONOURED_SUFFIX}", "tab-1")
+        ws.set(f"tb{WidgetState.PENDING_SUFFIX}", "tab-2")
         ws.set("__tbl_sel_tb", 4)
         ws.set("input_x", "half-typed")
 
         ws.reset_honoured()
 
         assert ws.get(f"tb{WidgetState.HONOURED_SUFFIX}") is None
+        assert ws.get(f"tb{WidgetState.PENDING_SUFFIX}") is None
         assert ws.get("__tbl_sel_tb") == 4
         assert ws.get("input_x") == "half-typed"

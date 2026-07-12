@@ -17,7 +17,11 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-from punt_lux.display.renderers.imgui.tab_bar import _UNHONOURED, ImGuiTabBarRenderer
+from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
+from punt_lux.display.renderers.imgui.tab_selection import (
+    _UNHONOURED,
+    TabSelectionArbiter,
+)
 from punt_lux.display.server import DisplayServer
 from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.container_interaction import TabChanged
@@ -87,6 +91,11 @@ def _mock_client() -> MagicMock:
     client = MagicMock()
     client.is_connected = True
     return client
+
+
+def _honoured_key(element_id: str = "tb") -> str:
+    """Return the WidgetState key holding a tab bar's last-honoured active tab."""
+    return f"{element_id}{WidgetState.HONOURED_SUFFIX}"
 
 
 # -- Level 1: serialization roundtrip ---------------------------------------
@@ -466,16 +475,16 @@ class TestLevel3Crossing:
 
 
 class TestInteraction:
-    """The fire decision, proven at the pure-function level.
+    """The fire decision, proven at the pure-function level via the arbiter.
 
     ``begin_tab``/``end`` cannot run headless: ``imgui.begin_tab_item`` requires a
     live ImGui frame inside an OpenGL context, which the unit tier has no window
     for. So the echo-suppression guarantee — a Hub-driven ``active_tab`` change or
     a first-frame honour never fires, only a genuine user switch does — is proven
-    through the pure ``_select_flags`` / ``_is_user_switch`` decision functions
-    ``begin_tab`` calls, not through a driven ``end()``-then-``begin_tab()``
-    sequence. The full interactive leg (a real click firing across the socket) is
-    the business-event-loop harness's job (``tests/e2e/scenario.py``).
+    through ``TabSelectionArbiter``, the pure fire/honour decision the renderer
+    delegates to, not through a driven ``end()``-then-``begin_tab()`` sequence. The
+    full interactive leg (a real click firing across the socket) is the
+    business-event-loop harness's job (``tests/e2e/scenario.py``).
     """
 
     def test_builtin_handler_syncs_active_tab_on_the_hub_copy(self) -> None:
@@ -515,51 +524,93 @@ class TestInteraction:
         assert sent[0].event_kind == "tab_changed"
         assert sent[0].value == "tab-2"
 
-    def test_renderer_honours_hub_value_without_firing(self) -> None:
-        # The renderer's fire decision is the source of echo-suppression: a
+    def test_arbiter_honours_hub_value_without_firing(self) -> None:
+        # The arbiter's fire decision is the source of echo-suppression: a
         # reported selection equal to the active tab, or a frame that just
-        # honoured a fresh Hub value (active != last), is no user switch.
-        bar = _abc_tab_bar()
-        factory = _server()._imgui_renderer_factory
-        renderer = ImGuiTabBarRenderer(bar, factory)
+        # honoured a fresh Hub value (active != honoured), is no user switch.
+        def arbiter(honoured: str) -> TabSelectionArbiter:
+            ws = WidgetState()
+            ws.set(_honoured_key(), honoured)
+            return TabSelectionArbiter(ws, "tb")
+
         # honoured value / no change → no fire
-        assert not renderer._is_user_switch(
-            selected=True, tab_id="tab-1", active="tab-1", last="tab-1"
+        assert not arbiter("tab-1")._is_user_switch(
+            selected=True, tab_id="tab-1", active="tab-1"
         )
         # fresh Hub write echo (active moved since last frame) → no fire
-        assert not renderer._is_user_switch(
-            selected=True, tab_id="tab-2", active="tab-2", last="tab-1"
+        assert not arbiter("tab-1")._is_user_switch(
+            selected=True, tab_id="tab-2", active="tab-2"
         )
         # genuine user switch → fire
-        assert renderer._is_user_switch(
-            selected=True, tab_id="tab-2", active="tab-1", last="tab-1"
+        assert arbiter("tab-1")._is_user_switch(
+            selected=True, tab_id="tab-2", active="tab-1"
         )
 
-    def test_first_frame_force_selects_declared_active_without_firing(self) -> None:
-        # The Level-4 scenarios inject via fire and bypass begin_tab; this
-        # covers the begin_tab first-frame decision directly. With no value yet
-        # honoured, the slot defaults to _UNHONOURED, so a non-first declared
-        # active_tab is force-selected AND does not fire — ImGui's own tab-0
-        # default can never clobber the declared selection with a bogus event.
+    def test_renderer_end_records_the_honoured_active_tab(self) -> None:
+        # end() is headless when the surface did not open (no ImGui call); it must
+        # still record the Hub active tab so the next frame reads it as honoured
+        # and cannot mistake the echo for a user switch.
         bar = _abc_tab_bar(active_tab="tab-2")
         factory = _server()._imgui_renderer_factory
         renderer = ImGuiTabBarRenderer(bar, factory)
-        last = factory.widget_state.get(renderer._honoured_key(), _UNHONOURED)
-        assert last is _UNHONOURED
+        renderer.end(opened=False)
+        assert factory.widget_state.get(_honoured_key()) == "tab-2"
+
+    def test_pending_window_fires_exactly_once(self) -> None:
+        # NO REPEATED FIRE: through the click-to-re-push latency window ImGui
+        # keeps reporting the clicked tab while the Hub active tab has not yet
+        # moved. ``should_fire`` fires on the first such frame and records the tab
+        # pending; every later frame in the window sees it pending and stays
+        # silent, so the window fires exactly once. Under the old code (no
+        # pending slot) each frame re-fired — the guard's ``active == honoured``
+        # held every frame. Drives the real ``WidgetState``, not a stub.
+        ws = WidgetState()
+        # A prior frame honoured the Hub active tab.
+        ws.set(_honoured_key(), "tab-1")
+        arbiter = TabSelectionArbiter(ws, "tb")
+        # Frame of the click: ImGui reports tab-2, Hub still on tab-1 → fire once.
+        assert arbiter.should_fire(selected=True, tab_id="tab-2", active="tab-1")
+        # Same window, Hub not caught up, ImGui still on tab-2 → no re-fire.
+        assert not arbiter.should_fire(selected=True, tab_id="tab-2", active="tab-1")
+        assert not arbiter.should_fire(selected=True, tab_id="tab-2", active="tab-1")
+
+    def test_repush_reset_reopens_firing_after_the_window(self) -> None:
+        # The pending slot must not gag a genuine switch once the window closes.
+        # After a fire records tab-2 pending, the re-push reset clears the slot
+        # (reset_honoured / discard_for), so a later switch fires again.
+        ws = WidgetState()
+        ws.set(_honoured_key(), "tab-1")
+        arbiter = TabSelectionArbiter(ws, "tb")
+        assert arbiter.should_fire(selected=True, tab_id="tab-2", active="tab-1")
+        assert not arbiter.should_fire(selected=True, tab_id="tab-2", active="tab-1")
+        # The re-push resets both session slots.
+        ws.reset_honoured()
+        ws.set(_honoured_key(), "tab-1")
+        # A genuine switch to tab-2 now fires again — the slot no longer gags it.
+        assert arbiter.should_fire(selected=True, tab_id="tab-2", active="tab-1")
+
+    def test_first_frame_force_selects_declared_active_without_firing(self) -> None:
+        # The Level-4 scenarios inject via fire and bypass begin_tab; this
+        # covers the first-frame decision directly. With no value yet honoured,
+        # the slot defaults to _UNHONOURED, so a non-first declared active_tab is
+        # force-selected AND does not fire — ImGui's own tab-0 default can never
+        # clobber the declared selection with a bogus event.
+        ws = WidgetState()
+        assert ws.get(_honoured_key(), _UNHONOURED) is _UNHONOURED
+        arbiter = TabSelectionArbiter(ws, "tb")
         # frame 1: the declared active tab (tab-2, not tab 0) is force-selected
-        assert renderer._select_flags("tab-2", "tab-2", last) != 0
+        assert arbiter.should_force_select("tab-2", "tab-2")
         # frame 1: ImGui reporting tab-1 selected before SetSelected must NOT fire
-        assert not renderer._is_user_switch(
-            selected=True, tab_id="tab-1", active="tab-2", last=last
+        assert not arbiter._is_user_switch(
+            selected=True, tab_id="tab-1", active="tab-2"
         )
         # frame 1: the force-selected active tab itself must NOT fire
-        assert not renderer._is_user_switch(
-            selected=True, tab_id="tab-2", active="tab-2", last=last
+        assert not arbiter._is_user_switch(
+            selected=True, tab_id="tab-2", active="tab-2"
         )
         # a genuine later user switch (after honouring) DOES fire
-        assert renderer._is_user_switch(
-            selected=True, tab_id="tab-1", active="tab-2", last="tab-2"
-        )
+        ws.set(_honoured_key(), "tab-2")
+        assert arbiter._is_user_switch(selected=True, tab_id="tab-1", active="tab-2")
 
 
 class TestEchoSuppressionLifecycle:
@@ -572,7 +623,7 @@ class TestEchoSuppressionLifecycle:
 
     def _install(
         self, server: DisplayServer, *, active_tab: str = "tab-1"
-    ) -> tuple[SceneManager, ImGuiRendererFactory, ImGuiTabBarRenderer]:
+    ) -> tuple[SceneManager, ImGuiRendererFactory]:
         """Install a tab bar and re-thread the factory as the display would."""
         bar = _abc_tab_bar(active_tab=active_tab)
         sm = server._scene_manager
@@ -581,12 +632,12 @@ class TestEchoSuppressionLifecycle:
         assert ws is not None
         factory = server._imgui_renderer_factory
         factory.widget_state = ws
-        return sm, factory, ImGuiTabBarRenderer(bar, factory)
+        return sm, factory
 
     def test_whole_scene_repush_resets_honoured_no_spurious_fire(self) -> None:
-        sm, factory, renderer = self._install(_server())
+        sm, factory = self._install(_server())
         # Render session 1 honoured the Hub active tab.
-        factory.widget_state.set(renderer._honoured_key(), "tab-1")
+        factory.widget_state.set(_honoured_key(), "tab-1")
         # A whole-scene re-push of the same surviving tab bar.
         sm.handle_scene(
             SceneMessage(id="s1", elements=[_abc_tab_bar(active_tab="tab-1")]),
@@ -595,13 +646,13 @@ class TestEchoSuppressionLifecycle:
         repushed = sm.widget_state_for("s1")
         assert repushed is not None
         factory.widget_state = repushed
-        last = factory.widget_state.get(renderer._honoured_key(), _UNHONOURED)
-        assert last is _UNHONOURED
+        assert factory.widget_state.get(_honoured_key(), _UNHONOURED) is _UNHONOURED
+        arbiter = TabSelectionArbiter(factory.widget_state, "tb")
         # First post-re-push frame re-honours tab-1; a stale tab-2 selection
         # reported by ImGui is the echo, not a user switch, and must not fire.
-        assert renderer._select_flags("tab-1", "tab-1", last) != 0
-        assert not renderer._is_user_switch(
-            selected=True, tab_id="tab-2", active="tab-1", last=last
+        assert arbiter.should_force_select("tab-1", "tab-1")
+        assert not arbiter._is_user_switch(
+            selected=True, tab_id="tab-2", active="tab-1"
         )
 
     def test_remove_then_readd_same_id_resets_honoured(self) -> None:
@@ -612,8 +663,8 @@ class TestEchoSuppressionLifecycle:
         # ``reset_honoured()`` clear the honoured key, so either alone would pass
         # it. ``discard_for``'s own honoured-clearing is isolated by the
         # WidgetState unit test in test_scene_manager.py.
-        sm, factory, renderer = self._install(_server())
-        factory.widget_state.set(renderer._honoured_key(), "tab-1")
+        sm, factory = self._install(_server())
+        factory.widget_state.set(_honoured_key(), "tab-1")
         # Re-push without the tab bar → it is removed.
         sm.handle_scene(
             SceneMessage(id="s1", elements=[TextElement(id="only", content="x")]),
@@ -621,7 +672,7 @@ class TestEchoSuppressionLifecycle:
         )
         removed = sm.widget_state_for("s1")
         assert removed is not None
-        assert removed.get(renderer._honoured_key(), _UNHONOURED) is _UNHONOURED
+        assert removed.get(_honoured_key(), _UNHONOURED) is _UNHONOURED
         # Re-add the same-id tab bar: it starts fresh, no stale honoured value.
         sm.handle_scene(
             SceneMessage(id="s1", elements=[_abc_tab_bar(active_tab="tab-1")]),
@@ -630,10 +681,10 @@ class TestEchoSuppressionLifecycle:
         readded = sm.widget_state_for("s1")
         assert readded is not None
         factory.widget_state = readded
-        last = factory.widget_state.get(renderer._honoured_key(), _UNHONOURED)
-        assert last is _UNHONOURED
-        assert not renderer._is_user_switch(
-            selected=True, tab_id="tab-2", active="tab-1", last=last
+        assert factory.widget_state.get(_honoured_key(), _UNHONOURED) is _UNHONOURED
+        arbiter = TabSelectionArbiter(factory.widget_state, "tb")
+        assert not arbiter._is_user_switch(
+            selected=True, tab_id="tab-2", active="tab-1"
         )
 
     def test_element_renderer_setter_rethreads_the_factory(self) -> None:
@@ -654,8 +705,8 @@ class TestEchoSuppressionLifecycle:
         # ``_is_user_switch`` fire decision, so this guards against a future
         # over-suppression regression rather than pinning the reset itself (the
         # no-spurious-fire tests above do that, failing under the old code).
-        sm, factory, renderer = self._install(_server())
-        factory.widget_state.set(renderer._honoured_key(), "tab-1")
+        sm, factory = self._install(_server())
+        factory.widget_state.set(_honoured_key(), "tab-1")
         sm.handle_scene(
             SceneMessage(id="s1", elements=[_abc_tab_bar(active_tab="tab-1")]),
             owner_fd=0,
@@ -663,14 +714,11 @@ class TestEchoSuppressionLifecycle:
         repushed = sm.widget_state_for("s1")
         assert repushed is not None
         factory.widget_state = repushed
-        assert factory.widget_state.get(renderer._honoured_key(), _UNHONOURED) is (
-            _UNHONOURED
-        )
+        assert factory.widget_state.get(_honoured_key(), _UNHONOURED) is _UNHONOURED
         # The next frame re-honours tab-1; a later genuine user switch fires.
-        factory.widget_state.set(renderer._honoured_key(), "tab-1")
-        assert renderer._is_user_switch(
-            selected=True, tab_id="tab-2", active="tab-1", last="tab-1"
-        )
+        factory.widget_state.set(_honoured_key(), "tab-1")
+        arbiter = TabSelectionArbiter(factory.widget_state, "tb")
+        assert arbiter._is_user_switch(selected=True, tab_id="tab-2", active="tab-1")
 
 
 # -- Level 5: introspection (render_path + reported view-state) --------------

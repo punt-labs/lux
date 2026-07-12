@@ -8,10 +8,12 @@ from typing import Any, ClassVar, Self
 class WidgetState:
     """Key-value store for interactive widget state across ImGui frames."""
 
-    # Suffix of an echo-suppression key (the tab a tab-bar last force-selected):
-    # per-render-session bookkeeping that resets on a re-push, not user state.
-    # Held here so the resetters and the tab-bar renderer share one convention.
+    # Suffixes of the tab-bar suppression slots (per-render-session, reset on a
+    # re-push). Honoured = the active tab a frame last force-selected (echo);
+    # pending = the tab a ``TabChanged`` is outstanding for (fire suppression).
     HONOURED_SUFFIX: ClassVar[str] = ":active_honoured"
+    PENDING_SUFFIX: ClassVar[str] = ":active_pending"
+    _SESSION_SUFFIXES: ClassVar[tuple[str, ...]] = (HONOURED_SUFFIX, PENDING_SUFFIX)
 
     _state: dict[str, Any]
 
@@ -34,17 +36,14 @@ class WidgetState:
         self._state.pop(element_id, None)
 
     def discard_for(self, element_id: str) -> None:
-        """Discard a removed element's key and its open/dismiss latches.
+        """Discard a removed element's key, dialog latches, and tab-bar slots.
 
-        Removes exactly ``element_id``, ``{element_id}__open`` and
-        ``{element_id}__dismissed`` — built from the id, never a substring match,
-        so a survivor like ``btn_ok`` is never wiped. Clearing the latches lets a
-        re-added same-id dialog reopen: ``dialog.begin`` reads
-        ``ensure(dismiss_key, CLOSED)`` and ``ensure`` seeds only an absent key,
-        so a stale ``OPEN`` latch would leave it dismissed. A removed table's
-        ``__tbl_sel_{id}`` / ``__tbl_search_{fidx}_{id}`` keys embed the id at the
-        end, so they linger until scene clear — a re-added same-id table shows
-        stale selection/filter (cosmetic, not a functional break).
+        Each key is built from the id, never a substring match, so a survivor
+        like ``btn_ok`` is never wiped. Clearing the dialog latches lets a
+        re-added same-id dialog reopen; clearing the honoured and pending slots
+        lets a re-added same-id tab bar re-honour the Hub active tab rather than
+        firing a spurious ``TabChanged`` off a stale value. A removed table's
+        selection/filter keys linger until scene clear (cosmetic).
         """
         if not element_id:
             return
@@ -52,20 +51,21 @@ class WidgetState:
         self.discard(f"{element_id}__open")
         self.discard(f"{element_id}__dismissed")
         self.discard(f"{element_id}{self.HONOURED_SUFFIX}")
+        self.discard(f"{element_id}{self.PENDING_SUFFIX}")
 
     def reset_honoured(self) -> None:
-        """Discard every echo-suppression honoured key, keeping user state.
+        """Discard every tab-bar suppression slot, keeping durable user state.
 
         A re-push restarts each tab bar's render session, so the tab it last
-        force-selected must be forgotten — the next frame re-honours the Hub
-        selection rather than firing a spurious ``TabChanged`` off a stale
-        value. Only ``HONOURED_SUFFIX`` keys reset; selection, scroll, and
-        in-progress text survive for elements that persist across the re-push.
+        force-selected and the tab it last fired for must both be forgotten:
+        the next frame re-honours the Hub selection instead of firing a spurious
+        ``TabChanged`` off a stale value, and the pending slot no longer gags a
+        genuine later switch. Selection, scroll, and text survive the re-push.
         """
         self._state = {
             key: value
             for key, value in self._state.items()
-            if not key.endswith(self.HONOURED_SUFFIX)
+            if not key.endswith(self._SESSION_SUFFIXES)
         }
 
     def clear(self) -> None:
