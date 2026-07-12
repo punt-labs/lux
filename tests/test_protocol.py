@@ -26,6 +26,7 @@ from punt_lux.protocol import (
     IntrospectResponse,
     LegacyCollapsingHeaderElement,
     LegacyGroupElement,
+    LegacyTabBarElement,
     ListScenesRequest,
     ListScenesResponse,
     MarkdownElement,
@@ -50,7 +51,6 @@ from punt_lux.protocol import (
     SeparatorElement,
     SliderElement,
     SpinnerElement,
-    TabBarElement,
     TableDetail,
     TableElement,
     TableFilter,
@@ -174,7 +174,7 @@ class TestElements:
         assert e.children == ()
 
     def test_tab_bar_element(self):
-        e = TabBarElement(
+        e = LegacyTabBarElement(
             id="tb1",
             tabs=[{"label": "Tab A", "children": [TextElement(id="t1", content="A")]}],
         )
@@ -952,7 +952,9 @@ class TestSerialization:
         assert isinstance(grp.children[1], ButtonElement)
 
     def test_tab_bar_roundtrip(self):
-        e = TabBarElement(
+        # A legacy slider child keeps the subtree off the all-ABC path, so the
+        # tab bar decodes onto the legacy dataclass whose tabs are dicts.
+        e = LegacyTabBarElement(
             id="tb1",
             tabs=[
                 {
@@ -973,7 +975,7 @@ class TestSerialization:
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
         tb = restored.elements[0]
-        assert isinstance(tb, TabBarElement)
+        assert isinstance(tb, LegacyTabBarElement)
         assert len(tb.tabs) == 2
         assert tb.tabs[0]["label"] == "Tab 1"
         assert isinstance(tb.tabs[0]["children"][0], TextElement)
@@ -1320,16 +1322,23 @@ class TestSerialization:
                 TextElement(id="t2", content="B"),
             ],
         )
-        outer = TabBarElement(
+        # A legacy slider sibling keeps the tab bar's subtree off the all-ABC
+        # path, so it decodes legacy and forces the nested group legacy too.
+        outer = LegacyTabBarElement(
             id="tb1",
-            tabs=[{"label": "Layout", "children": [inner]}],
+            tabs=[
+                {
+                    "label": "Layout",
+                    "children": [inner, SliderElement(id="sl1", label="Vol")],
+                }
+            ],
         )
         scene = SceneMessage(id="s1", elements=[outer])
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
         tb = restored.elements[0]
-        assert isinstance(tb, TabBarElement)
+        assert isinstance(tb, LegacyTabBarElement)
         grp = tb.tabs[0]["children"][0]
         # A group nested in a legacy container is forced legacy so an ABC
         # container can never appear inside a legacy render subtree.

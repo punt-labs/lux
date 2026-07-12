@@ -185,12 +185,15 @@ class TestElementFromDict:
         assert elem.children == ()
 
     def test_tab_bar_element(self) -> None:
+        # An all-ABC subtree (a text child) decodes onto the ABC path, where
+        # tabs are typed ``Tab`` value objects carrying a stable ``tab_id``.
         elem = agent_element_factory().element_from_dict(
             {
                 "kind": "tab_bar",
                 "id": "tb1",
                 "tabs": [
                     {
+                        "id": "tab-a",
                         "label": "A",
                         "children": [{"kind": "text", "id": "t1", "content": "In A"}],
                     },
@@ -199,7 +202,9 @@ class TestElementFromDict:
         )
         assert isinstance(elem, TabBarElement)
         assert len(elem.tabs) == 1
-        assert elem.tabs[0]["label"] == "A"
+        assert elem.tabs[0].label == "A"
+        assert elem.tabs[0].tab_id == "tab-a"
+        assert elem.active_tab == "tab-a"
 
     def test_collapsing_header_element(self) -> None:
         # An all-ABC subtree (a button child) decodes onto the ABC path, where

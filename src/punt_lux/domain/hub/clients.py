@@ -19,6 +19,8 @@ from punt_lux.display_client import DisplayClient
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
+    from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
+    from punt_lux.domain.interaction import ButtonClicked, ValueChanged
     from punt_lux.protocol import RemoteEventHandlerInvocation
 
 logger = logging.getLogger(__name__)
@@ -107,11 +109,9 @@ class ClientRegistry:
         ``ValueChanged`` depending on ``event_kind``, and fires the
         Hub-side handlers (which have real ``HubPublishSink``).
         """
-        from punt_lux.domain.container_interaction import HeaderToggled
         from punt_lux.domain.element_abc import Element as ElementABC
         from punt_lux.domain.hub import hub_display
-        from punt_lux.domain.ids import ClientId, ElementId, SceneId
-        from punt_lux.domain.interaction import ButtonClicked, ValueChanged
+        from punt_lux.domain.ids import ElementId, SceneId
 
         scene_id = msg.scene_id
         element_id = msg.element_id
@@ -156,50 +156,14 @@ class ClientRegistry:
             element.handler_summary(),
         )
         event_kind = msg.event_kind
-        event: ButtonClicked | ValueChanged | HeaderToggled
-        if event_kind == "value_changed":
-            wire_value = msg.value
-            if not isinstance(wire_value, bool):
-                logger.warning(
-                    "hub dispatch value_changed non-bool value=%r element_id=%s",
-                    wire_value,
-                    element_id,
-                )
-                return
-            event = ValueChanged(
-                scene_id=SceneId(scene_id),
-                element_id=ElementId(element_id),
-                owner_id=ClientId(str(owner)),
-                value=wire_value,
-            )
-        elif event_kind == "header_toggled":
-            open_value = msg.value
-            if not isinstance(open_value, bool):
-                logger.warning(
-                    "hub dispatch header_toggled non-bool value=%r element_id=%s",
-                    open_value,
-                    element_id,
-                )
-                return
-            event = HeaderToggled(
-                scene_id=SceneId(scene_id),
-                element_id=ElementId(element_id),
-                owner_id=ClientId(str(owner)),
-                open_=open_value,
-            )
-        elif event_kind in (None, "button_clicked"):
-            event = ButtonClicked(
-                scene_id=SceneId(scene_id),
-                element_id=ElementId(element_id),
-                owner_id=ClientId(str(owner)),
-            )
-        else:
-            logger.warning(
-                "hub dispatch unknown event_kind=%r element_id=%s scene_id=%s",
-                event_kind,
-                element_id,
-                scene_id,
-            )
+        event = ClientRegistry._build_hub_event(
+            event_kind=event_kind,
+            scene_id=scene_id,
+            element_id=element_id,
+            owner=str(owner),
+            value=msg.value,
+        )
+        if event is None:
             return
         logger.debug(
             "hub dispatch firing element_id=%s scene_id=%s event_kind=%s",
@@ -229,6 +193,47 @@ class ClientRegistry:
             )
         except Exception:
             logger.exception("hub dispatch scene re-push failed for %s", scene_id)
+
+    @staticmethod
+    def _build_hub_event(
+        *,
+        event_kind: str | None,
+        scene_id: str,
+        element_id: str,
+        owner: str,
+        value: object,
+    ) -> ButtonClicked | ValueChanged | HeaderToggled | TabChanged | None:
+        """Construct the typed event for ``event_kind`` + wire ``value``.
+
+        Returns ``None`` (deny-by-default) when the value has the wrong shape
+        for the kind or the kind is unknown — the caller then fires nothing.
+        """
+        from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
+        from punt_lux.domain.ids import ClientId, ElementId, SceneId
+        from punt_lux.domain.interaction import ButtonClicked, ValueChanged
+
+        sid, eid, oid = SceneId(scene_id), ElementId(element_id), ClientId(owner)
+        if event_kind == "value_changed":
+            if not isinstance(value, bool):
+                logger.warning("hub dispatch value_changed non-bool value=%r", value)
+                return None
+            return ValueChanged(scene_id=sid, element_id=eid, owner_id=oid, value=value)
+        if event_kind == "header_toggled":
+            if not isinstance(value, bool):
+                logger.warning("hub dispatch header_toggled non-bool value=%r", value)
+                return None
+            return HeaderToggled(
+                scene_id=sid, element_id=eid, owner_id=oid, open_=value
+            )
+        if event_kind == "tab_changed":
+            if not isinstance(value, str):
+                logger.warning("hub dispatch tab_changed non-str value=%r", value)
+                return None
+            return TabChanged(scene_id=sid, element_id=eid, owner_id=oid, tab_id=value)
+        if event_kind in (None, "button_clicked"):
+            return ButtonClicked(scene_id=sid, element_id=eid, owner_id=oid)
+        logger.warning("hub dispatch unknown event_kind=%r for %s", event_kind, eid)
+        return None
 
     def _on_beads_browser(self, _msg: RemoteEventHandlerInvocation) -> None:
         """Open Beads Browser in a daemon thread; log render failures."""

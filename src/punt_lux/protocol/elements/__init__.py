@@ -54,8 +54,8 @@ from punt_lux.protocol.elements.inputs import InputsRegistry
 from punt_lux.protocol.elements.layout import (
     LegacyCollapsingHeaderElement,
     LegacyGroupElement,
+    LegacyTabBarElement,
     ModalElement,
-    TabBarElement,
     TreeElement,
     WindowElement,
     register_codecs as _register_layout,
@@ -75,6 +75,8 @@ from punt_lux.protocol.elements.selectable import SelectableElement
 from punt_lux.protocol.elements.separator import SeparatorElement
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
+from punt_lux.protocol.elements.tab import Tab
+from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.table import (
     TableDetail,
     TableElement,
@@ -100,6 +102,7 @@ __all__ = [
     "InputTextElement",
     "LegacyCollapsingHeaderElement",
     "LegacyGroupElement",
+    "LegacyTabBarElement",
     "MarkdownElement",
     "ModalElement",
     "Patch",
@@ -110,6 +113,7 @@ __all__ = [
     "SeparatorElement",
     "SliderElement",
     "SpinnerElement",
+    "Tab",
     "TabBarElement",
     "TableDetail",
     "TableElement",
@@ -145,6 +149,7 @@ Element = (
     | GroupElement
     | LegacyGroupElement
     | TabBarElement
+    | LegacyTabBarElement
     | CollapsingHeaderElement
     | LegacyCollapsingHeaderElement
     | WindowElement
@@ -191,6 +196,7 @@ def _element_to_dict(elem: Element) -> dict[str, Any]:
         | DialogElement
         | GroupElement
         | CollapsingHeaderElement
+        | TabBarElement
         | ProgressElement,
     ):
         # Each per-kind encoder owns its own tooltip emission.

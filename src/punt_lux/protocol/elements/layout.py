@@ -12,8 +12,8 @@ from punt_lux.protocol.elements.container_dispatch import dispatch as _dispatche
 __all__ = [
     "LegacyCollapsingHeaderElement",
     "LegacyGroupElement",
+    "LegacyTabBarElement",
     "ModalElement",
-    "TabBarElement",
     "TreeElement",
     "WindowElement",
     "register_codecs",
@@ -100,12 +100,20 @@ class LegacyGroupElement:
             return LegacyGroupElement.from_dict(raw)
         if kind == "collapsing_header":
             return LegacyCollapsingHeaderElement.from_dict(raw)
+        if kind == "tab_bar":
+            return LegacyTabBarElement.from_dict(raw)
         return _dispatchers.from_dict(raw)
 
 
 @dataclass(frozen=True, slots=True)
-class TabBarElement:
-    """A tabbed container. Each tab has a label and child elements."""
+class LegacyTabBarElement:
+    """A tabbed container. Each tab has a label and child elements.
+
+    The legacy dataclass path (fork-don't-mix, DES-041): a ``tab_bar`` whose
+    subtree is not entirely migrated-ABC, or one nested inside a legacy
+    container, decodes onto this class. The ABC ``TabBarElement`` takes the
+    canonical name.
+    """
 
     id: str
     kind: Literal["tab_bar"] = "tab_bar"
@@ -133,7 +141,7 @@ class TabBarElement:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:
-        """Construct a TabBarElement from a JSON-decoded mapping."""
+        """Construct a LegacyTabBarElement from a JSON-decoded mapping."""
         recurse = LegacyGroupElement.decode_child
         tabs: list[dict[str, Any]] = [
             {
@@ -413,9 +421,9 @@ def register_codecs(register: Register) -> None:
     )
     register(
         "tab_bar",
-        TabBarElement,
-        TabBarElement.to_dict,
-        TabBarElement.from_dict,
+        LegacyTabBarElement,
+        LegacyTabBarElement.to_dict,
+        LegacyTabBarElement.from_dict,
     )
     register(
         "collapsing_header",

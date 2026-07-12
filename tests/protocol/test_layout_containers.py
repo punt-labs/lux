@@ -19,8 +19,8 @@ from punt_lux.domain.validation_walk import HasChildElements
 from punt_lux.protocol.elements import Element
 from punt_lux.protocol.elements.layout import (
     LegacyCollapsingHeaderElement,
+    LegacyTabBarElement,
     ModalElement,
-    TabBarElement,
     TreeElement,
     WindowElement,
 )
@@ -47,7 +47,7 @@ class TestContainerChildElements:
     def test_tab_bar_exposes_every_tab_child(self) -> None:
         a = TextElement(id="a", content="x")
         b = TableElement(id="b", columns=["A"], rows=[["y"]])
-        tab_bar = TabBarElement(
+        tab_bar = LegacyTabBarElement(
             id="tb",
             tabs=[
                 {"label": "One", "children": [a]},
@@ -60,7 +60,7 @@ class TestContainerChildElements:
         assert WindowElement(id="w").child_elements() == ()
         assert LegacyCollapsingHeaderElement(id="ch").child_elements() == ()
         assert ModalElement(id="m").child_elements() == ()
-        assert TabBarElement(id="tb").child_elements() == ()
+        assert LegacyTabBarElement(id="tb").child_elements() == ()
 
     def test_tree_exposes_no_child_elements(self) -> None:
         # A tree's nodes are plain mappings, not elements; the tree checks
@@ -180,7 +180,7 @@ class TestContainerContract:
             WindowElement,
             LegacyCollapsingHeaderElement,
             ModalElement,
-            TabBarElement,
+            LegacyTabBarElement,
             TreeElement,
         }
         assert expected <= found

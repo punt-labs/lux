@@ -15,7 +15,39 @@ from typing import ClassVar, Literal, Self
 
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 
-__all__ = ["HeaderToggled"]
+__all__ = ["HeaderToggled", "TabChanged"]
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class TabChanged:
+    """A typed active-tab-change event for a ``tab_bar``.
+
+    Carries the newly-selected tab's stable ``tab_id`` (never a positional
+    index, per DES-045). The Hub mirrors it onto the authoritative element and
+    re-pushes. Same ``init=False`` + ``__new__`` construction pattern as the
+    leaf events.
+    """
+
+    scene_id: SceneId
+    element_id: ElementId
+    owner_id: ClientId
+    tab_id: str
+    kind: ClassVar[Literal["tab_changed"]] = "tab_changed"
+
+    def __new__(
+        cls,
+        *,
+        scene_id: SceneId,
+        element_id: ElementId,
+        owner_id: ClientId,
+        tab_id: str,
+    ) -> Self:
+        self = object.__new__(cls)
+        object.__setattr__(self, "scene_id", scene_id)
+        object.__setattr__(self, "element_id", element_id)
+        object.__setattr__(self, "owner_id", owner_id)
+        object.__setattr__(self, "tab_id", tab_id)
+        return self
 
 
 @dataclass(frozen=True, slots=True, init=False)

@@ -7,9 +7,12 @@ door in ``codec_protocols.py`` (PY-OO-2: one concept per module).
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-__all__ = ["Emit", "Renderer", "RendererFactory"]
+if TYPE_CHECKING:
+    from punt_lux.protocol.elements.tab import Tab
+
+__all__ = ["Emit", "Renderer", "RendererFactory", "TabContainerRenderer"]
 
 
 type Emit = Callable[[object], None]
@@ -28,6 +31,20 @@ class Renderer(Protocol):
     def begin(self) -> bool: ...
     def paint(self) -> None: ...
     def end(self, *, opened: bool) -> None: ...
+
+
+@runtime_checkable
+class TabContainerRenderer(Renderer, Protocol):
+    """A ``Renderer`` that also brackets per-tab items for a tab bar.
+
+    ``TabBarElement._render_children`` needs a broader surface than the shared
+    leaf ``Renderer`` — one that opens a tab item, honours the Hub-authoritative
+    active tab, and closes it — so the tab bar's adapter satisfies this
+    sub-protocol rather than widening the shared ``Renderer`` (PY-IC-7).
+    """
+
+    def begin_tab(self, tab: Tab, *, active: str) -> bool: ...
+    def end_tab(self, *, opened: bool) -> None: ...
 
 
 @runtime_checkable

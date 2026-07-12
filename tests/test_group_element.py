@@ -25,7 +25,6 @@ from punt_lux.protocol.elements import (
     GroupElement,
     LegacyGroupElement,
     ModalElement,
-    TabBarElement,
     TableElement,
     TextElement,
     WindowElement,
@@ -129,15 +128,6 @@ _LEGACY_CONTAINER_CASES: tuple[tuple[str, dict[str, Any], type], ...] = (
         "legacy_group",
         {"kind": "group", "id": "o", "children": [_table_wire(), _inner_abc_group()]},
         LegacyGroupElement,
-    ),
-    (
-        "tab_bar",
-        {
-            "kind": "tab_bar",
-            "id": "tb",
-            "tabs": [{"label": "T", "children": [_inner_abc_group()]}],
-        },
-        TabBarElement,
     ),
     (
         "window",

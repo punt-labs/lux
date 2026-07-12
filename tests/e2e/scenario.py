@@ -292,6 +292,146 @@ class Scenario:
         )
 
     @classmethod
+    def tab_bar_change_progress(cls) -> Self:
+        """A tab bar beside a display-only progress (the interactive loop).
+
+        The injected interaction is a ``tab_changed`` carrying the second tab's
+        stable ``tab_id`` (never an index, DES-045); the built-in state-sync
+        flips the Hub ``active_tab`` ``overview``→``details``, so the re-push
+        carries the mutated selection. A wire ``handlers`` entry publishes
+        ``tab_selected``; the agent reacts by advancing the bar.
+        """
+        return cls(
+            name="tab-bar-change-progress",
+            scene_id="e2e-tab-scene",
+            elements=(
+                {
+                    "kind": "group",
+                    "id": "tab-surface",
+                    "layout": "rows",
+                    "children": (
+                        {
+                            "kind": "tab_bar",
+                            "id": "switcher",
+                            "active_tab": "overview",
+                            "tabs": (
+                                {
+                                    "id": "overview",
+                                    "label": "Overview",
+                                    "children": (
+                                        {
+                                            "kind": "text",
+                                            "id": "ov-body",
+                                            "content": "overview",
+                                        },
+                                    ),
+                                },
+                                {
+                                    "id": "details",
+                                    "label": "Details",
+                                    "children": (
+                                        {
+                                            "kind": "text",
+                                            "id": "dt-body",
+                                            "content": "details",
+                                        },
+                                    ),
+                                },
+                            ),
+                            "handlers": [
+                                {
+                                    "event": "tab_changed",
+                                    "factory": "noop",
+                                    "wrap": [
+                                        {
+                                            "decorator": "publish",
+                                            "topics": ["tab_selected"],
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "kind": "progress",
+                            "id": "tab-progress",
+                            "fraction": 0.0,
+                            "label": "idle",
+                        },
+                    ),
+                },
+            ),
+            target_element_id="switcher",
+            interaction=InteractionExpectation(
+                event_kind="tab_changed", value="details"
+            ),
+            publish=WirePublish("tab_selected"),
+            react=(
+                ReactPatch(element_id="tab-progress", field="fraction", value=1.0),
+                ReactPatch(element_id="tab-progress", field="label", value="switched"),
+            ),
+            display_only_id="tab-progress",
+            repush=PropAfterDispatch(
+                element_id="switcher", field="active_tab", value="details"
+            ),
+        )
+
+    @classmethod
+    def tab_bar_button_progress(cls) -> Self:
+        """A tab bar whose active tab's child publishes (the child-forwarding loop).
+
+        The active tab holds a publishing ``button`` and a display-only
+        ``progress``. The button — not the tab bar — is the injected target; it
+        publishes ``ticket_opened``. This proves the tab bar forwards its child's
+        D21 wrap through the flattened tab children.
+        """
+        return cls(
+            name="tab-bar-button-progress",
+            scene_id="e2e-tab-child-scene",
+            elements=(
+                {
+                    "kind": "tab_bar",
+                    "id": "surface-tabs",
+                    "active_tab": "main",
+                    "tabs": (
+                        {
+                            "id": "main",
+                            "label": "Main",
+                            "children": (
+                                {
+                                    "kind": "button",
+                                    "id": "open-ticket",
+                                    "label": "Open ticket",
+                                    "publish": ["ticket_opened"],
+                                },
+                                {
+                                    "kind": "progress",
+                                    "id": "tab-child-progress",
+                                    "fraction": 0.0,
+                                    "label": "idle",
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+            target_element_id="open-ticket",
+            interaction=InteractionExpectation(event_kind="button_clicked", value=True),
+            publish=WirePublish("ticket_opened"),
+            react=(
+                ReactPatch(
+                    element_id="tab-child-progress", field="fraction", value=1.0
+                ),
+                ReactPatch(
+                    element_id="tab-child-progress", field="label", value="done"
+                ),
+            ),
+            display_only_id="tab-child-progress",
+            repush=PropAfterDispatch(
+                element_id="open-ticket", field="label", value="Open ticket"
+            ),
+        )
+
+    @classmethod
     def dialog_confirm_progress(cls) -> Self:
         """A dialog whose confirm mutates Hub state, beside a display-only leaf.
 
@@ -412,6 +552,10 @@ class Scenario:
 SCENARIOS: tuple[Scenario, ...] = (
     Scenario.group_button_progress(),
     Scenario.group_checkbox_progress(),
+    Scenario.collapsing_header_toggle_progress(),
+    Scenario.collapsing_header_button_progress(),
+    Scenario.tab_bar_change_progress(),
+    Scenario.tab_bar_button_progress(),
     Scenario.dialog_confirm_progress(),
     Scenario.payload_button_progress(),
 )

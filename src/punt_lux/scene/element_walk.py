@@ -25,8 +25,8 @@ from punt_lux.protocol import (
     Element,
     LegacyCollapsingHeaderElement,
     LegacyGroupElement,
+    LegacyTabBarElement,
     ModalElement,
-    TabBarElement,
     WindowElement,
 )
 
@@ -207,6 +207,6 @@ class SceneTreeWalk:
             element, (LegacyCollapsingHeaderElement, WindowElement, ModalElement)
         ):
             return [element.children]
-        if isinstance(element, TabBarElement):
+        if isinstance(element, LegacyTabBarElement):
             return [tab.get("children", []) for tab in element.tabs]
         return []

@@ -33,6 +33,8 @@ from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.group_codec import JsonGroupDecoder
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.progress_codec import JsonProgressDecoder
+from punt_lux.protocol.elements.tab_bar import TabBarElement
+from punt_lux.protocol.elements.tab_bar_codec import JsonTabBarDecoder
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.text_codec import JsonTextDecoder
 from punt_lux.protocol.standalone_button_handler import (
@@ -43,6 +45,9 @@ from punt_lux.protocol.standalone_checkbox_handler import (
 )
 from punt_lux.protocol.standalone_collapsing_header_handler import (
     build_standalone_collapsing_header_handler_decoder,
+)
+from punt_lux.protocol.standalone_tab_bar_handler import (
+    build_standalone_tab_bar_handler_decoder,
 )
 from punt_lux.tracing import trace
 
@@ -78,6 +83,7 @@ class JsonElementFactory:
     _decoders: dict[str, KindDecoder]
     _group_decoder: JsonGroupDecoder
     _collapsing_header_decoder: JsonCollapsingHeaderDecoder
+    _tab_bar_decoder: JsonTabBarDecoder
 
     def __new__(
         cls,
@@ -138,6 +144,13 @@ class JsonElementFactory:
             handler_decoder=build_standalone_collapsing_header_handler_decoder(
                 publish_sink
             ),
+        )
+        # The tab-bar decoder recurses tab children through ``element_from_dict``
+        # and wires the tier's publish sink for a wire ``publish`` handler.
+        self._tab_bar_decoder = JsonTabBarDecoder(
+            decode_element=self.element_from_dict,
+            element_cls=TabBarElement,
+            handler_decoder=build_standalone_tab_bar_handler_decoder(publish_sink),
         )
         return self
 
@@ -232,6 +245,8 @@ class JsonElementFactory:
             return self._group_decoder.decode(d)
         if kind == "collapsing_header" and ContainerAbcGate.is_all_abc(d):
             return self._collapsing_header_decoder.decode(d)
+        if kind == "tab_bar" and ContainerAbcGate.is_all_abc(d):
+            return self._tab_bar_decoder.decode(d)
         return self._decode_legacy(d)
 
     def _decode_legacy(self, d: dict[str, Any]) -> Any:
@@ -255,6 +270,7 @@ class JsonElementFactory:
             | DialogElement
             | GroupElement
             | CollapsingHeaderElement
+            | TabBarElement
             | ProgressElement,
         ):
             msg = f"kind {elem.kind!r} must route through ABC decoder"

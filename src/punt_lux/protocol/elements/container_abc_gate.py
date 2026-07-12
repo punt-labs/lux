@@ -22,11 +22,20 @@ __all__ = ["ContainerAbcGate"]
 # the factory — otherwise an all-ABC parent would recurse a not-yet-migrated
 # child through a decoder that does not exist.
 _MIGRATED_ABC_KINDS = frozenset(
-    {"text", "button", "checkbox", "dialog", "progress", "group", "collapsing_header"}
+    {
+        "text",
+        "button",
+        "checkbox",
+        "dialog",
+        "progress",
+        "group",
+        "collapsing_header",
+        "tab_bar",
+    }
 )
 
 # The migrated container kinds whose own subtree must itself be all-ABC.
-_CONTAINER_KINDS = frozenset({"group", "collapsing_header"})
+_CONTAINER_KINDS = frozenset({"group", "collapsing_header", "tab_bar"})
 
 # The two layouts an ABC group renders; ``paged`` stays on the legacy path.
 _STACK_LAYOUTS = frozenset({"rows", "columns"})
@@ -104,9 +113,20 @@ class ContainerAbcGate:
     def _subtree(cls, raw: Mapping[str, object]) -> tuple[object, ...]:
         """Return the container's direct child wire dicts.
 
-        ``group`` and ``collapsing_header`` both hold their children under the
-        ``children`` key.
+        ``group`` and ``collapsing_header`` hold their children under the
+        ``children`` key; a ``tab_bar`` holds them under each tab's ``children``,
+        so its subtree is every tab's children flattened.
         """
+        if raw.get("kind") == "tab_bar":
+            tabs = cls._as_list(raw.get("tabs"))
+            return tuple(
+                child
+                for tab in tabs
+                if isinstance(tab, Mapping)
+                for child in cls._as_list(
+                    cast("Mapping[str, object]", tab).get("children")
+                )
+            )
         return tuple(cls._as_list(raw.get("children")))
 
     @staticmethod

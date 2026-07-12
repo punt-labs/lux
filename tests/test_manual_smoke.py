@@ -20,9 +20,9 @@ from punt_lux.protocol.elements import (
     ComboElement,
     LegacyCollapsingHeaderElement,
     LegacyGroupElement,
+    LegacyTabBarElement,
     ModalElement,
     SeparatorElement,
-    TabBarElement,
     TextElement,
     TreeElement,
     WindowElement,
@@ -90,12 +90,12 @@ def test_collect_kinds_recurses_into_containers(manual_smoke: ModuleType) -> Non
 
 
 def test_collect_kinds_recurses_into_tabs(manual_smoke: ModuleType) -> None:
-    """TabBarElement.tabs[*].children must be walked."""
+    """LegacyTabBarElement.tabs[*].children must be walked."""
     tabs: list[dict[str, object]] = [
         {"label": "a", "children": [ButtonElement(id="b", label="x")]},
         {"label": "b", "children": [SeparatorElement(id="s")]},
     ]
-    tabbar = TabBarElement(id="t", tabs=tabs)
+    tabbar = LegacyTabBarElement(id="t", tabs=tabs)
     kinds = manual_smoke._collect_kinds([tabbar])
     assert kinds == frozenset({"tab_bar", "button", "separator"})
 

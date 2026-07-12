@@ -21,7 +21,7 @@ if TYPE_CHECKING:
         Element,
         LegacyCollapsingHeaderElement,
         LegacyGroupElement,
-        TabBarElement,
+        LegacyTabBarElement,
         WindowElement,
     )
     from punt_lux.scene import WidgetState
@@ -150,7 +150,7 @@ class ContainerRenderer:
 
     def render_tab_bar(self, elem: Element) -> None:
         """Render a tab bar; each tab's children paint when its tab is active."""
-        tb = cast("TabBarElement", elem)
+        tb = cast("LegacyTabBarElement", elem)
         if imgui.begin_tab_bar(f"##{tb.id}"):
             for tab in tb.tabs:
                 tab_label: str = tab.get("label", "Tab")

@@ -19,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, cast
 
-from punt_lux.domain.container_interaction import HeaderToggled
+from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub import hub, hub_display
 from punt_lux.domain.ids import ClientId, ConnectionId, ElementId, SceneId, Topic
@@ -29,6 +29,7 @@ from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
+from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.tools.hub_factory import hub_element_factory
 from punt_lux.tools.inbox import drain_inbox, ensure_writer, next_event
 
@@ -281,8 +282,24 @@ class SimulatedAgent:
                 owner_id=ClientId("__display__"),
                 open_=not element.open,
             )
+        if isinstance(element, TabBarElement):
+            return TabChanged(
+                scene_id=SceneId("__display__"),
+                element_id=ElementId(element.id),
+                owner_id=ClientId("__display__"),
+                tab_id=self._other_tab(element),
+            )
         msg = f"no synthetic event for element kind of {element.id!r}"
         raise TypeError(msg)
+
+    @staticmethod
+    def _other_tab(element: TabBarElement) -> str:
+        """Return a tab id different from the active one — the user's switch target."""
+        for tab in element.tabs:
+            if tab.tab_id != element.active_tab:
+                return tab.tab_id
+        msg = f"tab_bar {element.id!r} has no tab to switch to"
+        raise ValueError(msg)
 
     def _event_type_for(self, element: AbcElement) -> type[Event]:
         """Return the interaction event type the target fires."""
@@ -292,5 +309,7 @@ class SimulatedAgent:
             return ValueChanged
         if isinstance(element, CollapsingHeaderElement):
             return HeaderToggled
+        if isinstance(element, TabBarElement):
+            return TabChanged
         msg = f"no interaction event type for element kind of {element.id!r}"
         raise TypeError(msg)
