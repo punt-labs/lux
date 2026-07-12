@@ -2010,6 +2010,32 @@ class TestClearNoAutoSpawn:
         mock_get.assert_not_called()
 
     @patch("punt_lux.domain.hub.clients.client_registry.get")
+    @patch.object(DisplayPaths, "is_running", return_value=False)
+    def test_clear_empties_hub_store_even_when_display_off(
+        self,
+        mock_running: MagicMock,
+        mock_get: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Clear empties the authoritative Hub store even with the Display off.
+
+        The store is the authority; the Display is a replica. Emptying the store
+        must not depend on the Display being up, so a display-off clear still
+        removes every scene the caller owns while the display leg reports
+        "not running" and the client is never contacted.
+        """
+        store = HubDisplay()
+        _seed_store(store)
+        monkeypatch.setattr("punt_lux.tools.tools.hub_display", store)
+
+        result = clear()
+
+        assert result == "not running"
+        assert store.scene_roots(SceneId("s1")) == []
+        assert store.elements_owned_by(ConnectionId("local")) == ()
+        mock_get.assert_not_called()
+
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_clear_calls_client_when_running(
         self, mock_running: MagicMock, mock_get: MagicMock

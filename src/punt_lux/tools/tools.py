@@ -559,15 +559,19 @@ def set_frame_state(
 def clear() -> str:
     """Clear the Lux display window. Returns "not running" when display is off.
 
-    Empties every scene the caller owns from the authoritative Hub store, then
-    tells the Display to clear. The Display clear is global (ALL rendered scenes,
-    not only the caller's) — honest for the single-connection slice; scoping it
-    per caller for the multi-user target is a separate change.
+    The Hub store is the authority, the Display only a replica, so emptying the
+    store must not hinge on the Display being up. Every scene the caller owns is
+    removed from the authoritative Hub store unconditionally, before any display
+    check. Only then is the Display told to clear — global (ALL rendered scenes,
+    not only the caller's), honest for the single-connection slice; scoping it
+    per caller for the multi-user target is a separate change. When the Display
+    is off, the store is cleared all the same and the display leg reports
+    "not running".
     """
+    # Mutate the authority once, outside the retry; emptying owned scenes is idempotent.
+    HubSceneWriter(hub_display).clear(ConnectionId(_session_key.get()))
     if not DisplayPaths().is_running():
         return "not running"
-    # Mutate once, outside the retry; emptying owned scenes is idempotent.
-    HubSceneWriter(hub_display).clear(ConnectionId(_session_key.get()))
 
     def _clear() -> str:
         client_registry.get().clear()
