@@ -101,6 +101,34 @@ class TestLevel1Serialization:
         assert isinstance(restored, CollapsingHeaderElement)
         assert restored.open is False
 
+    def test_default_open_alias_decodes_to_open(self) -> None:
+        # Pre-migration wire used ``default_open``; the ABC decoder honours it
+        # as an alias for ``open`` so older payloads still open the header.
+        wire = {
+            "kind": "collapsing_header",
+            "id": "ch",
+            "label": "Section",
+            "default_open": True,
+            "children": [],
+        }
+        restored = _decode(wire)
+        assert isinstance(restored, CollapsingHeaderElement)
+        assert restored.open is True
+
+    def test_open_wins_over_default_open_alias(self) -> None:
+        # When both fields are present, the canonical ``open`` field decides.
+        wire = {
+            "kind": "collapsing_header",
+            "id": "ch",
+            "label": "Section",
+            "open": False,
+            "default_open": True,
+            "children": [],
+        }
+        restored = _decode(wire)
+        assert isinstance(restored, CollapsingHeaderElement)
+        assert restored.open is False
+
     def test_abc_children_decode_to_abc(self) -> None:
         restored = _decode(_abc_header().to_dict())
         assert isinstance(restored, CollapsingHeaderElement)

@@ -27,8 +27,6 @@ __all__ = ["JsonCollapsingHeaderDecoder", "JsonCollapsingHeaderEncoder"]
 # Injected child decoder: the tier's ``element_from_dict`` bound method.
 type DecodeElement = Callable[[dict[str, Any]], object]
 
-_HEADER_EVENT_TYPES: dict[str, type[HeaderToggled]] = {"header_toggled": HeaderToggled}
-
 
 class _UpdateOpenHandler:
     """Serializable handler that mirrors a header's open flag on toggle.
@@ -88,10 +86,13 @@ class JsonCollapsingHeaderDecoder:
         children = tuple(
             self._decode(c) for c in self._require_list(raw.get("children"))
         )
+        # ``default_open`` is the pre-migration wire name for ``open``; honour it
+        # as an alias so older payloads still open the header. ``open`` wins.
+        open_field = "open" if "open" in raw else "default_open"
         elem = self._cls(
             id=ctx.require_str(raw, "id"),
             label=ctx.optional_str(raw, "label", default=""),
-            open=ctx.optional_bool(raw, "open", default=False),
+            open=ctx.optional_bool(raw, open_field, default=False),
             children=children,
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),
         )
@@ -133,23 +134,18 @@ class JsonCollapsingHeaderDecoder:
     def _resolve_event_type(
         spec: Mapping[str, object], index: int
     ) -> type[HeaderToggled]:
-        """Map the wire ``event`` string to its typed event class."""
+        """Map the wire ``event`` string to its typed event class.
+
+        ``header_toggled`` is the sole event a collapsing_header emits.
+        """
         event_name = spec.get("event")
-        if not isinstance(event_name, str):
-            msg = (
-                f"collapsing_header 'handlers[{index}]' requires an 'event' "
-                f"string, got {event_name!r}"
-            )
-            raise ValueError(msg)
-        event_type = _HEADER_EVENT_TYPES.get(event_name)
-        if event_type is None:
-            known = sorted(_HEADER_EVENT_TYPES)
+        if event_name != "header_toggled":
             msg = (
                 f"collapsing_header 'handlers[{index}].event' = {event_name!r} is "
-                f"not recognised (expected one of {known})"
+                "not recognised (expected 'header_toggled')"
             )
             raise ValueError(msg)
-        return event_type
+        return HeaderToggled
 
     @staticmethod
     def _require_list(raw: object) -> list[object]:
