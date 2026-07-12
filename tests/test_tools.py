@@ -9,8 +9,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from punt_lux.display_client import agent_element_factory
+from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.ids import ElementId, SceneId
+from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
@@ -875,37 +876,171 @@ class TestShowDashboardTool:
         assert elements == []
 
 
+def _seed_store(
+    store: HubDisplay,
+    *,
+    scene: str = "s1",
+    header_id: str = "hdr",
+    is_open: bool = False,
+    label: str = "Details",
+) -> CollapsingHeaderElement:
+    """Install one Hub-authoritative collapsing header under connection 'local'.
+
+    'local' is the default ``_session_key``, so the tools resolve the same owner
+    that seeded the scene. The header's ``open`` flag is the Hub-authoritative
+    field an agent drives through ``update``.
+    """
+    header = CollapsingHeaderElement(id=header_id, label=label, open=is_open)
+    store.replace_scene(ConnectionId("local"), SceneId(scene), [header])
+    return header
+
+
+def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock:
+    """Route both the applier and the re-push at ``store`` and stub the client.
+
+    ``update`` / ``clear`` read ``tools.tools.hub_display``; ``repush_scene`` and
+    the D21 dispatch read ``domain.hub.hub_display`` at call time. Binding both
+    to one isolated store keeps the singleton out of the test.
+    """
+    monkeypatch.setattr("punt_lux.tools.tools.hub_display", store)
+    monkeypatch.setattr("punt_lux.domain.hub.hub_display", store)
+    client = _mock_client()
+    monkeypatch.setattr(
+        "punt_lux.domain.hub.clients.client_registry.get", lambda: client
+    )
+    return client
+
+
 class TestUpdateTool:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_update_returns_ack(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        client.update.return_value = AckMessage(scene_id="s1", ts=time.time())
-        mock_get.return_value = client
+    def test_update_writes_hub_store_and_repushes(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An agent ``update`` mutates the authoritative store, then re-pushes."""
+        store = HubDisplay()
+        _seed_store(store, is_open=False)
+        client = _bind_store(monkeypatch, store)
 
-        result = update("s1", [{"id": "t1", "set": {"content": "New"}}])
+        result = update("s1", [{"id": "hdr", "set": {"open": True}}])
+
         assert result == "ack:s1"
+        # Authoritative store — NOT a display copy — carries the new value.
+        header = store.resolve(SceneId("s1"), ElementId("hdr"))
+        assert isinstance(header, CollapsingHeaderElement)
+        assert header.open is True
+        # The re-push sent the whole scene rebuilt from the authoritative store.
+        client.show_async.assert_called_once()
+        pushed = client.show_async.call_args.kwargs["elements"]
+        assert pushed[0].open is True
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_update_timeout(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        client.update.return_value = None
-        mock_get.return_value = client
+    def test_update_survives_interaction_repush(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The updated value persists across a subsequent D21 interaction re-push.
 
-        result = update("s1", [{"id": "t1", "set": {"content": "New"}}])
-        assert result == "timeout"
+        The bug reverted the agent's update on the next click because the Hub
+        rebuilt ``scene_roots`` from a store it never patched. With the fix the
+        store holds the new value, so the re-push carries it forward.
+        """
+        store = HubDisplay()
+        _seed_store(store, is_open=False)
+        client = _bind_store(monkeypatch, store)
+
+        update("s1", [{"id": "hdr", "set": {"open": True}}])
+        client.show_async.reset_mock()
+
+        # The exact replication a click triggers: rebuild the scene from the store.
+        ClientRegistry.repush_scene("s1")
+
+        pushed = client.show_async.call_args.kwargs["elements"]
+        assert pushed[0].open is True
+        root = store.scene_roots(SceneId("s1"))[0]
+        assert isinstance(root, CollapsingHeaderElement)
+        assert root.open is True
+
+    def test_display_only_update_would_revert_on_repush(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Fidelity guard: the pre-fix path leaves the store stale and reverts.
+
+        The old ``update`` patched only the Display and never the Hub. Emulating
+        that here — no authoritative write — the store keeps ``open=False``, so
+        the next re-push carries the stale value: the reversion the fix removes.
+        """
+        store = HubDisplay()
+        _seed_store(store, is_open=False)
+        client = _bind_store(monkeypatch, store)
+
+        # No authoritative write happens (the bug). Re-push rebuilds from store.
+        ClientRegistry.repush_scene("s1")
+
+        pushed = client.show_async.call_args.kwargs["elements"]
+        assert pushed[0].open is False
+        root = store.scene_roots(SceneId("s1"))[0]
+        assert isinstance(root, CollapsingHeaderElement)
+        assert root.open is False
+
+    def test_update_remove_drops_element_from_hub_store(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A ``remove`` patch evicts the element from the authoritative store."""
+        store = HubDisplay()
+        _seed_store(store)
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "hdr", "remove": True}])
+
+        assert result == "ack:s1"
+        assert store.scene_roots(SceneId("s1")) == []
+        with pytest.raises(LookupError):
+            store.resolve(SceneId("s1"), ElementId("hdr"))
+        client.show_async.assert_called_once()
+
+    def test_update_rejects_patch_that_invalidates_element(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A patch that fails the element's self-validation is rejected in full."""
+        store = HubDisplay()
+        _seed_store(store, label="Details")
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "hdr", "set": {"label": ""}}])
+
+        assert result.startswith("error: scene not updated")
+        # The authoritative store is untouched; nothing is re-pushed.
+        header = store.resolve(SceneId("s1"), ElementId("hdr"))
+        assert isinstance(header, CollapsingHeaderElement)
+        assert header.label == "Details"
+        client.show_async.assert_not_called()
+
+    def test_update_unknown_element_is_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Patching an id the Hub never installed fails loud, not silently."""
+        store = HubDisplay()
+        _seed_store(store)
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "ghost", "set": {"open": True}}])
+
+        assert result.startswith("error: scene not updated")
+        client.show_async.assert_not_called()
 
 
 class TestClearTool:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_clear_returns_cleared(
-        self, mock_running: MagicMock, mock_get: MagicMock
+    def test_clear_empties_hub_store_then_tells_display(
+        self, mock_running: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        client = _mock_client()
-        mock_get.return_value = client
+        """Clear empties the caller's authoritative scenes, then clears the Display."""
+        store = HubDisplay()
+        _seed_store(store)
+        client = _bind_store(monkeypatch, store)
 
         result = clear()
+
         assert result == "cleared"
+        assert store.scene_roots(SceneId("s1")) == []
+        assert store.elements_owned_by(ConnectionId("local")) == ()
         client.clear.assert_called_once()
 
 

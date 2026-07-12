@@ -213,26 +213,28 @@ LIFECYCLE_SCENARIOS: tuple[Scenario, ...] = (
         },
         setup={"display_running": True, "client": {}},
     ),
+    # ``update`` now mutates the Hub's authoritative store first. The stub
+    # harness cannot seed that store, so these scenarios pin the deterministic
+    # rejection an update aimed at an un-installed id returns — the honest,
+    # order-independent characterization of the tool under an empty Hub. The
+    # scene/element ids never collide with any other scenario's installs.
     Scenario(
-        name="update-ack",
+        name="update-set-unknown-element",
         tool="update",
         inputs={
-            "scene_id": "s1",
-            "patches": [{"id": "t1", "set": {"content": "New text"}}],
+            "scene_id": "upd-scene",
+            "patches": [{"id": "upd-missing", "set": {"content": "New text"}}],
         },
-        setup={
-            "display_running": True,
-            "client": {"update": {"return": {"scene_id": "s1", "ts": 1000.0}}},
-        },
+        setup={"display_running": True, "client": {}},
     ),
     Scenario(
-        name="update-timeout",
+        name="update-remove-unknown-element",
         tool="update",
         inputs={
-            "scene_id": "s1",
-            "patches": [{"id": "t1", "remove": True}],
+            "scene_id": "upd-scene",
+            "patches": [{"id": "upd-missing", "remove": True}],
         },
-        setup={"display_running": True, "client": {"update": {"return": None}}},
+        setup={"display_running": True, "client": {}},
     ),
 )
 

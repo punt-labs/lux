@@ -115,11 +115,6 @@ class ClientRegistry:
 
         scene_id = msg.scene_id
         element_id = msg.element_id
-        logger.debug(
-            "hub dispatch received scene_id=%s element_id=%s",
-            scene_id,
-            element_id,
-        )
         if scene_id is None:
             logger.warning(
                 "hub dispatch missing scene_id for element_id=%s",
@@ -137,12 +132,6 @@ class ClientRegistry:
                 exc,
             )
             return
-        logger.debug(
-            "hub dispatch resolved element_id=%s type=%s is_abc=%s",
-            element_id,
-            type(element).__name__,
-            isinstance(element, ElementABC),
-        )
         if not isinstance(element, ElementABC):
             logger.warning(
                 "hub dispatch type mismatch element_id=%s type=%s",
@@ -150,11 +139,6 @@ class ClientRegistry:
                 type(element).__name__,
             )
             return
-        logger.debug(
-            "hub dispatch element=%s all_handlers=%s",
-            element_id,
-            element.handler_summary(),
-        )
         event_kind = msg.event_kind
         event = ClientRegistry._build_hub_event(
             event_kind=event_kind,
@@ -176,23 +160,34 @@ class ClientRegistry:
         # Master→slave replication: if the handler mutated the scene
         # (e.g., dialog dismissed itself via mark_removed), re-push
         # the full scene tree to the Display. ImGui handles the diff.
-        remaining = hub_display.scene_roots(SceneId(scene_id))
-        from punt_lux.domain.hub import client_registry as _cr
-
         try:
-            client = _cr.get()
-            client.show_async(
-                scene_id,
-                elements=remaining,  # type: ignore[arg-type]  # WireElement ≅ Element union
-                frame_id=scene_id,
-            )
-            logger.debug(
-                "hub dispatch re-pushed scene=%s elements=%d",
-                scene_id,
-                len(remaining),
-            )
+            ClientRegistry.repush_scene(scene_id)
         except Exception:
             logger.exception("hub dispatch scene re-push failed for %s", scene_id)
+
+    @staticmethod
+    def repush_scene(scene_id: str) -> None:
+        """Re-send a scene's authoritative roots to the Display (whole-UI resend).
+
+        The Hub-authoritative replication step shared by the D21 interaction
+        dispatch and the agent ``update`` / ``clear`` tools: read the current
+        roots from the authoritative ``HubDisplay`` and push the whole scene so
+        the Display replaces its copy. ImGui diffs the frame. Render calls never
+        cross the boundary — only serialized UI state does.
+        """
+        from punt_lux.domain.hub import (
+            client_registry as registry,
+            hub_display as display_store,
+        )
+        from punt_lux.domain.ids import SceneId
+
+        roots = display_store.scene_roots(SceneId(scene_id))
+        client = registry.get()
+        client.show_async(
+            scene_id,
+            elements=roots,  # type: ignore[arg-type]  # WireElement ≅ Element union
+            frame_id=scene_id,
+        )
 
     @staticmethod
     def _build_hub_event(

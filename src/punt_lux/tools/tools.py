@@ -12,10 +12,11 @@ from typing import Any, cast
 from punt_lux.config import ConfigManager
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub_display
+from punt_lux.domain.hub.scene_writer import HubSceneWriter, PatchBatch
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.domain.submission_gate import SubmissionGate
 from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import Element as WireElement, Patch
+from punt_lux.protocol import Element as WireElement
 from punt_lux.tools.connection import _query_tool
 from punt_lux.tools.hub_factory import hub_element_factory
 from punt_lux.tools.server import (
@@ -399,27 +400,23 @@ def update(
     """Update elements in the current scene without replacing everything.
 
     Each patch targets an element by id and can set fields or remove it:
-      {"id": "t1", "set": {"content": "Updated text"}}
-      {"id": "b1", "remove": True}
+      {"id": "t1", "set": {"content": "Updated text"}}  or  {"id": "b1", "remove": true}
 
-    Returns ``"ack:<scene_id>"`` on success or ``"timeout"`` if the
-    display doesn't respond.
+    The Hub mutates its authoritative store first, then re-pushes the scene —
+    the same replication a click takes. A ``set`` that would make an element
+    invalid is rejected whole, like ``show``. Returns ``"ack:<scene_id>"``.
     """
-    typed_patches = [
-        Patch(
-            id=p["id"],
-            set=p.get("set"),
-            remove=p.get("remove", False),
-        )
-        for p in patches
-    ]
+    connection_id = ConnectionId(_session_key.get())
+    batch = PatchBatch.from_wire(patches)
 
     def _call() -> str:
-        client = client_registry.get()
-        ack = client.update(scene_id, typed_patches)
-        if ack is None:
-            return "timeout"
-        return f"ack:{ack.scene_id}"
+        rejection = HubSceneWriter(hub_display).apply_patches(
+            connection_id, SceneId(scene_id), batch
+        )
+        if rejection is not None:
+            return f"error: scene not updated — {rejection}"
+        client_registry.repush_scene(scene_id)
+        return f"ack:{scene_id}"
 
     return client_registry.with_reconnect(_call)
 
@@ -563,13 +560,17 @@ def set_frame_state(
 
 @mcp.tool()
 def clear() -> str:
-    """Clear the Lux display window. Returns "not running" when display is off."""
+    """Clear the Lux display window. Returns "not running" when display is off.
+
+    Empties the caller's authoritative Hub scenes first, then clears the
+    Display, so a later re-push cannot resurrect them.
+    """
     if not DisplayPaths().is_running():
         return "not running"
 
     def _call() -> str:
-        client = client_registry.get()
-        client.clear()
+        HubSceneWriter(hub_display).clear(ConnectionId(_session_key.get()))
+        client_registry.get().clear()
         return "cleared"
 
     return client_registry.with_reconnect(_call)

@@ -4,23 +4,19 @@
       "patches",
       [
         {
-          "id": "t1",
+          "id": "upd-missing",
           "remove": true
         }
       ]
     ],
     [
       "scene_id",
-      "s1"
+      "upd-scene"
     ]
   ],
-  "response": "timeout",
+  "response": "error: scene not updated \u2014 unknown element: 'upd-missing' in scene 'upd-scene'",
   "setup": {
-    "client": {
-      "update": {
-        "return": null
-      }
-    },
+    "client": {},
     "display_running": true
   },
   "tool": "update"
