@@ -114,11 +114,13 @@ class TestHandleSceneReplace:
     def test_replace_preserves_survivor_state_discards_stale(self) -> None:
         """A re-push keeps surviving elements' transient state, drops the departed.
 
-        A narrow ``update`` re-pushes the whole root; only the elements that left
-        the tree have their id-keyed widget state discarded. The default scene has
+        A narrow ``update`` re-pushes the whole root; each element that left the
+        tree has its own id-keyed widget state discarded. The default scene has
         ``t1`` and ``b1``; the replacement keeps ``t1`` and drops ``b1``, so ``t1``
-        must retain its selection/scroll/text while ``b1``'s is cleared — including
-        the decorated ``__tbl_sel_{id}`` / ``{id}__open`` renderer keys.
+        keeps its selection/scroll/text (bare and decorated) while ``b1``'s bare-id
+        key is cleared. ``b1``'s decorated renderer keys linger harmlessly — a
+        prefix/suffix match would risk wiping a survivor, so only the exact key
+        goes; the stragglers are re-seeded on the next ``ensure`` for that id.
         """
         mgr, _ = _make_manager()
         mgr.handle_scene(_make_scene(), owner_fd=10)
@@ -134,7 +136,7 @@ class TestHandleSceneReplace:
         assert ws.get("t1") == "survivor"
         assert ws.get("__tbl_sel_t1") == 3
         assert ws.get("b1") is None
-        assert ws.get("b1__open") is None
+        assert ws.get("b1__open") is True
 
 
 # -------------------------------------------------------------------
@@ -343,20 +345,29 @@ class TestClearAll:
 
 
 class TestWidgetStateDiscardFor:
-    def test_discards_exact_prefixed_and_suffixed_keys(self) -> None:
-        """``discard_for`` drops the bare id and both renderer key conventions."""
+    def test_discards_only_the_exact_id_key(self) -> None:
+        """``discard_for`` drops the removed element's own bare-id key only."""
         ws = WidgetState()
-        ws.set("t1", "bare")
-        ws.set("t1__open", True)
-        ws.set("__tbl_sel_t1", 4)
-        ws.set("__tbl_search_0_t1", "q")
+        ws.set("btn", "bare")
 
-        ws.discard_for("t1")
+        ws.discard_for("btn")
 
-        assert ws.get("t1") is None
-        assert ws.get("t1__open") is None
-        assert ws.get("__tbl_sel_t1") is None
-        assert ws.get("__tbl_search_0_t1") is None
+        assert ws.get("btn") is None
+
+    def test_leaves_underscore_survivor_state_intact(self) -> None:
+        """Removing ``btn`` never wipes survivor ``btn_ok`` — bare AND decorated."""
+        ws = WidgetState()
+        ws.set("btn", "gone")
+        ws.set("btn_ok", "keep")
+        ws.set("btn_ok__open", True)
+        ws.set("__tbl_sel_btn_ok", 7)
+
+        ws.discard_for("btn")
+
+        assert ws.get("btn") is None
+        assert ws.get("btn_ok") == "keep"
+        assert ws.get("btn_ok__open") is True
+        assert ws.get("__tbl_sel_btn_ok") == 7
 
     def test_leaves_other_elements_untouched(self) -> None:
         """Discarding one id keeps a token-adjacent id's state — ``t1`` vs ``t10``."""

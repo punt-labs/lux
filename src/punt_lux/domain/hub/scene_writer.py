@@ -5,11 +5,11 @@ tools mutate ``HubDisplay`` first, then the Hub re-pushes to the Display. This
 writer owns that authoritative mutation.
 
 The write path above the seam is branch-free: it asks the store's ``WriteSeam``
-to realize each field mutation and treats the result uniformly through the
-``FieldRealization`` contract, for an ABC element (patched in place) or a legacy
-root (``dataclasses.replace`` + rebind) alike. A patch that would leave an element
-invalid, is not owned, names a forbidden or unknown field, or targets a legacy
-element nested below a legacy composite is rejected in full, store untouched.
+to realize each mutation uniformly through the ``FieldRealization`` contract — an
+ABC element (patched in place) or a legacy root (``replace`` + rebind) alike. A
+patch that would leave an element invalid, is not owned, names a forbidden or
+unknown field, or targets a legacy element nested below a legacy composite is
+rejected in full, store untouched.
 """
 
 from __future__ import annotations
@@ -45,8 +45,8 @@ __all__ = ["HubSceneWriter", "SceneScope"]
 class SceneScope:
     """The ``(connection, scene)`` pair every ``update`` mutation is scoped to.
 
-    Connection and scene always travel together, so they are one value object
-    rather than a repeated parameter pair (PY-OO-3).
+    Connection and scene always travel together — one value object, not a
+    repeated parameter pair.
     """
 
     connection_id: ConnectionId
@@ -80,10 +80,9 @@ class HubSceneWriter:
         Stage a realization per field patch and guard every removal, check every
         rejection, and — only if all pass — commit the field realizations
         atomically (a mid-commit raise rolls every committed one back), then apply
-        removals as a guarded post-commit phase. Removals sit outside the rollback
-        region deliberately: staging pre-validates each and commit only patches
-        fields, so the phase cannot fail on a reachable input. On any rejection the
-        store is untouched, and the whole path runs exactly once.
+        removals as a post-commit phase kept safe by apply-path idempotency (see
+        :meth:`_apply_removals`). On any rejection the store is untouched, and the
+        whole path runs exactly once.
         """
         scope = SceneScope(connection_id, scene_id)
         try:
@@ -120,8 +119,7 @@ class HubSceneWriter:
     def _stage(self, scope: SceneScope, batch: PatchBatch) -> list[FieldRealization]:
         """Resolve a realization per field patch; guard every removal.
 
-        Checks ownership before the seam, then realizes each mutation — a typed
-        error on the first bad target rejects the whole batch before any write.
+        Ownership is checked before the seam; the first bad target rejects the batch.
         """
         seam = self._display.write_seam
         realizations: list[FieldRealization] = []
@@ -137,11 +135,9 @@ class HubSceneWriter:
 
     @staticmethod
     def _commit(realizations: Sequence[FieldRealization]) -> None:
-        """Commit every realization, atomically.
+        """Commit every realization atomically.
 
-        Each realization snapshots its own undo state as it commits, so a mid-batch
-        raise rolls every committed one back — store untouched on failure — then
-        propagates as a bug (every rejection already passed) rather than swallowed.
+        Each snapshots its own undo state, so a mid-batch raise rolls all back.
         """
         committed: list[FieldRealization] = []
         try:
@@ -156,7 +152,12 @@ class HubSceneWriter:
     def _apply_removals(self, scope: SceneScope, removals: Sequence[ElementId]) -> None:
         """Evict each removed element from the store after all sets have committed.
 
-        Guarded post-commit; staging pre-validated each target, so it cannot fail.
+        Post-commit phase. Staging alone does not make it infallible: when a batch
+        removes both a parent and a child, evicting the parent's subtree already
+        drops the child, so the child's own removal reaches an absent id. The apply
+        path stays safe by idempotency, not by staging — ``_owners.get`` returns
+        ``None`` so the ownership check returns without raising, and ``discard``
+        no-ops on already-dropped storage.
         """
         for element_id in removals:
             self._display.apply(
@@ -167,8 +168,7 @@ class HubSceneWriter:
     def _require_owner(self, scope: SceneScope, element_id: ElementId) -> None:
         """Raise unless the scope's connection owns an installed ``element_id``.
 
-        ``owner_of`` raises ``UnknownElementError`` for a never-installed element,
-        so a patch or removal aimed at a stale id fails loud, not silent no-op.
+        ``owner_of`` raises ``UnknownElementError`` for a never-installed element.
         """
         owner = self._display.owner_of(scope.scene_id, element_id)
         if owner != scope.connection_id:

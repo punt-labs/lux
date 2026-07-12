@@ -4,8 +4,7 @@ Field mutation is the single obligation the two models do not meet uniformly: an
 ABC element is patched in place, a legacy frozen value realized by
 ``dataclasses.replace``. This confines that divergence to one ``isinstance`` gate,
 hands the write path a model-agnostic ``FieldRealization``, and defers a legacy
-element below a legacy composite to ``show``. Deletable at migration's end — with
-no legacy elements the legacy branch has zero live inputs.
+element below a legacy composite to ``show``. Deletable at migration's end.
 """
 
 from __future__ import annotations
@@ -60,11 +59,9 @@ class WriteSeam:
     ) -> FieldRealization:
         """Return the realization of a field patch — the ABC/legacy seam.
 
-        Forbidden fields (immutable ``id``/``kind``, structural
-        ``children``/``pages``) are rejected first, before the model dispatch. An
-        ABC element (root or nested) patches in place; a legacy root is realized by
-        ``replace`` and rebound; a legacy element below a legacy composite defers
-        to ``show``.
+        Forbidden fields are rejected first. An ABC element patches in place; a
+        legacy root is realized by ``replace`` and rebound; a legacy element below
+        a legacy composite defers to ``show``.
         """
         self._reject_forbidden_fields(element_id, fields)
         element = self._index.lookup(scene_id, element_id)
@@ -81,8 +78,8 @@ class WriteSeam:
     ) -> None:
         """Refuse an immutable or structural field before the model dispatch.
 
-        The seam's first step; the field-name policy lives in ``FieldGate`` so both
-        models reject ``id``/``kind`` and ``children``/``pages`` for one reason.
+        The field-name policy lives in ``FieldGate`` so both models reject
+        ``id``/``kind`` and ``children``/``pages``/``tabs`` for one reason.
         """
         FieldGate.reject(element_id, fields)
 
@@ -108,10 +105,13 @@ class WriteSeam:
         """Apply a single-field patch to an indexed ABC element in place.
 
         The store-level ``SetProperty`` primitive (D21 dispatch and direct store
-        callers). Legacy wire dataclasses are frozen; a ``SetProperty`` against one
-        is a programmer error and raises ``TypeError`` — the batch write reaches
-        legacy roots through :meth:`field_realization` instead.
+        callers). The field gate runs first: a forbidden field (immutable or
+        structural ``children``/``pages``/``tabs``) never reaches the store, since
+        installing and evicting children — even on a migrated ABC composite — is
+        work only ``show`` performs. Legacy wire dataclasses are frozen; a
+        ``SetProperty`` against one is a programmer error and raises ``TypeError``.
         """
+        FieldGate.reject(element_id, {field: value})
         element = self._index.lookup(scene_id, element_id)
         if not isinstance(element, AbcElement):
             msg = (

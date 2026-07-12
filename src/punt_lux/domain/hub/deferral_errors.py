@@ -7,9 +7,9 @@ mixed-migration period, each answered by the always-correct whole-tree resend:
   element nested below a legacy composite. Rebuilding the frozen spine is
   deliberately not built for the mixed period.
 - :class:`StructuralFieldWriteError` — a ``set`` whose field carries child
-  elements (``children`` / ``pages`` on a legacy composite). The value-replacement
-  seam realizes only scalar/leaf fields; installing a new child set would need a
-  subtree reinstall the narrow path does not perform.
+  elements (``children`` / ``pages`` / ``tabs`` on a legacy composite). The
+  value-replacement seam realizes only scalar/leaf fields; installing a new child
+  set would need a subtree reinstall the narrow path does not perform.
 
 Both are ``TypeError`` deferrals, distinct from the hard field-constraint
 rejections in :mod:`punt_lux.domain.hub.write_errors`: a deferral is not "you may
@@ -54,8 +54,8 @@ class NestedLegacyWriteError(TypeError):
 class StructuralFieldWriteError(TypeError):
     """Raised when a ``set`` names a field that carries child elements.
 
-    ``children`` and ``pages`` on a legacy composite hold Elements, not scalars.
-    The value-replacement seam rebinds only the addressed root's index entry; it
+    ``children``, ``pages``, and ``tabs`` on a legacy composite hold Elements, not
+    scalars. The value-replacement seam rebinds only the addressed root's index; it
     installs no new children (no index, owner, or child-edge is created) and
     evicts no old ones. Accepting such a patch would render a new child set the
     Hub index does not know — a click on a new child would resolve to nothing and
@@ -65,7 +65,7 @@ class StructuralFieldWriteError(TypeError):
     """
 
     element_id: ElementId
-    field: Literal["children", "pages"]
+    field: Literal["children", "pages", "tabs"]
 
     def __str__(self) -> str:
         return (

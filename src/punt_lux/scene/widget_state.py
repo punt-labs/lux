@@ -36,26 +36,17 @@ class WidgetState:
         self._state.pop(element_id, None)
 
     def discard_for(self, element_id: str) -> None:
-        """Drop every key owned by ``element_id`` so a removed element leaves no
-        transient state while a survivor keeps its own across a whole-root re-push.
-        """
-        doomed = [key for key in self._state if self._owns(key, element_id)]
-        for key in doomed:
-            del self._state[key]
+        """Drop a removed element's own bare-id key across a whole-root re-push.
 
-    @staticmethod
-    def _owns(key: str, element_id: str) -> bool:
-        """Return whether ``key`` carries ``element_id`` (exact, ``{id}_``, ``_{id}``).
-
-        Renderer keys embed the id as a prefix (``{id}__open``) or suffix
-        (``__tbl_sel_{id}``); the ``_`` boundary keeps ``t1`` off ``t10``, and an
-        empty id (a separator has none) owns nothing.
+        Only the exact ``element_id`` key is removed, never a prefix/suffix match:
+        a string heuristic cannot decide whether ``btn_ok`` belongs to ``btn`` or
+        to ``btn_ok`` while ids may contain the ``_`` separator, so any such match
+        risks wiping a survivor's transient state (selection, scroll, in-progress
+        text) — the exact loss A6 exists to prevent. A removed element's decorated
+        keys (``{id}__open``, ``__tbl_sel_{id}``) linger harmlessly and are
+        re-seeded on the next ``ensure`` for that id.
         """
-        return bool(element_id) and (
-            key == element_id
-            or key.startswith(f"{element_id}_")
-            or key.endswith(f"_{element_id}")
-        )
+        self.discard(element_id)
 
     def clear(self) -> None:
         self._state.clear()
