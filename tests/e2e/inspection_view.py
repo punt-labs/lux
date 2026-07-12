@@ -9,6 +9,7 @@ owns the lookup so neither reaches into the raw dict shape.
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import TYPE_CHECKING, Self, cast
 
 if TYPE_CHECKING:
@@ -23,14 +24,20 @@ class InspectionView:
     Wraps the enriched ``inspect_scene`` dict and exposes its
     ``element_paths`` records by id — ``record`` for a required element
     (raises on absence, PY-EH-8) and ``has`` for a presence check.
+    ``root_ids`` and ``duplicate_ids`` expose the scene's *shape* so a
+    re-push that hoists a child to a top-level sibling (and duplicates it)
+    is caught structurally, not only through a mutated prop.
     """
 
     _records: tuple[Mapping[str, object], ...]
+    _root_ids: tuple[str, ...]
 
     def __new__(cls, inspection: Mapping[str, object]) -> Self:
         self = super().__new__(cls)
         paths = cast("list[Mapping[str, object]]", inspection["element_paths"])
         self._records = tuple(paths)
+        roots = cast("list[Mapping[str, object]]", inspection["elements"])
+        self._root_ids = tuple(cast("str", root["id"]) for root in roots)
         return self
 
     def record(self, element_id: str) -> Mapping[str, object]:
@@ -52,3 +59,23 @@ class InspectionView:
     def ids(self) -> frozenset[str]:
         """Return every element id present in the inspection."""
         return frozenset(cast("str", record["id"]) for record in self._records)
+
+    def root_ids(self) -> frozenset[str]:
+        """Return the ids of the scene's top-level roots.
+
+        These are the ``elements`` the Hub re-pushed as roots. A child that
+        was hoisted to a top-level sibling by a flattening re-push shows up
+        here; a correctly-nested child never does.
+        """
+        return frozenset(self._root_ids)
+
+    def duplicate_ids(self) -> frozenset[str]:
+        """Return ids that appear more than once across ``element_paths``.
+
+        ``element_paths`` recurses containers, so each element appears once
+        in a well-formed scene. An id appearing twice means the same element
+        is both nested in its container and hoisted to a top-level root — the
+        signature of a re-push that flattened the tree.
+        """
+        counts = Counter(cast("str", record["id"]) for record in self._records)
+        return frozenset(eid for eid, count in counts.items() if count > 1)

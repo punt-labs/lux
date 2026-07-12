@@ -41,9 +41,42 @@ class LoopInvariants:
         self.assert_hub_authoritative_once()
         self.assert_business_event_delivered()
         self.assert_handler_driven_repush()
+        self.assert_repush_structure_intact()
         self.assert_recv_surface_is_real()
         self.assert_return_path_replica()
         self.assert_two_mechanisms_distinct()
+
+    def assert_repush_structure_intact(self) -> None:
+        """S — every re-push preserves the scene's tree shape, not just props.
+
+        A re-push resends the scene's roots; it must never hoist a container's
+        child to a top-level sibling nor duplicate an element. Each snapshot's
+        ``element_paths`` must carry every id once, and neither the dispatch
+        re-push nor the agent's return-path re-push may grow the root set the
+        initial ``show`` established (a handler removal may shrink it — the
+        dialog case — so the check is subset, not equality).
+
+        This is the assertion the prop-only invariants missed: a flattening
+        re-push left the mutated prop correct while hoisting and duplicating
+        every child, and every I-check still passed.
+        """
+        show = InspectionView(self._obs.post_show_inspection)
+        dispatch = InspectionView(self._obs.post_dispatch_inspection)
+        react = InspectionView(self._obs.post_react_inspection)
+        show_roots = show.root_ids()
+        for label, view in (
+            ("show", show),
+            ("dispatch", dispatch),
+            ("react", react),
+        ):
+            assert not view.duplicate_ids(), (
+                f"{label} re-push duplicated elements {sorted(view.duplicate_ids())} "
+                f"— a child was hoisted to a top-level root"
+            )
+            assert view.root_ids() <= show_roots, (
+                f"{label} re-push grew the root set to {sorted(view.root_ids())} "
+                f"beyond the shown roots {sorted(show_roots)} — a child was hoisted"
+            )
 
     def assert_faithful_crossing(self) -> None:
         """I1 — one real-click-shaped invocation crossed the Connection."""

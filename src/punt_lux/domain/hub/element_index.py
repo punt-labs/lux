@@ -44,13 +44,22 @@ class ElementIndex:
     Holds the per-scene element store. ``install_root`` opens a scene
     bucket; ``install_child`` appends into an existing scene; ``lookup``
     returns the indexed Element or raises a typed lookup error.
+
+    Roots and children share one per-scene ``element_id → Element`` store
+    so ``lookup`` reaches a buried child by id. A parallel per-scene
+    insertion-ordered set of root ids remembers which of those entries are
+    scene roots, so ``scene_roots`` returns exactly the top level. Without
+    it, a re-push built from ``scene_roots`` would hoist every child to a
+    sibling of its own container and duplicate it against the in-tree copy.
     """
 
     _by_scene: dict[SceneId, dict[ElementId, WireElement]]
+    _roots_by_scene: dict[SceneId, dict[ElementId, None]]
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._by_scene = {}
+        self._roots_by_scene = {}
         return self
 
     def install_root(
@@ -60,8 +69,8 @@ class ElementIndex:
         element: WireElement,
     ) -> None:
         """Install ``element`` as a scene-root under ``scene_id``."""
-        scene = self._by_scene.setdefault(scene_id, {})
-        scene[element_id] = element
+        self._by_scene.setdefault(scene_id, {})[element_id] = element
+        self._roots_by_scene.setdefault(scene_id, {})[element_id] = None
 
     def install_child(
         self,
@@ -73,7 +82,9 @@ class ElementIndex:
         """Install ``element`` under ``parent_id``.
 
         Raises ``UnknownSceneError`` if the scene is unknown and
-        ``UnknownElementError`` if ``parent_id`` is not yet indexed.
+        ``UnknownElementError`` if ``parent_id`` is not yet indexed. The
+        child lands in the shared per-scene store for ``lookup`` but is
+        never recorded as a root — ``scene_roots`` stays the top level.
         """
         scene = self._by_scene.get(scene_id)
         if scene is None:
@@ -93,16 +104,22 @@ class ElementIndex:
         return element
 
     def scene_roots(self, scene_id: SceneId) -> list[WireElement]:
-        """Return all root elements for a scene (non-removed only)."""
+        """Return the scene's root elements in install order (non-removed only).
+
+        Only elements installed via ``install_root`` are returned; children
+        installed via ``install_child`` share the store for ``lookup`` but
+        are never roots. Returning children here would flatten the tree on a
+        re-push — each child hoisted to a top-level sibling and duplicated
+        against its in-tree copy.
+        """
         scene = self._by_scene.get(scene_id)
         if scene is None:
             return []
-        from punt_lux.domain.element_abc import Element as ElementABC
-
         return [
             elem
-            for elem in scene.values()
-            if not (isinstance(elem, ElementABC) and elem.removed)
+            for element_id in self._roots_by_scene.get(scene_id, {})
+            if (elem := scene.get(element_id)) is not None
+            and not self._is_removed(elem)
         ]
 
     def discard(self, scene_id: SceneId, element_id: ElementId) -> None:
@@ -110,9 +127,23 @@ class ElementIndex:
 
         Index-side cleanup only. The Observer cascade is responsible for
         unwinding parent composites; this method clears the storage so
-        future ``lookup`` calls fail loud.
+        future ``lookup`` calls fail loud. A discarded root also leaves the
+        scene's root set so it stops appearing in ``scene_roots``.
         """
         scene = self._by_scene.get(scene_id)
         if scene is None or element_id not in scene:
             return
         del scene[element_id]
+        self._roots_by_scene.get(scene_id, {}).pop(element_id, None)
+
+    @staticmethod
+    def _is_removed(elem: WireElement) -> bool:
+        """Return True if ``elem`` is an ABC element flagged removed.
+
+        Legacy wire dataclasses have no lifecycle flag and are never removed;
+        only migrated ABC elements carry ``removed``. The ABC type is imported
+        lazily to avoid a circular import with ``element_abc``.
+        """
+        from punt_lux.domain.element_abc import Element as ElementABC
+
+        return isinstance(elem, ElementABC) and elem.removed
