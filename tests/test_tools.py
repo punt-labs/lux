@@ -12,6 +12,7 @@ import pytest
 from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub.clients import ClientRegistry
+from punt_lux.domain.hub.element_index import UnknownElementError
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
@@ -25,6 +26,7 @@ from punt_lux.protocol import (
     DrawElement,
     GroupElement,
     InputTextElement,
+    LegacyGroupElement,
     MarkdownElement,
     PlotElement,
     PongMessage,
@@ -993,6 +995,30 @@ def _seed_legacy_window_with_child(
     return child
 
 
+def _seed_legacy_group_with_child(
+    store: HubDisplay,
+    *,
+    scene: str = "s1",
+    group_id: str = "grp",
+    child_id: str = "c1",
+    connection: str = "local",
+) -> TextElement:
+    """Install a legacy group root holding one legacy text child.
+
+    A ``LegacyGroupElement`` carries child Elements in ``children`` (and, when
+    paged, ``pages``). Returns the child so a test can assert it survives — and no
+    new child is installed — after a rejected structural patch.
+    """
+    child = TextElement(id=child_id, content="old")
+    group = LegacyGroupElement(id=group_id, children=[child])
+    store.replace_scene(
+        ConnectionId(connection),
+        SceneId(scene),
+        [cast("DomainElement", group)],
+    )
+    return child
+
+
 class TestUpdateTool:
     def test_update_writes_hub_store_and_repushes(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1506,6 +1532,125 @@ class TestUpdateTool:
 
         assert result.startswith("error: scene not updated")
         assert "unknown field" in result
+        client.show_async.assert_not_called()
+
+    def test_update_rejects_structural_children_field(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Patching ``children`` on a legacy composite root defers to ``show``.
+
+        The value-replacement seam rebinds only the root's index entry — it installs
+        no new children and evicts no old ones. Accepting the patch would render a
+        child the Hub index does not know (a dead interaction) and strand the old
+        one. So a structural field is refused before any mutation: the old child
+        still resolves, no new child id is installed, and nothing is re-pushed.
+        """
+        store = HubDisplay()
+        child = _seed_legacy_group_with_child(store, group_id="grp", child_id="c1")
+        client = _bind_store(monkeypatch, store)
+
+        result = update(
+            "s1",
+            [{"id": "grp", "set": {"children": [{"kind": "text", "id": "d1"}]}}],
+        )
+
+        assert result.startswith("error: scene not updated")
+        assert "show" in result
+        assert "children" in result
+        resolved = store.resolve(SceneId("s1"), ElementId("grp"))
+        group = cast("LegacyGroupElement", resolved)
+        assert group.children == [child]
+        assert store.resolve(SceneId("s1"), ElementId("c1")) is child
+        with pytest.raises(UnknownElementError):
+            store.resolve(SceneId("s1"), ElementId("d1"))
+        client.show_async.assert_not_called()
+
+    def test_update_rejects_structural_pages_field(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Patching ``pages`` on a legacy composite root defers to ``show``."""
+        store = HubDisplay()
+        _seed_legacy_group_with_child(store, group_id="grp", child_id="c1")
+        client = _bind_store(monkeypatch, store)
+
+        result = update(
+            "s1",
+            [{"id": "grp", "set": {"pages": [[{"kind": "text", "id": "p1"}]]}}],
+        )
+
+        assert result.startswith("error: scene not updated")
+        assert "show" in result
+        assert "pages" in result
+        resolved = store.resolve(SceneId("s1"), ElementId("grp"))
+        group = cast("LegacyGroupElement", resolved)
+        assert group.pages == []
+        with pytest.raises(UnknownElementError):
+            store.resolve(SceneId("s1"), ElementId("p1"))
+        client.show_async.assert_not_called()
+
+    def test_update_mixed_abc_and_legacy_batch_both_land_one_repush(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An ABC patch and a legacy patch in one batch both land, re-pushed once.
+
+        This is the central design claim: the write path above the seam is
+        branch-free, so a mixed batch commits through one uniform loop and the Hub
+        re-pushes the affected scene exactly once.
+        """
+        store = HubDisplay()
+        header = CollapsingHeaderElement(id="hdr", label="Details", open=False)
+        slider = agent_element_factory().element_from_dict(
+            {"kind": "slider", "id": "sl1", "value": 50.0}
+        )
+        store.replace_scene(
+            ConnectionId("local"),
+            SceneId("s1"),
+            [cast("DomainElement", header), cast("DomainElement", slider)],
+        )
+        client = _bind_store(monkeypatch, store)
+
+        result = update(
+            "s1",
+            [
+                {"id": "hdr", "set": {"open": True}},
+                {"id": "sl1", "set": {"value": 10.0}},
+            ],
+        )
+
+        assert result == "ack:s1"
+        patched_header = store.resolve(SceneId("s1"), ElementId("hdr"))
+        assert isinstance(patched_header, CollapsingHeaderElement)
+        assert patched_header.open is True
+        patched_slider = store.resolve(SceneId("s1"), ElementId("sl1"))
+        assert isinstance(patched_slider, SliderElement)
+        assert patched_slider.value == 10.0
+        client.show_async.assert_called_once()
+
+    def test_update_cross_connection_legacy_ownership_is_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A legacy root seeded under one connection is not writable by another.
+
+        Ownership is checked before the seam for legacy roots exactly as for ABC
+        elements: connection ``other`` may neither patch nor remove ``local``'s
+        slider. The store is untouched and nothing is re-pushed.
+        """
+        store = HubDisplay()
+        _seed_legacy_root(store, element_id="sl1", value=50.0, connection="local")
+        client = _bind_store(monkeypatch, store)
+
+        token = _session_key.set("intruder")
+        try:
+            patched = update("s1", [{"id": "sl1", "set": {"value": 10.0}}])
+            removed = update("s1", [{"id": "sl1", "remove": True}])
+        finally:
+            _session_key.reset(token)
+
+        assert patched.startswith("error: scene not updated")
+        assert removed.startswith("error: scene not updated")
+        slider = store.resolve(SceneId("s1"), ElementId("sl1"))
+        assert isinstance(slider, SliderElement)
+        assert slider.value == 50.0
         client.show_async.assert_not_called()
 
     def test_update_batch_with_legacy_composite_rejection_is_atomic(

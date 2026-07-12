@@ -1,27 +1,26 @@
-"""Typed rejections for the agent ``update`` write path.
+"""Hard field-constraint rejections for the agent ``update`` write path.
 
-Three agent errors the writer raises and converts to a
+Two agent errors the writer raises and converts to a
 :class:`~punt_lux.domain.hub.write_result.WriteRejected`:
 
 - :class:`MalformedPatchError` — a wire patch that is structurally invalid.
 - :class:`ImmutableFieldError` — a patch targeting ``id`` or ``kind``, which no
   write may change for either element model.
-- :class:`NestedLegacyWriteError` — a patch or removal addressed to a legacy
-  element nested below a legacy composite, which the write path defers to
-  ``show`` (whole-tree resend) rather than rebuilding the frozen spine.
 
-All three are narrow on purpose: catching them — rather than a broad exception —
-keeps an incidental internal fault from being laundered into an agent-facing
-"reason".
+Both are narrow on purpose: catching them — rather than a broad exception — keeps
+an incidental internal fault from being laundered into an agent-facing "reason".
+Deferrals that point the client at ``show`` (nested-legacy, structural-field)
+live in :mod:`punt_lux.domain.hub.deferral_errors`; these two are outright "no".
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
-from punt_lux.domain.ids import ElementId, SceneId
+from punt_lux.domain.ids import ElementId
 
-__all__ = ["ImmutableFieldError", "MalformedPatchError", "NestedLegacyWriteError"]
+__all__ = ["ImmutableFieldError", "MalformedPatchError"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,9 +38,11 @@ class MalformedPatchError(ValueError):
     detail: str
 
     def __str__(self) -> str:
-        if self.element_id is None:
-            return self.detail
-        return f"{self.detail} (element {str(self.element_id)!r})"
+        return (
+            self.detail
+            if self.element_id is None
+            else f"{self.detail} (element {str(self.element_id)!r})"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,33 +56,10 @@ class ImmutableFieldError(ValueError):
     """
 
     element_id: ElementId
-    field: str
+    field: Literal["id", "kind"]
 
     def __str__(self) -> str:
         return (
             f"cannot set immutable field {self.field!r} on element "
             f"{str(self.element_id)!r}; {self.field} is fixed at install"
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class NestedLegacyWriteError(TypeError):
-    """Raised when a write addresses a legacy element below a legacy composite.
-
-    A legacy root is written by ``dataclasses.replace`` and its index rebound,
-    but a legacy element nested below a legacy composite would leave the frozen
-    parent holding the stale child by reference. Rebuilding the spine is
-    deliberately not built for the mixed migration period; the client resends the
-    amended tree via ``show`` instead. The rejection names the enclosing root's
-    kind and self-deletes once that container migrates to the ABC path.
-    """
-
-    scene_id: SceneId
-    element_id: ElementId
-    root_kind: str
-
-    def __str__(self) -> str:
-        return (
-            f"cannot write legacy element {str(self.element_id)!r} nested below "
-            f"a legacy {self.root_kind!r}; resend the whole tree via show"
         )

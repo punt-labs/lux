@@ -35,11 +35,27 @@ class WidgetState:
         """
         self._state.pop(element_id, None)
 
+    def discard_for(self, element_id: str) -> None:
+        """Drop every key owned by ``element_id`` so a removed element leaves no
+        transient state while a survivor keeps its own across a whole-root re-push.
+        """
+        doomed = [key for key in self._state if self._owns(key, element_id)]
+        for key in doomed:
+            del self._state[key]
+
+    @staticmethod
+    def _owns(key: str, element_id: str) -> bool:
+        """Return whether ``key`` carries ``element_id`` (exact, ``{id}_``, ``_{id}``).
+
+        Renderer keys embed the id as a prefix (``{id}__open``) or suffix
+        (``__tbl_sel_{id}``); the ``_`` boundary keeps ``t1`` off ``t10``, and an
+        empty id (a separator has none) owns nothing.
+        """
+        return bool(element_id) and (
+            key == element_id
+            or key.startswith(f"{element_id}_")
+            or key.endswith(f"_{element_id}")
+        )
+
     def clear(self) -> None:
         self._state.clear()
-
-    def clear_suffix(self, suffix: str) -> None:
-        """Remove all keys ending with *suffix*."""
-        keys = [k for k in self._state if k.endswith(suffix)]
-        for k in keys:
-            del self._state[k]

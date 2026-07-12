@@ -6,12 +6,10 @@ writer owns that authoritative mutation.
 
 The write path above the seam is branch-free: it asks the store's ``WriteSeam``
 to realize each field mutation and treats the result uniformly through the
-``FieldRealization`` contract, whether the target is an ABC element (patched in
-place) or a legacy root (realized by ``dataclasses.replace`` and rebound). A
-patch that would leave an element invalid, targets an element the caller does
-not own, names an immutable (``id``/``kind``) or unknown field, or addresses a
-legacy element nested below a legacy composite is rejected in full, store
-untouched.
+``FieldRealization`` contract, for an ABC element (patched in place) or a legacy
+root (``dataclasses.replace`` + rebind) alike. A patch that would leave an element
+invalid, is not owned, names a forbidden or unknown field, or targets a legacy
+element nested below a legacy composite is rejected in full, store untouched.
 """
 
 from __future__ import annotations
@@ -19,13 +17,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.deferral_errors import (
+    NestedLegacyWriteError,
+    StructuralFieldWriteError,
+)
 from punt_lux.domain.hub.element_index import UnknownElementError, UnknownSceneError
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
 from punt_lux.domain.hub.patch_batch import PatchBatch
 from punt_lux.domain.hub.write_errors import (
     ImmutableFieldError,
     MalformedPatchError,
-    NestedLegacyWriteError,
 )
 from punt_lux.domain.hub.write_result import WriteAccepted, WriteRejected, WriteResult
 from punt_lux.domain.update import RemoveElement
@@ -44,8 +45,8 @@ __all__ = ["HubSceneWriter", "SceneScope"]
 class SceneScope:
     """The ``(connection, scene)`` pair every ``update`` mutation is scoped to.
 
-    Connection and scene always travel together through the write path, so they
-    become one value object rather than a repeated parameter pair (PY-OO-3).
+    Connection and scene always travel together, so they are one value object
+    rather than a repeated parameter pair (PY-OO-3).
     """
 
     connection_id: ConnectionId
@@ -56,8 +57,8 @@ class SceneScope:
 class HubSceneWriter:
     """Apply ``update`` / ``clear`` mutations to the authoritative ``HubDisplay``.
 
-    Stateless beyond its store reference. The caller re-pushes the affected
-    scene after a successful write; the writer never talks to the Display.
+    Stateless beyond its store reference; the caller re-pushes after a successful
+    write, and the writer never talks to the Display.
     """
 
     _display: HubDisplay
@@ -76,11 +77,13 @@ class HubSceneWriter:
     ) -> WriteResult:
         """Parse and write ``patches`` to the store once, or reject the batch whole.
 
-        Parse the wire patches, stage a realization per field patch, check every
-        rejection, and — only if all pass — commit the realizations atomically
-        and apply the removals. On any rejection the store is untouched and the
-        caller re-pushes nothing. This runs exactly once, never inside a
-        retryable region, so a failed re-push can never re-drive the mutation.
+        Stage a realization per field patch and guard every removal, check every
+        rejection, and — only if all pass — commit the field realizations
+        atomically (a mid-commit raise rolls every committed one back), then apply
+        removals as a guarded post-commit phase. Removals sit outside the rollback
+        region deliberately: staging pre-validates each and commit only patches
+        fields, so the phase cannot fail on a reachable input. On any rejection the
+        store is untouched, and the whole path runs exactly once.
         """
         scope = SceneScope(connection_id, scene_id)
         try:
@@ -90,6 +93,7 @@ class HubSceneWriter:
             MalformedPatchError,
             ImmutableFieldError,
             NestedLegacyWriteError,
+            StructuralFieldWriteError,
             HubOwnershipError,
             UnknownElementError,
             UnknownSceneError,
@@ -106,9 +110,8 @@ class HubSceneWriter:
     def clear(self, connection_id: ConnectionId) -> None:
         """Remove every scene the connection owns, keeping it registered.
 
-        Replaces each owned scene with an empty root set through the same
-        authoritative path ``show`` uses for a re-show, so ownership records and
-        child indexes unwind exactly as they do on a normal scene replacement.
+        Replaces each owned scene with an empty root set through the ``show`` path,
+        so ownership and child indexes unwind as on a normal replace.
         """
         owned = self._display.elements_owned_by(connection_id)
         for scene_id in {scene_id for scene_id, _ in owned}:
@@ -117,10 +120,8 @@ class HubSceneWriter:
     def _stage(self, scope: SceneScope, batch: PatchBatch) -> list[FieldRealization]:
         """Resolve a realization per field patch; guard every removal.
 
-        Checks ownership before the seam, then asks the store to realize each
-        mutation — raising the matching typed error on the first not-owned,
-        not-installed, immutable-field, or nested-legacy target, so the caller
-        rejects the whole batch before any write.
+        Checks ownership before the seam, then realizes each mutation — a typed
+        error on the first bad target rejects the whole batch before any write.
         """
         seam = self._display.write_seam
         realizations: list[FieldRealization] = []
@@ -138,11 +139,9 @@ class HubSceneWriter:
     def _commit(realizations: Sequence[FieldRealization]) -> None:
         """Commit every realization, atomically.
 
-        Each realization snapshots its own undo state as it commits, so a
-        mid-batch raise rolls back every realization already committed — the
-        store untouched on failure. A raise here is unexpected (every
-        realization already reported no rejection), so it propagates as a bug
-        after the rollback rather than being swallowed.
+        Each realization snapshots its own undo state as it commits, so a mid-batch
+        raise rolls every committed one back — store untouched on failure — then
+        propagates as a bug (every rejection already passed) rather than swallowed.
         """
         committed: list[FieldRealization] = []
         try:
@@ -155,7 +154,10 @@ class HubSceneWriter:
             raise
 
     def _apply_removals(self, scope: SceneScope, removals: Sequence[ElementId]) -> None:
-        """Evict each removed element from the store after all sets have committed."""
+        """Evict each removed element from the store after all sets have committed.
+
+        Guarded post-commit; staging pre-validated each target, so it cannot fail.
+        """
         for element_id in removals:
             self._display.apply(
                 scope.connection_id,
@@ -165,9 +167,8 @@ class HubSceneWriter:
     def _require_owner(self, scope: SceneScope, element_id: ElementId) -> None:
         """Raise unless the scope's connection owns an installed ``element_id``.
 
-        ``owner_of`` raises ``UnknownElementError`` when the element was never
-        installed, so a patch or removal aimed at a stale id fails loud rather
-        than becoming a silent no-op.
+        ``owner_of`` raises ``UnknownElementError`` for a never-installed element,
+        so a patch or removal aimed at a stale id fails loud, not silent no-op.
         """
         owner = self._display.owner_of(scope.scene_id, element_id)
         if owner != scope.connection_id:

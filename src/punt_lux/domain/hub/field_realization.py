@@ -2,18 +2,16 @@
 
 A field patch is realized differently by the two element models, and the write
 path above the seam must not branch on which. An **ABC element** is patched in
-place (its identity, handlers, and observers survive); a **legacy** frozen value
-is realized by :func:`dataclasses.replace`, sharing its untouched fields and
-children by reference, and its store index entry is rebound to the fresh
-instance. Both realizations satisfy one :class:`FieldRealization` contract —
-report a rejection against a candidate, commit atomically, restore on a
-mid-batch failure — so the writer stages, validates, and commits a mixed batch
-through a single uniform loop.
+place (identity, handlers, observers survive); a **legacy** frozen value is
+realized by :func:`dataclasses.replace` and its store index entry rebound to the
+fresh instance. Both satisfy one :class:`FieldRealization` contract — rank a
+candidate, commit atomically, restore on a mid-batch failure — so the writer
+stages, validates, and commits a mixed batch through a single uniform loop.
 
-Because migration admits no mixed composites (an ABC composite's descendants are
-all ABC; a legacy composite's descendants are all frozen values), sharing a
-legacy composite's children by reference is unconditionally lossless: there is
-no live wiring on a legacy child to drop.
+Legacy replacement shares untouched fields and children by reference. For a
+scalar/leaf field that is lossless — a legacy composite's descendants are frozen
+values with no live wiring to drop. Child-bearing fields (``children``/``pages``)
+are refused before the seam and deferred to ``show``.
 """
 
 from __future__ import annotations
@@ -26,7 +24,6 @@ from typing import (
     Self,
     cast,
     final,
-    runtime_checkable,
 )
 
 from punt_lux.domain.element_abc import Element as AbcElement
@@ -45,14 +42,12 @@ if TYPE_CHECKING:
 __all__ = ["AbcFieldRealization", "FieldRealization", "LegacyFieldRealization"]
 
 
-@runtime_checkable
 class FieldRealization(Protocol):
     """A staged field mutation: rank a candidate, commit, or restore.
 
-    The writer treats every target uniformly through this contract — it never
-    learns whether an element is ABC or legacy. ``rejection`` decides the batch
-    before any ``commit`` runs; ``restore`` undoes a committed mutation exactly
-    when a later target in the same batch fails to commit.
+    The writer treats every target uniformly through this contract, never learning
+    whether an element is ABC or legacy. ``rejection`` decides the batch before any
+    ``commit`` runs; ``restore`` undoes a commit when a later target fails.
     """
 
     def rejection(self) -> WriteRejected | None:
@@ -72,10 +67,9 @@ class FieldRealization(Protocol):
 class AbcFieldRealization:
     """Realize a field patch on an ABC element by in-place ``apply_patch``.
 
-    The object *is* the identity, so mutating it in place preserves its handler
-    registrations and property observers, and the change is visible through any
-    parent composite that holds the same object. Validation runs on a throwaway
-    deep copy so a rejected write never touches the live element.
+    The object *is* the identity, so mutating it in place preserves its handlers
+    and observers and the change is visible through any parent that holds it.
+    Validation runs on a throwaway deep copy so a rejected write never touches it.
     """
 
     _element: AbcElement
@@ -93,10 +87,9 @@ class AbcFieldRealization:
     def rejection(self) -> WriteRejected | None:
         """Return why these fields may not be written to the element, or ``None``.
 
-        An unknown field (no ``_set_<field>`` setter) is an agent error reported
-        cleanly. A setter that refuses a bad value (``TypeError`` / ``ValueError``)
-        and a self-validation failure both surface here as the agent-facing
-        reason; any other exception is an internal bug in a setter and propagates.
+        An unknown field (no ``_set_<field>`` setter), a setter that refuses a bad
+        value, and a self-validation failure all surface here as the agent-facing
+        reason; any other exception is an internal bug and propagates.
         """
         for key in self._fields:
             if not callable(getattr(self._element, f"_set_{key}", None)):
@@ -107,9 +100,7 @@ class AbcFieldRealization:
             errors = deepcopy(self._element).apply_patch(self._fields).validate()
         except (ValueError, TypeError) as exc:
             return WriteRejected(str(exc))
-        if errors:
-            return WriteRejected(ValidationReport(errors).describe())
-        return None
+        return WriteRejected(ValidationReport(errors).describe()) if errors else None
 
     def commit(self) -> None:
         """Snapshot the element's field state, then patch it in place."""
@@ -126,17 +117,14 @@ class AbcFieldRealization:
 class LegacyFieldRealization:
     """Realize a field patch on a legacy root by ``replace`` + index rebind.
 
-    A frozen wire dataclass cannot be mutated in place, so the mutation is a
-    fresh instance from :func:`dataclasses.replace` that shares the element's
-    other fields and children by reference and overrides only the addressed
-    field. Identity is preserved because a value object's identity is its ``id``
-    and fields and the replacement carries the same ``id``; the store's index
-    entry is rebound to the fresh instance so owners, child-edges, and the
-    root-marker — all keyed by id — survive untouched.
+    A frozen wire dataclass cannot be mutated in place, so the mutation is a fresh
+    :func:`dataclasses.replace` instance that shares the other fields and children
+    by reference and overrides only the addressed field. Identity is preserved —
+    the replacement carries the same ``id`` — and the store's index entry is
+    rebound to it, so owners, child-edges, and the root-marker survive untouched.
 
     Only a legacy *root* reaches this realization; a nested legacy element is
-    rejected before the seam with a ``NestedLegacyWriteError`` (see
-    :mod:`punt_lux.domain.hub.write_errors`).
+    rejected before the seam (see :mod:`punt_lux.domain.hub.deferral_errors`).
     """
 
     _index: ElementIndex
@@ -144,7 +132,17 @@ class LegacyFieldRealization:
     _element_id: ElementId
     _original: WireElement
     _fields: Mapping[str, object]
-    __slots__ = ("_element_id", "_fields", "_index", "_original", "_scene_id")
+    # PY-TS-14: memoization cache — ``None`` until realized, so rejection() and
+    # commit() share the one ``replace()`` result (the exact instance installed).
+    _realized: WireElement | None
+    __slots__ = (
+        "_element_id",
+        "_fields",
+        "_index",
+        "_original",
+        "_realized",
+        "_scene_id",
+    )
 
     def __new__(
         cls,
@@ -160,16 +158,16 @@ class LegacyFieldRealization:
         self._element_id = element_id
         self._original = original
         self._fields = fields
+        self._realized = None
         return self
 
     def rejection(self) -> WriteRejected | None:
         """Return why these fields may not be written to the root, or ``None``.
 
-        An unknown field (not a dataclass field of the frozen value) is rejected
-        with the same shape the ABC path uses, so the two models reject an
-        unknown field uniformly. The candidate is validated by the same
-        hierarchy walk ``show`` uses, which also coerces per-kind values — so no
-        codec round-trip is needed to validate the replacement.
+        An unknown field is rejected with the same shape the ABC path uses. The
+        candidate is validated (and per-kind coerced) by the same hierarchy walk
+        ``show`` uses. Building or validating it raises only agent-facing
+        ``ValueError``/``TypeError`` here; any other exception is a bug and propagates.
         """
         known = {field.name for field in dataclass_fields(cast("Any", self._original))}
         for key in self._fields:
@@ -178,17 +176,17 @@ class LegacyFieldRealization:
                     f"cannot set unknown field {key!r} on element "
                     f"{str(self._element_id)!r}"
                 )
-        report = ElementTreeValidator().validate_tree([self._candidate()])
-        if not report.ok:
-            return WriteRejected(report.describe())
-        return None
+        try:
+            report = ElementTreeValidator().validate_tree([self._candidate()])
+        except (ValueError, TypeError) as exc:
+            return WriteRejected(str(exc))
+        return None if report.ok else WriteRejected(report.describe())
 
     def commit(self) -> None:
         """Rebind the root's index entry to the ``replace``-derived instance.
 
-        ``install_root`` re-points the index entry for an id already installed
-        as a root, so it doubles as the rebind — the root-marker and every
-        id-keyed collaborator are unchanged.
+        ``install_root`` re-points an already-installed root's id, leaving the
+        root-marker and every id-keyed collaborator unchanged.
         """
         self._index.install_root(self._scene_id, self._element_id, self._candidate())
 
@@ -199,9 +197,11 @@ class LegacyFieldRealization:
     def _candidate(self) -> WireElement:
         """Return the fresh frozen instance with the addressed field replaced.
 
-        The casts record that the legacy seam guarantees a frozen wire dataclass
-        — the shape :func:`dataclasses.replace` requires and returns but the
-        structural ``Element`` Protocol does not encode.
+        Realized once and memoized, so ``replace`` runs a single time and commit
+        installs the exact instance rejection validated. The casts record the
+        frozen-wire shape ``replace`` needs but the ``Element`` Protocol omits.
         """
-        fresh = replace(cast("Any", self._original), **dict(self._fields))
-        return cast("WireElement", fresh)
+        if self._realized is None:
+            fresh = replace(cast("Any", self._original), **dict(self._fields))
+            self._realized = cast("WireElement", fresh)
+        return self._realized

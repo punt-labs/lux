@@ -111,19 +111,30 @@ class TestHandleSceneReplace:
         assert len(stale_calls) == 1
         assert "t1" in stale_calls[0]
 
-    def test_widget_state_cleared_on_replace(self) -> None:
-        """Widget state is cleared when a scene is replaced."""
-        mgr, _ = _make_manager()
-        scene = _make_scene()
-        mgr.handle_scene(scene, owner_fd=10)
+    def test_replace_preserves_survivor_state_discards_stale(self) -> None:
+        """A re-push keeps surviving elements' transient state, drops the departed.
 
-        # Seed widget state
-        mgr._scene_widget_state["s1"].set("t1", "stale_value")
+        A narrow ``update`` re-pushes the whole root; only the elements that left
+        the tree have their id-keyed widget state discarded. The default scene has
+        ``t1`` and ``b1``; the replacement keeps ``t1`` and drops ``b1``, so ``t1``
+        must retain its selection/scroll/text while ``b1``'s is cleared — including
+        the decorated ``__tbl_sel_{id}`` / ``{id}__open`` renderer keys.
+        """
+        mgr, _ = _make_manager()
+        mgr.handle_scene(_make_scene(), owner_fd=10)
+        ws = mgr._scene_widget_state["s1"]
+        ws.set("t1", "survivor")
+        ws.set("__tbl_sel_t1", 3)
+        ws.set("b1", "stale")
+        ws.set("b1__open", True)
 
         replacement = _make_scene(elements=[TextElement(id="t1", content="New")])
         mgr.handle_scene(replacement, owner_fd=10)
 
-        assert mgr._scene_widget_state["s1"].get("t1") is None
+        assert ws.get("t1") == "survivor"
+        assert ws.get("__tbl_sel_t1") == 3
+        assert ws.get("b1") is None
+        assert ws.get("b1__open") is None
 
 
 # -------------------------------------------------------------------
@@ -329,3 +340,42 @@ class TestClearAll:
         mgr, _ = _make_manager()
         mgr.clear_all()
         assert mgr._active_tab is None
+
+
+class TestWidgetStateDiscardFor:
+    def test_discards_exact_prefixed_and_suffixed_keys(self) -> None:
+        """``discard_for`` drops the bare id and both renderer key conventions."""
+        ws = WidgetState()
+        ws.set("t1", "bare")
+        ws.set("t1__open", True)
+        ws.set("__tbl_sel_t1", 4)
+        ws.set("__tbl_search_0_t1", "q")
+
+        ws.discard_for("t1")
+
+        assert ws.get("t1") is None
+        assert ws.get("t1__open") is None
+        assert ws.get("__tbl_sel_t1") is None
+        assert ws.get("__tbl_search_0_t1") is None
+
+    def test_leaves_other_elements_untouched(self) -> None:
+        """Discarding one id keeps a token-adjacent id's state — ``t1`` vs ``t10``."""
+        ws = WidgetState()
+        ws.set("t1", "gone")
+        ws.set("__tbl_sel_t10", 9)
+        ws.set("t10__open", True)
+
+        ws.discard_for("t1")
+
+        assert ws.get("t1") is None
+        assert ws.get("__tbl_sel_t10") == 9
+        assert ws.get("t10__open") is True
+
+    def test_empty_id_is_a_noop(self) -> None:
+        """An empty id (a separator has none) discards nothing."""
+        ws = WidgetState()
+        ws.set("__tbl_sel_t1", 1)
+
+        ws.discard_for("")
+
+        assert ws.get("__tbl_sel_t1") == 1

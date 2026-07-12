@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from typing import Self
 
 from punt_lux.protocol import (
@@ -18,11 +19,10 @@ _log = logging.getLogger(__name__)
 
 
 class SceneManager:
-    """Own the scene graph — frames, scenes, scene-to-frame mapping, and
-    widget state per scene.
+    """Own the scene graph — frames, scenes, scene-to-frame mapping, widget state.
 
-    Pure state machine: no ImGui, no socket, no OpenGL dependency.
-    Tree navigation is delegated to :class:`SceneTreeWalk`.
+    Pure state machine: no ImGui, socket, or OpenGL. Tree navigation is delegated
+    to :class:`SceneTreeWalk`.
     """
 
     _scenes: dict[str, SceneMessage]
@@ -197,17 +197,13 @@ class SceneManager:
         old_idx = old_order.index(scene_id) if scene_id in old_order else -1
         dismissed = self._scenes.pop(scene_id, None)
         if dismissed is not None:
-            dismissed_ids: set[str] = set()
             for elem in dismissed.elements:
-                dismissed_ids.update(self._walk.collect_ids(elem))
                 if isinstance(elem, WindowElement):
                     self._dirty_windows.discard(elem.id)
-            # Keep events for IDs that still exist in remaining scenes
             surviving_ids: set[str] = set()
-            for scene in self._scenes.values():
-                for elem in scene.elements:
-                    surviving_ids.update(self._walk.collect_ids(elem))
-            stale_ids = dismissed_ids - surviving_ids
+            for scene in self._scenes.values():  # keep IDs still present elsewhere
+                surviving_ids |= self._element_ids(scene.elements)
+            stale_ids = self._element_ids(dismissed.elements) - surviving_ids
             if stale_ids:
                 self._on_scene_replaced(list(stale_ids))
         self._scene_order = [s for s in old_order if s != scene_id]
@@ -231,9 +227,7 @@ class SceneManager:
         """
         dismissed = frame.scenes.pop(scene_id, None)
         if dismissed is not None:
-            dismissed_ids: set[str] = set()
-            for elem in dismissed.elements:
-                dismissed_ids.update(self._walk.collect_ids(elem))
+            dismissed_ids = self._element_ids(dismissed.elements)
             if dismissed_ids:
                 self._on_scene_replaced(list(dismissed_ids))
         frame.scene_order = [s for s in frame.scene_order if s != scene_id]
@@ -245,11 +239,9 @@ class SceneManager:
         return not frame.scenes
 
     def close_frame(self, frame_id: str) -> list[str]:
-        """Remove a frame and all its scenes.
+        """Remove a frame and all its scenes, returning the stale element IDs.
 
-        Return the list of stale element IDs removed.  The caller
-        (DisplayServer) uses these to drain its event queue and send
-        close notifications to clients.
+        The caller drains its event queue and sends close notifications from them.
         """
         frame = self._frames.pop(frame_id, None)
         if frame is None:
@@ -260,8 +252,7 @@ class SceneManager:
         for scene_id in frame.scene_order:
             scene = frame.scenes.get(scene_id)
             if scene is not None:
-                for elem in scene.elements:
-                    removed_ids.update(self._walk.collect_ids(elem))
+                removed_ids |= self._element_ids(scene.elements)
             self._scene_widget_state.pop(scene_id, None)
             self._scene_to_frame.pop(scene_id, None)
             self._scene_to_owner.pop(scene_id, None)
@@ -292,18 +283,29 @@ class SceneManager:
         msg: SceneMessage,
         old_scene: SceneMessage | None = None,
     ) -> None:
-        """Notify about stale IDs and reset widget state."""
-        if old_scene is not None:
-            old_ids: set[str] = set()
-            for elem in old_scene.elements:
-                old_ids.update(self._walk.collect_ids(elem))
-            new_ids: set[str] = set()
-            for elem in msg.elements:
-                new_ids.update(self._walk.collect_ids(elem))
-            stale_ids = old_ids - new_ids
-            if stale_ids:
-                self._on_scene_replaced(list(stale_ids))
-        self._scene_widget_state[msg.id].clear()
+        """Notify about stale IDs and discard only their transient widget state.
+
+        A whole-root re-push must not wipe survivors' id-keyed state (selection,
+        scroll, in-progress text) — only the departed elements' state is discarded.
+        """
+        if old_scene is None:
+            return
+        stale_ids = self._element_ids(old_scene.elements) - self._element_ids(
+            msg.elements
+        )
+        if stale_ids:
+            self._on_scene_replaced(list(stale_ids))
+        widget_state = self._scene_widget_state.get(msg.id)
+        if widget_state is not None:
+            for stale_id in stale_ids:
+                widget_state.discard_for(stale_id)
+
+    def _element_ids(self, elements: Sequence[object]) -> set[str]:
+        """Return every element id in ``elements``, recursing containers."""
+        ids: set[str] = set()
+        for elem in elements:
+            ids.update(self._walk.collect_ids(elem))
+        return ids
 
     def _next_cascade_index(self) -> int:
         """Return the smallest unused cascade index."""
