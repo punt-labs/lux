@@ -7,12 +7,10 @@ from typing import Self
 
 from punt_lux.protocol import (
     SceneMessage,
-    UpdateMessage,
     WindowElement,
 )
 from punt_lux.scene.element_walk import SceneTreeWalk
 from punt_lux.scene.frame import Frame
-from punt_lux.scene.patch_applier import PatchApplier
 from punt_lux.scene.widget_state import WidgetState
 from punt_lux.types import OnSceneReplacedFn
 
@@ -24,8 +22,7 @@ class SceneManager:
     widget state per scene.
 
     Pure state machine: no ImGui, no socket, no OpenGL dependency.
-    Tree navigation is delegated to :class:`SceneTreeWalk`; applying an
-    update's patch batch is delegated to :class:`PatchApplier`.
+    Tree navigation is delegated to :class:`SceneTreeWalk`.
     """
 
     _scenes: dict[str, SceneMessage]
@@ -39,7 +36,6 @@ class SceneManager:
     _dirty_windows: set[str]
     _on_scene_replaced: OnSceneReplacedFn
     _walk: SceneTreeWalk
-    _patch_applier: PatchApplier
 
     def __new__(
         cls,
@@ -58,9 +54,6 @@ class SceneManager:
         self._dirty_windows = set()
         self._on_scene_replaced = on_scene_replaced
         self._walk = SceneTreeWalk()
-        self._patch_applier = PatchApplier(
-            walk=self._walk, dirty_windows=self._dirty_windows
-        )
         return self
 
     # -- read-only access for the rendering layer ---------------------------
@@ -197,14 +190,6 @@ class SceneManager:
             if frame is not None:
                 return frame.scenes.get(scene_id)
         return None
-
-    def apply_update(self, msg: UpdateMessage) -> None:
-        """Apply incremental patches to an existing scene."""
-        scene = self.resolve_scene(msg.scene_id)
-        if scene is None:
-            return
-        ws = self._scene_widget_state.get(msg.scene_id)
-        self._patch_applier.apply(scene, msg, ws)
 
     def dismiss_scene(self, scene_id: str) -> None:
         """Remove an unframed scene and all its associated state."""

@@ -409,8 +409,8 @@ def test_text_element_patch_accepts_null_color() -> None:
     """``{"color": null}`` in a patch matches the decode contract.
 
     ``JsonTextDecoder.decode`` coerces a wire ``null`` color to the empty-
-    string "no override" sentinel; ``_set_color`` must do the same so an
-    UpdateMessage carrying ``{"color": null}`` doesn't crash with TypeError.
+    string "no override" sentinel; ``_set_color`` must do the same so a
+    patch carrying ``{"color": null}`` doesn't crash with TypeError.
     """
     elem = TextElement(id="t1", content="hi", color="#FF0000")
     elem.apply_patch({"color": None})

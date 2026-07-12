@@ -33,7 +33,6 @@ from punt_lux.protocol import (
     MenuMessage,
     Message,
     ModalElement,
-    Patch,
     PingMessage,
     PlotElement,
     PongMessage,
@@ -58,7 +57,6 @@ from punt_lux.protocol import (
     ThemeMessage,
     TreeElement,
     UnknownMessage,
-    UpdateMessage,
     WindowElement,
     decode_frame,
     encode_frame,
@@ -431,13 +429,6 @@ class TestMessages:
         assert msg.type == "scene"
         assert len(msg.elements) == 1
 
-    def test_update_message(self):
-        msg = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="t1", set={"content": "updated"})],
-        )
-        assert msg.type == "update"
-
     def test_clear_message(self):
         msg = ClearMessage()
         assert msg.type == "clear"
@@ -628,20 +619,6 @@ class TestSerialization:
         assert isinstance(restored, ConnectMessage)
         assert restored.name == "quarry"
 
-    def test_update_roundtrip(self):
-        original = UpdateMessage(
-            scene_id="s1",
-            patches=[
-                Patch(id="t1", set={"content": "new"}),
-                Patch(id="old", remove=True),
-            ],
-        )
-        d = message_to_dict(original)
-        restored = message_from_dict(d)
-        assert isinstance(restored, UpdateMessage)
-        assert len(restored.patches) == 2
-        assert restored.patches[1].remove is True
-
     @pytest.mark.parametrize(
         "msg",
         [
@@ -653,13 +630,6 @@ class TestSerialization:
                     title="Test",
                 ),
                 id="SceneMessage",
-            ),
-            pytest.param(
-                UpdateMessage(
-                    scene_id="s1",
-                    patches=[Patch(id="t1", set={"content": "new"})],
-                ),
-                id="UpdateMessage",
             ),
             pytest.param(ClearMessage(), id="ClearMessage"),
             pytest.param(PingMessage(ts=1.0), id="PingMessage"),
@@ -1963,7 +1933,6 @@ class TestMessageRegistry:
 
         expected_types = {
             "scene",
-            "update",
             "clear",
             "ping",
             "introspect_request",

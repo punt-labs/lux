@@ -19,14 +19,12 @@ from punt_lux.protocol import (
     ClearMessage,
     Element,
     MenuMessage,
-    Patch,
     PingMessage,
     RegisterMenuMessage,
     RemoteEventHandlerInvocation,
     SceneMessage,
     SeparatorElement,
     TextElement,
-    UpdateMessage,
     WindowElement,
 )
 from punt_lux.scene import WidgetState
@@ -58,16 +56,6 @@ def _mock_sock() -> MagicMock:
     sock.sendall = MagicMock()
     sock.fileno.return_value = 42
     return sock
-
-
-def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
-    """Directly inject a scene into multi-scene state (bypasses message handling)."""
-    sm = server._scene_manager
-    sm._scenes[scene.id] = scene
-    if scene.id not in sm._scene_order:
-        sm._scene_order.append(scene.id)
-    sm._scene_widget_state[scene.id] = WidgetState()
-    sm._active_tab = scene.id
 
 
 # -----------------------------------------------------------------------
@@ -361,154 +349,6 @@ class TestPollClientsSkipsRemoved:
         # Second call is a no-op, not a crash
         server._socket_server.remove_client(sock)
         assert sock not in server._socket_server.clients
-
-
-# -----------------------------------------------------------------------
-# Fix 3: _apply_update must not mutate id or kind
-# -----------------------------------------------------------------------
-
-
-class TestApplyUpdateProtectsIdentity:
-    def test_patch_cannot_change_element_id(self) -> None:
-        server = _make_server()
-        scene = _make_scene(
-            elements=[
-                TextElement(id="t1", content="Hello"),
-                TextElement(id="t2", content="World"),
-            ]
-        )
-        _inject_scene(server, scene)
-
-        # Try to change t1's id to t2 (would break unique-ID invariant)
-        msg = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="t1", set={"id": "t2"})],
-        )
-        server._scene_manager.apply_update(msg)
-
-        # ID must not have changed
-        ids = [e.id for e in server._scene_manager._scenes["s1"].elements]
-        assert ids == ["t1", "t2"]
-
-    def test_patch_cannot_change_element_kind(self) -> None:
-        server = _make_server()
-        scene = _make_scene(
-            elements=[
-                TextElement(id="t1", content="Hello"),
-            ]
-        )
-        _inject_scene(server, scene)
-
-        msg = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="t1", set={"kind": "button"})],
-        )
-        server._scene_manager.apply_update(msg)
-
-        assert server._scene_manager._scenes["s1"].elements[0].kind == "text"
-
-    def test_patch_can_change_content(self) -> None:
-        server = _make_server()
-        scene = _make_scene(
-            elements=[
-                TextElement(id="t1", content="Hello"),
-            ]
-        )
-        _inject_scene(server, scene)
-
-        msg = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="t1", set={"content": "Updated"})],
-        )
-        server._scene_manager.apply_update(msg)
-
-        elem = server._scene_manager._scenes["s1"].elements[0]
-        assert isinstance(elem, TextElement)
-        assert elem.content == "Updated"
-
-    def test_patch_remove_element(self) -> None:
-        server = _make_server()
-        scene = _make_scene(
-            elements=[
-                TextElement(id="t1", content="Hello"),
-                TextElement(id="t2", content="World"),
-            ]
-        )
-        _inject_scene(server, scene)
-
-        msg = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="t1", remove=True)],
-        )
-        server._scene_manager.apply_update(msg)
-
-        assert len(server._scene_manager._scenes["s1"].elements) == 1
-        assert server._scene_manager._scenes["s1"].elements[0].id == "t2"
-
-    def test_update_wrong_scene_id_is_noop(self) -> None:
-        server = _make_server()
-        scene = _make_scene(
-            elements=[
-                TextElement(id="t1", content="Hello"),
-            ]
-        )
-        _inject_scene(server, scene)
-
-        msg = UpdateMessage(
-            scene_id="wrong-id",
-            patches=[Patch(id="t1", set={"content": "Changed"})],
-        )
-        server._scene_manager.apply_update(msg)
-
-        elem = server._scene_manager._scenes["s1"].elements[0]
-        assert isinstance(elem, TextElement)
-        assert elem.content == "Hello"
-
-
-# -----------------------------------------------------------------------
-# Flush events: broadcast and clear
-# -----------------------------------------------------------------------
-
-
-class TestUpdateBackstop:
-    """The message-loop guard contains a setter escape the applier cannot catch."""
-
-    def test_non_value_error_does_not_kill_the_loop(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """A setter raising KeyError is logged and swallowed; the loop survives.
-
-        The applier catches ``(ValueError, TypeError)`` per patch; anything else
-        — a custom validation error, KeyError, AttributeError — escapes to the
-        message loop. The boundary guard keeps the display alive and still
-        acknowledges the client rather than letting the exception terminate the
-        loop.
-        """
-        server = _make_server()
-        _inject_scene(server, _make_scene())
-
-        def _boom(_msg: UpdateMessage) -> None:
-            raise KeyError("setter blew up")
-
-        monkeypatch.setattr(server._scene_manager, "apply_update", _boom)
-        sock = _mock_sock()
-        update = UpdateMessage(
-            scene_id="s1", patches=[Patch(id="t1", set={"content": "x"})]
-        )
-
-        with caplog.at_level(logging.ERROR):
-            server._handle_message(sock, update)  # must NOT raise
-
-        assert sock.sendall.called  # loop survived and acked the client
-        # The log is honest about a mid-batch abort: earlier patches may have
-        # applied, so it must NOT claim the scene was left unchanged.
-        messages = [r.message for r in caplog.records]
-        assert any(
-            "aborted mid-batch" in m and "may have applied" in m for m in messages
-        )
-        assert not any("unchanged" in m for m in messages)
 
 
 # -----------------------------------------------------------------------
@@ -806,68 +646,6 @@ class TestMultiScene:
         stored = snap.element(ElementId("t1"))
         assert isinstance(stored, TextElement)
         assert stored.content == "second"
-
-    def test_update_routes_to_correct_scene(self) -> None:
-        """Update targets a specific scene by scene_id."""
-        server = _make_server()
-        sock = _mock_sock()
-
-        server._handle_message(
-            sock,
-            _make_scene(
-                scene_id="s1",
-                elements=[TextElement(id="t1", content="S1")],
-            ),
-        )
-        server._handle_message(
-            sock,
-            _make_scene(
-                scene_id="s2",
-                elements=[TextElement(id="t2", content="S2")],
-            ),
-        )
-
-        # Update s2 only
-        server._scene_manager.apply_update(
-            UpdateMessage(
-                scene_id="s2",
-                patches=[Patch(id="t2", set={"content": "Updated"})],
-            )
-        )
-
-        # s1 untouched
-        s1_elem = server._scene_manager._scenes["s1"].elements[0]
-        assert isinstance(s1_elem, TextElement)
-        assert s1_elem.content == "S1"
-        # s2 updated
-        s2_elem = server._scene_manager._scenes["s2"].elements[0]
-        assert isinstance(s2_elem, TextElement)
-        assert s2_elem.content == "Updated"
-
-    def test_update_to_unknown_scene_is_dropped(self) -> None:
-        """Update for a dismissed/unknown scene_id is silently dropped."""
-        server = _make_server()
-        sock = _mock_sock()
-
-        server._handle_message(
-            sock,
-            _make_scene(
-                scene_id="s1",
-                elements=[TextElement(id="t1", content="Hello")],
-            ),
-        )
-
-        # Update for non-existent scene — no error
-        server._scene_manager.apply_update(
-            UpdateMessage(
-                scene_id="gone",
-                patches=[Patch(id="t1", set={"content": "Nope"})],
-            )
-        )
-
-        elem = server._scene_manager._scenes["s1"].elements[0]
-        assert isinstance(elem, TextElement)
-        assert elem.content == "Hello"
 
     def test_clear_removes_all_scenes(self) -> None:
         """ClearMessage removes all scenes and resets tab state."""

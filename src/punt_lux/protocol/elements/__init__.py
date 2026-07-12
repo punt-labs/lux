@@ -8,7 +8,6 @@ helpers:
 - ``layout``: containers (Group, Window, TabBar, …)
 - ``graphics``: 2D canvas and chart (Draw, Plot)
 - ``table``: tabular data with filters and detail panels
-- ``patch``: single-element update payload
 
 The ``codec`` sub-module holds the ``ElementCodec`` class — the dispatch
 table that maps wire ``kind`` strings to (class, to_dict, from_dict)
@@ -61,14 +60,6 @@ from punt_lux.protocol.elements.layout import (
     register_codecs as _register_layout,
 )
 from punt_lux.protocol.elements.markdown import MarkdownElement
-
-# _patch_to_dict / _patch_from_dict are re-exported for protocol.messages.scene
-# (used by UpdateMessage codec).
-from punt_lux.protocol.elements.patch import (
-    Patch,
-    _patch_from_dict as _patch_from_dict,
-    _patch_to_dict as _patch_to_dict,
-)
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement
@@ -105,7 +96,6 @@ __all__ = [
     "LegacyTabBarElement",
     "MarkdownElement",
     "ModalElement",
-    "Patch",
     "PlotElement",
     "ProgressElement",
     "RadioElement",
@@ -122,8 +112,6 @@ __all__ = [
     "TreeElement",
     "WindowElement",
     "_element_to_dict",
-    "_patch_from_dict",
-    "_patch_to_dict",
     "_strip_none",
     "build_element_codec",
     "element_to_dict",

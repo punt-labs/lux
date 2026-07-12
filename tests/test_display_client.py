@@ -15,7 +15,6 @@ from punt_lux.display_client import DisplayClient
 from punt_lux.protocol import (
     AckMessage,
     ClearMessage,
-    Patch,
     PingMessage,
     PongMessage,
     ReadyMessage,
@@ -23,7 +22,6 @@ from punt_lux.protocol import (
     RemoteEventHandlerInvocation,
     SceneMessage,
     TextElement,
-    UpdateMessage,
     encode_frame,
     recv_message,
     send_message,
@@ -253,47 +251,6 @@ class TestSendMessages:
                 ack = client.show(
                     "s1",
                     elements=[TextElement(id="t1", content="Hello")],
-                )
-                assert ack is not None
-                assert ack.scene_id == "s1"
-        finally:
-            if server_conn:
-                server_conn.close()
-            t.join(timeout=2)
-            import shutil
-
-            shutil.rmtree(short_dir, ignore_errors=True)
-
-    def test_update_sends_patches(self, tmp_path: Path) -> None:
-        """update() sends an UpdateMessage and receives AckMessage."""
-        import tempfile
-
-        short_dir = tempfile.mkdtemp(prefix="lux-")
-        sock_path = Path(short_dir) / "d.sock"
-        ready_event = threading.Event()
-        server_conn: socket.socket | None = None
-
-        def serve() -> None:
-            nonlocal server_conn
-            server_conn = _mini_display(sock_path, ready_event)
-            assert server_conn is not None
-            msg = recv_message(server_conn, timeout=5)
-            assert isinstance(msg, UpdateMessage)
-            assert msg.scene_id == "s1"
-            assert len(msg.patches) == 1
-            send_message(server_conn, AckMessage(scene_id="s1", ts=time.time()))
-
-        t = threading.Thread(target=serve, daemon=True)
-        t.start()
-        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
-
-        try:
-            with DisplayClient(
-                sock_path, auto_spawn=False, connect_timeout=2.0
-            ) as client:
-                ack = client.update(
-                    "s1",
-                    patches=[Patch(id="t1", set={"content": "Updated"})],
                 )
                 assert ack is not None
                 assert ack.scene_id == "s1"

@@ -54,7 +54,6 @@ from punt_lux.protocol import (
     RemoteEventHandlerInvocation,
     SceneMessage,
     ThemeMessage,
-    UpdateMessage,
     encode_message,
     recv_message,
     send_message,
@@ -65,7 +64,7 @@ from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
-    from punt_lux.protocol import Element, Message, Patch
+    from punt_lux.protocol import Element, Message
 
 logger = logging.getLogger(__name__)
 
@@ -558,25 +557,6 @@ class DisplayClient:
         )
         self._send(msg)
 
-    def update(
-        self,
-        scene_id: str,
-        patches: list[Patch],
-    ) -> AckMessage | None:
-        """Send incremental patches and wait for acknowledgement."""
-        msg = UpdateMessage(scene_id=scene_id, patches=patches)
-        self._send(msg)
-        return self._recv_ack()
-
-    def update_async(
-        self,
-        scene_id: str,
-        patches: list[Patch],
-    ) -> None:
-        """Send incremental patches without waiting for ack.  Safe from callbacks."""
-        msg = UpdateMessage(scene_id=scene_id, patches=patches)
-        self._send(msg)
-
     def set_menu(self, menus: list[dict[str, Any]]) -> None:
         """Set custom menu bar entries."""
         self._send(MenuMessage(menus=menus))
@@ -735,7 +715,7 @@ class DisplayClient:
         if t is not None and t is threading.current_thread():
             err = (
                 "Cannot call blocking _recv_ack from the listener thread — "
-                "use show_async() / update_async() instead"
+                "use show_async() instead"
             )
             raise RuntimeError(err)
         if self.listener_active:
