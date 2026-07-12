@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from punt_lux.display_client import agent_element_factory
+from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
@@ -32,6 +34,7 @@ from punt_lux.protocol import (
     SpinnerElement,
     TabBarElement,
     TableElement,
+    TextElement,
     TreeElement,
     WindowElement,
 )
@@ -911,6 +914,57 @@ def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock
     return client
 
 
+def _seed_group_with_child(
+    store: HubDisplay,
+    *,
+    scene: str = "s1",
+    group_id: str = "g1",
+    child_id: str = "t1",
+    content: str = "hi",
+    connection: str = "local",
+) -> None:
+    """Install a group root with one ABC text child under ``connection``.
+
+    The child is a non-root id the Hub installs and owns via subtree recursion,
+    so ``update`` can patch it through the same ownership + resolve path a root
+    takes.
+    """
+    group = agent_element_factory().element_from_dict(
+        {
+            "kind": "group",
+            "id": group_id,
+            "children": [{"kind": "text", "id": child_id, "content": content}],
+        }
+    )
+    store.replace_scene(
+        ConnectionId(connection),
+        SceneId(scene),
+        [cast("DomainElement", group)],
+    )
+
+
+def _seed_legacy_root(
+    store: HubDisplay,
+    *,
+    scene: str = "s1",
+    element_id: str = "sl1",
+    connection: str = "local",
+) -> None:
+    """Install one legacy (non-ABC) slider root under ``connection``.
+
+    A frozen wire dataclass carries no ``_set_<field>`` setters, so a patch
+    against it is the "not patchable" agent-facing rejection.
+    """
+    slider = agent_element_factory().element_from_dict(
+        {"kind": "slider", "id": element_id, "value": 50.0}
+    )
+    store.replace_scene(
+        ConnectionId(connection),
+        SceneId(scene),
+        [cast("DomainElement", slider)],
+    )
+
+
 class TestUpdateTool:
     def test_update_writes_hub_store_and_repushes(
         self, monkeypatch: pytest.MonkeyPatch
@@ -957,20 +1011,22 @@ class TestUpdateTool:
         assert isinstance(root, CollapsingHeaderElement)
         assert root.open is True
 
-    def test_display_only_update_would_revert_on_repush(
+    def test_repush_without_update_keeps_stored_value(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Fidelity guard: the pre-fix path leaves the store stale and reverts.
+        """Negative control: a bare re-push reproduces the stored value unchanged.
 
-        The old ``update`` patched only the Display and never the Hub. Emulating
-        that here — no authoritative write — the store keeps ``open=False``, so
-        the next re-push carries the stale value: the reversion the fix removes.
+        This is NOT the fidelity guard for ``update`` — it never calls
+        ``update``, so re-breaking ``update`` leaves it green. It only pins the
+        store as the single source of truth for the re-push: absent any write,
+        the whole-scene resend carries exactly what the store holds. The real
+        fail-if-reverted guard is ``test_update_survives_interaction_repush``,
+        which drives ``update`` and asserts the value persists across a re-push.
         """
         store = HubDisplay()
         _seed_store(store, is_open=False)
         client = _bind_store(monkeypatch, store)
 
-        # No authoritative write happens (the bug). Re-push rebuilds from store.
         ClientRegistry.repush_scene("s1")
 
         pushed = client.show_async.call_args.kwargs["elements"]
@@ -1023,7 +1079,288 @@ class TestUpdateTool:
         result = update("s1", [{"id": "ghost", "set": {"open": True}}])
 
         assert result.startswith("error: scene not updated")
+        # The store is untouched — the seeded header survives the rejection.
+        assert store.resolve(SceneId("s1"), ElementId("hdr")).id == "hdr"
         client.show_async.assert_not_called()
+
+    def test_update_rejects_patch_with_no_set_and_no_remove(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A patch that is neither a removal nor a ``set`` mapping is rejected.
+
+        The old ``from_wire`` silently dropped such a patch and still acked; now
+        the whole batch is refused and the offending id is named.
+        """
+        store = HubDisplay()
+        _seed_store(store)
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "hdr"}])
+
+        assert result.startswith("error: scene not updated")
+        assert "hdr" in result
+        client.show_async.assert_not_called()
+
+    def test_update_rejects_set_that_is_not_a_mapping(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A ``set`` whose value is not a mapping is rejected, not dropped."""
+        store = HubDisplay()
+        _seed_store(store)
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "hdr", "set": "not-a-map"}])
+
+        assert result.startswith("error: scene not updated")
+        assert "hdr" in result
+        client.show_async.assert_not_called()
+
+    def test_update_rejects_remove_false_with_no_set(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A falsy ``remove`` with no ``set`` is malformed, not a silent no-op."""
+        store = HubDisplay()
+        _seed_store(store)
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "hdr", "remove": False}])
+
+        assert result.startswith("error: scene not updated")
+        assert "hdr" in result
+        client.show_async.assert_not_called()
+
+    def test_update_rejects_patch_missing_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A patch with no ``id`` is a clean rejection, not a raw ``KeyError``."""
+        store = HubDisplay()
+        _seed_store(store)
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"set": {"open": True}}])
+
+        assert result.startswith("error: scene not updated")
+        assert "id" in result
+        client.show_async.assert_not_called()
+
+    def test_update_merges_duplicate_id_patches(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two patches on one id merge and commit as a single unit."""
+        store = HubDisplay()
+        _seed_store(store, is_open=False, label="Details")
+        client = _bind_store(monkeypatch, store)
+
+        result = update(
+            "s1",
+            [
+                {"id": "hdr", "set": {"open": True}},
+                {"id": "hdr", "set": {"label": "Renamed"}},
+            ],
+        )
+
+        assert result == "ack:s1"
+        header = store.resolve(SceneId("s1"), ElementId("hdr"))
+        assert isinstance(header, CollapsingHeaderElement)
+        assert header.open is True
+        assert header.label == "Renamed"
+        client.show_async.assert_called_once()
+
+    def test_update_duplicate_id_cumulative_invalid_is_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Two patches whose merged result is invalid reject the whole batch.
+
+        Each patch alone is well-typed, but their cumulative effect (an empty
+        label) fails self-validation. The merged patch validates once as a unit,
+        so neither half lands and the store keeps its original value.
+        """
+        store = HubDisplay()
+        _seed_store(store, is_open=False, label="Details")
+        client = _bind_store(monkeypatch, store)
+
+        result = update(
+            "s1",
+            [
+                {"id": "hdr", "set": {"open": True}},
+                {"id": "hdr", "set": {"label": ""}},
+            ],
+        )
+
+        assert result.startswith("error: scene not updated")
+        header = store.resolve(SceneId("s1"), ElementId("hdr"))
+        assert isinstance(header, CollapsingHeaderElement)
+        assert header.open is False
+        assert header.label == "Details"
+        client.show_async.assert_not_called()
+
+    def test_update_batch_one_invalid_leaves_valid_untouched(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A multi-element batch with one invalid patch commits nothing."""
+        store = HubDisplay()
+        first = CollapsingHeaderElement(id="a", label="First", open=False)
+        second = CollapsingHeaderElement(id="b", label="Second", open=False)
+        store.replace_scene(
+            ConnectionId("local"),
+            SceneId("s1"),
+            [cast("DomainElement", first), cast("DomainElement", second)],
+        )
+        client = _bind_store(monkeypatch, store)
+
+        result = update(
+            "s1",
+            [
+                {"id": "a", "set": {"open": True}},
+                {"id": "b", "set": {"label": ""}},
+            ],
+        )
+
+        assert result.startswith("error: scene not updated")
+        valid = store.resolve(SceneId("s1"), ElementId("a"))
+        assert isinstance(valid, CollapsingHeaderElement)
+        assert valid.open is False
+        client.show_async.assert_not_called()
+
+    def test_update_mixed_valid_remove_and_invalid_set_skips_removal(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An invalid set in the batch prevents an otherwise-valid removal."""
+        store = HubDisplay()
+        keep = CollapsingHeaderElement(id="keep", label="Keep", open=False)
+        drop = CollapsingHeaderElement(id="drop", label="Drop", open=False)
+        store.replace_scene(
+            ConnectionId("local"),
+            SceneId("s1"),
+            [cast("DomainElement", keep), cast("DomainElement", drop)],
+        )
+        client = _bind_store(monkeypatch, store)
+
+        result = update(
+            "s1",
+            [
+                {"id": "drop", "remove": True},
+                {"id": "keep", "set": {"label": ""}},
+            ],
+        )
+
+        assert result.startswith("error: scene not updated")
+        # The removal never happened — the invalid set rejects the whole batch.
+        assert store.resolve(SceneId("s1"), ElementId("drop")).id == "drop"
+        client.show_async.assert_not_called()
+
+    def test_update_retry_on_repush_does_not_remutate(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An OSError on the first re-push of a remove-batch retries only the push.
+
+        The authoritative removal runs once, outside the retryable region. When
+        the re-push's first ``show_async`` throws ``OSError``, ``with_reconnect``
+        retries only the idempotent push — it never re-drives the removal against
+        the now-deleted id, so the agent is told the truth (``ack``), not misled.
+        """
+        store = HubDisplay()
+        _seed_store(store)
+        client = _bind_store(monkeypatch, store)
+        client.show_async.side_effect = [OSError("connection reset"), None]
+
+        result = update("s1", [{"id": "hdr", "remove": True}])
+
+        assert result == "ack:s1"
+        # Removed exactly once; a re-driven mutation would have raised on the
+        # already-deleted id.
+        assert store.scene_roots(SceneId("s1")) == []
+        with pytest.raises(LookupError):
+            store.resolve(SceneId("s1"), ElementId("hdr"))
+        assert client.show_async.call_count == 2
+
+    def test_update_cross_connection_ownership_is_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A set against an element owned by another connection is refused."""
+        store = HubDisplay()
+        _seed_store(store, is_open=False)  # owned by "local"
+        client = _bind_store(monkeypatch, store)
+
+        token = _session_key.set("intruder")
+        try:
+            result = update("s1", [{"id": "hdr", "set": {"open": True}}])
+        finally:
+            _session_key.reset(token)
+
+        assert result.startswith("error: scene not updated")
+        header = store.resolve(SceneId("s1"), ElementId("hdr"))
+        assert isinstance(header, CollapsingHeaderElement)
+        assert header.open is False
+        client.show_async.assert_not_called()
+
+    def test_update_cross_connection_remove_is_rejected(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A remove against another connection's element is refused, untouched."""
+        store = HubDisplay()
+        _seed_store(store)  # owned by "local"
+        client = _bind_store(monkeypatch, store)
+
+        token = _session_key.set("intruder")
+        try:
+            result = update("s1", [{"id": "hdr", "remove": True}])
+        finally:
+            _session_key.reset(token)
+
+        assert result.startswith("error: scene not updated")
+        assert store.resolve(SceneId("s1"), ElementId("hdr")).id == "hdr"
+        client.show_async.assert_not_called()
+
+    def test_update_patches_nested_child(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A non-root child inside a container is patchable through ``update``."""
+        store = HubDisplay()
+        _seed_group_with_child(store, child_id="t1", content="hi")
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "t1", "set": {"content": "updated"}}])
+
+        assert result == "ack:s1"
+        child = store.resolve(SceneId("s1"), ElementId("t1"))
+        assert isinstance(child, TextElement)
+        assert child.content == "updated"
+        client.show_async.assert_called_once()
+
+    def test_update_rejects_non_abc_element_as_not_patchable(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A patch against a legacy (non-ABC) element is a clean rejection."""
+        store = HubDisplay()
+        _seed_legacy_root(store, element_id="sl1")
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "sl1", "set": {"value": 10.0}}])
+
+        assert result.startswith("error: scene not updated")
+        assert "not patchable" in result
+        client.show_async.assert_not_called()
+
+    def test_update_setter_bug_surfaces_as_bug(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An incidental bug inside a setter propagates, never laundered.
+
+        The writer catches only the documented setter-refusal exceptions
+        (``ValueError`` / ``TypeError``). A setter that raises ``AttributeError``
+        is a real internal fault, so it surfaces rather than becoming an
+        agent-facing "reason".
+        """
+        store = HubDisplay()
+        _seed_store(store)
+        _bind_store(monkeypatch, store)
+
+        def _boom(self: object, value: object) -> None:
+            raise AttributeError("internal setter fault")
+
+        monkeypatch.setattr(CollapsingHeaderElement, "_set_open", _boom)
+
+        with pytest.raises(AttributeError, match="internal setter fault"):
+            update("s1", [{"id": "hdr", "set": {"open": True}}])
 
 
 class TestClearTool:
@@ -1042,6 +1379,45 @@ class TestClearTool:
         assert store.scene_roots(SceneId("s1")) == []
         assert store.elements_owned_by(ConnectionId("local")) == ()
         client.clear.assert_called_once()
+
+    @patch.object(DisplayPaths, "is_running", return_value=True)
+    def test_clear_leaves_other_connections_scenes(
+        self, mock_running: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Clear empties only the caller's Hub scenes; another agent's survives."""
+        store = HubDisplay()
+        _seed_store(store, scene="s1", header_id="hdr")  # owned by "local"
+        other = CollapsingHeaderElement(id="other", label="Other", open=False)
+        store.replace_scene(
+            ConnectionId("agent-b"),
+            SceneId("s-other"),
+            [cast("DomainElement", other)],
+        )
+        _bind_store(monkeypatch, store)
+
+        result = clear()
+
+        assert result == "cleared"
+        assert store.scene_roots(SceneId("s1")) == []
+        # agent-b's scene is untouched by local's clear.
+        assert store.resolve(SceneId("s-other"), ElementId("other")).id == "other"
+
+    @patch.object(DisplayPaths, "is_running", return_value=True)
+    def test_clear_empties_all_scenes_the_caller_owns(
+        self, mock_running: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A caller owning several scenes gets every one emptied."""
+        store = HubDisplay()
+        _seed_store(store, scene="s1", header_id="a")
+        _seed_store(store, scene="s2", header_id="b", label="B")
+        _bind_store(monkeypatch, store)
+
+        result = clear()
+
+        assert result == "cleared"
+        assert store.scene_roots(SceneId("s1")) == []
+        assert store.scene_roots(SceneId("s2")) == []
+        assert store.elements_owned_by(ConnectionId("local")) == ()
 
 
 class TestPingTool:

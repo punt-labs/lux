@@ -12,7 +12,8 @@ from typing import Any, cast
 from punt_lux.config import ConfigManager
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub_display
-from punt_lux.domain.hub.scene_writer import HubSceneWriter, PatchBatch
+from punt_lux.domain.hub.scene_writer import HubSceneWriter
+from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.domain.submission_gate import SubmissionGate
 from punt_lux.paths import DisplayPaths
@@ -393,10 +394,7 @@ def show_dashboard(
 
 
 @mcp.tool()
-def update(
-    scene_id: str,
-    patches: list[dict[str, Any]],
-) -> str:
+def update(scene_id: str, patches: list[dict[str, Any]]) -> str:
     """Update elements in the current scene without replacing everything.
 
     Each patch targets an element by id and can set fields or remove it:
@@ -404,21 +402,20 @@ def update(
 
     The Hub mutates its authoritative store first, then re-pushes the scene —
     the same replication a click takes. A ``set`` that would make an element
-    invalid is rejected whole, like ``show``. Returns ``"ack:<scene_id>"``.
+    invalid is rejected whole. Returns ``"ack:<scene_id>"``.
     """
     connection_id = ConnectionId(_session_key.get())
-    batch = PatchBatch.from_wire(patches)
+    # Mutate once, outside the retry, so a failed re-push cannot re-drive it.
+    writer = HubSceneWriter(hub_display)
+    result = writer.apply(connection_id, SceneId(scene_id), patches)
+    if isinstance(result, WriteRejected):
+        return f"error: scene not updated — {result.reason}"
 
-    def _call() -> str:
-        rejection = HubSceneWriter(hub_display).apply_patches(
-            connection_id, SceneId(scene_id), batch
-        )
-        if rejection is not None:
-            return f"error: scene not updated — {rejection}"
+    def _repush() -> str:
         client_registry.repush_scene(scene_id)
         return f"ack:{scene_id}"
 
-    return client_registry.with_reconnect(_call)
+    return client_registry.with_reconnect(_repush)
 
 
 @mcp.tool()
@@ -562,18 +559,21 @@ def set_frame_state(
 def clear() -> str:
     """Clear the Lux display window. Returns "not running" when display is off.
 
-    Empties the caller's authoritative Hub scenes first, then clears the
-    Display, so a later re-push cannot resurrect them.
+    Empties every scene the caller owns from the authoritative Hub store, then
+    tells the Display to clear. The Display clear is global (ALL rendered scenes,
+    not only the caller's) — honest for the single-connection slice; scoping it
+    per caller for the multi-user target is a separate change.
     """
     if not DisplayPaths().is_running():
         return "not running"
+    # Mutate once, outside the retry; emptying owned scenes is idempotent.
+    HubSceneWriter(hub_display).clear(ConnectionId(_session_key.get()))
 
-    def _call() -> str:
-        HubSceneWriter(hub_display).clear(ConnectionId(_session_key.get()))
+    def _clear() -> str:
         client_registry.get().clear()
         return "cleared"
 
-    return client_registry.with_reconnect(_call)
+    return client_registry.with_reconnect(_clear)
 
 
 @mcp.tool()
