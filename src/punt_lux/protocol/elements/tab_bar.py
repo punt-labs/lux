@@ -19,6 +19,7 @@ here as short delegators (PY-OO-2).
 
 from __future__ import annotations
 
+from itertools import chain
 from typing import TYPE_CHECKING, Literal, Self, cast
 
 from punt_lux.domain.container_interaction import TabChanged
@@ -36,6 +37,7 @@ from punt_lux.protocol.elements.tab_bar_codec import (
     JsonTabBarEncoder,
 )
 from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
+from punt_lux.protocol.renderer import TabContainerRenderer
 from punt_lux.protocol.standalone_tab_bar_handler import (
     build_standalone_tab_bar_handler_decoder,
 )
@@ -43,12 +45,7 @@ from punt_lux.protocol.standalone_tab_bar_handler import (
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-    from punt_lux.protocol.renderer import (
-        Emit,
-        Renderer,
-        RendererFactory,
-        TabContainerRenderer,
-    )
+    from punt_lux.protocol.renderer import Emit, Renderer, RendererFactory
 
 __all__ = ["Tab", "TabBarElement"]
 
@@ -119,10 +116,7 @@ class TabBarElement(Element):
 
     @property
     def children(self) -> tuple[Element, ...]:
-        """Return every tab's children flattened — the Composite contract.
-
-        Mirrors ``_children()`` so the Hub can resolve a tab's child by id.
-        """
+        """Return every tab's children flattened — the Composite contract."""
         return self._children()
 
     # -- composite surface --------------------------------------------------
@@ -134,34 +128,40 @@ class TabBarElement(Element):
         so the remote-dispatch wrap, factory rebind, and validation walk reach
         them.
         """
-        return tuple(child for tab in self._tabs for child in tab.children)
+        return tuple(chain.from_iterable(tab.children for tab in self._tabs))
 
     def _render_children(self, renderer: Renderer) -> None:
         """Bracket each tab and gate its body on the Hub-authoritative selection.
 
         The domain class must not call ImGui (PY-IC-8); it delegates the tab
         brackets to the ``TabContainerRenderer`` and passes ``_active_tab`` in —
-        the renderer honours the selection, it does not invent one.
+        the renderer honours the selection, it does not invent one. A plain
+        ``Renderer`` (no ``begin_tab``/``end_tab``) is rejected here at the
+        boundary, not deep in the loop with an opaque ``AttributeError``.
         """
-        tab_renderer = cast("TabContainerRenderer", renderer)
+        if not isinstance(renderer, TabContainerRenderer):
+            msg = (
+                f"tab_bar {self._id!r} requires a TabContainerRenderer "
+                f"(begin_tab/end_tab), got {type(renderer).__name__}"
+            )
+            raise TypeError(msg)
         for tab in self._tabs:
-            selected = tab_renderer.begin_tab(tab, active=self._active_tab)
+            selected = renderer.begin_tab(tab, active=self._active_tab)
             try:
                 if selected:
                     for child in tab.children:
                         child.render()
             finally:
-                tab_renderer.end_tab(opened=selected)
+                renderer.end_tab(opened=selected)
 
     # -- minimal setters for the scene patch path --------------------------
 
     def _set_active_tab(self, value: object) -> None:
         """Replace the active-tab selection, reconciled to name a live tab.
 
-        Reconciling on every mutation (not only at construction) stops a patch
-        naming a stale tab — an agent driving an old id, or a click arriving
-        after the tab set changed — from installing a dangling selection that
-        would fire a spurious ``TabChanged``.
+        Reconciling on every mutation (see ``_reconcile_active_tab``), not only
+        at construction, stops a patch naming a stale tab from installing a
+        dangling selection that would fire a spurious ``TabChanged``.
         """
         self._active_tab = PatchField("active_tab").as_str(value)
         self._reconcile_active_tab()
@@ -176,10 +176,8 @@ class TabBarElement(Element):
         A selection that still names a present tab is kept; a selection whose
         tab was removed resets to the first tab; an empty tab set clears it.
         """
-        live = {tab.tab_id for tab in self._tabs}
-        if self._active_tab in live:
-            return
-        self._active_tab = self._tabs[0].tab_id if self._tabs else ""
+        if self._active_tab not in {tab.tab_id for tab in self._tabs}:
+            self._active_tab = self._tabs[0].tab_id if self._tabs else ""
 
     def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
         """Return the tab-changed bucket's spec under the element-id action."""

@@ -95,9 +95,11 @@ class JsonTabBarDecoder:
             self._decode_tab(tab, tab_ids)
             for tab in self._require_list(raw.get("tabs"))
         )
-        active_tab = ctx.optional_str(raw, "active_tab", default="")
         elem = self._cls(
-            id=ctx.require_str(raw, "id"), tabs=tabs, active_tab=active_tab
+            id=ctx.require_str(raw, "id"),
+            tabs=tabs,
+            active_tab=ctx.optional_str(raw, "active_tab", default=""),
+            tooltip=ctx.optional_nullable_str(raw, "tooltip"),
         )
         elem.add_handler(TabChanged, _UpdateActiveTabHandler(elem))
         self._install_handlers(elem, raw)
@@ -119,8 +121,7 @@ class JsonTabBarDecoder:
 
     def _decode(self, raw_child: object) -> Element:
         """Decode one wire child through the injected tier decoder."""
-        child = cast("dict[str, Any]", raw_child)
-        return cast("Element", self._decode_element(child))
+        return cast("Element", self._decode_element(cast("dict[str, Any]", raw_child)))
 
     def _install_handlers(self, elem: TabBarElement, raw: Mapping[str, object]) -> None:
         """Install tab-changed handlers declared by the wire ``handlers`` list."""
@@ -166,10 +167,7 @@ class JsonTabBarDecoder:
 
     @staticmethod
     def _require_list(raw: object) -> list[object]:
-        """Return ``raw`` as a list; ``[]`` absent, raising present-but-not-list.
-
-        Malformed wire is rejected, not silently coerced to empty.
-        """
+        """Return ``raw`` as a list, ``[]`` if absent; a present non-list raises."""
         if raw is None:
             return []
         if not isinstance(raw, list):

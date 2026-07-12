@@ -168,6 +168,23 @@ class TestLevel1Serialization:
         assert isinstance(restored, TabBarElement)
         assert restored.active_tab == "tab-2"
 
+    def test_tooltip_survives_the_roundtrip(self) -> None:
+        # The encoder emits ``tooltip``; the decoder must read it back, or a
+        # tab bar's hover text silently disappears on encode -> decode.
+        bar = TabBarElement(
+            id="tb",
+            tabs=(Tab(tab_id="tab-1", label="One", children=()),),
+            tooltip="hover me",
+        )
+        restored = _decode(bar.to_dict())
+        assert isinstance(restored, TabBarElement)
+        assert restored.tooltip == "hover me"
+
+    def test_absent_tooltip_stays_none(self) -> None:
+        restored = _decode(_abc_tab_bar().to_dict())
+        assert isinstance(restored, TabBarElement)
+        assert restored.tooltip is None
+
 
 # -- the all-ABC fork gate --------------------------------------------------
 
@@ -797,3 +814,26 @@ class TestEncoderFactoryGuard:
         assert encoded["active_tab"] == "tab-1"
         tabs = cast("list[dict[str, Any]]", encoded["tabs"])
         assert [t["id"] for t in tabs] == ["tab-1", "tab-2"]
+
+
+class _PlainRenderer:
+    """A ``Renderer`` with no tab-bracketing surface — not a TabContainerRenderer.
+
+    Satisfies the base ``Renderer`` protocol (begin/paint/end) but lacks
+    ``begin_tab``/``end_tab``, so it must be rejected at the tab bar's render
+    boundary rather than blowing up with an opaque AttributeError mid-loop.
+    """
+
+    def begin(self) -> bool:
+        return True
+
+    def paint(self) -> None: ...
+
+    def end(self, *, opened: bool) -> None: ...
+
+
+class TestRendererBoundary:
+    def test_non_tab_container_renderer_fails_loud(self) -> None:
+        bar = _abc_tab_bar()
+        with pytest.raises(TypeError, match="TabContainerRenderer"):
+            bar._render_children(_PlainRenderer())
