@@ -112,15 +112,15 @@ class TestHandleSceneReplace:
         assert "t1" in stale_calls[0]
 
     def test_replace_preserves_survivor_state_discards_stale(self) -> None:
-        """A re-push keeps surviving elements' transient state, drops the departed.
+        """A re-push keeps survivors' state and clears the departed's latches.
 
         A narrow ``update`` re-pushes the whole root; each element that left the
-        tree has its own id-keyed widget state discarded. The default scene has
-        ``t1`` and ``b1``; the replacement keeps ``t1`` and drops ``b1``, so ``t1``
-        keeps its selection/scroll/text (bare and decorated) while ``b1``'s bare-id
-        key is cleared. ``b1``'s decorated renderer keys linger harmlessly — a
-        prefix/suffix match would risk wiping a survivor, so only the exact key
-        goes; the stragglers are re-seeded on the next ``ensure`` for that id.
+        tree has its bare id key and its ``__open``/``__dismissed`` latches
+        discarded so a re-added same-id element starts fresh. The default scene
+        has ``t1`` and ``b1``; the replacement keeps ``t1`` (selection and its
+        decorated table key survive) and drops ``b1`` (bare key and open latch
+        cleared). ``b1``'s table key embeds the id at the end, so it lingers
+        until scene clear — cosmetic, never a functional break.
         """
         mgr, _ = _make_manager()
         mgr.handle_scene(_make_scene(), owner_fd=10)
@@ -129,6 +129,7 @@ class TestHandleSceneReplace:
         ws.set("__tbl_sel_t1", 3)
         ws.set("b1", "stale")
         ws.set("b1__open", True)
+        ws.set("__tbl_sel_b1", 5)
 
         replacement = _make_scene(elements=[TextElement(id="t1", content="New")])
         mgr.handle_scene(replacement, owner_fd=10)
@@ -136,7 +137,8 @@ class TestHandleSceneReplace:
         assert ws.get("t1") == "survivor"
         assert ws.get("__tbl_sel_t1") == 3
         assert ws.get("b1") is None
-        assert ws.get("b1__open") is True
+        assert ws.get("b1__open") is None
+        assert ws.get("__tbl_sel_b1") == 5
 
 
 # -------------------------------------------------------------------
@@ -345,6 +347,26 @@ class TestClearAll:
 
 
 class TestWidgetStateDiscardFor:
+    def test_clears_dialog_latches_so_re_add_reopens(self) -> None:
+        """Removing a dialog id clears its latches so a re-added dialog reopens.
+
+        A dismissed dialog leaves ``{id}__dismissed`` set to open. ``ensure``
+        seeds only an absent key, so unless the latch is discarded a re-added
+        same-id dialog reads the stale open value and never opens. After
+        ``discard_for`` a fresh ``ensure`` returns the caller's closed default.
+        """
+        ws = WidgetState()
+        ws.set("confirm", "answered")
+        ws.set("confirm__open", 1)
+        ws.set("confirm__dismissed", 1)
+
+        ws.discard_for("confirm")
+
+        assert ws.get("confirm") is None
+        assert ws.get("confirm__open") is None
+        assert ws.get("confirm__dismissed") is None
+        assert ws.ensure("confirm__dismissed", 0) == 0
+
     def test_discards_only_the_exact_id_key(self) -> None:
         """``discard_for`` drops the removed element's own bare-id key only."""
         ws = WidgetState()
