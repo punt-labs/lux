@@ -14,13 +14,18 @@ while named-element lookup and removal are untouched.
 
 from __future__ import annotations
 
+from typing import cast
+
 import pytest
 
+from punt_lux.domain.element import Element
+from punt_lux.domain.hub.deferral_errors import NestedLegacyWriteError
 from punt_lux.domain.hub.element_index import ElementIndex
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
-from punt_lux.domain.update import RemoveElement
-from punt_lux.protocol.elements import SeparatorElement, TextElement
+from punt_lux.domain.update import AddElement, RemoveElement
+from punt_lux.protocol.elements import SeparatorElement, SliderElement, TextElement
+from punt_lux.protocol.elements.layout import LegacyGroupElement
 
 _SCENE = SceneId("anon-scene")
 _CONN = ConnectionId("anon-conn")
@@ -140,3 +145,34 @@ def test_named_lookup_and_removal_unaffected_by_anonymous_repeats() -> None:
     with pytest.raises(UnknownElementError):
         hub.resolve(_SCENE, ElementId("a"))
     assert hub.scene_roots(_SCENE) == [sep_top, sep_bottom]
+
+
+# -- anonymous composite root resolves its buried legacy child --------------
+
+
+def test_write_to_legacy_child_of_anonymous_group_names_the_group() -> None:
+    """A patch to a buried legacy child under an anonymous group defers cleanly.
+
+    The child's edges live under the group's synthesized store handle, not under
+    its empty wire id. Resolving the enclosing root by store handle names the
+    group so the write defers to ``show``; resolving by wire id would find no
+    descendants and misreport the store as inconsistent — a ``ValueError`` where
+    the client deserves a ``NestedLegacyWriteError`` naming the container.
+    """
+    hub = HubDisplay()
+    hub.register_client(_CONN)
+    group = LegacyGroupElement(
+        id="",  # anonymous root — stored under a synthesized handle
+        children=[SliderElement(id="buried", label="s")],
+    )
+    # The production scene decoder yields legacy elements as ``Element``; the cast
+    # mirrors that runtime contract past a codec-signature variance quibble.
+    hub.apply(
+        _CONN,
+        AddElement(scene_id=_SCENE, element=cast("Element", group), parent_id=None),
+    )
+
+    with pytest.raises(NestedLegacyWriteError) as exc_info:
+        hub.write_seam.field_realization(_SCENE, ElementId("buried"), {"value": 5.0})
+
+    assert exc_info.value.root_kind == "group"

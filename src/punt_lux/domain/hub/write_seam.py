@@ -60,11 +60,9 @@ class WriteSeam:
     ) -> FieldRealization:
         """Return the realization of a field patch — the ABC/legacy seam.
 
-        Forbidden fields are rejected first — an immutable or structural field
-        never reaches the model dispatch. The field-name policy lives in
-        ``FieldGate`` so both models reject ``id``/``kind`` and
-        ``children``/``pages``/``tabs`` for one reason. An ABC element patches in
-        place; a legacy root is realized by ``replace`` and rebound; a legacy
+        Forbidden fields are rejected first via ``FieldGate`` (``id``/``kind``
+        and structural ``children``/``pages``/``tabs``). An ABC element patches
+        in place; a legacy root is realized by ``replace`` and rebound; a legacy
         element below a legacy composite defers to ``show``.
         """
         FieldGate.reject(element_id, fields)
@@ -106,11 +104,10 @@ class WriteSeam:
     ) -> None:
         """Apply a single-field patch to an indexed ABC element in place.
 
-        The store-level ``SetProperty`` primitive (D21 dispatch and direct store
-        callers). The field gate runs first: a forbidden field (immutable or
-        structural ``children``/``pages``/``tabs``) never reaches the store, since
-        installing and evicting children — even on a migrated ABC composite — is
-        work only ``show`` performs. Legacy wire dataclasses are frozen; a
+        The store-level ``SetProperty`` primitive. The field gate runs first: a
+        forbidden field (immutable, or structural ``children``/``pages``/``tabs``)
+        never reaches the store, since installing and evicting children is work
+        only ``show`` performs. Legacy wire dataclasses are frozen; a
         ``SetProperty`` against one is a programmer error and raises ``TypeError``.
         """
         FieldGate.reject(element_id, {field: value})
@@ -136,13 +133,15 @@ class WriteSeam:
     def _enclosing_root_kind(self, scene_id: SceneId, element_id: ElementId) -> str:
         """Return the kind of the scene-root whose subtree holds ``element_id``.
 
-        A non-root element is a descendant of exactly one scene-root; if none holds
-        it, the child-edge index and the element index disagree — a store-invariant
-        violation that fails loud rather than returning a misleading placeholder.
+        A non-root element is a descendant of exactly one scene-root; if none
+        holds it, the child-edge index and the element index disagree — a
+        store-invariant violation that fails loud. Descendants are keyed by each
+        root's store handle, not its wire id: an anonymous composite root is
+        stored under a synth handle while its ``id`` is ``""``, so rebuilding the
+        key from ``root.id`` would find none and misreport the disagreement.
         """
-        for root in self._index.scene_roots(scene_id):
-            root_id = ElementId(root.id)
-            if element_id in self._children.descendants(scene_id, root_id):
+        for root_key, root in self._index.scene_root_items(scene_id):
+            if element_id in self._children.descendants(scene_id, root_key):
                 return root.kind
         msg = (
             f"non-root element {str(element_id)!r} in scene {str(scene_id)!r} "

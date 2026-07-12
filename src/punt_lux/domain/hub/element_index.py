@@ -19,9 +19,11 @@ __all__ = ["ElementIndex", "UnknownElementError", "UnknownSceneError"]
 
 # Anonymous elements (empty id) carry no name to key on, and several may
 # repeat within one scene. Each is stored under a synthesized handle drawn
-# from this namespace so they never overwrite one another — or a named
-# element. The leading NUL cannot appear in a wire-supplied id, so a synth
-# handle can never collide with a real name in the same scene store.
+# from this reserved namespace so they never overwrite one another — or a
+# named element. The leading NUL is a reserved-namespace convention (like the
+# ``\x00unhonoured`` widget-state sentinel), not a runtime-enforced rule:
+# ``ElementId`` is an unvalidated ``NewType(str)``, but a realistic
+# agent-supplied id never begins with NUL, so a synth handle cannot collide.
 _ANON_KEY_PREFIX = "\x00lux-anon:"
 
 
@@ -49,22 +51,16 @@ class UnknownElementError(LookupError):
 class ElementIndex:
     """``(scene_id, element_id) → Element`` mapping.
 
-    Holds the per-scene element store. ``install_root`` opens a scene
-    bucket; ``install_child`` appends into an existing scene; ``lookup``
-    returns the indexed Element or raises a typed lookup error.
+    Holds the per-scene element store: ``install_root`` and ``install_child``
+    write, ``lookup`` reads or raises a typed lookup error.
 
-    Roots and children share one per-scene ``element_id → Element`` store
-    so ``lookup`` reaches a buried child by id. A parallel per-scene
-    insertion-ordered set of root ids remembers which of those entries are
-    scene roots, so ``scene_roots`` returns exactly the top level. Without
-    it, a re-push built from ``scene_roots`` would hoist every child to a
-    sibling of its own container and duplicate it against the in-tree copy.
-
-    A named element keys on its own id. An anonymous element (empty id)
-    keys on a synthesized handle instead, so several anonymous separators
-    in one scene each get a distinct slot rather than overwriting a shared
-    ``""`` key. Every install returns the key it assigned so the Hub's
-    parallel owner and child-edge maps track the same handle.
+    Roots and children share one per-scene store so ``lookup`` reaches a
+    buried child by key; a parallel insertion-ordered set of root keys
+    remembers which entries are roots, so ``scene_roots`` returns exactly
+    the top level without hoisting children to siblings on a re-push. A
+    named element keys on its own id, an anonymous one on a synthesized
+    handle; every install returns the key it assigned so the Hub's parallel
+    maps track the same handle.
     """
 
     _by_scene: dict[SceneId, dict[ElementId, WireElement]]
@@ -86,8 +82,8 @@ class ElementIndex:
     ) -> ElementId:
         """Install ``element`` as a scene-root; return the key it was stored under.
 
-        A named element keys on ``element_id``; an anonymous element keys on
-        a fresh synthesized handle so repeated anonymous roots never collide.
+        An anonymous element keys on a fresh synthesized handle so repeated
+        anonymous roots never collide.
         """
         key = self._allocate_key(element_id, element)
         self._by_scene.setdefault(scene_id, {})[key] = element
@@ -103,11 +99,9 @@ class ElementIndex:
         """Install ``element`` under ``parent_id``; return the key it was stored under.
 
         Raises ``UnknownSceneError`` if the scene is unknown and
-        ``UnknownElementError`` if ``parent_id`` is not yet indexed. A named
-        child keys on its own id; an anonymous child keys on a fresh
-        synthesized handle so repeated anonymous children never collide. The
-        child lands in the shared per-scene store for ``lookup`` but is never
-        recorded as a root — ``scene_roots`` stays the top level.
+        ``UnknownElementError`` if ``parent_id`` is not yet indexed. An
+        anonymous child keys on a fresh synthesized handle so repeats never
+        collide; it lands in the shared store for ``lookup`` but is never a root.
         """
         scene = self._by_scene.get(scene_id)
         if scene is None:
@@ -121,9 +115,8 @@ class ElementIndex:
     def _allocate_key(self, element_id: ElementId, element: WireElement) -> ElementId:
         """Return the store key for ``element`` — its id, or a fresh anon handle.
 
-        A named element keys on ``element_id`` unchanged. An anonymous element
-        keys on a per-index-unique handle drawn from the reserved namespace, so
-        two anonymous elements in one scene never share a slot.
+        An anonymous element keys on a per-index-unique handle from the
+        reserved namespace, so two in one scene never share a slot.
         """
         if not ElementIdentity.of(element).is_anonymous:
             return element_id
@@ -149,29 +142,37 @@ class ElementIndex:
     def scene_roots(self, scene_id: SceneId) -> list[WireElement]:
         """Return the scene's root elements in install order (non-removed only).
 
-        Only elements installed via ``install_root`` are returned; children
-        installed via ``install_child`` share the store for ``lookup`` but
-        are never roots. Returning children here would flatten the tree on a
-        re-push — each child hoisted to a top-level sibling and duplicated
-        against its in-tree copy.
+        Only ``install_root`` entries are returned; children share the store
+        for ``lookup`` but never appear here, so a re-push cannot flatten the
+        tree by hoisting a child to a top-level sibling.
+        """
+        return [elem for _key, elem in self.scene_root_items(scene_id)]
+
+    def scene_root_items(
+        self, scene_id: SceneId
+    ) -> list[tuple[ElementId, WireElement]]:
+        """Return each root's store key paired with its element, in install order.
+
+        ``ChildIndex`` keys parent → child edges by the store handle, so a
+        caller resolving a root's descendants must use the key, not the wire
+        id: an anonymous composite root carries ``id == ""`` while its child
+        edges live under the synth handle.
         """
         scene = self._by_scene.get(scene_id)
         if scene is None:
             return []
         return [
-            elem
-            for element_id in self._roots_by_scene.get(scene_id, {})
-            if (elem := scene.get(element_id)) is not None
-            and not self._is_removed(elem)
+            (key, elem)
+            for key in self._roots_by_scene.get(scene_id, {})
+            if (elem := scene.get(key)) is not None and not self._is_removed(elem)
         ]
 
     def discard(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Remove an indexed element. No-op if absent.
 
-        Index-side cleanup only. The Observer cascade is responsible for
-        unwinding parent composites; this method clears the storage so
-        future ``lookup`` calls fail loud. A discarded root also leaves the
-        scene's root set so it stops appearing in ``scene_roots``.
+        Index-side cleanup only — the Observer cascade unwinds parent
+        composites. Clears the storage so future ``lookup`` calls fail loud,
+        and drops a root from the root set so ``scene_roots`` forgets it.
         """
         if not self.contains(scene_id, element_id):
             return
