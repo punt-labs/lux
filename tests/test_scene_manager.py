@@ -140,6 +140,26 @@ class TestHandleSceneReplace:
         assert ws.get("b1__open") is None
         assert ws.get("__tbl_sel_b1") == 5
 
+    def test_replace_resets_honoured_but_keeps_survivor_state(self) -> None:
+        """A re-push resets echo-suppression bookkeeping, keeps user state.
+
+        A surviving tab bar's ``:active_honoured`` key is per-render-session
+        bookkeeping: it must reset so the first post-re-push frame re-honours the
+        Hub-authoritative active tab instead of reading a stale value and firing a
+        spurious ``TabChanged``. The survivor's selection state is untouched.
+        """
+        mgr, _ = _make_manager()
+        mgr.handle_scene(_make_scene(), owner_fd=10)
+        ws = mgr._scene_widget_state["s1"]
+        ws.set(f"t1{WidgetState.HONOURED_SUFFIX}", "tab-2")
+        ws.set("__tbl_sel_t1", 3)
+
+        replacement = _make_scene(elements=[TextElement(id="t1", content="New")])
+        mgr.handle_scene(replacement, owner_fd=10)
+
+        assert ws.get(f"t1{WidgetState.HONOURED_SUFFIX}") is None
+        assert ws.get("__tbl_sel_t1") == 3
+
 
 # -------------------------------------------------------------------
 # 3. test_handle_framed_scene
@@ -412,3 +432,43 @@ class TestWidgetStateDiscardFor:
         ws.discard_for("")
 
         assert ws.get("__tbl_sel_t1") == 1
+
+    def test_clears_the_honoured_echo_suppression_key(self) -> None:
+        """Removing an id clears its ``:active_honoured`` key.
+
+        A re-added same-id tab bar must not inherit the departed one's honoured
+        active tab, or its first frame would read a stale value instead of
+        re-honouring the Hub selection.
+        """
+        ws = WidgetState()
+        ws.set(f"tb{WidgetState.HONOURED_SUFFIX}", "tab-2")
+
+        ws.discard_for("tb")
+
+        assert ws.get(f"tb{WidgetState.HONOURED_SUFFIX}") is None
+
+
+class TestWidgetStateResetHonoured:
+    def test_discards_every_honoured_key(self) -> None:
+        """``reset_honoured`` forgets every tab bar's last force-selected tab."""
+        ws = WidgetState()
+        ws.set(f"tb1{WidgetState.HONOURED_SUFFIX}", "a")
+        ws.set(f"tb2{WidgetState.HONOURED_SUFFIX}", "b")
+
+        ws.reset_honoured()
+
+        assert ws.get(f"tb1{WidgetState.HONOURED_SUFFIX}") is None
+        assert ws.get(f"tb2{WidgetState.HONOURED_SUFFIX}") is None
+
+    def test_preserves_user_transient_state(self) -> None:
+        """Only honoured keys reset — selection, scroll, and text survive."""
+        ws = WidgetState()
+        ws.set(f"tb{WidgetState.HONOURED_SUFFIX}", "tab-1")
+        ws.set("__tbl_sel_tb", 4)
+        ws.set("input_x", "half-typed")
+
+        ws.reset_honoured()
+
+        assert ws.get(f"tb{WidgetState.HONOURED_SUFFIX}") is None
+        assert ws.get("__tbl_sel_tb") == 4
+        assert ws.get("input_x") == "half-typed"

@@ -38,6 +38,7 @@ from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from punt_lux.scene import SceneManager, WidgetState
 from punt_lux.tools import show
 
 if TYPE_CHECKING:
@@ -546,6 +547,93 @@ class TestInteraction:
         # a genuine later user switch (after honouring) DOES fire
         assert renderer._is_user_switch(
             selected=True, tab_id="tab-1", active="tab-2", last="tab-2"
+        )
+
+
+class TestEchoSuppressionLifecycle:
+    """The honoured key resets on re-push and removal — no spurious TabChanged.
+
+    These drive the real ``SceneManager`` re-push path and the display's
+    per-scene factory re-thread, so a stale honoured value cannot survive into a
+    frame where a leftover ImGui selection would masquerade as a user switch.
+    """
+
+    def _install(
+        self, server: DisplayServer, *, active_tab: str = "tab-1"
+    ) -> tuple[SceneManager, ImGuiRendererFactory, ImGuiTabBarRenderer]:
+        """Install a tab bar and re-thread the factory as the display would."""
+        bar = _abc_tab_bar(active_tab=active_tab)
+        sm = server._scene_manager
+        sm.handle_scene(SceneMessage(id="s1", elements=[bar]), owner_fd=0)
+        ws = sm.widget_state_for("s1")
+        assert ws is not None
+        factory = server._imgui_renderer_factory
+        factory.widget_state = ws
+        return sm, factory, ImGuiTabBarRenderer(bar, factory)
+
+    def test_whole_scene_repush_resets_honoured_no_spurious_fire(self) -> None:
+        sm, factory, renderer = self._install(_server())
+        # Render session 1 honoured the Hub active tab.
+        factory.widget_state.set(renderer._honoured_key(), "tab-1")
+        # A whole-scene re-push of the same surviving tab bar.
+        sm.handle_scene(
+            SceneMessage(id="s1", elements=[_abc_tab_bar(active_tab="tab-1")]),
+            owner_fd=0,
+        )
+        repushed = sm.widget_state_for("s1")
+        assert repushed is not None
+        factory.widget_state = repushed
+        last = factory.widget_state.get(renderer._honoured_key(), _UNHONOURED)
+        assert last is _UNHONOURED
+        # First post-re-push frame re-honours tab-1; a stale tab-2 selection
+        # reported by ImGui is the echo, not a user switch, and must not fire.
+        assert renderer._select_flags("tab-1", "tab-1", last) != 0
+        assert not renderer._is_user_switch(
+            selected=True, tab_id="tab-2", active="tab-1", last=last
+        )
+
+    def test_remove_then_readd_same_id_resets_honoured(self) -> None:
+        sm, factory, renderer = self._install(_server())
+        factory.widget_state.set(renderer._honoured_key(), "tab-1")
+        # Re-push without the tab bar → it is removed.
+        sm.handle_scene(
+            SceneMessage(id="s1", elements=[TextElement(id="only", content="x")]),
+            owner_fd=0,
+        )
+        removed = sm.widget_state_for("s1")
+        assert removed is not None
+        assert removed.get(renderer._honoured_key(), _UNHONOURED) is _UNHONOURED
+        # Re-add the same-id tab bar: it starts fresh, no stale honoured value.
+        sm.handle_scene(
+            SceneMessage(id="s1", elements=[_abc_tab_bar(active_tab="tab-1")]),
+            owner_fd=0,
+        )
+        readded = sm.widget_state_for("s1")
+        assert readded is not None
+        factory.widget_state = readded
+        last = factory.widget_state.get(renderer._honoured_key(), _UNHONOURED)
+        assert last is _UNHONOURED
+        assert not renderer._is_user_switch(
+            selected=True, tab_id="tab-2", active="tab-1", last=last
+        )
+
+    def test_element_renderer_setter_rethreads_the_factory(self) -> None:
+        # Production wiring: the display sets the ElementRenderer's widget_state
+        # per scene; that re-thread must reach the ABC factory the tab bar paints
+        # through, or the honoured reset never touches the value it reads.
+        server = _server()
+        fresh = WidgetState()
+        server._element_renderer.widget_state = fresh
+        assert server._imgui_renderer_factory.widget_state is fresh
+
+    def test_genuine_user_switch_still_fires(self) -> None:
+        _sm, factory, renderer = self._install(_server())
+        # The scene is stable (no re-push); the session honoured tab-1.
+        factory.widget_state.set(renderer._honoured_key(), "tab-1")
+        last = factory.widget_state.get(renderer._honoured_key(), _UNHONOURED)
+        # The user selects tab-2 while the Hub active tab is unchanged → fires.
+        assert renderer._is_user_switch(
+            selected=True, tab_id="tab-2", active="tab-1", last=last
         )
 
 

@@ -425,3 +425,6 @@
 {"ts":"2026-07-12T17:43:48Z","commit":"f0719f9","files_scored":205,"files_improved":0,"files_regressed":3,"verdict":"fail","deltas":{}}
 {"ts":"2026-07-12T17:47:11Z","commit":"f0719f9","files_scored":205,"files_improved":0,"files_regressed":3,"verdict":"fail","deltas":{}}
 {"ts":"2026-07-12T17:55:33Z","commit":"f0719f9","files_scored":205,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-12T18:21:03Z","commit":"02ac1c9","files_scored":205,"files_improved":0,"files_regressed":5,"verdict":"fail","deltas":{}}
+{"ts":"2026-07-12T18:24:19Z","commit":"02ac1c9","files_scored":205,"files_improved":0,"files_regressed":5,"verdict":"fail","deltas":{}}
+{"ts":"2026-07-12T18:25:36Z","commit":"02ac1c9","files_scored":205,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}

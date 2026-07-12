@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
-from typing import Any, Self
+from typing import Any, ClassVar, Self
 
 
 class WidgetState:
     """Key-value store for interactive widget state across ImGui frames."""
+
+    # Suffix of an echo-suppression key (the tab a tab-bar last force-selected):
+    # per-render-session bookkeeping that resets on a re-push, not user state.
+    # Held here so the resetters and the tab-bar renderer share one convention.
+    HONOURED_SUFFIX: ClassVar[str] = ":active_honoured"
 
     _state: dict[str, Any]
 
@@ -46,6 +51,22 @@ class WidgetState:
         self.discard(element_id)
         self.discard(f"{element_id}__open")
         self.discard(f"{element_id}__dismissed")
+        self.discard(f"{element_id}{self.HONOURED_SUFFIX}")
+
+    def reset_honoured(self) -> None:
+        """Discard every echo-suppression honoured key, keeping user state.
+
+        A re-push restarts each tab bar's render session, so the tab it last
+        force-selected must be forgotten — the next frame re-honours the Hub
+        selection rather than firing a spurious ``TabChanged`` off a stale
+        value. Only ``HONOURED_SUFFIX`` keys reset; selection, scroll, and
+        in-progress text survive for elements that persist across the re-push.
+        """
+        self._state = {
+            key: value
+            for key, value in self._state.items()
+            if not key.endswith(self.HONOURED_SUFFIX)
+        }
 
     def clear(self) -> None:
         self._state.clear()

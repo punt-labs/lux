@@ -228,6 +228,9 @@ class ElementRenderer:
         self._widget_state = value
         for attr in self._WIDGET_STATE_RENDERERS:
             getattr(self, attr).widget_state = value
+        # The ABC tab-bar adapter reads echo-suppression state through the
+        # factory; re-thread it so a scene switch reaches the ABC path too.
+        self._imgui_renderer_factory.widget_state = value
 
     @property
     def current_scene_id(self) -> str | None:

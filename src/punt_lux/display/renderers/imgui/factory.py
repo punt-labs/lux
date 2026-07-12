@@ -81,6 +81,16 @@ class ImGuiRendererFactory:
         """Return the per-scene widget state the factory mediates access to."""
         return self._widget_state
 
+    @widget_state.setter
+    def widget_state(self, value: WidgetState) -> None:
+        """Re-thread the factory to the scene being rendered.
+
+        The ABC tab-bar adapter reads echo-suppression state through the
+        factory, so a scene switch must reach it here or the adapter never sees
+        a re-push reset.
+        """
+        self._widget_state = value
+
     @property
     def texture_cache(self) -> TextureCache:
         """Return the texture cache shared across renderers."""

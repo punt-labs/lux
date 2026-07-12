@@ -26,6 +26,7 @@ from imgui_bundle import imgui
 
 from punt_lux.domain.container_interaction import TabChanged
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.scene.widget_state import WidgetState
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -88,7 +89,7 @@ class ImGuiTabBarRenderer:
 
     def _honoured_key(self) -> str:
         """Return the WidgetState key holding the last-honoured active tab."""
-        return f"{self._elem.id}:active_honoured"
+        return f"{self._elem.id}{WidgetState.HONOURED_SUFFIX}"
 
     @staticmethod
     def _select_flags(tab_id: str, active: str, last: str) -> int:

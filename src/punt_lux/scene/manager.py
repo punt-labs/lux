@@ -287,6 +287,9 @@ class SceneManager:
 
         A whole-root re-push must not wipe survivors' id-keyed state (selection,
         scroll, in-progress text) — only the departed elements' state is discarded.
+        Echo-suppression bookkeeping is the exception: every honoured key resets so
+        a surviving tab bar re-honours the Hub active tab rather than firing a
+        spurious ``TabChanged`` off a stale value.
         """
         if old_scene is None:
             return
@@ -299,6 +302,7 @@ class SceneManager:
         if widget_state is not None:
             for stale_id in stale_ids:
                 widget_state.discard_for(stale_id)
+            widget_state.reset_honoured()
 
     def _element_ids(self, elements: Sequence[object]) -> set[str]:
         """Return every element id in ``elements``, recursing containers."""
