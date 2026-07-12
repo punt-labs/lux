@@ -47,6 +47,7 @@ from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.owner_tracker import OwnerTracker
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
 from punt_lux.domain.hub.root_registry import RootRegistry
+from punt_lux.domain.hub.write_seam import WriteSeam
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
 from punt_lux.tracing import trace
@@ -88,6 +89,7 @@ class HubDisplay:
     _roots: RootRegistry
     _children: ChildIndex
     _clients: HubClientRegistry
+    _seam: WriteSeam
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
@@ -96,7 +98,13 @@ class HubDisplay:
         self._roots = RootRegistry()
         self._children = ChildIndex()
         self._clients = HubClientRegistry()
+        self._seam = WriteSeam(self._index, self._children)
         return self
+
+    @property
+    def write_seam(self) -> WriteSeam:
+        """Return the field-mutation seam the authoritative write path uses."""
+        return self._seam
 
     # -- clients registry --------------------------------------------------
 
@@ -189,7 +197,7 @@ class HubDisplay:
                 self._install_subtree(sid, elem, parent_id=pid, owner=connection_id)
             case SetProperty(scene_id=sid, element_id=eid, field=field, value=value):
                 self._require_ownership(sid, eid, connection_id)
-                self._set_property(sid, eid, field, value)
+                self._seam.set_property(sid, eid, field, value)
             case RemoveElement(scene_id=sid, element_id=eid):
                 self._require_ownership(sid, eid, connection_id)
                 self._remove_subtree(sid, eid)
@@ -331,27 +339,6 @@ class HubDisplay:
         self._index.install_child(scene_id, parent_id, element_id, element)
         self._owners.record(scene_id, element_id, owner)
         self._children.record(scene_id, parent_id, element_id)
-
-    def _set_property(
-        self,
-        scene_id: SceneId,
-        element_id: ElementId,
-        field: str,
-        value: object,
-    ) -> None:
-        """Apply a single-field patch to an indexed ABC Element.
-
-        Wire dataclasses are frozen; ``SetProperty`` against a frozen
-        Element is a programmer error and raises ``TypeError``.
-        """
-        element = self._index.lookup(scene_id, element_id)
-        if not isinstance(element, AbcElement):
-            msg = (
-                f"SetProperty target {element_id!r} in scene {scene_id!r} "
-                f"is not a mutable ABC Element"
-            )
-            raise TypeError(msg)
-        element.apply_patch({field: value})
 
     def _remove_subtree(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Clear the element and every descendant from storage.

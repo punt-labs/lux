@@ -1,17 +1,17 @@
 """HubSceneWriter — apply agent-driven scene changes to the authoritative store.
 
 The Hub is the single authority for UI state; the ``update`` and ``clear`` MCP
-tools must mutate ``HubDisplay`` first, then the Hub re-pushes to the Display.
-This writer owns that authoritative mutation: it parses the field patches and
-removals a client submits through ``update``, and empties a client's scenes on
-``clear``. Each field patch is checked against its own element's self-validation
-before anything is written — an update that would leave an element invalid, or
-targets an element the caller does not own or that is not patchable, is rejected
-in full and the store is left untouched.
+tools mutate ``HubDisplay`` first, then the Hub re-pushes to the Display. This
+writer owns that authoritative mutation.
 
-Patch validation is component-local: each element validates its own post-patch
-state (per-element ``validate()``), not a whole-tree walk the way ``show`` gates
-a fresh tree.
+The write path above the seam is branch-free: it asks the store's ``WriteSeam``
+to realize each field mutation and treats the result uniformly through the
+``FieldRealization`` contract, whether the target is an ABC element (patched in
+place) or a legacy root (realized by ``dataclasses.replace`` and rebound). A
+patch that would leave an element invalid, targets an element the caller does
+not own, names an immutable (``id``/``kind``) or unknown field, or addresses a
+legacy element nested below a legacy composite is rejected in full, store
+untouched.
 """
 
 from __future__ import annotations
@@ -19,17 +19,21 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.element_index import UnknownElementError, UnknownSceneError
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
-from punt_lux.domain.hub.patch_batch import FieldPatch, PatchBatch
-from punt_lux.domain.hub.patch_errors import MalformedPatchError, NotPatchableError
+from punt_lux.domain.hub.patch_batch import PatchBatch
+from punt_lux.domain.hub.write_errors import (
+    ImmutableFieldError,
+    MalformedPatchError,
+    NestedLegacyWriteError,
+)
 from punt_lux.domain.hub.write_result import WriteAccepted, WriteRejected, WriteResult
 from punt_lux.domain.update import RemoveElement
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from punt_lux.domain.hub.field_realization import FieldRealization
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 
@@ -72,30 +76,30 @@ class HubSceneWriter:
     ) -> WriteResult:
         """Parse and write ``patches`` to the store once, or reject the batch whole.
 
-        The single authoritative mutation for ``update``: parse the wire patches,
-        validate every field patch on a copy, and — only if all pass — commit the
-        sets atomically and apply the removals. On any rejection the store is
-        untouched and the caller re-pushes nothing. This runs exactly once and is
-        never placed inside a retryable region, so a failed re-push can never
-        re-drive the mutation against an already-mutated store.
+        Parse the wire patches, stage a realization per field patch, check every
+        rejection, and — only if all pass — commit the realizations atomically
+        and apply the removals. On any rejection the store is untouched and the
+        caller re-pushes nothing. This runs exactly once, never inside a
+        retryable region, so a failed re-push can never re-drive the mutation.
         """
         scope = SceneScope(connection_id, scene_id)
         try:
             batch = PatchBatch.from_wire(patches)
-            targets = self._resolve(scope, batch)
+            realizations = self._stage(scope, batch)
         except (
             MalformedPatchError,
-            NotPatchableError,
+            ImmutableFieldError,
+            NestedLegacyWriteError,
             HubOwnershipError,
             UnknownElementError,
             UnknownSceneError,
         ) as exc:
             return WriteRejected(str(exc))
-        for element, field_patch in targets:
-            rejection = field_patch.rejection_against(element)
+        for realization in realizations:
+            rejection = realization.rejection()
             if rejection is not None:
                 return rejection
-        self._commit_sets(targets)
+        self._commit(realizations)
         self._apply_removals(scope, batch.removals)
         return WriteAccepted()
 
@@ -106,26 +110,49 @@ class HubSceneWriter:
         authoritative path ``show`` uses for a re-show, so ownership records and
         child indexes unwind exactly as they do on a normal scene replacement.
         """
-        scenes = {
-            scene_id for scene_id, _ in self._display.elements_owned_by(connection_id)
-        }
-        for scene_id in scenes:
+        owned = self._display.elements_owned_by(connection_id)
+        for scene_id in {scene_id for scene_id, _ in owned}:
             self._display.replace_scene(connection_id, scene_id, ())
 
-    def _resolve(
-        self, scope: SceneScope, batch: PatchBatch
-    ) -> list[tuple[AbcElement, FieldPatch]]:
-        """Resolve every set target and check ownership of every removal.
+    def _stage(self, scope: SceneScope, batch: PatchBatch) -> list[FieldRealization]:
+        """Resolve a realization per field patch; guard every removal.
 
-        Raises the matching typed error on the first not-owned, not-installed, or
-        not-patchable id, so the caller rejects the whole batch before any write.
+        Checks ownership before the seam, then asks the store to realize each
+        mutation — raising the matching typed error on the first not-owned,
+        not-installed, immutable-field, or nested-legacy target, so the caller
+        rejects the whole batch before any write.
         """
-        targets = [
-            (self._patchable(scope, fp.element_id), fp) for fp in batch.field_patches
-        ]
+        seam = self._display.write_seam
+        realizations: list[FieldRealization] = []
+        for patch in batch.field_patches:
+            self._require_owner(scope, patch.element_id)
+            realizations.append(
+                seam.field_realization(scope.scene_id, patch.element_id, patch.fields)
+            )
         for element_id in batch.removals:
             self._require_owner(scope, element_id)
-        return targets
+            seam.guard_removal(scope.scene_id, element_id)
+        return realizations
+
+    @staticmethod
+    def _commit(realizations: Sequence[FieldRealization]) -> None:
+        """Commit every realization, atomically.
+
+        Each realization snapshots its own undo state as it commits, so a
+        mid-batch raise rolls back every realization already committed — the
+        store untouched on failure. A raise here is unexpected (every
+        realization already reported no rejection), so it propagates as a bug
+        after the rollback rather than being swallowed.
+        """
+        committed: list[FieldRealization] = []
+        try:
+            for realization in realizations:
+                realization.commit()
+                committed.append(realization)
+        except Exception:
+            for realization in reversed(committed):
+                realization.restore()
+            raise
 
     def _apply_removals(self, scope: SceneScope, removals: Sequence[ElementId]) -> None:
         """Evict each removed element from the store after all sets have committed."""
@@ -134,34 +161,6 @@ class HubSceneWriter:
                 scope.connection_id,
                 RemoveElement(scene_id=scope.scene_id, element_id=element_id),
             )
-
-    @staticmethod
-    def _commit_sets(targets: Sequence[tuple[AbcElement, FieldPatch]]) -> None:
-        """Write every validated field patch to its live element, atomically.
-
-        Snapshots each target's state before the first write and restores all on
-        any raise, so a mid-batch failure can never leave a partial commit — the
-        whole update is rejected and the store is untouched. A raise here is
-        unexpected (every patch already validated on a copy), so it propagates as
-        a bug after the rollback rather than being swallowed.
-        """
-        snapshots = [(element, dict(vars(element))) for element, _ in targets]
-        try:
-            for element, field_patch in targets:
-                field_patch.commit_to(element)
-        except Exception:
-            for element, snapshot in snapshots:
-                vars(element).clear()
-                vars(element).update(snapshot)
-            raise
-
-    def _patchable(self, scope: SceneScope, element_id: ElementId) -> AbcElement:
-        """Resolve an owned, mutable ABC element, or raise the matching error."""
-        self._require_owner(scope, element_id)
-        element = self._display.resolve(scope.scene_id, element_id)
-        if not isinstance(element, AbcElement):
-            raise NotPatchableError(scene_id=scope.scene_id, element_id=element_id)
-        return element
 
     def _require_owner(self, scope: SceneScope, element_id: ElementId) -> None:
         """Raise unless the scope's connection owns an installed ``element_id``.

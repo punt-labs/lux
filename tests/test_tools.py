@@ -14,6 +14,7 @@ from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
+from punt_lux.domain.update import AddElement
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
@@ -948,21 +949,48 @@ def _seed_legacy_root(
     *,
     scene: str = "s1",
     element_id: str = "sl1",
+    value: float = 50.0,
     connection: str = "local",
 ) -> None:
     """Install one legacy (non-ABC) slider root under ``connection``.
 
-    A frozen wire dataclass carries no ``_set_<field>`` setters, so a patch
-    against it is the "not patchable" agent-facing rejection.
+    A frozen wire dataclass is realized by ``dataclasses.replace`` on the write
+    path — a legacy *root* is fully patchable, and its index entry is rebound to
+    the fresh instance.
     """
     slider = agent_element_factory().element_from_dict(
-        {"kind": "slider", "id": element_id, "value": 50.0}
+        {"kind": "slider", "id": element_id, "value": value}
     )
     store.replace_scene(
         ConnectionId(connection),
         SceneId(scene),
         [cast("DomainElement", slider)],
     )
+
+
+def _seed_legacy_window_with_child(
+    store: HubDisplay,
+    *,
+    scene: str = "s1",
+    window_id: str = "w1",
+    child_id: str = "sl_child",
+    title: str = "Old",
+    connection: str = "local",
+) -> SliderElement:
+    """Install a legacy window root holding one legacy slider child.
+
+    A legacy composite: the whole subtree is frozen values, so a ``replace`` on
+    the root shares the child by reference. Returns the child object so a test
+    can assert its identity survives a root patch.
+    """
+    child = SliderElement(id=child_id, label="Vol", value=50.0)
+    window = WindowElement(id=window_id, title=title, children=[child])
+    store.replace_scene(
+        ConnectionId(connection),
+        SceneId(scene),
+        [cast("DomainElement", window)],
+    )
+    return child
 
 
 class TestUpdateTool:
@@ -1326,19 +1354,244 @@ class TestUpdateTool:
         assert child.content == "updated"
         client.show_async.assert_called_once()
 
-    def test_update_rejects_non_abc_element_as_not_patchable(
+    def test_update_patches_legacy_root_via_replace(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """A patch against a legacy (non-ABC) element is a clean rejection."""
+        """A legacy (frozen) root is written by ``replace`` and its index rebound.
+
+        The store rebinds the root's index entry to the fresh instance under the
+        same id, and the re-push carries the new value rebuilt from the store.
+        """
         store = HubDisplay()
-        _seed_legacy_root(store, element_id="sl1")
+        _seed_legacy_root(store, element_id="sl1", value=50.0)
         client = _bind_store(monkeypatch, store)
 
         result = update("s1", [{"id": "sl1", "set": {"value": 10.0}}])
 
+        assert result == "ack:s1"
+        slider = store.resolve(SceneId("s1"), ElementId("sl1"))
+        assert isinstance(slider, SliderElement)
+        assert slider.value == 10.0
+        client.show_async.assert_called_once()
+        pushed = client.show_async.call_args.kwargs["elements"]
+        assert pushed[0].value == 10.0
+
+    def test_update_legacy_composite_root_shares_children_by_reference(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Patching a legacy composite root shares its children by reference.
+
+        ``dataclasses.replace`` overrides only the addressed field; the fresh
+        root's children are the same objects, still reachable by their stable
+        ids, so a root patch never rebuilds or re-identifies the subtree.
+        """
+        store = HubDisplay()
+        child = _seed_legacy_window_with_child(
+            store, window_id="w1", child_id="sl_child", title="Old"
+        )
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "w1", "set": {"title": "New"}}])
+
+        assert result == "ack:s1"
+        window = cast("WindowElement", store.resolve(SceneId("s1"), ElementId("w1")))
+        assert window.title == "New"
+        # The child object survives the root patch by reference — same identity,
+        # still resolvable by its stable id.
+        assert window.children[0] is child
+        assert store.resolve(SceneId("s1"), ElementId("sl_child")) is child
+        client.show_async.assert_called_once()
+
+    def test_update_nested_legacy_defers_to_show(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A patch on a legacy element below a legacy composite defers to ``show``.
+
+        Rebuilding the frozen spine is deliberately not built for the mixed
+        period; the rejection names the enclosing root's kind and directs the
+        client to resend the whole tree. The store is untouched, nothing pushed.
+        """
+        store = HubDisplay()
+        child = _seed_legacy_window_with_child(
+            store, window_id="w1", child_id="sl_child"
+        )
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "sl_child", "set": {"value": 10.0}}])
+
         assert result.startswith("error: scene not updated")
-        assert "not patchable" in result
+        assert "show" in result
+        assert "window" in result
+        # Store untouched — the nested child keeps its original value and identity.
+        assert store.resolve(SceneId("s1"), ElementId("sl_child")) is child
+        assert child.value == 50.0
         client.show_async.assert_not_called()
+
+    def test_update_nested_legacy_removal_defers_to_show(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Removing a legacy element below a legacy composite defers to ``show``."""
+        store = HubDisplay()
+        _seed_legacy_window_with_child(store, window_id="w1", child_id="sl_child")
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "sl_child", "remove": True}])
+
+        assert result.startswith("error: scene not updated")
+        assert "show" in result
+        assert store.resolve(SceneId("s1"), ElementId("sl_child")).id == "sl_child"
+        client.show_async.assert_not_called()
+
+    def test_update_rejects_immutable_id_field_abc(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A ``set`` targeting ``id`` on an ABC element is refused, untouched."""
+        store = HubDisplay()
+        _seed_store(store)
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "hdr", "set": {"id": "renamed"}}])
+
+        assert result.startswith("error: scene not updated")
+        assert "immutable" in result
+        assert store.resolve(SceneId("s1"), ElementId("hdr")).id == "hdr"
+        client.show_async.assert_not_called()
+
+    def test_update_rejects_immutable_kind_field_legacy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A ``set`` targeting ``kind`` on a legacy root is refused, untouched.
+
+        ``kind`` is a real dataclass field on a legacy element, so without the
+        uniform immutability gate ``replace`` would silently morph its type.
+        """
+        store = HubDisplay()
+        _seed_legacy_root(store, element_id="sl1")
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "sl1", "set": {"kind": "button"}}])
+
+        assert result.startswith("error: scene not updated")
+        assert "immutable" in result
+        assert store.resolve(SceneId("s1"), ElementId("sl1")).kind == "slider"
+        client.show_async.assert_not_called()
+
+    def test_update_rejects_unknown_field_abc(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unknown field on an ABC element is a clean rejection."""
+        store = HubDisplay()
+        _seed_store(store)
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "hdr", "set": {"nonexistent": 1}}])
+
+        assert result.startswith("error: scene not updated")
+        assert "unknown field" in result
+        client.show_async.assert_not_called()
+
+    def test_update_rejects_unknown_field_legacy(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """An unknown field on a legacy root is rejected as on the ABC path.
+
+        ``replace`` raises ``TypeError`` on an unexpected keyword; the write path
+        turns that into the same clean, uniform ``unknown field`` rejection.
+        """
+        store = HubDisplay()
+        _seed_legacy_root(store, element_id="sl1")
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "sl1", "set": {"bogus": 1}}])
+
+        assert result.startswith("error: scene not updated")
+        assert "unknown field" in result
+        client.show_async.assert_not_called()
+
+    def test_update_batch_with_legacy_composite_rejection_is_atomic(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A batch with a legacy composite patch + one invalid patch commits none.
+
+        The legacy composite root's ``replace`` never lands when a sibling patch
+        fails validation — the composite keeps its title AND its children by
+        reference, proving the atomicity boundary covers the legacy realization.
+        """
+        store = HubDisplay()
+        child = _seed_legacy_window_with_child(store, window_id="w1", title="Old")
+        hdr = CollapsingHeaderElement(id="hdr", label="Details", open=False)
+        store.apply(
+            ConnectionId("local"),
+            AddElement(
+                scene_id=SceneId("s1"),
+                element=cast("DomainElement", hdr),
+                parent_id=None,
+            ),
+        )
+        client = _bind_store(monkeypatch, store)
+
+        result = update(
+            "s1",
+            [
+                {"id": "w1", "set": {"title": "New"}},
+                {"id": "hdr", "set": {"label": ""}},
+            ],
+        )
+
+        assert result.startswith("error: scene not updated")
+        window = cast("WindowElement", store.resolve(SceneId("s1"), ElementId("w1")))
+        assert window.title == "Old"
+        assert window.children[0] is child
+        client.show_async.assert_not_called()
+
+    def test_update_commit_failure_restores_legacy_composite(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A commit-time raise after a legacy composite commit rolls it back exactly.
+
+        The legacy composite root commits first (index rebound); a later ABC
+        commit then raises. The writer restores the rebound root to its original
+        frozen instance — title reverted, children identity intact — and the bug
+        propagates rather than leaving a half-applied batch.
+        """
+        store = HubDisplay()
+        child = _seed_legacy_window_with_child(store, window_id="w1", title="Old")
+        hdr = CollapsingHeaderElement(id="hdr", label="Details", open=False)
+        store.apply(
+            ConnectionId("local"),
+            AddElement(
+                scene_id=SceneId("s1"),
+                element=cast("DomainElement", hdr),
+                parent_id=None,
+            ),
+        )
+        _bind_store(monkeypatch, store)
+
+        # Succeed on the rejection-phase copy, raise on the live commit — so the
+        # legacy composite has already committed when the ABC commit fails.
+        calls = {"n": 0}
+        original_set_open = CollapsingHeaderElement._set_open
+
+        def _flaky(self: CollapsingHeaderElement, value: object) -> None:
+            calls["n"] += 1
+            if calls["n"] >= 2:
+                raise AttributeError("boom on live commit")
+            original_set_open(self, value)
+
+        monkeypatch.setattr(CollapsingHeaderElement, "_set_open", _flaky)
+
+        with pytest.raises(AttributeError, match="boom on live commit"):
+            update(
+                "s1",
+                [
+                    {"id": "w1", "set": {"title": "New"}},
+                    {"id": "hdr", "set": {"open": True}},
+                ],
+            )
+
+        window = cast("WindowElement", store.resolve(SceneId("s1"), ElementId("w1")))
+        assert window.title == "Old"
+        assert window.children[0] is child
 
     def test_update_setter_bug_surfaces_as_bug(
         self, monkeypatch: pytest.MonkeyPatch
