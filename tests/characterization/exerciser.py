@@ -82,7 +82,7 @@ class _StubClient:
     """
 
     _PASSTHROUGH_METHODS: ClassVar[frozenset[str]] = frozenset(
-        {"declare_menu_item", "on_event", "show_async"}
+        {"declare_menu_item", "on_event"}
     )
 
     # PY-TS-14: per-method config shapes are heterogeneous (dicts, literals,
@@ -134,8 +134,8 @@ class _StubClient:
     def show_async(self, *_args: object, **_kwargs: object) -> None:
         # Fire-and-forget re-push. A successful ``update`` (including an
         # idempotent remove of an absent id) re-pushes the scene; the corpus
-        # models that side effect as a no-op passthrough.
-        self._require_spec("show_async")
+        # models that side effect as a genuine no-op — nothing to configure.
+        return
 
     def query(self, method: str, _params: object = None) -> QueryResponse | None:
         cfg = self._require_spec("query")
