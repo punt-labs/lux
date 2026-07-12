@@ -464,6 +464,24 @@ class TestEncoderFactoryGuard:
         children = cast("list[dict[str, Any]]", encoded["children"])
         assert [child["id"] for child in children] == ["t1", "b1"]
 
+    def test_encoder_reemits_open_and_never_leaks_default_open(self) -> None:
+        # The ``default_open`` alias is decode-only: a payload that arrived with
+        # the pre-migration field must re-encode as the canonical ``open``, with
+        # ``default_open`` gone from the wire — the alias never round-trips out.
+        header = _decode(
+            {
+                "kind": "collapsing_header",
+                "id": "ch",
+                "label": "Section",
+                "default_open": True,
+                "children": [],
+            }
+        )
+        assert isinstance(header, CollapsingHeaderElement)
+        encoded = JsonEncoderFactory().encode(header)
+        assert encoded["open"] is True
+        assert "default_open" not in encoded
+
 
 class TestTooltipRoundTrip:
     def test_tooltip_round_trips_through_abc_path(self) -> None:
