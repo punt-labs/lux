@@ -42,26 +42,23 @@ class PatchBatch:
     def from_wire(cls, patches: Sequence[Mapping[str, object]]) -> Self:
         """Build a batch from the ``update`` tool's raw patch dicts.
 
-        Rejects a malformed patch loud (``MalformedPatchError``): each must carry
-        an ``id`` and be a truthy ``remove`` or a ``set`` mapping. Field patches
-        on the same id are merged so a duplicate id commits as one unit; both
-        maps double as order-preserving de-duplicators for their ids.
+        Each patch must carry an ``id`` and be exactly one of two shapes — a
+        removal (``remove`` set to the boolean ``True``) or a field set (a
+        ``set`` mapping). The two are mutually exclusive; a patch carrying both,
+        a non-boolean ``remove`` (``"yes"``, ``1``), or neither is rejected loud
+        as a ``MalformedPatchError`` rather than silently dropping the ``set``.
+        Field patches on the same id are merged so a duplicate id commits as one
+        unit; both maps double as order-preserving de-duplicators for their ids.
         """
         merged: dict[ElementId, dict[str, object]] = {}
         removals: dict[ElementId, None] = {}
         for patch in patches:
             element_id = cls._require_id(patch)
-            if patch.get("remove", False):
+            if cls._is_removal(patch, element_id):
                 removals[element_id] = None
             else:
-                fields = patch.get("set")
-                if not isinstance(fields, Mapping):
-                    raise MalformedPatchError(
-                        element_id,
-                        "patch carries neither a truthy 'remove' nor a 'set' mapping",
-                    )
                 merged.setdefault(element_id, {}).update(
-                    cast("Mapping[str, object]", fields)
+                    cls._require_set(patch, element_id)
                 )
         field_patches = tuple(FieldPatch(eid, fields) for eid, fields in merged.items())
         return cls(field_patches, tuple(removals))
@@ -73,3 +70,39 @@ class PatchBatch:
         if raw is None:
             raise MalformedPatchError(None, "patch is missing a required 'id'")
         return ElementId(str(raw))
+
+    @staticmethod
+    def _is_removal(patch: Mapping[str, object], element_id: ElementId) -> bool:
+        """Return True if ``patch`` is a well-formed removal, False if a field set.
+
+        A falsy or absent ``remove`` is a field set. A truthy ``remove`` must be
+        exactly the boolean ``True`` and must not also carry a ``set`` — the two
+        shapes are mutually exclusive. Any other combination raises.
+        """
+        remove = patch.get("remove", False)
+        if not remove:
+            return False
+        if remove is not True:
+            raise MalformedPatchError(
+                element_id, f"'remove' must be the boolean true, not {remove!r}"
+            )
+        if patch.get("set") is not None:
+            raise MalformedPatchError(
+                element_id,
+                "patch specifies both a truthy 'remove' and a 'set'; "
+                "they are mutually exclusive",
+            )
+        return True
+
+    @staticmethod
+    def _require_set(
+        patch: Mapping[str, object], element_id: ElementId
+    ) -> Mapping[str, object]:
+        """Return the patch's ``set`` mapping or raise on a non-mapping value."""
+        fields = patch.get("set")
+        if not isinstance(fields, Mapping):
+            raise MalformedPatchError(
+                element_id,
+                "patch carries neither a truthy 'remove' nor a 'set' mapping",
+            )
+        return cast("Mapping[str, object]", fields)

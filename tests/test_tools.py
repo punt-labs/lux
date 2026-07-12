@@ -1183,6 +1183,49 @@ class TestUpdateTool:
         assert "hdr" in result
         client.show_async.assert_not_called()
 
+    def test_update_rejects_remove_and_set_together(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A patch carrying both ``remove`` and ``set`` is refused whole.
+
+        The old ``from_wire`` took the truthy ``remove`` and silently discarded
+        the ``set``; now the mutually-exclusive shape is rejected and the store
+        is untouched.
+        """
+        store = HubDisplay()
+        _seed_store(store)
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "hdr", "remove": True, "set": {"open": True}}])
+
+        assert result.startswith("error: scene not updated")
+        assert "hdr" in result
+        # The seeded header survives untouched.
+        header = store.resolve(SceneId("s1"), ElementId("hdr"))
+        assert isinstance(header, CollapsingHeaderElement)
+        assert header.open is False
+        client.show_async.assert_not_called()
+
+    def test_update_rejects_non_boolean_remove(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A truthy but non-boolean ``remove`` (``"yes"``) is refused loud.
+
+        The old ``from_wire`` treated any truthy value as a removal, so
+        ``{"remove": "yes"}`` silently dropped the element; now it is rejected.
+        """
+        store = HubDisplay()
+        _seed_store(store)
+        client = _bind_store(monkeypatch, store)
+
+        result = update("s1", [{"id": "hdr", "remove": "yes"}])
+
+        assert result.startswith("error: scene not updated")
+        assert "hdr" in result
+        # The seeded header survives — the malformed remove never landed.
+        assert store.resolve(SceneId("s1"), ElementId("hdr")).id == "hdr"
+        client.show_async.assert_not_called()
+
     def test_update_rejects_patch_missing_id(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
