@@ -70,12 +70,22 @@ class InspectionView:
         return frozenset(self._root_ids)
 
     def duplicate_ids(self) -> frozenset[str]:
-        """Return ids that appear more than once across ``element_paths``.
+        """Return named ids that appear more than once across ``element_paths``.
 
-        ``element_paths`` recurses containers, so each element appears once
-        in a well-formed scene. An id appearing twice means the same element
-        is both nested in its container and hoisted to a top-level root — the
-        signature of a re-push that flattened the tree.
+        ``element_paths`` recurses containers, so each *named* element appears
+        once in a well-formed scene. A named id appearing twice means the same
+        element is both nested in its container and hoisted to a top-level
+        root — the signature of a re-push that flattened the tree.
+
+        Anonymous elements (the empty-id sentinel — bare separators) are
+        exempt: they carry no identity and may repeat freely, so a scene with
+        several separators is well-formed even though their ids collide. Only
+        truthy string ids are counted, so an empty or non-string id never
+        registers a false duplicate.
         """
-        counts = Counter(cast("str", record["id"]) for record in self._records)
+        counts = Counter(
+            eid
+            for record in self._records
+            if isinstance(eid := record["id"], str) and eid
+        )
         return frozenset(eid for eid, count in counts.items() if count > 1)
