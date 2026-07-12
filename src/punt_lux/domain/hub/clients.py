@@ -183,6 +183,13 @@ class ClientRegistry:
 
         roots = display_store.scene_roots(SceneId(scene_id))
         client = registry.get()
+        # frame_id=scene_id assumes a scene lives in a frame named for itself,
+        # which holds for the default show() path (frame_id defaults to scene_id).
+        # The Hub store does not track a scene's original frame_id, so a scene
+        # explicitly placed in a differently-named frame would be moved on re-push;
+        # sending frame_id=None is not a fix (the Display would treat it as an
+        # unframed scene). Preserving a divergent frame_id needs per-scene frame
+        # tracking on the Hub — deferred until multi-scene frame layouts need it.
         client.show_async(
             scene_id,
             elements=roots,  # type: ignore[arg-type]  # WireElement ≅ Element union
