@@ -466,6 +466,18 @@ class TestLevel3Crossing:
 
 
 class TestInteraction:
+    """The fire decision, proven at the pure-function level.
+
+    ``begin_tab``/``end`` cannot run headless: ``imgui.begin_tab_item`` requires a
+    live ImGui frame inside an OpenGL context, which the unit tier has no window
+    for. So the echo-suppression guarantee — a Hub-driven ``active_tab`` change or
+    a first-frame honour never fires, only a genuine user switch does — is proven
+    through the pure ``_select_flags`` / ``_is_user_switch`` decision functions
+    ``begin_tab`` calls, not through a driven ``end()``-then-``begin_tab()``
+    sequence. The full interactive leg (a real click firing across the socket) is
+    the business-event-loop harness's job (``tests/e2e/scenario.py``).
+    """
+
     def test_builtin_handler_syncs_active_tab_on_the_hub_copy(self) -> None:
         bar = _decode(_abc_tab_bar().to_dict())
         assert isinstance(bar, TabBarElement)
@@ -593,6 +605,13 @@ class TestEchoSuppressionLifecycle:
         )
 
     def test_remove_then_readd_same_id_resets_honoured(self) -> None:
+        # Integration coverage of the removal + re-add lifecycle: a re-push that
+        # drops the tab bar clears its honoured value, so a re-added same-id bar
+        # starts fresh. This does NOT isolate ``discard_for`` — the removal runs
+        # through ``_replace_scene_state``, where both ``discard_for(stale)`` and
+        # ``reset_honoured()`` clear the honoured key, so either alone would pass
+        # it. ``discard_for``'s own honoured-clearing is isolated by the
+        # WidgetState unit test in test_scene_manager.py.
         sm, factory, renderer = self._install(_server())
         factory.widget_state.set(renderer._honoured_key(), "tab-1")
         # Re-push without the tab bar → it is removed.
@@ -626,14 +645,31 @@ class TestEchoSuppressionLifecycle:
         server._element_renderer.widget_state = fresh
         assert server._imgui_renderer_factory.widget_state is fresh
 
-    def test_genuine_user_switch_still_fires(self) -> None:
-        _sm, factory, renderer = self._install(_server())
-        # The scene is stable (no re-push); the session honoured tab-1.
+    def test_reset_does_not_over_suppress_a_genuine_switch(self) -> None:
+        # Complement to the no-spurious-fire tests: the honoured reset must not
+        # gag genuine switches. This drives the real re-push reset path, then —
+        # once the new session has re-honoured tab-1 — a user switch to tab-2
+        # (Hub active unchanged) still fires. It passes under the old code too,
+        # by design: the reset touches the honoured *bookkeeping*, never the
+        # ``_is_user_switch`` fire decision, so this guards against a future
+        # over-suppression regression rather than pinning the reset itself (the
+        # no-spurious-fire tests above do that, failing under the old code).
+        sm, factory, renderer = self._install(_server())
         factory.widget_state.set(renderer._honoured_key(), "tab-1")
-        last = factory.widget_state.get(renderer._honoured_key(), _UNHONOURED)
-        # The user selects tab-2 while the Hub active tab is unchanged → fires.
+        sm.handle_scene(
+            SceneMessage(id="s1", elements=[_abc_tab_bar(active_tab="tab-1")]),
+            owner_fd=0,
+        )
+        repushed = sm.widget_state_for("s1")
+        assert repushed is not None
+        factory.widget_state = repushed
+        assert factory.widget_state.get(renderer._honoured_key(), _UNHONOURED) is (
+            _UNHONOURED
+        )
+        # The next frame re-honours tab-1; a later genuine user switch fires.
+        factory.widget_state.set(renderer._honoured_key(), "tab-1")
         assert renderer._is_user_switch(
-            selected=True, tab_id="tab-2", active="tab-1", last=last
+            selected=True, tab_id="tab-2", active="tab-1", last="tab-1"
         )
 
 
