@@ -574,6 +574,24 @@ class TestInteraction:
         assert not arbiter.should_fire(selected=True, tab_id="tab-2", active="tab-1")
         assert not arbiter.should_fire(selected=True, tab_id="tab-2", active="tab-1")
 
+    def test_distinct_tab_within_window_fires_and_advances_pending(self) -> None:
+        # A second click to a DIFFERENT tab, still inside the latency window (no
+        # re-push yet, Hub active unchanged), is a genuine switch and must fire —
+        # the pending slot gags only a re-click of the SAME tab. The first fire
+        # records tab-2 pending; the distinct tab-3 click clears that guard,
+        # fires, and advances pending to tab-3, so a naive "gag every fire while
+        # pending is set" simplification would wrongly drop this second
+        # TabChanged. After it fires, re-clicking tab-3 is now the pending tab and
+        # stays silent, proving pending advanced rather than lingering on tab-2.
+        ws = WidgetState()
+        ws.set(_honoured_key(), "tab-1")
+        arbiter = TabSelectionArbiter(ws, "tb")
+        assert arbiter.should_fire(selected=True, tab_id="tab-2", active="tab-1")
+        # Distinct tab, same window → fires and takes over the pending slot.
+        assert arbiter.should_fire(selected=True, tab_id="tab-3", active="tab-1")
+        # tab-3 is now pending → a re-click of it does not re-fire.
+        assert not arbiter.should_fire(selected=True, tab_id="tab-3", active="tab-1")
+
     def test_repush_reset_reopens_firing_after_the_window(self) -> None:
         # The pending slot must not gag a genuine switch once the window closes.
         # After a fire records tab-2 pending, the re-push reset clears the slot
