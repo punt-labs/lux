@@ -24,6 +24,7 @@ from punt_lux.domain.ids import ElementId
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from punt_lux.domain.element import Element as WireElement
     from punt_lux.domain.hub.child_index import ChildIndex
     from punt_lux.domain.hub.element_index import ElementIndex
     from punt_lux.domain.ids import SceneId
@@ -59,29 +60,20 @@ class WriteSeam:
     ) -> FieldRealization:
         """Return the realization of a field patch — the ABC/legacy seam.
 
-        Forbidden fields are rejected first. An ABC element patches in place; a
-        legacy root is realized by ``replace`` and rebound; a legacy element below
-        a legacy composite defers to ``show``.
+        Forbidden fields are rejected first — an immutable or structural field
+        never reaches the model dispatch. The field-name policy lives in
+        ``FieldGate`` so both models reject ``id``/``kind`` and
+        ``children``/``pages``/``tabs`` for one reason. An ABC element patches in
+        place; a legacy root is realized by ``replace`` and rebound; a legacy
+        element below a legacy composite defers to ``show``.
         """
-        self._reject_forbidden_fields(element_id, fields)
-        element = self._index.lookup(scene_id, element_id)
+        FieldGate.reject(element_id, fields)
+        element = self._resolve_writable(scene_id, element_id)
         if isinstance(element, AbcElement):
             return AbcFieldRealization(element, fields)
-        self._require_legacy_root(scene_id, element_id)
         return LegacyFieldRealization(
             self._index, scene_id, element_id, element, fields
         )
-
-    @staticmethod
-    def _reject_forbidden_fields(
-        element_id: ElementId, fields: Mapping[str, object]
-    ) -> None:
-        """Refuse an immutable or structural field before the model dispatch.
-
-        The field-name policy lives in ``FieldGate`` so both models reject
-        ``id``/``kind`` and ``children``/``pages``/``tabs`` for one reason.
-        """
-        FieldGate.reject(element_id, fields)
 
     def guard_removal(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Raise if removing ``element_id`` defers to ``show``.
@@ -90,10 +82,16 @@ class WriteSeam:
         below a legacy composite would leave its frozen parent holding it by
         reference, so its removal defers to ``show`` like a nested-legacy patch.
         """
+        self._resolve_writable(scene_id, element_id)
+
+    def _resolve_writable(
+        self, scene_id: SceneId, element_id: ElementId
+    ) -> WireElement:
+        """Return the target element, requiring a legacy target be a scene-root."""
         element = self._index.lookup(scene_id, element_id)
-        if isinstance(element, AbcElement):
-            return
-        self._require_legacy_root(scene_id, element_id)
+        if not isinstance(element, AbcElement):
+            self._require_legacy_root(scene_id, element_id)
+        return element
 
     def set_property(
         self,
