@@ -75,6 +75,10 @@ class WriteSeam:
             self._index, scene_id, element_id, element, fields
         )
 
+    def is_present(self, scene_id: SceneId, element_id: ElementId) -> bool:
+        """Return whether ``element_id`` is installed — lets removal stay idempotent."""
+        return self._index.contains(scene_id, element_id)
+
     def guard_removal(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Raise if removing ``element_id`` defers to ``show``.
 

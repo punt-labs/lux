@@ -14,7 +14,7 @@
       "upd-scene"
     ]
   ],
-  "response": "error: scene not updated \u2014 unknown element: 'upd-missing' in scene 'upd-scene'",
+  "response": "ack:upd-scene",
   "setup": {
     "client": {},
     "display_running": true

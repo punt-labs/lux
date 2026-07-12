@@ -421,3 +421,7 @@
 {"ts":"2026-07-12T16:49:58Z","commit":"ae23706","files_scored":205,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/domain/hub/write_seam.py":{"module_size":[126.0,125.0]}}}
 {"ts":"2026-07-12T17:15:33Z","commit":"280b816","files_scored":205,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
 {"ts":"2026-07-12T17:21:40Z","commit":"280b816","files_scored":205,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/protocol/elements/collapsing_header_codec.py":{"avg_complexity":[2.0,1.92],"module_size":[157.0,153.0]}}}
+{"ts":"2026-07-12T17:36:29Z","commit":"f0719f9","files_scored":205,"files_improved":0,"files_regressed":3,"verdict":"fail","deltas":{}}
+{"ts":"2026-07-12T17:43:48Z","commit":"f0719f9","files_scored":205,"files_improved":0,"files_regressed":3,"verdict":"fail","deltas":{}}
+{"ts":"2026-07-12T17:47:11Z","commit":"f0719f9","files_scored":205,"files_improved":0,"files_regressed":3,"verdict":"fail","deltas":{}}
+{"ts":"2026-07-12T17:55:33Z","commit":"f0719f9","files_scored":205,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}

@@ -213,11 +213,12 @@ LIFECYCLE_SCENARIOS: tuple[Scenario, ...] = (
         },
         setup={"display_running": True, "client": {}},
     ),
-    # ``update`` now mutates the Hub's authoritative store first. The stub
-    # harness cannot seed that store, so these scenarios pin the deterministic
-    # rejection an update aimed at an un-installed id returns — the honest,
-    # order-independent characterization of the tool under an empty Hub. The
-    # scene/element ids never collide with any other scenario's installs.
+    # ``update`` mutates the Hub's authoritative store first. A ``set`` aimed at
+    # an un-installed id is a hard error — a field patch cannot apply to an
+    # element that is not there. A ``remove`` of an un-installed id is idempotent:
+    # the target is already gone, so the write is accepted and the scene
+    # re-pushed. These two scenarios pin that asymmetry under an empty
+    # Hub. The scene/element ids never collide with any other scenario's installs.
     Scenario(
         name="update-set-unknown-element",
         tool="update",

@@ -76,10 +76,9 @@ class ElementIndex:
         self,
         scene_id: SceneId,
         parent_id: ElementId,
-        element_id: ElementId,
         element: WireElement,
     ) -> None:
-        """Install ``element`` under ``parent_id``.
+        """Install ``element`` under ``parent_id``, keyed by its own ``id``.
 
         Raises ``UnknownSceneError`` if the scene is unknown and
         ``UnknownElementError`` if ``parent_id`` is not yet indexed. The
@@ -91,7 +90,7 @@ class ElementIndex:
             raise UnknownSceneError(scene_id=scene_id)
         if parent_id not in scene:
             raise UnknownElementError(scene_id=scene_id, element_id=parent_id)
-        scene[element_id] = element
+        scene[ElementId(element.id)] = element
 
     def lookup(self, scene_id: SceneId, element_id: ElementId) -> WireElement:
         """Return the indexed Element or raise the matching lookup error."""
@@ -102,6 +101,11 @@ class ElementIndex:
         if element is None:
             raise UnknownElementError(scene_id=scene_id, element_id=element_id)
         return element
+
+    def contains(self, scene_id: SceneId, element_id: ElementId) -> bool:
+        """Return whether ``element_id`` is installed — ``lookup`` without a raise."""
+        scene = self._by_scene.get(scene_id)
+        return scene is not None and element_id in scene
 
     def scene_roots(self, scene_id: SceneId) -> list[WireElement]:
         """Return the scene's root elements in install order (non-removed only).
@@ -130,10 +134,9 @@ class ElementIndex:
         future ``lookup`` calls fail loud. A discarded root also leaves the
         scene's root set so it stops appearing in ``scene_roots``.
         """
-        scene = self._by_scene.get(scene_id)
-        if scene is None or element_id not in scene:
+        if not self.contains(scene_id, element_id):
             return
-        del scene[element_id]
+        del self._by_scene[scene_id][element_id]
         self._roots_by_scene.get(scene_id, {}).pop(element_id, None)
 
     @staticmethod

@@ -336,7 +336,7 @@ class HubDisplay:
         (wire-only subtrees).
         """
         element_id = ElementId(element.id)
-        self._index.install_child(scene_id, parent_id, element_id, element)
+        self._index.install_child(scene_id, parent_id, element)
         self._owners.record(scene_id, element_id, owner)
         self._children.record(scene_id, parent_id, element_id)
 

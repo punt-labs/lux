@@ -77,12 +77,11 @@ class HubSceneWriter:
     ) -> WriteResult:
         """Parse and write ``patches`` to the store once, or reject the batch whole.
 
-        Stage a realization per field patch and guard every removal, check every
-        rejection, and — only if all pass — commit the field realizations
-        atomically (a mid-commit raise rolls every committed one back), then apply
-        removals as a post-commit phase kept safe by apply-path idempotency (see
-        :meth:`_apply_removals`). On any rejection the store is untouched, and the
-        whole path runs exactly once.
+        Stage a realization per field patch and guard every present removal,
+        check every rejection, and — only if all pass — commit the fields
+        atomically (a mid-commit raise rolls all back), then apply removals
+        post-commit, idempotent by design (see :meth:`_apply_removals`). Any
+        rejection leaves the store untouched; the whole path runs exactly once.
         """
         scope = SceneScope(connection_id, scene_id)
         try:
@@ -117,9 +116,11 @@ class HubSceneWriter:
             self._display.replace_scene(connection_id, scene_id, ())
 
     def _stage(self, scope: SceneScope, batch: PatchBatch) -> list[FieldRealization]:
-        """Resolve a realization per field patch; guard every removal.
+        """Resolve a realization per field patch; guard every present removal.
 
-        Ownership is checked before the seam; the first bad target rejects the batch.
+        Ownership is checked before the seam; the first bad target rejects the
+        batch. A removal of an absent id is skipped, not rejected —
+        ``RemoveElement`` is idempotent, so an already-gone target is a no-op.
         """
         seam = self._display.write_seam
         realizations: list[FieldRealization] = []
@@ -129,6 +130,8 @@ class HubSceneWriter:
                 seam.field_realization(scope.scene_id, patch.element_id, patch.fields)
             )
         for element_id in batch.removals:
+            if not seam.is_present(scope.scene_id, element_id):
+                continue
             self._require_owner(scope, element_id)
             seam.guard_removal(scope.scene_id, element_id)
         return realizations
