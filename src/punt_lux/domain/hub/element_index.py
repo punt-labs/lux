@@ -12,9 +12,17 @@ from dataclasses import dataclass
 from typing import Self
 
 from punt_lux.domain.element import Element as WireElement
+from punt_lux.domain.element_identity import ElementIdentity
 from punt_lux.domain.ids import ElementId, SceneId
 
 __all__ = ["ElementIndex", "UnknownElementError", "UnknownSceneError"]
+
+# Anonymous elements (empty id) carry no name to key on, and several may
+# repeat within one scene. Each is stored under a synthesized handle drawn
+# from this namespace so they never overwrite one another — or a named
+# element. The leading NUL cannot appear in a wire-supplied id, so a synth
+# handle can never collide with a real name in the same scene store.
+_ANON_KEY_PREFIX = "\x00lux-anon:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,15 +59,23 @@ class ElementIndex:
     scene roots, so ``scene_roots`` returns exactly the top level. Without
     it, a re-push built from ``scene_roots`` would hoist every child to a
     sibling of its own container and duplicate it against the in-tree copy.
+
+    A named element keys on its own id. An anonymous element (empty id)
+    keys on a synthesized handle instead, so several anonymous separators
+    in one scene each get a distinct slot rather than overwriting a shared
+    ``""`` key. Every install returns the key it assigned so the Hub's
+    parallel owner and child-edge maps track the same handle.
     """
 
     _by_scene: dict[SceneId, dict[ElementId, WireElement]]
     _roots_by_scene: dict[SceneId, dict[ElementId, None]]
+    _anon_seq: int
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._by_scene = {}
         self._roots_by_scene = {}
+        self._anon_seq = 0
         return self
 
     def install_root(
@@ -67,30 +83,53 @@ class ElementIndex:
         scene_id: SceneId,
         element_id: ElementId,
         element: WireElement,
-    ) -> None:
-        """Install ``element`` as a scene-root under ``scene_id``."""
-        self._by_scene.setdefault(scene_id, {})[element_id] = element
-        self._roots_by_scene.setdefault(scene_id, {})[element_id] = None
+    ) -> ElementId:
+        """Install ``element`` as a scene-root; return the key it was stored under.
+
+        A named element keys on ``element_id``; an anonymous element keys on
+        a fresh synthesized handle so repeated anonymous roots never collide.
+        """
+        key = self._allocate_key(element_id, element)
+        self._by_scene.setdefault(scene_id, {})[key] = element
+        self._roots_by_scene.setdefault(scene_id, {})[key] = None
+        return key
 
     def install_child(
         self,
         scene_id: SceneId,
         parent_id: ElementId,
         element: WireElement,
-    ) -> None:
-        """Install ``element`` under ``parent_id``, keyed by its own ``id``.
+    ) -> ElementId:
+        """Install ``element`` under ``parent_id``; return the key it was stored under.
 
         Raises ``UnknownSceneError`` if the scene is unknown and
-        ``UnknownElementError`` if ``parent_id`` is not yet indexed. The
-        child lands in the shared per-scene store for ``lookup`` but is
-        never recorded as a root — ``scene_roots`` stays the top level.
+        ``UnknownElementError`` if ``parent_id`` is not yet indexed. A named
+        child keys on its own id; an anonymous child keys on a fresh
+        synthesized handle so repeated anonymous children never collide. The
+        child lands in the shared per-scene store for ``lookup`` but is never
+        recorded as a root — ``scene_roots`` stays the top level.
         """
         scene = self._by_scene.get(scene_id)
         if scene is None:
             raise UnknownSceneError(scene_id=scene_id)
         if parent_id not in scene:
             raise UnknownElementError(scene_id=scene_id, element_id=parent_id)
-        scene[ElementId(element.id)] = element
+        key = self._allocate_key(ElementId(element.id), element)
+        scene[key] = element
+        return key
+
+    def _allocate_key(self, element_id: ElementId, element: WireElement) -> ElementId:
+        """Return the store key for ``element`` — its id, or a fresh anon handle.
+
+        A named element keys on ``element_id`` unchanged. An anonymous element
+        keys on a per-index-unique handle drawn from the reserved namespace, so
+        two anonymous elements in one scene never share a slot.
+        """
+        if not ElementIdentity.of(element).is_anonymous:
+            return element_id
+        key = ElementId(f"{_ANON_KEY_PREFIX}{self._anon_seq}")
+        self._anon_seq += 1
+        return key
 
     def lookup(self, scene_id: SceneId, element_id: ElementId) -> WireElement:
         """Return the indexed Element or raise the matching lookup error."""

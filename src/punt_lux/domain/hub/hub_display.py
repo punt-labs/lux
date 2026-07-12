@@ -298,26 +298,29 @@ class HubDisplay:
         would route to elements ``resolve`` cannot find.
         """
         if parent_id is None:
-            self._install_scene(scene_id, element, owner=owner)
+            key = self._install_scene(scene_id, element, owner=owner)
         else:
-            self._install_child(scene_id, parent_id, element, owner=owner)
+            key = self._install_child(scene_id, parent_id, element, owner=owner)
         if isinstance(element, Composite):
-            element_id = ElementId(element.id)
             for child in element.children:
-                self._install_subtree(
-                    scene_id, child, parent_id=element_id, owner=owner
-                )
+                self._install_subtree(scene_id, child, parent_id=key, owner=owner)
 
     def _install_scene(
         self, scene_id: SceneId, element: WireElement, *, owner: ConnectionId
-    ) -> None:
-        """Install ``element`` as a scene-root under ``scene_id``."""
-        element_id = ElementId(element.id)
-        self._index.install_root(scene_id, element_id, element)
-        self._owners.record(scene_id, element_id, owner)
+    ) -> ElementId:
+        """Install ``element`` as a scene-root; return its assigned store key.
+
+        The key is the element's id for a named element, or a synthesized
+        handle for an anonymous one — the index assigns it and every parallel
+        map (owners, root registry, observer) keys on the same handle so
+        repeated anonymous roots never collapse onto a shared ``""`` slot.
+        """
+        key = self._index.install_root(scene_id, ElementId(element.id), element)
+        self._owners.record(scene_id, key, owner)
         if isinstance(element, AbcElement):
-            self._roots.register(scene_id, element_id, element)
-            element.add_observer(self._root_observer_for(scene_id, element_id))
+            self._roots.register(scene_id, key, element)
+            element.add_observer(self._root_observer_for(scene_id, key))
+        return key
 
     def _install_child(
         self,
@@ -326,19 +329,20 @@ class HubDisplay:
         element: WireElement,
         *,
         owner: ConnectionId,
-    ) -> None:
-        """Install ``element`` under ``parent_id``.
+    ) -> ElementId:
+        """Install ``element`` under ``parent_id``; return its assigned store key.
 
-        Index-only wiring; the parent-as-observer is the parent
-        composite's responsibility, not HubDisplay's. The parent →
-        child edge is recorded so cascade removal can drop the
-        descendant from storage even when the parent has no observer
-        (wire-only subtrees).
+        Index-only wiring; the parent-as-observer is the parent composite's
+        responsibility, not HubDisplay's. The parent → child edge is recorded
+        so cascade removal can drop the descendant from storage even when the
+        parent has no observer (wire-only subtrees). An anonymous child keys on
+        a synthesized handle, so repeated anonymous children in one parent stay
+        distinct throughout the owner and child-edge maps.
         """
-        element_id = ElementId(element.id)
-        self._index.install_child(scene_id, parent_id, element)
-        self._owners.record(scene_id, element_id, owner)
-        self._children.record(scene_id, parent_id, element_id)
+        key = self._index.install_child(scene_id, parent_id, element)
+        self._owners.record(scene_id, key, owner)
+        self._children.record(scene_id, parent_id, key)
+        return key
 
     def _remove_subtree(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Clear the element and every descendant from storage.
