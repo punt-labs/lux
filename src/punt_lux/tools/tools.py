@@ -13,7 +13,7 @@ from punt_lux.config import ConfigManager
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub_display
 from punt_lux.domain.ids import ConnectionId, SceneId
-from punt_lux.domain.validation_walk import ElementTreeValidator
+from punt_lux.domain.submission_gate import SubmissionGate
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import Element as WireElement, Patch
 from punt_lux.tools.connection import _query_tool
@@ -130,13 +130,12 @@ def show(
     factory = hub_element_factory(connection_id)
     typed_elements: list[WireElement] = [factory.element_from_dict(e) for e in elements]
 
-    # Self-validation runs after decode and before render: walk the decoded
-    # tree, let every element check its own inputs, and collect all errors.
-    # An invalid tree is never handed to the Hub/Display — the agent gets
-    # every problem back at once so it can self-correct.
-    report = ElementTreeValidator().validate_tree(typed_elements)
-    if not report.ok:
-        return f"error: scene not rendered — {report.describe()}"
+    # Reject a malformed submission before render: every element self-validates
+    # and no named id may repeat across the tree. An invalid tree never reaches
+    # the Hub/Display — the agent gets the reason, never a partial install.
+    rejection = SubmissionGate().first_rejection(SceneId(scene_id), typed_elements)
+    if rejection is not None:
+        return f"error: scene not rendered — {rejection}"
 
     size_tuple: tuple[int, int] | None = None
     if frame_size is not None:
