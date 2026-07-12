@@ -275,10 +275,12 @@ path above it has no branch. The field-constraint checks (§4.7) are applied
 before the seam, so both models reject the same forbidden writes for the same
 reasons.
 
-### 4.7 Field-write constraints — `id`/`kind` immutable, unknown fields rejected
+### 4.7 Field-write constraints — `id`/`kind` immutable, structural and unknown fields rejected
 
-**Property (A3, A4).** A `SetProperty` targeting `id` or `kind`, or naming a field
-the element does not have, is rejected for *both* models, before any mutation.
+**Property (A3, A4).** A `SetProperty` targeting `id` or `kind`, naming a
+*structural* field (`children`/`pages`, which carry child Elements), or naming a
+field the element does not have, is rejected for *both* models, before any
+mutation.
 
 **Mechanism, and why it matters.**
 
@@ -299,6 +301,13 @@ the element does not have, is rejected for *both* models, before any mutation.
   closes the uniformity gap a dict-amend realization would have opened — a raw
   dict merge would have silently accepted a nonexistent field and carried garbage
   into the wire form.
+- **Structural field deferred to `show`.** A field that *carries* child Elements —
+  `children`/`pages` on a legacy composite — is refused by the same pre-seam gate.
+  Value-replacement rebinds only the root's index entry, installing no new children
+  and evicting no old ones; accepting the patch would desync the Hub index from the
+  rendered tree (§6.2/§6.4). The ABC path already rejects these as unknown fields
+  (no `_set_children` setter); the gate names the structural reason and applies the
+  same rejection to the legacy path, which would otherwise mutate the store.
 
 ### 4.8 Display-state survival across re-push (A6)
 
@@ -388,12 +397,23 @@ identity" — and let the two models realize it honestly:
   frozen instance that **shares the element's other fields and children by
   reference** and overrides only the addressed field. Identity is preserved
   because a value object's identity is its `id` and fields, and the replacement
-  carries the same `id`. For an all-legacy subtree (guaranteed by §6.1) sharing
-  the children by reference is safe — they are frozen values — so the replacement
-  is trivially lossless and cheaper than a codec round-trip. Value coercion is not
+  carries the same `id`. For a **scalar/leaf field** this is lossless: the
+  untouched children are shared by reference, and — because an all-legacy
+  subtree's descendants are frozen values (§6.1) — nothing but values is
+  reproduced. It is also cheaper than a codec round-trip. Value coercion is not
   needed at this step: the post-stage validation walk (§4.4) coerces and validates
   the new value exactly as it would for a shown tree. `replace()` also rejects an
   unknown field by raising, satisfying §4.7 without extra code.
+
+  A **structural field** — one that *carries* child Elements, concretely
+  `children` and `pages` on a legacy composite — is the one case value-replacement
+  cannot realize, and it is refused before the seam (§4.7 gate, alongside the
+  immutable `id`/`kind`). Rebinding the root's index entry installs no new child
+  (no index, owner, or child-edge is created) and evicts no old one, so the
+  Display would render a child the Hub index does not know — a click resolving to
+  nothing — while the old children linger. So a structural field defers to `show`,
+  which rebuilds the subtree correctly, on the same fail-loud grounds as a
+  nested-legacy write (§6.4).
 
 The write path above this seam does not branch. It asks the store to realize the
 mutation and rebinds to the result; the result is `self` for ABC and a fresh
@@ -430,12 +450,22 @@ Two distinct claims, and the design needs both:
 
 One case is deliberately out of scope, and the reason is now honest and simple.
 
-A legacy **root** — whether a leaf or a composite — is fully writable: patch its
-own field via `replace()`, rebind the index, re-push. Because the root has no
-parent, there is no stale reference to reconcile, and because its subtree is
-all-legacy (§6.1) the `replace()` is unconditionally lossless. The
-"restricted-to-no-stateful-ABC-descendant" qualifier from earlier drafts is moot
-and removed: under §6.1 there are no such descendants to worry about.
+A legacy **root** — whether a leaf or a composite — is writable **for its
+scalar/leaf fields**: patch the field via `replace()`, rebind the index, re-push.
+Because the root has no parent, there is no stale reference to reconcile, and
+because its subtree is all-legacy (§6.1) the `replace()` is lossless for those
+fields. The "restricted-to-no-stateful-ABC-descendant" qualifier from earlier
+drafts is moot and removed: under §6.1 there are no such descendants to worry
+about.
+
+The one exception is a **structural field** on that root — `children` or `pages`,
+which carry child Elements. Value-replacement rebinds only the root's index entry;
+it installs no new children and evicts no old ones, so accepting such a patch
+would desync the Hub index from the rendered tree (a new child renders but
+resolves to nothing on interaction; the old children linger). A structural-field
+patch therefore defers to `show`, fail-loud, on the same grounds as a nested
+mutation below — the client resends the amended tree, and install rebuilds the
+subtree correctly.
 
 A legacy element **nested below a legacy composite** is *deferred*. To patch such
 a child, the store would rebind its index entry, but the frozen legacy parent
@@ -459,10 +489,13 @@ Capability matrix at any migration state:
 
 - **Complete and clean now:** clear (per-connection scoped); add/replace/remove of
   any root; field-patch and removal of any **ABC** element at **any depth**;
-  field-patch and removal of a legacy **root** (leaf or composite) via `replace()`.
-- **Deferred, self-deleting, never a dead-end:** field-patch or nested removal of
-  a legacy element **below a legacy composite** — rejected fail-loud; the client
-  resends via `show`. The rejection vanishes when the container migrates.
+  scalar/leaf field-patch and removal of a legacy **root** (leaf or composite) via
+  `replace()`.
+- **Deferred, self-deleting, never a dead-end:** a **structural** field-patch
+  (`children`/`pages`) on any element, and field-patch or nested removal of a
+  legacy element **below a legacy composite** — rejected fail-loud; the client
+  resends via `show`. The rejection vanishes when the container migrates (for the
+  nested case) or is intrinsic to whole-subtree edits (for the structural case).
 
 This matches the migration's grain: the ABC frontier is fully writable at any
 depth, legacy roots are writable, and the one residual gap is exactly the case the
@@ -558,10 +591,11 @@ resend for that specific widget, should one ever prove necessary.
 
 The client-facing `show`/`update`/`clear` surface is unchanged in shape; this
 design specifies the *authority* and *consistency* semantics behind it, not new
-tool signatures. The observable changes are: a field-patch addressed to a legacy
-*root*, which the store presently refuses outright, now succeeds via `replace()`;
-a field-patch addressed to a legacy element *below a legacy composite* is rejected
-with a precise, actionable error pointing the client at `show`; and a
+tool signatures. The observable changes are: a *scalar/leaf* field-patch addressed
+to a legacy *root*, which the store presently refuses outright, now succeeds via
+`replace()`; a field-patch addressed to a legacy element *below a legacy
+composite*, or a *structural* field-patch (`children`/`pages`) on any element, is
+rejected with a precise, actionable error pointing the client at `show`; and a
 `SetProperty` targeting `id`/`kind` or an unknown field is now uniformly rejected
 rather than accepted-and-corrupting or divergently-erroring. No element kind's
 wire schema changes. No Display-side behavior changes beyond receiving whole-UI
