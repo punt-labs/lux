@@ -1,12 +1,10 @@
 """JsonCollapsingHeaderDecoder + JsonCollapsingHeaderEncoder — wire codec for the
 ABC ``CollapsingHeaderElement``.
 
-Mirrors two exemplars: the group codec (child recursion through the injected
-tier decoder plus the shared all-ABC gate) and the checkbox codec (a built-in
-state-sync handler registered before any wire handlers, so ``fire`` has a bucket
-to dispatch and the Hub has authoritative behavior to run when ``HeaderToggled``
-crosses back). ``CollapsingHeaderElement.to_dict`` / ``from_dict`` stay on the
-class as short delegators (PY-OO-2).
+Mirrors two exemplars: the group codec (child recursion plus the shared all-ABC
+gate) and the checkbox codec (a built-in state-sync handler registered before
+any wire handlers, so ``fire`` has a bucket and the Hub has authoritative
+behavior when ``HeaderToggled`` crosses back).
 """
 
 from __future__ import annotations
@@ -35,10 +33,9 @@ _HEADER_EVENT_TYPES: dict[str, type[HeaderToggled]] = {"header_toggled": HeaderT
 class _UpdateOpenHandler:
     """Serializable handler that mirrors a header's open flag on toggle.
 
-    On the Hub side this runs when ``HeaderToggled`` fires, updating the
-    authoritative ``open`` state through ``apply_patch``. On the Display side
-    ``wrap_handlers_for_remote`` folds it into a ``RemoteDispatchGroup`` that
-    only forwards, so the Display never runs the state update locally.
+    On the Hub side it updates the authoritative ``open`` through ``apply_patch``;
+    on the Display side ``wrap_handlers_for_remote`` folds it into a forward-only
+    ``RemoteDispatchGroup``, so the Display never runs it.
     """
 
     _elem: CollapsingHeaderElement
@@ -63,10 +60,8 @@ class _UpdateOpenHandler:
 class JsonCollapsingHeaderDecoder:
     """Decode a wire dict to a fully-constructed ABC ``CollapsingHeaderElement``.
 
-    Constructed once per tier with the tier's child decoder, the concrete
-    element class, and the tier's ``HandlerDecoder``. Always registers the
-    built-in ``_UpdateOpenHandler`` for state sync, then installs any
-    wire-declared handlers from the ``handlers`` key.
+    Constructed once per tier. Always registers the built-in ``_UpdateOpenHandler``
+    for state sync, then installs any wire-declared ``handlers``.
     """
 
     _decode_element: DecodeElement
@@ -90,7 +85,9 @@ class JsonCollapsingHeaderDecoder:
     def decode(self, raw: Mapping[str, object]) -> CollapsingHeaderElement:
         """Construct the header, recursing children through the tier decoder."""
         ctx = ElementWireContext.for_kind("collapsing_header")
-        children = tuple(self._decode(c) for c in _as_list(raw.get("children")))
+        children = tuple(
+            self._decode(c) for c in self._require_list(raw.get("children"))
+        )
         elem = self._cls(
             id=ctx.require_str(raw, "id"),
             label=ctx.optional_str(raw, "label", default=""),
@@ -138,7 +135,7 @@ class JsonCollapsingHeaderDecoder:
     ) -> type[HeaderToggled]:
         """Map the wire ``event`` string to its typed event class."""
         event_name = spec.get("event")
-        if not isinstance(event_name, str) or not event_name:
+        if not isinstance(event_name, str):
             msg = (
                 f"collapsing_header 'handlers[{index}]' requires an 'event' "
                 f"string, got {event_name!r}"
@@ -154,13 +151,22 @@ class JsonCollapsingHeaderDecoder:
             raise ValueError(msg)
         return event_type
 
+    @staticmethod
+    def _require_list(raw: object) -> list[object]:
+        """Return ``raw`` as a list; ``[]`` absent, raising a present non-list."""
+        if raw is None:
+            return []
+        if not isinstance(raw, list):
+            msg = f"collapsing_header children must be a list, got {type(raw).__name__}"
+            raise TypeError(msg)
+        return cast("list[object]", raw)
+
 
 class JsonCollapsingHeaderEncoder:
     """Encode an ABC ``CollapsingHeaderElement`` to its JSON-compatible wire dict.
 
-    Stateless. Emits ``open`` always (it is the single Hub-authoritative view
-    field — no separate ``default_open``), ``children`` always, and ``tooltip``
-    only when set, so a header re-encodes to a stable wire shape.
+    Stateless. Emits ``open`` (the single view field, no ``default_open``) and
+    ``children`` always, ``tooltip`` only when set.
     """
 
     __slots__ = ()
@@ -181,10 +187,3 @@ class JsonCollapsingHeaderEncoder:
         if elem.tooltip is not None:
             payload["tooltip"] = elem.tooltip
         return payload
-
-
-def _as_list(raw: object) -> list[object]:
-    """Return ``raw`` as a list of wire objects, or empty when absent/other."""
-    if isinstance(raw, list):
-        return cast("list[object]", raw)
-    return []

@@ -52,19 +52,26 @@
   `ContainerAbcGate`, reused by `group` and `collapsing_header`. See DES-045.
 - **`tab_bar` interactive tabbed container on the ABC path** — a container
   composed with a Hub-authoritative active-tab selection. Every tab carries a
-  stable `tab_id` (agent-provided or synthesized from index) and the selection
-  names that id, never a positional index (DES-045); reconciliation on a
-  structural change is a membership check — an added tab leaves the selection
-  unchanged, a removed active tab resets to the first live tab, a relabel is
-  stable. A user tab click fires `tab_changed` → Hub → re-push; an agent drives
-  the same field by patching `active_tab`, and the ImGui adapter honours it,
-  distinguishing a Hub write from a user gesture via per-scene `WidgetState` so
-  a Hub-driven change never re-fires (echo-suppression). The tab strip is
-  painted through a small `TabContainerRenderer` sub-protocol and a
-  `_render_children` override; every tab's children cross the wire (only the
-  active tab is drawn). Decodes to the ABC `TabBarElement` only when the whole
-  subtree is migrated-ABC, else the renamed `LegacyTabBarElement`;
-  `resolved_props()` reports `active_tab` and the tabs. See DES-045.
+  stable `tab_id` — the agent-supplied id when present, else a content slug of
+  the tab's label (deduplicated with a numeric suffix only when a label repeats)
+  assigned by `TabIdSynthesizer` — and the selection names that id, never a
+  positional index (DES-045); reconciliation on a structural change is a
+  membership check — an added tab leaves the selection unchanged, a removed
+  active tab resets to the first live tab, a relabel is stable. The
+  reconciliation invariant is enforced on every mutation, so an `active_tab`
+  patch naming a stale tab resets rather than installing a dangling selection.
+  A user tab click fires `tab_changed` → Hub → re-push; an agent drives the same
+  field by patching `active_tab`, and the ImGui adapter honours it, distinguishing
+  a Hub write from a user gesture via per-scene `WidgetState` so a Hub-driven
+  change never re-fires (echo-suppression). On the first frame the declared
+  `active_tab` is force-selected, so a non-first initial tab is never clobbered
+  by ImGui's tab-0 default. The tab strip is painted through a small
+  `TabContainerRenderer` sub-protocol and a `_render_children` override; every
+  tab's children cross the wire (only the active tab is drawn). A present-but-not-
+  a-list `tabs`/`children` is rejected rather than silently emptied. Decodes to
+  the ABC `TabBarElement` only when the whole subtree is migrated-ABC, else the
+  renamed `LegacyTabBarElement`; `resolved_props()` reports `active_tab` and the
+  tabs. See DES-045.
 
 ### Fixed
 

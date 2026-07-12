@@ -1,10 +1,10 @@
 """Migration gate for the ABC ``tab_bar`` — an interactive tabbed container.
 
 Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation, the all-ABC fork gate,
-id-addressed reconciliation, the D21 built-in state-sync, and the
-echo-suppression safety property. Levels 2, 3, and 5 drive the real Hub/Display
-boundary — never a stub. The Level-4 interactive and child-forwarding round trips
-live in the business-event-loop harness (``tests/e2e/scenario.py``).
+id-addressed reconciliation, the built-in state-sync, and the echo-suppression
+safety property. Levels 2, 3, and 5 drive the real Hub/Display boundary — never
+a stub. The Level-4 interactive and child-forwarding round trips live in the
+business-event-loop harness (``tests/e2e/scenario.py``).
 """
 
 from __future__ import annotations
@@ -12,12 +12,12 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
+from punt_lux.display.renderers.imgui.tab_bar import _UNHONOURED, ImGuiTabBarRenderer
 from punt_lux.display.server import DisplayServer
 from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.container_interaction import TabChanged
@@ -38,12 +38,15 @@ from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from punt_lux.tools import show
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from punt_lux.protocol import QueryResponse
     from punt_lux.protocol.elements import Element
+
+_CLIENT_GET = "punt_lux.domain.hub.clients.client_registry.get"
 
 
 # -- builders ---------------------------------------------------------------
@@ -79,6 +82,12 @@ def _server() -> DisplayServer:
     return DisplayServer(socket_path=str(Path(raw_dir) / "display.sock"))
 
 
+def _mock_client() -> MagicMock:
+    client = MagicMock()
+    client.is_connected = True
+    return client
+
+
 # -- Level 1: serialization roundtrip ---------------------------------------
 
 
@@ -104,7 +113,7 @@ class TestLevel1Serialization:
         assert restored.tabs == ()
         assert restored.active_tab == ""
 
-    def test_wire_tab_id_synthesized_from_index_when_absent(self) -> None:
+    def test_wire_tab_id_synthesized_from_label_when_absent(self) -> None:
         wire = {
             "kind": "tab_bar",
             "id": "tb",
@@ -118,9 +127,31 @@ class TestLevel1Serialization:
         }
         restored = _decode(wire)
         assert isinstance(restored, TabBarElement)
-        assert [t.tab_id for t in restored.tabs] == ["tab-0", "tab-1"]
+        # The synthesized key is a content slug of the label, never a position.
+        assert [t.tab_id for t in restored.tabs] == ["one", "two"]
         # The decoder seeds the active tab to the first tab's id.
-        assert restored.active_tab == "tab-0"
+        assert restored.active_tab == "one"
+
+    def test_duplicate_labels_get_suffixed_slugs(self) -> None:
+        wire = {
+            "kind": "tab_bar",
+            "id": "tb",
+            "tabs": [
+                {"label": "Log", "children": []},
+                {"label": "Log", "children": []},
+                {"label": "Log", "children": []},
+            ],
+        }
+        restored = _decode(wire)
+        assert isinstance(restored, TabBarElement)
+        # A repeated label keeps ids unique with a numeric suffix.
+        assert [t.tab_id for t in restored.tabs] == ["log", "log-2", "log-3"]
+
+    def test_empty_label_slug_falls_back_to_tab(self) -> None:
+        wire = {"kind": "tab_bar", "id": "tb", "tabs": [{"label": "", "children": []}]}
+        restored = _decode(wire)
+        assert isinstance(restored, TabBarElement)
+        assert [t.tab_id for t in restored.tabs] == ["tab"]
 
     def test_explicit_active_tab_round_trips(self) -> None:
         restored = _decode(_abc_tab_bar(active_tab="tab-2").to_dict())
@@ -182,7 +213,28 @@ class TestForkGate:
         assert isinstance(tab_bar, LegacyTabBarElement)
 
 
-# -- self-validation (DES-039) ----------------------------------------------
+# -- malformed-wire rejection (reject, do not silently empty) ----------------
+
+
+class TestMalformedWireRejected:
+    def test_non_list_tabs_is_rejected(self) -> None:
+        with pytest.raises(TypeError, match="must be a list"):
+            TabBarElement.from_dict(
+                {"kind": "tab_bar", "id": "tb", "tabs": {"not": "a list"}}
+            )
+
+    def test_non_list_tab_children_is_rejected(self) -> None:
+        with pytest.raises(TypeError, match="must be a list"):
+            TabBarElement.from_dict(
+                {
+                    "kind": "tab_bar",
+                    "id": "tb",
+                    "tabs": [{"id": "a", "label": "One", "children": {"x": 1}}],
+                }
+            )
+
+
+# -- self-validation --------------------------------------------------------
 
 
 class TestSelfValidation:
@@ -241,7 +293,58 @@ class TestSelfValidation:
         assert isinstance(bar, AbcElement)
 
 
-# -- reconciliation on structural change (design §4.8) ----------------------
+class TestShowRejectsInvalidTabBar:
+    @patch(_CLIENT_GET)
+    def test_show_rejects_empty_tab_label(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+        result = show(
+            "s1",
+            [
+                {
+                    "kind": "tab_bar",
+                    "id": "tb",
+                    "active_tab": "a",
+                    "tabs": [{"id": "a", "label": "", "children": []}],
+                }
+            ],
+        )
+        assert result.startswith("error: scene not rendered")
+        assert "[tab_bar 'tb']" in result
+        assert "empty label" in result
+        client.show.assert_not_called()
+
+    @patch(_CLIENT_GET)
+    def test_show_rejects_progress_nested_in_tab(self, mock_get: MagicMock) -> None:
+        """A bad progress nested in a tab's children is collected by the walk."""
+        client = _mock_client()
+        mock_get.return_value = client
+        result = show(
+            "s1",
+            [
+                {
+                    "kind": "tab_bar",
+                    "id": "tb",
+                    "active_tab": "a",
+                    "tabs": [
+                        {
+                            "id": "a",
+                            "label": "One",
+                            "children": [
+                                {"kind": "text", "id": "ok", "content": "fine"},
+                                {"kind": "progress", "id": "bad", "fraction": -0.5},
+                            ],
+                        }
+                    ],
+                }
+            ],
+        )
+        assert result.startswith("error: scene not rendered")
+        assert "[progress 'bad']" in result
+        client.show.assert_not_called()
+
+
+# -- reconciliation on structural change ------------------------------------
 
 
 class TestReconciliation:
@@ -280,6 +383,22 @@ class TestReconciliation:
             active_tab="a",
         )
         assert bar.active_tab == "a"
+
+    def test_apply_patch_reconciles_a_dangling_active_tab(self) -> None:
+        # The reconciliation invariant holds on EVERY mutation, not only at
+        # construction: a patch naming a tab the set does not hold (a stale
+        # click after the tabs changed) resets to the first live tab rather than
+        # installing a dangling selection that would fire a spurious TabChanged.
+        bar = _abc_tab_bar()
+        bar.apply_patch({"active_tab": "ghost-not-a-tab"})
+        assert bar.active_tab == "tab-1"
+        # The module docstring's "maintained on every mutation" claim is now true.
+        assert not ElementTreeValidator().validate_tree([bar]).errors
+
+    def test_apply_patch_to_empty_tab_bar_clears_selection(self) -> None:
+        bar = TabBarElement(id="tb")
+        bar.apply_patch({"active_tab": "ghost"})
+        assert bar.active_tab == ""
 
 
 # -- Level 2: pickle scene wire ---------------------------------------------
@@ -342,7 +461,7 @@ class TestLevel3Crossing:
         assert child._renderer_factory is factory
 
 
-# -- D21 built-in state-sync + echo-suppression -----------------------------
+# -- built-in state-sync + echo-suppression ---------------------------------
 
 
 class TestInteraction:
@@ -401,6 +520,32 @@ class TestInteraction:
         # genuine user switch → fire
         assert renderer._is_user_switch(
             selected=True, tab_id="tab-2", active="tab-1", last="tab-1"
+        )
+
+    def test_first_frame_force_selects_declared_active_without_firing(self) -> None:
+        # The Level-4 scenarios inject via fire and bypass begin_tab; this
+        # covers the begin_tab first-frame decision directly. With no value yet
+        # honoured, the slot defaults to _UNHONOURED, so a non-first declared
+        # active_tab is force-selected AND does not fire — ImGui's own tab-0
+        # default can never clobber the declared selection with a bogus event.
+        bar = _abc_tab_bar(active_tab="tab-2")
+        factory = _server()._imgui_renderer_factory
+        renderer = ImGuiTabBarRenderer(bar, factory)
+        last = factory.widget_state.get(renderer._honoured_key(), _UNHONOURED)
+        assert last is _UNHONOURED
+        # frame 1: the declared active tab (tab-2, not tab 0) is force-selected
+        assert renderer._select_flags("tab-2", "tab-2", last) != 0
+        # frame 1: ImGui reporting tab-1 selected before SetSelected must NOT fire
+        assert not renderer._is_user_switch(
+            selected=True, tab_id="tab-1", active="tab-2", last=last
+        )
+        # frame 1: the force-selected active tab itself must NOT fire
+        assert not renderer._is_user_switch(
+            selected=True, tab_id="tab-2", active="tab-2", last=last
+        )
+        # a genuine later user switch (after honouring) DOES fire
+        assert renderer._is_user_switch(
+            selected=True, tab_id="tab-1", active="tab-2", last="tab-2"
         )
 
 

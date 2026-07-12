@@ -4,7 +4,7 @@ The closest copy of ``GroupElement`` (a plain-box container: it overrides only
 ``_children()`` and ``validate()``) composed with the single Hub-authoritative
 value pattern of ``CheckboxElement``: one ``open`` bool the user toggles, the
 Hub owns, and the agent can drive. A user toggle fires ``HeaderToggled``, which
-routes to the Hub (D21); the Hub mirrors the new ``open`` and re-pushes. The
+routes to the Hub; the Hub mirrors the new ``open`` and re-pushes. The
 single ``open`` field is the declared initial value, the runtime value, and the
 agent-driven value — it collapses the legacy ``default_open`` into one field
 under Hub authority.
@@ -139,7 +139,7 @@ class CollapsingHeaderElement(Element):
         """Return the header-toggled bucket's spec under the element-id action."""
         return (RemoteDispatchSpec(HeaderToggled, self.id, "header_toggled"),)
 
-    # -- self-validation (DES-039) -----------------------------------------
+    # -- self-validation ---------------------------------------------------
 
     def validate(self) -> tuple[ValidationError, ...]:
         """Return one error when the label is empty — a headerless toggle."""

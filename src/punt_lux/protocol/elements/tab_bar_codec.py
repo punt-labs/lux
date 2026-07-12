@@ -1,14 +1,12 @@
 """JsonTabBarDecoder + JsonTabBarEncoder — wire codec for the ABC ``TabBarElement``.
 
-Mirrors the group codec (child recursion through the injected tier decoder plus
-the shared all-ABC gate) and the checkbox codec (a built-in state-sync handler
-registered before any wire handlers, so ``fire`` has a bucket and the Hub has
-authoritative behavior to run when ``TabChanged`` crosses back).
+Mirrors the group codec (child recursion plus the shared all-ABC gate) and the
+checkbox codec (a built-in state-sync handler registered before any wire
+handlers, so ``fire`` has a bucket and the Hub has authoritative behavior when
+``TabChanged`` crosses back).
 
-Each tab carries a stable ``tab_id`` — the wire ``id`` when present, else
-synthesized from the tab index (DES-045). The encoder emits it so the round-trip
-is stable; the active-tab selection and reconciliation reference it, never a
-positional index.
+Each tab carries a stable ``tab_id`` assigned by ``TabIdSynthesizer`` — the
+agent ``id``, else a content slug of the label, never a positional index.
 """
 
 from __future__ import annotations
@@ -20,6 +18,7 @@ from punt_lux.domain.container_interaction import TabChanged
 from punt_lux.protocol.elements.container_dispatch import dispatch
 from punt_lux.protocol.elements.element_wire import ElementWireContext
 from punt_lux.protocol.elements.tab import Tab
+from punt_lux.protocol.elements.tab_id_synthesizer import TabIdSynthesizer
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
@@ -38,10 +37,9 @@ _TAB_EVENT_TYPES: dict[str, type[TabChanged]] = {"tab_changed": TabChanged}
 class _UpdateActiveTabHandler:
     """Serializable handler that mirrors the active tab on a tab change.
 
-    On the Hub side this runs when ``TabChanged`` fires, updating the
-    authoritative ``active_tab`` through ``apply_patch``. On the Display side
-    ``wrap_handlers_for_remote`` folds it into a ``RemoteDispatchGroup`` that
-    only forwards, so the Display never runs the state update locally.
+    On the Hub side it updates the authoritative ``active_tab`` through
+    ``apply_patch``; on the Display side ``wrap_handlers_for_remote`` folds it
+    into a forward-only ``RemoteDispatchGroup``, so the Display never runs it.
     """
 
     _elem: TabBarElement
@@ -66,11 +64,9 @@ class _UpdateActiveTabHandler:
 class JsonTabBarDecoder:
     """Decode a wire dict to a fully-constructed ABC ``TabBarElement``.
 
-    Constructed once per tier with the tier's child decoder, the concrete
-    element class, and the tier's ``HandlerDecoder``. Synthesizes each tab's
-    stable ``tab_id`` (wire ``id`` or index), recurses tab children through the
-    tier decoder, registers the built-in ``_UpdateActiveTabHandler``, then
-    installs any wire-declared handlers.
+    Constructed once per tier. Assigns each tab a stable ``tab_id`` via
+    ``TabIdSynthesizer``, recurses tab children, registers the built-in
+    ``_UpdateActiveTabHandler``, then installs wire-declared handlers.
     """
 
     _decode_element: DecodeElement
@@ -94,9 +90,10 @@ class JsonTabBarDecoder:
     def decode(self, raw: Mapping[str, object]) -> TabBarElement:
         """Construct the tab bar, recursing tab children through the tier decoder."""
         ctx = ElementWireContext.for_kind("tab_bar")
+        tab_ids = TabIdSynthesizer()
         tabs = tuple(
-            self._decode_tab(tab, index)
-            for index, tab in enumerate(self._as_list(raw.get("tabs")))
+            self._decode_tab(tab, tab_ids)
+            for tab in self._require_list(raw.get("tabs"))
         )
         active_tab = ctx.optional_str(raw, "active_tab", default="")
         elem = self._cls(
@@ -106,18 +103,18 @@ class JsonTabBarDecoder:
         self._install_handlers(elem, raw)
         return elem
 
-    def _decode_tab(self, raw_tab: object, index: int) -> Tab:
-        """Decode one wire tab, synthesizing its stable ``tab_id`` when absent."""
+    def _decode_tab(self, raw_tab: object, tab_ids: TabIdSynthesizer) -> Tab:
+        """Decode one wire tab, assigning its stable id from the synthesizer."""
         if not isinstance(raw_tab, Mapping):
-            got = type(raw_tab).__name__
-            msg = f"tab_bar 'tabs[{index}]' must be a mapping, got {got}"
+            msg = f"tab_bar tab must be a mapping, got {type(raw_tab).__name__}"
             raise TypeError(msg)
         tab = cast("Mapping[str, object]", raw_tab)
-        raw_id = tab.get("id")
-        tab_id = raw_id if isinstance(raw_id, str) and raw_id else f"tab-{index}"
         raw_label = tab.get("label")
         label = raw_label if isinstance(raw_label, str) else ""
-        children = tuple(self._decode(c) for c in self._as_list(tab.get("children")))
+        tab_id = tab_ids.id_for(tab, label)
+        children = tuple(
+            self._decode(c) for c in self._require_list(tab.get("children"))
+        )
         return Tab(tab_id=tab_id, label=label, children=children)
 
     def _decode(self, raw_child: object) -> Element:
@@ -168,19 +165,23 @@ class JsonTabBarDecoder:
         return event_type
 
     @staticmethod
-    def _as_list(raw: object) -> list[object]:
-        """Return ``raw`` as a list of wire objects, or empty when absent."""
-        if isinstance(raw, list):
-            return cast("list[object]", raw)
-        return []
+    def _require_list(raw: object) -> list[object]:
+        """Return ``raw`` as a list; ``[]`` absent, raising present-but-not-list.
+
+        Malformed wire is rejected, not silently coerced to empty.
+        """
+        if raw is None:
+            return []
+        if not isinstance(raw, list):
+            msg = f"tab_bar tabs/children must be a list, got {type(raw).__name__}"
+            raise TypeError(msg)
+        return cast("list[object]", raw)
 
 
 class JsonTabBarEncoder:
     """Encode an ABC ``TabBarElement`` to its JSON-compatible wire dict.
 
-    Stateless. Emits each tab's stable ``id`` (its ``tab_id``), ``label``, and
-    ``children``, plus the ``active_tab`` selection, and ``tooltip`` only when
-    set, so a tab bar re-encodes to a stable wire shape.
+    Stateless. Emits each tab's ``id``/``label``/``children`` and ``active_tab``.
     """
 
     __slots__ = ()

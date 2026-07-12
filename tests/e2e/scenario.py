@@ -174,7 +174,7 @@ class Scenario:
             ),
             display_only_id="chk-progress",
             repush=PropAfterDispatch(
-                element_id="toggle-box", field="value", value=True
+                element_id="toggle-box", field="value", value=True, flipped=True
             ),
         )
 
@@ -236,7 +236,9 @@ class Scenario:
                 ReactPatch(element_id="hdr-progress", field="label", value="expanded"),
             ),
             display_only_id="hdr-progress",
-            repush=PropAfterDispatch(element_id="disclosure", field="open", value=True),
+            repush=PropAfterDispatch(
+                element_id="disclosure", field="open", value=True, flipped=True
+            ),
         )
 
     @classmethod
@@ -245,7 +247,7 @@ class Scenario:
 
         The header holds a publishing ``button`` and a display-only ``progress``.
         The button — not the header — is the injected target; it publishes
-        ``ticket_opened``. This proves the container forwards its child's D21
+        ``ticket_opened``. This proves the container forwards its child's remote
         wrap through the flattened children, complementing the interactive
         Scenario's proof that the container wraps *itself*.
         """
@@ -296,8 +298,8 @@ class Scenario:
         """A tab bar beside a display-only progress (the interactive loop).
 
         The injected interaction is a ``tab_changed`` carrying the second tab's
-        stable ``tab_id`` (never an index, DES-045); the built-in state-sync
-        flips the Hub ``active_tab`` ``overview``→``details``, so the re-push
+        stable ``tab_id`` (never an index); the built-in state-sync flips the
+        Hub ``active_tab`` ``overview``→``details``, so the re-push
         carries the mutated selection. A wire ``handlers`` entry publishes
         ``tab_selected``; the agent reacts by advancing the bar.
         """
@@ -371,7 +373,10 @@ class Scenario:
             ),
             display_only_id="tab-progress",
             repush=PropAfterDispatch(
-                element_id="switcher", field="active_tab", value="details"
+                element_id="switcher",
+                field="active_tab",
+                value="details",
+                flipped=True,
             ),
         )
 
@@ -382,7 +387,7 @@ class Scenario:
         The active tab holds a publishing ``button`` and a display-only
         ``progress``. The button — not the tab bar — is the injected target; it
         publishes ``ticket_opened``. This proves the tab bar forwards its child's
-        D21 wrap through the flattened tab children.
+        remote wrap through the flattened tab children.
         """
         return cls(
             name="tab-bar-button-progress",

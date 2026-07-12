@@ -2,7 +2,7 @@
 
 An interactive container carries one discrete, agent-drivable view-selection:
 a ``collapsing_header`` owns whether the section is open. The event a user
-gesture fires travels the same D21 path as ``ButtonClicked`` / ``ValueChanged``
+gesture fires travels the same remote-dispatch path as ``ButtonClicked``
 — it routes to the Hub, the Hub updates the authoritative selection, and the
 whole scene is re-pushed. These events live apart from the leaf events in
 ``interaction`` so each module keeps at most three classes (PY-OO-2).
@@ -23,7 +23,7 @@ class TabChanged:
     """A typed active-tab-change event for a ``tab_bar``.
 
     Carries the newly-selected tab's stable ``tab_id`` (never a positional
-    index, per DES-045). The Hub mirrors it onto the authoritative element and
+    index). The Hub mirrors it onto the authoritative element and
     re-pushes. Same ``init=False`` + ``__new__`` construction pattern as the
     leaf events.
     """

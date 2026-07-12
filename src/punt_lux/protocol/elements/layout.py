@@ -109,7 +109,7 @@ class LegacyGroupElement:
 class LegacyTabBarElement:
     """A tabbed container. Each tab has a label and child elements.
 
-    The legacy dataclass path (fork-don't-mix, DES-041): a ``tab_bar`` whose
+    The legacy dataclass path (fork-don't-mix): a ``tab_bar`` whose
     subtree is not entirely migrated-ABC, or one nested inside a legacy
     container, decodes onto this class. The ABC ``TabBarElement`` takes the
     canonical name.
@@ -157,7 +157,7 @@ class LegacyTabBarElement:
 class LegacyCollapsingHeaderElement:
     """A collapsible section with a label and child elements.
 
-    The legacy dataclass path (fork-don't-mix, DES-041): a
+    The legacy dataclass path (fork-don't-mix): a
     ``collapsing_header`` whose subtree is not entirely migrated-ABC, or one
     nested inside a legacy container, decodes onto this class. The ABC
     ``CollapsingHeaderElement`` takes the canonical name.

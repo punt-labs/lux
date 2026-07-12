@@ -4,9 +4,8 @@ The harder of the two simple composites: a container (like ``GroupElement``)
 composed with a single Hub-authoritative view-selection (like ``CheckboxElement``)
 whose value is a stable ``tab_id`` rather than a bool. Every tab's children are
 installed and cross the wire; only the active tab is drawn. A user click fires
-``TabChanged`` carrying the clicked tab's id (never a positional index, DES-045),
-which routes to the Hub (D21); the Hub mirrors the new ``active_tab`` and
-re-pushes.
+``TabChanged`` carrying the clicked tab's id (never a positional index), which
+routes to the Hub; the Hub mirrors the new ``active_tab`` and re-pushes.
 
 Because the selection names a stable id, reconciliation on a structural change is
 a membership check: an added tab leaves the selection unchanged, a removed active
@@ -120,12 +119,9 @@ class TabBarElement(Element):
 
     @property
     def children(self) -> tuple[Element, ...]:
-        """Return every tab's children flattened (the Composite contract).
+        """Return every tab's children flattened — the Composite contract.
 
-        The Hub indexes a composite's subtree through ``Composite.children``;
-        a tab bar's installed children are every tab's children, so this
-        mirrors ``_children()`` and keeps interaction routing able to resolve a
-        tab's child by id.
+        Mirrors ``_children()`` so the Hub can resolve a tab's child by id.
         """
         return self._children()
 
@@ -134,9 +130,9 @@ class TabBarElement(Element):
     def _children(self) -> tuple[Element, ...]:
         """Return every tab's children flattened — all cross the wire.
 
-        Only the active tab is *drawn*, but every tab's children are installed
-        (the render-visible set equals the installed set), so the D21 wrap
-        recursion, factory rebind, and validation walk all traverse them.
+        Only the active tab is *drawn*, but every tab's children are installed,
+        so the remote-dispatch wrap, factory rebind, and validation walk reach
+        them.
         """
         return tuple(child for tab in self._tabs for child in tab.children)
 
@@ -160,8 +156,15 @@ class TabBarElement(Element):
     # -- minimal setters for the scene patch path --------------------------
 
     def _set_active_tab(self, value: object) -> None:
-        """Replace the Hub-authoritative active-tab selection."""
+        """Replace the active-tab selection, reconciled to name a live tab.
+
+        Reconciling on every mutation (not only at construction) stops a patch
+        naming a stale tab — an agent driving an old id, or a click arriving
+        after the tab set changed — from installing a dangling selection that
+        would fire a spurious ``TabChanged``.
+        """
         self._active_tab = PatchField("active_tab").as_str(value)
+        self._reconcile_active_tab()
 
     def _set_tooltip(self, value: object) -> None:
         """Replace the tooltip text."""
@@ -182,7 +185,7 @@ class TabBarElement(Element):
         """Return the tab-changed bucket's spec under the element-id action."""
         return (RemoteDispatchSpec(TabChanged, self.id, "tab_changed"),)
 
-    # -- self-validation (DES-039) -----------------------------------------
+    # -- self-validation ---------------------------------------------------
 
     def validate(self) -> tuple[ValidationError, ...]:
         """Return errors for empty labels, duplicate ids, or a dangling active tab.
@@ -254,7 +257,3 @@ class TabBarElement(Element):
             "active_tab": self._active_tab,
             "tooltip": self._tooltip,
         }
-
-
-if TYPE_CHECKING:
-    from punt_lux.protocol.renderer import Renderer

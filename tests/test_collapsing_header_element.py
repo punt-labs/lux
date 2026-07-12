@@ -1,7 +1,7 @@
 """Migration gate for the ABC ``collapsing_header`` — an interactive container.
 
 Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation, the all-ABC fork gate,
-the D21 built-in state-sync, and the echo-suppression safety property. Levels 2,
+the built-in state-sync, and the echo-suppression safety property. Levels 2,
 3, and 5 drive the real Hub/Display boundary — the pickle scene wire and the
 ``DisplayServer`` receive/rebind path — never a stub. The Level-4 interactive and
 child-forwarding round trips live in the business-event-loop harness
@@ -13,7 +13,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -40,12 +40,21 @@ from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from punt_lux.tools import show
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from punt_lux.protocol import QueryResponse
     from punt_lux.protocol.elements import Element
+
+_CLIENT_GET = "punt_lux.domain.hub.clients.client_registry.get"
+
+
+def _mock_client() -> MagicMock:
+    client = MagicMock()
+    client.is_connected = True
+    return client
 
 
 # -- builders ---------------------------------------------------------------
@@ -173,7 +182,7 @@ class TestForkGate:
         assert isinstance(header, LegacyCollapsingHeaderElement)
 
 
-# -- self-validation (DES-039) ----------------------------------------------
+# -- self-validation --------------------------------------------------------
 
 
 class TestSelfValidation:
@@ -209,6 +218,44 @@ class TestSelfValidation:
         header = CollapsingHeaderElement(id="ch", label="S")
         assert isinstance(header, HasChildElements)
         assert isinstance(header, AbcElement)
+
+
+class TestShowRejectsInvalidHeader:
+    @patch(_CLIENT_GET)
+    def test_show_rejects_empty_label(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+        result = show(
+            "s1",
+            [{"kind": "collapsing_header", "id": "ch", "label": "", "children": []}],
+        )
+        assert result.startswith("error: scene not rendered")
+        assert "[collapsing_header 'ch']" in result
+        assert "non-empty label" in result
+        client.show.assert_not_called()
+
+    @patch(_CLIENT_GET)
+    def test_show_rejects_progress_nested_in_header(self, mock_get: MagicMock) -> None:
+        """A bad progress nested in the header body is collected by the walk."""
+        client = _mock_client()
+        mock_get.return_value = client
+        result = show(
+            "s1",
+            [
+                {
+                    "kind": "collapsing_header",
+                    "id": "ch",
+                    "label": "Section",
+                    "children": [
+                        {"kind": "text", "id": "ok", "content": "fine"},
+                        {"kind": "progress", "id": "bad", "fraction": -0.5},
+                    ],
+                }
+            ],
+        )
+        assert result.startswith("error: scene not rendered")
+        assert "[progress 'bad']" in result
+        client.show.assert_not_called()
 
 
 # -- Level 2: pickle scene wire ---------------------------------------------
@@ -273,7 +320,7 @@ class TestLevel3Crossing:
         assert child._renderer_factory is factory
 
 
-# -- D21 built-in state-sync + echo-suppression -----------------------------
+# -- built-in state-sync + echo-suppression ---------------------------------
 
 
 class TestInteraction:

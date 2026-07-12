@@ -22,7 +22,7 @@ class Tab:
 
     The ``tab_id`` is the stable identity the active-tab selection names — stable
     under reorder and relabel, which is what makes the Hub's reconciliation a
-    membership check rather than an index clamp (DES-045).
+    membership check rather than an index clamp.
     """
 
     tab_id: str
