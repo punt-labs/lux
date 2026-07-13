@@ -55,6 +55,10 @@ class SceneScope:
     connection_id: ConnectionId
     scene_id: SceneId
 
+    def removal(self, element_id: ElementId) -> RemoveElement:
+        """Return the ``RemoveElement`` for ``element_id`` scoped to this scene."""
+        return RemoveElement(scene_id=self.scene_id, element_id=element_id)
+
 
 @final
 class HubSceneWriter:
@@ -89,7 +93,8 @@ class HubSceneWriter:
         scope = SceneScope(connection_id, scene_id)
         try:
             batch = PatchBatch.from_wire(patches)
-            realizations = self._stage(scope, batch)
+            realizations = self._field_realizations(scope, batch)
+            self._guard_removals(scope, batch.removals)
         except (
             MalformedPatchError,
             ImmutableFieldError,
@@ -117,17 +122,6 @@ class HubSceneWriter:
         owned = self._display.elements_owned_by(connection_id)
         for scene_id in {scene_id for scene_id, _ in owned}:
             self._display.replace_scene(connection_id, scene_id, ())
-
-    def _stage(self, scope: SceneScope, batch: PatchBatch) -> list[FieldRealization]:
-        """Resolve field realizations and guard removals; first bad target rejects.
-
-        Ownership is checked before the seam. A removal of an absent id is
-        skipped, not rejected — ``RemoveElement`` is idempotent, so an
-        already-gone target is a no-op.
-        """
-        realizations = self._field_realizations(scope, batch)
-        self._guard_removals(scope, batch.removals)
-        return realizations
 
     def _field_realizations(
         self, scope: SceneScope, batch: PatchBatch
@@ -186,12 +180,14 @@ class HubSceneWriter:
         path stays safe by idempotency, not by staging — ``_owners.get`` returns
         ``None`` so the ownership check returns without raising, and ``discard``
         no-ops on already-dropped storage.
+
+        Removing the last root empties the scene, so the scene is offered to
+        ``maybe_forget_frame`` on the same no-root-remaining criterion the clear
+        and disconnect paths use — a no-op while any root survives.
         """
         for element_id in removals:
-            self._display.apply(
-                scope.connection_id,
-                RemoveElement(scene_id=scope.scene_id, element_id=element_id),
-            )
+            self._display.apply(scope.connection_id, scope.removal(element_id))
+        self._display.maybe_forget_frame(scope.scene_id)
 
     def _require_owner(self, scope: SceneScope, element_id: ElementId) -> None:
         """Raise unless the scope's connection owns an installed ``element_id``.

@@ -19,8 +19,15 @@ collaborators, each with one responsibility:
   currently registered as Hub clients.
 - ``FrameRegistry`` (`frame_registry.py`) — ``scene_id → frame_id`` so a
   re-push resends a scene into the frame it was originally shown in;
-  forgotten when the scene is cleared or its owning connection drops, so
-  it tracks scene lifetime like the four collaborators above.
+  forgotten when a teardown leaves the scene with no roots, so it tracks
+  scene lifetime like the four collaborators above.
+
+A scene's frame is forgotten on exactly one criterion — the scene has no
+roots left — checked uniformly by ``maybe_forget_frame`` after every
+teardown: an empty ``replace_scene`` (clear), a ``drop_connection``, and a
+direct remove of the last root through ``update``. Keying the forget on the
+scene's own state, not on which scenes a connection touched, is what keeps a
+shared scene's frame alive while any owner still holds a root in it.
 
 ``apply`` dispatches on the typed ``Update`` sum and delegates to the
 collaborators. ``drop_connection`` flips ``mark_removed`` on each
@@ -28,14 +35,12 @@ ABC-root the connection owned; the Observer cascade prunes the rest of
 the tree, ending with the parent composite calling
 ``apply(RemoveElement(...))``, which clears the index entry and fires
 the next layer of observers. Wire-only (non-ABC) roots have no cascade
-to drive removal — ``drop_connection`` removes them directly through
-``_remove_subtree``, which walks the ``ChildIndex`` to drop every
-descendant.
+to drive removal — ``drop_connection`` removes them directly through the
+``SubtreeRemover``, which walks the ``ChildIndex`` to drop every descendant.
 """
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.composite import Composite
@@ -52,6 +57,7 @@ from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.owner_tracker import OwnerTracker
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
 from punt_lux.domain.hub.root_registry import RootRegistry
+from punt_lux.domain.hub.subtree_remover import SubtreeRemover
 from punt_lux.domain.hub.write_seam import WriteSeam
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
@@ -67,8 +73,6 @@ __all__ = [
     "UnknownSceneError",
     "hub_display",
 ]
-
-_log = logging.getLogger(__name__)
 
 
 class HubDisplay:
@@ -96,6 +100,7 @@ class HubDisplay:
     _clients: HubClientRegistry
     _frames: FrameRegistry
     _seam: WriteSeam
+    _remover: SubtreeRemover
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
@@ -106,6 +111,9 @@ class HubDisplay:
         self._clients = HubClientRegistry()
         self._frames = FrameRegistry()
         self._seam = WriteSeam(self._index, self._children)
+        self._remover = SubtreeRemover(
+            self._index, self._owners, self._roots, self._children
+        )
         return self
 
     @property
@@ -138,6 +146,20 @@ class HubDisplay:
     def frame_id_for(self, scene_id: SceneId) -> str:
         """Return the frame a scene was shown in, or its own id when unrecorded."""
         return self._frames.frame_for(scene_id)
+
+    def maybe_forget_frame(self, scene_id: SceneId) -> None:
+        """Forget the scene's frame association iff no root remains in it.
+
+        The single teardown criterion, checked uniformly after every path
+        that can empty a scene — an empty ``replace_scene`` (clear), a
+        ``drop_connection``, and a direct remove of the last root through
+        ``update``. Keying on the scene's own roots, not on which scenes a
+        connection touched, is what leaves a shared scene's frame intact while
+        any owner still holds a root in it. A later re-show re-records; until
+        then ``frame_id_for`` reverts to the scene's own id.
+        """
+        if not self.scene_roots(scene_id):
+            self._frames.forget(scene_id)
 
     def resolve(self, scene_id: SceneId, element_id: ElementId) -> WireElement:
         """Return the indexed Element or raise ``UnknownElementError``."""
@@ -187,12 +209,7 @@ class HubDisplay:
                 connection_id,
                 AddElement(scene_id=scene_id, element=root, parent_id=None),
             )
-        if not roots:
-            # An empty replace is a clear: the scene now holds nothing, so its
-            # frame association is forgotten alongside its index/owner/root
-            # entries. A re-show re-records it. A non-empty replace keeps the
-            # frame — the ``show`` front door re-records it immediately after.
-            self._frames.forget(scene_id)
+        self.maybe_forget_frame(scene_id)
 
     # -- apply -------------------------------------------------------------
 
@@ -223,7 +240,7 @@ class HubDisplay:
                 self._seam.set_property(sid, eid, field, value)
             case RemoveElement(scene_id=sid, element_id=eid):
                 self._owners.require_ownership(sid, eid, connection_id)
-                self._remove_subtree(sid, eid)
+                self._remover.remove_subtree(sid, eid)
 
     def _owned_roots_in_scene(
         self,
@@ -247,42 +264,19 @@ class HubDisplay:
         cascade and leaves parent composites' children tuples stale.
         Only ABC Elements participate in the cascade; wire-dataclass
         roots have no observer registry and are dropped by direct index
-        cleanup at ``_remove_subtree`` time. Per-root cleanup is
-        best-effort: a failure on one root is logged and the loop
-        continues so a single misbehaving subtree cannot strand the
-        rest of the connection's state.
+        cleanup in the ``SubtreeRemover``.
+
+        After the roots are torn down, each scene the connection touched is
+        offered to ``maybe_forget_frame``: a scene another connection still
+        holds a root in keeps its frame, a scene now empty gives it up.
         """
         self._clients.discard(connection_id)
         owned = self._owners.keys_for(connection_id)
         for scene_id, element_id in owned:
             if self._children.is_root(scene_id, element_id):
-                self._drop_root(scene_id, element_id, connection_id)
-        # Frames key on the scene, not the element, so they cannot ride the
-        # per-element storage teardown above. Forget every scene the dropped
-        # connection owned so the frame map does not outlive the scenes.
+                self._remover.drop_root(scene_id, element_id, connection_id)
         for scene_id in {scene for scene, _ in owned}:
-            self._frames.forget(scene_id)
-
-    def _drop_root(
-        self,
-        scene_id: SceneId,
-        element_id: ElementId,
-        connection_id: ConnectionId,
-    ) -> None:
-        """Tear down one scene-root; logs and swallows per-root failures."""
-        try:
-            root = self._roots.get(scene_id, element_id)
-            if root is not None:
-                root.mark_removed()
-            else:
-                self._remove_subtree(scene_id, element_id)
-        except Exception:  # noqa: BLE001 — fan-out cleanup boundary; continue past failure
-            _log.exception(
-                "drop_connection: cleanup failed for root %s in scene %s (conn %s)",
-                element_id,
-                scene_id,
-                connection_id,
-            )
+            self.maybe_forget_frame(scene_id)
 
     # -- private helpers ---------------------------------------------------
 
