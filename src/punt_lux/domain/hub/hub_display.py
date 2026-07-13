@@ -1,7 +1,7 @@
 """HubDisplay — facade over the Hub-side Element/owner/client store.
 
 ``HubDisplay`` is the single public surface the rest of the system
-talks to for Hub-side scene state. Internally it composes five typed
+talks to for Hub-side scene state. Internally it composes six typed
 collaborators, each with one responsibility:
 
 - ``ElementIndex`` (`element_index.py`) — ``(scene_id, element_id) →
@@ -17,6 +17,8 @@ collaborators, each with one responsibility:
   storage layer in one walk.
 - ``HubClientRegistry`` (`hub_clients.py`) — set of connections
   currently registered as Hub clients.
+- ``FrameRegistry`` (`frame_registry.py`) — ``scene_id → frame_id`` so a
+  re-push resends a scene into the frame it was originally shown in.
 
 ``apply`` dispatches on the typed ``Update`` sum and delegates to the
 collaborators. ``drop_connection`` flips ``mark_removed`` on each
@@ -43,6 +45,7 @@ from punt_lux.domain.hub.element_index import (
     UnknownElementError,
     UnknownSceneError,
 )
+from punt_lux.domain.hub.frame_registry import FrameRegistry
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.owner_tracker import OwnerTracker
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
@@ -89,6 +92,7 @@ class HubDisplay:
     _roots: RootRegistry
     _children: ChildIndex
     _clients: HubClientRegistry
+    _frames: FrameRegistry
     _seam: WriteSeam
 
     def __new__(cls) -> Self:
@@ -98,6 +102,7 @@ class HubDisplay:
         self._roots = RootRegistry()
         self._children = ChildIndex()
         self._clients = HubClientRegistry()
+        self._frames = FrameRegistry()
         self._seam = WriteSeam(self._index, self._children)
         return self
 
@@ -121,6 +126,16 @@ class HubDisplay:
     def scene_roots(self, scene_id: SceneId) -> list[WireElement]:
         """Return non-removed root elements for a scene."""
         return self._index.scene_roots(scene_id)
+
+    # -- frame association -------------------------------------------------
+
+    def record_frame(self, scene_id: SceneId, frame_id: str) -> None:
+        """Remember the frame a scene was shown in, for a later re-push."""
+        self._frames.record(scene_id, frame_id)
+
+    def frame_id_for(self, scene_id: SceneId) -> str:
+        """Return the frame a scene was shown in, or its own id when unrecorded."""
+        return self._frames.frame_for(scene_id)
 
     def resolve(self, scene_id: SceneId, element_id: ElementId) -> WireElement:
         """Return the indexed Element or raise ``UnknownElementError``."""
@@ -196,34 +211,11 @@ class HubDisplay:
             case AddElement(scene_id=sid, parent_id=pid, element=elem):
                 self._install_subtree(sid, elem, parent_id=pid, owner=connection_id)
             case SetProperty(scene_id=sid, element_id=eid, field=field, value=value):
-                self._require_ownership(sid, eid, connection_id)
+                self._owners.require_ownership(sid, eid, connection_id)
                 self._seam.set_property(sid, eid, field, value)
             case RemoveElement(scene_id=sid, element_id=eid):
-                self._require_ownership(sid, eid, connection_id)
+                self._owners.require_ownership(sid, eid, connection_id)
                 self._remove_subtree(sid, eid)
-
-    def _require_ownership(
-        self,
-        scene_id: SceneId,
-        element_id: ElementId,
-        attempting: ConnectionId,
-    ) -> None:
-        """Raise ``HubOwnershipError`` if ``attempting`` is not the owner.
-
-        Unknown elements fall through to the underlying mutation path,
-        where ``ElementIndex.lookup`` raises ``UnknownElementError`` —
-        keeping the not-found and not-owner error vocabularies distinct.
-        """
-        owner = self._owners.get(scene_id, element_id)
-        if owner is None:
-            return
-        if owner != attempting:
-            raise HubOwnershipError(
-                scene_id=scene_id,
-                element_id=element_id,
-                attempting=attempting,
-                owning=owner,
-            )
 
     def _owned_roots_in_scene(
         self,

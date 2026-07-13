@@ -123,10 +123,8 @@ def show(
     Returns ``"ack:<scene_id>"`` on success or ``"timeout"`` if the
     display doesn't respond.
     """
-    if frame_id is None:
-        frame_id = scene_id
-    if frame_title is None:
-        frame_title = title if title else scene_id
+    frame_id = scene_id if frame_id is None else frame_id
+    frame_title = (title or scene_id) if frame_title is None else frame_title
 
     connection_id = ConnectionId(_session_key.get())
     factory = hub_element_factory(connection_id)
@@ -155,6 +153,7 @@ def show(
             scene,
             cast("Sequence[DomainElement]", typed_elements),
         )
+        hub_display.record_frame(scene, frame_id)
         ack = client.show(
             scene_id,
             typed_elements,

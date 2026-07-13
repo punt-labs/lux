@@ -1089,6 +1089,65 @@ class TestUpdateTool:
         assert isinstance(root, CollapsingHeaderElement)
         assert root.open is False
 
+    def test_repush_preserves_recorded_frame(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A scene shown in a differently-named frame re-pushes into that frame.
+
+        The bug hard-coded ``frame_id=scene_id``, so a scene shown with
+        ``frame_id='hello-frame'`` was hoisted into frame ``'s1'`` on every
+        re-push — a regression for framed / multi-scene layouts. The Hub now
+        remembers each scene's frame and the re-push carries it forward.
+        """
+        store = HubDisplay()
+        _seed_store(store)
+        store.record_frame(SceneId("s1"), "hello-frame")
+        client = _bind_store(monkeypatch, store)
+
+        ClientRegistry.repush_scene("s1")
+
+        assert client.show_async.call_args.kwargs["frame_id"] == "hello-frame"
+
+    def test_repush_unframed_scene_falls_back_to_scene_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Control: an unrecorded scene re-pushes into a frame named for itself.
+
+        The default ``show`` path frames a scene by its own id, so a scene the
+        registry never recorded must still land in ``scene_id`` — the fallback
+        keeps the common single-frame case behaving exactly as before.
+        """
+        store = HubDisplay()
+        _seed_store(store)
+        client = _bind_store(monkeypatch, store)
+
+        ClientRegistry.repush_scene("s1")
+
+        assert client.show_async.call_args.kwargs["frame_id"] == "s1"
+
+    def test_show_records_frame_carried_by_repush(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """End to end: ``show`` records the frame and a later re-push resends it.
+
+        Drives the real ``show`` front door with an explicit ``frame_id`` so the
+        record-on-show and lookup-on-repush halves are exercised together, not
+        just the store method in isolation.
+        """
+        store = HubDisplay()
+        client = _bind_store(monkeypatch, store)
+
+        show(
+            "hello-scene",
+            [{"kind": "text", "id": "t1", "content": "hi"}],
+            frame_id="hello-frame",
+        )
+        client.show_async.reset_mock()
+
+        ClientRegistry.repush_scene("hello-scene")
+
+        assert client.show_async.call_args.kwargs["frame_id"] == "hello-frame"
+
     def test_update_remove_drops_element_from_hub_store(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
