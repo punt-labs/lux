@@ -41,6 +41,7 @@ from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
+from punt_lux.protocol.renderer import Renderer, TabContainerRenderer
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.scene import SceneManager, WidgetState
 from punt_lux.tools import show
@@ -833,7 +834,23 @@ class _PlainRenderer:
 
 
 class TestRendererBoundary:
+    def test_production_renderer_satisfies_tab_container_protocol(self) -> None:
+        # Positive conformance: the renderer the display actually builds must
+        # satisfy the gate the tab bar enforces. The rejection test below only
+        # proves a non-conforming renderer is refused; without this, a drift in
+        # the protocol surface or the renderer's signatures would reject the
+        # legitimate renderer while every test still passed.
+        bar = _abc_tab_bar()
+        factory = _server()._imgui_renderer_factory
+        assert isinstance(ImGuiTabBarRenderer(bar, factory), TabContainerRenderer)
+
     def test_non_tab_container_renderer_fails_loud(self) -> None:
         bar = _abc_tab_bar()
+        # Premise: _PlainRenderer is a valid base Renderer lacking only the tab
+        # bracket, so the rejection is about the missing tab surface, not an
+        # arbitrary object. Pin it — otherwise a method later added to Renderer
+        # would silently make _PlainRenderer stop satisfying it and degrade this
+        # test to "any object is rejected" while still passing.
+        assert isinstance(_PlainRenderer(), Renderer)
         with pytest.raises(TypeError, match="TabContainerRenderer"):
             bar._render_children(_PlainRenderer())
