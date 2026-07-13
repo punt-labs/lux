@@ -57,8 +57,19 @@ class InspectionView:
         return any(record["id"] == element_id for record in self._records)
 
     def ids(self) -> frozenset[str]:
-        """Return every element id present in the inspection."""
-        return frozenset(cast("str", record["id"]) for record in self._records)
+        """Return every named element id present in the inspection.
+
+        Only truthy string ids are meaningful, mirroring ``duplicate_ids``:
+        a non-string id (a malformed record) or the empty-id sentinel (an
+        anonymous element) is filtered out so the advertised ``frozenset[str]``
+        stays honest. ``cast`` cannot do this — it reclassifies the type without
+        coercing, so a non-str id would leak into the set.
+        """
+        return frozenset(
+            eid
+            for record in self._records
+            if isinstance(eid := record["id"], str) and eid
+        )
 
     def root_ids(self) -> frozenset[str]:
         """Return the ids of the scene's top-level roots.

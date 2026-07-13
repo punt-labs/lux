@@ -47,3 +47,30 @@ def test_non_string_and_empty_ids_never_count() -> None:
     view = _view(None, None, "", "")
 
     assert view.duplicate_ids() == frozenset()
+
+
+def test_ids_returns_the_named_ids() -> None:
+    """``ids`` collects every named element id present."""
+    view = _view("a", "b", "c")
+
+    assert view.ids() == frozenset({"a", "b", "c"})
+
+
+def test_ids_filters_non_string_ids() -> None:
+    """A non-string id (a malformed record) never leaks into ``frozenset[str]``.
+
+    ``cast`` would reclassify ``None`` as ``str`` without coercing it, so the
+    isinstance filter is what keeps the advertised element type honest.
+    """
+    view = _view("a", None, "b")
+
+    result = view.ids()
+    assert result == frozenset({"a", "b"})
+    assert all(isinstance(eid, str) for eid in result)
+
+
+def test_ids_excludes_the_anonymous_sentinel() -> None:
+    """The empty-id sentinel (an anonymous element) is not a named id."""
+    view = _view("", "a", "")
+
+    assert view.ids() == frozenset({"a"})
