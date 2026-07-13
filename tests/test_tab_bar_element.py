@@ -564,15 +564,66 @@ class TestInteraction:
             selected=True, tab_id="tab-2", active="tab-1"
         )
 
-    def test_renderer_end_records_the_honoured_active_tab(self) -> None:
-        # end() is headless when the surface did not open (no ImGui call); it must
-        # still record the Hub active tab so the next frame reads it as honoured
-        # and cannot mistake the echo for a user switch.
+    def test_renderer_end_gates_the_honoured_write_on_opened(self) -> None:
+        # end() records honour only on a frame that actually opened the bar. A
+        # not-opened frame (a tab bar inside a collapsed collapsing_header) drew no
+        # tab item and force-selected nothing, so recording honour there would
+        # falsely mark the Hub value already honoured — the next frame the bar
+        # opens would skip first-frame force-selection and read ImGui's tab-0
+        # default as a user switch. An opened frame did honour the selection and
+        # records it.
         bar = _abc_tab_bar(active_tab="tab-2")
         factory = _server()._imgui_renderer_factory
         renderer = ImGuiTabBarRenderer(bar, factory)
-        renderer.end(opened=False)
+        with patch("punt_lux.display.renderers.imgui.tab_bar.imgui"):
+            renderer.end(opened=False)
+        assert factory.widget_state.get(_honoured_key(), _UNHONOURED) is _UNHONOURED
+        with patch("punt_lux.display.renderers.imgui.tab_bar.imgui"):
+            renderer.end(opened=True)
         assert factory.widget_state.get(_honoured_key()) == "tab-2"
+
+    def test_first_open_after_collapsed_frame_still_force_selects(self) -> None:
+        # Regression: a tab bar hidden on frame 1 (collapsed header → the bar
+        # surface does not open) and shown on frame 2 must still force-select its
+        # declared active tab and must not fire a spurious TabChanged off ImGui's
+        # tab-0 default. The bug: end(opened=False) on frame 1 pre-honoured the Hub
+        # value, so frame 2 both skipped force-selection and mistook the echo for a
+        # user switch.
+        bar = _abc_tab_bar(active_tab="tab-2")
+        factory = _server()._imgui_renderer_factory
+        renderer = ImGuiTabBarRenderer(bar, factory)
+        sent: list[RemoteEventHandlerInvocation] = []
+        bar.wrap_handlers_for_remote(sent.append)
+
+        # Frame 1 — collapsed: begin_tab_bar reports the surface closed, so the
+        # render loop draws no tab item, then end(opened=False) runs.
+        with patch("punt_lux.display.renderers.imgui.tab_bar.imgui") as im1:
+            im1.begin_tab_bar.return_value = False
+            opened = renderer.begin()
+            assert opened is False
+            renderer.end(opened=opened)
+        assert factory.widget_state.get(_honoured_key(), _UNHONOURED) is _UNHONOURED, (
+            "a not-opened frame must leave the honoured slot untouched"
+        )
+
+        # Frame 2 — first opened frame: begin_tab_item reports the tab-0 default
+        # (tab-1 selected) before SetSelected takes effect.
+        with patch("punt_lux.display.renderers.imgui.tab_bar.imgui") as im2:
+            im2.begin_tab_bar.return_value = True
+            im2.begin_tab_item.return_value = (True, True)
+            opened = renderer.begin()
+            assert opened is True
+            forced = [renderer.begin_tab(t, active=bar.active_tab) for t in bar.tabs]
+            for was in forced:
+                renderer.end_tab(opened=was)
+            renderer.end(opened=opened)
+            flags_per_tab = [c.args[2] for c in im2.begin_tab_item.call_args_list]
+
+        # The declared active tab (tab-2, the second tab) is force-selected; the
+        # inactive tab-1 is not — and nothing masqueraded as a user switch.
+        assert flags_per_tab[0] == 0
+        assert flags_per_tab[1] != 0
+        assert sent == [], "the tab-0 echo must not fire a spurious TabChanged"
 
     def test_pending_window_fires_exactly_once(self) -> None:
         # NO REPEATED FIRE: through the click-to-re-push latency window ImGui

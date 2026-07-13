@@ -1,16 +1,9 @@
 # pyright: reportUnknownMemberType=false, reportMissingModuleSource=false
-"""ImGuiTabBarRenderer — the interactive ABC tab-bar seam.
+"""ImGuiTabBarRenderer — the thin ImGui adapter for the ABC tab-bar seam.
 
-Satisfies the ``TabContainerRenderer`` sub-protocol: ``begin`` / ``paint`` /
-``end`` open and close the tab-bar surface, ``begin_tab`` / ``end_tab`` bracket
-each tab. ``begin_tab`` HONOURS the Hub-authoritative active tab (force-selecting
-the matching tab the frame a fresh Hub value arrives) and FIRES ``tab_changed``
-on a genuine user switch.
-
-The fire/honour decision is delegated to ``TabSelectionArbiter``, which arbitrates
-from two per-scene ``WidgetState`` slots. This renderer is the thin ImGui adapter:
-it translates the arbiter's decisions into ``begin_tab_item`` flags and the
-``fire`` call, and keeps no selection bookkeeping of its own.
+``begin`` / ``paint`` / ``end`` bracket the tab-bar surface and ``begin_tab`` /
+``end_tab`` bracket each tab (``TabContainerRenderer``). The fire/honour decision
+lives in ``TabSelectionArbiter``; this adapter renders its verdicts, holding no state.
 """
 
 from __future__ import annotations
@@ -54,10 +47,16 @@ class ImGuiTabBarRenderer:
         """No-op — a tab bar's body is its tabs' children (the render override)."""
 
     def end(self, *, opened: bool) -> None:
-        """Close the surface and record the honoured active tab (once per frame)."""
+        """Close the surface, recording the honoured active tab only if it opened.
+
+        A not-opened frame (a tab bar in a collapsed collapsing_header) drew no tab
+        item and force-selected nothing; honour written there would falsely mark the
+        Hub value honoured, so the frame the bar first opens would skip first-frame
+        force-selection and misread ImGui's tab-0 default as a spurious user switch.
+        """
         if opened:
             imgui.end_tab_bar()
-        self._arbiter().record_honoured(self._elem.active_tab)
+            self._arbiter().record_honoured(self._elem.active_tab)
 
     def begin_tab(self, tab: Tab, *, active: str) -> bool:
         """Open one tab item, honouring the Hub value and firing on a user switch."""
