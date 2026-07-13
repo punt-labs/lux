@@ -8,8 +8,9 @@
 %
 % Source of record:
 %   src/punt_lux/display/renderers/imgui/tab_bar.py
-%       -- ImGuiTabBarRenderer: begin_tab (the fire decision + force-select),
-%          end (the honoured / pending writes)
+%       -- ImGuiTabBarRenderer: begin (begin_tab_bar -> opened?),
+%          begin_tab (the fire decision + force-select),
+%          end (the honoured write, which must be gated on opened)
 %   src/punt_lux/scene/widget_state.py
 %       -- WidgetState: reset_honoured (the re-push reset),
 %          discard_for (the removal clear)
@@ -77,6 +78,22 @@ the \emph{pending} selection: the tab for which a \texttt{TabChanged} is
 already outstanding.  This document derives that slot and proves the four
 safety properties the design must have.
 
+There is a further dimension the honoured write depends on: whether the bar
+\emph{rendered} at all.  A tab bar nested in a collapsed
+\texttt{collapsing\_header}, or in a hidden window, has \texttt{begin\_tab\_bar}
+return \emph{not opened}; its tab items never run, so no tab is force-selected
+and nothing can fire.  The honoured write in \texttt{end()} must therefore take
+effect only on a frame that opened.  Recording the active tab as honoured on a
+frame where nothing rendered is a stale honour of the same kind as an honour
+surviving a re-push: the frame the bar first becomes visible then reads the Hub
+value as already honoured, skips the first-frame force-select, and fires a
+spurious \texttt{TabChanged}.  This is the fire/honour defect recurring for a
+fourth reason --- not a lifecycle reset missed, but a honour recorded without a
+render --- and the earlier model, which had no notion of a frame that does not
+render, could not exhibit it.  The remedy is to gate the honoured write on the
+opened flag; this document extends the machine with that dimension so the gate
+can be proved to close the defect.
+
 This is a finite state machine over one tab bar and a small fixed set of tab
 ids, so ProB can enumerate every interleaving of render frames, user clicks,
 re-pushes, and removals, and either confirm the invariants or produce the
@@ -105,7 +122,7 @@ click-away-and-back paths more thoroughly.  The carrier is bounded by ProB's
 \end{zed}
 
 A two-valued flag written as a free type rather than the toolkit
-\texttt{\bool}, so ProB animates it as a small enumerated set.
+\texttt{bool}, so ProB animates it as a small enumerated set.
 
 \begin{zed}
   MAXFIRE == 2
@@ -279,13 +296,21 @@ the render frame's decision.
 \section{The Render Frame}
 % ============================================================
 
-One frame runs \texttt{begin\_tab} over every tab and then \texttt{end()}.
-Exactly one of three cases applies, so a render step is \emph{always} enabled
---- the reason the machine never deadlocks (Section~\ref{sec:inv},
-invariant~4).  Every case ends by writing the active tab into
-\texttt{honoured}: that is \texttt{end()}'s honoured write, and it is what
+Each frame the bar either \emph{opens} --- \texttt{begin\_tab\_bar} returns
+opened, the tab items run --- or it does not.  An opened frame is one of three
+cases; a not-opened frame is \texttt{FrameNotOpened}.  One of the four is
+\emph{always} enabled, so a render step never stalls: that is the reason the
+machine cannot deadlock (Section~\ref{sec:inv}, invariant~4).
+
+An opened frame runs \texttt{begin\_tab} over every tab and then \texttt{end()},
+and every opened case ends by writing the active tab into \texttt{honoured}:
+that is \texttt{end()}'s honoured write under its opened gate, and it is what
 makes the \emph{next} frame read the current active tab as ``already
-honoured''.
+honoured''.  A not-opened frame runs no tab items and no force-select, and ---
+this is the gate that closes the defect --- its \texttt{end()} does \emph{not}
+write \texttt{honoured}.  The honoured slot is therefore only ever set by a
+frame that actually rendered and force-selected, so a non-empty
+\texttt{honoured} is a true witness that an opened frame has run.
 
 \texttt{FrameForceSelect} is the fresh-value case: the active tab is not the
 honoured one, so \texttt{begin\_tab} force-selects it.  ImGui's selection is
@@ -352,10 +377,38 @@ write still happens.
   active' = active
 \end{schema}
 
-The three frame guards partition the state space: \texttt{active $\notin$
-honoured} selects \texttt{FrameForceSelect}; \texttt{active $\in$ honoured}
-splits on the fire condition into \texttt{FrameFire} and \texttt{FrameSteady}.
-Exactly one is enabled in every state, so rendering never stalls.
+The three opened-frame guards partition the opened case: \texttt{active
+$\notin$ honoured} selects \texttt{FrameForceSelect}; \texttt{active $\in$
+honoured} splits on the fire condition into \texttt{FrameFire} and
+\texttt{FrameSteady}.  Exactly one of the three is enabled in every state.
+
+\texttt{FrameNotOpened} is the frame that does not render: the bar is inside a
+collapsed \texttt{collapsing\_header} or a hidden window, \texttt{begin\_tab\_bar}
+returns not opened, and no tab item runs.  In the corrected design this leaves
+every component untouched --- in particular \texttt{honoured}, because the
+honoured write is gated on the opened flag and does not fire this frame.  It is
+enabled in \emph{every} state, unguarded, modelling the fact that any frame may
+find the container collapsed.
+
+\begin{schema}{FrameNotOpened}
+  \Delta TabBar
+\where
+  active' = active \\
+  selected' = selected \\
+  honoured' = honoured \\
+  pending' = pending \\
+  clicked' = clicked \\
+  fires' = fires \\
+  spurious' = spurious
+\end{schema}
+
+Because \texttt{FrameNotOpened} changes nothing, it adds no reachable state; its
+role is to make the not-opened frame an explicit, always-available step, so that
+the fidelity variant of Section~\ref{sec:fidelity} --- which lets it write
+\texttt{honoured} --- has somewhere to introduce the stale honour.  With one of
+the three opened frames \emph{and} \texttt{FrameNotOpened} enabled in every
+state, a render step is always available, so the opened dimension does not
+weaken deadlock freedom.
 
 % ============================================================
 \section{Invariants}
@@ -387,16 +440,25 @@ re-push.  With the counter reset on every click and re-push:
 \]
 
 \paragraph{Invariant 3 --- first-frame honour.}
-Once a frame has rendered (\texttt{honoured} is non-empty), if the user has not
-clicked then ImGui shows the Hub's active tab --- the declared active tab is
-never left clobbered by ImGui's tab-0 default:
+Once an \emph{opened} frame has rendered (\texttt{honoured} is non-empty), if
+the user has not clicked then ImGui shows the Hub's active tab --- the declared
+active tab is never left clobbered by ImGui's tab-0 default:
 \[
   honoured \neq \emptyset \land clicked = zfalse \implies selected = active.
 \]
+The invariant reads \texttt{honoured $\neq \emptyset$} as ``an opened frame has
+force-selected''.  The honoured gate of \texttt{FrameNotOpened} is what makes
+that reading sound: only an opened frame sets \texttt{honoured}, so a non-empty
+slot cannot arise from a frame that did not render.  Remove the gate and the
+implication fails --- a not-opened frame sets \texttt{honoured} while
+\texttt{selected} still holds ImGui's tab-0 default (Section~\ref{sec:fidelity},
+defect~(e)).
 
 \paragraph{Invariant 4 --- deadlock freedom.}
-No reachable state leaves the machine unable to progress.  The three frame
-cases partition the state space, so a render step is enabled in every state.
+No reachable state leaves the machine unable to progress.  The three opened-frame
+cases partition the opened case and \texttt{FrameNotOpened} is enabled
+unconditionally, so a render step --- opened or not --- is enabled in every
+state.
 
 \paragraph{Echo suppression.}
 A Hub-driven active-tab change fires nothing.  This is not a separate
@@ -440,8 +502,15 @@ Invariant 4 is the deadlock check over the full reachable state space:
   probcli docs/tab_bar_selection.tex -model_check -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
+The opened dimension adds the \texttt{FrameNotOpened} operation but no new goal:
+because its stale honour surfaces as a first-frame-honour failure that then fires
+spuriously, defect~(e) is caught by the invariant~3 and invariant~1 goals already
+listed.  All four checks return the same verdict under the extended machine as
+before it --- no counter-example, and \texttt{FrameNotOpened} covered among the
+operations.
+
 % ============================================================
-\section{Fidelity: reproducing the four defects}
+\section{Fidelity: reproducing the five defects}
 \label{sec:fidelity}
 % ============================================================
 
@@ -536,13 +605,54 @@ Under the intact guard, step~3 records \texttt{pending = \{$t_2$\}}, so step~4
 is \texttt{FrameSteady}: \texttt{selected = $t_2$ $\in$ pending}, no fire.  The
 window fires exactly once.
 
+\paragraph{Defect (e) --- honoured recorded on a frame that did not render.}
+Edit: \texttt{FrameNotOpened} writes \texttt{honoured' = \{active\}} instead of
+\texttt{honoured' = honoured}, modelling \texttt{end()} calling
+\texttt{record\_honoured} unconditionally rather than under the \texttt{opened}
+guard --- so a frame in which \texttt{begin\_tab\_bar} returned not opened, and
+no tab item ran, still records the active tab as honoured.  Goals found: both
+invariant~3 (\texttt{honoured/=\{\} \& selected/=active \& clicked=zfalse}) and
+invariant~1 (\texttt{spurious=ztrue}).  Trace, for a bar declared with active
+tab $t_2$ inside a collapsed \texttt{collapsing\_header}:
+\begin{enumerate}
+  \item \texttt{Init}: \texttt{active = selected = $t_1$}.
+  \item \texttt{Declare($t_2$)}: \texttt{active = $t_2$},
+    \texttt{selected = $t_1$} (ImGui's tab-0 default), \texttt{honoured =
+    $\emptyset$}, \texttt{clicked = zfalse}.  The bar is nested in the collapsed
+    header, so no frame has yet opened it.
+  \item \texttt{FrameNotOpened} in the buggy form --- a frame passes while the
+    header is collapsed: \texttt{begin\_tab\_bar} returns not opened, no tab is
+    force-selected, yet \texttt{end()} records \texttt{honoured = \{$t_2$\}}.
+    This state alone violates invariant~3: \texttt{honoured} is non-empty, the
+    user has not clicked, yet \texttt{selected = $t_1$ $\neq$ $t_2$ = active} ---
+    the declared tab was never force-selected, because nothing rendered.
+  \item \texttt{FrameFire} --- the header is expanded and the bar opens for the
+    first time: \texttt{active = $t_2$ $\in$ honoured}, so the first-frame
+    force-select is skipped; \texttt{selected = $t_1$ $\neq$ $t_2$},
+    \texttt{$t_1$ $\notin$ pending}, so the frame fires with
+    \texttt{clicked = zfalse} --- \texttt{spurious} is set, violating
+    invariant~1.
+\end{enumerate}
+Under the intact gate, \texttt{FrameNotOpened} leaves \texttt{honoured =
+$\emptyset$}, so the first frame that opens the bar is \texttt{FrameForceSelect}:
+it drives \texttt{selected} to $t_2$ and fires nothing.  ProB's own shortest
+witness for invariant~3 takes a different route to the same stale honour ---
+\texttt{UserClick($t_2$); Repush($t_1$); FrameNotOpened}, where the re-push's
+own selection is left unreconciled by a frame that does not render --- confirming
+the defect is a property of the unconditional honoured write, not of one
+particular path to it.
+
 \paragraph{Summary.}
 Each defect's guard, removed, makes its invariant's negation reachable; with
-every guard intact, all four reachability goals return \emph{not found} and the
-deadlock check reports none.  That difference is the evidence that the model
-detects the defects the code was changed to prevent --- and, for defect~(d),
-that the \texttt{pending} slot is the correct fix: it is the minimal state that
-makes the latency window fire exactly once.
+every guard intact, the three reachability goals (\texttt{spurious=ztrue},
+\texttt{fires>1}, and the invariant~3 predicate) all return \emph{not found} and
+the deadlock check reports none.  That difference is the evidence that the model
+detects the defects the code was changed to prevent --- for defect~(d), that the
+\texttt{pending} slot is the correct fix (the minimal state that makes the
+latency window fire exactly once), and for defect~(e), that gating the honoured
+write on \texttt{opened} is the correct fix (only a frame that renders may record
+a honour, so \texttt{honoured $\neq \emptyset$} remains a true witness that an
+opened frame force-selected).
 
 % ============================================================
 \section{From the Model to the Code}
@@ -551,11 +661,20 @@ makes the latency window fire exactly once.
 The model's \texttt{pending} slot is a second echo-suppression key in
 \texttt{WidgetState}, beside the honoured key.  \texttt{begin\_tab} reads it,
 fires only when the reported selection is neither the active tab nor the
-pending tab, and records the fired tab into it; \texttt{end()} is unchanged ---
-it still writes only the active tab into the honoured slot.  The re-push and
-removal resets (\texttt{reset\_honoured}, \texttt{discard\_for}) clear the
-pending key alongside the honoured key, which is the model's \texttt{pending' =
-$\emptyset$} in \texttt{Repush} and \texttt{RemoveReadd}.  No other honoured-
-or fire-related behaviour changes.
+pending tab, and records the fired tab into it.  The re-push and removal resets
+(\texttt{reset\_honoured}, \texttt{discard\_for}) clear the pending key
+alongside the honoured key, which is the model's \texttt{pending' = $\emptyset$}
+in \texttt{Repush} and \texttt{RemoveReadd}.
+
+The \texttt{FrameNotOpened} gate is \texttt{end()}'s honoured write moving inside
+its \texttt{if opened:} branch.  \texttt{end()} already receives the
+\texttt{opened} flag that \texttt{begin} (\texttt{begin\_tab\_bar}) returned; the
+correction is that \texttt{record\_honoured} runs only when that flag is set, so
+a frame in which the bar did not render --- a collapsed \texttt{collapsing\_header}
+or a hidden window --- records no honour and the honoured slot keeps its meaning:
+the active tab that an \emph{opened} frame last force-selected.  This is the
+model's \texttt{honoured' = honoured} in \texttt{FrameNotOpened}, as against the
+opened cases' \texttt{honoured' = \{active\}}.  No other honoured- or
+fire-related behaviour changes.
 
 \end{document}
