@@ -3,8 +3,9 @@
 ``from_wire`` is the single place the wire shape becomes typed domain requests,
 so it is where malformed patches must be rejected loud rather than silently
 reshaped. The two shapes — a removal (``remove`` is boolean ``True``) and a
-field set (a ``set`` mapping) — are mutually exclusive; every other combination
-raises ``MalformedPatchError``.
+field set (a ``set`` mapping) — are mutually exclusive within a patch and across
+the batch (an id may not be both set and removed); every other combination raises
+``MalformedPatchError``.
 """
 
 from __future__ import annotations
@@ -84,3 +85,50 @@ def test_non_empty_string_id_is_accepted() -> None:
     batch = PatchBatch.from_wire([{"id": "x", "set": {"content": "hi"}}])
 
     assert batch.field_patches[0].element_id == ElementId("x")
+
+
+def test_same_id_set_then_remove_across_entries_is_rejected() -> None:
+    """An id set in one entry and removed in another is refused — the cross-entry
+    form of the within-a-patch exclusivity, never collapsed to a bare remove."""
+    with pytest.raises(MalformedPatchError, match="both set and removed"):
+        PatchBatch.from_wire(
+            [{"id": "x", "set": {"content": "hi"}}, {"id": "x", "remove": True}]
+        )
+
+
+def test_same_id_remove_then_set_across_entries_is_rejected() -> None:
+    """Order does not matter: remove-then-set conflicts as set-then-remove does."""
+    with pytest.raises(MalformedPatchError, match="both set and removed"):
+        PatchBatch.from_wire(
+            [{"id": "x", "remove": True}, {"id": "x", "set": {"content": "hi"}}]
+        )
+
+
+def test_distinct_ids_one_set_one_remove_are_both_kept() -> None:
+    """One id set and a DIFFERENT id removed is not a conflict — both survive."""
+    batch = PatchBatch.from_wire(
+        [{"id": "a", "set": {"content": "hi"}}, {"id": "b", "remove": True}]
+    )
+
+    assert batch.removals == (ElementId("b"),)
+    assert [p.element_id for p in batch.field_patches] == [ElementId("a")]
+
+
+def test_same_id_set_twice_merges_without_a_false_conflict() -> None:
+    """Two set entries for one id merge — no removal in play, so no conflict."""
+    batch = PatchBatch.from_wire(
+        [{"id": "x", "set": {"a": 1}}, {"id": "x", "set": {"b": 2}}]
+    )
+
+    assert batch.removals == ()
+    assert dict(batch.field_patches[0].fields) == {"a": 1, "b": 2}
+
+
+def test_same_id_removed_twice_dedupes_without_a_false_conflict() -> None:
+    """Two remove entries for one id dedupe to a single removal — no conflict."""
+    batch = PatchBatch.from_wire(
+        [{"id": "x", "remove": True}, {"id": "x", "remove": True}]
+    )
+
+    assert batch.removals == (ElementId("x"),)
+    assert batch.field_patches == ()
