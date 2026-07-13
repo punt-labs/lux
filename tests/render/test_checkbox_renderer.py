@@ -3,12 +3,14 @@
 The ``imgui.checkbox`` call is a visual-only seam that segfaults without a live
 GL context, so these tests drive ``render`` through a fake imgui that records the
 value handed to ``checkbox`` and returns a scripted ``(changed, value)`` result.
-Three invariants of a Hub-authoritative ABC checkbox are covered:
+Invariants of a Hub-authoritative ABC checkbox are covered:
 
 - HONOUR — every frame renders the current ``elem.value``, never a stale seed.
 - USER TOGGLE FIRES ONCE — a genuine click fires exactly one ``ValueChanged``
-  carrying the new value.
+  carrying the new value, both when checking (False->True) and unchecking.
 - NO ECHO — a Hub re-push (``changed`` False) never fires.
+- STATELESS — one renderer instance paints many ids, each honouring its own
+  value with no cross-contamination.
 """
 
 from __future__ import annotations
@@ -84,6 +86,41 @@ def test_user_toggle_fires_one_value_changed_with_the_new_value(
     assert len(fired) == 1
     assert fired[0].value is True
     assert fired[0].element_id == "cbx"
+
+
+def test_user_untoggle_fires_one_value_changed_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Uncheck: the mirror of the toggle-ON case. A genuine click on a checked
+    # box fires exactly one ValueChanged carrying the new False value — the
+    # toggle-ON test alone left the False direction unproven.
+    fake = _FakeImgui(changed=True, value=False)
+    _install(monkeypatch, fake)
+    elem = _checkbox(value=True)
+    fired: list[ValueChanged] = []
+    elem.add_handler(ValueChanged, fired.append)
+
+    CheckboxRenderer().render(elem)
+
+    assert len(fired) == 1
+    assert fired[0].value is False
+    assert fired[0].element_id == "cbx"
+
+
+def test_one_renderer_honours_each_id_independently(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The renderer holds no per-scene or per-id state: one instance paints two
+    # DIFFERENT elements and each reports its own elem.value, with nothing from
+    # the first bleeding into the second.
+    fake = _FakeImgui(changed=False, value=False)
+    _install(monkeypatch, fake)
+    renderer = CheckboxRenderer()
+
+    renderer.render(CheckboxElement(id="a", label="A", value=True))
+    renderer.render(CheckboxElement(id="b", label="B", value=False))
+
+    assert fake.recorded == [True, False]
 
 
 def test_hub_repush_does_not_echo_fire(monkeypatch: pytest.MonkeyPatch) -> None:
