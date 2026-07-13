@@ -135,7 +135,7 @@ class ElementRenderer:
         self._markdown_renderer = MarkdownRenderer()
         self._button_renderer = ButtonRenderer()
         self._slider_renderer = SliderRenderer(widget_state, emit_event)
-        self._checkbox_renderer = CheckboxRenderer(widget_state)
+        self._checkbox_renderer = CheckboxRenderer()
         self._combo_renderer = ComboRenderer(widget_state, emit_event)
         self._input_text_renderer = InputTextRenderer(widget_state, emit_event)
         self._input_number_renderer = InputNumberRenderer(widget_state, emit_event)
@@ -174,7 +174,6 @@ class ElementRenderer:
     # renderer's view of widget state simultaneously.
     _WIDGET_STATE_RENDERERS: ClassVar[tuple[str, ...]] = (
         "_slider_renderer",
-        "_checkbox_renderer",
         "_combo_renderer",
         "_input_text_renderer",
         "_input_number_renderer",
@@ -213,9 +212,10 @@ class ElementRenderer:
     def checkbox_renderer(self) -> CheckboxRenderer:
         """Return the per-kind checkbox renderer for the ImGui checkbox adapter.
 
-        This is the instance the ``widget_state`` setter re-threads per
-        scene, so painting through it reads the current scene's state — not
-        the factory's stale construction-time copy.
+        The checkbox is Hub-authoritative: the renderer paints ``elem.value``
+        every frame and holds no per-scene state, so it needs no widget_state
+        re-threading. The instance is owned here (not by the factory) to keep
+        the D21 fire path on the one renderer the migration exercises.
         """
         return self._checkbox_renderer
 
