@@ -400,8 +400,11 @@ def update(scene_id: str, patches: list[dict[str, Any]]) -> str:
       {"id": "t1", "set": {"content": "Updated text"}}  or  {"id": "b1", "remove": true}
 
     The Hub mutates its authoritative store first, then re-pushes the scene —
-    the same replication a click takes. A ``set`` that would make an element
-    invalid is rejected whole. Returns ``"ack:<scene_id>"``.
+    the same replication a click takes. Returns ``"ack:<scene_id>"`` on success.
+    A rejected write — an invalid patch, an unknown field, or a ``set`` that
+    would break an element — mutates nothing and returns
+    ``"error: scene not updated — <reason>"``, so callers must not assume
+    success-only semantics.
     """
     connection_id = ConnectionId(_session_key.get())
     # Mutate once, outside the retry, so a failed re-push cannot re-drive it.

@@ -37,7 +37,9 @@ class InspectionView:
         paths = cast("list[Mapping[str, object]]", inspection["element_paths"])
         self._records = tuple(paths)
         roots = cast("list[Mapping[str, object]]", inspection["elements"])
-        self._root_ids = tuple(cast("str", root["id"]) for root in roots)
+        self._root_ids = tuple(
+            rid for root in roots if isinstance(rid := root["id"], str)
+        )
         return self
 
     def record(self, element_id: str) -> Mapping[str, object]:
@@ -77,6 +79,12 @@ class InspectionView:
         These are the ``elements`` the Hub re-pushed as roots. A child that
         was hoisted to a top-level sibling by a flattening re-push shows up
         here; a correctly-nested child never does.
+
+        Only string ids survive the ``__new__`` filter — a non-string id (a
+        malformed record) is dropped so the advertised ``tuple[str, ...]``
+        stays honest. Unlike ``ids``, the empty-string id is *kept*: an
+        anonymous root carries the empty-id sentinel and must remain in the
+        root set for the shape check to see it.
         """
         return frozenset(self._root_ids)
 

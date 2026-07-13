@@ -21,6 +21,12 @@ def _view(*ids: object) -> InspectionView:
     return InspectionView({"element_paths": records, "elements": []})
 
 
+def _view_roots(*ids: object) -> InspectionView:
+    """Build an InspectionView whose top-level ``elements`` carry ``ids``."""
+    roots = [{"id": eid, "kind": "sep", "props": {}} for eid in ids]
+    return InspectionView({"element_paths": [], "elements": roots})
+
+
 def test_repeated_anonymous_ids_are_not_duplicates() -> None:
     """Several empty-id separators do not register a false duplicate."""
     view = _view("", "a", "", "b", "")
@@ -74,3 +80,27 @@ def test_ids_excludes_the_anonymous_sentinel() -> None:
     view = _view("", "a", "")
 
     assert view.ids() == frozenset({"a"})
+
+
+def test_root_ids_filters_non_string_ids() -> None:
+    """A non-string root id (a malformed record) never leaks into the roots.
+
+    ``cast`` would reclassify the value as ``str`` without coercing it, so the
+    isinstance filter is what keeps the advertised ``tuple[str, ...]`` honest.
+    """
+    view = _view_roots("r1", None, "r2")
+
+    result = view.root_ids()
+    assert result == frozenset({"r1", "r2"})
+    assert all(isinstance(rid, str) for rid in result)
+
+
+def test_root_ids_keeps_the_anonymous_sentinel() -> None:
+    """The empty-string id of an anonymous root is kept, unlike ``ids``.
+
+    An anonymous root carries the empty-id sentinel; the shape check needs it
+    in the root set, so the filter tests only for ``str``, not truthiness.
+    """
+    view = _view_roots("", "r1")
+
+    assert view.root_ids() == frozenset({"", "r1"})
