@@ -11,17 +11,19 @@ Distinct from ``ClientRegistry`` in ``clients.py``, which owns the
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Self, final
 
 from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["HubClientRegistry"]
 
 
+@final
 class HubClientRegistry:
     """Set of currently-registered Hub client ``ConnectionId``s."""
 
     _registered: set[ConnectionId]
+    __slots__ = ("_registered",)
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)

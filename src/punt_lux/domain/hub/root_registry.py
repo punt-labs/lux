@@ -8,7 +8,7 @@ disconnecting connection owned, letting the cascade prune the rest.
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Self, final
 
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.ids import ElementId, SceneId
@@ -16,10 +16,12 @@ from punt_lux.domain.ids import ElementId, SceneId
 __all__ = ["RootRegistry"]
 
 
+@final
 class RootRegistry:
     """``(scene_id, element_id) → AbcElement`` mapping for scene roots."""
 
     _roots: dict[tuple[SceneId, ElementId], AbcElement]
+    __slots__ = ("_roots",)
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)

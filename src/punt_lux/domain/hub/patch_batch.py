@@ -65,11 +65,19 @@ class PatchBatch:
 
     @staticmethod
     def _require_id(patch: Mapping[str, object]) -> ElementId:
-        """Return the patch's ``id`` or raise ``MalformedPatchError`` on absence."""
+        """Return the patch's ``id`` or raise ``MalformedPatchError``.
+
+        A patch id must be a non-empty string. A missing id, a non-string id
+        (``{"id": 1}``), or an empty id (``{"id": ""}``) is malformed and
+        rejected at the wire boundary rather than silently coerced — the same
+        reject-in-full discipline the removal and set shapes already apply.
+        """
         raw = patch.get("id")
-        if raw is None:
-            raise MalformedPatchError(None, "patch is missing a required 'id'")
-        return ElementId(str(raw))
+        if not isinstance(raw, str) or not raw:
+            raise MalformedPatchError(
+                None, f"patch 'id' must be a non-empty string, not {raw!r}"
+            )
+        return ElementId(raw)
 
     @staticmethod
     def _is_removal(patch: Mapping[str, object], element_id: ElementId) -> bool:

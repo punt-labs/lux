@@ -30,3 +30,26 @@ def test_frames_are_kept_per_scene() -> None:
     reg.record(SceneId("b"), "frame-b")
     assert reg.frame_for(SceneId("a")) == "frame-a"
     assert reg.frame_for(SceneId("b")) == "frame-b"
+
+
+def test_forget_reverts_to_the_scene_id_fallback() -> None:
+    reg = FrameRegistry()
+    reg.record(SceneId("s1"), "custom-frame")
+    reg.forget(SceneId("s1"))
+    # The mapping is gone, so the total lookup falls back to the scene's own id.
+    assert reg.frame_for(SceneId("s1")) == "s1"
+
+
+def test_forget_is_idempotent_on_an_unrecorded_scene() -> None:
+    reg = FrameRegistry()
+    reg.forget(SceneId("never-shown"))  # no-op, must not raise
+    assert reg.frame_for(SceneId("never-shown")) == "never-shown"
+
+
+def test_forget_leaves_other_scenes_untouched() -> None:
+    reg = FrameRegistry()
+    reg.record(SceneId("a"), "frame-a")
+    reg.record(SceneId("b"), "frame-b")
+    reg.forget(SceneId("a"))
+    assert reg.frame_for(SceneId("a")) == "a"
+    assert reg.frame_for(SceneId("b")) == "frame-b"

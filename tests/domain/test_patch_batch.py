@@ -63,5 +63,24 @@ def test_falsy_remove_with_no_set_is_rejected() -> None:
 
 def test_missing_id_is_rejected() -> None:
     """A patch with no ``id`` is refused before any shape check."""
-    with pytest.raises(MalformedPatchError, match="missing a required 'id'"):
+    with pytest.raises(MalformedPatchError, match="must be a non-empty string"):
         PatchBatch.from_wire([{"set": {"content": "hi"}}])
+
+
+def test_non_string_id_is_rejected() -> None:
+    """A non-string ``id`` (``1``) is refused, never coerced to element ``"1"``."""
+    with pytest.raises(MalformedPatchError, match="must be a non-empty string"):
+        PatchBatch.from_wire([{"id": 1, "set": {"content": "hi"}}])
+
+
+def test_empty_string_id_is_rejected() -> None:
+    """An empty ``id`` is refused — it addresses no element."""
+    with pytest.raises(MalformedPatchError, match="must be a non-empty string"):
+        PatchBatch.from_wire([{"id": "", "set": {"content": "hi"}}])
+
+
+def test_non_empty_string_id_is_accepted() -> None:
+    """A well-formed non-empty string ``id`` parses to that element."""
+    batch = PatchBatch.from_wire([{"id": "x", "set": {"content": "hi"}}])
+
+    assert batch.field_patches[0].element_id == ElementId("x")

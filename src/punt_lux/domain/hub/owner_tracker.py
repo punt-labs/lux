@@ -7,7 +7,7 @@ the disconnect cleanup walks to find each connection-owned root.
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Self, final
 
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
@@ -15,6 +15,7 @@ from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 __all__ = ["OwnerTracker"]
 
 
+@final
 class OwnerTracker:
     """``(scene_id, element_id) → ConnectionId`` mapping.
 
@@ -23,6 +24,7 @@ class OwnerTracker:
     """
 
     _owners: dict[tuple[SceneId, ElementId], ConnectionId]
+    __slots__ = ("_owners",)
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)

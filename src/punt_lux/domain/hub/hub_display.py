@@ -18,7 +18,9 @@ collaborators, each with one responsibility:
 - ``HubClientRegistry`` (`hub_clients.py`) — set of connections
   currently registered as Hub clients.
 - ``FrameRegistry`` (`frame_registry.py`) — ``scene_id → frame_id`` so a
-  re-push resends a scene into the frame it was originally shown in.
+  re-push resends a scene into the frame it was originally shown in;
+  forgotten when the scene is cleared or its owning connection drops, so
+  it tracks scene lifetime like the four collaborators above.
 
 ``apply`` dispatches on the typed ``Update`` sum and delegates to the
 collaborators. ``drop_connection`` flips ``mark_removed`` on each
@@ -185,6 +187,12 @@ class HubDisplay:
                 connection_id,
                 AddElement(scene_id=scene_id, element=root, parent_id=None),
             )
+        if not roots:
+            # An empty replace is a clear: the scene now holds nothing, so its
+            # frame association is forgotten alongside its index/owner/root
+            # entries. A re-show re-records it. A non-empty replace keeps the
+            # frame — the ``show`` front door re-records it immediately after.
+            self._frames.forget(scene_id)
 
     # -- apply -------------------------------------------------------------
 
@@ -245,9 +253,15 @@ class HubDisplay:
         rest of the connection's state.
         """
         self._clients.discard(connection_id)
-        for scene_id, element_id in self._owners.keys_for(connection_id):
+        owned = self._owners.keys_for(connection_id)
+        for scene_id, element_id in owned:
             if self._children.is_root(scene_id, element_id):
                 self._drop_root(scene_id, element_id, connection_id)
+        # Frames key on the scene, not the element, so they cannot ride the
+        # per-element storage teardown above. Forget every scene the dropped
+        # connection owned so the frame map does not outlive the scenes.
+        for scene_id in {scene for scene, _ in owned}:
+            self._frames.forget(scene_id)
 
     def _drop_root(
         self,

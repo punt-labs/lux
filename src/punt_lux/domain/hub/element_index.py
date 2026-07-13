@@ -9,7 +9,7 @@ errors so the caller can distinguish ``unknown scene`` from
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Self
+from typing import Self, final
 
 from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.element_identity import ElementIdentity
@@ -48,6 +48,7 @@ class UnknownElementError(LookupError):
         return f"unknown element: {self.element_id!r} in scene {self.scene_id!r}"
 
 
+@final
 class ElementIndex:
     """``(scene_id, element_id) → Element`` mapping.
 
@@ -66,6 +67,7 @@ class ElementIndex:
     _by_scene: dict[SceneId, dict[ElementId, WireElement]]
     _roots_by_scene: dict[SceneId, dict[ElementId, None]]
     _anon_seq: int
+    __slots__ = ("_anon_seq", "_by_scene", "_roots_by_scene")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
