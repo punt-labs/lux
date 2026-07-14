@@ -797,7 +797,10 @@ def test_interact_raises_wrong_kind_for_non_button_element() -> None:
     with pytest.raises(WrongKindError) as exc_info:
         display.interact(alice, _click_msg("s1", "s1elem"))
 
-    assert exc_info.value.expected == "button or checkbox"
+    assert (
+        exc_info.value.expected
+        == "button, checkbox, input_text, collapsing_header, or tab_bar"
+    )
     assert exc_info.value.got == "slider"
 
 

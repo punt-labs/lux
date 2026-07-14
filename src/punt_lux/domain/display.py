@@ -34,7 +34,6 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Self, assert_never
 
 from punt_lux.domain._typing import field_info, replace_field, value_matches
-from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
 from punt_lux.domain.element_abc import Element as ElementABC
 from punt_lux.domain.error import (
     DuplicateIdError,
@@ -49,14 +48,16 @@ from punt_lux.domain.event import (
     Event,
 )
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
-from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.domain.interaction_errors import (
     ElementDismissedError,
     UnauthorizedInteractionError,
     UnknownClientError,
     UnknownInteractionElementError,
     UnknownInteractionSceneError,
-    WrongKindError,
+)
+from punt_lux.domain.interaction_event_builder import (
+    InteractionEventBuilder,
+    TypedInteraction,
 )
 from punt_lux.domain.ownership import OwnershipError
 from punt_lux.domain.snapshot import SceneSnapshot
@@ -75,6 +76,10 @@ logger = logging.getLogger(__name__)
 
 type EventCallback = Callable[[Event], None]
 type Result = Event | Error
+
+# Stateless — one shared builder maps an element kind + wire value to its
+# typed interaction event for every ``interact`` call.
+_INTERACTION_EVENT_BUILDER = InteractionEventBuilder()
 
 
 class Display:
@@ -252,7 +257,7 @@ class Display:
         self,
         client_id: ClientId,
         msg: RemoteEventHandlerInvocation,
-    ) -> ButtonClicked | ValueChanged | HeaderToggled | TabChanged:
+    ) -> TypedInteraction:
         """Validate the wire message, construct the typed event, fire it.
 
         Callers must pass a wire-shape-valid message: ``msg.action`` is
@@ -298,7 +303,7 @@ class Display:
                 element_id=element_id,
                 dismissed_id=dismissed,
             )
-        event = self._build_event(
+        event = _INTERACTION_EVENT_BUILDER.build(
             element=element,
             scene_id=scene_id,
             element_id=element_id,
@@ -327,86 +332,6 @@ class Display:
                 return current_id
             current_id = self._parents.get((scene_id, current_id))
         return None
-
-    @staticmethod
-    def _build_event(
-        *,
-        element: Element,
-        scene_id: SceneId,
-        element_id: ElementId,
-        owner_id: ClientId,
-        value: object,
-    ) -> ButtonClicked | ValueChanged | HeaderToggled | TabChanged:
-        """Construct the typed event for ``element``'s kind + wire ``value``.
-
-        ``button`` + ``value is True`` → ``ButtonClicked``; ``checkbox`` +
-        a ``bool`` value → ``ValueChanged``; ``collapsing_header`` + a ``bool``
-        value → ``HeaderToggled``; ``tab_bar`` + a ``str`` value → ``TabChanged``
-        — the same event set the live Hub dispatch constructs
-        (``domain.hub.clients``). Other kinds raise ``WrongKindError`` (future
-        kinds add their own typed events here).
-        """
-        if element.kind == "tab_bar":
-            if not isinstance(value, str):
-                raise WrongKindError(
-                    scene_id=scene_id,
-                    element_id=element_id,
-                    expected="tab change (str tab_id)",
-                    got=f"value={value!r}",
-                )
-            return TabChanged(
-                scene_id=scene_id,
-                element_id=element_id,
-                owner_id=owner_id,
-                tab_id=value,
-            )
-        if element.kind == "collapsing_header":
-            if not isinstance(value, bool):
-                raise WrongKindError(
-                    scene_id=scene_id,
-                    element_id=element_id,
-                    expected="collapsing_header toggle (bool value)",
-                    got=f"value={value!r}",
-                )
-            return HeaderToggled(
-                scene_id=scene_id,
-                element_id=element_id,
-                owner_id=owner_id,
-                open_=value,
-            )
-        if element.kind == "button":
-            if value is not True:
-                raise WrongKindError(
-                    scene_id=scene_id,
-                    element_id=element_id,
-                    expected="button click (value is True)",
-                    got=f"value={value!r}",
-                )
-            return ButtonClicked(
-                scene_id=scene_id,
-                element_id=element_id,
-                owner_id=owner_id,
-            )
-        if element.kind == "checkbox":
-            if not isinstance(value, bool):
-                raise WrongKindError(
-                    scene_id=scene_id,
-                    element_id=element_id,
-                    expected="checkbox toggle (bool value)",
-                    got=f"value={value!r}",
-                )
-            return ValueChanged(
-                scene_id=scene_id,
-                element_id=element_id,
-                owner_id=owner_id,
-                value=value,
-            )
-        raise WrongKindError(
-            scene_id=scene_id,
-            element_id=element_id,
-            expected="button or checkbox",
-            got=element.kind,
-        )
 
     # -- per-Update handlers ------------------------------------------------
 

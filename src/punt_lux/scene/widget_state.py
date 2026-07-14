@@ -15,6 +15,12 @@ class WidgetState:
     PENDING_SUFFIX: ClassVar[str] = ":active_pending"
     _SESSION_SUFFIXES: ClassVar[tuple[str, ...]] = (HONOURED_SUFFIX, PENDING_SUFFIX)
 
+    # Suffix of an input_text's honoured-value slot: the text last reconciled
+    # with the Hub. Kept off ``_SESSION_SUFFIXES`` so a re-push does NOT reset
+    # it — the user's in-progress buffer and its honoured record must survive a
+    # whole-UI resend; only element removal (``discard_for``) clears it.
+    INPUT_HONOURED_SUFFIX: ClassVar[str] = ":input_honoured"
+
     _state: dict[str, Any]
 
     def __new__(cls) -> Self:
@@ -52,6 +58,7 @@ class WidgetState:
         self.discard(f"{element_id}__dismissed")
         self.discard(f"{element_id}{self.HONOURED_SUFFIX}")
         self.discard(f"{element_id}{self.PENDING_SUFFIX}")
+        self.discard(f"{element_id}{self.INPUT_HONOURED_SUFFIX}")
 
     def reset_honoured(self) -> None:
         """Discard every tab-bar suppression slot, keeping durable user state.

@@ -73,7 +73,9 @@ class ValueChanged:
     scene_id: SceneId
     element_id: ElementId
     owner_id: ClientId
-    value: bool
+    # PY-TS-14 OK: the payload is discriminated by the firing element's kind —
+    # a checkbox toggle carries ``bool``, an input_text edit carries ``str``.
+    value: bool | str
     kind: ClassVar[Literal["value_changed"]] = "value_changed"
 
     def __new__(
@@ -82,7 +84,7 @@ class ValueChanged:
         scene_id: SceneId,
         element_id: ElementId,
         owner_id: ClientId,
-        value: bool,
+        value: bool | str,
     ) -> Self:
         self = object.__new__(cls)
         object.__setattr__(self, "scene_id", scene_id)

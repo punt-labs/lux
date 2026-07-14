@@ -137,7 +137,7 @@ class ElementRenderer:
         self._slider_renderer = SliderRenderer(widget_state, emit_event)
         self._checkbox_renderer = CheckboxRenderer()
         self._combo_renderer = ComboRenderer(widget_state, emit_event)
-        self._input_text_renderer = InputTextRenderer(widget_state, emit_event)
+        self._input_text_renderer = InputTextRenderer(widget_state)
         self._input_number_renderer = InputNumberRenderer(widget_state, emit_event)
         self._radio_renderer = RadioRenderer(widget_state, emit_event)
         self._color_picker_renderer = ColorPickerRenderer(widget_state, emit_event)
@@ -210,14 +210,13 @@ class ElementRenderer:
 
     @property
     def checkbox_renderer(self) -> CheckboxRenderer:
-        """Return the per-kind checkbox renderer for the ImGui checkbox adapter.
-
-        The checkbox is Hub-authoritative: the renderer paints ``elem.value``
-        every frame and holds no per-scene state, so it needs no widget_state
-        re-threading. The instance is owned here (not by the factory) to keep
-        the D21 fire path on the one renderer the migration exercises.
-        """
+        """Return the per-kind checkbox renderer for the ImGui checkbox adapter."""
         return self._checkbox_renderer
+
+    @property
+    def input_text_renderer(self) -> InputTextRenderer:
+        """Return the per-kind input_text renderer for the ImGui adapter."""
+        return self._input_text_renderer
 
     @property
     def widget_state(self) -> WidgetState:

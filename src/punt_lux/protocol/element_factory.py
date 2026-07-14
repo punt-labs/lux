@@ -31,6 +31,8 @@ from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder
 from punt_lux.protocol.elements.element_wire import ElementWireContext
 from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.group_codec import JsonGroupDecoder
+from punt_lux.protocol.elements.input_text import InputTextElement
+from punt_lux.protocol.elements.input_text_codec import JsonInputTextDecoder
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.progress_codec import JsonProgressDecoder
 from punt_lux.protocol.elements.tab_bar import TabBarElement
@@ -45,6 +47,9 @@ from punt_lux.protocol.standalone_checkbox_handler import (
 )
 from punt_lux.protocol.standalone_collapsing_header_handler import (
     build_standalone_collapsing_header_handler_decoder,
+)
+from punt_lux.protocol.standalone_input_text_handler import (
+    build_standalone_input_text_handler_decoder,
 )
 from punt_lux.protocol.standalone_tab_bar_handler import (
     build_standalone_tab_bar_handler_decoder,
@@ -62,7 +67,20 @@ if TYPE_CHECKING:
 
 __all__ = ["JsonElementFactory"]
 
-_ABC_KINDS = frozenset({"text", "button", "checkbox", "dialog", "progress"})
+_ABC_KINDS = frozenset(
+    {"text", "button", "checkbox", "dialog", "progress", "input_text"}
+)
+
+# The migrated ABC-leaf classes. Both the leaf-decode assertion and the
+# legacy-decode guard test membership here, so the set lives once.
+_ABC_LEAF_TYPES: tuple[type, ...] = (
+    TextElement,
+    ButtonElement,
+    CheckboxElement,
+    DialogElement,
+    ProgressElement,
+    InputTextElement,
+)
 
 
 class JsonElementFactory:
@@ -126,6 +144,14 @@ class JsonElementFactory:
                 renderer_factory=renderer_factory,
                 emit=emit,
                 element_cls=ProgressElement,
+            ).decode,
+            "input_text": JsonInputTextDecoder(
+                renderer_factory=renderer_factory,
+                emit=emit,
+                element_cls=InputTextElement,
+                handler_decoder=build_standalone_input_text_handler_decoder(
+                    publish_sink
+                ),
             ).decode,
         }
         # The group decoder recurses each child through this factory's own
@@ -222,14 +248,7 @@ class JsonElementFactory:
     def _decode_abc_leaf(self, kind: str, d: dict[str, Any]) -> Any:
         """Decode a migrated leaf kind through its per-kind ABC decoder."""
         abc_elem = self.decode(d)
-        if isinstance(
-            abc_elem,
-            TextElement
-            | ButtonElement
-            | CheckboxElement
-            | DialogElement
-            | ProgressElement,
-        ):
+        if isinstance(abc_elem, _ABC_LEAF_TYPES):
             return abc_elem
         msg = f"JsonElementFactory returned unexpected type for kind={kind!r}"
         raise AssertionError(msg)
@@ -267,6 +286,7 @@ class JsonElementFactory:
             TextElement
             | ButtonElement
             | CheckboxElement
+            | InputTextElement
             | DialogElement
             | GroupElement
             | CollapsingHeaderElement

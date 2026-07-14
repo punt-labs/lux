@@ -19,7 +19,6 @@ from punt_lux.protocol.elements.codec import Register
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
-from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement
 from punt_lux.protocol.elements.slider import SliderElement
@@ -45,12 +44,6 @@ class InputsRegistry:
             "slider", SliderElement, SliderElement.to_dict, SliderElement.from_dict
         )
         register("combo", ComboElement, ComboElement.to_dict, ComboElement.from_dict)
-        register(
-            "input_text",
-            InputTextElement,
-            InputTextElement.to_dict,
-            InputTextElement.from_dict,
-        )
         register(
             "input_number",
             InputNumberElement,

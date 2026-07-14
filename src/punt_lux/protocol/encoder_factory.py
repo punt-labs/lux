@@ -20,6 +20,8 @@ from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogEncoder
 from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.group_codec import JsonGroupEncoder
+from punt_lux.protocol.elements.input_text import InputTextElement
+from punt_lux.protocol.elements.input_text_codec import JsonInputTextEncoder
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.progress_codec import JsonProgressEncoder
 from punt_lux.protocol.elements.tab_bar import TabBarElement
@@ -40,6 +42,7 @@ class JsonEncoderFactory:
         (TextElement, JsonTextEncoder().encode),
         (ButtonElement, JsonButtonEncoder().encode),
         (CheckboxElement, JsonCheckboxEncoder().encode),
+        (InputTextElement, JsonInputTextEncoder().encode),
         (DialogElement, JsonDialogEncoder().encode),
         (GroupElement, JsonGroupEncoder().encode),
         (CollapsingHeaderElement, JsonCollapsingHeaderEncoder().encode),

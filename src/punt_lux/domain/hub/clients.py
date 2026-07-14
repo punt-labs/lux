@@ -213,8 +213,12 @@ class ClientRegistry:
 
         sid, eid, oid = SceneId(scene_id), ElementId(element_id), ClientId(owner)
         if event_kind == "value_changed":
-            if not isinstance(value, bool):
-                logger.warning("hub dispatch value_changed non-bool value=%r", value)
+            # A checkbox toggle carries bool; an input_text edit carries str.
+            # The firing element's own setter re-validates the value shape.
+            if not isinstance(value, bool | str):
+                logger.warning(
+                    "hub dispatch value_changed non-bool/str value=%r", value
+                )
                 return None
             return ValueChanged(scene_id=sid, element_id=eid, owner_id=oid, value=value)
         if event_kind == "header_toggled":

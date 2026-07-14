@@ -181,6 +181,7 @@ def _element_to_dict(elem: Element) -> dict[str, Any]:
         TextElement
         | ButtonElement
         | CheckboxElement
+        | InputTextElement
         | DialogElement
         | GroupElement
         | CollapsingHeaderElement

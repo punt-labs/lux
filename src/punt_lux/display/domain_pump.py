@@ -20,6 +20,7 @@ from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.dialog import DialogElement
+from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.text import TextElement
 
@@ -37,6 +38,7 @@ _ABC_TYPES: tuple[type, ...] = (
     CheckboxElement,
     DialogElement,
     ProgressElement,
+    InputTextElement,
 )
 
 
