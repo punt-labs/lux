@@ -57,11 +57,11 @@ class InputTextRenderer:
         label = f"{elem.label}##{elem.id}"
         # A ``""`` hint renders like a plain input, so one variant covers both;
         # imgui returns the widget's current text each frame as ``text``.
-        _changed, text = imgui.input_text_with_hint(
+        changed, text = imgui.input_text_with_hint(
             label, elem.hint, arbiter.resolve(elem.value)
         )
         if imgui.is_item_active():
-            arbiter.keep(text)
+            arbiter.observe(edited=changed, text=text)
         else:
             arbiter.release()
         if imgui.is_item_deactivated_after_edit():
@@ -73,3 +73,4 @@ class InputTextRenderer:
                     value=text,
                 )
             )
+            arbiter.commit(text, elem.value)
