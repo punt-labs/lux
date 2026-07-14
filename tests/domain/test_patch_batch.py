@@ -62,6 +62,18 @@ def test_falsy_remove_with_no_set_is_rejected() -> None:
         PatchBatch.from_wire([{"id": "x", "remove": False}])
 
 
+def test_string_patch_entry_is_rejected() -> None:
+    """A bare string in the patch list is refused loud, not crashed on ``.get``."""
+    with pytest.raises(MalformedPatchError, match="must be a mapping"):
+        PatchBatch.from_wire(["oops"])
+
+
+def test_integer_patch_entry_is_rejected() -> None:
+    """A scalar integer entry is refused before any field lookup."""
+    with pytest.raises(MalformedPatchError, match="must be a mapping"):
+        PatchBatch.from_wire([123])
+
+
 def test_missing_id_is_rejected() -> None:
     """A patch with no ``id`` is refused before any shape check."""
     with pytest.raises(MalformedPatchError, match="must be a non-empty string"):

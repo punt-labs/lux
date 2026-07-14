@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from itertools import starmap
 from typing import Self, cast
 
 from punt_lux.domain.hub.write_errors import MalformedPatchError
@@ -35,23 +36,23 @@ class PatchBatch:
     removals: tuple[ElementId, ...]
 
     @classmethod
-    def from_wire(cls, patches: Sequence[Mapping[str, object]]) -> Self:
-        """Build a batch from the ``update`` tool's raw patch dicts.
+    def from_wire(cls, patches: Sequence[object]) -> Self:
+        """Split one ``update`` call into typed field-set and removal requests.
 
-        Each patch is an ``id`` plus exactly one of two mutually exclusive shapes —
-        a boolean-``True`` ``remove`` or a ``set`` mapping. Both in one patch, a
-        non-boolean ``remove``, neither, or an id set in one entry and removed in
-        another all raise ``MalformedPatchError``; same-id sets merge in order.
+        The single wire-boundary parser; every structural rejection — a
+        non-mapping entry, a bad ``id``, a malformed ``remove``/``set``, or an id
+        both set and removed — raises ``MalformedPatchError``. Same-id sets merge.
         """
         merged: dict[ElementId, dict[str, object]] = {}
         removals: dict[ElementId, None] = {}
         for patch in patches:
-            element_id = cls._require_id(patch)
-            if cls._is_removal(patch, element_id):
+            entry = cls._require_mapping(patch)
+            element_id = cls._require_id(entry)
+            if cls._is_removal(entry, element_id):
                 removals[element_id] = None
             else:
                 merged.setdefault(element_id, {}).update(
-                    cls._require_set(patch, element_id)
+                    cls._require_set(entry, element_id)
                 )
         # A set-then-remove of one id would collapse to a bare remove with the
         # entry order lost — the cross-entry form of the within-a-patch exclusivity.
@@ -60,14 +61,14 @@ class PatchBatch:
             raise MalformedPatchError(
                 conflict, "id is both set and removed across patch entries"
             )
-        return cls(cls._field_patches(merged), tuple(removals))
+        return cls(tuple(starmap(FieldPatch, merged.items())), tuple(removals))
 
     @staticmethod
-    def _field_patches(
-        merged: Mapping[ElementId, Mapping[str, object]],
-    ) -> tuple[FieldPatch, ...]:
-        """Freeze the merged per-id field maps into ordered ``FieldPatch`` values."""
-        return tuple(FieldPatch(eid, fields) for eid, fields in merged.items())
+    def _require_mapping(patch: object) -> Mapping[str, object]:
+        """Return the wire entry as a mapping, or raise before any field lookup."""
+        if isinstance(patch, Mapping):
+            return cast("Mapping[str, object]", patch)
+        raise MalformedPatchError(None, f"patch entry must be a mapping, not {patch!r}")
 
     @staticmethod
     def _require_id(patch: Mapping[str, object]) -> ElementId:
@@ -81,10 +82,9 @@ class PatchBatch:
 
     @staticmethod
     def _is_removal(patch: Mapping[str, object], element_id: ElementId) -> bool:
-        """Return True for a well-formed removal, False for a field set.
+        """Return True for a removal, False for a field set; raise on a hybrid.
 
-        A falsy or absent ``remove`` is a field set. A truthy ``remove`` must be
-        exactly boolean ``True`` and carry no ``set``; any other combination raises.
+        A truthy ``remove`` must be exactly boolean ``True`` and carry no ``set``.
         """
         remove = patch.get("remove", False)
         if not remove:
