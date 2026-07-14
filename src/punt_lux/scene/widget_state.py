@@ -15,11 +15,9 @@ class WidgetState:
     PENDING_SUFFIX: ClassVar[str] = ":active_pending"
     _SESSION_SUFFIXES: ClassVar[tuple[str, ...]] = (HONOURED_SUFFIX, PENDING_SUFFIX)
 
-    # Suffix of an input_text's honoured-value slot: the text last reconciled
-    # with the Hub. Kept off ``_SESSION_SUFFIXES`` so a re-push does NOT reset
-    # it — the user's in-progress buffer and its honoured record must survive a
-    # whole-UI resend; only element removal (``discard_for``) clears it.
-    INPUT_HONOURED_SUFFIX: ClassVar[str] = ":input_honoured"
+    # Suffix of an input_text's editing flag, kept across a re-push (off
+    # ``_SESSION_SUFFIXES``) so the local buffer stays authoritative mid-edit.
+    INPUT_EDITING_SUFFIX: ClassVar[str] = ":input_editing"
 
     _state: dict[str, Any]
 
@@ -30,6 +28,11 @@ class WidgetState:
 
     def get(self, element_id: str, default: Any = None) -> Any:
         return self._state.get(element_id, default)
+
+    def get_str(self, element_id: str) -> str:
+        """Return the stored string, or ``""`` when absent or non-str."""
+        value = self._state.get(element_id)
+        return value if isinstance(value, str) else ""
 
     def set(self, element_id: str, value: Any) -> None:
         self._state[element_id] = value
@@ -42,14 +45,13 @@ class WidgetState:
         self._state.pop(element_id, None)
 
     def discard_for(self, element_id: str) -> None:
-        """Discard a removed element's key, dialog latches, and tab-bar slots.
+        """Discard a removed element's key, dialog latches, and interactive slots.
 
         Each key is built from the id, never a substring match, so a survivor
         like ``btn_ok`` is never wiped. Clearing the dialog latches lets a
-        re-added same-id dialog reopen; clearing the honoured and pending slots
-        lets a re-added same-id tab bar re-honour the Hub active tab rather than
-        firing a spurious ``TabChanged`` off a stale value. A removed table's
-        selection/filter keys linger until scene clear (cosmetic).
+        re-added same-id dialog reopen; clearing the tab-bar slots lets a
+        re-added tab bar re-honour the Hub active tab; clearing the input
+        editing flag lets a re-added input_text honour its fresh value.
         """
         if not element_id:
             return
@@ -58,7 +60,7 @@ class WidgetState:
         self.discard(f"{element_id}__dismissed")
         self.discard(f"{element_id}{self.HONOURED_SUFFIX}")
         self.discard(f"{element_id}{self.PENDING_SUFFIX}")
-        self.discard(f"{element_id}{self.INPUT_HONOURED_SUFFIX}")
+        self.discard(f"{element_id}{self.INPUT_EDITING_SUFFIX}")
 
     def reset_honoured(self) -> None:
         """Discard every tab-bar suppression slot, keeping durable user state.
@@ -66,8 +68,7 @@ class WidgetState:
         A re-push restarts each tab bar's render session, so the tab it last
         force-selected and the tab it last fired for must both be forgotten:
         the next frame re-honours the Hub selection instead of firing a spurious
-        ``TabChanged`` off a stale value, and the pending slot no longer gags a
-        genuine later switch. Selection, scroll, and text survive the re-push.
+        ``TabChanged`` off a stale value. Selection, scroll, and text survive.
         """
         self._state = {
             key: value

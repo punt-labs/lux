@@ -1,26 +1,22 @@
-"""The input_text buffer/honour arbiter — the honour decision, imgui-free.
+"""The input_text buffer/commit arbiter — the honour-or-defer decision, imgui-free.
 
-An ``input_text`` carries one Hub-authoritative ``value``, but the field also
-holds the user's in-progress typing between keystrokes and the Hub's echo of an
-edit. The arbiter reconciles the two from two per-scene ``WidgetState`` slots so
-the fragile "honour vs keep typing" decision is testable without a live ImGui
-frame.
+An ``input_text`` carries one Hub-authoritative ``value``, but while the user is
+editing the field the *local buffer* — not the Hub value — is authoritative. The
+arbiter encodes the controlled-input-over-latency rule (how form libraries handle
+a slow round trip) so the "honour vs keep typing" decision is testable without a
+live ImGui frame.
 
-The *buffer* slot (the element's own id) holds the string handed to
-``imgui.input_text`` each frame — the user's live text. The *honoured* slot
-(default ``_UNHONOURED``) records the last ``value`` a frame reconciled with the
-Hub. Each frame, a ``value`` differing from the honoured value is a genuine
-Hub drive: the buffer is replaced and the value honoured. A ``value`` equal to
-the honoured value is no drive, so the stored buffer survives — the user's
-in-progress text is never reset by the Hub's own lagging echo.
+While the field is idle the arbiter honours the Hub value: each frame the
+rendered text is ``elem.value``, so an agent-driven change appears the next frame
+(checkbox-style). While the field is being edited the arbiter defers: the stored
+buffer is authoritative and a Hub-driven ``value`` is ignored, so two edits in
+flight before a round trip returns cannot clobber the live text. Exactly one
+``ValueChanged`` fires when the edit commits (blur or Enter), never per keystroke
+— so there is no keystroke-versus-echo race to reconcile.
 
-A user edit only stores the new buffer; it does *not* advance the honoured slot.
-That is deliberate: through the click-to-echo latency window the Display copy's
-``value`` still reads the pre-edit text, so honouring the edit immediately would
-make that stale ``value`` look like a Hub drive and clobber the typing. Leaving
-the honoured value at the pre-edit text keeps the stale window a no-op; the
-Hub's echo of the typed text then advances the honoured slot once, harmlessly,
-with the buffer already equal to it.
+The buffer lives under the element's own id; the editing flag under
+``INPUT_EDITING_SUFFIX``. Both survive a whole-UI re-push (ImGui keeps the widget
+active across the resend), and both are cleared when the element is removed.
 """
 
 from __future__ import annotations
@@ -31,48 +27,45 @@ from punt_lux.scene.widget_state import WidgetState
 
 __all__ = ["InputTextArbiter"]
 
-_UNHONOURED = "\x00unhonoured"  # no Hub value honoured yet this element
-
 
 @final
 class InputTextArbiter:
-    """Arbitrate an input_text's rendered buffer from its two WidgetState slots."""
+    """Resolve an input_text's rendered text under the commit-on-idle rule."""
 
     _state: WidgetState
     _buffer_key: str
-    _honoured_key: str
+    _editing_key: str
 
     def __new__(cls, state: WidgetState, element_id: str) -> Self:
         self = super().__new__(cls)
         self._state = state
         self._buffer_key = element_id
-        self._honoured_key = f"{element_id}{WidgetState.INPUT_HONOURED_SUFFIX}"
+        self._editing_key = f"{element_id}{WidgetState.INPUT_EDITING_SUFFIX}"
         return self
 
-    def buffer(self, value: str) -> str:
-        """Return the text to render, honouring a Hub-driven value change.
+    def resolve(self, hub_value: str) -> str:
+        """Return the buffer while editing, else the Hub value — the text to render.
 
-        A ``value`` differing from the last honoured value is a Hub drive: the
-        buffer is synced to it and the value recorded honoured. Otherwise the
-        stored buffer — the user's in-progress text — is returned untouched.
+        Deferring to the buffer while editing is what protects live typing: a
+        Hub-driven ``value`` that arrives mid-edit is ignored rather than
+        overwriting the user's in-progress text. While idle the Hub value wins,
+        so an agent-driven change is honoured on the next frame.
         """
-        if value != self._honoured:
-            self._state.set(self._buffer_key, value)
-            self._state.set(self._honoured_key, value)
-            return value
-        return str(self._state.get(self._buffer_key, value))
+        if self._editing:
+            return self._state.get_str(self._buffer_key)
+        return hub_value
 
-    def record_edit(self, text: str) -> None:
-        """Store a user edit as the buffer without honouring it.
-
-        Not honouring the edit is what protects the in-progress text: while the
-        Hub's echo is in flight the Display copy's ``value`` is still the
-        pre-edit text, and leaving the honoured value there keeps ``buffer`` a
-        no-op for those frames rather than resetting to the stale value.
-        """
+    def keep(self, text: str) -> None:
+        """Record ``text`` as the frame's authoritative buffer (the field is active)."""
+        self._state.set(self._editing_key, value=True)
         self._state.set(self._buffer_key, text)
 
+    def release(self) -> None:
+        """Mark the field idle and drop the buffer so ``resolve`` honours the Hub."""
+        self._state.set(self._editing_key, value=False)
+        self._state.discard(self._buffer_key)
+
     @property
-    def _honoured(self) -> str:
-        """Return the last honoured value, or ``_UNHONOURED`` before the first."""
-        return str(self._state.get(self._honoured_key, _UNHONOURED))
+    def _editing(self) -> bool:
+        """Return whether the field was being edited as of the last frame."""
+        return self._state.get(self._editing_key, default=False) is True

@@ -1,12 +1,11 @@
 # pyright: reportUnknownMemberType=false, reportMissingModuleSource=false
-"""Renderer for InputTextElement — a Hub-honouring single-line text input.
+"""Renderer for InputTextElement — a commit-on-idle single-line text input.
 
-Paints ``imgui.input_text`` (or ``input_text_with_hint``) against a per-element
-buffer the ``InputTextArbiter`` reconciles with the Hub-authoritative
-``elem.value``: a Hub drive replaces the buffer, the user's in-progress text
-survives an in-flight echo, and a genuine edit fires ``ValueChanged`` (wrapped
-for D21 remote dispatch on the display side). No echo re-fires — ``imgui``
-reports ``changed`` only on a real edit.
+While idle the buffer is synced to the Hub-authoritative ``elem.value``; while
+being edited the local buffer wins and a Hub-driven value is deferred. Exactly
+one ``ValueChanged`` fires when the edit commits (blur or Enter, via
+``is_item_deactivated_after_edit``), never per keystroke — so pipelined edits
+cannot clobber live typing. The commit fire is wrapped for D21 remote dispatch.
 """
 
 from __future__ import annotations
@@ -26,15 +25,13 @@ __all__ = ["InputTextRenderer"]
 
 
 class InputTextRenderer:
-    """Render an InputTextElement, honouring the Hub value without clobbering typing.
+    """Render an InputTextElement under the commit-on-idle rule.
 
-    The renderer holds the per-scene ``WidgetState`` (re-threaded on a scene
-    switch) and builds a fresh ``InputTextArbiter`` per element per frame; the
-    arbiter owns the buffer/honoured slots, so this class stays a thin ImGui
-    seam. On a genuine edit it fires ``ValueChanged`` through the element's
-    handler registry — wrapped for remote dispatch by
-    ``DisplayServer._wrap_abc_elements`` — so the interaction routes to the Hub
-    instead of running the real handler body locally.
+    Holds the per-scene ``WidgetState`` (re-threaded on a scene switch) and
+    builds a fresh ``InputTextArbiter`` per element per frame; the arbiter owns
+    the buffer/editing slots, so this class stays a thin ImGui seam. The commit
+    fire routes through the element's handler registry, wrapped for remote
+    dispatch, so the interaction runs on the Hub, not locally.
     """
 
     _widget_state: WidgetState
@@ -57,19 +54,22 @@ class InputTextRenderer:
     @trace
     def render(self, elem: InputTextElement) -> None:
         arbiter = InputTextArbiter(self._widget_state, elem.id)
-        current = arbiter.buffer(elem.value)
         label = f"{elem.label}##{elem.id}"
-        if elem.hint:
-            changed, new_val = imgui.input_text_with_hint(label, elem.hint, current)
+        # A ``""`` hint renders like a plain input, so one variant covers both;
+        # imgui returns the widget's current text each frame as ``text``.
+        _changed, text = imgui.input_text_with_hint(
+            label, elem.hint, arbiter.resolve(elem.value)
+        )
+        if imgui.is_item_active():
+            arbiter.keep(text)
         else:
-            changed, new_val = imgui.input_text(label, current)
-        if changed:
-            arbiter.record_edit(new_val)
+            arbiter.release()
+        if imgui.is_item_deactivated_after_edit():
             elem.fire(
                 ValueChanged(
                     scene_id=SceneId("__display__"),
                     element_id=ElementId(elem.id),
                     owner_id=ClientId("__display__"),
-                    value=new_val,
+                    value=text,
                 )
             )
