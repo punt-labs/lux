@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
+from itertools import chain, count
 from typing import Self
 
 from punt_lux.protocol import (
@@ -200,20 +201,12 @@ class SceneManager:
             for elem in dismissed.elements:
                 if isinstance(elem, WindowElement):
                     self._dirty_windows.discard(elem.id)
-            surviving_ids: set[str] = set()
-            for scene in self._scenes.values():  # keep IDs still present elsewhere
-                surviving_ids |= self._element_ids(scene.elements)
-            stale_ids = self._element_ids(dismissed.elements) - surviving_ids
-            if stale_ids:
-                self._on_scene_replaced(list(stale_ids))
+            self._notify_stale(self._element_ids(dismissed.elements))
         self._scene_order = [s for s in old_order if s != scene_id]
         self._scene_widget_state.pop(scene_id, None)
         if self._active_tab == scene_id:
-            if self._scene_order:
-                new_idx = min(old_idx, len(self._scene_order) - 1)
-                self._active_tab = self._scene_order[new_idx]
-            else:
-                self._active_tab = None
+            new_idx = min(old_idx, len(self._scene_order) - 1)
+            self._active_tab = self._scene_order[new_idx] if self._scene_order else None
 
     def dismiss_framed_scene(
         self,
@@ -227,9 +220,7 @@ class SceneManager:
         """
         dismissed = frame.scenes.pop(scene_id, None)
         if dismissed is not None:
-            dismissed_ids = self._element_ids(dismissed.elements)
-            if dismissed_ids:
-                self._on_scene_replaced(list(dismissed_ids))
+            self._notify_stale(self._element_ids(dismissed.elements))
         frame.scene_order = [s for s in frame.scene_order if s != scene_id]
         self._scene_widget_state.pop(scene_id, None)
         self._scene_to_frame.pop(scene_id, None)
@@ -256,10 +247,7 @@ class SceneManager:
             self._scene_widget_state.pop(scene_id, None)
             self._scene_to_frame.pop(scene_id, None)
             self._scene_to_owner.pop(scene_id, None)
-        stale = list(removed_ids)
-        if stale:
-            self._on_scene_replaced(stale)
-        return stale
+        return self._notify_stale(removed_ids)
 
     def clear_all(self) -> None:
         """Remove all scenes, frames, and associated state."""
@@ -277,6 +265,21 @@ class SceneManager:
         return self._scene_widget_state.get(scene_id)
 
     # -- scene-replacement helpers -----------------------------------------
+
+    def _notify_stale(self, candidate_ids: set[str]) -> list[str]:
+        """Report and return candidate ids no surviving framed/unframed scene holds."""
+        stale = candidate_ids - self._surviving_element_ids()
+        if stale:
+            self._on_scene_replaced(list(stale))
+        return list(stale)
+
+    def _surviving_element_ids(self) -> set[str]:
+        """Return every element id held by any stored scene, framed or not."""
+        framed = (s for f in self._frames.values() for s in f.scenes.values())
+        ids: set[str] = set()
+        for scene in chain(self._scenes.values(), framed):
+            ids |= self._element_ids(scene.elements)
+        return ids
 
     def _replace_scene_state(
         self,
@@ -314,7 +317,4 @@ class SceneManager:
     def _next_cascade_index(self) -> int:
         """Return the smallest unused cascade index."""
         used = {f.cascade_index for f in self._frames.values()}
-        idx = 0
-        while idx in used:
-            idx += 1
-        return idx
+        return next(i for i in count() if i not in used)

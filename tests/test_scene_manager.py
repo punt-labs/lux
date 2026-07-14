@@ -245,6 +245,25 @@ class TestDismissScene:
 
         assert "w1" not in mgr._dirty_windows
 
+    def test_shared_id_in_frame_survives_unframed_dismissal(self) -> None:
+        """Dismissing an unframed scene keeps events for an id a frame still holds.
+
+        Stale-event draining keys on element id alone. When a framed scene and an
+        unframed scene share an element id, dismissing the unframed one must not
+        report that id stale — its queued events remain valid inside the frame.
+        """
+        mgr, stale_calls = _make_manager()
+        shared: list[object] = [ButtonElement(id="shared", label="Click")]
+        mgr.handle_scene(_make_scene(scene_id="s1", elements=shared), owner_fd=10)
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s2", frame_id="f1", elements=shared), owner_fd=11
+        )
+
+        mgr.dismiss_scene("s1")
+
+        drained = [sid for call in stale_calls for sid in call]
+        assert "shared" not in drained
+
 
 # -------------------------------------------------------------------
 # 5. test_close_frame
