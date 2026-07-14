@@ -1,18 +1,21 @@
 """The input_text buffer/commit arbiter — the honour-or-defer decision, imgui-free.
 
-An ``input_text`` carries one Hub-authoritative ``value``, but while the user is
-editing the field the *local buffer* — not the Hub value — is authoritative. The
+An ``input_text`` carries one Hub-authoritative ``value``, but while the user
+edits the field the *local buffer* — not the Hub value — is authoritative. The
 arbiter encodes the controlled-input-over-latency rule (how form libraries handle
 a slow round trip) so the "honour vs keep typing" decision is testable without a
 live ImGui frame.
 
-While the field is idle the arbiter honours the Hub value: each frame the
-rendered text is ``elem.value``, so an agent-driven change appears the next frame
-(checkbox-style). While the field is being edited the arbiter defers: the stored
-buffer is authoritative and a Hub-driven ``value`` is ignored, so two edits in
-flight before a round trip returns cannot clobber the live text. Exactly one
-``ValueChanged`` fires when the edit commits (blur or Enter), never per keystroke
-— so there is no keystroke-versus-echo race to reconcile.
+Idle: the rendered text is ``elem.value`` each frame, so an agent-driven change
+appears next frame (checkbox-style). Editing: the buffer is authoritative and a
+Hub-driven ``value`` is ignored, so two edits in flight before a round trip
+returns cannot clobber the live text. Exactly one ``ValueChanged`` fires on
+commit (blur or Enter), never per keystroke — no keystroke-versus-echo race.
+
+Commit releases the buffer, so the field returns to honouring the Hub while the
+committed text is still in flight: until the Hub echoes it back, an idle frame
+renders the pre-echo ``elem.value``. That fire-then-echo latency is intended —
+every interactive element carries it — not a lost edit.
 
 The buffer lives under the element's own id; the editing flag under
 ``INPUT_EDITING_SUFFIX``. Both survive a whole-UI re-push (ImGui keeps the widget
@@ -44,12 +47,8 @@ class InputTextArbiter:
         return self
 
     def resolve(self, hub_value: str) -> str:
-        """Return the buffer while editing, else the Hub value — the text to render.
-
-        Deferring to the buffer while editing is what protects live typing: a
-        Hub-driven ``value`` that arrives mid-edit is ignored rather than
-        overwriting the user's in-progress text. While idle the Hub value wins,
-        so an agent-driven change is honoured on the next frame.
+        """Return the buffer while editing (protecting live typing), else the
+        Hub value — the text ImGui renders this frame.
         """
         if self._editing:
             return self._state.get_str(self._buffer_key)

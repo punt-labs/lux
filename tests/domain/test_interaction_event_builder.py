@@ -10,13 +10,16 @@ from __future__ import annotations
 
 import pytest
 
+from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.domain.interaction_errors import WrongKindError
 from punt_lux.domain.interaction_event_builder import InteractionEventBuilder
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
+from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.input_text import InputTextElement
+from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.text import TextElement
 
 _SCENE = SceneId("s")
@@ -75,6 +78,30 @@ class TestButtonArm:
     def test_non_true_is_rejected(self) -> None:
         with pytest.raises(WrongKindError):
             _build(ButtonElement(id="b", label="Go"), False)
+
+
+class TestCollapsingHeaderArm:
+    def test_bool_value_builds_header_toggled(self) -> None:
+        event = _build(CollapsingHeaderElement(id="h"), True)
+        assert isinstance(event, HeaderToggled)
+        assert event.open is True
+
+    def test_non_bool_value_is_rejected(self) -> None:
+        with pytest.raises(WrongKindError) as exc:
+            _build(CollapsingHeaderElement(id="h"), "open")
+        assert exc.value.expected == "collapsing_header toggle (bool value)"
+
+
+class TestTabBarArm:
+    def test_str_value_builds_tab_changed(self) -> None:
+        event = _build(TabBarElement(id="t"), "second")
+        assert isinstance(event, TabChanged)
+        assert event.tab_id == "second"
+
+    def test_non_str_value_is_rejected(self) -> None:
+        with pytest.raises(WrongKindError) as exc:
+            _build(TabBarElement(id="t"), 3)
+        assert exc.value.expected == "tab change (str tab_id)"
 
 
 class TestUnknownKind:

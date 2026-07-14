@@ -465,3 +465,4 @@
 {"ts":"2026-07-14T14:06:52Z","commit":"25dcdf0","files_scored":213,"files_improved":2,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/display/renderers/imgui/input_text_selection.py":{"avg_params":[1.0,0.8],"avg_complexity":[1.25,1.2],"module_size":[61.0,55.0]},"src/punt_lux/scene/widget_state.py":{"avg_complexity":[1.38,1.33]}}}
 {"ts":"2026-07-14T14:21:50Z","commit":"45ae39d","files_scored":213,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
 {"ts":"2026-07-14T14:22:41Z","commit":"45ae39d","files_scored":213,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-14T14:51:44Z","commit":"9241f62","files_scored":213,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/display/renderers/imgui/input_text_selection.py":{"module_size":[55.0,54.0]}}}

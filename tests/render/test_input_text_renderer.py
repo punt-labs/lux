@@ -284,6 +284,39 @@ class TestRendererCommit:
         assert fired == []
 
 
+class TestRendererPostCommit:
+    def test_idle_after_commit_renders_the_hub_value_until_the_echo(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # POST-COMMIT LATENCY: type (active) -> blur/commit (deactivate-after-edit,
+        # one fire) -> a following idle frame while elem.value still holds the
+        # pre-commit (stale) Hub value. The commit releases the buffer, so the idle
+        # frame honours the Hub again and renders elem.value ("") — the committed
+        # text becomes visible only once the Hub echoes it back, the same
+        # fire-then-echo latency every interactive element carries. This is the
+        # accepted Hub-authoritative behaviour, not a lost edit; the arbiter holds
+        # no optimistic-echo state.
+        fake = _FakeImgui(
+            _Frame(typed="hello", active=True, committed=False),
+            _Frame(typed=None, active=False, committed=True),
+            _Frame(typed=None, active=False, committed=False),
+        )
+        _install(monkeypatch, fake)
+        elem = _input(value="")  # pre-commit Hub value; the echo has not arrived
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = InputTextRenderer(WidgetState())
+
+        renderer.render(elem)  # typing (active)
+        renderer.render(elem)  # blur -> commit fires once
+        renderer.render(elem)  # idle; elem.value is still the stale ""
+
+        assert [e.value for e in fired] == ["hello"]  # exactly one commit fire
+        # Frame 2 still shows the buffer (editing carried over); frame 3, now idle,
+        # renders the pre-echo Hub value.
+        assert fake.recorded == ["", "hello", ""]
+
+
 class TestRendererFidelity:
     def test_fire_per_keystroke_naive_emits_one_event_per_character(
         self, monkeypatch: pytest.MonkeyPatch
@@ -314,3 +347,28 @@ class TestRendererFidelity:
         for _ in frames:
             renderer.render(elem)
         assert [e.value for e in real_fired] == ["he"]  # one fire on commit
+
+
+class TestRemovalMidEdit:
+    def test_removal_mid_edit_drops_the_buffer_without_committing(self) -> None:
+        """A field removed mid-edit drops its in-progress text and does not commit.
+
+        Removal clears the buffer and editing flag via ``discard_for``; it never
+        reaches the commit path (``is_item_deactivated_after_edit``), so no
+        ``ValueChanged`` fires. This is intended — a removed field does not
+        commit, and a re-added same-id field honours its fresh Hub value.
+        """
+        ws = WidgetState()
+        arb = InputTextArbiter(ws, "it")
+        arb.keep("draf")  # mid-edit: editing flag set, buffer holds the draft
+        assert arb.resolve("hub") == "draf"  # the buffer wins while editing
+
+        elem = _input(value="hub")
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+
+        ws.discard_for("it")  # the element is removed mid-edit
+
+        assert fired == []  # removal is not a commit — no ValueChanged
+        # The in-progress draft is gone; a re-added field honours its fresh value.
+        assert InputTextArbiter(ws, "it").resolve("fresh") == "fresh"
