@@ -10,6 +10,10 @@ exactly ``{children, pages, tabs}``; ``tabs`` is the third, easy to miss because
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
+import textwrap
 from typing import cast
 
 import pytest
@@ -29,6 +33,46 @@ from punt_lux.protocol.elements.layout import LegacyTabBarElement
 _SCENE = SceneId("gate-scene")
 _CONN = ConnectionId("gate-conn")
 _TAB_BAR_ID = ElementId("tb")
+
+# Pinning a child to this seed disables hash randomization, and under it the
+# pre-fix ``next(iter(SET & keys))`` names the wrong field. The fixed-precedence
+# gate must still name the right one, so a reintroduced set-iteration is caught
+# deterministically rather than on only the seeds where the order happens to flip.
+_ADVERSARIAL_HASHSEED = "0"
+
+
+def _assert_gate_names_field_under_adversarial_seed(
+    *, set_name: str, error_module: str, error_name: str, keys: str, expected: str
+) -> None:
+    """Run the gate in a child pinned to a seed the pre-fix bug fails under.
+
+    The child first asserts the seed is adversarial — the naive set-iteration names
+    something other than ``expected`` — so if a future interpreter changes that
+    order the guard fails loud instead of passing vacuously. It then asserts the
+    gate names ``expected``, which a reintroduced ``next(iter(...))`` would not.
+    """
+    script = textwrap.dedent(f"""
+        from punt_lux.domain.hub.field_gate import FieldGate, {set_name} as _set
+        from {error_module} import {error_name}
+        from punt_lux.domain.ids import ElementId
+
+        keys = {keys}
+        assert next(iter(_set & keys.keys())) != {expected!r}
+        try:
+            FieldGate.reject(ElementId("x"), keys)
+        except {error_name} as exc:
+            assert exc.field == {expected!r}, exc.field
+        else:
+            raise AssertionError("gate did not reject")
+    """)
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        env=os.environ | {"PYTHONHASHSEED": _ADVERSARIAL_HASHSEED},
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
 
 
 def _seed_legacy_tab_bar() -> HubDisplay:
@@ -118,20 +162,40 @@ def test_reject_names_highest_precedence_immutable_field() -> None:
 
     Set-intersection yielded whichever field the set happened to iterate first,
     so the reason varied across runs. A fixed precedence makes it deterministic.
+    The child pinned to an adversarial hash seed turns the contract into a
+    guaranteed regression guard against a reintroduced ``next(iter(...))``.
     """
     with pytest.raises(ImmutableFieldError) as caught:
         FieldGate.reject(ElementId("x"), {"kind": "text", "id": "new"})
-
     assert caught.value.field == "id"
+
+    _assert_gate_names_field_under_adversarial_seed(
+        set_name="_IMMUTABLE_FIELDS",
+        error_module="punt_lux.domain.hub.write_errors",
+        error_name="ImmutableFieldError",
+        keys='{"kind": "text", "id": "new"}',
+        expected="id",
+    )
 
 
 def test_reject_names_highest_precedence_structural_field() -> None:
-    """With every structural field present, the gate always names ``children``."""
+    """With every structural field present, the gate always names ``children``.
+
+    The adversarial-seed child makes the fixed precedence a guaranteed guard: a
+    reintroduced set-iteration would name ``tabs`` under that seed, not ``children``.
+    """
     fields: dict[str, object] = {"tabs": [], "pages": [], "children": []}
     with pytest.raises(StructuralFieldWriteError) as caught:
         FieldGate.reject(ElementId("x"), fields)
-
     assert caught.value.field == "children"
+
+    _assert_gate_names_field_under_adversarial_seed(
+        set_name="_STRUCTURAL_FIELDS",
+        error_module="punt_lux.domain.hub.deferral_errors",
+        error_name="StructuralFieldWriteError",
+        keys='{"tabs": [], "pages": [], "children": []}',
+        expected="children",
+    )
 
 
 def test_set_property_non_structural_field_still_applies() -> None:
