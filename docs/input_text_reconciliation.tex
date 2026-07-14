@@ -1,0 +1,752 @@
+%
+% input_text_reconciliation.tex
+%
+% A Z specification of the lux input_text honour/commit reconciliation
+% state machine: the buffer/editing/commit discipline that decides, on a
+% Hub/Display round trip with a DELAYED echo, when the local buffer defers
+% the Hub value and when it honours it.  Formalises the second
+% reconciliation-latency defect in input_text (Copilot MEDIUM, ``Refocus
+% loses commit echo'') after the first (pipelined-edits clobber) motivated
+% the commit-on-idle redesign.
+%
+% Source of record:
+%   src/punt_lux/display/renderers/imgui/input_text_selection.py
+%       -- InputTextArbiter: resolve (honour-or-defer), keep, release
+%   src/punt_lux/display/renderers/input_text_renderer.py
+%       -- InputTextRenderer.render: the per-frame active/deactivate/fire
+%          decision over an ImGui input_text widget
+%   src/punt_lux/scene/widget_state.py
+%       -- WidgetState: the per-scene buffer/editing slots and their
+%          removal clear (discard_for)
+%
+% Type-check:  fuzz -t docs/input_text_reconciliation.tex
+% Model-check (see Section "Verification" for the exact goal predicates):
+%   probcli docs/input_text_reconciliation.tex -model_check -p DEFAULT_SETSIZE 2
+%   probcli docs/input_text_reconciliation.tex -model_check -nodead \
+%       -goal "lost=ztrue" -p DEFAULT_SETSIZE 2
+%   probcli docs/input_text_reconciliation.tex -model_check -nodead \
+%       -goal "editing=ztrue & edited=zfalse" -p DEFAULT_SETSIZE 2
+%   probcli docs/input_text_reconciliation.tex -model_check -nodead \
+%       -goal "fires>1" -p DEFAULT_SETSIZE 2
+%   probcli docs/input_text_reconciliation.tex -model_check -nodead \
+%       -goal "clobbered=ztrue" -p DEFAULT_SETSIZE 2
+%
+% Formatting follows the fuzz house rules: \quad~ for continuation
+% indent (never \t1..\t9), schema lines under 80 columns, predicates
+% broken at \land/\lor/\implies with the operator starting the
+% continuation line.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{The lux input\_text Reconciliation Discipline: a Z Specification}
+\author{Formal model of the honour / defer / commit-echo state machine}
+\date{July 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+An \texttt{input\_text} carries one Hub-authoritative \texttt{value}, replicated
+to the Display and rendered every frame by an ImGui text widget that keeps its
+\emph{own} editable buffer.  The renderer must reconcile the two.  While the
+user is not editing, the field \emph{honours} the Hub: each frame renders the
+replicated value, so an agent-driven change appears on the next frame, in the
+manner of a checkbox.  While the user \emph{is} editing, the local buffer is
+authoritative and a Hub-driven value is \emph{deferred}, so that two edits in
+flight before a round trip returns cannot clobber the text under the user's
+fingers.  Exactly one \texttt{ValueChanged} fires when an edit commits --- on
+blur or Enter --- never per keystroke.
+
+The subtlety the design must survive is the \emph{echo-latency window}.  The
+Hub and the Display are separate processes, potentially on separate machines.
+When the field commits a value, that value travels to the Hub, the Hub installs
+it, and only then does it come back round as the replicated \texttt{value} the
+Display renders.  Until that echo arrives, the replicated value the Display
+holds is the \emph{pre-echo} one: the value from before the commit.  This
+document calls that returning value the \emph{echo}, and the interval between a
+commit and its echo the \emph{echo-latency window}.
+
+Two defects of the same class have surfaced across two review rounds, and that
+recurrence is why the discipline is modelled here rather than reasoned about
+informally.  The first --- pipelined edits clobbering live text --- motivated
+the commit-on-idle redesign, whose author held that ``the race is gone by
+construction''.  A residual race was then found immediately, so the informal
+argument did not hold.  The second (the residual) is the one this document is
+built around: \emph{a re-focus during the echo-latency window loses the
+committed value}.
+
+The residual runs as follows.  On commit, the renderer drops its buffer and the
+field returns to honouring the Hub; but the Hub still holds the pre-echo value,
+so an idle frame renders that pre-echo value, not the value just committed.  If
+the user re-focuses the field during this window, the current renderer begins
+deferring on the mere act of focus: it snapshots the \emph{displayed} text ---
+which is the stale pre-echo value --- as the buffer and sets the editing flag.
+The arriving echo of the just-committed value is now deferred for the whole
+focus session, because the field is editing; and subsequent typing commits from
+that stale base, overwriting the value that had just committed.  On separate
+machines this is routine, not exotic.
+
+The model isolates the two decisions that, taken together, produce the loss:
+\emph{when} the field begins deferring (on focus, or only on a real edit), and
+\emph{what} an idle field honours during the echo-latency window (the raw
+pre-echo Hub value, or the value it optimistically knows it committed).  It
+proves that the corrected design --- defer only after a real edit, and honour
+the committed value locally until the Hub echo confirms it --- admits no losing
+trace, and that the two tempting partial fixes each still do.
+
+This is a finite state machine over one field and a small fixed set of text
+values, so ProB can enumerate every interleaving of focus, keystroke, commit,
+echo, and re-focus, and either confirm the invariants or produce the exact
+offending trace.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [VALUE]
+\end{zed}
+
+\texttt{VALUE} is the set of text values the field may hold.  Two values suffice
+to exhibit the loss: an initial and pre-echo value, and a distinct committed
+value whose echo has not yet arrived.  Three exercise the interleaving of a
+second edit against an in-flight echo more thoroughly.  The carrier is bounded
+by ProB's \texttt{DEFAULT\_SETSIZE}, so no explicit cardinality constant is
+needed.
+
+% ============================================================
+\section{Free Types and Constants}
+% ============================================================
+
+\begin{zed}
+  ZBOOL ::= ztrue | zfalse
+\end{zed}
+
+A two-valued flag written as a free type rather than the toolkit \texttt{bool},
+so ProB animates it as a small enumerated set.
+
+\begin{zed}
+  MAXFIRE == 2
+\end{zed}
+
+The fire counter saturates at \texttt{MAXFIRE}.  One edit session may fire at
+most once; a count of two is already a witness to a repeated-fire defect, so
+counting no higher keeps the state space small without hiding a violation.
+
+\begin{axdef}
+  v0 : VALUE
+\end{axdef}
+
+\texttt{v0} is the value the field starts on --- both the initial displayed text
+and the initial Hub value.  A committed value distinct from \texttt{v0} is what
+the echo-latency window is about: after committing it, the Hub still holds
+\texttt{v0} until the echo lands.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema, eleven components.  Its predicate carries only
+\emph{structural} coherence --- that a field can defer or be mid-edit only while
+it is focused, and that the fire counter stays in range.  These hold in every
+design, correct or buggy, so they act as coherence constraints, not as the
+safety properties under test.  The safety properties (Section~\ref{sec:inv}) are
+deliberately \emph{absent} here, so that a violating state remains reachable and
+ProB can find it.
+
+\begin{schema}{Field}
+  disp : VALUE \\
+  hub : VALUE \\
+  focused : ZBOOL \\
+  editing : ZBOOL \\
+  edited : ZBOOL \\
+  pending : ZBOOL \\
+  committed : VALUE \\
+  fires : 0 \upto MAXFIRE \\
+  lost : ZBOOL \\
+  clobbered : ZBOOL
+\where
+  editing = ztrue \implies focused = ztrue \\
+  edited = ztrue \implies focused = ztrue
+\end{schema}
+
+\texttt{disp} is the text ImGui currently renders --- the value a commit would
+fire.  \texttt{hub} is the Hub-authoritative replicated value.  \texttt{focused}
+records whether the widget is being interacted with.  \texttt{editing} is the
+\emph{defer} flag: while it is set the buffer is authoritative and the Hub value
+is ignored.  \texttt{edited} is the \emph{real-edit} witness: whether a genuine
+keystroke has changed the text since the current focus began; it distinguishes a
+field the user is merely focused on from one being edited, and it is the
+component the honour property is stated over.
+
+\texttt{pending} is the echo-latency flag: set from a commit until the echo
+lands, it marks the window in which the Hub has not yet caught up to the
+committed value.  \texttt{committed} is the value most recently committed --- the
+value the field optimistically displays while \texttt{pending}, and the value
+whose durability is under test.  \texttt{fires} counts commit fires since the
+current focus began, the window in which at most one fire is legitimate.
+
+The last two components are pure bookkeeping for the invariant checks, not part
+of the renderer's own state.  \texttt{lost} latches \texttt{ztrue} the moment an
+edit session begins from a stale pre-echo base --- the durability failure.
+\texttt{clobbered} latches \texttt{ztrue} the moment an echo overwrites live
+post-edit text --- the no-clobber failure.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Field'
+\where
+  disp' = v0 \\
+  hub' = v0 \\
+  focused' = zfalse \\
+  editing' = zfalse \\
+  edited' = zfalse \\
+  pending' = zfalse \\
+  committed' = v0 \\
+  fires' = 0 \\
+  lost' = zfalse \\
+  clobbered' = zfalse
+\end{schema}
+
+A single initial state: the field unfocused and not editing, display and Hub
+both on \texttt{v0}, no commit outstanding, nothing fired, neither failure
+latched.
+
+% ============================================================
+\section{The Focus Session}
+% ============================================================
+
+A focus session runs from the user focusing the field to the field losing focus.
+Focusing begins a fresh session: it clears the real-edit witness and the fire
+count, and --- this is the first half of the corrected design --- it does
+\emph{not} begin deferring.  A focused field that has not yet been edited still
+honours the Hub (Section~\ref{sec:frames}), so an echo arriving mid-focus can
+still reach the display.  This is what distinguishes the corrected design from
+the current one, whose focus begins deferring at once
+(Section~\ref{sec:fidelity}, defect~(i)).
+
+\begin{schema}{Focus}
+  \Delta Field
+\where
+  focused = zfalse \\
+  focused' = ztrue \\
+  editing' = zfalse \\
+  edited' = zfalse \\
+  fires' = 0 \\
+  disp' = disp \\
+  hub' = hub \\
+  pending' = pending \\
+  committed' = committed \\
+  lost' = lost \\
+  clobbered' = clobbered
+\end{schema}
+
+A keystroke changes the text.  It is the second half of the corrected design:
+deferring begins here, on the \emph{first} real edit of the session, not on
+focus.  The new text \texttt{e?} models whatever the user typed.  The durability
+latch reads the state at the instant deferring begins --- the transition
+\texttt{editing} \texttt{zfalse} $\to$ \texttt{ztrue} --- and fires if that base
+is stale: a commit is still in flight (\texttt{pending}), yet the base the edit
+builds on is not the committed value.  Under the corrected honour rule this can
+never happen (Section~\ref{sec:inv}); the latch is here so that the fidelity
+variants, which weaken that rule, have somewhere to trip it.
+
+\begin{schema}{Keystroke}
+  \Delta Field \\
+  e? : VALUE
+\where
+  focused = ztrue \\
+  lost' = \\
+  \quad~ \IF editing = zfalse \land pending = ztrue \land disp \neq committed \\
+  \quad~ \THEN ztrue \ELSE lost \\
+  editing' = ztrue \\
+  edited' = ztrue \\
+  disp' = e? \\
+  focused' = focused \\
+  hub' = hub \\
+  pending' = pending \\
+  committed' = committed \\
+  fires' = fires \\
+  clobbered' = clobbered
+\end{schema}
+
+A commit is the deactivation of a field that was being edited --- blur or Enter
+after a real edit.  It fires exactly once, records the committed value, and
+opens the echo-latency window (\texttt{pending}).  The Hub is \emph{not} updated
+here: the echo is delayed, and arrives only later, in \texttt{HubEcho}.  The
+display keeps the committed value: because \texttt{pending} is now set, the
+following honour frame renders \texttt{committed}, not the stale Hub value.
+
+\begin{schema}{Commit}
+  \Delta Field
+\where
+  focused = ztrue \\
+  editing = ztrue \\
+  committed' = disp \\
+  pending' = ztrue \\
+  fires' = \IF fires < MAXFIRE \THEN fires + 1 \ELSE MAXFIRE \\
+  focused' = zfalse \\
+  editing' = zfalse \\
+  edited' = zfalse \\
+  disp' = disp \\
+  hub' = hub \\
+  lost' = lost \\
+  clobbered' = clobbered
+\end{schema}
+
+A field may also lose focus without ever having been edited: the user focused it
+and moved away.  This deactivation fires nothing --- there is no edit to commit
+--- and is the reason a fire count is per session rather than global.
+
+\begin{schema}{BlurNoEdit}
+  \Delta Field
+\where
+  focused = ztrue \\
+  editing = zfalse \\
+  focused' = zfalse \\
+  edited' = zfalse \\
+  editing' = zfalse \\
+  disp' = disp \\
+  hub' = hub \\
+  pending' = pending \\
+  committed' = committed \\
+  fires' = fires \\
+  lost' = lost \\
+  clobbered' = clobbered
+\end{schema}
+
+% ============================================================
+\section{The Hub Value}
+% ============================================================
+
+Two operations move the Hub value.  \texttt{HubEcho} is the delayed echo of a
+commit: the committed value finally arrives at the Hub and the echo-latency
+window closes.  From here on an honour frame renders \texttt{hub}, which now
+equals \texttt{committed}, so the optimistic display and the real Hub value have
+converged.
+
+\begin{schema}{HubEcho}
+  \Delta Field
+\where
+  pending = ztrue \\
+  hub' = committed \\
+  pending' = zfalse \\
+  disp' = disp \\
+  focused' = focused \\
+  editing' = editing \\
+  edited' = edited \\
+  committed' = committed \\
+  fires' = fires \\
+  lost' = lost \\
+  clobbered' = clobbered
+\end{schema}
+
+\texttt{AgentPush} is an agent-driven change to the Hub value while the field is
+settled --- idle, not editing, no commit outstanding.  It is the checkbox-style
+honour case: a value pushed from outside must appear on the next honour frame.
+It is guarded to the settled state so that it exercises honour without
+entangling with the echo-latency window.
+
+\begin{schema}{AgentPush}
+  \Delta Field \\
+  w? : VALUE
+\where
+  focused = zfalse \\
+  editing = zfalse \\
+  pending = zfalse \\
+  hub' = w? \\
+  disp' = disp \\
+  focused' = focused \\
+  editing' = editing \\
+  edited' = edited \\
+  pending' = pending \\
+  committed' = committed \\
+  fires' = fires \\
+  lost' = lost \\
+  clobbered' = clobbered
+\end{schema}
+
+% ============================================================
+\section{The Render Frames}
+\label{sec:frames}
+% ============================================================
+
+Each frame in which the field is \emph{not} deferring honours: it drives the
+display to the value the field is currently authoritative for.  That value is
+the committed value while an echo is in flight (\texttt{pending}), and the raw
+Hub value otherwise.  Honouring the committed value during the window is the
+optimistic local echo that closes the durability defect: the display shows what
+the user just committed, so a re-focus that lands in the window --- and any edit
+begun from it --- builds on the committed value, not on a stale pre-echo one.
+
+There are two honour frames, one idle and one focused, distinguished only by
+\texttt{focused}.  They share the same honour expression.  The focused one is
+the frame the corrected design adds: it is enabled precisely because focus no
+longer begins deferring, so a focused-but-not-yet-edited field still tracks the
+Hub.  Deleting it, and making focus defer, is defect~(i).
+
+\begin{schema}{IdleHonour}
+  \Delta Field
+\where
+  focused = zfalse \\
+  editing = zfalse \\
+  disp' = \IF pending = ztrue \THEN committed \ELSE hub \\
+  focused' = focused \\
+  editing' = editing \\
+  edited' = edited \\
+  hub' = hub \\
+  pending' = pending \\
+  committed' = committed \\
+  fires' = fires \\
+  lost' = lost \\
+  clobbered' = clobbered
+\end{schema}
+
+\begin{schema}{FocusedHonour}
+  \Delta Field
+\where
+  focused = ztrue \\
+  editing = zfalse \\
+  disp' = \IF pending = ztrue \THEN committed \ELSE hub \\
+  focused' = focused \\
+  editing' = editing \\
+  edited' = edited \\
+  hub' = hub \\
+  pending' = pending \\
+  committed' = committed \\
+  fires' = fires \\
+  lost' = lost \\
+  clobbered' = clobbered
+\end{schema}
+
+A deferring frame --- \texttt{editing} set --- writes nothing to the display from
+the Hub: the buffer is authoritative, so \texttt{disp} changes only by a further
+keystroke.  There is no separate schema for it; it is the absence of an honour
+frame while \texttt{editing} holds.  That absence is the whole of the no-clobber
+guarantee, and its removal --- an echo written to \texttt{disp} regardless of
+\texttt{editing} --- is defect~(iii).
+
+One of the frames or the session operations is always enabled: an unfocused
+non-deferring field can \texttt{IdleHonour}; a focused non-deferring field can
+\texttt{FocusedHonour}; a deferring field is focused and can \texttt{Keystroke}
+or \texttt{Commit}; and \texttt{HubEcho} is enabled whenever a commit is in
+flight.  A step is therefore always available, which is why the machine cannot
+deadlock (Section~\ref{sec:inv}, invariant~5).
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+Five properties must hold across all reachable states.  They are stated here as
+predicates over \texttt{Field}; how each is discharged is given in
+Section~\ref{sec:verify}.  None is placed in the \texttt{Field} schema: a
+predicate placed there would be enforced as a guard on every successor, silently
+disabling any operation that would break it and thereby masking the very defect
+this model exists to catch.
+
+\paragraph{Invariant 1 --- commit durability.}
+No edit session begins from a stale pre-echo base, so a committed value is never
+silently overwritten by a re-focus and edit that started before its echo
+arrived.  The bad event --- deferring begun while a commit is in flight and the
+base is not the committed value --- latches \texttt{lost}; the invariant is that
+it never does:
+\[
+  lost = zfalse.
+\]
+
+\paragraph{Invariant 2 --- honour discipline.}
+A field defers only after a genuine edit; it never defers on mere focus.  While
+it has not been edited it honours the Hub, so an idle or focused-but-not-edited
+field reflects the latest Hub value rather than a frozen snapshot:
+\[
+  editing = ztrue \implies edited = ztrue.
+\]
+The display-level reading --- a not-editing field's \texttt{disp} tracks the
+value it is authoritative for --- is a corollary: whenever \texttt{editing} is
+clear an honour frame is enabled and drives \texttt{disp} to that value, so no
+not-editing field is left frozen.  An \texttt{AgentPush} while idle is honoured
+on the next \texttt{IdleHonour}; an echo arriving at a focused-not-edited field
+is honoured on the next \texttt{FocusedHonour}.
+
+\paragraph{Invariant 3 --- no clobber.}
+An echo never overwrites live post-edit text.  A deferring field's display is
+moved only by a keystroke, never by a Hub value.  The bad event --- an echo
+written to \texttt{disp} while editing --- latches \texttt{clobbered}; the
+invariant is that it never does:
+\[
+  clobbered = zfalse.
+\]
+This is established by construction: \texttt{HubEcho} frames \texttt{disp}
+unchanged, and the only writers of \texttt{disp} are the two honour frames, both
+guarded on \texttt{editing = zfalse}, and \texttt{Keystroke}.
+
+\paragraph{Invariant 4 --- commit once.}
+A single focus session fires at most once.  With the counter reset on every
+focus, and a commit both requiring \texttt{editing} and clearing
+\texttt{focused}:
+\[
+  fires \leq 1.
+\]
+
+\paragraph{Invariant 5 --- deadlock freedom.}
+No reachable state leaves the machine unable to progress.  The honour frames
+partition the not-deferring case by \texttt{focused}; a deferring field can
+always \texttt{Keystroke} or \texttt{Commit}; so a step is enabled in every
+state.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz -t docs/input_text_reconciliation.tex
+\end{verbatim}
+
+Invariants 1, 2, 3, and 4 are state properties, checked by asking ProB whether
+their negation is \emph{reachable}.  A goal that is not found means the invariant
+holds on every reachable state:
+\begin{verbatim}
+  # Invariant 1 -- commit durability (must report: goal NOT found)
+  probcli docs/input_text_reconciliation.tex -model_check -nodead \
+    -goal "lost=ztrue" -p DEFAULT_SETSIZE 2
+
+  # Invariant 2 -- honour discipline (must report: goal NOT found)
+  probcli docs/input_text_reconciliation.tex -model_check -nodead \
+    -goal "editing=ztrue & edited=zfalse" -p DEFAULT_SETSIZE 2
+
+  # Invariant 3 -- no clobber (must report: goal NOT found)
+  probcli docs/input_text_reconciliation.tex -model_check -nodead \
+    -goal "clobbered=ztrue" -p DEFAULT_SETSIZE 2
+
+  # Invariant 4 -- commit once (must report: goal NOT found)
+  probcli docs/input_text_reconciliation.tex -model_check -nodead \
+    -goal "fires>1" -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Invariant 5 is the deadlock check over the full reachable state space:
+\begin{verbatim}
+  # Invariant 5 -- deadlock freedom (must report: no deadlock, no violation)
+  probcli docs/input_text_reconciliation.tex -model_check -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+All five return the same verdict at \texttt{DEFAULT\_SETSIZE 3}: the extra value
+widens the interleaving of a second edit against an in-flight echo without
+adding a new reachable violation.
+
+% ============================================================
+\section{Fidelity: reproducing the defects}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce the known defects proves nothing.  Each defect is
+the corrected specification with one part weakened; each then makes the
+corresponding invariant's negation reachable.  Below, each variant names the
+edit, the goal that changes from \emph{not found} to \emph{found}, and the
+shortest offending trace.  Under \texttt{DEFAULT\_SETSIZE 2},
+\texttt{VALUE = \{VALUE1, VALUE2\}} with \texttt{v0 = VALUE1}; write $v_0 = v0$
+and $v_1$ for the other value.
+
+\paragraph{Defect (i) --- defer on focus (the reported residual).}
+This is the current renderer.  Two edits, both away from the corrected design:
+\texttt{Focus} sets \texttt{editing' = ztrue} (it snapshots the displayed text
+and begins deferring on the mere act of focus, and carries the same durability
+latch as \texttt{Keystroke}, now on the \texttt{editing} \texttt{zfalse} $\to$
+\texttt{ztrue} transition it introduces); and both honour frames drop the
+optimistic echo, writing \texttt{disp' = hub} unconditionally (the renderer's
+\texttt{release} dropping the buffer, so an idle frame renders the raw pre-echo
+Hub value).  \texttt{FocusedHonour} is thereby dead --- a focused field always
+defers --- which is the point.  Goals found: invariant~2
+(\texttt{editing=ztrue \& edited=zfalse}) and invariant~1 (\texttt{lost=ztrue}).
+Trace for the honour failure:
+\begin{enumerate}
+  \item \texttt{Init}: \texttt{disp = hub = $v_0$}, not focused, not editing.
+  \item \texttt{Focus} in the buggy form: \texttt{focused = ztrue},
+    \texttt{editing = ztrue}, \texttt{edited = zfalse}.  This state alone
+    violates invariant~2: the field defers although no edit has occurred.
+\end{enumerate}
+Trace for the durability failure:
+\begin{enumerate}
+  \item \texttt{Init}; \texttt{Focus}; \texttt{Keystroke($v_1$)}:
+    \texttt{disp = $v_1$}, \texttt{editing = ztrue}.
+  \item \texttt{Commit}: \texttt{committed = $v_1$}, \texttt{pending = ztrue},
+    \texttt{hub = $v_0$} (echo delayed), \texttt{disp = $v_1$},
+    \texttt{focused = zfalse}, \texttt{fires = 1}.
+  \item \texttt{IdleHonour} in the buggy form: \texttt{disp' = hub = $v_0$} ---
+    the display reverts to the stale pre-echo value.
+  \item \texttt{Focus} in the buggy form: \texttt{editing} goes \texttt{zfalse}
+    $\to$ \texttt{ztrue} while \texttt{pending = ztrue} and \texttt{disp = $v_0$
+    $\neq$ $v_1$ = committed} --- deferring begins from a stale base and
+    \texttt{lost} latches.  The arriving echo is now deferred for the whole
+    session, and the next commit will fire $v_0$, overwriting the committed
+    $v_1$.
+\end{enumerate}
+Under the corrected design, \texttt{Focus} leaves \texttt{editing = zfalse}, and
+the honour frames keep \texttt{disp = $v_1$} while \texttt{pending}, so no base
+is ever stale.  ProB's own shortest witness for \texttt{lost} takes a different
+route to the same stale base: an \texttt{AgentPush} diverges \texttt{hub} from
+\texttt{disp}, and a commit fires with no prior keystroke --- itself possible
+only because defer-on-focus lets a field be committed without ever being edited
+--- after which a raw-hub honour and a re-focus defer from the stale value.  The
+loss is thus a property of the defer-on-focus/raw-hub pair, not of one path to
+it.
+
+\paragraph{Defect (ii) --- defer after first edit, but honour the raw Hub (the
+tempting incomplete fix).}
+This is the naive candidate: gate deferring on a real edit --- so invariant~2 is
+restored --- but leave the honour frames writing \texttt{disp' = hub}
+unconditionally, still dropping the optimistic echo.  It is the fix an informal
+argument reaches for, and the model shows it is not enough.  Edit: only the two
+honour frames' \texttt{disp'} become \texttt{hub}; \texttt{Focus} and
+\texttt{Keystroke} are as corrected.  Goal found: invariant~1
+(\texttt{lost=ztrue}); invariant~2 (\texttt{editing=ztrue \& edited=zfalse})
+remains \emph{not found}.  Trace:
+\begin{enumerate}
+  \item \texttt{Init}; \texttt{Focus}; \texttt{Keystroke($v_1$)};
+    \texttt{Commit}: \texttt{committed = $v_1$}, \texttt{pending = ztrue},
+    \texttt{hub = $v_0$}, \texttt{disp = $v_1$}, \texttt{focused = zfalse}.
+  \item \texttt{IdleHonour} in the buggy form: \texttt{disp' = hub = $v_0$} ---
+    the field honours the raw pre-echo value and the display goes stale, exactly
+    as before, because a not-yet-arrived echo cannot be honoured.
+  \item \texttt{Focus}: \texttt{focused = ztrue}, still \texttt{editing =
+    zfalse} (correct).
+  \item \texttt{Keystroke($v_0$)}: the user types before the echo arrives.
+    \texttt{editing} goes \texttt{zfalse} $\to$ \texttt{ztrue} while
+    \texttt{pending = ztrue} and \texttt{disp = $v_0$ $\neq$ $v_1$ = committed}
+    --- the base is stale and \texttt{lost} latches.  The committed $v_1$ is
+    overwritten by an edit begun from $v_0$.
+\end{enumerate}
+This is the model's central finding.  Deferring after the first edit closes the
+\emph{focus-and-sit} route --- a field that sits focused honours the echo when it
+arrives --- but it does not close the \emph{type-before-echo} route: a user
+faster than the round trip still edits from the stale displayed value.  The
+durability defect is not a property of \emph{when} deferring begins but of
+\emph{what an idle field displays during the window}.  Only honouring the
+committed value locally (the corrected \texttt{IdleHonour}/\texttt{FocusedHonour})
+removes the stale base entirely, and the reachability search confirms it:
+\texttt{lost=ztrue} is \emph{not found} for the corrected design and
+\emph{found}, via the trace above, for this variant.  ProB's shortest witness
+reaches it through \texttt{FocusedHonour} rather than \texttt{IdleHonour} --- the
+focused-but-not-edited frame itself pulls \texttt{disp} to the stale
+\texttt{hub}, then the first keystroke defers from it --- confirming the loss is
+independent of whether the stale honour happened while idle or while focused.
+
+\paragraph{Defect (iii) --- echo over live text (the original clobber).}
+This is the first defect of the two, the one the commit-on-idle redesign was
+meant to prevent: an echo of an earlier edit arriving while a later edit is live.
+Edit: \texttt{HubEcho} additionally writes \texttt{disp' = committed} and, when
+it does so while \texttt{editing} holds, latches \texttt{clobbered} ---
+modelling an echo applied to the buffer without regard to whether the field is
+editing.  Goal found: invariant~3 (\texttt{clobbered=ztrue}).  Trace:
+\begin{enumerate}
+  \item \texttt{Init}; \texttt{Focus}; \texttt{Keystroke($v_1$)};
+    \texttt{Commit}: \texttt{committed = $v_1$}, \texttt{pending = ztrue},
+    \texttt{hub = $v_0$}.
+  \item \texttt{Focus}; \texttt{Keystroke($v_2$)}: a second edit is now live ---
+    \texttt{editing = ztrue}, \texttt{disp = $v_2$} --- while the first commit's
+    echo is still in flight.
+  \item \texttt{HubEcho} in the buggy form: \texttt{disp' = committed = $v_1$}
+    while \texttt{editing = ztrue} --- the echo of the first edit overwrites the
+    live second edit and \texttt{clobbered} latches.
+\end{enumerate}
+Under the corrected design, \texttt{HubEcho} frames \texttt{disp} unchanged: a
+deferring field's display is the buffer, moved only by a keystroke, so the echo
+updates \texttt{hub} silently and the live text stands.
+
+\paragraph{Summary.}
+Each defect's weakening makes its invariant's negation reachable; with the
+corrected design intact, the four reachability goals (\texttt{lost=ztrue},
+\texttt{editing=ztrue \& edited=zfalse}, \texttt{clobbered=ztrue}, and
+\texttt{fires>1}) all return \emph{not found} and the deadlock check reports
+none.  The difference is the evidence that the model detects the defects the
+code must prevent --- and, for defect~(ii), that deferring after the first edit
+is \emph{not} the fix on its own: the load-bearing change is honouring the
+committed value locally through the echo-latency window.
+
+% ============================================================
+\section{From the Model to the Code}
+% ============================================================
+
+The corrected design is two changes to the arbiter and its renderer, matching the
+two corrected halves of the model.
+
+The first is \emph{defer after the first edit}, not on focus.  The model's
+\texttt{Focus} leaves \texttt{editing = zfalse}; only \texttt{Keystroke} sets it.
+In the renderer, the buffer is snapshotted and the editing flag set only when
+ImGui reports a genuine edit this frame (its \texttt{changed} return, or
+\texttt{is\_item\_edited}), not merely when \texttt{is\_item\_active} --- which is
+true on mere focus.  The arbiter's \texttt{keep} becomes conditional: it records
+the buffer and sets editing when an edit occurred or the field is already
+editing, and otherwise leaves the field honouring.  This restores invariant~2.
+
+The second is \emph{honour the committed value through the echo-latency window}.
+The model's honour frames render \texttt{committed} while \texttt{pending}, not
+the raw Hub value.  In the arbiter, a commit no longer drops the buffer to the
+raw Hub value: it records the committed value and the Hub value observed at
+commit time, and while not editing \texttt{resolve} returns the committed value
+until the Hub value moves off that observed value --- the echo landing, or an
+agent override --- at which point it clears the record and returns the Hub value.
+This is the model's \texttt{pending}/\texttt{committed} pair and its
+\texttt{HubEcho} clearing \texttt{pending}, and it is the change that removes the
+stale base entirely, closing invariant~1 including the type-before-echo route
+that defer-after-first-edit alone leaves open.
+
+Concretely, in \texttt{InputTextArbiter}
+(\texttt{display/renderers/imgui/input\_text\_selection.py}):
+
+\begin{itemize}
+  \item Add two slots beside the editing flag, under the element id with fresh
+    suffixes (a committed-value slot and a commit-time Hub-value slot), and clear
+    them in \texttt{WidgetState.discard\_for} alongside the editing flag so a
+    removed field starts clean.  They survive a re-push, like the editing flag,
+    because a commit may still be in flight across the resend.
+  \item Replace \texttt{keep(text)} with an edit-gated form,
+    \texttt{observe(edited, text)}: when \texttt{edited} or the field is already
+    editing, set the editing flag and record \texttt{text} as the buffer;
+    otherwise do nothing, leaving the field honouring.
+  \item Add \texttt{commit(text, hub\_value)}: record \texttt{text} as the
+    committed value and \texttt{hub\_value} as the commit-time Hub value.  Do not
+    clear the editing flag here; the deactivation path does.
+  \item Change \texttt{resolve(hub\_value)}: while editing, return the buffer
+    (unchanged); otherwise, if a committed value is recorded and
+    \texttt{hub\_value} still equals the recorded commit-time Hub value, return
+    the committed value; otherwise clear the recorded slots and return
+    \texttt{hub\_value}.
+  \item \texttt{release} clears the editing flag and drops the buffer on a
+    non-editing frame, but must \emph{not} clear the committed-value slots ---
+    they are cleared only when \texttt{resolve} observes the Hub value has moved.
+\end{itemize}
+
+In \texttt{InputTextRenderer.render}
+(\texttt{display/renderers/input\_text\_renderer.py}), thread the widget's
+\texttt{changed} return into the arbiter and record the commit:
+
+\begin{itemize}
+  \item Capture the \texttt{changed} flag from \texttt{input\_text\_with\_hint}.
+  \item On \texttt{is\_item\_active}, call \texttt{observe(changed, text)} in
+    place of \texttt{keep(text)}; otherwise call \texttt{release}.
+  \item On \texttt{is\_item\_deactivated\_after\_edit}, both \texttt{fire} the
+    \texttt{ValueChanged} and call \texttt{commit(text, elem.value)} so the
+    committed value is honoured locally until its echo returns.
+\end{itemize}
+
+No other honour- or commit-related behaviour changes.  In particular the
+deferring path is untouched: while a real edit is live the buffer remains
+authoritative and an echo updates only the Hub value, which is invariant~3
+standing as it did.
+
+\end{document}
+</content>
+</invoke>
