@@ -226,6 +226,14 @@ class TestForkGate:
         with pytest.raises(ValueError, match="table"):
             TabBarElement.from_dict(wire)
 
+    def test_non_mapping_tab_surfaces_as_non_abc(self) -> None:
+        # A malformed tab entry must not be silently dropped: the gate has to
+        # report it as non-ABC so decode raises rather than treating the subtree
+        # as fully migrated.
+        wire = {"kind": "tab_bar", "id": "tb", "tabs": ["not-a-tab"]}
+        assert ContainerAbcGate.first_non_abc_kind(wire) is not None
+        assert not ContainerAbcGate.is_all_abc(wire)
+
     def test_tab_bar_in_legacy_container_is_forced_legacy(self) -> None:
         wire = {
             "kind": "window",

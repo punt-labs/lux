@@ -114,17 +114,17 @@ class ContainerAbcGate:
         """Return the container's direct child wire dicts.
 
         ``group`` and ``collapsing_header`` hold their children under the
-        ``children`` key; a ``tab_bar`` holds them under each tab's ``children``,
-        so its subtree is every tab's children flattened.
+        ``children`` key; a ``tab_bar`` flattens each tab's ``children``, and a
+        non-mapping tab is yielded as-is so the reason check can surface it.
         """
         if raw.get("kind") == "tab_bar":
-            tabs = cls._as_list(raw.get("tabs"))
             return tuple(
-                child
-                for tab in tabs
-                if isinstance(tab, Mapping)
-                for child in cls._as_list(
-                    cast("Mapping[str, object]", tab).get("children")
+                item
+                for tab in cls._as_list(raw.get("tabs"))
+                for item in (
+                    cls._as_list(cast("Mapping[str, object]", tab).get("children"))
+                    if isinstance(tab, Mapping)
+                    else (tab,)
                 )
             )
         return tuple(cls._as_list(raw.get("children")))
