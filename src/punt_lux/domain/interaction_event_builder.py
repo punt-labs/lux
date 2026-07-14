@@ -11,7 +11,7 @@ focused on the store + dispatch orchestration.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Literal, Self
 
 from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
@@ -52,8 +52,14 @@ class InteractionEventBuilder:
         kind = element.kind
         if kind == "button":
             return self._button(scene_id, element_id, owner_id, value)
-        if kind in ("checkbox", "input_text"):
-            return self._value_changed(kind, scene_id, element_id, owner_id, value)
+        if kind == "checkbox":
+            return self._value_changed(
+                "checkbox", scene_id, element_id, owner_id, value
+            )
+        if kind == "input_text":
+            return self._value_changed(
+                "input_text", scene_id, element_id, owner_id, value
+            )
         if kind == "collapsing_header":
             return self._header_toggled(scene_id, element_id, owner_id, value)
         if kind == "tab_bar":
@@ -82,21 +88,31 @@ class InteractionEventBuilder:
 
     @staticmethod
     def _value_changed(
-        kind: str,
+        kind: Literal["checkbox", "input_text"],
         scene_id: SceneId,
         element_id: ElementId,
         owner_id: ClientId,
         value: object,
     ) -> ValueChanged:
         # A checkbox toggle carries ``bool``; an input_text edit carries ``str``.
-        want_bool = kind == "checkbox"
-        matches = isinstance(value, bool) if want_bool else isinstance(value, str)
-        if not matches or not isinstance(value, bool | str):
-            expected = "bool" if want_bool else "str"
+        # The explicit per-kind branch narrows ``value`` for the constructor
+        # without a redundant catch-all ``isinstance(value, bool | str)`` check.
+        if kind == "checkbox":
+            if not isinstance(value, bool):
+                raise WrongKindError(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    expected="checkbox value (bool)",
+                    got=f"value={value!r}",
+                )
+            return ValueChanged(
+                scene_id=scene_id, element_id=element_id, owner_id=owner_id, value=value
+            )
+        if not isinstance(value, str):
             raise WrongKindError(
                 scene_id=scene_id,
                 element_id=element_id,
-                expected=f"{kind} value ({expected})",
+                expected="input_text value (str)",
                 got=f"value={value!r}",
             )
         return ValueChanged(

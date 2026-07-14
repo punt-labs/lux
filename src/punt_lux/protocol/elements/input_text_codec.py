@@ -1,10 +1,8 @@
 """JsonInputTextDecoder + JsonInputTextEncoder — wire codec for InputTextElement.
 
-Per the checkbox/checkbox_codec split pattern: the codec body lives in this
-sibling module rather than on ``InputTextElement``.
-``InputTextElement.to_dict`` / ``InputTextElement.from_dict`` remain as short
-delegators so the runtime-checkable ``domain.element.Element`` Protocol stays
-satisfied.
+The codec body lives in this sibling module rather than on ``InputTextElement``;
+``to_dict`` / ``from_dict`` stay as short delegators so the runtime-checkable
+``domain.element.Element`` Protocol stays satisfied.
 
 The decoder injects the tier's ``renderer_factory`` + ``emit`` at construction
 so the element is born with its DI wired in, and installs the built-in
@@ -14,7 +12,7 @@ so the element is born with its DI wired in, and installs the built-in
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, cast
+from typing import TYPE_CHECKING, Self, cast, final
 
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.element_wire import ElementWireContext
@@ -30,6 +28,7 @@ if TYPE_CHECKING:
 __all__ = ["JsonInputTextDecoder", "JsonInputTextEncoder"]
 
 
+@final
 class _UpdateTextHandler:
     """Serializable handler that updates an input's text on an edit.
 
@@ -61,6 +60,7 @@ class _UpdateTextHandler:
 _INPUT_TEXT_EVENT_TYPES: dict[str, type[ValueChanged]] = {"changed": ValueChanged}
 
 
+@final
 class JsonInputTextDecoder:
     """Decode a wire dict to a fully-constructed ``InputTextElement``.
 
@@ -68,11 +68,9 @@ class JsonInputTextDecoder:
     ``emit`` + ``HandlerDecoder``; every decoded element is born with the
     same injected DI. Boundary validation (PY-EH-1) routes through
     ``ElementWireContext`` so a non-string ``value`` or missing ``id`` raises
-    a typed ``ValueError`` naming the offending field.
-
-    Parallel to ``JsonCheckboxDecoder``: always registers the built-in
-    ``_UpdateTextHandler`` for state sync, then installs any wire-declared
-    handlers from the ``handlers`` key.
+    a typed ``ValueError`` naming the offending field. Always registers the
+    built-in ``_UpdateTextHandler`` for state sync, then installs any
+    wire-declared handlers from the ``handlers`` key.
     """
 
     _rf: RendererFactory
@@ -160,6 +158,7 @@ class JsonInputTextDecoder:
         return event_type
 
 
+@final
 class JsonInputTextEncoder:
     """Encode an ``InputTextElement`` to its JSON-compatible wire dict.
 

@@ -14,7 +14,7 @@ authoritative text on each edit.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Self, cast
+from typing import TYPE_CHECKING, Literal, Self, cast, final
 
 from punt_lux.domain.element_abc import Element
 from punt_lux.domain.handlers.decorators import PublishSink
@@ -39,13 +39,13 @@ if TYPE_CHECKING:
 __all__ = ["InputTextElement"]
 
 
+@final
 class InputTextElement(Element):
     """A single-line text input on the Element ABC.
 
     PY-TS-14 OK: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for no tooltip. ``value`` and ``hint`` are total ``str`` (default
-    ``""``, the discriminated "empty text" / "no placeholder" states), so
-    neither needs an Optional.
+    ``""``, the discriminated "empty text" / "no placeholder" states).
     """
 
     _id: str
@@ -141,12 +141,12 @@ class InputTextElement(Element):
         return JsonInputTextEncoder().encode(self)
 
     @classmethod
-    def from_dict(cls, d: Mapping[str, object]) -> Self:
+    def from_dict(cls, d: Mapping[str, object]) -> InputTextElement:
         """Construct an InputTextElement from a JSON-decoded mapping.
 
-        Wires a noop-only handler decoder so callers that decode an input with
-        no ``handlers`` work without a real publish bus; a spec whose decorator
-        chain invokes ``publish`` raises via ``RaisingPublishSink``.
+        Returns the concrete type (the class is ``@final``). Wires a noop-only
+        handler decoder so an input with no ``handlers`` decodes without a
+        publish bus; a ``publish`` decorator chain raises via ``RaisingPublishSink``.
         """
         decoder = JsonInputTextDecoder(
             renderer_factory=RAISING_FACTORY,
@@ -156,7 +156,7 @@ class InputTextElement(Element):
                 cast("PublishSink", RaisingPublishSink("InputTextElement.from_dict")),
             ),
         )
-        return cast("Self", decoder.decode(d))
+        return decoder.decode(d)
 
     # -- introspection (Inspectable) ---------------------------------------
 
