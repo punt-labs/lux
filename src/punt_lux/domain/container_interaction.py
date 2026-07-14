@@ -1,11 +1,10 @@
 """Typed interaction events for the Hub-authoritative container view-selections.
 
-An interactive container carries one discrete, agent-drivable view-selection:
-a ``collapsing_header`` owns whether the section is open. The event a user
-gesture fires travels the same remote-dispatch path as ``ButtonClicked``
-— it routes to the Hub, the Hub updates the authoritative selection, and the
-whole scene is re-pushed. These events live apart from the leaf events in
-``interaction`` so each module keeps at most three classes (PY-OO-2).
+Each interactive container owns one agent-drivable selection: a
+``collapsing_header``'s open state (``HeaderToggled``) or a ``tab_bar``'s active
+tab (``TabChanged``). A gesture routes it down the same remote-dispatch path as
+``ButtonClicked`` — the Hub updates the authoritative selection and re-pushes.
+Kept apart from the ``interaction`` leaf events so no module exceeds three classes.
 """
 
 from __future__ import annotations
