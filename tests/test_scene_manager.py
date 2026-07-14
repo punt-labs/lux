@@ -185,6 +185,31 @@ class TestHandleSceneReplace:
         drained = [sid for call in stale_calls for sid in call]
         assert "only" in drained
 
+    def test_framed_replace_keeps_events_for_id_unframed_scene_holds(self) -> None:
+        """Replacing a framed scene keeps events an unframed scene still holds.
+
+        The framed-replace mirror of the unframed case: a whole-root re-push into
+        a frame drains the ids the replaced scene dropped, but only those no other
+        framed or unframed scene holds. When an unframed scene shares an element
+        id, replacing the framed scene with content that drops that id must not
+        report it stale — the unframed scene rescues it and its queued events
+        remain valid.
+        """
+        mgr, stale_calls = _make_manager()
+        shared: list[object] = [ButtonElement(id="shared", label="Click")]
+        mgr.handle_scene(_make_scene(scene_id="s1", elements=shared), owner_fd=10)
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s2", frame_id="f1", elements=shared), owner_fd=11
+        )
+
+        replacement = _make_scene(
+            scene_id="s2", frame_id="f1", elements=[TextElement(id="t2", content="New")]
+        )
+        mgr.handle_framed_scene(replacement, owner_fd=11)
+
+        drained = [sid for call in stale_calls for sid in call]
+        assert "shared" not in drained
+
     def test_replace_resets_honoured_but_keeps_survivor_state(self) -> None:
         """A re-push resets echo-suppression bookkeeping, keeps user state.
 
