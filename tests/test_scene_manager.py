@@ -140,6 +140,51 @@ class TestHandleSceneReplace:
         assert ws.get("b1__open") is None
         assert ws.get("__tbl_sel_b1") == 5
 
+    def test_replace_keeps_events_for_id_a_frame_still_holds(self) -> None:
+        """Replacing a scene keeps events for an id another scene still holds.
+
+        A whole-root re-push drains the ids the replaced scene dropped — but only
+        those no other framed or unframed scene holds. When a framed scene shares
+        an element id, replacing the unframed scene with content that drops that id
+        must not report it stale: its queued events remain valid inside the frame.
+        """
+        mgr, stale_calls = _make_manager()
+        shared: list[object] = [ButtonElement(id="shared", label="Click")]
+        mgr.handle_scene(_make_scene(scene_id="s1", elements=shared), owner_fd=10)
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s2", frame_id="f1", elements=shared), owner_fd=11
+        )
+
+        replacement = _make_scene(
+            scene_id="s1", elements=[TextElement(id="t2", content="New")]
+        )
+        mgr.handle_scene(replacement, owner_fd=10)
+
+        drained = [sid for call in stale_calls for sid in call]
+        assert "shared" not in drained
+
+    def test_replace_drains_id_no_other_scene_holds(self) -> None:
+        """A dropped id held by no other scene is drained on replacement.
+
+        The survivor-aware control for the shared-id case: with only one scene
+        holding the id, replacing that scene away must drain its queued events.
+        """
+        mgr, stale_calls = _make_manager()
+        mgr.handle_scene(
+            _make_scene(
+                scene_id="s1", elements=[ButtonElement(id="only", label="Click")]
+            ),
+            owner_fd=10,
+        )
+
+        replacement = _make_scene(
+            scene_id="s1", elements=[TextElement(id="t2", content="New")]
+        )
+        mgr.handle_scene(replacement, owner_fd=10)
+
+        drained = [sid for call in stale_calls for sid in call]
+        assert "only" in drained
+
     def test_replace_resets_honoured_but_keeps_survivor_state(self) -> None:
         """A re-push resets echo-suppression bookkeeping, keeps user state.
 

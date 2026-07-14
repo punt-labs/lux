@@ -286,21 +286,21 @@ class SceneManager:
         msg: SceneMessage,
         old_scene: SceneMessage | None = None,
     ) -> None:
-        """Notify about stale IDs and discard only their transient widget state.
+        """Drain stale IDs no other scene holds and discard their widget state.
 
         A whole-root re-push must not wipe survivors' id-keyed state (selection,
         scroll, in-progress text) — only the departed elements' state is discarded.
-        Echo-suppression bookkeeping is the exception: every honoured key resets so
-        a surviving tab bar re-honours the Hub active tab rather than firing a
-        spurious ``TabChanged`` off a stale value.
+        The event drain is survivor-aware: an id this scene dropped is drained only
+        when no other framed or unframed scene holds it, so replacing one scene
+        never cancels another's still-valid queued events. Echo-suppression resets
+        every honoured key so a surviving tab bar re-honours the Hub active tab
+        rather than firing a spurious ``TabChanged`` off a stale value.
         """
         if old_scene is None:
             return
-        stale_ids = self._element_ids(old_scene.elements) - self._element_ids(
-            msg.elements
-        )
-        if stale_ids:
-            self._on_scene_replaced(list(stale_ids))
+        old_ids = self._element_ids(old_scene.elements)
+        stale_ids = old_ids - self._element_ids(msg.elements)
+        self._notify_stale(stale_ids)
         widget_state = self._scene_widget_state.get(msg.id)
         if widget_state is not None:
             for stale_id in stale_ids:
