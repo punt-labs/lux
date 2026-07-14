@@ -16,8 +16,10 @@ import pytest
 
 from punt_lux.domain.element import Element
 from punt_lux.domain.hub.deferral_errors import StructuralFieldWriteError
+from punt_lux.domain.hub.field_gate import FieldGate
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
 from punt_lux.domain.hub.scene_writer import HubSceneWriter
+from punt_lux.domain.hub.write_errors import ImmutableFieldError
 from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
@@ -109,6 +111,27 @@ def test_set_property_structural_field_is_rejected_fail_loud() -> None:
 
     with pytest.raises(StructuralFieldWriteError):
         hub_display.write_seam.set_property(_SCENE, _TAB_BAR_ID, "tabs", [])
+
+
+def test_reject_names_highest_precedence_immutable_field() -> None:
+    """With ``id`` and ``kind`` both present, the gate always names ``id``.
+
+    Set-intersection yielded whichever field the set happened to iterate first,
+    so the reason varied across runs. A fixed precedence makes it deterministic.
+    """
+    with pytest.raises(ImmutableFieldError) as caught:
+        FieldGate.reject(ElementId("x"), {"kind": "text", "id": "new"})
+
+    assert caught.value.field == "id"
+
+
+def test_reject_names_highest_precedence_structural_field() -> None:
+    """With every structural field present, the gate always names ``children``."""
+    fields: dict[str, object] = {"tabs": [], "pages": [], "children": []}
+    with pytest.raises(StructuralFieldWriteError) as caught:
+        FieldGate.reject(ElementId("x"), fields)
+
+    assert caught.value.field == "children"
 
 
 def test_set_property_non_structural_field_still_applies() -> None:

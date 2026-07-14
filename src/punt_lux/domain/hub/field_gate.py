@@ -12,7 +12,7 @@ uniformly for both element models, so the gate runs ahead of the ABC/legacy seam
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, cast, final
+from typing import TYPE_CHECKING, Literal, final
 
 from punt_lux.domain.hub.deferral_errors import StructuralFieldWriteError
 from punt_lux.domain.hub.write_errors import ImmutableFieldError
@@ -25,9 +25,9 @@ if TYPE_CHECKING:
 __all__ = ["FieldGate"]
 
 _IMMUTABLE_FIELDS = frozenset({"id", "kind"})
-# Complete and closed: window/modal carry children, paged carries pages, tab_bar
-# carries tabs; tree's ``nodes`` is plain data, never index-installed. Migration
-# only removes legacy kinds, so no new structural field can ever join this set.
+# A patch naming several forbidden fields is rejected on a fixed precedence — id,
+# then kind, then children, pages, tabs — so the reported field never varies across
+# runs. Both sets are closed: migration only removes legacy kinds, none can join.
 _STRUCTURAL_FIELDS = frozenset({"children", "pages", "tabs"})
 
 
@@ -39,20 +39,17 @@ class FieldGate:
 
     @staticmethod
     def reject(element_id: ElementId, fields: Mapping[str, object]) -> None:
-        """Raise the matching typed error if ``fields`` names a forbidden field.
-
-        Each intersection proves the field is a declared literal for the error.
-        """
+        """Raise the matching typed error if ``fields`` names a forbidden field."""
         keys = fields.keys()
-        if immutable := _IMMUTABLE_FIELDS & keys:
-            raise ImmutableFieldError(
-                element_id=element_id,
-                field=cast("Literal['id', 'kind']", next(iter(immutable))),
+        if _IMMUTABLE_FIELDS & keys:
+            immutable: Literal["id", "kind"] = "id" if "id" in keys else "kind"
+            raise ImmutableFieldError(element_id=element_id, field=immutable)
+        if _STRUCTURAL_FIELDS & keys:
+            structural: Literal["children", "pages", "tabs"] = (
+                "children"
+                if "children" in keys
+                else "pages"
+                if "pages" in keys
+                else "tabs"
             )
-        if structural := _STRUCTURAL_FIELDS & keys:
-            raise StructuralFieldWriteError(
-                element_id=element_id,
-                field=cast(
-                    "Literal['children', 'pages', 'tabs']", next(iter(structural))
-                ),
-            )
+            raise StructuralFieldWriteError(element_id=element_id, field=structural)
