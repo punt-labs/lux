@@ -19,6 +19,8 @@ from punt_lux.display_client import DisplayClient
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
+    from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
+    from punt_lux.domain.interaction import ButtonClicked, ValueChanged
     from punt_lux.protocol import RemoteEventHandlerInvocation
 
 logger = logging.getLogger(__name__)
@@ -109,16 +111,10 @@ class ClientRegistry:
         """
         from punt_lux.domain.element_abc import Element as ElementABC
         from punt_lux.domain.hub import hub_display
-        from punt_lux.domain.ids import ClientId, ElementId, SceneId
-        from punt_lux.domain.interaction import ButtonClicked, ValueChanged
+        from punt_lux.domain.ids import ElementId, SceneId
 
         scene_id = msg.scene_id
         element_id = msg.element_id
-        logger.debug(
-            "hub dispatch received scene_id=%s element_id=%s",
-            scene_id,
-            element_id,
-        )
         if scene_id is None:
             logger.warning(
                 "hub dispatch missing scene_id for element_id=%s",
@@ -136,12 +132,6 @@ class ClientRegistry:
                 exc,
             )
             return
-        logger.debug(
-            "hub dispatch resolved element_id=%s type=%s is_abc=%s",
-            element_id,
-            type(element).__name__,
-            isinstance(element, ElementABC),
-        )
         if not isinstance(element, ElementABC):
             logger.warning(
                 "hub dispatch type mismatch element_id=%s type=%s",
@@ -149,41 +139,15 @@ class ClientRegistry:
                 type(element).__name__,
             )
             return
-        logger.debug(
-            "hub dispatch element=%s all_handlers=%s",
-            element_id,
-            element.handler_summary(),
-        )
         event_kind = msg.event_kind
-        event: ButtonClicked | ValueChanged
-        if event_kind == "value_changed":
-            wire_value = msg.value
-            if not isinstance(wire_value, bool):
-                logger.warning(
-                    "hub dispatch value_changed non-bool value=%r element_id=%s",
-                    wire_value,
-                    element_id,
-                )
-                return
-            event = ValueChanged(
-                scene_id=SceneId(scene_id),
-                element_id=ElementId(element_id),
-                owner_id=ClientId(str(owner)),
-                value=wire_value,
-            )
-        elif event_kind in (None, "button_clicked"):
-            event = ButtonClicked(
-                scene_id=SceneId(scene_id),
-                element_id=ElementId(element_id),
-                owner_id=ClientId(str(owner)),
-            )
-        else:
-            logger.warning(
-                "hub dispatch unknown event_kind=%r element_id=%s scene_id=%s",
-                event_kind,
-                element_id,
-                scene_id,
-            )
+        event = ClientRegistry._build_hub_event(
+            event_kind=event_kind,
+            scene_id=scene_id,
+            element_id=element_id,
+            owner=str(owner),
+            value=msg.value,
+        )
+        if event is None:
             return
         logger.debug(
             "hub dispatch firing element_id=%s scene_id=%s event_kind=%s",
@@ -196,23 +160,79 @@ class ClientRegistry:
         # Master→slave replication: if the handler mutated the scene
         # (e.g., dialog dismissed itself via mark_removed), re-push
         # the full scene tree to the Display. ImGui handles the diff.
-        remaining = hub_display.scene_roots(SceneId(scene_id))
-        from punt_lux.domain.hub import client_registry as _cr
-
         try:
-            client = _cr.get()
-            client.show_async(
-                scene_id,
-                elements=remaining,  # type: ignore[arg-type]  # WireElement ≅ Element union
-                frame_id=scene_id,
-            )
-            logger.debug(
-                "hub dispatch re-pushed scene=%s elements=%d",
-                scene_id,
-                len(remaining),
-            )
+            ClientRegistry.repush_scene(scene_id)
         except Exception:
             logger.exception("hub dispatch scene re-push failed for %s", scene_id)
+
+    @staticmethod
+    def repush_scene(scene_id: str) -> None:
+        """Re-send a scene's authoritative roots to the Display (whole-UI resend).
+
+        The Hub-authoritative replication step shared by the D21 interaction
+        dispatch and the agent ``update`` / ``clear`` tools: read the current
+        roots from the authoritative ``HubDisplay`` and push the whole scene so
+        the Display replaces its copy. ImGui diffs the frame. Render calls never
+        cross the boundary — only serialized UI state does.
+        """
+        from punt_lux.domain.hub import (
+            client_registry as registry,
+            hub_display as display_store,
+        )
+        from punt_lux.domain.ids import SceneId
+
+        scene = SceneId(scene_id)
+        roots = display_store.scene_roots(scene)
+        client = registry.get()
+        # Resend into the scene's original frame — the one it was shown in — so a
+        # scene explicitly placed in a differently-named frame is not hoisted into
+        # a frame named for itself. Unrecorded scenes fall back to their own id.
+        client.show_async(
+            scene_id,
+            elements=roots,  # type: ignore[arg-type]  # WireElement ≅ Element union
+            frame_id=display_store.frame_id_for(scene),
+        )
+
+    @staticmethod
+    def _build_hub_event(
+        *,
+        event_kind: str | None,
+        scene_id: str,
+        element_id: str,
+        owner: str,
+        value: object,
+    ) -> ButtonClicked | ValueChanged | HeaderToggled | TabChanged | None:
+        """Construct the typed event for ``event_kind`` + wire ``value``.
+
+        Returns ``None`` (deny-by-default) when the value has the wrong shape
+        for the kind or the kind is unknown — the caller then fires nothing.
+        """
+        from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
+        from punt_lux.domain.ids import ClientId, ElementId, SceneId
+        from punt_lux.domain.interaction import ButtonClicked, ValueChanged
+
+        sid, eid, oid = SceneId(scene_id), ElementId(element_id), ClientId(owner)
+        if event_kind == "value_changed":
+            if not isinstance(value, bool):
+                logger.warning("hub dispatch value_changed non-bool value=%r", value)
+                return None
+            return ValueChanged(scene_id=sid, element_id=eid, owner_id=oid, value=value)
+        if event_kind == "header_toggled":
+            if not isinstance(value, bool):
+                logger.warning("hub dispatch header_toggled non-bool value=%r", value)
+                return None
+            return HeaderToggled(
+                scene_id=sid, element_id=eid, owner_id=oid, open_=value
+            )
+        if event_kind == "tab_changed":
+            if not isinstance(value, str):
+                logger.warning("hub dispatch tab_changed non-str value=%r", value)
+                return None
+            return TabChanged(scene_id=sid, element_id=eid, owner_id=oid, tab_id=value)
+        if event_kind in (None, "button_clicked"):
+            return ButtonClicked(scene_id=sid, element_id=eid, owner_id=oid)
+        logger.warning("hub dispatch unknown event_kind=%r for %s", event_kind, eid)
+        return None
 
     def _on_beads_browser(self, _msg: RemoteEventHandlerInvocation) -> None:
         """Open Beads Browser in a daemon thread; log render failures."""

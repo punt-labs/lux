@@ -22,11 +22,9 @@ from punt_lux.domain.validation_walk import ElementTreeValidator, HasChildElemen
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import (
     ButtonElement,
-    CollapsingHeaderElement,
     GroupElement,
     LegacyGroupElement,
     ModalElement,
-    TabBarElement,
     TableElement,
     TextElement,
     WindowElement,
@@ -119,10 +117,12 @@ def _table_wire() -> dict[str, Any]:
     return {"kind": "table", "id": "tbl", "columns": ["A"], "rows": []}
 
 
-# Each legacy container kind wrapping an all-ABC inner group, paired with the
-# concrete legacy class the whole tree must decode to. A ``group`` becomes
-# legacy only alongside a legacy sibling; the other four kinds have no ABC
-# form, so they are always legacy and force any nested group legacy too.
+# Each always-legacy container kind wrapping an all-ABC inner group, paired with
+# the concrete legacy class the whole tree must decode to. A ``group`` becomes
+# legacy only alongside a legacy sibling; ``tab_bar``, ``window``, and ``modal``
+# have no ABC form yet, so they are always legacy and force any nested group
+# legacy too. ``collapsing_header`` is now conditionally-ABC and has its own
+# fork-gate coverage in ``test_collapsing_header_element``.
 _LEGACY_CONTAINER_CASES: tuple[tuple[str, dict[str, Any], type], ...] = (
     (
         "legacy_group",
@@ -130,23 +130,9 @@ _LEGACY_CONTAINER_CASES: tuple[tuple[str, dict[str, Any], type], ...] = (
         LegacyGroupElement,
     ),
     (
-        "tab_bar",
-        {
-            "kind": "tab_bar",
-            "id": "tb",
-            "tabs": [{"label": "T", "children": [_inner_abc_group()]}],
-        },
-        TabBarElement,
-    ),
-    (
         "window",
         {"kind": "window", "id": "w", "children": [_inner_abc_group()]},
         WindowElement,
-    ),
-    (
-        "collapsing_header",
-        {"kind": "collapsing_header", "id": "h", "children": [_inner_abc_group()]},
-        CollapsingHeaderElement,
     ),
     (
         "modal",

@@ -3,7 +3,7 @@
 Sub-modules house each family of message types together with their codec
 helpers:
 
-- ``scene``: scene replacement and incremental patches (Scene, Update, Clear)
+- ``scene``: scene replacement (Scene, Clear)
 - ``lifecycle``: connection handshake and heartbeat (Ready, Connect, Ack, Ping,
   Pong, Unknown)
 - ``remote_invocation``: handler invocations for remote execution
@@ -65,7 +65,6 @@ from punt_lux.protocol.messages.remote_invocation import (
 from punt_lux.protocol.messages.scene import (
     ClearMessage,
     SceneMessage,
-    UpdateMessage,
     register_codecs as _register_scene,
 )
 
@@ -96,7 +95,6 @@ __all__ = [
     "ScreenshotResponse",
     "ThemeMessage",
     "UnknownMessage",
-    "UpdateMessage",
     "message_from_dict",
     "message_to_dict",
 ]
@@ -104,7 +102,6 @@ __all__ = [
 
 ClientMessage = (
     SceneMessage
-    | UpdateMessage
     | ClearMessage
     | PingMessage
     | IntrospectRequest

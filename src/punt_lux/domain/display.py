@@ -34,6 +34,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Self, assert_never
 
 from punt_lux.domain._typing import field_info, replace_field, value_matches
+from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
 from punt_lux.domain.element_abc import Element as ElementABC
 from punt_lux.domain.error import (
     DuplicateIdError,
@@ -251,7 +252,7 @@ class Display:
         self,
         client_id: ClientId,
         msg: RemoteEventHandlerInvocation,
-    ) -> ButtonClicked | ValueChanged:
+    ) -> ButtonClicked | ValueChanged | HeaderToggled | TabChanged:
         """Validate the wire message, construct the typed event, fire it.
 
         Callers must pass a wire-shape-valid message: ``msg.action`` is
@@ -335,15 +336,44 @@ class Display:
         element_id: ElementId,
         owner_id: ClientId,
         value: object,
-    ) -> ButtonClicked | ValueChanged:
+    ) -> ButtonClicked | ValueChanged | HeaderToggled | TabChanged:
         """Construct the typed event for ``element``'s kind + wire ``value``.
 
         ``button`` + ``value is True`` → ``ButtonClicked``; ``checkbox`` +
-        a ``bool`` value → ``ValueChanged`` — the same two-tier event set the
-        live Hub dispatch constructs (``domain.hub.clients``). Other kinds
-        raise ``WrongKindError`` (future kinds add their own typed events
-        here).
+        a ``bool`` value → ``ValueChanged``; ``collapsing_header`` + a ``bool``
+        value → ``HeaderToggled``; ``tab_bar`` + a ``str`` value → ``TabChanged``
+        — the same event set the live Hub dispatch constructs
+        (``domain.hub.clients``). Other kinds raise ``WrongKindError`` (future
+        kinds add their own typed events here).
         """
+        if element.kind == "tab_bar":
+            if not isinstance(value, str):
+                raise WrongKindError(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    expected="tab change (str tab_id)",
+                    got=f"value={value!r}",
+                )
+            return TabChanged(
+                scene_id=scene_id,
+                element_id=element_id,
+                owner_id=owner_id,
+                tab_id=value,
+            )
+        if element.kind == "collapsing_header":
+            if not isinstance(value, bool):
+                raise WrongKindError(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    expected="collapsing_header toggle (bool value)",
+                    got=f"value={value!r}",
+                )
+            return HeaderToggled(
+                scene_id=scene_id,
+                element_id=element_id,
+                owner_id=owner_id,
+                open_=value,
+            )
         if element.kind == "button":
             if value is not True:
                 raise WrongKindError(

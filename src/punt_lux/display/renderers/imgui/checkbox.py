@@ -1,11 +1,11 @@
 """ImGuiCheckboxRenderer — Renderer-Protocol adapter for ``CheckboxElement``.
 
-A leaf: paints through ``ElementRenderer``'s per-kind ``CheckboxRenderer``
-(the same instance the ``widget_state`` setter re-threads per scene, so it
-reads the current scene's state; its toggle ``fire``s ``ValueChanged``,
-wrapped for D21 remote dispatch) plus the shared ``apply_tooltip`` pass,
-reached via the factory's narrow accessor. ``begin`` proceeds, ``end`` is a
-no-op.
+A leaf: paints through ``ElementRenderer``'s stateless per-kind
+``CheckboxRenderer``, which reads ``elem.value`` (the Hub-authoritative state)
+directly each frame and holds no per-scene state, so nothing needs
+re-threading. A genuine user toggle still ``fire``s ``ValueChanged``, wrapped
+for D21 remote dispatch on the display side. The paint adds the shared
+``apply_tooltip`` pass. ``begin`` proceeds, ``end`` is a no-op.
 """
 
 from __future__ import annotations

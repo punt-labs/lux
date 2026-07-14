@@ -8,7 +8,6 @@ helpers:
 - ``layout``: containers (Group, Window, TabBar, …)
 - ``graphics``: 2D canvas and chart (Draw, Plot)
 - ``table``: tabular data with filters and detail panels
-- ``patch``: single-element update payload
 
 The ``codec`` sub-module holds the ``ElementCodec`` class — the dispatch
 table that maps wire ``kind`` strings to (class, to_dict, from_dict)
@@ -37,6 +36,7 @@ from punt_lux.protocol.elements.basics import BasicsRegistry
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.codec import ElementCodec
+from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.dialog import DialogElement
@@ -51,29 +51,23 @@ from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.inputs import InputsRegistry
 from punt_lux.protocol.elements.layout import (
-    CollapsingHeaderElement,
+    LegacyCollapsingHeaderElement,
     LegacyGroupElement,
+    LegacyTabBarElement,
     ModalElement,
-    TabBarElement,
     TreeElement,
     WindowElement,
     register_codecs as _register_layout,
 )
 from punt_lux.protocol.elements.markdown import MarkdownElement
-
-# _patch_to_dict / _patch_from_dict are re-exported for protocol.messages.scene
-# (used by UpdateMessage codec).
-from punt_lux.protocol.elements.patch import (
-    Patch,
-    _patch_from_dict as _patch_from_dict,
-    _patch_to_dict as _patch_to_dict,
-)
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement
 from punt_lux.protocol.elements.separator import SeparatorElement
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
+from punt_lux.protocol.elements.tab import Tab
+from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.table import (
     TableDetail,
     TableElement,
@@ -97,10 +91,11 @@ __all__ = [
     "ImageElement",
     "InputNumberElement",
     "InputTextElement",
+    "LegacyCollapsingHeaderElement",
     "LegacyGroupElement",
+    "LegacyTabBarElement",
     "MarkdownElement",
     "ModalElement",
-    "Patch",
     "PlotElement",
     "ProgressElement",
     "RadioElement",
@@ -108,6 +103,7 @@ __all__ = [
     "SeparatorElement",
     "SliderElement",
     "SpinnerElement",
+    "Tab",
     "TabBarElement",
     "TableDetail",
     "TableElement",
@@ -116,8 +112,6 @@ __all__ = [
     "TreeElement",
     "WindowElement",
     "_element_to_dict",
-    "_patch_from_dict",
-    "_patch_to_dict",
     "_strip_none",
     "build_element_codec",
     "element_to_dict",
@@ -143,7 +137,9 @@ Element = (
     | GroupElement
     | LegacyGroupElement
     | TabBarElement
+    | LegacyTabBarElement
     | CollapsingHeaderElement
+    | LegacyCollapsingHeaderElement
     | WindowElement
     | SelectableElement
     | TreeElement
@@ -187,6 +183,8 @@ def _element_to_dict(elem: Element) -> dict[str, Any]:
         | CheckboxElement
         | DialogElement
         | GroupElement
+        | CollapsingHeaderElement
+        | TabBarElement
         | ProgressElement,
     ):
         # Each per-kind encoder owns its own tooltip emission.

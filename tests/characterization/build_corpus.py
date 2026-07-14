@@ -213,26 +213,29 @@ LIFECYCLE_SCENARIOS: tuple[Scenario, ...] = (
         },
         setup={"display_running": True, "client": {}},
     ),
+    # ``update`` mutates the Hub's authoritative store first. A ``set`` aimed at
+    # an un-installed id is a hard error — a field patch cannot apply to an
+    # element that is not there. A ``remove`` of an un-installed id is idempotent:
+    # the target is already gone, so the write is accepted and the scene
+    # re-pushed. These two scenarios pin that asymmetry under an empty
+    # Hub. The scene/element ids never collide with any other scenario's installs.
     Scenario(
-        name="update-ack",
+        name="update-set-unknown-element",
         tool="update",
         inputs={
-            "scene_id": "s1",
-            "patches": [{"id": "t1", "set": {"content": "New text"}}],
+            "scene_id": "upd-scene",
+            "patches": [{"id": "upd-missing", "set": {"content": "New text"}}],
         },
-        setup={
-            "display_running": True,
-            "client": {"update": {"return": {"scene_id": "s1", "ts": 1000.0}}},
-        },
+        setup={"display_running": True, "client": {}},
     ),
     Scenario(
-        name="update-timeout",
+        name="update-remove-unknown-element",
         tool="update",
         inputs={
-            "scene_id": "s1",
-            "patches": [{"id": "t1", "remove": True}],
+            "scene_id": "upd-scene",
+            "patches": [{"id": "upd-missing", "remove": True}],
         },
-        setup={"display_running": True, "client": {"update": {"return": None}}},
+        setup={"display_running": True, "client": {}},
     ),
 )
 

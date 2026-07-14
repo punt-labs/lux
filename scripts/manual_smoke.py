@@ -49,14 +49,15 @@ from punt_lux.protocol import Element
 from punt_lux.protocol.elements import (
     ButtonElement,
     CheckboxElement,
-    CollapsingHeaderElement,
     ColorPickerElement,
     ComboElement,
     DrawElement,
     ImageElement,
     InputNumberElement,
     InputTextElement,
+    LegacyCollapsingHeaderElement,
     LegacyGroupElement,
+    LegacyTabBarElement,
     MarkdownElement,
     ModalElement,
     PlotElement,
@@ -66,7 +67,6 @@ from punt_lux.protocol.elements import (
     SeparatorElement,
     SliderElement,
     SpinnerElement,
-    TabBarElement,
     TableDetail,
     TableElement,
     TableFilter,
@@ -177,7 +177,10 @@ def _collect_kinds(elements: list[Element]) -> frozenset[str]:
         kinds.add(elem.kind)
         if isinstance(
             elem,
-            LegacyGroupElement | CollapsingHeaderElement | WindowElement | ModalElement,
+            LegacyGroupElement
+            | LegacyCollapsingHeaderElement
+            | WindowElement
+            | ModalElement,
         ):
             kinds |= _collect_kinds(elem.children)
         if isinstance(elem, LegacyGroupElement):
@@ -187,9 +190,9 @@ def _collect_kinds(elements: list[Element]) -> frozenset[str]:
             for page in elem.pages:
                 if isinstance(page, list):
                     kinds |= _collect_kinds(page)
-        if isinstance(elem, TabBarElement):
+        if isinstance(elem, LegacyTabBarElement):
             for tab in elem.tabs:
-                # Wire boundary — TabBarElement.tabs holds raw dicts in the
+                # Wire boundary — LegacyTabBarElement.tabs holds raw dicts in the
                 # protocol; children inside each tab are Element instances.
                 tab_children = tab.get("children", [])
                 if isinstance(tab_children, list):
@@ -600,13 +603,13 @@ class SmokeRunner:
             LegacyGroupElement(
                 id="layout-group", layout="rows", children=group_children
             ),
-            CollapsingHeaderElement(
+            LegacyCollapsingHeaderElement(
                 id="layout-header",
                 label="Disclosure region",
                 default_open=True,
                 children=header_children,
             ),
-            TabBarElement(
+            LegacyTabBarElement(
                 id="layout-tabs",
                 tabs=[
                     {"label": "Tab A", "children": tab_a_children},

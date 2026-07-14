@@ -17,12 +17,12 @@ import pytest
 from punt_lux.protocol.elements import (
     ButtonElement,
     CheckboxElement,
-    CollapsingHeaderElement,
     ComboElement,
+    LegacyCollapsingHeaderElement,
     LegacyGroupElement,
+    LegacyTabBarElement,
     ModalElement,
     SeparatorElement,
-    TabBarElement,
     TextElement,
     TreeElement,
     WindowElement,
@@ -80,7 +80,7 @@ def test_collect_kinds_recurses_into_containers(manual_smoke: ModuleType) -> Non
         SeparatorElement(id="inner-sep"),
     ]
     group = LegacyGroupElement(id="g", layout="rows", children=inner)
-    header = CollapsingHeaderElement(id="h", children=inner)
+    header = LegacyCollapsingHeaderElement(id="h", children=inner)
     window = WindowElement(id="w", children=inner)
     modal = ModalElement(id="m", children=inner)
     kinds = manual_smoke._collect_kinds([group, header, window, modal])
@@ -90,12 +90,12 @@ def test_collect_kinds_recurses_into_containers(manual_smoke: ModuleType) -> Non
 
 
 def test_collect_kinds_recurses_into_tabs(manual_smoke: ModuleType) -> None:
-    """TabBarElement.tabs[*].children must be walked."""
+    """LegacyTabBarElement.tabs[*].children must be walked."""
     tabs: list[dict[str, object]] = [
         {"label": "a", "children": [ButtonElement(id="b", label="x")]},
         {"label": "b", "children": [SeparatorElement(id="s")]},
     ]
-    tabbar = TabBarElement(id="t", tabs=tabs)
+    tabbar = LegacyTabBarElement(id="t", tabs=tabs)
     kinds = manual_smoke._collect_kinds([tabbar])
     assert kinds == frozenset({"tab_bar", "button", "separator"})
 

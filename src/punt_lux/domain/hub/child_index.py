@@ -13,13 +13,14 @@ A child Element with no recorded parent is treated as a scene root.
 from __future__ import annotations
 
 import contextlib
-from typing import Self
+from typing import Self, final
 
 from punt_lux.domain.ids import ElementId, SceneId
 
 __all__ = ["ChildIndex"]
 
 
+@final
 class ChildIndex:
     """``(scene_id, parent_id) → tuple[ElementId, ...]`` mapping.
 
@@ -31,6 +32,7 @@ class ChildIndex:
 
     _children: dict[tuple[SceneId, ElementId], list[ElementId]]
     _parent: dict[tuple[SceneId, ElementId], ElementId]
+    __slots__ = ("_children", "_parent")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)

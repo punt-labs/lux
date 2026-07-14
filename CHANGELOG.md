@@ -37,9 +37,83 @@
   primitive; a single ABC `ProgressElement` with a `[0,1]`+NaN `validate()`
   (the fraction is validated pre-render instead of clamped by ImGui), enforced
   on both the `show` and the `update`/patch write paths.
+- **`collapsing_header` interactive container on the ABC path** — the first
+  interactive container: a `GroupElement`-shaped box composed with a single
+  Hub-authoritative `open` flag (the checkbox interaction pattern). A user
+  toggle fires `header_toggled`, which routes to the Hub (D21), the Hub mirrors
+  the new `open` and re-pushes; an agent drives the same field by patching
+  `open` and the ImGui adapter honours it every frame via `set_next_item_open`.
+  A Hub-driven change never re-fires (echo-suppression), so no fire→Hub→re-push
+  loop can run. The single `open` field replaces the legacy `default_open` on
+  the ABC path. Decodes to the ABC `CollapsingHeaderElement` only when its whole
+  subtree is migrated-ABC; otherwise the renamed `LegacyCollapsingHeaderElement`
+  (a legacy container forces it legacy). `resolved_props()` reports the
+  authoritative `open` view-state. The all-ABC gate is now the shared
+  `ContainerAbcGate`, reused by `group` and `collapsing_header`. See DES-045.
+- **`tab_bar` interactive tabbed container on the ABC path** — a container
+  composed with a Hub-authoritative active-tab selection. Every tab carries a
+  stable `tab_id` — the agent-supplied id when present, else a content slug of
+  the tab's label (deduplicated with a numeric suffix only when a label repeats)
+  assigned by `TabIdSynthesizer` — and the selection names that id, never a
+  positional index (DES-045); reconciliation on a structural change is a
+  membership check — an added tab leaves the selection unchanged, a removed
+  active tab resets to the first live tab, a relabel is stable. The
+  reconciliation invariant is enforced on every mutation, so an `active_tab`
+  patch naming a stale tab resets rather than installing a dangling selection.
+  A user tab click fires `tab_changed` → Hub → re-push; an agent drives the same
+  field by patching `active_tab`, and the ImGui adapter honours it, distinguishing
+  a Hub write from a user gesture via per-scene `WidgetState` so a Hub-driven
+  change never re-fires (echo-suppression). On the first frame the declared
+  `active_tab` is force-selected, so a non-first initial tab is never clobbered
+  by ImGui's tab-0 default. The tab strip is painted through a small
+  `TabContainerRenderer` sub-protocol and a `_render_children` override; every
+  tab's children cross the wire (only the active tab is drawn). A present-but-not-
+  a-list `tabs`/`children` is rejected rather than silently emptied. Decodes to
+  the ABC `TabBarElement` only when the whole subtree is migrated-ABC, else the
+  renamed `LegacyTabBarElement`; `resolved_props()` reports `active_tab` and the
+  tabs. See DES-045.
+- **Hub-authoritative writes (`update` / `clear`)** — the MCP `update`
+  (field-patch, remove) and `clear` tools now mutate the authoritative
+  `HubDisplay` store and re-push the affected UI, instead of patching the Display
+  directly, so the Hub wins every disagreement. One model-agnostic write contract
+  at a single seam: an Element-ABC element is patched in place (`apply_patch`,
+  preserving handlers/observers); a legacy element is realized by
+  `dataclasses.replace()` (sharing untouched fields by reference) — no legacy
+  class is modified, so the seam is *deleted*, not unwound, when a kind migrates.
+  A batch is all-or-nothing; the authoritative mutation runs once (only the
+  idempotent re-push is retryable); every write is ownership-checked and validated
+  with the same walk `show` uses. `id` and `kind` are immutable; a structural
+  field (`children`/`pages`/`tabs`, which carries child elements) or a legacy
+  element nested below a legacy composite is rejected fail-loud and directed to
+  `show` (the always-correct whole-tree resend) — no bridging. See DES-047.
+- **Tree-level element-id uniqueness** — the Hub rejects a submitted tree that
+  reuses a named element id (two elements sharing an id, or an id used as both a
+  root and a nested child) before install, returning the same `DuplicateIdError`
+  the Display already raises; anonymous (empty-id) elements such as separators
+  may repeat. Closes a path where a duplicate id desynced the Hub's root tracking.
+
+### Removed
+
+- **The Display-side incremental patch path.** The `UpdateMessage` wire type and
+  the `Patch` protocol export are dropped from the public API (`punt_lux.__all__`
+  / `protocol`), and the `patch` element kind, `patch_applier`, and `widget_sync`
+  are deleted. `update` / `clear` now route through the Hub-authoritative write
+  path (DES-047) with a whole-UI re-push — the target's whole-UI-resend
+  replication model — so the Display no longer applies field-level patches
+  locally, and bad-patch crash-freedom moves Hub-side (reject-before-install).
 
 ### Fixed
 
+- **Interaction re-push no longer duplicates a container's children** — the Hub's
+  `scene_roots` returned every indexed element (roots *plus* every descendant), so
+  a re-push after an interaction hoisted each container child to a top-level root
+  and rendered it twice. Roots are now tracked separately from children, so a
+  re-push carries exactly the original root set.
+- **Transient display state survives a narrow re-push** — a whole-root re-push
+  from an `update` no longer clears a surviving element's display-local widget
+  state (table selection, scroll, in-progress text). Only a removed element's
+  keys are discarded — including a removed dialog's open/dismiss latches, so a
+  re-added same-id dialog reopens instead of reading a stale "dismissed" latch.
 - **No stacked display windows from a direct `lux display` or a concurrent
   spawn** — the display server now self-arbitrates at bind. `SocketServer.setup()`
   probes for a live display and exits cleanly if one is already serving,
@@ -50,18 +124,14 @@
   window. The `listen()` backlog was raised (5→128) so a briefly-stalled display
   (not draining accepts) isn't misread as dead by a probe getting `ECONNREFUSED`
   on a full queue. (lux-h29e)
-- **No agent patch can crash the display (patch-application crash-freedom)** — a
-  bad `update()` patch (out-of-range / NaN / wrong-type value, an unknown field,
-  a remove of a missing id) is now caught per-patch, logged, and skipped as an
-  atomic no-op that never aborts the rest of the batch; a loop-level boundary
-  guard contains any unexpected escape. Previously a rejected patch's exception
-  propagated to the display message loop and terminated the display. The
-  patch-application state machine is formalized and ProB-model-checked
-  (`docs/patch_application.tex`) and committed as a regression artifact. Also:
-  `SceneManager` now reaches ABC-element subtrees for patching and stale-id
-  cleanup via the `child_elements()` Protocol (extracted `SceneTreeWalk` +
-  `PatchApplier`), so patches to an element nested in an all-ABC `group` are no
-  longer silently dropped. See DES-043.
+- **No agent patch can crash the display** — a bad `update()` patch (out-of-range
+  / NaN / wrong-type value, an unknown field, a remove of a missing id) is now
+  rejected **Hub-side, before install** (validate-before-install on the
+  authoritative store; DES-047), so it never reaches the Display at all. This
+  supersedes the earlier display-side per-patch catch (DES-043): the incremental
+  patch-application path it guarded (`patch_applier`, and its ProB model) is
+  removed in favour of the Hub-authoritative write path plus whole-UI re-push
+  (see Removed).
 
 ### Changed
 

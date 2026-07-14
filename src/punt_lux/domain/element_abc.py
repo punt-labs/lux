@@ -200,9 +200,9 @@ class Element(EventHandlerHost, ABC):
 
         Dispatch each ``(key, value)`` to ``_set_{key}(value)``. All-or-nothing:
         setters run in dict order, so the state is snapshotted first and restored
-        if any setter raises, then the error re-raised for the caller
-        (``PatchApplier``) to catch, log, and skip — one base rollback for every
-        kind, so per-setter self-restore is unnecessary.
+        if any setter raises, then the error re-raised for the caller to handle —
+        one base rollback for every kind, so per-setter self-restore is
+        unnecessary.
         """
         snapshot = dict(vars(self))
         try:

@@ -20,12 +20,12 @@ import pytest
 
 from punt_lux.domain.element_abc import Element as ABCElement
 from punt_lux.protocol import (
-    CollapsingHeaderElement,
     Element,
     GroupElement,
+    LegacyCollapsingHeaderElement,
     LegacyGroupElement,
+    LegacyTabBarElement,
     ModalElement,
-    TabBarElement,
     TextElement,
     WindowElement,
 )
@@ -40,9 +40,12 @@ def _legacy_containers_with_child(child: TextElement) -> list[tuple[str, Element
     """
     return [
         ("group", LegacyGroupElement(id="p", children=[child])),
-        ("tab_bar", TabBarElement(id="p", tabs=[{"label": "T", "children": [child]}])),
+        (
+            "tab_bar",
+            LegacyTabBarElement(id="p", tabs=[{"label": "T", "children": [child]}]),
+        ),
         ("window", WindowElement(id="p", children=[child], title="W")),
-        ("collapsing_header", CollapsingHeaderElement(id="p", children=[child])),
+        ("collapsing_header", LegacyCollapsingHeaderElement(id="p", children=[child])),
         ("modal", ModalElement(id="p", children=[child])),
     ]
 

@@ -7,26 +7,14 @@ as a pure state machine — no ImGui, no sockets, no DisplayServer.
 
 from __future__ import annotations
 
-import math
-from typing import TYPE_CHECKING
-
 from punt_lux.protocol import (
     ButtonElement,
-    GroupElement,
-    InputNumberElement,
-    Patch,
     SceneMessage,
     SeparatorElement,
-    SliderElement,
     TextElement,
-    UpdateMessage,
     WindowElement,
 )
-from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.scene import SceneManager, WidgetState
-
-if TYPE_CHECKING:
-    import pytest
 
 
 def _make_scene(
@@ -56,13 +44,6 @@ def _make_scene(
         frame_flags=frame_flags,
         frame_layout=frame_layout,  # type: ignore[arg-type]
         title=title,
-    )
-
-
-def _logged_rejection(caplog: pytest.LogCaptureFixture, element_id: str) -> bool:
-    """Report whether a rejected-patch warning named ``element_id``."""
-    return any(
-        element_id in r.message and "rejected" in r.message for r in caplog.records
     )
 
 
@@ -130,19 +111,124 @@ class TestHandleSceneReplace:
         assert len(stale_calls) == 1
         assert "t1" in stale_calls[0]
 
-    def test_widget_state_cleared_on_replace(self) -> None:
-        """Widget state is cleared when a scene is replaced."""
-        mgr, _ = _make_manager()
-        scene = _make_scene()
-        mgr.handle_scene(scene, owner_fd=10)
+    def test_replace_preserves_survivor_state_discards_stale(self) -> None:
+        """A re-push keeps survivors' state and clears the departed's latches.
 
-        # Seed widget state
-        mgr._scene_widget_state["s1"].set("t1", "stale_value")
+        A narrow ``update`` re-pushes the whole root; each element that left the
+        tree has its bare id key and its ``__open``/``__dismissed`` latches
+        discarded so a re-added same-id element starts fresh. The default scene
+        has ``t1`` and ``b1``; the replacement keeps ``t1`` (selection and its
+        decorated table key survive) and drops ``b1`` (bare key and open latch
+        cleared). ``b1``'s table key embeds the id at the end, so it lingers
+        until scene clear — cosmetic, never a functional break.
+        """
+        mgr, _ = _make_manager()
+        mgr.handle_scene(_make_scene(), owner_fd=10)
+        ws = mgr._scene_widget_state["s1"]
+        ws.set("t1", "survivor")
+        ws.set("__tbl_sel_t1", 3)
+        ws.set("b1", "stale")
+        ws.set("b1__open", True)
+        ws.set("__tbl_sel_b1", 5)
 
         replacement = _make_scene(elements=[TextElement(id="t1", content="New")])
         mgr.handle_scene(replacement, owner_fd=10)
 
-        assert mgr._scene_widget_state["s1"].get("t1") is None
+        assert ws.get("t1") == "survivor"
+        assert ws.get("__tbl_sel_t1") == 3
+        assert ws.get("b1") is None
+        assert ws.get("b1__open") is None
+        assert ws.get("__tbl_sel_b1") == 5
+
+    def test_replace_keeps_events_for_id_a_frame_still_holds(self) -> None:
+        """Replacing a scene keeps events for an id another scene still holds.
+
+        A whole-root re-push drains the ids the replaced scene dropped — but only
+        those no other framed or unframed scene holds. When a framed scene shares
+        an element id, replacing the unframed scene with content that drops that id
+        must not report it stale: its queued events remain valid inside the frame.
+        """
+        mgr, stale_calls = _make_manager()
+        shared: list[object] = [ButtonElement(id="shared", label="Click")]
+        mgr.handle_scene(_make_scene(scene_id="s1", elements=shared), owner_fd=10)
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s2", frame_id="f1", elements=shared), owner_fd=11
+        )
+
+        replacement = _make_scene(
+            scene_id="s1", elements=[TextElement(id="t2", content="New")]
+        )
+        mgr.handle_scene(replacement, owner_fd=10)
+
+        drained = [sid for call in stale_calls for sid in call]
+        assert "shared" not in drained
+
+    def test_replace_drains_id_no_other_scene_holds(self) -> None:
+        """A dropped id held by no other scene is drained on replacement.
+
+        The survivor-aware control for the shared-id case: with only one scene
+        holding the id, replacing that scene away must drain its queued events.
+        """
+        mgr, stale_calls = _make_manager()
+        mgr.handle_scene(
+            _make_scene(
+                scene_id="s1", elements=[ButtonElement(id="only", label="Click")]
+            ),
+            owner_fd=10,
+        )
+
+        replacement = _make_scene(
+            scene_id="s1", elements=[TextElement(id="t2", content="New")]
+        )
+        mgr.handle_scene(replacement, owner_fd=10)
+
+        drained = [sid for call in stale_calls for sid in call]
+        assert "only" in drained
+
+    def test_framed_replace_keeps_events_for_id_unframed_scene_holds(self) -> None:
+        """Replacing a framed scene keeps events an unframed scene still holds.
+
+        The framed-replace mirror of the unframed case: a whole-root re-push into
+        a frame drains the ids the replaced scene dropped, but only those no other
+        framed or unframed scene holds. When an unframed scene shares an element
+        id, replacing the framed scene with content that drops that id must not
+        report it stale — the unframed scene rescues it and its queued events
+        remain valid.
+        """
+        mgr, stale_calls = _make_manager()
+        shared: list[object] = [ButtonElement(id="shared", label="Click")]
+        mgr.handle_scene(_make_scene(scene_id="s1", elements=shared), owner_fd=10)
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s2", frame_id="f1", elements=shared), owner_fd=11
+        )
+
+        replacement = _make_scene(
+            scene_id="s2", frame_id="f1", elements=[TextElement(id="t2", content="New")]
+        )
+        mgr.handle_framed_scene(replacement, owner_fd=11)
+
+        drained = [sid for call in stale_calls for sid in call]
+        assert "shared" not in drained
+
+    def test_replace_resets_honoured_but_keeps_survivor_state(self) -> None:
+        """A re-push resets echo-suppression bookkeeping, keeps user state.
+
+        A surviving tab bar's ``:active_honoured`` key is per-render-session
+        bookkeeping: it must reset so the first post-re-push frame re-honours the
+        Hub-authoritative active tab instead of reading a stale value and firing a
+        spurious ``TabChanged``. The survivor's selection state is untouched.
+        """
+        mgr, _ = _make_manager()
+        mgr.handle_scene(_make_scene(), owner_fd=10)
+        ws = mgr._scene_widget_state["s1"]
+        ws.set(f"t1{WidgetState.HONOURED_SUFFIX}", "tab-2")
+        ws.set("__tbl_sel_t1", 3)
+
+        replacement = _make_scene(elements=[TextElement(id="t1", content="New")])
+        mgr.handle_scene(replacement, owner_fd=10)
+
+        assert ws.get(f"t1{WidgetState.HONOURED_SUFFIX}") is None
+        assert ws.get("__tbl_sel_t1") == 3
 
 
 # -------------------------------------------------------------------
@@ -229,6 +315,25 @@ class TestDismissScene:
 
         assert "w1" not in mgr._dirty_windows
 
+    def test_shared_id_in_frame_survives_unframed_dismissal(self) -> None:
+        """Dismissing an unframed scene keeps events for an id a frame still holds.
+
+        Stale-event draining keys on element id alone. When a framed scene and an
+        unframed scene share an element id, dismissing the unframed one must not
+        report that id stale — its queued events remain valid inside the frame.
+        """
+        mgr, stale_calls = _make_manager()
+        shared: list[object] = [ButtonElement(id="shared", label="Click")]
+        mgr.handle_scene(_make_scene(scene_id="s1", elements=shared), owner_fd=10)
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s2", frame_id="f1", elements=shared), owner_fd=11
+        )
+
+        mgr.dismiss_scene("s1")
+
+        drained = [sid for call in stale_calls for sid in call]
+        assert "shared" not in drained
+
 
 # -------------------------------------------------------------------
 # 5. test_close_frame
@@ -273,305 +378,6 @@ class TestCloseFrame:
         mgr.close_frame("f1")
 
         assert mgr._focus_frame_id is None
-
-
-# -------------------------------------------------------------------
-# 6. test_apply_update
-# -------------------------------------------------------------------
-
-
-class TestApplyUpdate:
-    def test_patch_modifies_element(self) -> None:
-        """An UpdateMessage with a set patch modifies element fields."""
-        mgr, _ = _make_manager()
-        scene = _make_scene(elements=[TextElement(id="t1", content="Original")])
-        mgr.handle_scene(scene, owner_fd=10)
-
-        update = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="t1", set={"content": "Updated"})],
-        )
-        mgr.apply_update(update)
-
-        assert mgr._scenes["s1"].elements[0].content == "Updated"  # type: ignore[union-attr]
-
-    def test_patch_removes_element(self) -> None:
-        """A patch with remove=True removes the element from the scene."""
-        mgr, _ = _make_manager()
-        scene = _make_scene(
-            elements=[
-                TextElement(id="t1", content="Keep"),
-                TextElement(id="t2", content="Remove"),
-            ]
-        )
-        mgr.handle_scene(scene, owner_fd=10)
-
-        update = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="t2", remove=True)],
-        )
-        mgr.apply_update(update)
-
-        ids = [getattr(e, "id", None) for e in mgr._scenes["s1"].elements]
-        assert "t2" not in ids
-        assert "t1" in ids
-
-    def test_update_nonexistent_scene_is_noop(self) -> None:
-        """Updating a scene that doesn't exist does nothing."""
-        mgr, _ = _make_manager()
-        update = UpdateMessage(
-            scene_id="no-such-scene",
-            patches=[Patch(id="t1", set={"content": "X"})],
-        )
-        # Should not raise
-        mgr.apply_update(update)
-
-    def test_patch_cannot_change_id_or_kind(self) -> None:
-        """Patches must not modify id or kind fields."""
-        mgr, _ = _make_manager()
-        scene = _make_scene(elements=[TextElement(id="t1", content="Hello")])
-        mgr.handle_scene(scene, owner_fd=10)
-
-        update = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="t1", set={"id": "t999", "kind": "button"})],
-        )
-        mgr.apply_update(update)
-
-        elem = mgr._scenes["s1"].elements[0]
-        assert elem.id == "t1"
-        assert elem.kind == "text"
-
-    def test_patch_unknown_fields_is_skipped(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """An unknown field skips the whole set-patch, logged; the loop survives.
-
-        The structural error is surfaced at the boundary rather than propagated
-        through ``apply_update``, so the element keeps its value and the display's
-        message loop is never terminated.
-        """
-        mgr, _ = _make_manager()
-        scene = _make_scene(elements=[TextElement(id="t1", content="Hello")])
-        mgr.handle_scene(scene, owner_fd=10)
-
-        update = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="t1", set={"content": "Updated", "bogus_key": "x"})],
-        )
-        with caplog.at_level("WARNING"):
-            mgr.apply_update(update)
-
-        elem = mgr.scenes["s1"].elements[0]
-        assert isinstance(elem, TextElement)
-        assert elem.content == "Hello"
-        assert any(
-            "unknown field" in r.message and "bogus_key" in r.message
-            for r in caplog.records
-        )
-
-    def test_patch_all_unknown_fields_is_skipped(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """A patch of only unknown fields is logged and skipped, never raised."""
-        mgr, _ = _make_manager()
-        scene = _make_scene(elements=[TextElement(id="t1", content="Hello")])
-        mgr.handle_scene(scene, owner_fd=10)
-
-        update = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="t1", set={"nonexistent": "value"})],
-        )
-        with caplog.at_level("WARNING"):
-            mgr.apply_update(update)
-
-        elem = mgr.scenes["s1"].elements[0]
-        assert isinstance(elem, TextElement)
-        assert elem.content == "Hello"
-        assert any("nonexistent" in r.message for r in caplog.records)
-
-    def test_patch_value_on_input_number_writes_widget_state(self) -> None:
-        """Regression for code-reviewer IMPORTANT on f3bd2bb.
-
-        InputNumberElement must provide widget_value() — otherwise a
-        ``value`` patch sets WidgetState to ``None`` and the next render crashes
-        on ``int(None)`` inside ``InputNumberRenderer._draw_input``.
-        """
-        mgr, _ = _make_manager()
-        scene = _make_scene(
-            elements=[InputNumberElement(id="in1", label="N", value=1.0)]
-        )
-        mgr.handle_scene(scene, owner_fd=10)
-        ws = mgr.widget_state_for("s1")
-        assert ws is not None
-
-        update = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="in1", set={"value": 42.0})],
-        )
-        mgr.apply_update(update)
-
-        # widget_value() returns elem.value — the patch must mirror into state.
-        assert ws.get("in1") == 42.0
-
-    def test_patch_value_on_slider_writes_widget_state(self) -> None:
-        """Companion regression: SliderElement also writes its post-patch value."""
-        mgr, _ = _make_manager()
-        scene = _make_scene(elements=[SliderElement(id="sl1", label="Vol", value=0.5)])
-        mgr.handle_scene(scene, owner_fd=10)
-        ws = mgr.widget_state_for("s1")
-        assert ws is not None
-
-        update = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="sl1", set={"value": 7.5})],
-        )
-        mgr.apply_update(update)
-
-        assert ws.get("sl1") == 7.5
-
-    def test_patch_value_on_color_picker_discards_widget_state(self) -> None:
-        """Regression for cumulative SFH HIGH finding on PR 2.
-
-        ColorPickerElement is intentionally excluded from the widget_value()
-        dispatch (the renderer caches an ``ImVec4`` whose shape the domain
-        cannot produce).  Before this fix a ``value`` patch wrote ``None`` into
-        WidgetState; the next render's ``ensure(eid, ImVec4(...))`` returned
-        ``None`` (key present), and ``imgui.color_edit3(label, None)`` crashed
-        or mis-rendered.
-
-        The contract: patching a value on a class excluded from the
-        widget_value() dispatch must DISCARD the cached entry so the next
-        render re-seeds from the patched element fields.
-        """
-        from punt_lux.protocol.elements.color_picker import ColorPickerElement
-
-        mgr, _ = _make_manager()
-        scene = _make_scene(
-            elements=[ColorPickerElement(id="cp1", label="Tint", value="#FF0000")]
-        )
-        mgr.handle_scene(scene, owner_fd=10)
-        ws = mgr.widget_state_for("s1")
-        assert ws is not None
-
-        # Seed the cache the way the renderer would: with an ImVec4-shaped tuple.
-        ws.set("cp1", (1.0, 0.0, 0.0, 1.0))
-        assert ws.get("cp1") == (1.0, 0.0, 0.0, 1.0)
-
-        update = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="cp1", set={"value": "#00FF00"})],
-        )
-        mgr.apply_update(update)
-
-        # Cache must be DISCARDED — not poisoned with None.  Next render's
-        # ensure() will re-seed from elem.value via parse_rgba.  Use a
-        # sentinel default to distinguish "key absent" from "key present
-        # with value None" (the previous buggy state).
-        sentinel = object()
-        assert ws.get("cp1", sentinel) is sentinel
-
-    def test_update_framed_scene(self) -> None:
-        """Updates work for scenes inside frames."""
-        mgr, _ = _make_manager()
-        scene = _make_scene(
-            elements=[TextElement(id="t1", content="Hello")],
-            frame_id="f1",
-            frame_title="Frame",
-        )
-        mgr.handle_framed_scene(scene, owner_fd=10)
-
-        update = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="t1", set={"content": "Updated"})],
-        )
-        mgr.apply_update(update)
-
-        frame_scene = mgr._frames["f1"].scenes["s1"]
-        assert frame_scene.elements[0].content == "Updated"  # type: ignore[union-attr]
-
-
-class TestApplyUpdateRejectedPatch:
-    """A validated setter's rejection is a per-patch no-op, never a crash.
-
-    ``ProgressElement._set_fraction`` raises ``ValueError`` on an out-of-range
-    or NaN value (PY-EN-4). Driving that through the real ``apply_update``
-    handler — the display's message-loop entry point — must not let the
-    exception escape: the display process would terminate. The handler catches
-    the rejection, logs it, keeps the element's prior value, and returns.
-    """
-
-    @staticmethod
-    def _progress_scene(fraction: float = 0.25) -> SceneMessage:
-        """A scene whose single element is a progress bar."""
-        return _make_scene(elements=[ProgressElement(id="p1", fraction=fraction)])
-
-    def test_out_of_range_fraction_does_not_crash(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """A ``fraction`` above 1 is skipped; the bar keeps its prior value."""
-        mgr, _ = _make_manager()
-        mgr.handle_scene(self._progress_scene(0.25), owner_fd=10)
-
-        update = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="p1", set={"fraction": 1.5})],
-        )
-        with caplog.at_level("WARNING"):
-            mgr.apply_update(update)  # must return normally — no ValueError escapes
-
-        progress = mgr._scenes["s1"].elements[0]
-        assert isinstance(progress, ProgressElement)
-        assert progress.fraction == 0.25  # rejected patch installed nothing
-        assert _logged_rejection(caplog, "p1")
-
-    def test_nan_fraction_does_not_crash(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """A NaN ``fraction`` is skipped the same way; the bar keeps its value."""
-        mgr, _ = _make_manager()
-        mgr.handle_scene(self._progress_scene(0.25), owner_fd=10)
-
-        update = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="p1", set={"fraction": math.nan})],
-        )
-        with caplog.at_level("WARNING"):
-            mgr.apply_update(update)
-
-        progress = mgr._scenes["s1"].elements[0]
-        assert isinstance(progress, ProgressElement)
-        assert progress.fraction == 0.25
-        assert _logged_rejection(caplog, "p1")
-
-    def test_bad_patch_does_not_abort_later_patches(
-        self, caplog: pytest.LogCaptureFixture
-    ) -> None:
-        """One rejected patch in a batch does not block the patches after it."""
-        mgr, _ = _make_manager()
-        scene = _make_scene(
-            elements=[
-                ProgressElement(id="p1", fraction=0.25),
-                TextElement(id="t1", content="before"),
-            ]
-        )
-        mgr.handle_scene(scene, owner_fd=10)
-
-        update = UpdateMessage(
-            scene_id="s1",
-            patches=[
-                Patch(id="p1", set={"fraction": 1.5}),
-                Patch(id="t1", set={"content": "after"}),
-            ],
-        )
-        with caplog.at_level("WARNING"):
-            mgr.apply_update(update)
-
-        elements = mgr._scenes["s1"].elements
-        assert isinstance(elements[0], ProgressElement)
-        assert elements[0].fraction == 0.25  # rejected
-        assert isinstance(elements[1], TextElement)
-        assert elements[1].content == "after"  # applied despite the earlier reject
 
 
 # -------------------------------------------------------------------
@@ -649,85 +455,141 @@ class TestClearAll:
         assert mgr._active_tab is None
 
 
-# -------------------------------------------------------------------
-# 9. test_apply_update inside an all-ABC group (F8)
-# -------------------------------------------------------------------
+class TestWidgetStateDiscardFor:
+    def test_clears_dialog_latches_so_re_add_reopens(self) -> None:
+        """Removing a dialog id clears its latches so a re-added dialog reopens.
 
-
-class TestApplyUpdateAbcGroup:
-    """The state machine must traverse an all-ABC group's subtree.
-
-    Before the Protocol-driven walk, ``find`` treated an all-ABC group as a
-    childless leaf: a set-patch on a nested child was silently discarded and
-    the child's id was never reported stale on scene replace.
-    """
-
-    @staticmethod
-    def _abc_group_scene() -> SceneMessage:
-        """A scene whose single element is a rows group with one text child."""
-        group = GroupElement(
-            id="g1",
-            layout="rows",
-            children=(TextElement(id="t1", content="Original"),),
-        )
-        return _make_scene(elements=[group])
-
-    def test_set_patch_on_child_in_abc_group_is_applied(self) -> None:
-        """A set-patch reaches a child nested in an all-ABC group."""
-        mgr, _ = _make_manager()
-        mgr.handle_scene(self._abc_group_scene(), owner_fd=10)
-
-        mgr.apply_update(
-            UpdateMessage(
-                scene_id="s1",
-                patches=[Patch(id="t1", set={"content": "Updated"})],
-            )
-        )
-
-        group = mgr._scenes["s1"].elements[0]
-        assert isinstance(group, GroupElement)
-        # ABC elements patch IN PLACE — the group's own tuple entry changed.
-        child = group.children[0]
-        assert isinstance(child, TextElement)
-        assert child.content == "Updated"
-
-    def test_remove_patch_drops_abc_group_child_from_render(self) -> None:
-        """A remove-patch physically drops the child from what the display paints.
-
-        The display renders whatever the group's ``_children()`` yields, so
-        the fix must remove the child from that tuple — not merely flip a
-        ``_removed`` flag that the render path never consults. Assert the
-        removed child is ABSENT from the render-visible children and the
-        kept sibling survives.
+        A dismissed dialog leaves ``{id}__dismissed`` set to open. ``ensure``
+        seeds only an absent key, so unless the latch is discarded a re-added
+        same-id dialog reads the stale open value and never opens. After
+        ``discard_for`` a fresh ``ensure`` returns the caller's closed default.
         """
-        mgr, _ = _make_manager()
-        gone = TextElement(id="t1", content="x")
-        kept = TextElement(id="t2", content="y")
-        group = GroupElement(id="g1", layout="rows", children=(gone, kept))
-        mgr.handle_scene(_make_scene(elements=[group]), owner_fd=10)
+        ws = WidgetState()
+        ws.set("confirm", "answered")
+        ws.set("confirm__open", 1)
+        ws.set("confirm__dismissed", 1)
 
-        mgr.apply_update(
-            UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
-        )
+        ws.discard_for("confirm")
 
-        stored = mgr._scenes["s1"].elements[0]
-        assert isinstance(stored, GroupElement)
-        # ``children`` is the render source (== ``_children()``); the removed
-        # child must be gone from it, so the Display no longer paints it.
-        rendered_ids = [c.id for c in stored.children]
-        assert "t1" not in rendered_ids
-        assert rendered_ids == ["t2"]
+        assert ws.get("confirm") is None
+        assert ws.get("confirm__open") is None
+        assert ws.get("confirm__dismissed") is None
+        assert ws.ensure("confirm__dismissed", 0) == 0
 
-    def test_scene_replace_reports_child_in_abc_group_stale(self) -> None:
-        """Replacing the scene reports the nested child's id stale."""
-        mgr, stale_calls = _make_manager()
-        mgr.handle_scene(self._abc_group_scene(), owner_fd=10)
+    def test_discards_only_the_exact_id_key(self) -> None:
+        """``discard_for`` drops the removed element's own bare-id key only."""
+        ws = WidgetState()
+        ws.set("btn", "bare")
 
-        mgr.handle_scene(
-            _make_scene(elements=[TextElement(id="t2", content="New")]),
-            owner_fd=10,
-        )
+        ws.discard_for("btn")
 
-        assert len(stale_calls) == 1
-        assert "t1" in stale_calls[0]
-        assert "g1" in stale_calls[0]
+        assert ws.get("btn") is None
+
+    def test_leaves_underscore_survivor_state_intact(self) -> None:
+        """Removing ``btn`` never wipes survivor ``btn_ok`` — bare AND decorated."""
+        ws = WidgetState()
+        ws.set("btn", "gone")
+        ws.set("btn_ok", "keep")
+        ws.set("btn_ok__open", True)
+        ws.set("__tbl_sel_btn_ok", 7)
+
+        ws.discard_for("btn")
+
+        assert ws.get("btn") is None
+        assert ws.get("btn_ok") == "keep"
+        assert ws.get("btn_ok__open") is True
+        assert ws.get("__tbl_sel_btn_ok") == 7
+
+    def test_leaves_other_elements_untouched(self) -> None:
+        """Discarding one id keeps a token-adjacent id's state — ``t1`` vs ``t10``."""
+        ws = WidgetState()
+        ws.set("t1", "gone")
+        ws.set("__tbl_sel_t10", 9)
+        ws.set("t10__open", True)
+
+        ws.discard_for("t1")
+
+        assert ws.get("t1") is None
+        assert ws.get("__tbl_sel_t10") == 9
+        assert ws.get("t10__open") is True
+
+    def test_empty_id_is_a_noop(self) -> None:
+        """An empty id (a separator has none) discards nothing."""
+        ws = WidgetState()
+        ws.set("__tbl_sel_t1", 1)
+
+        ws.discard_for("")
+
+        assert ws.get("__tbl_sel_t1") == 1
+
+    def test_clears_the_honoured_echo_suppression_key(self) -> None:
+        """Removing an id clears its ``:active_honoured`` key.
+
+        A re-added same-id tab bar must not inherit the departed one's honoured
+        active tab, or its first frame would read a stale value instead of
+        re-honouring the Hub selection.
+        """
+        ws = WidgetState()
+        ws.set(f"tb{WidgetState.HONOURED_SUFFIX}", "tab-2")
+
+        ws.discard_for("tb")
+
+        assert ws.get(f"tb{WidgetState.HONOURED_SUFFIX}") is None
+
+    def test_clears_the_pending_fire_suppression_key(self) -> None:
+        """Removing an id clears its ``:active_pending`` key.
+
+        The pending slot suppresses a re-fire through the click-to-re-push
+        window. A re-added same-id tab bar must start with no outstanding fire,
+        or a genuine first click could be swallowed as already-pending.
+        """
+        ws = WidgetState()
+        ws.set(f"tb{WidgetState.PENDING_SUFFIX}", "tab-2")
+
+        ws.discard_for("tb")
+
+        assert ws.get(f"tb{WidgetState.PENDING_SUFFIX}") is None
+
+
+class TestWidgetStateResetHonoured:
+    def test_discards_every_honoured_key(self) -> None:
+        """``reset_honoured`` forgets every tab bar's last force-selected tab."""
+        ws = WidgetState()
+        ws.set(f"tb1{WidgetState.HONOURED_SUFFIX}", "a")
+        ws.set(f"tb2{WidgetState.HONOURED_SUFFIX}", "b")
+
+        ws.reset_honoured()
+
+        assert ws.get(f"tb1{WidgetState.HONOURED_SUFFIX}") is None
+        assert ws.get(f"tb2{WidgetState.HONOURED_SUFFIX}") is None
+
+    def test_discards_every_pending_key(self) -> None:
+        """``reset_honoured`` forgets every tab bar's outstanding-fire tab too.
+
+        On a re-push the Hub becomes authoritative again, so the pending slot
+        that suppressed the click-to-re-push window must clear — otherwise it
+        would keep gagging a genuine switch after the window has closed.
+        """
+        ws = WidgetState()
+        ws.set(f"tb1{WidgetState.PENDING_SUFFIX}", "a")
+        ws.set(f"tb2{WidgetState.PENDING_SUFFIX}", "b")
+
+        ws.reset_honoured()
+
+        assert ws.get(f"tb1{WidgetState.PENDING_SUFFIX}") is None
+        assert ws.get(f"tb2{WidgetState.PENDING_SUFFIX}") is None
+
+    def test_preserves_user_transient_state(self) -> None:
+        """Only session slots reset — selection, scroll, and text survive."""
+        ws = WidgetState()
+        ws.set(f"tb{WidgetState.HONOURED_SUFFIX}", "tab-1")
+        ws.set(f"tb{WidgetState.PENDING_SUFFIX}", "tab-2")
+        ws.set("__tbl_sel_tb", 4)
+        ws.set("input_x", "half-typed")
+
+        ws.reset_honoured()
+
+        assert ws.get(f"tb{WidgetState.HONOURED_SUFFIX}") is None
+        assert ws.get(f"tb{WidgetState.PENDING_SUFFIX}") is None
+        assert ws.get("__tbl_sel_tb") == 4
+        assert ws.get("input_x") == "half-typed"

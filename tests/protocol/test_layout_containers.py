@@ -18,9 +18,9 @@ import pytest
 from punt_lux.domain.validation_walk import HasChildElements
 from punt_lux.protocol.elements import Element
 from punt_lux.protocol.elements.layout import (
-    CollapsingHeaderElement,
+    LegacyCollapsingHeaderElement,
+    LegacyTabBarElement,
     ModalElement,
-    TabBarElement,
     TreeElement,
     WindowElement,
 )
@@ -36,7 +36,7 @@ class TestContainerChildElements:
 
     def test_collapsing_header_exposes_children(self) -> None:
         child = TextElement(id="t", content="x")
-        header = CollapsingHeaderElement(id="ch", children=[child])
+        header = LegacyCollapsingHeaderElement(id="ch", children=[child])
         assert header.child_elements() == (child,)
 
     def test_modal_exposes_children(self) -> None:
@@ -47,7 +47,7 @@ class TestContainerChildElements:
     def test_tab_bar_exposes_every_tab_child(self) -> None:
         a = TextElement(id="a", content="x")
         b = TableElement(id="b", columns=["A"], rows=[["y"]])
-        tab_bar = TabBarElement(
+        tab_bar = LegacyTabBarElement(
             id="tb",
             tabs=[
                 {"label": "One", "children": [a]},
@@ -58,9 +58,9 @@ class TestContainerChildElements:
 
     def test_empty_containers_have_no_children(self) -> None:
         assert WindowElement(id="w").child_elements() == ()
-        assert CollapsingHeaderElement(id="ch").child_elements() == ()
+        assert LegacyCollapsingHeaderElement(id="ch").child_elements() == ()
         assert ModalElement(id="m").child_elements() == ()
-        assert TabBarElement(id="tb").child_elements() == ()
+        assert LegacyTabBarElement(id="tb").child_elements() == ()
 
     def test_tree_exposes_no_child_elements(self) -> None:
         # A tree's nodes are plain mappings, not elements; the tree checks
@@ -178,9 +178,9 @@ class TestContainerContract:
         found = set(_container_element_classes())
         expected = {
             WindowElement,
-            CollapsingHeaderElement,
+            LegacyCollapsingHeaderElement,
             ModalElement,
-            TabBarElement,
+            LegacyTabBarElement,
             TreeElement,
         }
         assert expected <= found

@@ -10,10 +10,10 @@ from punt_lux.protocol.elements.codec import Register
 from punt_lux.protocol.elements.container_dispatch import dispatch as _dispatchers
 
 __all__ = [
-    "CollapsingHeaderElement",
+    "LegacyCollapsingHeaderElement",
     "LegacyGroupElement",
+    "LegacyTabBarElement",
     "ModalElement",
-    "TabBarElement",
     "TreeElement",
     "WindowElement",
     "register_codecs",
@@ -81,27 +81,39 @@ class LegacyGroupElement:
 
     @staticmethod
     def decode_child(raw: dict[str, Any]) -> Any:
-        """Decode one container child, forcing any nested group legacy.
+        """Decode one container child, forcing any nested container legacy.
 
-        A legacy container must never hold an ABC ``GroupElement`` — the
-        legacy render path has no adapter for it and would fall back to the
-        ``[unsupported element]`` placeholder. Routing a nested ``group``
-        straight to ``LegacyGroupElement`` keeps every group inside a legacy
-        subtree legacy, so an ABC container can never nest inside a legacy
-        one. Non-group children decode through the shared dispatcher, where
-        migrated leaves (text, button, …) still decode to their ABC form.
+        A legacy container must never hold an ABC container — the legacy
+        render path has no adapter for one and would fall back to the
+        ``[unsupported element]`` placeholder. Routing a nested ``group`` or
+        ``collapsing_header`` straight to its legacy form keeps every
+        conditionally-ABC container inside a legacy subtree legacy, so an ABC
+        container can never nest inside a legacy one. Other children decode
+        through the shared dispatcher, where migrated leaves (text, button, …)
+        still decode to their ABC form.
 
         Shared by every legacy container codec in this module (tab-bar,
         window, header, modal) so the invariant holds at every nesting site.
         """
-        if raw.get("kind") == "group":
+        kind = raw.get("kind")
+        if kind == "group":
             return LegacyGroupElement.from_dict(raw)
+        if kind == "collapsing_header":
+            return LegacyCollapsingHeaderElement.from_dict(raw)
+        if kind == "tab_bar":
+            return LegacyTabBarElement.from_dict(raw)
         return _dispatchers.from_dict(raw)
 
 
 @dataclass(frozen=True, slots=True)
-class TabBarElement:
-    """A tabbed container. Each tab has a label and child elements."""
+class LegacyTabBarElement:
+    """A tabbed container. Each tab has a label and child elements.
+
+    The legacy dataclass path (fork-don't-mix): a ``tab_bar`` whose
+    subtree is not entirely migrated-ABC, or one nested inside a legacy
+    container, decodes onto this class. The ABC ``TabBarElement`` takes the
+    canonical name.
+    """
 
     id: str
     kind: Literal["tab_bar"] = "tab_bar"
@@ -129,7 +141,7 @@ class TabBarElement:
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:
-        """Construct a TabBarElement from a JSON-decoded mapping."""
+        """Construct a LegacyTabBarElement from a JSON-decoded mapping."""
         recurse = LegacyGroupElement.decode_child
         tabs: list[dict[str, Any]] = [
             {
@@ -142,8 +154,14 @@ class TabBarElement:
 
 
 @dataclass(frozen=True, slots=True)
-class CollapsingHeaderElement:
-    """A collapsible section with a label and child elements."""
+class LegacyCollapsingHeaderElement:
+    """A collapsible section with a label and child elements.
+
+    The legacy dataclass path (fork-don't-mix): a
+    ``collapsing_header`` whose subtree is not entirely migrated-ABC, or one
+    nested inside a legacy container, decodes onto this class. The ABC
+    ``CollapsingHeaderElement`` takes the canonical name.
+    """
 
     id: str
     kind: Literal["collapsing_header"] = "collapsing_header"
@@ -403,15 +421,15 @@ def register_codecs(register: Register) -> None:
     )
     register(
         "tab_bar",
-        TabBarElement,
-        TabBarElement.to_dict,
-        TabBarElement.from_dict,
+        LegacyTabBarElement,
+        LegacyTabBarElement.to_dict,
+        LegacyTabBarElement.from_dict,
     )
     register(
         "collapsing_header",
-        CollapsingHeaderElement,
-        CollapsingHeaderElement.to_dict,
-        CollapsingHeaderElement.from_dict,
+        LegacyCollapsingHeaderElement,
+        LegacyCollapsingHeaderElement.to_dict,
+        LegacyCollapsingHeaderElement.from_dict,
     )
     register("window", WindowElement, WindowElement.to_dict, WindowElement.from_dict)
     register("tree", TreeElement, TreeElement.to_dict, TreeElement.from_dict)

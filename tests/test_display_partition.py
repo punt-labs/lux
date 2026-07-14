@@ -24,14 +24,12 @@ from punt_lux.protocol import (
     ClearMessage,
     ConnectMessage,
     FrameReader,
-    Patch,
     PingMessage,
     RegisterMenuMessage,
     RemoteEventHandlerInvocation,
     SceneMessage,
     SeparatorElement,
     TextElement,
-    UpdateMessage,
     encode_message,
 )
 from punt_lux.scene import WidgetState
@@ -332,99 +330,6 @@ class TestClearScenePartitions:
         )
         server._handle_message(sock, ClearMessage())
         assert len(server._event_queue) == 0
-
-
-# ---------------------------------------------------------------------------
-# RemoveElement (6 partitions)
-# Preconditions: scene exists, target in elemIds
-# Implicit: target not in eventQueue (for I7 preservation)
-# ---------------------------------------------------------------------------
-
-
-class TestRemoveElementPartitions:
-    """RemoveElement: 3 accepted, 3 rejected/boundary."""
-
-    def test_remove_1_happy_path(self):
-        """P1: Remove one of several elements."""
-        server = _server()
-        _inject_scene(
-            server,
-            _scene_with(
-                "s1",
-                TextElement(id="t1", content="A"),
-                TextElement(id="t2", content="B"),
-            ),
-        )
-        server._scene_manager.apply_update(
-            UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
-        )
-        ids = [e.id for e in server._scene_manager._scenes["s1"].elements]
-        assert ids == ["t2"]
-
-    def test_remove_2_boundary_last_element(self):
-        """P2: Remove last element -> empty element list."""
-        server = _server()
-        _inject_scene(server, _scene_with("s1", TextElement(id="t1", content="Only")))
-        server._scene_manager.apply_update(
-            UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
-        )
-        assert len(server._scene_manager._scenes["s1"].elements) == 0
-
-    def test_remove_3_rejected_element_in_event_queue(self):
-        """REJECTED ¬P3: targetId in eventQueue.
-        The Z spec requires targetId? ∉ eventQueue to preserve I7.
-        Concrete code doesn't enforce this — documents the gap."""
-        server = _server()
-        _inject_scene(
-            server,
-            _scene_with(
-                "s1",
-                ButtonElement(id="b1", label="X"),
-                TextElement(id="t1", content="A"),
-            ),
-        )
-        server._event_queue.append(
-            RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
-        )
-        server._scene_manager.apply_update(
-            UpdateMessage(scene_id="s1", patches=[Patch(id="b1", remove=True)])
-        )
-        # Element removed but event still in queue — spec boundary
-        ids = [e.id for e in server._scene_manager._scenes["s1"].elements]
-        assert "b1" not in ids
-        assert len(server._event_queue) == 1  # event orphaned
-
-    def test_remove_4_rejected_no_scene(self):
-        """REJECTED ¬P1: No scene -> update is no-op."""
-        server = _server()
-        server._scene_manager.apply_update(
-            UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
-        )
-        assert len(server._scene_manager._scenes) == 0
-
-    def test_remove_5_rejected_element_not_found(self):
-        """REJECTED ¬P2: targetId not in elemIds -> patch skipped."""
-        server = _server()
-        _inject_scene(server, _scene_with("s1", TextElement(id="t1", content="A")))
-        server._scene_manager.apply_update(
-            UpdateMessage(scene_id="s1", patches=[Patch(id="nonexistent", remove=True)])
-        )
-        assert len(server._scene_manager._scenes["s1"].elements) == 1
-
-    def test_remove_6_rejected_wrong_scene_id(self):
-        """REJECTED: Update targets wrong scene_id -> no-op."""
-        server = _server()
-        _inject_scene(server, _scene_with("s1", TextElement(id="t1", content="A")))
-        server._scene_manager.apply_update(
-            UpdateMessage(scene_id="wrong", patches=[Patch(id="t1", remove=True)])
-        )
-        assert len(server._scene_manager._scenes["s1"].elements) == 1
-
-
-# ---------------------------------------------------------------------------
-# ButtonClick (7 partitions)
-# Preconditions: scene exists, button in elemIds, kind is button, queue not full
-# ---------------------------------------------------------------------------
 
 
 class TestButtonClickPartitions:
@@ -1219,32 +1124,6 @@ class TestFrameOwnershipPartitions:
         assert server._scene_manager._scene_to_owner["s2"] == 20
 
 
-class TestFrameUpdatePartitions:
-    """UpdateMessage works for framed scenes."""
-
-    def test_update_framed_scene(self):
-        """Patches apply to scenes stored in frames."""
-        server = _server()
-        sock = _sock(fd=10)
-        _register(server, sock)
-        server._handle_message(
-            sock,
-            _framed_scene("s1", "f1", TextElement(id="t1", content="Old")),
-        )
-
-        server._scene_manager.apply_update(
-            UpdateMessage(
-                scene_id="s1",
-                patches=[Patch(id="t1", set={"content": "New"})],
-            )
-        )
-
-        scene = server._scene_manager._frames["f1"].scenes["s1"]
-        el = scene.elements[0]
-        assert isinstance(el, TextElement)
-        assert el.content == "New"
-
-
 class TestFrameStaleEventDrainPartitions:
     """Closing frames drains stale interaction events."""
 
@@ -1290,42 +1169,6 @@ class TestFrameAutoFocusPartitions:
         server._handle_message(sock, _framed_scene("s1", "f1"))
         assert not server._scene_manager._frames["f1"].minimized
 
-    def test_update_does_not_focus_framed_scene(self):
-        """UpdateMessage on a framed scene does not steal focus."""
-        server = _server()
-        sock = _sock(fd=10)
-        _register(server, sock)
-        server._handle_message(
-            sock,
-            _framed_scene("s1", "f1", TextElement(id="t1", content="Old")),
-        )
-        server._scene_manager._focus_frame_id = None  # reset after initial scene
-        server._scene_manager.apply_update(
-            UpdateMessage(
-                scene_id="s1",
-                patches=[Patch(id="t1", set={"content": "New"})],
-            )
-        )
-        assert server._scene_manager._focus_frame_id is None
-
-    def test_update_does_not_restore_minimized_framed_scene(self):
-        """UpdateMessage on a framed scene leaves minimized state unchanged."""
-        server = _server()
-        sock = _sock(fd=10)
-        _register(server, sock)
-        server._handle_message(
-            sock,
-            _framed_scene("s1", "f1", TextElement(id="t1", content="Old")),
-        )
-        server._scene_manager._frames["f1"].minimized = True
-        server._scene_manager.apply_update(
-            UpdateMessage(
-                scene_id="s1",
-                patches=[Patch(id="t1", set={"content": "New"})],
-            )
-        )
-        assert server._scene_manager._frames["f1"].minimized
-
     def test_close_frame_clears_focus(self):
         """Closing a frame clears _focus_frame_id if it matches."""
         server = _server()
@@ -1346,28 +1189,6 @@ class TestFrameAutoFocusPartitions:
         assert server._scene_manager._focus_frame_id == "f2"
         server._close_frame("f1")
         assert server._scene_manager._focus_frame_id == "f2"
-
-    def test_update_non_framed_scene_no_focus(self):
-        """UpdateMessage on a non-framed scene does not set focus."""
-        server = _server()
-        sock = _sock(fd=10)
-        _register(server, sock)
-        server._handle_message(
-            sock,
-            SceneMessage(
-                id="s1",
-                elements=[TextElement(id="t1", content="Old")],
-                title="Test",
-            ),
-        )
-        server._scene_manager._focus_frame_id = None
-        server._scene_manager.apply_update(
-            UpdateMessage(
-                scene_id="s1",
-                patches=[Patch(id="t1", set={"content": "New"})],
-            )
-        )
-        assert server._scene_manager._focus_frame_id is None
 
 
 class TestFrameSizeAndFlagsPartitions:

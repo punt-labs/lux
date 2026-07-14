@@ -56,17 +56,27 @@ class PropAfterDispatch:
     that left it untouched (a noop+publish button whose label is unchanged)
     — in both cases the element survived the re-push and reads the expected
     post-dispatch value.
+
+    ``flipped`` makes the mutation proof self-contained: when set, the field
+    must read a *different* value before the dispatch, so the post-dispatch
+    match proves the re-push carried the change rather than the field already
+    holding it. It stays ``False`` for the unchanged-field (button) variant,
+    where pre and post are equal by design.
     """
 
     _element_id: str
     _field: str
     _value: object
+    _flipped: bool
 
-    def __new__(cls, *, element_id: str, field: str, value: object) -> Self:
+    def __new__(
+        cls, *, element_id: str, field: str, value: object, flipped: bool = False
+    ) -> Self:
         self = super().__new__(cls)
         self._element_id = element_id
         self._field = field
         self._value = value
+        self._flipped = flipped
         return self
 
     def assert_reflected(
@@ -75,7 +85,12 @@ class PropAfterDispatch:
         post_dispatch: Mapping[str, object],
     ) -> None:
         """Assert the re-pushed replica reads the expected field value."""
-        _ = post_show
+        if self._flipped:
+            before = InspectionView(post_show).props(self._element_id)[self._field]
+            assert before != self._value, (
+                f"dispatch re-push: {self._element_id}.{self._field} must differ "
+                f"before dispatch (was {before!r}) for the flip proof to hold"
+            )
         props = InspectionView(post_dispatch).props(self._element_id)
         actual = props[self._field]
         assert actual == self._value, (

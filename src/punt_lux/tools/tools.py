@@ -12,10 +12,12 @@ from typing import Any, cast
 from punt_lux.config import ConfigManager
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub_display
+from punt_lux.domain.hub.scene_writer import HubSceneWriter
+from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.ids import ConnectionId, SceneId
-from punt_lux.domain.validation_walk import ElementTreeValidator
+from punt_lux.domain.submission_gate import SubmissionGate
 from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import Element as WireElement, Patch
+from punt_lux.protocol import Element as WireElement
 from punt_lux.tools.connection import _query_tool
 from punt_lux.tools.hub_factory import hub_element_factory
 from punt_lux.tools.server import (
@@ -121,22 +123,19 @@ def show(
     Returns ``"ack:<scene_id>"`` on success or ``"timeout"`` if the
     display doesn't respond.
     """
-    if frame_id is None:
-        frame_id = scene_id
-    if frame_title is None:
-        frame_title = title if title else scene_id
+    frame_id = scene_id if frame_id is None else frame_id
+    frame_title = (title or scene_id) if frame_title is None else frame_title
 
     connection_id = ConnectionId(_session_key.get())
     factory = hub_element_factory(connection_id)
     typed_elements: list[WireElement] = [factory.element_from_dict(e) for e in elements]
 
-    # Self-validation runs after decode and before render: walk the decoded
-    # tree, let every element check its own inputs, and collect all errors.
-    # An invalid tree is never handed to the Hub/Display — the agent gets
-    # every problem back at once so it can self-correct.
-    report = ElementTreeValidator().validate_tree(typed_elements)
-    if not report.ok:
-        return f"error: scene not rendered — {report.describe()}"
+    # Reject a malformed submission before render: every element self-validates
+    # and no named id may repeat across the tree. An invalid tree never reaches
+    # the Hub/Display — the agent gets the reason, never a partial install.
+    rejection = SubmissionGate().first_rejection(SceneId(scene_id), typed_elements)
+    if rejection is not None:
+        return f"error: scene not rendered — {rejection}"
 
     size_tuple: tuple[int, int] | None = None
     if frame_size is not None:
@@ -154,6 +153,7 @@ def show(
             scene,
             cast("Sequence[DomainElement]", typed_elements),
         )
+        hub_display.record_frame(scene, frame_id)
         ack = client.show(
             scene_id,
             typed_elements,
@@ -393,36 +393,31 @@ def show_dashboard(
 
 
 @mcp.tool()
-def update(
-    scene_id: str,
-    patches: list[dict[str, Any]],
-) -> str:
+def update(scene_id: str, patches: list[dict[str, Any]]) -> str:
     """Update elements in the current scene without replacing everything.
 
     Each patch targets an element by id and can set fields or remove it:
-      {"id": "t1", "set": {"content": "Updated text"}}
-      {"id": "b1", "remove": True}
+      {"id": "t1", "set": {"content": "Updated text"}}  or  {"id": "b1", "remove": true}
 
-    Returns ``"ack:<scene_id>"`` on success or ``"timeout"`` if the
-    display doesn't respond.
+    The Hub mutates its authoritative store first, then re-pushes the scene —
+    the same replication a click takes. Returns ``"ack:<scene_id>"`` on success.
+    A rejected write — an invalid patch, an unknown field, or a ``set`` that
+    would break an element — mutates nothing and returns
+    ``"error: scene not updated — <reason>"``, so callers must not assume
+    success-only semantics.
     """
-    typed_patches = [
-        Patch(
-            id=p["id"],
-            set=p.get("set"),
-            remove=p.get("remove", False),
-        )
-        for p in patches
-    ]
+    connection_id = ConnectionId(_session_key.get())
+    # Mutate once, outside the retry, so a failed re-push cannot re-drive it.
+    writer = HubSceneWriter(hub_display)
+    result = writer.apply(connection_id, SceneId(scene_id), patches)
+    if isinstance(result, WriteRejected):
+        return f"error: scene not updated — {result.reason}"
 
-    def _call() -> str:
-        client = client_registry.get()
-        ack = client.update(scene_id, typed_patches)
-        if ack is None:
-            return "timeout"
-        return f"ack:{ack.scene_id}"
+    def _repush() -> str:
+        client_registry.repush_scene(scene_id)
+        return f"ack:{scene_id}"
 
-    return client_registry.with_reconnect(_call)
+    return client_registry.with_reconnect(_repush)
 
 
 @mcp.tool()
@@ -564,16 +559,27 @@ def set_frame_state(
 
 @mcp.tool()
 def clear() -> str:
-    """Clear the Lux display window. Returns "not running" when display is off."""
+    """Clear the Lux display window. Returns "not running" when display is off.
+
+    The Hub store is the authority, the Display only a replica, so emptying the
+    store must not hinge on the Display being up. Every scene the caller owns is
+    removed from the authoritative Hub store unconditionally, before any display
+    check. Only then is the Display told to clear — global (ALL rendered scenes,
+    not only the caller's), honest for the single-connection slice; scoping it
+    per caller for the multi-user target is a separate change. When the Display
+    is off, the store is cleared all the same and the display leg reports
+    "not running".
+    """
+    # Mutate the authority once, outside the retry; emptying owned scenes is idempotent.
+    HubSceneWriter(hub_display).clear(ConnectionId(_session_key.get()))
     if not DisplayPaths().is_running():
         return "not running"
 
-    def _call() -> str:
-        client = client_registry.get()
-        client.clear()
+    def _clear() -> str:
+        client_registry.get().clear()
         return "cleared"
 
-    return client_registry.with_reconnect(_call)
+    return client_registry.with_reconnect(_clear)
 
 
 @mcp.tool()

@@ -22,11 +22,11 @@ from typing import TYPE_CHECKING, Any, Self, cast, final
 from punt_lux.domain.element_abc import Element as ABCElement
 from punt_lux.domain.validation_walk import HasChildElements
 from punt_lux.protocol import (
-    CollapsingHeaderElement,
     Element,
+    LegacyCollapsingHeaderElement,
     LegacyGroupElement,
+    LegacyTabBarElement,
     ModalElement,
-    TabBarElement,
     WindowElement,
 )
 
@@ -203,8 +203,10 @@ class SceneTreeWalk:
             lists: list[list[Element]] = [element.children]
             lists.extend(element.pages)
             return lists
-        if isinstance(element, (CollapsingHeaderElement, WindowElement, ModalElement)):
+        if isinstance(
+            element, (LegacyCollapsingHeaderElement, WindowElement, ModalElement)
+        ):
             return [element.children]
-        if isinstance(element, TabBarElement):
+        if isinstance(element, LegacyTabBarElement):
             return [tab.get("children", []) for tab in element.tabs]
         return []

@@ -65,7 +65,6 @@ from punt_lux.protocol import (
     SliderElement,
     ThemeMessage,
     UnknownMessage,
-    UpdateMessage,
 )
 from punt_lux.protocol.elements import Element
 from punt_lux.protocol.elements.dialog import DialogElement
@@ -641,8 +640,6 @@ class DisplayServer:
         """Dispatch a scene/menu/theme-mutating message; read-only kinds delegate."""
         if isinstance(msg, SceneMessage):
             self._handle_scene(sock, msg)
-        elif isinstance(msg, UpdateMessage):
-            self._handle_update(sock, msg)
         elif isinstance(msg, ClearMessage):
             self._handle_clear()
         elif isinstance(msg, RegisterMenuMessage):
@@ -677,27 +674,6 @@ class DisplayServer:
             self._handle_query(sock, msg)
         elif isinstance(msg, UnknownMessage):
             logger.debug("Ignoring unknown message type %r", msg.raw_type)
-
-    def _handle_update(self, sock: socket.socket, msg: UpdateMessage) -> None:
-        """Apply an update's patch batch, then acknowledge the client.
-
-        The applier handles every malformed patch per-patch without raising.
-        This ``except`` is the crash-freedom boundary guard for the residual
-        class it cannot catch — a setter raising something other than
-        ``ValueError`` or ``TypeError`` — so one malformed update can never
-        terminate the display's message loop.
-        """
-        try:
-            self._scene_manager.apply_update(msg)
-        except Exception:
-            logger.exception(
-                "scene %r update aborted mid-batch; earlier patches may have applied",
-                msg.scene_id,
-            )
-        self._socket_server.send_to_client(
-            sock,
-            AckMessage(scene_id=msg.scene_id, ts=time.time()),
-        )
 
     def _handle_connect(self, sock: socket.socket, msg: ConnectMessage) -> None:
         """Record a client's display name (idempotent)."""

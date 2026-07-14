@@ -20,19 +20,16 @@ from punt_lux.protocol import (
     ButtonElement,
     ClearMessage,
     FrameReader,
-    Patch,
     RemoteEventHandlerInvocation,
     SceneMessage,
     SeparatorElement,
     TextElement,
-    UpdateMessage,
     encode_message,
 )
 from punt_lux.scene import WidgetState
 
 from .display_abstraction import (
     abstract,
-    abstract_button_click,
     abstract_clear_scene,
     abstract_disconnect_client,
     abstract_flush_events,
@@ -40,7 +37,6 @@ from .display_abstraction import (
     abstract_reader,
     abstract_reader_init,
     abstract_receive_scene,
-    abstract_remove_element,
     abstract_shutdown,
 )
 
@@ -258,63 +254,6 @@ class TestRefinementClearScene:
         server._handle_message(sock, ClearMessage())
 
         abs_after = abstract_clear_scene(abs_before)
-        assert abstract(server) == abs_after
-
-
-# ---------------------------------------------------------------------------
-# RemoveElement commutativity
-# ---------------------------------------------------------------------------
-
-
-class TestRefinementRemoveElement:
-    """abstract(removeElement(c)) = absRemoveElement(abstract(c))"""
-
-    def test_remove_element_commutes(self):
-        server = _make_server()
-        _set_scene(server, "s1")
-        abs_before = abstract(server)
-
-        msg = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="t1", remove=True)],
-        )
-        server._scene_manager.apply_update(msg)
-
-        abs_after = abstract_remove_element(abs_before, "t1")
-        assert abstract(server) == abs_after
-
-    def test_remove_button_commutes(self):
-        server = _make_server()
-        _set_scene(server, "s1")
-        abs_before = abstract(server)
-
-        msg = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="b1", remove=True)],
-        )
-        server._scene_manager.apply_update(msg)
-
-        abs_after = abstract_remove_element(abs_before, "b1")
-        assert abstract(server) == abs_after
-
-    def test_remove_last_element_commutes(self):
-        server = _make_server()
-        _inject_scene(
-            server,
-            SceneMessage(
-                id="s1",
-                elements=[TextElement(id="t1", content="Only")],
-            ),
-        )
-        abs_before = abstract(server)
-
-        msg = UpdateMessage(
-            scene_id="s1",
-            patches=[Patch(id="t1", remove=True)],
-        )
-        server._scene_manager.apply_update(msg)
-
-        abs_after = abstract_remove_element(abs_before, "t1")
         assert abstract(server) == abs_after
 
 
@@ -580,45 +519,6 @@ class TestRefinementComposed:
             abs_state, "s1", frozenset({"t1"}), {"t1": "text"}
         )
         abs_state = abstract_clear_scene(abs_state)
-
-        assert abstract(server) == abs_state
-
-    def test_scene_remove_flush_commutes(self):
-        server = _make_server()
-        sock = _mock_sock(fd=10)
-        _register_client(server, sock)
-        abs_state = abstract(server)
-
-        # Concrete sequence
-        scene = SceneMessage(
-            id="s1",
-            elements=[
-                TextElement(id="t1", content="A"),
-                ButtonElement(id="b1", label="B"),
-            ],
-        )
-        server._handle_message(sock, scene)
-        abs_state = abstract_receive_scene(
-            abs_state,
-            "s1",
-            frozenset({"t1", "b1"}),
-            {"t1": "text", "b1": "button"},
-        )
-
-        # Remove t1
-        server._scene_manager.apply_update(
-            UpdateMessage(scene_id="s1", patches=[Patch(id="t1", remove=True)])
-        )
-        abs_state = abstract_remove_element(abs_state, "t1")
-
-        # Add event and flush
-        server._event_queue.append(
-            RemoteEventHandlerInvocation(element_id="b1", action="click", ts=1.0)
-        )
-        abs_state = abstract_button_click(abs_state, "b1")
-
-        server._flush_events()
-        abs_state = abstract_flush_events(abs_state)
 
         assert abstract(server) == abs_state
 

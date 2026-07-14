@@ -4,7 +4,7 @@
       "patches",
       [
         {
-          "id": "t1",
+          "id": "upd-missing",
           "set": {
             "content": "New text"
           }
@@ -13,19 +13,12 @@
     ],
     [
       "scene_id",
-      "s1"
+      "upd-scene"
     ]
   ],
-  "response": "ack:s1",
+  "response": "error: scene not updated \u2014 unknown element: 'upd-missing' in scene 'upd-scene'",
   "setup": {
-    "client": {
-      "update": {
-        "return": {
-          "scene_id": "s1",
-          "ts": 1000.0
-        }
-      }
-    },
+    "client": {},
     "display_running": true
   },
   "tool": "update"

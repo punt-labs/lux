@@ -16,6 +16,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Self, cast
 
+from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.elements.container_dispatch import dispatch
 from punt_lux.protocol.elements.element_wire import ElementWireContext
 
@@ -24,16 +25,6 @@ if TYPE_CHECKING:
     from punt_lux.protocol.elements.group import GroupElement, Layout
 
 __all__ = ["JsonGroupDecoder", "JsonGroupEncoder"]
-
-# The wire kinds that decode onto the Element ABC. A group is all-ABC only
-# when every element in its subtree is one of these AND every nested group
-# is itself all-ABC with a stack layout.
-_MIGRATED_ABC_KINDS = frozenset(
-    {"text", "button", "checkbox", "dialog", "group", "progress"}
-)
-
-# The two layouts an ABC group renders; ``paged`` stays on the legacy path.
-_STACK_LAYOUTS = frozenset({"rows", "columns"})
 
 # Injected child decoder: the tier's ``element_from_dict`` bound method.
 # It takes a wire dict and returns the decoded element (ABC for an all-ABC
@@ -66,7 +57,7 @@ class JsonGroupDecoder:
     @classmethod
     def is_all_abc(cls, raw: Mapping[str, object]) -> bool:
         """Return whether ``raw`` is an all-ABC, stack-layout group subtree."""
-        return cls.first_non_abc_kind(raw) is None
+        return ContainerAbcGate.is_all_abc(raw)
 
     @classmethod
     def first_non_abc_kind(cls, raw: Mapping[str, object]) -> str | None:
@@ -74,42 +65,14 @@ class JsonGroupDecoder:
         an all-ABC stack group. A non-stack ``layout``, a legacy descendant
         ``kind``, or non-empty ``pages`` / ``page_source`` (panels the ABC
         group cannot hold) each fork legacy; empty paged fields decode ABC.
+        The recursive walk lives on the shared ``ContainerAbcGate``.
         """
-        layout = raw.get("layout", "rows")
-        if layout not in _STACK_LAYOUTS:
-            return f"layout={layout!r}"
-        if raw.get("pages"):
-            return "pages"
-        if raw.get("page_source"):
-            return "page_source"
-        for elem in cls._subtree(raw):
-            reason = cls._child_non_abc_reason(elem)
-            if reason is not None:
-                return reason
-        return None
-
-    @classmethod
-    def _child_non_abc_reason(cls, raw_child: object) -> str | None:
-        """Return why one wire child is not all-ABC, or ``None`` if it is."""
-        if not isinstance(raw_child, Mapping):
-            return f"non-mapping child {raw_child!r}"
-        child = cast("Mapping[str, object]", raw_child)
-        kind = child.get("kind")
-        if kind not in _MIGRATED_ABC_KINDS:
-            return str(kind)
-        if kind == "group":
-            return cls.first_non_abc_kind(child)
-        return None
-
-    @staticmethod
-    def _subtree(raw: Mapping[str, object]) -> tuple[object, ...]:
-        """Return the group's direct children."""
-        return tuple(_as_list(raw.get("children")))
+        return ContainerAbcGate.first_non_abc_kind(raw)
 
     def decode(self, raw: Mapping[str, object]) -> GroupElement:
         """Construct a GroupElement, recursing children through the tier decoder."""
         ctx = ElementWireContext.for_kind("group")
-        children = tuple(self._decode(c) for c in _as_list(raw.get("children")))
+        children = tuple(self._decode(c) for c in self._as_list(raw.get("children")))
         layout = cast("Layout", ctx.optional_str(raw, "layout", default="rows"))
         return self._cls(
             id=ctx.require_str(raw, "id"),
@@ -122,6 +85,13 @@ class JsonGroupDecoder:
         """Decode one wire child through the injected tier decoder."""
         child = cast("dict[str, Any]", raw_child)
         return cast("Element", self._decode_element(child))
+
+    @staticmethod
+    def _as_list(raw: object) -> list[object]:
+        """Return ``raw`` as a list of wire objects, or empty when absent."""
+        if isinstance(raw, list):
+            return cast("list[object]", raw)
+        return []
 
 
 class JsonGroupEncoder:
@@ -150,10 +120,3 @@ class JsonGroupEncoder:
         if elem.tooltip is not None:
             payload["tooltip"] = elem.tooltip
         return payload
-
-
-def _as_list(raw: object) -> list[object]:
-    """Return ``raw`` as a list of wire objects, or empty when absent/other."""
-    if isinstance(raw, list):
-        return cast("list[object]", raw)
-    return []

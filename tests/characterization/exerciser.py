@@ -131,6 +131,12 @@ class _StubClient:
     def on_event(self, *_args: object, **_kwargs: object) -> None:
         self._require_spec("on_event")
 
+    def show_async(self, *_args: object, **_kwargs: object) -> None:
+        # Fire-and-forget re-push. A successful ``update`` (including an
+        # idempotent remove of an absent id) re-pushes the scene; the corpus
+        # models that side effect as a genuine no-op — nothing to configure.
+        return
+
     def query(self, method: str, _params: object = None) -> QueryResponse | None:
         cfg = self._require_spec("query")
         if cfg.get("method") != method:

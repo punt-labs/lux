@@ -21,6 +21,11 @@ from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.button_codec import JsonButtonDecoder
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.checkbox_codec import JsonCheckboxDecoder
+from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
+from punt_lux.protocol.elements.collapsing_header_codec import (
+    JsonCollapsingHeaderDecoder,
+)
+from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder
 from punt_lux.protocol.elements.element_wire import ElementWireContext
@@ -28,6 +33,8 @@ from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.group_codec import JsonGroupDecoder
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.progress_codec import JsonProgressDecoder
+from punt_lux.protocol.elements.tab_bar import TabBarElement
+from punt_lux.protocol.elements.tab_bar_codec import JsonTabBarDecoder
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.text_codec import JsonTextDecoder
 from punt_lux.protocol.standalone_button_handler import (
@@ -35,6 +42,12 @@ from punt_lux.protocol.standalone_button_handler import (
 )
 from punt_lux.protocol.standalone_checkbox_handler import (
     build_standalone_checkbox_handler_decoder,
+)
+from punt_lux.protocol.standalone_collapsing_header_handler import (
+    build_standalone_collapsing_header_handler_decoder,
+)
+from punt_lux.protocol.standalone_tab_bar_handler import (
+    build_standalone_tab_bar_handler_decoder,
 )
 from punt_lux.tracing import trace
 
@@ -69,6 +82,8 @@ class JsonElementFactory:
     _codec: ElementCodec
     _decoders: dict[str, KindDecoder]
     _group_decoder: JsonGroupDecoder
+    _collapsing_header_decoder: JsonCollapsingHeaderDecoder
+    _tab_bar_decoder: JsonTabBarDecoder
 
     def __new__(
         cls,
@@ -119,6 +134,23 @@ class JsonElementFactory:
         self._group_decoder = JsonGroupDecoder(
             decode_element=self.element_from_dict,
             element_cls=GroupElement,
+        )
+        # The collapsing-header decoder recurses children through this
+        # factory's ``element_from_dict`` (like the group decoder) and wires
+        # the tier's publish sink so a wire ``publish`` handler reaches it.
+        self._collapsing_header_decoder = JsonCollapsingHeaderDecoder(
+            decode_element=self.element_from_dict,
+            element_cls=CollapsingHeaderElement,
+            handler_decoder=build_standalone_collapsing_header_handler_decoder(
+                publish_sink
+            ),
+        )
+        # The tab-bar decoder recurses tab children through ``element_from_dict``
+        # and wires the tier's publish sink for a wire ``publish`` handler.
+        self._tab_bar_decoder = JsonTabBarDecoder(
+            decode_element=self.element_from_dict,
+            element_cls=TabBarElement,
+            handler_decoder=build_standalone_tab_bar_handler_decoder(publish_sink),
         )
         return self
 
@@ -184,23 +216,37 @@ class JsonElementFactory:
             msg = "Element missing or invalid 'kind' field"
             raise ValueError(msg)
         if kind in _ABC_KINDS:
-            abc_elem = self.decode(d)
-            if isinstance(
-                abc_elem,
-                TextElement
-                | ButtonElement
-                | CheckboxElement
-                | DialogElement
-                | ProgressElement,
-            ):
-                return abc_elem
-            msg = f"JsonElementFactory returned unexpected type for kind={kind!r}"
-            raise AssertionError(msg)
-        # ``group`` forks by all-ABC-ness: a rows/columns group whose entire
-        # subtree is migrated-ABC decodes onto the ABC ``GroupElement``; any
-        # legacy descendant or a paged layout falls through to the legacy path.
+            return self._decode_abc_leaf(kind, d)
+        return self._decode_container_or_legacy(kind, d)
+
+    def _decode_abc_leaf(self, kind: str, d: dict[str, Any]) -> Any:
+        """Decode a migrated leaf kind through its per-kind ABC decoder."""
+        abc_elem = self.decode(d)
+        if isinstance(
+            abc_elem,
+            TextElement
+            | ButtonElement
+            | CheckboxElement
+            | DialogElement
+            | ProgressElement,
+        ):
+            return abc_elem
+        msg = f"JsonElementFactory returned unexpected type for kind={kind!r}"
+        raise AssertionError(msg)
+
+    def _decode_container_or_legacy(self, kind: str, d: dict[str, Any]) -> Any:
+        """Fork a conditionally-ABC container onto the ABC path, else legacy.
+
+        A ``group`` or ``collapsing_header`` whose entire subtree is
+        migrated-ABC decodes onto its ABC class; any legacy descendant (or a
+        paged group) forks the whole subtree legacy.
+        """
         if kind == "group" and JsonGroupDecoder.is_all_abc(d):
             return self._group_decoder.decode(d)
+        if kind == "collapsing_header" and ContainerAbcGate.is_all_abc(d):
+            return self._collapsing_header_decoder.decode(d)
+        if kind == "tab_bar" and ContainerAbcGate.is_all_abc(d):
+            return self._tab_bar_decoder.decode(d)
         return self._decode_legacy(d)
 
     def _decode_legacy(self, d: dict[str, Any]) -> Any:
@@ -223,6 +269,8 @@ class JsonElementFactory:
             | CheckboxElement
             | DialogElement
             | GroupElement
+            | CollapsingHeaderElement
+            | TabBarElement
             | ProgressElement,
         ):
             msg = f"kind {elem.kind!r} must route through ABC decoder"

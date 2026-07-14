@@ -174,7 +174,265 @@ class Scenario:
             ),
             display_only_id="chk-progress",
             repush=PropAfterDispatch(
-                element_id="toggle-box", field="value", value=True
+                element_id="toggle-box", field="value", value=True, flipped=True
+            ),
+        )
+
+    @classmethod
+    def collapsing_header_toggle_progress(cls) -> Self:
+        """A collapsing_header beside a display-only progress (the interactive loop).
+
+        The injected interaction is a ``header_toggled`` carrying ``True``; the
+        built-in state-sync flips the Hub ``open`` ``False``→``True``, so the
+        dispatch re-push carries the mutated ``open``. A wire ``handlers`` entry
+        publishes ``header_expanded``; the agent reacts by advancing the bar.
+        This proves the header toggle crosses the faithful boundary, the Hub
+        updates the authoritative view-state once, and the re-push reflects it.
+        """
+        return cls(
+            name="collapsing-header-toggle-progress",
+            scene_id="e2e-header-scene",
+            elements=(
+                {
+                    "kind": "group",
+                    "id": "hdr-surface",
+                    "layout": "rows",
+                    "children": (
+                        {
+                            "kind": "collapsing_header",
+                            "id": "disclosure",
+                            "label": "Details",
+                            "open": False,
+                            "children": (
+                                {"kind": "text", "id": "hdr-body", "content": "hidden"},
+                            ),
+                            "handlers": [
+                                {
+                                    "event": "header_toggled",
+                                    "factory": "noop",
+                                    "wrap": [
+                                        {
+                                            "decorator": "publish",
+                                            "topics": ["header_expanded"],
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "kind": "progress",
+                            "id": "hdr-progress",
+                            "fraction": 0.0,
+                            "label": "idle",
+                        },
+                    ),
+                },
+            ),
+            target_element_id="disclosure",
+            interaction=InteractionExpectation(event_kind="header_toggled", value=True),
+            publish=WirePublish("header_expanded"),
+            react=(
+                ReactPatch(element_id="hdr-progress", field="fraction", value=1.0),
+                ReactPatch(element_id="hdr-progress", field="label", value="expanded"),
+            ),
+            display_only_id="hdr-progress",
+            repush=PropAfterDispatch(
+                element_id="disclosure", field="open", value=True, flipped=True
+            ),
+        )
+
+    @classmethod
+    def collapsing_header_button_progress(cls) -> Self:
+        """A collapsing_header whose child publishes (the child-forwarding loop).
+
+        The header holds a publishing ``button`` and a display-only ``progress``.
+        The button — not the header — is the injected target; it publishes
+        ``ticket_opened``. This proves the container forwards its child's remote
+        wrap through the flattened children, complementing the interactive
+        Scenario's proof that the container wraps *itself*.
+        """
+        return cls(
+            name="collapsing-header-button-progress",
+            scene_id="e2e-header-child-scene",
+            elements=(
+                {
+                    "kind": "collapsing_header",
+                    "id": "section",
+                    "label": "Actions",
+                    "open": True,
+                    "children": (
+                        {
+                            "kind": "button",
+                            "id": "open-ticket",
+                            "label": "Open ticket",
+                            "publish": ["ticket_opened"],
+                        },
+                        {
+                            "kind": "progress",
+                            "id": "hdr-child-progress",
+                            "fraction": 0.0,
+                            "label": "idle",
+                        },
+                    ),
+                },
+            ),
+            target_element_id="open-ticket",
+            interaction=InteractionExpectation(event_kind="button_clicked", value=True),
+            publish=WirePublish("ticket_opened"),
+            react=(
+                ReactPatch(
+                    element_id="hdr-child-progress", field="fraction", value=1.0
+                ),
+                ReactPatch(
+                    element_id="hdr-child-progress", field="label", value="done"
+                ),
+            ),
+            display_only_id="hdr-child-progress",
+            repush=PropAfterDispatch(
+                element_id="open-ticket", field="label", value="Open ticket"
+            ),
+        )
+
+    @classmethod
+    def tab_bar_change_progress(cls) -> Self:
+        """A tab bar beside a display-only progress (the interactive loop).
+
+        The injected interaction is a ``tab_changed`` carrying the second tab's
+        stable ``tab_id`` (never an index); the built-in state-sync flips the
+        Hub ``active_tab`` ``overview``→``details``, so the re-push
+        carries the mutated selection. A wire ``handlers`` entry publishes
+        ``tab_selected``; the agent reacts by advancing the bar.
+        """
+        return cls(
+            name="tab-bar-change-progress",
+            scene_id="e2e-tab-scene",
+            elements=(
+                {
+                    "kind": "group",
+                    "id": "tab-surface",
+                    "layout": "rows",
+                    "children": (
+                        {
+                            "kind": "tab_bar",
+                            "id": "switcher",
+                            "active_tab": "overview",
+                            "tabs": (
+                                {
+                                    "id": "overview",
+                                    "label": "Overview",
+                                    "children": (
+                                        {
+                                            "kind": "text",
+                                            "id": "ov-body",
+                                            "content": "overview",
+                                        },
+                                    ),
+                                },
+                                {
+                                    "id": "details",
+                                    "label": "Details",
+                                    "children": (
+                                        {
+                                            "kind": "text",
+                                            "id": "dt-body",
+                                            "content": "details",
+                                        },
+                                    ),
+                                },
+                            ),
+                            "handlers": [
+                                {
+                                    "event": "tab_changed",
+                                    "factory": "noop",
+                                    "wrap": [
+                                        {
+                                            "decorator": "publish",
+                                            "topics": ["tab_selected"],
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "kind": "progress",
+                            "id": "tab-progress",
+                            "fraction": 0.0,
+                            "label": "idle",
+                        },
+                    ),
+                },
+            ),
+            target_element_id="switcher",
+            interaction=InteractionExpectation(
+                event_kind="tab_changed", value="details"
+            ),
+            publish=WirePublish("tab_selected"),
+            react=(
+                ReactPatch(element_id="tab-progress", field="fraction", value=1.0),
+                ReactPatch(element_id="tab-progress", field="label", value="switched"),
+            ),
+            display_only_id="tab-progress",
+            repush=PropAfterDispatch(
+                element_id="switcher",
+                field="active_tab",
+                value="details",
+                flipped=True,
+            ),
+        )
+
+    @classmethod
+    def tab_bar_button_progress(cls) -> Self:
+        """A tab bar whose active tab's child publishes (the child-forwarding loop).
+
+        The active tab holds a publishing ``button`` and a display-only
+        ``progress``. The button — not the tab bar — is the injected target; it
+        publishes ``ticket_opened``. This proves the tab bar forwards its child's
+        remote wrap through the flattened tab children.
+        """
+        return cls(
+            name="tab-bar-button-progress",
+            scene_id="e2e-tab-child-scene",
+            elements=(
+                {
+                    "kind": "tab_bar",
+                    "id": "surface-tabs",
+                    "active_tab": "main",
+                    "tabs": (
+                        {
+                            "id": "main",
+                            "label": "Main",
+                            "children": (
+                                {
+                                    "kind": "button",
+                                    "id": "open-ticket",
+                                    "label": "Open ticket",
+                                    "publish": ["ticket_opened"],
+                                },
+                                {
+                                    "kind": "progress",
+                                    "id": "tab-child-progress",
+                                    "fraction": 0.0,
+                                    "label": "idle",
+                                },
+                            ),
+                        },
+                    ),
+                },
+            ),
+            target_element_id="open-ticket",
+            interaction=InteractionExpectation(event_kind="button_clicked", value=True),
+            publish=WirePublish("ticket_opened"),
+            react=(
+                ReactPatch(
+                    element_id="tab-child-progress", field="fraction", value=1.0
+                ),
+                ReactPatch(
+                    element_id="tab-child-progress", field="label", value="done"
+                ),
+            ),
+            display_only_id="tab-child-progress",
+            repush=PropAfterDispatch(
+                element_id="open-ticket", field="label", value="Open ticket"
             ),
         )
 
@@ -299,6 +557,10 @@ class Scenario:
 SCENARIOS: tuple[Scenario, ...] = (
     Scenario.group_button_progress(),
     Scenario.group_checkbox_progress(),
+    Scenario.collapsing_header_toggle_progress(),
+    Scenario.collapsing_header_button_progress(),
+    Scenario.tab_bar_change_progress(),
+    Scenario.tab_bar_button_progress(),
     Scenario.dialog_confirm_progress(),
     Scenario.payload_button_progress(),
 )

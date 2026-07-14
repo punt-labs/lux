@@ -21,7 +21,9 @@ from punt_lux.domain.ids import ClientId, ElementId, SceneId
 
 __all__ = ["ButtonClicked", "EventKind", "ValueChanged"]
 
-type EventKind = Literal["button_clicked", "value_changed"]
+type EventKind = Literal[
+    "button_clicked", "value_changed", "tab_changed", "header_toggled"
+]
 
 
 @dataclass(frozen=True, slots=True, init=False)

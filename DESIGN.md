@@ -4337,3 +4337,85 @@ The line is drawn by **kind of state**, not by widget:
   Display-local, row selection Hub-authoritative), `element-contract.md` (the
   Display is a replica, not a second authority), `group-element-design.md` (the
   paged page-index follow-up); beads `lux-4n5n`, `lux-i3ag`.
+
+## DES-047: Hub-Authoritative Write Path — One Contract, One Seam, Legacy by Value-Replacement
+
+**Status:** accepted (design-first; ratified with amendments). Full design in
+[`docs/architecture/migration/hub-write-path-design.md`](docs/architecture/migration/hub-write-path-design.md).
+
+A *write* mutates authoritative UI state — patch one field, remove an element and
+its subtree, or clear a client's scene. Install (`show`) and interaction dispatch
+(D21) already honor Hub authority; the write leg is the third. The store gate for
+*field mutation* was asymmetric: an in-place patch lands on an Element-ABC object
+but was refused against a frozen legacy wire dataclass, and — separately — the
+MCP `update`/`clear` tools patched the Display directly, leaving the authoritative
+`HubDisplay` stale so the next re-push reverted the change. This ADR settles how
+mutation stays Hub-authoritative for **both** element models, mid-migration,
+without a fork that must be unwound.
+
+### Decision
+
+- **One model-agnostic write contract.** Operations are the typed `Update`
+  vocabulary (`SetProperty` / `RemoveElement` / `AddElement`), id-addressed, never
+  positional, **absolute** (carry the new value, not a delta), and **idempotent**.
+  Every write is an authoritative operation on `HubDisplay`; the Display learns of
+  it only through the same whole-root re-push it already consumes. Never
+  Display-direct.
+- **Invariants.** Atomicity — a batch commits entirely or changes nothing
+  (stage-validate-then-commit-or-restore, a batch-level generalization of
+  `apply_patch`'s snapshot). Single authoritative mutation with an idempotent
+  re-push (mutation runs once, *outside* transport retry). Ownership — a write to
+  an un-owned element is rejected before any mutation; unknown ≠ not-owner.
+  Validation parity with `show` (the same hierarchy walk). Hub/Display consistency
+  with per-connection-scoped clear. **`id` and `kind` are immutable; unknown
+  fields are rejected** — uniformly for both models. Id-keyed display-side
+  transient state (selection, scroll, in-progress text) must survive a whole-root
+  re-push.
+- **Coexistence at one `isinstance(AbcElement)` seam.** An ABC element is patched
+  **in place** (`apply_patch`), preserving object identity, handlers, and
+  observers. A legacy element is realized by **`dataclasses.replace()`** on the
+  frozen instance — sharing untouched fields/children by reference and overriding
+  the addressed field. The seam introduces no legacy-specific method; at
+  migration's end the legacy branch has zero inputs and is **deleted, not
+  unwound** (the deletion-vs-unwinding test).
+- **No mixed composites** (the migration simplification). A composite is
+  homogeneous — all-ABC or all-legacy — enforced by the all-ABC gate and
+  legacy-forcing (DES-041). This makes `replace()` on a legacy subtree
+  unconditionally lossless and dissolves the only genuinely hard case (a stateful
+  ABC leaf inside a legacy composite cannot exist).
+- **Nested-legacy defers to `show`.** A field-patch or removal of a legacy element
+  *below* a legacy composite is rejected fail-loud with a pointer to `show` (the
+  always-correct whole-UI resend) — a pure simplicity choice (no spine-rebuild),
+  self-deleting as the container kind migrates.
+
+### Rejected alternatives
+
+- **`to_dict → from_dict` codec round-trip for legacy replacement.** Strictly
+  worse than `replace()`: re-decoding a legacy composite would re-decode its
+  children and, absent the no-mixed-composites rule, drop a nested control's
+  handler chain; even with it, it is a needless full serialize/deserialize when
+  `replace()` shares by reference.
+- **Retrofit `apply_patch`/setters onto legacy, or unfreeze them.** Brings the ABC
+  write surface onto legacy classes ahead of migration — a bridge that is ripped
+  out when the kind migrates. Mutation rides *with* each kind's migration.
+- **`LegacyElementAdapter`, a field-level diff protocol, always-re-decode,
+  always-in-place, splice-preserving spine-rebuild, and supporting mixed
+  composites** — each is transient machinery or reintroduces Display-side
+  authority. Rejected; see the design doc §7.
+
+### Process note
+
+This ADR was produced **design-first** (design mission → review → ratification)
+after correcting an initial error in which the write path was dispatched as a
+prescriptive implementation. The prescriptive impl's Hub-routing + hardening
+(atomicity, retry-once, ownership, dead-`UpdateMessage` removal) is retained as
+the pipeline the ratified legacy `replace()` seam builds on.
+
+### References
+
+- [`docs/architecture/migration/hub-write-path-design.md`](docs/architecture/migration/hub-write-path-design.md)
+  (full design; author gvr, review rmh, ratified with amendments A1/A3/A4/A5/A6 +
+  no-mixed-composites), `target.md` (Hub authority, replication policy),
+  `element-contract.md` (validation contract, sub-element addressing),
+  `domain/hub/hub_display.py` / `element_index.py` (the authoritative store this
+  writes through); bead `lux-4n5n`.
