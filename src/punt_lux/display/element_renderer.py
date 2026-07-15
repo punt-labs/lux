@@ -140,7 +140,7 @@ class ElementRenderer:
         self._input_text_renderer = InputTextRenderer(widget_state)
         self._input_number_renderer = InputNumberRenderer(widget_state, emit_event)
         self._radio_renderer = RadioRenderer(widget_state, emit_event)
-        self._color_picker_renderer = ColorPickerRenderer(widget_state, emit_event)
+        self._color_picker_renderer = ColorPickerRenderer(widget_state)
         self._selectable_renderer = SelectableRenderer(widget_state, emit_event)
         self._draw_element_renderer = DrawElementRenderer()
         self._container_renderer = ContainerRenderer(
@@ -227,6 +227,16 @@ class ElementRenderer:
         slider adapter paints through.
         """
         return self._slider_renderer
+
+    @property
+    def color_picker_renderer(self) -> ColorPickerRenderer:
+        """Return the per-kind color-picker renderer for the ImGui adapter.
+
+        The instance is owned here, not by the factory, so the D21 fire path
+        and the commit-echo reconciliation stay on the one renderer the ABC
+        color-picker adapter paints through.
+        """
+        return self._color_picker_renderer
 
     @property
     def widget_state(self) -> WidgetState:

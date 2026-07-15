@@ -16,6 +16,8 @@ from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.collapsing_header_codec import (
     JsonCollapsingHeaderEncoder,
 )
+from punt_lux.protocol.elements.color_picker import ColorPickerElement
+from punt_lux.protocol.elements.color_picker_codec import JsonColorPickerEncoder
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogEncoder
 from punt_lux.protocol.elements.group import GroupElement
@@ -51,6 +53,7 @@ class JsonEncoderFactory:
         (TabBarElement, JsonTabBarEncoder().encode),
         (ProgressElement, JsonProgressEncoder().encode),
         (SliderElement, JsonSliderEncoder().encode),
+        (ColorPickerElement, JsonColorPickerEncoder().encode),
     )
 
     def __new__(cls) -> Self:
