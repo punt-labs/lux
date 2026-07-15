@@ -72,6 +72,29 @@
   the ABC `TabBarElement` only when the whole subtree is migrated-ABC, else the
   renamed `LegacyTabBarElement`; `resolved_props()` reports `active_tab` and the
   tabs. See DES-045.
+- **`slider` interactive numeric input on the ABC path** — the second non-atomic
+  mutable control (after `input_text`). A single ABC `SliderElement` (float
+  `value`/`min`/`max`, a printf `format`, an `integer` variant flag) carrying a
+  commit-on-idle drag reconciliation: while idle the thumb tracks the Hub value,
+  while dragging the local buffer wins so a Hub re-push landing mid-drag cannot
+  clobber the value under the thumb, and exactly one `ValueChanged` fires on
+  release (never per drag frame). Through the echo-latency window the just-
+  committed value is honoured optimistically, so a re-grab builds on it. The
+  discipline is the *same* verified state machine `input_text` uses
+  (`docs/input_text_reconciliation.tex`) — the model is type-agnostic, so a
+  bespoke `SliderArbiter` (the float sibling of `InputTextArbiter`) implements it
+  unchanged; exact float `==` is the correct reconciliation predicate (values are
+  copied not recomputed, JSON round-trips doubles exactly). `validate()` rejects
+  an inverted range, an out-of-range value, a non-finite `value`/`min`/`max`
+  (`NaN`/`±inf` — the soundness precondition for value-equality reconciliation),
+  and a malformed `format`; because `min`/`max` are patchable the range invariant
+  is re-checked at the element boundary (a combined patch is judged on its final
+  state, so a value arriving before its widening `max` is accepted). Decodes to
+  the ABC path when its subtree is all-ABC; `resolved_props()` reports
+  `value`/`min`/`max`/`format`/`integer`/`tooltip`.
+- **Slider tooltips are now shown** — a `tooltip` on a slider was previously
+  dropped on the wire (the legacy codec never emitted or read it); it is now
+  carried and rendered, matching `input_text` and `checkbox`.
 - **Hub-authoritative writes (`update` / `clear`)** — the MCP `update`
   (field-patch, remove) and `clear` tools now mutate the authoritative
   `HubDisplay` store and re-push the affected UI, instead of patching the Display
@@ -135,6 +158,12 @@
 
 ### Changed
 
+- **`ValueChanged.value` widened to `bool | int | float | str`** (from
+  `bool | str`) so a slider commit can carry its `float` (or `int` for the
+  integer variant) alongside a checkbox `bool` and an input_text `str`. The
+  Hub-side interaction-dispatch guard admits the same scalar set; the firing
+  element re-validates the value's shape for its kind. `RemoteDispatchGroup`'s
+  wire stamping already carried an opaque `value`, so no transport code changed.
 - **CI runs the integration tier as a standing gate** — `.github/workflows/test.yml`
   now has an `integration` job running `make test-integration` (`pytest -m
   integration`, including the `tests/e2e/` business-event-loop harness, DES-044)

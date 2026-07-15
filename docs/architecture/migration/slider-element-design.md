@@ -135,11 +135,15 @@ Replace the legacy frozen dataclass at
   [`PatchField`](../../../src/punt_lux/protocol/elements/patch_field.py):
   `_set_value` / `_set_min` / `_set_max` via `.as_number` (returns `float`),
   `_set_format` / `_set_label` via `.as_str`, `_set_integer` via `.as_bool`,
-  `_set_tooltip` via `.as_optional_str`. `ProgressElement._set_fraction`
-  ([`progress.py:96`](../../../src/punt_lux/protocol/elements/progress.py)) is
-  the numeric-setter exemplar — it coerces then range-checks and lets
-  `Element.apply_patch` roll back on raise; `_set_value` should do the same
-  against `[min, max]` (see §5).
+  `_set_tooltip` via `.as_optional_str`. The numeric setters **only coerce** —
+  they do **not** range-raise per setter. Unlike `ProgressElement._set_fraction`
+  ([`progress.py:96`](../../../src/punt_lux/protocol/elements/progress.py)),
+  which can range-check in place because `progress` has no mutable bounds, a
+  slider's `min`/`max` are patchable: a per-setter raise would wrongly reject a
+  valid combined patch (e.g. `{value: 150, max: 200}` applied value-first against
+  a stale `max`). Instead the range invariant is re-checked for the whole element
+  at the boundary — an `apply_patch` override that runs the base setter loop then
+  re-checks and rolls back whole (see §5).
 - `_remote_dispatch_specs()` returning
   `(RemoteDispatchSpec(ValueChanged, self.action, "value_changed"),)` — verbatim
   from `input_text.py:133` / `checkbox.py:117`. This is the whole of the D21
@@ -178,10 +182,11 @@ demands new work follow:
   `_UpdateTextHandler` (`input_text_codec.py:32`), with `__reduce__` /
   `__setstate__` so it crosses the wire and the Display can wrap it.
 - **`JsonSliderEncoder`** — stateless (`__slots__ = ()`), emitting `kind` / `id`
-  / `label` / `value` / `min` / `max` / `format`, and `integer` only when
-  `True`, byte-for-byte matching the legacy `SliderElement.to_dict`
-  ([`slider.py:32`](../../../src/punt_lux/protocol/elements/slider.py)) so the
-  characterization corpus stays green.
+  / `label` / `value` / `min` / `max` / `format`, `integer` only when `True`, and
+  `tooltip` only when present. It matches the legacy `SliderElement.to_dict`
+  ([`slider.py:32`](../../../src/punt_lux/protocol/elements/slider.py))
+  byte-for-byte **only in the tooltip-absent case** (the corpus case); it now
+  also carries a present tooltip (§2.5b).
 - A `build_standalone_slider_handler_decoder` builder (mirroring
   [`standalone_input_text_handler`](../../../src/punt_lux/protocol/standalone_input_text_handler.py))
   so `SliderElement.from_dict` can decode a handler-less slider with a
@@ -244,18 +249,32 @@ commit; no two live paths for one kind):
   is superseded (§3) — `mv` it out per the destructive-ops rule, verify, then
   delete.
 
-### 2.5 The `ValueChanged` payload union — the one protocol touch
+### 2.5 Two protocol touches — the union widening and the tooltip activation
 
-`ValueChanged.value` is typed `bool | str` today
+This migration makes **two** small protocol changes, both flagged in the
+CHANGELOG.
+
+**(a) The `ValueChanged` payload union.** `ValueChanged.value` is typed
+`bool | str` today
 ([`interaction.py:78`](../../../src/punt_lux/domain/interaction.py)) — a checkbox
 carries `bool`, an input_text edit carries `str`. A slider commit carries a
-`float`, so the union must widen to `bool | int | float | str` (the `int` covers
+`float`, so the union widens to `bool | int | float | str` (the `int` covers
 the `slider_int` variant; `float` the default). Update the annotation on both
 the field and the `__new__` parameter (`interaction.py:78`, `:87`), and refresh
-the PY-TS-14 justification comment to name the three discriminating kinds. This
-is a genuine (small) protocol change — flag it in the CHANGELOG and note that
+the PY-TS-14 justification comment to name the four types across three kinds
+(checkbox→bool, input_text→str, slider→float/int). The Hub-side dispatch guard
+that reconstructs the event from a wire invocation
+([`clients.py`](../../../src/punt_lux/domain/hub/clients.py)) widens the same
+way — the firing element re-validates the value's shape for its kind.
 `RemoteDispatchGroup`'s wire stamping already carries an opaque `value`, so no
 transport code changes.
+
+**(b) Tooltip activation.** `tooltip` was wire-**dead** on the legacy slider:
+`to_dict` never emitted it and `from_dict` never read it. This migration
+**activates** it — the encoder emits `tooltip` when present, the decoder reads
+it — for parity with `input_text` / `checkbox`. The encoder is therefore
+byte-identical to the legacy `to_dict` **only in the tooltip-absent case** (the
+one the characterization corpus exercises); a present tooltip is new wire.
 
 ---
 
@@ -306,13 +325,16 @@ differs. The #3 extraction collapses these into one generic
 
 ### 3.3 What GENUINELY DIFFERS (enumerated, so #3 knows exactly what to parametrise)
 
-1. **The carried value's type: `str` → `float`.** The buffer slot stores a
-   `float`, not a `str`. `WidgetState.get_str`
+1. **The carried value's type: `str` → `float`, via one seam.** The buffer slot
+   stores a `float`, not a `str`. `WidgetState.get_str`
    ([`widget_state.py:38`](../../../src/punt_lux/scene/widget_state.py)) is
-   string-specific and returns `""` on miss; the slider path needs a numeric read
-   — either a new `WidgetState.get_float(key, default)` or a direct
-   `get(key, default=<min>)` with a float default. This is the **only** load-bearing
-   type-touch. The #3 extraction parametrises exactly this accessor.
+   string-specific and returns `""` on miss. The numeric accessor and the
+   empty-value discrimination (§3.3.2) are **one seam**, not two: adding
+   `WidgetState.get_float(key, default)` — a miss falls back to the caller's
+   default (the current Hub value), never a sentinel — *is* how the slider drops
+   the empty-string branch. There is no separate `""`-branch to delete. This is
+   the **only** load-bearing type-touch; the #3 extraction parametrises exactly
+   this accessor.
 2. **No "empty value" state.** `input_text` distinguishes a *cleared* field
    (`""`, a real edited state) from an *idle* field (falls back to the Hub) —
    see `InputTextArbiter` tests `test_editing_keeps_a_cleared_field_empty`. A
@@ -424,11 +446,20 @@ arises because `x == x` is exact.
 
 **The float-specific *improvement* over the string case:** the model's F2
 masking edge (an agent driving the Hub *back to the exact commit-time value*
-during the window is indistinguishable from the pending echo) requires a
-**bit-exact** float match for a slider. Two independent drag positions colliding
-bit-for-bit is vanishingly less likely than two strings colliding, so F2 is
+during the window is indistinguishable from the pending echo) requires the two
+floats to be **equal under `==`** for a slider. Two independent drag positions
+comparing equal is vanishingly less likely than two strings colliding, so F2 is
 *less* reachable for slider than for input_text. The `int` variant is even
 tighter — an agent override to a distinct integer is trivially distinguishable.
+
+**NaN is the soundness precondition, not a validation nicety.** Value-equality
+reconciliation assumes reflexivity: a committed value equals itself, so its echo
+closes the window. `NaN` is the one float where `x == x` is *false*, which would
+leave a committed-NaN window open forever. Rejecting non-finite `value`/`min`/
+`max` in `validate()` (and re-checking after `apply_patch`) is therefore what
+makes reusing the verified model *sound* for floats — it is a precondition of
+the reconciliation, not merely a paint-safety check. The arbiter's `resolve`
+carries a self-contained comment naming this precondition.
 
 **Conclusion:** exact float `==` is the correct reconciliation predicate here.
 No epsilon comparison, no rounding, no version token. Introducing an epsilon
@@ -459,11 +490,11 @@ self._kind, message)`:
    suppress it as noise. Recommend: emit both, so the agent sees every problem at
    once, per the no-fail-fast aggregation rule.)
 3. **`value`, `min`, `max` all finite.** Reject `NaN` and `±inf`
-   (`math.isnan` / `math.isinf`). A `NaN` value is doubly fatal here: it breaks
-   ImGui's slider *and* the equality reconciliation (`NaN != NaN`), so a NaN
-   committed value could never close its echo window. This check is stricter than
-   `progress` needs and is the one genuinely slider-specific validation concern
-   the float carrier introduces — call it out.
+   (`math.isfinite`). This is the **soundness precondition** for reusing the
+   value-equality reconciliation model, not a mere validation nicety: `NaN` is
+   the one float where `x == x` is false, so a committed `NaN` could never close
+   its echo window (§4). It also breaks ImGui's slider. This is the one genuinely
+   slider-specific validation concern the float carrier introduces.
 4. **`format` well-formed (recommended, implementer's call on strictness).** A
    `format` that is not a single printf float conversion (e.g. `"%d"` against a
    float, or a string with no conversion) can fault ImGui's C-side formatting. A
@@ -478,9 +509,16 @@ self._kind, message)`:
    well-defined and harmless), noted so the implementer decides deliberately
    rather than by omission.
 
-A single shared predicate (as `progress._fraction_out_of_range` does) should back
-both `_set_value`'s write-path check and `validate()`, so the range invariant has
-one source of truth.
+A single shared predicate (`_range_error_messages`) backs both `validate()` and
+the `apply_patch` boundary re-check, so the range invariant has one source of
+truth. The re-check is at the **element boundary**, not per setter: `apply_patch`
+runs the base setter loop (which rolls back on a coercion `TypeError`), then
+re-checks the whole-element range/finiteness invariant and rolls the element back
+whole if it fails. A combined patch is judged on its *final* state, so a value
+that arrives before its widening `max` is accepted — where a naive per-setter
+raise would reject it. The finiteness half of the predicate is the NaN soundness
+precondition of §4, enforced on the patch path too: a `NaN`/`±inf` patch never
+installs.
 
 ---
 
@@ -617,8 +655,11 @@ delta exists: the model is type-agnostic and slider is a type substitution.
   two share everything but the value accessor's type and the absence of the
   empty-value special case (§3.3). The #3 (`color_picker`, `lux-ld6y`) extraction
   is a mechanical parametrisation.
-- **One protocol touch:** widen `ValueChanged.value` to admit `float`/`int`.
-- **`validate()` checks `min <= max`, in-range `value`, finite floats, and
-  (recommended) a well-formed `format`.**
+- **Two protocol touches:** widen `ValueChanged.value` to admit `float`/`int`
+  (with the matching Hub-dispatch guard), and activate the previously wire-dead
+  `tooltip` (encoder emits, decoder reads).
+- **`validate()` checks `min <= max`, in-range `value`, finite floats, and a
+  well-formed `format`.** Finiteness is the soundness precondition for reusing
+  the value-equality model, not a mere nicety.
 - **F1/F2 apply identically and are deferred to `lux-ld6y`**, and F2 is *less*
   reachable for a float slider than for a text field.
