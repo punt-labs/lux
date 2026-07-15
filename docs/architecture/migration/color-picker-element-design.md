@@ -54,7 +54,7 @@ discharged **structurally**: the wire value is a hex string, which cannot encode
 `NaN`/`±inf`; the hex→float parse is total onto finite `[0, 1]`. This is
 *stronger* than `slider`, which needed a `math.isfinite` check in `validate()`
 because raw floats crossed the wire. See
-[Part B](#b3--z-spec-reuse-verdict-the-tuple-carrier-is-governed-unchanged).
+[Part B](#b3-z-spec-reuse-verdict-the-tuple-carrier-is-governed-unchanged).
 
 **V3 — two PRs, split by rollback granularity.** PR-1 migrates `color_picker`
 with a bespoke `ColorPickerArbiter` (structurally identical to `SliderArbiter`).
@@ -620,8 +620,7 @@ flow; it delegates exactly the two typed touches to its injected accessor.
   hub tuple; the renderer converts hex↔tuple at the `color_edit`/`color_picker`
   seam (§A.5).
 
-### C.4 Is the extraction mechanical? Yes, with the empty-string asymmetry
-isolated to one accessor
+### C.4 Is the extraction mechanical? Yes, empty-string asymmetry isolated
 
 The extraction is mechanical, and the *one* place it is not purely uniform is
 named precisely: **`input_text`'s empty-string default.** `input_text`'s buffer
