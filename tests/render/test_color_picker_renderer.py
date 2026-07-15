@@ -26,7 +26,7 @@ from dataclasses import dataclass
 from typing import Self
 
 import pytest
-from imgui_bundle import ImVec2
+from imgui_bundle import ImVec2, imgui
 
 from punt_lux.display.renderers import color_picker_renderer
 from punt_lux.display.renderers.color_picker_renderer import ColorPickerRenderer
@@ -317,6 +317,7 @@ class _FakeImgui:
     """
 
     recorded: list[Rgba]
+    picker_flags: list[int]
     draw_list: _FakeDrawList
     _frames: list[_Frame]
     _index: int
@@ -328,6 +329,7 @@ class _FakeImgui:
     def __new__(cls, *frames: _Frame) -> Self:
         self = super().__new__(cls)
         self.recorded = []
+        self.picker_flags = []
         self.draw_list = _FakeDrawList()
         self._frames = list(frames)
         self._index = 0
@@ -450,13 +452,15 @@ class _FakeImgui:
     # -- picker surface (the full-picker path) -----------------------------
 
     def color_picker3(
-        self, _label: str, current: object, _flags: int = 0
+        self, _label: str, current: object, flags: int = 0
     ) -> tuple[bool, Rgba]:
+        self.picker_flags.append(flags)
         return self._pick(current)
 
     def color_picker4(
-        self, _label: str, current: object, _flags: int = 0, _ref: object = None
+        self, _label: str, current: object, flags: int = 0, _ref: object = None
     ) -> tuple[bool, Rgba]:
+        self.picker_flags.append(flags)
         return self._pick(current)
 
     def _pick(self, current: object) -> tuple[bool, Rgba]:
@@ -832,6 +836,43 @@ class TestPickerChannelFill:
         assert spans[0] == pytest.approx(60.0 * 255 / 255)
         assert spans[1] == pytest.approx(60.0 * 51 / 255)
         assert spans[2] == pytest.approx(60.0 * 153 / 255)
+
+
+class TestPickerFlagsDisableRightClickMenu:
+    """The picker is submitted with ``NoOptions``, disabling the right-click menu.
+
+    ``DisplayHex`` keeps only the markerless hex row, but the stock right-click
+    context menu can switch the display mode back to RGB/HSV, re-exposing the
+    fixed-3px channel markers that hex-only display exists to suppress.
+    ``NoOptions`` removes that menu, locking the markerless display.
+    """
+
+    def test_picker_is_submitted_with_no_options_flag(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        no_options = imgui.ColorEditFlags_.no_options.value
+        fake = _FakeImgui(_Frame(dragged=None, active=False, committed=False))
+        _install(monkeypatch, fake)
+        renderer = ColorPickerRenderer(WidgetState())
+
+        renderer.render(_full_picker(value="#FF3399"))
+
+        assert fake.picker_flags  # the picker seam was exercised
+        assert all(flags & no_options for flags in fake.picker_flags)
+
+    def test_alpha_picker_is_submitted_with_no_options_flag(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The color_picker4 (alpha) path carries the same NoOptions lock.
+        no_options = imgui.ColorEditFlags_.no_options.value
+        fake = _FakeImgui(_Frame(dragged=None, active=False, committed=False))
+        _install(monkeypatch, fake)
+        renderer = ColorPickerRenderer(WidgetState())
+
+        renderer.render(_full_picker(value="#FF3399", alpha=True))
+
+        assert fake.picker_flags
+        assert all(flags & no_options for flags in fake.picker_flags)
 
 
 class TestPickerCommitPerSubControl:

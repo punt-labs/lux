@@ -7,19 +7,13 @@ ColorEdit's fixed-width channel *markers* — a 3px tab that never scales with t
 value, so R=68 and R=94 render an identical sliver. This composes the good half
 of the stock widget (the SV square, the hue bar, and the markerless hex readout)
 with ``ColorChannelStrip`` for the RGB channels, whose fills scale ``0..255 ->
-0%..100%`` and actually read the value.
-
-The fixed-marker RGB and HSV input rows are dropped via ``DisplayHex`` — which
-selects *only* the hex row — and the strip supplies the RGB channels underneath.
-The hex row is a plain text field with no per-channel markers, so keeping it
-costs no sliver; it is the exact-value readout the SV square cannot give.
+0%..100%`` and actually read the value. The one stock row kept is the markerless
+hex readout — the exact-value display the SV square cannot give.
 
 The picker and the strip live inside one ``begin_group`` / ``end_group`` pair, so
-a caller reading ``is_item_active`` / ``is_item_deactivated_after_edit`` after the
-draw sees the SV square, the hue bar, the hex field, and every channel bar as one
-item — the reconciliation seam is unchanged, and a release on any of them commits
-exactly once. This is the same group-aggregation contract ``ColorChannelStrip``
-relies on, extended one level out over the picker plus the strip.
+the caller's ``is_item_*`` reads see every sub-control as one item — the
+reconciliation seam is unchanged, and a release on any commits exactly once,
+``ColorChannelStrip``'s group-aggregation contract extended over picker + strip.
 """
 
 from __future__ import annotations
@@ -42,10 +36,15 @@ __all__ = ["FullColorPicker"]
 _PICKER_WIDTH = 240.0
 # DisplayHex selects only the hex readout row, dropping the fixed-marker RGB and
 # HSV rows; NoSidePreview drops the duplicate current/reference swatch, since the
-# channel strip draws its own preview swatch below.
+# channel strip draws its own preview swatch below. NoOptions disables the
+# right-click context menu: without it, a user can right-click the picker and
+# switch the display mode back to RGB or HSV, re-exposing the fixed-3px channel
+# markers that DisplayHex exists to suppress. NoOptions locks the markerless
+# hex-only display so the markers cannot return.
 _PICKER_FLAGS = (
     imgui.ColorEditFlags_.display_hex.value
     | imgui.ColorEditFlags_.no_side_preview.value
+    | imgui.ColorEditFlags_.no_options.value
 )
 
 # The strip is stateless — one shared instance for the RGB channel row.
@@ -62,12 +61,11 @@ class FullColorPicker:
         """Draw the picker plus channel strip, returning ``(changed, arity-4 tuple)``.
 
         The SV square / hue bar / hex row come from ``color_picker3`` /
-        ``color_picker4``; the RGB channel bars come from ``ColorChannelStrip``.
-        Whichever sub-control the user moved wins: the strip is fed the picker's
-        post-edit color, so its returned tuple already reflects an SV/hue/hex edit,
-        and a channel drag overrides it in turn. ``changed`` ORs both sides; the
-        single enclosing group makes the caller's ``is_item_*`` reads aggregate
-        over every sub-control, so exactly one commit fires on any release.
+        ``color_picker4``; the RGB bars come from ``ColorChannelStrip``, fed the
+        picker's post-edit color so a channel drag overrides an SV/hue/hex edit in
+        turn. ``changed`` ORs both sides; the single enclosing group aggregates the
+        caller's ``is_item_*`` reads over every sub-control, so exactly one commit
+        fires on any release.
         """
         r, g, b, a = resolved
         current = ImVec4(r, g, b, a)
