@@ -481,3 +481,5 @@
 {"ts":"2026-07-15T13:09:23Z","commit":"ae4605f","files_scored":217,"files_improved":0,"files_regressed":0,"verdict":"pass","deltas":{}}
 {"ts":"2026-07-15T13:37:56Z","commit":"67b718b","files_scored":217,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/protocol/elements/slider.py":{"avg_params":[0.7,0.63],"max_complexity":[6.0,4.0]}}}
 {"ts":"2026-07-15T14:54:33Z","commit":"3c64bce","files_scored":218,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/protocol/elements/rgba_color.py":{"method_ratio":[0.0,1.0],"encapsulation_ratio":[0.0,1.0],"avg_params":[0.0,0.86],"max_complexity":[0.0,3.0],"avg_complexity":[0.0,1.71],"module_size":[0.0,86.0],"classes_per_module":[0.0,1.0],"class_to_func_ratio":[0.0,1.0],"init_violations":[0.0,0.0],"public_attr_violations":[0.0,0.0],"future_annotations":[0.0,1.0]}}}
+{"ts":"2026-07-15T14:58:22Z","commit":"4dc4e72","files_scored":218,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
+{"ts":"2026-07-15T15:02:31Z","commit":"0070c20","files_scored":218,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}

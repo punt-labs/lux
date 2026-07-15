@@ -1,14 +1,18 @@
-"""WidgetState numeric accessor and the slider commit-echo slot clearing.
+"""WidgetState numeric/tuple accessors and the commit-echo slot clearing.
 
 The slider path reads its buffer through ``get_float`` (a numeric miss falls
-back to the caller's default, never a magic ``""``) and stores its
-editing/commit-echo state under the ``SLIDER_*`` suffixes, which ``discard_for``
-clears on removal so a re-added same-id slider starts clean.
+back to the caller's default, never a magic ``""``) and the color_picker path
+through ``get_tuple`` (an RGBA-tuple miss falls back the same way, always
+normalized to arity 4). Each stores its editing/commit-echo state under kind-
+specific suffixes, which ``discard_for`` clears on removal so a re-added same-id
+widget starts clean.
 """
 
 from __future__ import annotations
 
 from punt_lux.scene.widget_state import WidgetState
+
+_HUB = (0.1, 0.2, 0.3, 1.0)
 
 
 class TestGetFloat:
@@ -31,6 +35,73 @@ class TestGetFloat:
         ws = WidgetState()
         ws.set("s", "not a number")
         assert ws.get_float("s", default=3.0) == 3.0
+
+
+class TestGetTuple:
+    def test_absent_key_returns_the_default(self) -> None:
+        assert WidgetState().get_tuple("missing", default=_HUB) == _HUB
+
+    def test_stored_four_tuple_reads_back(self) -> None:
+        ws = WidgetState()
+        ws.set("c", (0.5, 0.6, 0.7, 0.8))
+        assert ws.get_tuple("c", default=_HUB) == (0.5, 0.6, 0.7, 0.8)
+
+    def test_stored_three_tuple_pads_to_arity_four(self) -> None:
+        # resolve's editing branch returns the buffer uncoerced, so get_tuple
+        # must guarantee arity 4 — a length-3 store pads its alpha to opaque.
+        ws = WidgetState()
+        ws.set("c", (0.5, 0.6, 0.7))
+        assert ws.get_tuple("c", default=_HUB) == (0.5, 0.6, 0.7, 1.0)
+
+    def test_int_components_coerce_to_float(self) -> None:
+        ws = WidgetState()
+        ws.set("c", (1, 0, 0, 1))
+        assert ws.get_tuple("c", default=_HUB) == (1.0, 0.0, 0.0, 1.0)
+
+    def test_wrong_arity_reads_as_the_default(self) -> None:
+        ws = WidgetState()
+        ws.set("c", (0.1, 0.2))
+        assert ws.get_tuple("c", default=_HUB) == _HUB
+
+    def test_non_tuple_reads_as_the_default(self) -> None:
+        ws = WidgetState()
+        ws.set("c", "#FFFFFF")
+        assert ws.get_tuple("c", default=_HUB) == _HUB
+
+    def test_bool_component_reads_as_the_default(self) -> None:
+        # A bool is not a color channel — never coerce True to 1.0.
+        ws = WidgetState()
+        ws.set("c", (True, 0.0, 0.0, 1.0))
+        assert ws.get_tuple("c", default=_HUB) == _HUB
+
+    def test_non_finite_component_reads_as_the_default(self) -> None:
+        # A NaN would break tuple-equality reflexivity; reject the whole tuple.
+        ws = WidgetState()
+        ws.set("c", (float("nan"), 0.0, 0.0, 1.0))
+        assert ws.get_tuple("c", default=_HUB) == _HUB
+
+
+class TestColorSlotClearing:
+    def test_discard_for_clears_every_color_slot(self) -> None:
+        ws = WidgetState()
+        eid = "bg"
+        ws.set(f"{eid}{WidgetState.COLOR_BUFFER_SUFFIX}", (0.1, 0.2, 0.3, 1.0))
+        ws.set(f"{eid}{WidgetState.COLOR_EDITING_SUFFIX}", value=True)
+        ws.set(f"{eid}{WidgetState.COLOR_COMMITTED_SUFFIX}", (0.4, 0.5, 0.6, 1.0))
+        ws.set(f"{eid}{WidgetState.COLOR_COMMIT_HUB_SUFFIX}", (0.7, 0.8, 0.9, 1.0))
+
+        ws.discard_for(eid)
+
+        assert ws.get(f"{eid}{WidgetState.COLOR_BUFFER_SUFFIX}") is None
+        assert ws.get(f"{eid}{WidgetState.COLOR_EDITING_SUFFIX}") is None
+        assert ws.get(f"{eid}{WidgetState.COLOR_COMMITTED_SUFFIX}") is None
+        assert ws.get(f"{eid}{WidgetState.COLOR_COMMIT_HUB_SUFFIX}") is None
+
+    def test_color_buffer_suffix_does_not_alias_the_bare_id(self) -> None:
+        # The mirrored hex string writes under the bare id; the tuple buffer
+        # gets its own suffix so the two never collide in type on one key.
+        assert WidgetState.COLOR_BUFFER_SUFFIX != ""
+        assert WidgetState.COLOR_BUFFER_SUFFIX.startswith(":")
 
 
 class TestSliderSlotClearing:
