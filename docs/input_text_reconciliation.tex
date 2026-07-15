@@ -11,8 +11,17 @@
 %
 % This model is the shared discipline of the continuous-edit reconciliation
 % arbiters.  It is type-agnostic -- its carrier [VALUE] stands for the text an
-% input_text holds or the float a slider holds -- so it governs BOTH arbiters
-% unchanged; the shared-abstraction extraction is deferred to color_picker.
+% input_text holds, the float a slider holds, or the arity-4 RGBA float tuple a
+% color_picker holds -- so it governs ALL THREE arbiters unchanged.  The tuple
+% adds no new interleaving: a color is atomic at the wire (one hex string), the
+% widget (one changed/deactivate signal), the commit (one ValueChanged), and the
+% echo (one atomic apply_patch), so there is no partial-echo or per-component
+% race for the model to miss.  The one type-specific proof obligation -- tuple ==
+% is reflexive iff no component is NaN -- is discharged STRUCTURALLY for the tuple
+% carrier: the wire value is a hex string, which cannot encode NaN/inf, and the
+% hex->float parse is total onto finite [0,1].  This is stronger than the slider,
+% whose float carrier needed a math.isfinite guard in validate() because raw
+% floats crossed the wire.
 %
 % Source of record:
 %   src/punt_lux/display/renderers/imgui/input_text_selection.py
@@ -26,9 +35,18 @@
 %   src/punt_lux/display/renderers/slider_renderer.py
 %       -- SliderRenderer.render: the per-frame active/deactivate/fire
 %          decision over an ImGui slider_float / slider_int widget
+%   src/punt_lux/display/renderers/imgui/color_picker_selection.py
+%       -- ColorPickerArbiter: the RGBA-tuple sibling of InputTextArbiter, same
+%          resolve/observe/commit/release honour-or-defer control flow; the
+%          carrier is an arity-4 tuple whose finiteness precondition is
+%          discharged structurally by the hex encoding
+%   src/punt_lux/display/renderers/color_picker_renderer.py
+%       -- ColorPickerRenderer.render: the per-frame active/deactivate/fire
+%          decision over ImGui color_edit3/4 / color_picker3/4 widgets, committing
+%          the quantized tuple so committed bit-equals the echo
 %   src/punt_lux/scene/widget_state.py
-%       -- WidgetState: the per-scene buffer/editing slots (input and slider
-%          triples) and their removal clear (discard_for)
+%       -- WidgetState: the per-scene buffer/editing slots (input, slider, and
+%          color triples/quad) and their removal clear (discard_for)
 %
 % Type-check:  fuzz -t docs/input_text_reconciliation.tex
 % Model-check (see Section "Verification" for the exact goal predicates):
