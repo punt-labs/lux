@@ -732,8 +732,8 @@ This is the model's \texttt{pending}/\texttt{committed} pair and its
 stale base entirely, closing invariant~1 including the type-before-echo route
 that defer-after-first-edit alone leaves open.
 
-Concretely, in \texttt{InputTextArbiter}
-(\texttt{display/renderers/imgui/input\_text\_selection.py}):
+Concretely, in \texttt{ContinuousEditArbiter}
+(\texttt{continuous\_edit\_selection.py}):
 
 \begin{itemize}
   \item Add two slots beside the editing flag, under the element id with fresh
