@@ -472,3 +472,4 @@
 {"ts":"2026-07-15T04:06:03Z","commit":"fadf349","files_scored":213,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
 {"ts":"2026-07-15T04:07:38Z","commit":"1265a3b","files_scored":213,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-07-15T04:09:45Z","commit":"39fbbef","files_scored":214,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/display/renderers/imgui/slider_selection.py":{"method_ratio":[0.0,1.0],"encapsulation_ratio":[0.0,1.0],"avg_params":[0.0,1.0],"max_complexity":[0.0,4.0],"avg_complexity":[0.0,1.71],"module_size":[0.0,102.0],"classes_per_module":[0.0,1.0],"class_to_func_ratio":[0.0,1.0],"init_violations":[0.0,0.0],"public_attr_violations":[0.0,0.0],"future_annotations":[0.0,1.0]}}}
+{"ts":"2026-07-15T04:34:04Z","commit":"66eed6a","files_scored":217,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}

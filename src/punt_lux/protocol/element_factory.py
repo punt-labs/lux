@@ -35,6 +35,8 @@ from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.input_text_codec import JsonInputTextDecoder
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.progress_codec import JsonProgressDecoder
+from punt_lux.protocol.elements.slider import SliderElement
+from punt_lux.protocol.elements.slider_codec import JsonSliderDecoder
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.tab_bar_codec import JsonTabBarDecoder
 from punt_lux.protocol.elements.text import TextElement
@@ -50,6 +52,9 @@ from punt_lux.protocol.standalone_collapsing_header_handler import (
 )
 from punt_lux.protocol.standalone_input_text_handler import (
     build_standalone_input_text_handler_decoder,
+)
+from punt_lux.protocol.standalone_slider_handler import (
+    build_standalone_slider_handler_decoder,
 )
 from punt_lux.protocol.standalone_tab_bar_handler import (
     build_standalone_tab_bar_handler_decoder,
@@ -68,7 +73,7 @@ if TYPE_CHECKING:
 __all__ = ["JsonElementFactory"]
 
 _ABC_KINDS = frozenset(
-    {"text", "button", "checkbox", "dialog", "progress", "input_text"}
+    {"text", "button", "checkbox", "dialog", "progress", "input_text", "slider"}
 )
 
 # The migrated ABC-leaf classes. Both the leaf-decode assertion and the
@@ -80,6 +85,7 @@ _ABC_LEAF_TYPES: tuple[type, ...] = (
     DialogElement,
     ProgressElement,
     InputTextElement,
+    SliderElement,
 )
 
 
@@ -152,6 +158,12 @@ class JsonElementFactory:
                 handler_decoder=build_standalone_input_text_handler_decoder(
                     publish_sink
                 ),
+            ).decode,
+            "slider": JsonSliderDecoder(
+                renderer_factory=renderer_factory,
+                emit=emit,
+                element_cls=SliderElement,
+                handler_decoder=build_standalone_slider_handler_decoder(publish_sink),
             ).decode,
         }
         # The group decoder recurses each child through this factory's own
@@ -287,6 +299,7 @@ class JsonElementFactory:
             | ButtonElement
             | CheckboxElement
             | InputTextElement
+            | SliderElement
             | DialogElement
             | GroupElement
             | CollapsingHeaderElement

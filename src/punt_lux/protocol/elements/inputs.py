@@ -21,7 +21,6 @@ from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement
-from punt_lux.protocol.elements.slider import SliderElement
 
 __all__ = ["InputsRegistry"]
 
@@ -40,9 +39,6 @@ class InputsRegistry:
 
     def apply(self, register: Register) -> None:
         """Register every inputs-family element kind's codec."""
-        register(
-            "slider", SliderElement, SliderElement.to_dict, SliderElement.from_dict
-        )
         register("combo", ComboElement, ComboElement.to_dict, ComboElement.from_dict)
         register(
             "input_number",

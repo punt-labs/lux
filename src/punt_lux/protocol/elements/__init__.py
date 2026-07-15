@@ -182,6 +182,7 @@ def _element_to_dict(elem: Element) -> dict[str, Any]:
         | ButtonElement
         | CheckboxElement
         | InputTextElement
+        | SliderElement
         | DialogElement
         | GroupElement
         | CollapsingHeaderElement
