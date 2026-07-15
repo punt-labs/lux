@@ -23,7 +23,18 @@ from typing import Self
 from .publish_source import PayloadPublish, PublishSource, WirePublish
 from .repush_effect import PropAfterDispatch, RemovedAfterDispatch, RepushEffect
 
-__all__ = ["SCENARIOS", "InteractionExpectation", "ReactPatch", "Scenario"]
+__all__ = [
+    "INPUT_COMMIT_TEXT",
+    "SCENARIOS",
+    "InteractionExpectation",
+    "ReactPatch",
+    "Scenario",
+]
+
+# The text an input_text edit commits in the loop. Shared with the agent's
+# synthetic-event builder so the injected interaction and the re-push assertion
+# agree (an edit has no structural source for its text, unlike a tab switch).
+INPUT_COMMIT_TEXT = "Ada Lovelace"
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +186,70 @@ class Scenario:
             display_only_id="chk-progress",
             repush=PropAfterDispatch(
                 element_id="toggle-box", field="value", value=True, flipped=True
+            ),
+        )
+
+    @classmethod
+    def group_input_text_progress(cls) -> Self:
+        """A group holding a publishing input_text and a display-only progress.
+
+        Committing an edit crosses as ``value_changed`` carrying the final text;
+        the built-in state-sync handler writes the Hub ``value`` (``""`` -> the
+        committed text), so the dispatch re-push carries the mutated text. A wire
+        ``handlers`` entry publishes ``name_entered``; the agent reacts by
+        advancing the bar.
+        """
+        return cls(
+            name="group-input-text-progress",
+            scene_id="e2e-input-text-scene",
+            elements=(
+                {
+                    "kind": "group",
+                    "id": "it-surface",
+                    "layout": "rows",
+                    "children": (
+                        {
+                            "kind": "input_text",
+                            "id": "name-field",
+                            "label": "Name",
+                            "value": "",
+                            "handlers": [
+                                {
+                                    "event": "changed",
+                                    "factory": "noop",
+                                    "wrap": [
+                                        {
+                                            "decorator": "publish",
+                                            "topics": ["name_entered"],
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "kind": "progress",
+                            "id": "it-progress",
+                            "fraction": 0.0,
+                            "label": "idle",
+                        },
+                    ),
+                },
+            ),
+            target_element_id="name-field",
+            interaction=InteractionExpectation(
+                event_kind="value_changed", value=INPUT_COMMIT_TEXT
+            ),
+            publish=WirePublish("name_entered"),
+            react=(
+                ReactPatch(element_id="it-progress", field="fraction", value=1.0),
+                ReactPatch(element_id="it-progress", field="label", value="entered"),
+            ),
+            display_only_id="it-progress",
+            repush=PropAfterDispatch(
+                element_id="name-field",
+                field="value",
+                value=INPUT_COMMIT_TEXT,
+                flipped=True,
             ),
         )
 
@@ -557,6 +632,7 @@ class Scenario:
 SCENARIOS: tuple[Scenario, ...] = (
     Scenario.group_button_progress(),
     Scenario.group_checkbox_progress(),
+    Scenario.group_input_text_progress(),
     Scenario.collapsing_header_toggle_progress(),
     Scenario.collapsing_header_button_progress(),
     Scenario.tab_bar_change_progress(),

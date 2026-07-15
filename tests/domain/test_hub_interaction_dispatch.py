@@ -210,7 +210,7 @@ def test_hub_interaction_dispatch_runs_checkbox_value_changed_handler(
     isolated_display.register_client(owner)
 
     checkbox = CheckboxElement(id=str(element_id), label="Toggle")
-    seen: list[tuple[str, bool]] = []
+    seen: list[tuple[str, bool | str]] = []
 
     def _handler(event: ValueChanged) -> None:
         seen.append(("handled", event.value))
@@ -284,7 +284,12 @@ def test_hub_interaction_dispatch_unknown_event_kind_returns_silently(
 def test_hub_interaction_dispatch_value_changed_rejects_non_bool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Non-bool value on value_changed logs warning and returns."""
+    """A value_changed payload that is neither bool nor str logs and returns.
+
+    ``value_changed`` legitimately carries a ``bool`` (checkbox) or ``str``
+    (input_text); the firing element's own setter re-validates the shape for its
+    kind. A value of another type is rejected at the hub dispatch itself.
+    """
     import punt_lux.domain.hub as hub_module
 
     isolated_display = HubDisplay()
@@ -310,7 +315,7 @@ def test_hub_interaction_dispatch_value_changed_rejects_non_bool(
             action="changed",
             event_kind="value_changed",
             ts=1.0,
-            value="not a bool",
+            value=123,
         )
     )
 
