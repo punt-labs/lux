@@ -1,12 +1,8 @@
 """The three carrier-typed value accessors for ContinuousEditArbiter.
 
-Each ``@final`` leaf carries exactly the per-type behavior the shared arbiter
-delegates: a buffer ``read`` (with its miss policy) and a committed ``coerce``.
-Everything else in the arbiter is carrier-agnostic, so these three tiny classes
-are the whole difference between a text, float, and RGBA-tuple widget.
-
-They satisfy ``ValueAccessor`` structurally — no base class — so the arbiter
-composes one rather than subclassing per carrier.
+Each ``@final`` leaf is the whole per-type difference between a text, float, and
+RGBA widget: the buffer ``read`` (with its miss policy) and committed ``coerce``
+the arbiter delegates. Each satisfies ``ValueAccessor`` structurally, no base class.
 """
 
 from __future__ import annotations
@@ -22,6 +18,8 @@ __all__ = ["ColorValueAccessor", "FloatValueAccessor", "StrValueAccessor"]
 @final
 class StrValueAccessor:
     """Value accessor for input_text — the empty-string miss policy lives here."""
+
+    __slots__ = ()
 
     def read(self, state: WidgetState, key: str, hub_value: str) -> str:
         """Return the buffer text; a miss reads ``""`` — a cleared field is real state.
@@ -40,6 +38,8 @@ class StrValueAccessor:
 class FloatValueAccessor:
     """Value accessor for slider — every float is a value; a miss reads hub_value."""
 
+    __slots__ = ()
+
     def read(self, state: WidgetState, key: str, hub_value: float) -> float:
         """Return the buffer float; a miss falls back to the current Hub value."""
         return state.get_float(key, default=hub_value)
@@ -52,6 +52,8 @@ class FloatValueAccessor:
 @final
 class ColorValueAccessor:
     """Value accessor for color_picker — arity-4 RGBA tuple; a miss reads hub_value."""
+
+    __slots__ = ()
 
     def read(self, state: WidgetState, key: str, hub_value: Rgba) -> Rgba:
         """Return the buffer tuple; a miss falls back to the current Hub color."""

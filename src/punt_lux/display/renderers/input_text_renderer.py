@@ -3,7 +3,7 @@
 
 Idle, the buffer tracks ``elem.value``; while edited the local buffer wins and a
 Hub value is deferred, so pipelined edits cannot clobber live typing. Exactly one
-``ValueChanged`` fires on commit (blur or Enter), wrapped for D21 remote dispatch.
+``ValueChanged`` fires on commit (blur or Enter), wrapped for remote dispatch.
 """
 
 from __future__ import annotations
@@ -24,14 +24,16 @@ from punt_lux.tracing import trace
 
 __all__ = ["InputTextRenderer"]
 
+# The str accessor is stateless, so one shared instance serves every frame.
+_ACCESSOR = StrValueAccessor()
+
 
 class InputTextRenderer:
     """Render an InputTextElement under the commit-on-idle rule.
 
     Holds the per-scene ``WidgetState`` and builds a fresh
-    ``ContinuousEditArbiter`` (with a ``StrValueAccessor``) per frame; the arbiter
-    owns the buffer/editing slots, so this class stays a thin ImGui seam. The
-    commit fire is wrapped for remote dispatch, so it runs on the Hub.
+    ``ContinuousEditArbiter`` (with a ``StrValueAccessor``) per frame; the
+    arbiter owns the buffer/editing slots, so this stays a thin ImGui seam.
     """
 
     _widget_state: WidgetState
@@ -53,9 +55,8 @@ class InputTextRenderer:
 
     @trace
     def render(self, elem: InputTextElement) -> None:
-        arbiter = ContinuousEditArbiter(self._widget_state, elem.id, StrValueAccessor())
+        arbiter = ContinuousEditArbiter(self._widget_state, elem.id, _ACCESSOR)
         label = f"{elem.label}##{elem.id}"
-        # A ``""`` hint renders like a plain input; imgui echoes the current text.
         changed, text = imgui.input_text_with_hint(
             label, elem.hint, arbiter.resolve(elem.value)
         )

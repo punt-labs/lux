@@ -71,6 +71,7 @@ class ContinuousEditArbiter[T]:
     _editing_key: str
     _committed_key: str
     _commit_hub_key: str
+    __slots__ = tuple(__annotations__)
 
     def __new__(
         cls, state: WidgetState, element_id: str, accessor: ValueAccessor[T]
@@ -78,14 +79,11 @@ class ContinuousEditArbiter[T]:
         self = super().__new__(cls)
         self._state = state
         self._accessor = accessor
-        self._buffer_key = f"{element_id}{WidgetState.CONTINUOUS_EDIT_BUFFER_SUFFIX}"
-        self._editing_key = f"{element_id}{WidgetState.CONTINUOUS_EDIT_EDITING_SUFFIX}"
-        self._committed_key = (
-            f"{element_id}{WidgetState.CONTINUOUS_EDIT_COMMITTED_SUFFIX}"
-        )
-        self._commit_hub_key = (
-            f"{element_id}{WidgetState.CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX}"
-        )
+        ws = WidgetState
+        self._buffer_key = f"{element_id}{ws.CONTINUOUS_EDIT_BUFFER_SUFFIX}"
+        self._editing_key = f"{element_id}{ws.CONTINUOUS_EDIT_EDITING_SUFFIX}"
+        self._committed_key = f"{element_id}{ws.CONTINUOUS_EDIT_COMMITTED_SUFFIX}"
+        self._commit_hub_key = f"{element_id}{ws.CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX}"
         return self
 
     def resolve(self, hub_value: T) -> T:
