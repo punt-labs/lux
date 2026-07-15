@@ -59,9 +59,8 @@ class ColorChannelStrip:
 
         Mirrors ``color_edit3``'s reconciliation contract: one grouped item whose
         active / deactivate state the caller reads, ``changed`` an OR of the
-        per-channel edits, and an arity-4 tuple carrying the alpha through — under
-        an RGB variant the alpha is not editable, so the resolved alpha is passed
-        back unchanged, keeping tuple equality well-defined.
+        per-channel edits, and an arity-4 tuple. Under RGB the alpha is not
+        editable, so the resolved alpha is carried through for tuple equality.
         """
         r, g, b, a = resolved
         count = 4 if elem.alpha else 3
@@ -73,7 +72,8 @@ class ColorChannelStrip:
         spacing = style.item_inner_spacing.x
         rounding = style.frame_rounding
         frame_h = imgui.get_frame_height()
-        w_inputs = max(imgui.calc_item_width() - (frame_h + spacing), 1.0)
+        # Reserve count spacings: count-1 between channels, one before the swatch.
+        w_inputs = max(imgui.calc_item_width() - (frame_h + count * spacing), 1.0)
         draw_list = imgui.get_window_draw_list()
 
         for col in _FRAME_COLS:

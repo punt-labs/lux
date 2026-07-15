@@ -30,7 +30,7 @@ from imgui_bundle import ImVec2
 
 from punt_lux.display.renderers import color_picker_renderer
 from punt_lux.display.renderers.color_picker_renderer import ColorPickerRenderer
-from punt_lux.display.renderers.imgui import color_channel_strip
+from punt_lux.display.renderers.imgui import color_channel_strip, full_color_picker
 from punt_lux.display.renderers.imgui.continuous_edit_accessors import (
     ColorValueAccessor,
 )
@@ -262,11 +262,17 @@ class _Frame:
     ``dragged`` is the color the user dragged to this frame — ``None`` means no
     drag, so imgui echoes the color it was handed. ``active`` and ``committed``
     are the item-state flags queried after the widget is submitted.
+
+    ``channel_drag`` matters only on the full-picker path, where two sub-controls
+    can move: ``False`` (default) attributes the drag to the SV square (the picker
+    reports it, the channel bars stay quiet), ``True`` to a channel bar (the bar
+    reports it, the picker stays quiet). Only one sub-control moves per frame.
     """
 
     dragged: Rgba | None
     active: bool
     committed: bool
+    channel_drag: bool = False
 
 
 class _FakeStyle:
@@ -316,6 +322,8 @@ class _FakeImgui:
     _index: int
     _current: _Frame
     _channel_ins: dict[int, int]
+    _depth: int
+    _picked: bool
 
     def __new__(cls, *frames: _Frame) -> Self:
         self = super().__new__(cls)
@@ -325,6 +333,8 @@ class _FakeImgui:
         self._index = 0
         self._current = frames[0]
         self._channel_ins = {}
+        self._depth = 0
+        self._picked = False
         return self
 
     # -- channel-strip surface (the inline edit path) ----------------------
@@ -336,18 +346,33 @@ class _FakeImgui:
         """No id stack in the fake."""
 
     def begin_group(self) -> None:
-        """Consume the next scripted frame and start collecting channel inputs."""
-        self._current = self._frames[self._index]
-        self._index += 1
-        self._channel_ins = {}
+        """Start a group; the outermost consumes the next scripted frame.
+
+        The strip path opens the sole group; the picker path opens an outer group
+        wrapping the picker plus the strip's inner group. Frame consumption and
+        the channel-input reset happen once, at depth 0, so a single picker frame
+        drives both the picker and the nested strip.
+        """
+        if self._depth == 0:
+            self._current = self._frames[self._index]
+            self._index += 1
+            self._channel_ins = {}
+            self._picked = False
+        self._depth += 1
 
     def end_group(self) -> None:
-        """Record the resolved-in color assembled from the channel inputs."""
-        r = self._channel_ins.get(0, 0) / 255.0
-        g = self._channel_ins.get(1, 0) / 255.0
-        b = self._channel_ins.get(2, 0) / 255.0
-        a = self._channel_ins[3] / 255.0 if 3 in self._channel_ins else 1.0
-        self.recorded.append((r, g, b, a))
+        """Close a group; the outermost strip-path group records its resolved color.
+
+        The picker path records at ``color_picker*`` instead (``_picked`` set), so
+        the outer group's close must not double-record.
+        """
+        self._depth -= 1
+        if self._depth == 0 and not self._picked:
+            r = self._channel_ins.get(0, 0) / 255.0
+            g = self._channel_ins.get(1, 0) / 255.0
+            b = self._channel_ins.get(2, 0) / 255.0
+            a = self._channel_ins[3] / 255.0 if 3 in self._channel_ins else 1.0
+            self.recorded.append((r, g, b, a))
 
     def get_style(self) -> _FakeStyle:
         return _FakeStyle()
@@ -356,9 +381,9 @@ class _FakeImgui:
         return 20.0
 
     def calc_item_width(self) -> float:
-        # 204 - (frame_h 20 + spacing 4) = 180 -> three equal 60px channels, so a
-        # fill's x-extent is 60 * value/255 with no per-channel width rounding.
-        return 204.0
+        # 212 - (frame_h 20 + count 3 * spacing 4) = 180 -> three equal 60px
+        # channels, so a fill's x-extent is 60 * value/255 with no width rounding.
+        return 212.0
 
     def get_window_draw_list(self) -> _FakeDrawList:
         return self.draw_list
@@ -381,6 +406,12 @@ class _FakeImgui:
     def set_next_item_width(self, _width: float) -> None:
         """Layout is not asserted."""
 
+    def push_item_width(self, _width: float) -> None:
+        """Item width is not asserted by the value-only seam."""
+
+    def pop_item_width(self) -> None:
+        """Pair the item-width push."""
+
     def text(self, _text: str) -> None:
         """The label paint is not asserted."""
 
@@ -400,23 +431,41 @@ class _FakeImgui:
         _fmt: str = "%d",
         _flags: int = 0,
     ) -> tuple[bool, int]:
-        """Record the resolved-in channel; return the dragged channel when set."""
+        """Record the resolved-in channel; return the dragged channel when set.
+
+        On the picker path (``_picked`` set), a channel bar edits only on a
+        ``channel_drag`` frame — an SV-square drag leaves every channel quiet.
+        """
         idx = int(label.removeprefix("##c"))
         self._channel_ins[idx] = v
         frame = self._current
+        if self._picked:
+            if frame.channel_drag and frame.dragged is not None:
+                return (True, _to_255(frame.dragged[idx]))
+            return (False, v)
         if frame.dragged is None:
             return (False, v)
         return (True, _to_255(frame.dragged[idx]))
 
     # -- picker surface (the full-picker path) -----------------------------
 
-    def color_picker3(self, _label: str, current: object) -> tuple[bool, Rgba]:
+    def color_picker3(
+        self, _label: str, current: object, _flags: int = 0
+    ) -> tuple[bool, Rgba]:
         return self._pick(current)
 
-    def color_picker4(self, _label: str, current: object) -> tuple[bool, Rgba]:
+    def color_picker4(
+        self, _label: str, current: object, _flags: int = 0, _ref: object = None
+    ) -> tuple[bool, Rgba]:
         return self._pick(current)
 
     def _pick(self, current: object) -> tuple[bool, Rgba]:
+        """Record the color handed to the picker; return the SV-square drag if any.
+
+        The frame was consumed by the enclosing ``begin_group``, so ``_pick`` reads
+        ``self._current`` rather than advancing. On a ``channel_drag`` frame the
+        picker is quiet — the channel bar owns the edit.
+        """
         as_tuple: Rgba = (
             float(current[0]),  # type: ignore[index]
             float(current[1]),  # type: ignore[index]
@@ -424,9 +473,10 @@ class _FakeImgui:
             float(current[3]),  # type: ignore[index]
         )
         self.recorded.append(as_tuple)
-        frame = self._frames[self._index]
-        self._index += 1
-        self._current = frame
+        self._picked = True
+        frame = self._current
+        if frame.channel_drag:
+            return (False, as_tuple)
         value = as_tuple if frame.dragged is None else frame.dragged
         return (frame.dragged is not None, value)
 
@@ -442,6 +492,7 @@ class _FakeImgui:
 def _install(monkeypatch: pytest.MonkeyPatch, fake: _FakeImgui) -> None:
     monkeypatch.setattr(color_picker_renderer, "imgui", fake)
     monkeypatch.setattr(color_channel_strip, "imgui", fake)
+    monkeypatch.setattr(full_color_picker, "imgui", fake)
 
 
 def _picker(*, value: str = "#000000", alpha: bool = False) -> ColorPickerElement:
@@ -555,15 +606,15 @@ class TestRendererMultiSubControl:
     def test_two_sub_control_releases_commit_the_whole_color_twice(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # MULTI-SUB-CONTROL: the SV square releases (commit GREEN), then the hue
-        # bar releases (commit BLUE). Each sub-control fires its own independent
-        # deactivate, so the arbiter records TWO sequential whole-color commits,
-        # each a complete hex — never a partial channel update.
+        # MULTI-SUB-CONTROL: one channel bar releases (commit GREEN), then another
+        # releases (commit BLUE). Each channel fires its own independent deactivate,
+        # so the arbiter records TWO sequential whole-color commits, each a complete
+        # hex — never a partial channel update.
         fake = _FakeImgui(
-            _Frame(dragged=_GREEN, active=True, committed=False),  # drag SV square
-            _Frame(dragged=None, active=False, committed=True),  # SV release: commit
-            _Frame(dragged=_BLUE, active=True, committed=False),  # drag hue bar
-            _Frame(dragged=None, active=False, committed=True),  # hue release: commit
+            _Frame(dragged=_GREEN, active=True, committed=False),  # drag a channel
+            _Frame(dragged=None, active=False, committed=True),  # release: commit
+            _Frame(dragged=_BLUE, active=True, committed=False),  # drag a channel
+            _Frame(dragged=None, active=False, committed=True),  # release: commit
         )
         _install(monkeypatch, fake)
         elem = _picker(value="#000000")
@@ -727,8 +778,9 @@ class TestRendererPickerVariant:
     def test_picker_true_routes_through_color_picker_and_commits(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # The full-picker variant keeps ImGui's color_picker3; a drag then release
-        # still commits exactly one hex through the unchanged reconciliation seam.
+        # The full-picker variant keeps ImGui's color_picker3 (SV square, hue bar,
+        # hex) and now routes its RGB channels through the strip; an SV-square drag
+        # then release still commits exactly one hex via the unchanged seam.
         fake = _FakeImgui(
             _Frame(dragged=_GREEN, active=True, committed=False),
             _Frame(dragged=None, active=False, committed=True),
@@ -744,4 +796,89 @@ class TestRendererPickerVariant:
 
         assert [e.value for e in fired] == ["#00FF00"]
         assert fake.recorded == [(0.0, 0.0, 0.0, 1.0), _GREEN]
-        assert fake.draw_list.fills == []  # the picker path draws no channel fills
+        # The picker path now draws value-scaled channel fills through the strip —
+        # here only GREEN's G=255 (60px) each frame; R=B=0 draw nothing.
+        spans = [x_max - x_min for x_min, x_max in fake.draw_list.fills]
+        assert spans == [pytest.approx(60.0), pytest.approx(60.0)]
+
+
+def _full_picker(*, value: str = "#000000", alpha: bool = False) -> ColorPickerElement:
+    """Build the full-picker (``picker=True``) variant."""
+    return ColorPickerElement(id="c", label="Bg", value=value, picker=True, alpha=alpha)
+
+
+class TestPickerChannelFill:
+    """The fix on the full-picker path: RGB channels fill proportional to value.
+
+    Stock ``color_picker3`` drew the RGB inputs with the same fixed-3px markers
+    that plagued the inline path — R=68/G=47/B=94 all identical slivers. The
+    picker now routes those channels through ``ColorChannelStrip``, so their fills
+    scale with the value exactly as the inline path does.
+    """
+
+    def test_picker_channels_fill_proportional_to_value(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # One idle full-picker frame draws one fill per channel, R, G, B, each an
+        # x-span of 60 * value/255 — not three identical slivers.
+        fake = _FakeImgui(_Frame(dragged=None, active=False, committed=False))
+        _install(monkeypatch, fake)
+        renderer = ColorPickerRenderer(WidgetState())
+
+        renderer.render(_full_picker(value="#FF3399"))  # R=255, G=51, B=153
+
+        spans = [x_max - x_min for x_min, x_max in fake.draw_list.fills]
+        assert len(spans) == 3
+        assert spans[0] == pytest.approx(60.0 * 255 / 255)
+        assert spans[1] == pytest.approx(60.0 * 51 / 255)
+        assert spans[2] == pytest.approx(60.0 * 153 / 255)
+
+
+class TestPickerCommitPerSubControl:
+    """One commit per release, whichever full-picker sub-control the user moved.
+
+    Both the picker (SV square / hue bar / hex) and the channel strip live in one
+    enclosing group, so the renderer's single ``is_item_*`` read aggregates over
+    both — a release on either fires exactly one ValueChanged, never zero (mid
+    drag) and never two.
+    """
+
+    def test_sv_square_drag_commits_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # An SV-square drag to GREEN (the picker reports it, channels stay quiet)
+        # then release fires exactly one commit through the group's deactivate.
+        fake = _FakeImgui(
+            _Frame(dragged=_GREEN, active=True, committed=False),
+            _Frame(dragged=None, active=False, committed=True),
+        )
+        _install(monkeypatch, fake)
+        elem = _full_picker(value="#000000")
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = ColorPickerRenderer(WidgetState())
+
+        renderer.render(elem)
+        assert fired == []  # dragging fires nothing
+
+        renderer.render(elem)
+        assert [e.value for e in fired] == ["#00FF00"]
+
+    def test_channel_bar_drag_commits_once(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A channel-bar drag to GREEN (the bar reports it, the picker stays quiet)
+        # then release fires exactly one commit through the same group deactivate.
+        fake = _FakeImgui(
+            _Frame(dragged=_GREEN, active=True, committed=False, channel_drag=True),
+            _Frame(dragged=None, active=False, committed=True),
+        )
+        _install(monkeypatch, fake)
+        elem = _full_picker(value="#000000")
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = ColorPickerRenderer(WidgetState())
+
+        renderer.render(elem)
+        assert fired == []  # dragging fires nothing
+
+        renderer.render(elem)
+        assert [e.value for e in fired] == ["#00FF00"]

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Self, final
 
-from imgui_bundle import ImVec4, imgui
+from imgui_bundle import imgui
 
 from punt_lux.display.renderers.imgui.color_channel_strip import ColorChannelStrip
 from punt_lux.display.renderers.imgui.continuous_edit_accessors import (
@@ -23,6 +23,7 @@ from punt_lux.display.renderers.imgui.continuous_edit_accessors import (
 from punt_lux.display.renderers.imgui.continuous_edit_selection import (
     ContinuousEditArbiter,
 )
+from punt_lux.display.renderers.imgui.full_color_picker import FullColorPicker
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
@@ -32,9 +33,10 @@ from punt_lux.tracing import trace
 
 __all__ = ["ColorPickerRenderer"]
 
-# The accessor and channel strip are stateless — one shared instance of each.
+# The accessor, channel strip, and full picker are stateless — one shared each.
 _ACCESSOR = ColorValueAccessor()
 _STRIP = ColorChannelStrip()
+_PICKER = FullColorPicker()
 
 
 @final
@@ -87,24 +89,13 @@ class ColorPickerRenderer:
 
     @staticmethod
     def _draw(elem: ColorPickerElement, resolved: Rgba) -> tuple[bool, Rgba]:
-        """Draw the edit/picker RGB/RGBA variant, returning ``(changed, tuple)``.
+        """Draw the inline or full-picker variant, returning ``(changed, tuple)``.
 
-        The inline (non-picker) variant routes through ``ColorChannelStrip``,
-        whose per-channel fills scale with the value; the full-picker variant
-        keeps ImGui's ``color_picker3`` / ``color_picker4``. Both group their
-        sub-controls, so the caller's ``is_item_*`` reads see one item. Under an
-        RGB variant the alpha is not editable, so the resolved alpha is carried
-        through — keeping arity 4 so tuple equality stays well-defined.
+        Both variants route their RGB channels through ``ColorChannelStrip``, whose
+        per-channel fills scale with the value; the full-picker variant adds the SV
+        square, hue bar, and hex readout. Each groups its sub-controls, so the
+        caller's ``is_item_*`` reads see one item and one commit fires per release.
         """
-        if not elem.picker:
-            return _STRIP.draw(elem, resolved)
-        r, g, b, a = resolved
-        current = ImVec4(r, g, b, a)
-        label = f"{elem.label}##{elem.id}"
-        changed, new = (
-            imgui.color_picker4(label, current)
-            if elem.alpha
-            else imgui.color_picker3(label, current)
-        )
-        alpha = float(new[3]) if elem.alpha else a
-        return (changed, (float(new[0]), float(new[1]), float(new[2]), alpha))
+        if elem.picker:
+            return _PICKER.draw(elem, resolved)
+        return _STRIP.draw(elem, resolved)
