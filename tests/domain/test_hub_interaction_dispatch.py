@@ -210,7 +210,7 @@ def test_hub_interaction_dispatch_runs_checkbox_value_changed_handler(
     isolated_display.register_client(owner)
 
     checkbox = CheckboxElement(id=str(element_id), label="Toggle")
-    seen: list[tuple[str, bool | str]] = []
+    seen: list[tuple[str, bool | int | float | str]] = []
 
     def _handler(event: ValueChanged) -> None:
         seen.append(("handled", event.value))
