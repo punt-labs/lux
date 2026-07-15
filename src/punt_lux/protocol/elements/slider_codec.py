@@ -105,7 +105,7 @@ class JsonSliderDecoder:
             value=ctx.optional_number(raw, "value", default=0.0),
             min=ctx.optional_number(raw, "min", default=0.0),
             max=ctx.optional_number(raw, "max", default=100.0),
-            format=ctx.optional_str(raw, "format", default="%.1f"),
+            format=ctx.optional_nullable_str(raw, "format"),
             integer=ctx.optional_bool(raw, "integer", default=False),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),
         )

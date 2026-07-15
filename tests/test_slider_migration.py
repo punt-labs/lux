@@ -181,18 +181,22 @@ class TestSelfValidation:
         errors = SliderElement(id="sl", value=bad, min=0.0, max=100.0).validate()
         assert any("finite" in e.message for e in errors)
 
-    @pytest.mark.parametrize("fmt", ["", "no-percent", "%d %d", "%", "%d"])
+    @pytest.mark.parametrize(
+        "fmt", ["", "no-percent", "%d %d", "%", "%d", "%*f", "%.*f"]
+    )
     def test_malformed_float_format_is_reported(self, fmt: str) -> None:
         # A default (float) slider rejects: no conversion, a literal-only string,
-        # two conversions, a bare trailing "%", and an int specifier ("%d") whose
-        # family does not match the float render variant.
+        # two conversions, a bare trailing "%", an int specifier ("%d") whose
+        # family does not match the float variant, and star width/precision
+        # ("%*f", "%.*f") that would read an unsupplied vararg.
         errors = SliderElement(id="sl", value=1.0, max=10.0, format=fmt).validate()
         assert any("format" in e.message for e in errors)
 
-    @pytest.mark.parametrize("fmt", ["%.1f", "%g", "%.0f%%"])
+    @pytest.mark.parametrize("fmt", ["%.1f", "%g", "%.0f%%", "%8.2f"])
     def test_valid_float_format_passes(self, fmt: str) -> None:
         # One float conversion is accepted, including one beside an escaped
-        # literal percent ("%.0f%%") that a naive percent count would reject.
+        # literal percent ("%.0f%%") that a naive percent count would reject and
+        # numeric width/precision ("%8.2f").
         errors = SliderElement(id="sl", value=1.0, max=10.0, format=fmt).validate()
         assert not any("format" in e.message for e in errors)
 
@@ -203,13 +207,23 @@ class TestSelfValidation:
         ).validate()
         assert not any("format" in e.message for e in errors)
 
-    def test_float_conversion_on_integer_slider_is_reported(self) -> None:
+    @pytest.mark.parametrize("fmt", ["%f", "%*d"])
+    def test_malformed_integer_format_is_reported(self, fmt: str) -> None:
         # The integer variant renders via slider_int and needs the %d family, so
-        # a float conversion ("%f") is the wrong family and must be rejected.
+        # a float conversion ("%f") is the wrong family; a star width ("%*d")
+        # would read an unsupplied vararg. Both are rejected.
         errors = SliderElement(
-            id="sl", value=1.0, max=10.0, format="%f", integer=True
+            id="sl", value=1.0, max=10.0, format=fmt, integer=True
         ).validate()
         assert any("format" in e.message for e in errors)
+
+    def test_default_format_on_integer_slider_validates(self) -> None:
+        # The Bugbot regression: a default-constructed integer slider (no explicit
+        # format) derives "%d" and validates, rather than rejecting the float
+        # default "%.1f" against the slider_int variant.
+        elem = SliderElement(id="sl", value=1.0, max=10.0, integer=True)
+        assert elem.format == "%d"
+        assert not any("format" in e.message for e in elem.validate())
 
     def test_valid_slider_passes_the_tree_walk(self) -> None:
         assert ElementTreeValidator().validate_tree([SliderElement(id="sl")]).ok
@@ -482,7 +496,8 @@ class TestLevel5Introspection:
             "value": 42.0,
             "min": 0.0,
             "max": 50.0,
-            "format": "%.1f",
+            # No explicit format + integer=True derives the %d variant default.
+            "format": "%d",
             "integer": True,
             "tooltip": None,
         }

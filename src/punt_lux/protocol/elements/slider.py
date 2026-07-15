@@ -40,16 +40,20 @@ if TYPE_CHECKING:
 
 __all__ = ["SliderElement"]
 
+# printf default per variant: %d for the integer slider (ImGui slider_int), %.1f float.
+_DEFAULT_FORMATS: dict[bool, str] = {False: "%.1f", True: "%d"}
+
 
 @final
 class SliderElement(Element):
     """A numeric slider on the Element ABC.
 
     PY-TS-14 OK: ``tooltip`` stays ``str | None`` — absence is the documented
-    contract for no tooltip. ``format`` stays ``str`` — a printf conversion is
-    free-form text, not a finite enumeration. ``integer`` stays ``bool`` — a
-    genuine two-state flag selecting the ``slider_int`` variant, not a
-    deferred design decision.
+    contract for no tooltip. The ``format`` *parameter* is ``str | None`` where
+    ``None`` means "use the variant default" (``%d`` for the integer slider,
+    ``%.1f`` for the float); the stored ``_format`` is always a concrete
+    ``str``. ``integer`` stays ``bool`` — a genuine two-state flag selecting the
+    ``slider_int`` variant, not a deferred design decision.
     """
 
     _id: str
@@ -72,7 +76,7 @@ class SliderElement(Element):
         value: float = 0.0,
         min: float = 0.0,
         max: float = 100.0,
-        format: str = "%.1f",
+        format: str | None = None,  # None -> variant default (_DEFAULT_FORMATS)
         integer: bool = False,
         tooltip: str | None = None,
     ) -> Self:
@@ -82,7 +86,7 @@ class SliderElement(Element):
         self._value = value
         self._min = min
         self._max = max
-        self._format = format
+        self._format = format if format is not None else _DEFAULT_FORMATS[integer]
         self._integer = integer
         self._tooltip = tooltip
         self._kind = "slider"
@@ -141,9 +145,8 @@ class SliderElement(Element):
         return self._tooltip
 
     # -- minimal setters for the scene patch path --------------------------
-    #
-    # The numeric setters only coerce — no per-setter range raise. The range
-    # invariant is re-checked once for the whole element in ``apply_patch``.
+    # Setters only coerce; the range invariant is re-checked once for the whole
+    # element in ``apply_patch``, never per setter.
 
     def _set_value(self, value: object) -> None:
         """Replace the thumb value (range re-checked at the element boundary)."""
@@ -177,10 +180,9 @@ class SliderElement(Element):
         """Apply a field patch atomically, re-checking the range at the boundary.
 
         The base setter loop rolls back on a coercion ``TypeError``; a
-        whole-element range re-check then judges the patch's final state and
-        rolls the whole patch back if it lands out of range. Judging the final
-        state accepts a combined ``{"value": 150, "max": 200}`` that a per-setter
-        raise would reject.
+        whole-element range re-check then rolls the whole patch back if the final
+        state lands out of range. Judging the final state accepts a combined
+        ``{"value": 150, "max": 200}`` that a per-setter raise would reject.
         """
         snapshot = dict(vars(self))
         super().apply_patch(patch)
@@ -220,17 +222,16 @@ class SliderElement(Element):
         return ()
 
     def _format_invalid(self) -> bool:
-        """Return whether ``format`` is not exactly one printf conversion of the
-        slider's numeric type.
+        """Return whether ``format`` is not exactly one printf conversion matching
+        the variant.
 
-        Escaped ``%%`` is a literal percent; exactly one real conversion must
-        remain, its specifier from the ``%d`` family (``diouxX``) for the integer
-        slider or the ``%f`` family (``eEfFgGaA``) for the float. A wrong,
-        missing, or repeated specifier faults ImGui's C-side ``slider_int`` /
-        ``slider_float`` formatting.
+        Escaped ``%%`` is a literal percent; one real conversion must remain, from
+        the ``diouxX`` family (integer slider) or ``eEfFgGaA`` (float). Width and
+        precision are numeric only: a ``*`` makes ImGui's ``vsnprintf`` read an
+        unsupplied vararg (only the value is passed), so ``%*f`` / ``%.*d`` fault.
         """
         specifiers = "diouxX" if self._integer else "eEfFgGaA"
-        conversion = rf"%[-+ #0]*[\d*]*(?:\.[\d*]+)?[hlLjztq]*[{specifiers}]"
+        conversion = rf"%[-+ #0]*\d*(?:\.\d+)?[hlLjztq]*[{specifiers}]"
         literal = r"(?:[^%]|%%)*"
         return re.fullmatch(rf"{literal}{conversion}{literal}", self._format) is None
 
