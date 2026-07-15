@@ -576,26 +576,45 @@ live paths for one reconciliation discipline.
    shared arbiter + accessors do not now carry.
 5. **Update the three renderers' imports** to the shared arbiter + accessor.
 
-### 7.1 The regression gate: three shipped test suites, unchanged assertions
+### 7.1 The regression gate: shipped test suites, behavior assertions unchanged
 
-The extraction is behavior-preserving, so **all three elements' existing test
-suites are the regression gate** and their *assertions* must not change:
+The extraction is behavior-preserving, so the existing test suites are the
+regression gate:
 
 - `tests/render/test_input_text_renderer.py`
 - `tests/render/test_slider_renderer.py`
 - `tests/render/test_color_picker_renderer.py`
+- `tests/test_widget_state.py` — the `WidgetState` accessor and slot-clearing
+  suite. It reads the suffix *constants* directly, so it changes with the
+  neutralisation (§5), but only in its key layout, never in an outcome.
 
 Plus the Level 1–5 codec/crossing/introspection suites and the Level-4 e2e
 scenarios for all three kinds.
 
-**Permitted test edits are mechanical only:** the three suites *construct* the
-bespoke arbiters by name (confirmed:
-`grep -rln 'InputTextArbiter|SliderArbiter|ColorPickerArbiter' tests/` →
-those three files). Those construction/import sites change to
-`ContinuousEditArbiter(state, id, <Accessor>())`. **An assertion edit is a red
-flag** — if any test's *expected value* must change to pass, the fold is not
-behavior-preserving and the extraction has a defect. The distinction is the
-merge gate: construction/import churn OK; assertion churn NOT OK.
+**Two classes of test edit, one permitted and one forbidden.** The neutralisation
+renames state-key constants and the fold renames the arbiter construction seam,
+so *some* test lines must change — but only ever their key layout or their
+construction site, never a widget-behavior outcome. Split the "assertion edit"
+red flag accordingly:
+
+- **Behavior assertions — MUST NOT change.** Any assertion on a
+  `resolve`/`observe`/`release`/`commit` RETURN VALUE or a committed-slot VALUE
+  (e.g. `test_input_text_renderer.py`'s `resolve(...) == ...` and
+  `ws.get(committed_key) == "same"`/`is None`). If one of these has to change to
+  pass, the fold is not behavior-preserving and the extraction has a defect —
+  **stop and report it.** This is the merge gate.
+- **Key-layout / construction edits — EXPECTED, behavior-preserving.** The suffix
+  constant a test reads (`SLIDER_COMMITTED_SUFFIX` → `CONTINUOUS_EDIT_COMMITTED_SUFFIX`),
+  the arbiter it constructs (`SliderArbiter(state, id)` →
+  `ContinuousEditArbiter(state, id, <Accessor>())`), and the payload keyword
+  (`observe(..., text=)` → `observe(..., value=)`) all change; the asserted VALUE
+  beside them does not. Fork-era scaffolding is deleted by design:
+  `test_widget_state.py::test_slider_suffixes_are_distinct_from_input_suffixes`
+  (its own docstring says this extraction deletes it), and the per-kind
+  slot-clearing tests collapse into one neutral-quad test.
+
+The distinction is the merge gate: key-layout and construction churn OK; a
+behavior-outcome change is NOT OK.
 
 ### 7.2 Rollback unit
 
