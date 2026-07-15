@@ -23,10 +23,14 @@ Tuple-specific cases the scalar suites cannot have:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Self
+from typing import Self
+
+import pytest
+from imgui_bundle import ImVec2
 
 from punt_lux.display.renderers import color_picker_renderer
 from punt_lux.display.renderers.color_picker_renderer import ColorPickerRenderer
+from punt_lux.display.renderers.imgui import color_channel_strip
 from punt_lux.display.renderers.imgui.continuous_edit_accessors import (
     ColorValueAccessor,
 )
@@ -37,9 +41,6 @@ from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.rgba_color import Rgba, RgbaColor
 from punt_lux.scene.widget_state import WidgetState
-
-if TYPE_CHECKING:
-    import pytest
 
 _RED: Rgba = (1.0, 0.0, 0.0, 1.0)
 _BLUE: Rgba = (0.0, 0.0, 1.0, 1.0)
@@ -249,6 +250,11 @@ class TestRemovalMidDrag:
 # -- the renderer: honour idle, defer dragging, commit once ----------------
 
 
+def _to_255(value: float) -> int:
+    """Return one ``[0, 1]`` channel as an 8-bit ``0..255`` int (the strip's map)."""
+    return max(0, min(255, round(value * 255.0)))
+
+
 @dataclass(frozen=True, slots=True)
 class _Frame:
     """One scripted imgui frame.
@@ -263,39 +269,154 @@ class _Frame:
     committed: bool
 
 
+class _FakeStyle:
+    """The two style fields ``ColorChannelStrip`` reads: inner spacing, rounding."""
+
+    item_inner_spacing: ImVec2
+    frame_rounding: float
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self.item_inner_spacing = ImVec2(4.0, 4.0)
+        self.frame_rounding = 2.0
+        return self
+
+
+class _FakeDrawList:
+    """A draw list that records each channel's proportional fill x-extent."""
+
+    fills: list[tuple[float, float]]
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self.fills = []
+        return self
+
+    def add_rect_filled(
+        self, p_min: ImVec2, p_max: ImVec2, _col: int, _rounding: float = 0.0
+    ) -> None:
+        """Record ``(x_min, x_max)`` — the value-proportional fill span."""
+        self.fills.append((p_min.x, p_max.x))
+
+
 class _FakeImgui:
-    """Fake imgui returning one scripted ``_Frame`` per ``color_*`` call.
+    """Fake imgui driving the channel-strip edit path (and the picker path).
 
     ``recorded`` is the sequence of colors ``render`` handed to the widget — the
-    honour/defer evidence (always an arity-4 tuple for a clean diff).
+    honour/defer evidence (arity-4 tuples). The strip feeds one DragInt per
+    channel inside a group; the fake reassembles the resolved-in color from those
+    per-channel ints at ``end_group``, so the evidence matches the picker path's
+    single-tuple record. One ``_Frame`` is consumed per widget — at
+    ``begin_group`` for the strip, at ``color_picker*`` for the picker.
     """
 
     recorded: list[Rgba]
+    draw_list: _FakeDrawList
     _frames: list[_Frame]
     _index: int
     _current: _Frame
+    _channel_ins: dict[int, int]
 
     def __new__(cls, *frames: _Frame) -> Self:
         self = super().__new__(cls)
         self.recorded = []
+        self.draw_list = _FakeDrawList()
         self._frames = list(frames)
         self._index = 0
         self._current = frames[0]
+        self._channel_ins = {}
         return self
 
-    def color_edit3(self, _label: str, current: object) -> tuple[bool, Rgba]:
-        return self._advance(current)
+    # -- channel-strip surface (the inline edit path) ----------------------
 
-    def color_edit4(self, _label: str, current: object) -> tuple[bool, Rgba]:
-        return self._advance(current)
+    def push_id(self, _id: str) -> None:
+        """No id stack in the fake."""
+
+    def pop_id(self) -> None:
+        """No id stack in the fake."""
+
+    def begin_group(self) -> None:
+        """Consume the next scripted frame and start collecting channel inputs."""
+        self._current = self._frames[self._index]
+        self._index += 1
+        self._channel_ins = {}
+
+    def end_group(self) -> None:
+        """Record the resolved-in color assembled from the channel inputs."""
+        r = self._channel_ins.get(0, 0) / 255.0
+        g = self._channel_ins.get(1, 0) / 255.0
+        b = self._channel_ins.get(2, 0) / 255.0
+        a = self._channel_ins[3] / 255.0 if 3 in self._channel_ins else 1.0
+        self.recorded.append((r, g, b, a))
+
+    def get_style(self) -> _FakeStyle:
+        return _FakeStyle()
+
+    def get_frame_height(self) -> float:
+        return 20.0
+
+    def calc_item_width(self) -> float:
+        # 204 - (frame_h 20 + spacing 4) = 180 -> three equal 60px channels, so a
+        # fill's x-extent is 60 * value/255 with no per-channel width rounding.
+        return 204.0
+
+    def get_window_draw_list(self) -> _FakeDrawList:
+        return self.draw_list
+
+    def get_color_u32(self, _col: object) -> int:
+        return 0
+
+    def get_cursor_screen_pos(self) -> ImVec2:
+        return ImVec2(0.0, 0.0)
+
+    def push_style_color(self, _idx: int, _col: object) -> None:
+        """The transparent-frame push is invisible to the value-only seam."""
+
+    def pop_style_color(self, _count: int = 1) -> None:
+        """Pair the transparent-frame pop."""
+
+    def same_line(self, _offset: float = 0.0, _spacing: float = -1.0) -> None:
+        """Layout is not asserted."""
+
+    def set_next_item_width(self, _width: float) -> None:
+        """Layout is not asserted."""
+
+    def text(self, _text: str) -> None:
+        """The label paint is not asserted."""
+
+    def color_button(
+        self, _desc_id: str, _col: object, _flags: int = 0, _size: object = None
+    ) -> bool:
+        """The preview swatch never registers a click in the fake."""
+        return False
+
+    def drag_int(
+        self,
+        label: str,
+        v: int,
+        _speed: float = 1.0,
+        _lo: int = 0,
+        _hi: int = 0,
+        _fmt: str = "%d",
+        _flags: int = 0,
+    ) -> tuple[bool, int]:
+        """Record the resolved-in channel; return the dragged channel when set."""
+        idx = int(label.removeprefix("##c"))
+        self._channel_ins[idx] = v
+        frame = self._current
+        if frame.dragged is None:
+            return (False, v)
+        return (True, _to_255(frame.dragged[idx]))
+
+    # -- picker surface (the full-picker path) -----------------------------
 
     def color_picker3(self, _label: str, current: object) -> tuple[bool, Rgba]:
-        return self._advance(current)
+        return self._pick(current)
 
     def color_picker4(self, _label: str, current: object) -> tuple[bool, Rgba]:
-        return self._advance(current)
+        return self._pick(current)
 
-    def _advance(self, current: object) -> tuple[bool, Rgba]:
+    def _pick(self, current: object) -> tuple[bool, Rgba]:
         as_tuple: Rgba = (
             float(current[0]),  # type: ignore[index]
             float(current[1]),  # type: ignore[index]
@@ -309,6 +430,8 @@ class _FakeImgui:
         value = as_tuple if frame.dragged is None else frame.dragged
         return (frame.dragged is not None, value)
 
+    # -- item state (aggregated over the group / picker) -------------------
+
     def is_item_active(self) -> bool:
         return self._current.active
 
@@ -318,6 +441,7 @@ class _FakeImgui:
 
 def _install(monkeypatch: pytest.MonkeyPatch, fake: _FakeImgui) -> None:
     monkeypatch.setattr(color_picker_renderer, "imgui", fake)
+    monkeypatch.setattr(color_channel_strip, "imgui", fake)
 
 
 def _picker(*, value: str = "#000000", alpha: bool = False) -> ColorPickerElement:
@@ -550,3 +674,74 @@ class TestRendererAlphaVariant:
         renderer.render(elem)
 
         assert [e.value for e in fired] == ["#FF000080"]
+
+
+class TestChannelFillScalesWithValue:
+    """The fix: each channel's colored fill x-extent scales 0..255 -> 0..width.
+
+    The regression was a fixed-width color *marker* (ColorEdit's 3px channel tab)
+    that never moved with the value. These tests read the recorded fill spans and
+    prove the span is now value-proportional, not constant.
+    """
+
+    def test_fill_extent_is_proportional_to_each_channel(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # An idle frame draws one fill per channel, in R, G, B order, each an
+        # x-span of 60 * value/255 over its 60px field.
+        fake = _FakeImgui(_Frame(dragged=None, active=False, committed=False))
+        _install(monkeypatch, fake)
+        renderer = ColorPickerRenderer(WidgetState())
+
+        renderer.render(_picker(value="#FF3399"))  # R=255, G=51, B=153
+
+        spans = [x_max - x_min for x_min, x_max in fake.draw_list.fills]
+        assert len(spans) == 3
+        assert spans[0] == pytest.approx(60.0 * 255 / 255)
+        assert spans[1] == pytest.approx(60.0 * 51 / 255)
+        assert spans[2] == pytest.approx(60.0 * 153 / 255)
+
+    def test_a_larger_channel_value_yields_a_wider_fill(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The exact operator scenario: R=216 vs R=37 must NOT render the same
+        # sliver. Two idle frames, the R fill span tracks the value.
+        fake = _FakeImgui(
+            _Frame(dragged=None, active=False, committed=False),
+            _Frame(dragged=None, active=False, committed=False),
+        )
+        _install(monkeypatch, fake)
+        renderer = ColorPickerRenderer(WidgetState())
+
+        renderer.render(_picker(value="#D80000"))  # R=216
+        renderer.render(_picker(value="#250000"))  # R=37
+
+        r_high = fake.draw_list.fills[0][1] - fake.draw_list.fills[0][0]
+        r_low = fake.draw_list.fills[1][1] - fake.draw_list.fills[1][0]
+        assert r_high > r_low
+        assert r_high == pytest.approx(60.0 * 216 / 255)
+        assert r_low == pytest.approx(60.0 * 37 / 255)
+
+
+class TestRendererPickerVariant:
+    def test_picker_true_routes_through_color_picker_and_commits(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The full-picker variant keeps ImGui's color_picker3; a drag then release
+        # still commits exactly one hex through the unchanged reconciliation seam.
+        fake = _FakeImgui(
+            _Frame(dragged=_GREEN, active=True, committed=False),
+            _Frame(dragged=None, active=False, committed=True),
+        )
+        _install(monkeypatch, fake)
+        elem = ColorPickerElement(id="c", label="Bg", value="#000000", picker=True)
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = ColorPickerRenderer(WidgetState())
+
+        renderer.render(elem)
+        renderer.render(elem)
+
+        assert [e.value for e in fired] == ["#00FF00"]
+        assert fake.recorded == [(0.0, 0.0, 0.0, 1.0), _GREEN]
+        assert fake.draw_list.fills == []  # the picker path draws no channel fills
