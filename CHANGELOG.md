@@ -92,6 +92,33 @@
   state, so a value arriving before its widening `max` is accepted). Decodes to
   the ABC path when its subtree is all-ABC; `resolved_props()` reports
   `value`/`min`/`max`/`format`/`integer`/`tooltip`.
+- **`color_picker` interactive color input on the ABC path** — the third
+  non-atomic mutable control (after `input_text` and `slider`). A single ABC
+  `ColorPickerElement` (hex-string `value`, orthogonal `alpha`/`picker` flags)
+  carrying a commit-on-idle drag reconciliation over an **RGBA-tuple carrier**:
+  while idle the picker tracks the Hub color, while dragging a sub-control the
+  local buffer wins so a Hub re-push landing mid-drag cannot clobber the color
+  under the cursor, and exactly one `ValueChanged` fires on release. The
+  color_edit/color_picker sub-controls each fire an independent deactivate, so a
+  gesture across the SV square and hue bar commits the whole color once per
+  sub-control release — never a partial channel. The discipline is the *same*
+  verified state machine `input_text`/`slider` use
+  (`docs/input_text_reconciliation.tex`) — the model is type-agnostic, so a
+  bespoke `ColorPickerArbiter` (the tuple sibling of `SliderArbiter`) implements
+  it unchanged. Tuple `==` is elementwise, so the optimistic-echo window closes
+  atomically only when every channel echoes back; the renderer commits the
+  *quantized* (8-bit round-tripped) tuple so the committed value bit-equals the
+  echo (no full-precision→8-bit color pop). `validate()` rejects a malformed hex
+  (the reconciliation-soundness precondition — a well-formed hex parses to finite
+  channels, so no `NaN` is reachable and no `math.isfinite` loop is needed);
+  length is not checked against `alpha` (a 6-digit value under RGBA pads to
+  opaque, an 8-digit value under RGB drops its alpha). A new frozen `RgbaColor`
+  value object owns the hex↔tuple↔hex conversion. Decodes to the ABC path when
+  its subtree is all-ABC; `resolved_props()` reports
+  `value`/`alpha`/`picker`/`tooltip`.
+- **Color-picker tooltips are now shown** — a `tooltip` on a color picker was
+  previously dropped on the wire (the legacy codec never emitted or read it); it
+  is now carried and rendered, matching `input_text`/`slider`/`checkbox`.
 - **Slider tooltips are now shown** — a `tooltip` on a slider was previously
   dropped on the wire (the legacy codec never emitted or read it); it is now
   carried and rendered, matching `input_text` and `checkbox`.

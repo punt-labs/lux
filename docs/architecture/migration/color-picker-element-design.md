@@ -67,6 +67,64 @@ versa. See [Part D](#part-d--pr-boundary).
 
 ---
 
+## Peer-review amendments (applied in implementation)
+
+Eight refinements the leader ratified before dispatch, folded into the parts
+below and recorded here as the resolved decisions the shipped code implements:
+
+1. **Sub-control commits are sequential whole-color commits, not partials.**
+   ImGui's `color_edit4` / `color_picker4` sub-controls (SV square, hue bar, alpha
+   bar, per-channel inputs, hex field) each fire an *independent*
+   `is_item_deactivated_after_edit`, and each commits the **whole** color as one
+   hex. A gesture across several sub-controls is a run of sequential whole-color
+   commits — the single-slot commit-on-idle case — never a partial-channel echo.
+   The bespoke arbiter handles them exactly as it handles one commit. Do **not**
+   assume one deactivate per widget.
+2. **Commit the quantized tuple.** On release the renderer commits
+   `RgbaColor.from_hex(hex).as_tuple()` — the 8-bit round-tripped value — against
+   the Hub tuple, so `committed` bit-equals the eventual echo and there is no
+   full-precision→8-bit one-frame color pop (§A.5, §B.2).
+3. **The carrier is arity-4 always.** The RGBA tuple is normalized to length 4
+   regardless of `alpha` (alpha `1.0` when `alpha=False`). `WidgetState.get_tuple`
+   and the `resolve` return cast (`RgbaColor.coerce`) both **guarantee** arity 4 —
+   not "3 or 4" — since `resolve`'s editing branch returns the buffer uncoerced
+   and tuple `==` needs a fixed arity (§B.2).
+4. **`validate()` check-2 is a decision, lenient.** The `alpha=False` + 8-digit
+   case (`#RRGGBB80`) is **accepted**, not rejected — the encoder drops the alpha
+   under RGB. Symmetrically `alpha=True` + 6-digit pads to opaque. `validate()`
+   enforces only hex well-formedness (check-1); length is not checked against
+   `alpha` (§A.7).
+5. **No `apply_patch` override — sound only under the lenient check-2.** With a
+   lenient boundary there is no cross-field invariant to re-check after a patch,
+   so the base setter loop suffices. A strict check-2 would reintroduce a
+   boundary re-check; keep it lenient (§A.1, §A.7).
+6. **The tuple buffer gets its own `WidgetState` suffix.** The per-patch
+   `widget_value` mirror writes the hex *string* under the bare element id, so
+   the tuple buffer lives under a dedicated `COLOR_BUFFER` suffix — the tuple
+   buffer and the mirrored hex never alias in type on one key (§A.5, §B.2).
+7. **`RgbaColor` is the ABC path's own value type.** Frozen (`__slots__`, no
+   setters), `@final`: `from_hex(str) -> Self`, `to_hex(*, alpha) -> str`,
+   `as_tuple() -> Rgba`, `coerce(stored) -> Rgba` — data+behavior on the class
+   (PY-OO-5/7). `_color.py`'s `parse_hex_color` / `parse_rgba` stay for their
+   still-legacy `text` / `spinner` consumers; `RgbaColor` is not those reheated
+   (§A.5).
+8. **One protocol touch only.** Color rides the **existing** `str` arm of
+   `ValueChanged.value` (a hex string) — no union widening; only the PY-TS-14
+   comment is refreshed. The one protocol change is activating the wire-dead
+   `tooltip` (encoder emits when present, decoder reads it) — CHANGELOG'd (§A.6).
+
+**A.4 correction (mirror `slider` exactly).** The migration keeps
+`ColorPickerRenderer` in `ElementRenderer` — the field, its construction (now the
+commit-on-idle renderer taking only `widget_state`), the `_NATIVE_DISPATCH`
+entry, the `_WIDGET_STATE_RENDERERS` re-thread entry, plus a new
+`color_picker_renderer` property the ImGui adapter paints through — exactly as
+`slider` does. The A.4 text below that reads "remove the dispatch entry / field /
+construction" is superseded: it is swapped from the legacy fire-every-change
+renderer to the commit-on-idle one, not removed. Only the legacy
+`color_picker_renderer.py` body is replaced.
+
+---
+
 ## 1. What crosses the boundary, what is authoritative, what is local
 
 Restating the Hub/Display split for this kind in the designer's own words, per
@@ -534,10 +592,16 @@ echo-token scheme (`lux-ld6y`) exactly as for the other two:
 
 ## Part C — the shared extraction: `ContinuousEditArbiter` (`lux-ld6y`)
 
-With **three** concrete non-atomic mutable elements in hand
-(`InputTextArbiter`, `SliderArbiter`, and the new `ColorPickerArbiter`), the
-Rule of Three is satisfied and the shared abstraction is extracted. This part
-designs it; Part D recommends it ship as its own PR.
+**Deferred to a later phase (per the operator).** This part is **not** finalized
+or implemented here. The operator sequenced the work in two phases: Phase 1
+(this PR) builds and fully tests `color_picker` with a **bespoke**
+`ColorPickerArbiter`; a **later** phase designs and extracts the shared
+`ContinuousEditArbiter` **from the three now-working implementations**
+(`InputTextArbiter`, `SliderArbiter`, `ColorPickerArbiter`) rather than
+speculatively from two. The sketch below is retained as a *starting point* for
+that later design — the seams it names (the single value-accessor, the neutral
+`WidgetState` suffixes) are hypotheses to validate against three shipped cases,
+not a committed API. Do not treat it as the extraction's final shape.
 
 ### C.1 What all three share (already proven mechanical)
 
