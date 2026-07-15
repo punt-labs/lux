@@ -24,29 +24,29 @@
 % floats crossed the wire.
 %
 % Source of record:
-%   src/punt_lux/display/renderers/imgui/input_text_selection.py
-%       -- InputTextArbiter: resolve (honour-or-defer), observe, commit, release
+%   src/punt_lux/display/renderers/imgui/continuous_edit_selection.py
+%       -- ContinuousEditArbiter[T]: the ONE shared implementation of this state
+%          machine for all three carriers -- resolve (honour-or-defer), observe,
+%          commit, release. The two carrier-typed touches (buffer read, committed
+%          coerce) are delegated to an injected ValueAccessor[T].
+%   src/punt_lux/display/renderers/imgui/continuous_edit_accessors.py
+%       -- StrValueAccessor / FloatValueAccessor / ColorValueAccessor: the per-type
+%          buffer read (with its miss policy) and committed coercion. The color
+%          carrier's finiteness precondition is discharged structurally by the hex
+%          encoding; the float carrier's by SliderElement.validate.
 %   src/punt_lux/display/renderers/input_text_renderer.py
 %       -- InputTextRenderer.render: the per-frame active/deactivate/fire
 %          decision over an ImGui input_text widget
-%   src/punt_lux/display/renderers/imgui/slider_selection.py
-%       -- SliderArbiter: the float sibling of InputTextArbiter, same
-%          resolve/observe/commit/release honour-or-defer control flow
 %   src/punt_lux/display/renderers/slider_renderer.py
 %       -- SliderRenderer.render: the per-frame active/deactivate/fire
 %          decision over an ImGui slider_float / slider_int widget
-%   src/punt_lux/display/renderers/imgui/color_picker_selection.py
-%       -- ColorPickerArbiter: the RGBA-tuple sibling of InputTextArbiter, same
-%          resolve/observe/commit/release honour-or-defer control flow; the
-%          carrier is an arity-4 tuple whose finiteness precondition is
-%          discharged structurally by the hex encoding
 %   src/punt_lux/display/renderers/color_picker_renderer.py
 %       -- ColorPickerRenderer.render: the per-frame active/deactivate/fire
 %          decision over ImGui color_edit3/4 / color_picker3/4 widgets, committing
 %          the quantized tuple so committed bit-equals the echo
 %   src/punt_lux/scene/widget_state.py
-%       -- WidgetState: the per-scene buffer/editing slots (input, slider, and
-%          color triples/quad) and their removal clear (discard_for)
+%       -- WidgetState: the per-scene shared CONTINUOUS_EDIT_* buffer/editing/
+%          commit-echo quad and its removal clear (discard_for)
 %
 % Type-check:  fuzz -t docs/input_text_reconciliation.tex
 % Model-check (see Section "Verification" for the exact goal predicates):
