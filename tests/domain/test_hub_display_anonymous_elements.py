@@ -24,7 +24,11 @@ from punt_lux.domain.hub.element_index import ElementIndex
 from punt_lux.domain.hub.hub_display import HubDisplay, UnknownElementError
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement, RemoveElement
-from punt_lux.protocol.elements import SeparatorElement, SliderElement, TextElement
+from punt_lux.protocol.elements import (
+    InputNumberElement,
+    SeparatorElement,
+    TextElement,
+)
 from punt_lux.protocol.elements.layout import LegacyGroupElement
 
 _SCENE = SceneId("anon-scene")
@@ -163,7 +167,7 @@ def test_write_to_legacy_child_of_anonymous_group_names_the_group() -> None:
     hub.register_client(_CONN)
     group = LegacyGroupElement(
         id="",  # anonymous root — stored under a synthesized handle
-        children=[SliderElement(id="buried", label="s")],
+        children=[InputNumberElement(id="buried", label="s")],
     )
     # The production scene decoder yields legacy elements as ``Element``; the cast
     # mirrors that runtime contract past a codec-signature variance quibble.

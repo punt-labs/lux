@@ -24,6 +24,8 @@ from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.input_text_codec import JsonInputTextEncoder
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.progress_codec import JsonProgressEncoder
+from punt_lux.protocol.elements.slider import SliderElement
+from punt_lux.protocol.elements.slider_codec import JsonSliderEncoder
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.tab_bar_codec import JsonTabBarEncoder
 from punt_lux.protocol.elements.text import TextElement
@@ -48,6 +50,7 @@ class JsonEncoderFactory:
         (CollapsingHeaderElement, JsonCollapsingHeaderEncoder().encode),
         (TabBarElement, JsonTabBarEncoder().encode),
         (ProgressElement, JsonProgressEncoder().encode),
+        (SliderElement, JsonSliderEncoder().encode),
     )
 
     def __new__(cls) -> Self:

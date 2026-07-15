@@ -210,7 +210,7 @@ def test_hub_interaction_dispatch_runs_checkbox_value_changed_handler(
     isolated_display.register_client(owner)
 
     checkbox = CheckboxElement(id=str(element_id), label="Toggle")
-    seen: list[tuple[str, bool | str]] = []
+    seen: list[tuple[str, bool | int | float | str]] = []
 
     def _handler(event: ValueChanged) -> None:
         seen.append(("handled", event.value))
@@ -281,14 +281,15 @@ def test_hub_interaction_dispatch_unknown_event_kind_returns_silently(
     assert fired == []
 
 
-def test_hub_interaction_dispatch_value_changed_rejects_non_bool(
+def test_hub_interaction_dispatch_value_changed_rejects_non_scalar(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A value_changed payload that is neither bool nor str logs and returns.
+    """A non-scalar value_changed payload logs and returns.
 
-    ``value_changed`` legitimately carries a ``bool`` (checkbox) or ``str``
-    (input_text); the firing element's own setter re-validates the shape for its
-    kind. A value of another type is rejected at the hub dispatch itself.
+    ``value_changed`` legitimately carries a ``bool`` (checkbox), ``str``
+    (input_text), or ``int``/``float`` (slider); the firing element's own setter
+    re-validates the shape for its kind. A non-scalar value (here a list) is
+    rejected at the hub dispatch itself.
     """
     import punt_lux.domain.hub as hub_module
 
@@ -315,7 +316,7 @@ def test_hub_interaction_dispatch_value_changed_rejects_non_bool(
             action="changed",
             event_kind="value_changed",
             ts=1.0,
-            value=123,
+            value=[1, 2, 3],
         )
     )
 

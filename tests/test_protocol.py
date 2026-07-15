@@ -783,20 +783,20 @@ class TestSerialization:
         assert elem.format == "%.1f"
 
     def test_slider_integer_flag_roundtrip(self):
+        # ABC slider crosses as a pickled entry, so assert the flag via the
+        # restored element, not the wire dict; the Level-1 JSON shape carries it.
         e = SliderElement(id="sl2", label="N", integer=True)
+        assert e.to_dict()["integer"] is True
         scene = SceneMessage(id="s1", elements=[e])
-        d = message_to_dict(scene)
-        assert d["elements"][0]["integer"] is True
-        restored = message_from_dict(d)
+        restored = message_from_dict(message_to_dict(scene))
         assert isinstance(restored, SceneMessage)
         assert isinstance(restored.elements[0], SliderElement)
         assert restored.elements[0].integer is True
 
     def test_slider_integer_false_excluded(self):
+        # The default integer=False is omitted from the Level-1 JSON shape.
         e = SliderElement(id="sl3", label="X")
-        scene = SceneMessage(id="s1", elements=[e])
-        d = message_to_dict(scene)
-        assert "integer" not in d["elements"][0]
+        assert "integer" not in e.to_dict()
 
     def test_checkbox_roundtrip(self):
         e = CheckboxElement(id="cb1", label="On", value=True)
@@ -922,8 +922,8 @@ class TestSerialization:
         assert isinstance(grp.children[1], ButtonElement)
 
     def test_tab_bar_roundtrip(self):
-        # A legacy slider child keeps the subtree off the all-ABC path, so the
-        # tab bar decodes onto the legacy dataclass whose tabs are dicts.
+        # A legacy input_number child keeps the subtree off the all-ABC path, so
+        # the tab bar decodes onto the legacy dataclass whose tabs are dicts.
         e = LegacyTabBarElement(
             id="tb1",
             tabs=[
@@ -935,7 +935,7 @@ class TestSerialization:
                     "label": "Tab 2",
                     "children": [
                         ButtonElement(id="b1", label="Action"),
-                        SliderElement(id="sl1", label="Vol"),
+                        InputNumberElement(id="in1", label="Vol"),
                     ],
                 },
             ],
@@ -952,15 +952,15 @@ class TestSerialization:
         assert len(tb.tabs[1]["children"]) == 2
 
     def test_collapsing_header_roundtrip(self):
-        # A legacy slider child keeps the subtree off the all-ABC path, so the
-        # header decodes onto the legacy dataclass that carries ``default_open``.
+        # A legacy input_number child keeps the subtree off the all-ABC path, so
+        # the header decodes onto the legacy dataclass that carries ``default_open``.
         e = LegacyCollapsingHeaderElement(
             id="ch1",
             label="Advanced",
             default_open=True,
             children=[
                 CheckboxElement(id="cb1", label="Debug"),
-                SliderElement(id="sl1", label="Level"),
+                InputNumberElement(id="in1", label="Level"),
             ],
         )
         scene = SceneMessage(id="s1", elements=[e])
@@ -1292,14 +1292,14 @@ class TestSerialization:
                 TextElement(id="t2", content="B"),
             ],
         )
-        # A legacy slider sibling keeps the tab bar's subtree off the all-ABC
-        # path, so it decodes legacy and forces the nested group legacy too.
+        # A legacy input_number sibling keeps the tab bar's subtree off the
+        # all-ABC path, so it decodes legacy and forces the nested group legacy.
         outer = LegacyTabBarElement(
             id="tb1",
             tabs=[
                 {
                     "label": "Layout",
-                    "children": [inner, SliderElement(id="sl1", label="Vol")],
+                    "children": [inner, InputNumberElement(id="in1", label="Vol")],
                 }
             ],
         )

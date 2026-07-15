@@ -134,7 +134,7 @@ class ElementRenderer:
         self._spinner_renderer = SpinnerRenderer()
         self._markdown_renderer = MarkdownRenderer()
         self._button_renderer = ButtonRenderer()
-        self._slider_renderer = SliderRenderer(widget_state, emit_event)
+        self._slider_renderer = SliderRenderer(widget_state)
         self._checkbox_renderer = CheckboxRenderer()
         self._combo_renderer = ComboRenderer(widget_state, emit_event)
         self._input_text_renderer = InputTextRenderer(widget_state)
@@ -217,6 +217,16 @@ class ElementRenderer:
     def input_text_renderer(self) -> InputTextRenderer:
         """Return the per-kind input_text renderer for the ImGui adapter."""
         return self._input_text_renderer
+
+    @property
+    def slider_renderer(self) -> SliderRenderer:
+        """Return the per-kind slider renderer for the ImGui adapter.
+
+        The instance is owned here, not by the factory, so the D21 fire path
+        and the commit-echo reconciliation stay on the one renderer the ABC
+        slider adapter paints through.
+        """
+        return self._slider_renderer
 
     @property
     def widget_state(self) -> WidgetState:

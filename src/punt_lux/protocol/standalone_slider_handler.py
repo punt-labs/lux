@@ -1,9 +1,9 @@
-"""Standalone ``HandlerDecoder[ValueChanged]`` builder for InputTextElement.
+"""Standalone ``HandlerDecoder[ValueChanged]`` builder for SliderElement.
 
-Parallel to ``standalone_checkbox_handler.py``: an input_text without a parent
+Parallel to ``standalone_input_text_handler.py``: a slider without a parent
 composite model has no verb vocabulary, so the explicit factory registry
-contains only ``noop``. The built-in state-sync handler (``_UpdateTextHandler``)
-is installed separately by ``JsonInputTextDecoder`` before any wire-declared
+contains only ``noop``. The built-in state-sync handler (``_UpdateValueHandler``)
+is installed separately by ``JsonSliderDecoder`` before any wire-declared
 handlers are decoded. The decorator registry binds to whatever ``PublishSink``
 the caller supplies.
 """
@@ -21,7 +21,7 @@ from punt_lux.protocol.handler_decoder import FactoryRegistry, HandlerDecoder
 if TYPE_CHECKING:
     from punt_lux.domain.handlers.decorators import PublishSink
 
-__all__ = ["build_standalone_input_text_handler_decoder"]
+__all__ = ["build_standalone_slider_handler_decoder"]
 
 
 @final
@@ -32,15 +32,15 @@ class _NoopValueHandler:
         return None
 
 
-def build_standalone_input_text_handler_decoder(
+def build_standalone_slider_handler_decoder(
     sink: PublishSink,
 ) -> HandlerDecoder[ValueChanged]:
-    """Return the ``HandlerDecoder`` for a standalone InputTextElement.
+    """Return the ``HandlerDecoder`` for a standalone SliderElement.
 
     Registers only the ``noop`` factory — a do-nothing handler for when the
     sole side effect is a decorator like ``publish``. The built-in state-sync
-    handler is installed directly by ``JsonInputTextDecoder`` so every decoded
-    input keeps its text value mirrored even when the wire JSON declares none.
+    handler is installed directly by ``JsonSliderDecoder`` so every decoded
+    slider keeps its value mirrored even when the wire JSON declares none.
     """
     factories: FactoryRegistry[ValueChanged] = FactoryRegistry()
 

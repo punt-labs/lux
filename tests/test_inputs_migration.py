@@ -159,10 +159,10 @@ def test_checkbox_tooltip_round_trips_through_abc_path() -> None:
 def test_checkbox_absent_from_legacy_codec_table() -> None:
     """No dual live path: the migrated ABC kinds leave the ``ElementCodec``.
 
-    text/button/checkbox/dialog decode and encode through the per-kind ABC
-    path; leaving any of them in the legacy ``ElementCodec`` table would be
+    text/button/checkbox/dialog/slider decode and encode through the per-kind
+    ABC path; leaving any of them in the legacy ``ElementCodec`` table would be
     two live registrations for one kind. A still-legacy input kind
-    (``slider``) remains registered as the negative control.
+    (``combo``) remains registered as the negative control.
     """
     from punt_lux.protocol.elements import build_element_codec
 
@@ -170,7 +170,8 @@ def test_checkbox_absent_from_legacy_codec_table() -> None:
     assert "checkbox" not in kinds
     assert "button" not in kinds
     assert "text" not in kinds
-    assert "slider" in kinds
+    assert "slider" not in kinds
+    assert "combo" in kinds
 
 
 def test_combo_round_trip_with_items() -> None:

@@ -25,6 +25,7 @@ from punt_lux.protocol import (
     ComboElement,
     DrawElement,
     GroupElement,
+    InputNumberElement,
     InputTextElement,
     LegacyGroupElement,
     MarkdownElement,
@@ -954,19 +955,19 @@ def _seed_legacy_root(
     value: float = 50.0,
     connection: str = "local",
 ) -> None:
-    """Install one legacy (non-ABC) slider root under ``connection``.
+    """Install one legacy (non-ABC) input_number root under ``connection``.
 
     A frozen wire dataclass is realized by ``dataclasses.replace`` on the write
     path — a legacy *root* is fully patchable, and its index entry is rebound to
     the fresh instance.
     """
-    slider = agent_element_factory().element_from_dict(
-        {"kind": "slider", "id": element_id, "value": value}
+    number = agent_element_factory().element_from_dict(
+        {"kind": "input_number", "id": element_id, "value": value}
     )
     store.replace_scene(
         ConnectionId(connection),
         SceneId(scene),
-        [cast("DomainElement", slider)],
+        [cast("DomainElement", number)],
     )
 
 
@@ -978,14 +979,14 @@ def _seed_legacy_window_with_child(
     child_id: str = "sl_child",
     title: str = "Old",
     connection: str = "local",
-) -> SliderElement:
-    """Install a legacy window root holding one legacy slider child.
+) -> InputNumberElement:
+    """Install a legacy window root holding one legacy input_number child.
 
     A legacy composite: the whole subtree is frozen values, so a ``replace`` on
     the root shares the child by reference. Returns the child object so a test
     can assert its identity survives a root patch.
     """
-    child = SliderElement(id=child_id, label="Vol", value=50.0)
+    child = InputNumberElement(id=child_id, label="Vol", value=50.0)
     window = WindowElement(id=window_id, title=title, children=[child])
     store.replace_scene(
         ConnectionId(connection),
@@ -1497,9 +1498,9 @@ class TestUpdateTool:
         result = update("s1", [{"id": "sl1", "set": {"value": 10.0}}])
 
         assert result == "ack:s1"
-        slider = store.resolve(SceneId("s1"), ElementId("sl1"))
-        assert isinstance(slider, SliderElement)
-        assert slider.value == 10.0
+        number = store.resolve(SceneId("s1"), ElementId("sl1"))
+        assert isinstance(number, InputNumberElement)
+        assert number.value == 10.0
         client.show_async.assert_called_once()
         pushed = client.show_async.call_args.kwargs["elements"]
         assert pushed[0].value == 10.0
@@ -1601,7 +1602,7 @@ class TestUpdateTool:
 
         assert result.startswith("error: scene not updated")
         assert "immutable" in result
-        assert store.resolve(SceneId("s1"), ElementId("sl1")).kind == "slider"
+        assert store.resolve(SceneId("s1"), ElementId("sl1")).kind == "input_number"
         client.show_async.assert_not_called()
 
     def test_update_rejects_unknown_field_abc(
@@ -1701,13 +1702,13 @@ class TestUpdateTool:
         """
         store = HubDisplay()
         header = CollapsingHeaderElement(id="hdr", label="Details", open=False)
-        slider = agent_element_factory().element_from_dict(
-            {"kind": "slider", "id": "sl1", "value": 50.0}
+        number = agent_element_factory().element_from_dict(
+            {"kind": "input_number", "id": "sl1", "value": 50.0}
         )
         store.replace_scene(
             ConnectionId("local"),
             SceneId("s1"),
-            [cast("DomainElement", header), cast("DomainElement", slider)],
+            [cast("DomainElement", header), cast("DomainElement", number)],
         )
         client = _bind_store(monkeypatch, store)
 
@@ -1723,9 +1724,9 @@ class TestUpdateTool:
         patched_header = store.resolve(SceneId("s1"), ElementId("hdr"))
         assert isinstance(patched_header, CollapsingHeaderElement)
         assert patched_header.open is True
-        patched_slider = store.resolve(SceneId("s1"), ElementId("sl1"))
-        assert isinstance(patched_slider, SliderElement)
-        assert patched_slider.value == 10.0
+        patched_number = store.resolve(SceneId("s1"), ElementId("sl1"))
+        assert isinstance(patched_number, InputNumberElement)
+        assert patched_number.value == 10.0
         client.show_async.assert_called_once()
 
     def test_update_cross_connection_legacy_ownership_is_rejected(
@@ -1750,9 +1751,9 @@ class TestUpdateTool:
 
         assert patched.startswith("error: scene not updated")
         assert removed.startswith("error: scene not updated")
-        slider = store.resolve(SceneId("s1"), ElementId("sl1"))
-        assert isinstance(slider, SliderElement)
-        assert slider.value == 50.0
+        number = store.resolve(SceneId("s1"), ElementId("sl1"))
+        assert isinstance(number, InputNumberElement)
+        assert number.value == 50.0
         client.show_async.assert_not_called()
 
     def test_update_batch_with_legacy_composite_rejection_is_atomic(
