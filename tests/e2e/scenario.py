@@ -24,6 +24,7 @@ from .publish_source import PayloadPublish, PublishSource, WirePublish
 from .repush_effect import PropAfterDispatch, RemovedAfterDispatch, RepushEffect
 
 __all__ = [
+    "COLOR_COMMIT_VALUE",
     "INPUT_COMMIT_TEXT",
     "SCENARIOS",
     "SLIDER_COMMIT_VALUE",
@@ -41,6 +42,11 @@ INPUT_COMMIT_TEXT = "Ada Lovelace"
 # [0, 100] slider. Shared with the agent's synthetic-event builder for the same
 # reason: a drag has no structural source for its value.
 SLIDER_COMMIT_VALUE = 42.5
+
+# The hex color a color_picker drag commits in the loop. Shared with the agent's
+# synthetic-event builder for the same reason: a color drag has no structural
+# source for its value.
+COLOR_COMMIT_VALUE = "#3366CC"
 
 
 @dataclass(frozen=True, slots=True)
@@ -321,6 +327,71 @@ class Scenario:
                 element_id="level-field",
                 field="value",
                 value=SLIDER_COMMIT_VALUE,
+                flipped=True,
+            ),
+        )
+
+    @classmethod
+    def group_color_picker_progress(cls) -> Self:
+        """A group holding a publishing color_picker and a display-only progress.
+
+        Committing a drag crosses as ``value_changed`` carrying the final hex
+        string; the built-in state-sync handler writes the Hub ``value``
+        (``#FFFFFF`` -> the committed hex), so the dispatch re-push carries the
+        mutated value. A wire ``handlers`` entry publishes ``color_changed``; the
+        agent reacts by advancing the bar. Proves the migrated tuple-carrier
+        picker rides the faithful boundary as a plain hex ``str``.
+        """
+        return cls(
+            name="group-color-picker-progress",
+            scene_id="e2e-color-picker-scene",
+            elements=(
+                {
+                    "kind": "group",
+                    "id": "cp-surface",
+                    "layout": "rows",
+                    "children": (
+                        {
+                            "kind": "color_picker",
+                            "id": "fill-field",
+                            "label": "Fill",
+                            "value": "#FFFFFF",
+                            "handlers": [
+                                {
+                                    "event": "changed",
+                                    "factory": "noop",
+                                    "wrap": [
+                                        {
+                                            "decorator": "publish",
+                                            "topics": ["color_changed"],
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "kind": "progress",
+                            "id": "cp-progress",
+                            "fraction": 0.0,
+                            "label": "idle",
+                        },
+                    ),
+                },
+            ),
+            target_element_id="fill-field",
+            interaction=InteractionExpectation(
+                event_kind="value_changed", value=COLOR_COMMIT_VALUE
+            ),
+            publish=WirePublish("color_changed"),
+            react=(
+                ReactPatch(element_id="cp-progress", field="fraction", value=1.0),
+                ReactPatch(element_id="cp-progress", field="label", value="picked"),
+            ),
+            display_only_id="cp-progress",
+            repush=PropAfterDispatch(
+                element_id="fill-field",
+                field="value",
+                value=COLOR_COMMIT_VALUE,
                 flipped=True,
             ),
         )
@@ -706,6 +777,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario.group_checkbox_progress(),
     Scenario.group_input_text_progress(),
     Scenario.group_slider_progress(),
+    Scenario.group_color_picker_progress(),
     Scenario.collapsing_header_toggle_progress(),
     Scenario.collapsing_header_button_progress(),
     Scenario.tab_bar_change_progress(),

@@ -29,13 +29,14 @@ from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
+from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.tools.hub_factory import hub_element_factory
 from punt_lux.tools.inbox import drain_inbox, ensure_writer, next_event
 
-from .scenario import INPUT_COMMIT_TEXT, SLIDER_COMMIT_VALUE
+from .scenario import COLOR_COMMIT_VALUE, INPUT_COMMIT_TEXT, SLIDER_COMMIT_VALUE
 from .target_handlers import RecordingClickHandler
 
 if TYPE_CHECKING:
@@ -292,6 +293,13 @@ class SimulatedAgent:
                 owner_id=ClientId("__display__"),
                 value=SLIDER_COMMIT_VALUE,
             )
+        if isinstance(element, ColorPickerElement):
+            return ValueChanged(
+                scene_id=SceneId("__display__"),
+                element_id=ElementId(element.id),
+                owner_id=ClientId("__display__"),
+                value=COLOR_COMMIT_VALUE,
+            )
         if isinstance(element, CollapsingHeaderElement):
             return HeaderToggled(
                 scene_id=SceneId("__display__"),
@@ -322,7 +330,10 @@ class SimulatedAgent:
         """Return the interaction event type the target fires."""
         if isinstance(element, ButtonElement):
             return ButtonClicked
-        if isinstance(element, CheckboxElement | InputTextElement | SliderElement):
+        if isinstance(
+            element,
+            CheckboxElement | InputTextElement | SliderElement | ColorPickerElement,
+        ):
             return ValueChanged
         if isinstance(element, CollapsingHeaderElement):
             return HeaderToggled
