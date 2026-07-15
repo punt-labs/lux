@@ -8,6 +8,8 @@ and the fail-loud contract on malformed input (a validated hex never reaches
 
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from punt_lux.protocol.elements.rgba_color import RgbaColor
@@ -78,6 +80,25 @@ class TestRoundTrip:
         committed = RgbaColor.from_hex(hex_val).as_tuple()
         echoed = RgbaColor.from_hex(hex_val).as_tuple()
         assert committed == echoed
+
+
+class TestNormalize:
+    @pytest.mark.parametrize("bad", [math.nan, math.inf, -math.inf])
+    def test_non_finite_channel_is_rejected_at_construction(self, bad: float) -> None:
+        # The load-bearing invariant: a non-finite channel would make tuple
+        # equality non-reflexive (NaN != NaN) and hold the reconciliation echo
+        # window open forever, so construction rejects it rather than storing it.
+        with pytest.raises(ValueError, match="finite"):
+            RgbaColor((0.5, bad, 0.5, 1.0))
+
+    def test_non_finite_channel_is_rejected_by_coerce(self) -> None:
+        with pytest.raises(ValueError, match="finite"):
+            RgbaColor.coerce((0.5, math.nan, 0.5, 1.0))
+
+    def test_out_of_range_channels_clamp_at_construction(self) -> None:
+        # ImGui can hand back a hair outside [0, 1]; the value type clamps into
+        # range at construction so as_tuple never emits an out-of-range channel.
+        assert RgbaColor((1.5, -0.2, 0.0, 2.0)).as_tuple() == (1.0, 0.0, 0.0, 1.0)
 
 
 class TestCoerce:

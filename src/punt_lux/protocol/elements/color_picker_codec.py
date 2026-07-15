@@ -50,8 +50,9 @@ class _UpdateValueHandler:
         return (object.__new__, (type(self),), {"_elem": self._elem})
 
     def __setstate__(self, state: dict[str, object]) -> None:
-        for key, value in state.items():
-            object.__setattr__(self, key, value)
+        # Assign only the known slot, never arbitrary keys — unpickling crosses
+        # the IPC trust boundary, so a crafted state can't graft on attributes.
+        object.__setattr__(self, "_elem", state["_elem"])
 
     @trace
     def __call__(self, event: ValueChanged) -> None:
@@ -165,10 +166,9 @@ class JsonColorPickerEncoder:
     """Encode a ``ColorPickerElement`` to its JSON-compatible wire dict.
 
     Stateless. ``alpha`` and ``picker`` are emitted only when ``True`` and
-    ``tooltip`` only when present, so the wire shape matches the prior dataclass
-    codec byte-for-byte in the tooltip-absent case; a present ``tooltip`` is now
-    carried (the legacy dataclass codec dropped it — this activates it for
-    parity with input_text / slider / checkbox).
+    ``tooltip`` only when present, so the tooltip-absent wire shape matches the
+    prior dataclass codec byte-for-byte; a present ``tooltip`` is carried for
+    parity with input_text / slider / checkbox.
     """
 
     __slots__ = ()

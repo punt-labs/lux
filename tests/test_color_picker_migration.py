@@ -254,6 +254,37 @@ class TestShowRejectsInvalidColorPicker:
         assert "[color_picker 'bad']" in result
         client.show.assert_not_called()
 
+    @patch(_CLIENT_GET)
+    def test_show_rejects_color_picker_nested_in_tab_bar(
+        self, mock_get: MagicMock
+    ) -> None:
+        """A bad picker nested in a tab's children is collected by the walk."""
+        client = _mock_client()
+        mock_get.return_value = client
+        result = show(
+            "s1",
+            [
+                {
+                    "kind": "tab_bar",
+                    "id": "tb",
+                    "active_tab": "a",
+                    "tabs": [
+                        {
+                            "id": "a",
+                            "label": "One",
+                            "children": [
+                                {"kind": "text", "id": "ok", "content": "fine"},
+                                {"kind": "color_picker", "id": "bad", "value": "#XYZ"},
+                            ],
+                        }
+                    ],
+                }
+            ],
+        )
+        assert result.startswith("error: scene not rendered")
+        assert "[color_picker 'bad']" in result
+        client.show.assert_not_called()
+
 
 # -- the all-ABC fork gate --------------------------------------------------
 
@@ -380,6 +411,7 @@ class TestLevel5Introspection:
         props = _record(_inspect(_server(), elem), "cp")["props"]
         assert isinstance(props, dict)
         assert props == {
+            "label": "Bg",
             "value": "#FF8080AA",
             "alpha": True,
             "picker": True,

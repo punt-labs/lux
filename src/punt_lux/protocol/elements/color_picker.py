@@ -54,10 +54,9 @@ _HEX_COLOR = re.compile(r"#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{8})")
 class ColorPickerElement(Element):
     """An RGB(A) color picker on the Element ABC.
 
-    PY-TS-14 OK: ``tooltip`` stays ``str | None`` — absence is the documented
-    contract for no tooltip. ``value`` is a total ``str`` (a hex color). ``alpha``
-    (RGBA channel count) and ``picker`` (full-picker vs inline-edit widget) are
-    genuine two-state flags, not deferred types.
+    ``value`` is a total ``str`` (a hex color); ``alpha`` (RGBA channel count)
+    and ``picker`` (full-picker vs inline-edit widget) are genuine two-state
+    flags, not deferred types.
     """
 
     _id: str
@@ -65,6 +64,7 @@ class ColorPickerElement(Element):
     _value: str
     _alpha: bool
     _picker: bool
+    # PY-TS-14 OK: absence is the documented contract for "no tooltip".
     _tooltip: str | None
     _kind: Literal["color_picker"]
 
@@ -169,9 +169,7 @@ class ColorPickerElement(Element):
         the reconciliation-soundness precondition, not a mere paint nicety: a
         well-formed hex parses to finite ``[0, 1]`` floats, so the RGBA tuple the
         reconciliation carries never holds a ``NaN`` and tuple equality stays
-        reflexive. It subsumes the finiteness check ``slider`` needs a
-        ``math.isfinite`` loop for — the hex encoding cannot express a non-finite
-        channel — so there is no such loop here.
+        reflexive — the hex encoding cannot express a non-finite channel.
 
         Length is *not* checked against ``alpha`` (a deliberate leniency, not an
         omission): a 6-digit value under ``alpha`` pads to opaque and an 8-digit
@@ -216,6 +214,7 @@ class ColorPickerElement(Element):
     def resolved_props(self) -> Mapping[str, object]:
         """Return the full resolved state, including defaulted fields."""
         return {
+            "label": self._label,
             "value": self._value,
             "alpha": self._alpha,
             "picker": self._picker,
