@@ -5,22 +5,19 @@ on ``renderer_factory`` / ``emit`` keep direct construction compiling; the
 Display binds the real factory in its post-receive rebind.
 
 The codec body lives in ``slider_codec.py``; ``to_dict`` / ``from_dict`` stay
-on the class as short delegators so the runtime-checkable
-``domain.element.Element`` Protocol stays satisfied. The Element ABC /
-``EventHandlerHost`` mixin owns the value-changed registry and dispatch; the
-built-in ``_UpdateValueHandler`` (installed by the decoder) mirrors the
-authoritative value on each commit.
+on the class as short delegators satisfying the runtime-checkable
+``domain.element.Element`` Protocol. The ``EventHandlerHost`` mixin owns the
+value-changed registry; ``_UpdateValueHandler`` mirrors the value on commit.
 
 Because ``min`` / ``max`` are patchable, the range invariant is checked at the
-element boundary — ``validate()`` before render and a whole-element re-check
-after ``apply_patch`` — not per setter. A per-setter raise would wrongly reject
-a valid combined patch whose value arrives before its widening ``max``. One
-shared predicate, ``_range_error_messages``, backs both boundary checks.
+element boundary — ``validate()`` before render, a whole-element re-check after
+``apply_patch`` — never per setter. ``_range_error_messages`` backs both checks.
 """
 
 from __future__ import annotations
 
 import math
+import re
 from typing import TYPE_CHECKING, Literal, Self, cast, final
 
 from punt_lux.domain.element_abc import Element
@@ -50,9 +47,9 @@ class SliderElement(Element):
 
     PY-TS-14 OK: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for no tooltip. ``format`` stays ``str`` — a printf conversion is
-    free-form text, not a finite enumeration, so there is no ``Literal`` to
-    turn it into. ``integer`` stays ``bool`` — a genuine two-state flag that
-    selects the ``slider_int`` render variant, not a deferred design decision.
+    free-form text, not a finite enumeration. ``integer`` stays ``bool`` — a
+    genuine two-state flag selecting the ``slider_int`` variant, not a
+    deferred design decision.
     """
 
     _id: str
@@ -179,12 +176,11 @@ class SliderElement(Element):
     def apply_patch(self, patch: Mapping[str, object]) -> Self:
         """Apply a field patch atomically, re-checking the range at the boundary.
 
-        Runs the base setter loop (which rolls back on a coercion ``TypeError``),
-        then re-checks the whole-element range invariant. A combined patch is
-        judged on its final state, not per setter — so ``{"value": 150,
-        "max": 200}`` applied against a stale ``max`` of 100 is accepted, where a
-        per-setter raise would wrongly reject the value before its ``max`` landed.
-        A patch that leaves the element out of range is rolled back whole.
+        The base setter loop rolls back on a coercion ``TypeError``; a
+        whole-element range re-check then judges the patch's final state and
+        rolls the whole patch back if it lands out of range. Judging the final
+        state accepts a combined ``{"value": 150, "max": 200}`` that a per-setter
+        raise would reject.
         """
         snapshot = dict(vars(self))
         super().apply_patch(patch)
@@ -204,12 +200,10 @@ class SliderElement(Element):
     def _range_error_messages(self) -> tuple[str, ...]:
         """Return the range/finiteness errors — the shared numeric predicate.
 
-        Backs both ``validate()`` and the ``apply_patch`` boundary re-check, so
-        the range invariant has one source of truth. Non-finite values are
-        reported first: a ``NaN`` breaks both ImGui's slider and the
-        value-equality reconciliation (``NaN != NaN``), so it must never install.
-        Once finite, an inverted range is reported alone (an out-of-range check
-        against an empty ``[min, max]`` would only add noise).
+        Non-finite values report first: a ``NaN`` breaks both ImGui's slider and
+        the value-equality reconciliation (``NaN != NaN``), so it must never
+        install. Once finite, an inverted range is reported alone — an
+        out-of-range check against an empty ``[min, max]`` would only add noise.
         """
         fields = (("value", self._value), ("min", self._min), ("max", self._max))
         nonfinite = tuple(
@@ -226,13 +220,19 @@ class SliderElement(Element):
         return ()
 
     def _format_invalid(self) -> bool:
-        """Return whether ``format`` is not a single printf conversion.
+        """Return whether ``format`` is not exactly one printf conversion of the
+        slider's numeric type.
 
-        A format with no ``%`` conversion, or more than one, can fault ImGui's
-        C-side formatting; a minimal single-conversion check closes that crash
-        class without parsing the whole printf grammar.
+        Escaped ``%%`` is a literal percent; exactly one real conversion must
+        remain, its specifier from the ``%d`` family (``diouxX``) for the integer
+        slider or the ``%f`` family (``eEfFgGaA``) for the float. A wrong,
+        missing, or repeated specifier faults ImGui's C-side ``slider_int`` /
+        ``slider_float`` formatting.
         """
-        return not self._format or self._format.count("%") != 1
+        specifiers = "diouxX" if self._integer else "eEfFgGaA"
+        conversion = rf"%[-+ #0]*[\d*]*(?:\.[\d*]+)?[hlLjztq]*[{specifiers}]"
+        literal = r"(?:[^%]|%%)*"
+        return re.fullmatch(rf"{literal}{conversion}{literal}", self._format) is None
 
     def validate(self) -> tuple[ValidationError, ...]:
         """Return every range, finiteness, and format error at once (no fail-fast)."""

@@ -181,9 +181,34 @@ class TestSelfValidation:
         errors = SliderElement(id="sl", value=bad, min=0.0, max=100.0).validate()
         assert any("finite" in e.message for e in errors)
 
-    @pytest.mark.parametrize("fmt", ["", "no-percent", "%d %d"])
-    def test_malformed_format_is_reported(self, fmt: str) -> None:
+    @pytest.mark.parametrize("fmt", ["", "no-percent", "%d %d", "%", "%d"])
+    def test_malformed_float_format_is_reported(self, fmt: str) -> None:
+        # A default (float) slider rejects: no conversion, a literal-only string,
+        # two conversions, a bare trailing "%", and an int specifier ("%d") whose
+        # family does not match the float render variant.
         errors = SliderElement(id="sl", value=1.0, max=10.0, format=fmt).validate()
+        assert any("format" in e.message for e in errors)
+
+    @pytest.mark.parametrize("fmt", ["%.1f", "%g", "%.0f%%"])
+    def test_valid_float_format_passes(self, fmt: str) -> None:
+        # One float conversion is accepted, including one beside an escaped
+        # literal percent ("%.0f%%") that a naive percent count would reject.
+        errors = SliderElement(id="sl", value=1.0, max=10.0, format=fmt).validate()
+        assert not any("format" in e.message for e in errors)
+
+    @pytest.mark.parametrize("fmt", ["%d", "%03d"])
+    def test_valid_integer_format_passes(self, fmt: str) -> None:
+        errors = SliderElement(
+            id="sl", value=1.0, max=10.0, format=fmt, integer=True
+        ).validate()
+        assert not any("format" in e.message for e in errors)
+
+    def test_float_conversion_on_integer_slider_is_reported(self) -> None:
+        # The integer variant renders via slider_int and needs the %d family, so
+        # a float conversion ("%f") is the wrong family and must be rejected.
+        errors = SliderElement(
+            id="sl", value=1.0, max=10.0, format="%f", integer=True
+        ).validate()
         assert any("format" in e.message for e in errors)
 
     def test_valid_slider_passes_the_tree_walk(self) -> None:
