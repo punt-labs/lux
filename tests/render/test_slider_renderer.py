@@ -18,10 +18,18 @@ Float-specific cases the string suite cannot have:
 
 from __future__ import annotations
 
-from typing import Self
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Self
 
+from punt_lux.display.renderers import slider_renderer
 from punt_lux.display.renderers.imgui.slider_selection import SliderArbiter
+from punt_lux.display.renderers.slider_renderer import SliderRenderer
+from punt_lux.domain.interaction import ValueChanged
+from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.scene.widget_state import WidgetState
+
+if TYPE_CHECKING:
+    import pytest
 
 # -- the arbiter: the pure honour-or-defer decision ------------------------
 
@@ -235,3 +243,305 @@ class TestRemovalMidDrag:
         ws.discard_for("s")  # removed while the echo is pending
 
         assert SliderArbiter(ws, "s").resolve(70.0) == 70.0
+
+
+# -- the renderer: honour idle, defer dragging, commit once ----------------
+
+
+@dataclass(frozen=True, slots=True)
+class _Frame:
+    """One scripted imgui frame.
+
+    ``dragged`` is the value the user dragged to this frame — ``None`` means no
+    drag, so imgui echoes the position it was handed. ``active`` and
+    ``committed`` are the item-state flags queried after the widget is submitted.
+    """
+
+    dragged: float | None
+    active: bool
+    committed: bool
+
+
+class _FakeImgui:
+    """Fake imgui returning one scripted ``_Frame`` per ``slider_*`` call.
+
+    ``recorded`` is the sequence of positions ``render`` handed to the widget —
+    the honour/defer evidence (always a ``float`` for a clean cross-variant diff).
+    """
+
+    recorded: list[float]
+    _frames: list[_Frame]
+    _index: int
+    _current: _Frame
+
+    def __new__(cls, *frames: _Frame) -> Self:
+        self = super().__new__(cls)
+        self.recorded = []
+        self._frames = list(frames)
+        self._index = 0
+        self._current = frames[0]
+        return self
+
+    def slider_float(
+        self, _label: str, current: float, _v_min: float, _v_max: float, _fmt: str
+    ) -> tuple[bool, float]:
+        return self._advance(current)
+
+    def slider_int(
+        self, _label: str, current: int, _v_min: int, _v_max: int
+    ) -> tuple[bool, int]:
+        changed, value = self._advance(float(current))
+        return (changed, int(value))
+
+    def _advance(self, current: float) -> tuple[bool, float]:
+        self.recorded.append(current)
+        frame = self._frames[self._index]
+        self._index += 1
+        self._current = frame
+        value = current if frame.dragged is None else frame.dragged
+        return (frame.dragged is not None, value)
+
+    def is_item_active(self) -> bool:
+        return self._current.active
+
+    def is_item_deactivated_after_edit(self) -> bool:
+        return self._current.committed
+
+
+def _install(monkeypatch: pytest.MonkeyPatch, fake: _FakeImgui) -> None:
+    monkeypatch.setattr(slider_renderer, "imgui", fake)
+
+
+def _slider(*, value: float = 0.0, integer: bool = False) -> SliderElement:
+    return SliderElement(
+        id="s", label="Vol", value=value, min=0.0, max=100.0, integer=integer
+    )
+
+
+class TestRendererHonour:
+    def test_idle_frames_track_the_hub_value(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # HONOUR-WHEN-IDLE: two idle re-push frames with different values; the
+        # position handed to imgui tracks each.
+        fake = _FakeImgui(
+            _Frame(dragged=None, active=False, committed=False),
+            _Frame(dragged=None, active=False, committed=False),
+        )
+        _install(monkeypatch, fake)
+        renderer = SliderRenderer(WidgetState())
+
+        renderer.render(_slider(value=42.0))
+        renderer.render(_slider(value=63.5))
+
+        assert fake.recorded == [42.0, 63.5]
+
+
+class TestRendererDefer:
+    def test_hub_drive_while_dragging_does_not_clobber(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # NO-CLOBBER: the user drags to 30 (frame 1), then a Hub re-push carries
+        # value=99 while the thumb is still active (frame 2). The position handed
+        # to imgui stays 30, not 99.
+        fake = _FakeImgui(
+            _Frame(dragged=30.0, active=True, committed=False),
+            _Frame(dragged=None, active=True, committed=False),
+        )
+        _install(monkeypatch, fake)
+        renderer = SliderRenderer(WidgetState())
+
+        renderer.render(_slider(value=0.0))
+        renderer.render(_slider(value=99.0))
+
+        assert fake.recorded == [0.0, 30.0]
+
+    def test_grab_without_drag_still_honours_a_hub_drive(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # HONOUR-DISCIPLINE: an active frame with no drag (frame 1) does not begin
+        # deferring, so a Hub re-push (frame 2) still reaches the thumb.
+        fake = _FakeImgui(
+            _Frame(dragged=None, active=True, committed=False),
+            _Frame(dragged=None, active=True, committed=False),
+        )
+        _install(monkeypatch, fake)
+        renderer = SliderRenderer(WidgetState())
+
+        renderer.render(_slider(value=42.0))
+        renderer.render(_slider(value=63.5))
+
+        assert fake.recorded == [42.0, 63.5]
+
+
+class TestRendererCommit:
+    def test_release_after_drag_fires_once_with_the_final_value(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # COMMIT-ON-RELEASE: drag frames fire nothing; the release frame fires
+        # exactly one ValueChanged carrying the final float.
+        fake = _FakeImgui(
+            _Frame(dragged=75.0, active=True, committed=False),
+            _Frame(dragged=None, active=False, committed=True),
+        )
+        _install(monkeypatch, fake)
+        elem = _slider(value=0.0)
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = SliderRenderer(WidgetState())
+
+        renderer.render(elem)
+        assert fired == []  # drag frame does not fire
+
+        renderer.render(elem)
+        assert len(fired) == 1
+        assert fired[0].value == 75.0
+        assert fired[0].element_id == "s"
+
+    def test_no_fire_while_merely_dragging(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # NO-FIRE-WHILE-DRAGGING: three active drag frames, no release — nothing
+        # fires until the drag commits.
+        fake = _FakeImgui(
+            _Frame(dragged=10.0, active=True, committed=False),
+            _Frame(dragged=20.0, active=True, committed=False),
+            _Frame(dragged=30.0, active=True, committed=False),
+        )
+        _install(monkeypatch, fake)
+        elem = _slider(value=0.0)
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = SliderRenderer(WidgetState())
+
+        renderer.render(elem)
+        renderer.render(elem)
+        renderer.render(elem)
+
+        assert fired == []
+
+
+class TestRendererPostCommit:
+    def test_idle_after_commit_shows_the_committed_value_until_the_echo(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # POST-COMMIT LATENCY: drag -> release/commit -> idle while elem.value is
+        # still the pre-echo Hub value -> the echo arrives. Through the window the
+        # thumb honours the COMMITTED value, then honours the Hub once it echoes.
+        fake = _FakeImgui(
+            _Frame(dragged=80.0, active=True, committed=False),
+            _Frame(dragged=None, active=False, committed=True),
+            _Frame(dragged=None, active=False, committed=False),
+            _Frame(dragged=None, active=False, committed=False),
+        )
+        _install(monkeypatch, fake)
+        elem = _slider(value=0.0)  # pre-echo Hub value
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = SliderRenderer(WidgetState())
+
+        renderer.render(elem)  # dragging
+        renderer.render(elem)  # release -> commit fires once
+        renderer.render(elem)  # idle; elem.value still pre-echo 0
+        renderer.render(_slider(value=80.0))  # the Hub echo landed
+
+        assert [e.value for e in fired] == [80.0]  # exactly one commit fire
+        assert fake.recorded == [0.0, 80.0, 80.0, 80.0]
+
+    def test_agent_override_mid_window_tracks_the_hub_not_the_commit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # AGENT-OVERRIDE-MID-WINDOW: commit 80 while pre-echo Hub is 0; an idle
+        # window frame shows committed 80, but an agent drive to a divergent third
+        # value tracks the Hub, dropping the optimistic echo.
+        fake = _FakeImgui(
+            _Frame(dragged=80.0, active=True, committed=False),
+            _Frame(dragged=None, active=False, committed=True),
+            _Frame(dragged=None, active=False, committed=False),
+            _Frame(dragged=None, active=False, committed=False),
+        )
+        _install(monkeypatch, fake)
+        elem = _slider(value=0.0)
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = SliderRenderer(WidgetState())
+
+        renderer.render(elem)  # dragging
+        renderer.render(elem)  # release -> commit 80; commit-hub is 0
+        renderer.render(elem)  # idle; Hub still 0 -> optimistic committed 80
+        renderer.render(_slider(value=25.0))  # agent override to a third value
+
+        assert [e.value for e in fired] == [80.0]
+        assert fake.recorded == [0.0, 80.0, 80.0, 25.0]
+
+    def test_drag_in_the_window_wins_over_the_pending_commit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # EDIT-IN-WINDOW-WINS: commit 80 (echo in flight), then re-grab and drag
+        # to 33 while the record is live. The live thumb is authoritative.
+        fake = _FakeImgui(
+            _Frame(dragged=80.0, active=True, committed=False),
+            _Frame(dragged=None, active=False, committed=True),
+            _Frame(dragged=33.0, active=True, committed=False),
+            _Frame(dragged=None, active=True, committed=False),
+        )
+        _install(monkeypatch, fake)
+        elem = _slider(value=0.0)
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = SliderRenderer(WidgetState())
+
+        renderer.render(elem)  # dragging
+        renderer.render(elem)  # release -> commit 80; record live
+        renderer.render(elem)  # re-grab, drag 33: buffer authoritative
+        renderer.render(elem)  # still active: the live thumb wins
+
+        assert [e.value for e in fired] == [80.0]  # only the first drag committed
+        assert fake.recorded == [0.0, 80.0, 80.0, 33.0]
+
+
+class TestRendererRemoval:
+    def test_removal_mid_drag_drops_the_buffer_without_committing(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # A slider removed mid-drag drops its buffer via discard_for and never
+        # reaches the release path, so no ValueChanged fires.
+        fake = _FakeImgui(_Frame(dragged=30.0, active=True, committed=False))
+        _install(monkeypatch, fake)
+        ws = WidgetState()
+        elem = _slider(value=0.0)
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = SliderRenderer(ws)
+
+        renderer.render(elem)  # dragging: buffer set to 30
+        ws.discard_for("s")  # the element is removed mid-drag
+
+        assert fired == []
+        assert SliderArbiter(ws, "s").resolve(70.0) == 70.0
+
+
+class TestRendererIntVariant:
+    def test_int_variant_commits_an_int_and_reconciles_exactly(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # INT-VARIANT: slider_int returns an int; the committed ValueChanged
+        # carries the int, and float(int) reconciles exactly through the window.
+        fake = _FakeImgui(
+            _Frame(dragged=7.0, active=True, committed=False),
+            _Frame(dragged=None, active=False, committed=True),
+            _Frame(dragged=None, active=False, committed=False),
+        )
+        _install(monkeypatch, fake)
+        elem = _slider(value=0.0, integer=True)
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = SliderRenderer(WidgetState())
+
+        renderer.render(elem)  # dragging to 7
+        renderer.render(elem)  # release -> commit fires int 7
+        renderer.render(elem)  # idle; pre-echo 0 -> optimistic committed 7
+
+        assert [e.value for e in fired] == [7]
+        assert isinstance(fired[0].value, int)
+        assert fake.recorded == [0.0, 7.0, 7.0]

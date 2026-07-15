@@ -26,6 +26,7 @@ from .repush_effect import PropAfterDispatch, RemovedAfterDispatch, RepushEffect
 __all__ = [
     "INPUT_COMMIT_TEXT",
     "SCENARIOS",
+    "SLIDER_COMMIT_VALUE",
     "InteractionExpectation",
     "ReactPatch",
     "Scenario",
@@ -35,6 +36,11 @@ __all__ = [
 # synthetic-event builder so the injected interaction and the re-push assertion
 # agree (an edit has no structural source for its text, unlike a tab switch).
 INPUT_COMMIT_TEXT = "Ada Lovelace"
+
+# The float a slider drag commits in the loop — in range for the scenario's
+# [0, 100] slider. Shared with the agent's synthetic-event builder for the same
+# reason: a drag has no structural source for its value.
+SLIDER_COMMIT_VALUE = 42.5
 
 
 @dataclass(frozen=True, slots=True)
@@ -249,6 +255,72 @@ class Scenario:
                 element_id="name-field",
                 field="value",
                 value=INPUT_COMMIT_TEXT,
+                flipped=True,
+            ),
+        )
+
+    @classmethod
+    def group_slider_progress(cls) -> Self:
+        """A group holding a publishing slider and a display-only progress.
+
+        Committing a drag crosses as ``value_changed`` carrying the final float;
+        the built-in state-sync handler writes the Hub ``value`` (``0`` -> the
+        committed float), so the dispatch re-push carries the mutated value. A
+        wire ``handlers`` entry publishes ``level_changed``; the agent reacts by
+        advancing the bar.
+        """
+        return cls(
+            name="group-slider-progress",
+            scene_id="e2e-slider-scene",
+            elements=(
+                {
+                    "kind": "group",
+                    "id": "sl-surface",
+                    "layout": "rows",
+                    "children": (
+                        {
+                            "kind": "slider",
+                            "id": "level-field",
+                            "label": "Level",
+                            "value": 0.0,
+                            "min": 0.0,
+                            "max": 100.0,
+                            "handlers": [
+                                {
+                                    "event": "changed",
+                                    "factory": "noop",
+                                    "wrap": [
+                                        {
+                                            "decorator": "publish",
+                                            "topics": ["level_changed"],
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "kind": "progress",
+                            "id": "sl-progress",
+                            "fraction": 0.0,
+                            "label": "idle",
+                        },
+                    ),
+                },
+            ),
+            target_element_id="level-field",
+            interaction=InteractionExpectation(
+                event_kind="value_changed", value=SLIDER_COMMIT_VALUE
+            ),
+            publish=WirePublish("level_changed"),
+            react=(
+                ReactPatch(element_id="sl-progress", field="fraction", value=1.0),
+                ReactPatch(element_id="sl-progress", field="label", value="set"),
+            ),
+            display_only_id="sl-progress",
+            repush=PropAfterDispatch(
+                element_id="level-field",
+                field="value",
+                value=SLIDER_COMMIT_VALUE,
                 flipped=True,
             ),
         )
@@ -633,6 +705,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario.group_button_progress(),
     Scenario.group_checkbox_progress(),
     Scenario.group_input_text_progress(),
+    Scenario.group_slider_progress(),
     Scenario.collapsing_header_toggle_progress(),
     Scenario.collapsing_header_button_progress(),
     Scenario.tab_bar_change_progress(),
