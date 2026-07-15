@@ -1,10 +1,10 @@
 """ImGuiSliderRenderer — Renderer-Protocol adapter for ``SliderElement``.
 
 A leaf: paints through ``ElementRenderer``'s per-scene ``SliderRenderer``,
-which reconciles the Hub value with the user's drag via the ``SliderArbiter``
-and fires ``ValueChanged`` on release (wrapped for D21 remote dispatch on the
-display side). The paint adds the shared ``apply_tooltip`` pass. ``begin``
-proceeds, ``end`` is a no-op.
+which reconciles the Hub value with the user's drag via the shared
+``ContinuousEditArbiter`` and fires ``ValueChanged`` on release (wrapped for D21
+remote dispatch on the display side). The paint adds the shared
+``apply_tooltip`` pass. ``begin`` proceeds, ``end`` is a no-op.
 """
 
 from __future__ import annotations

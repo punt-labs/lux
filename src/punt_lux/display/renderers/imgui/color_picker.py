@@ -1,10 +1,10 @@
 """ImGuiColorPickerRenderer — Renderer-Protocol adapter for ``ColorPickerElement``.
 
 A leaf: paints through ``ElementRenderer``'s per-scene ``ColorPickerRenderer``,
-which reconciles the Hub value with the user's drag via the ``ColorPickerArbiter``
-and fires ``ValueChanged`` on release (wrapped for D21 remote dispatch on the
-display side). The paint adds the shared ``apply_tooltip`` pass. ``begin``
-proceeds, ``end`` is a no-op.
+which reconciles the Hub value with the user's drag via the shared
+``ContinuousEditArbiter`` and fires ``ValueChanged`` on release (wrapped for D21
+remote dispatch on the display side). The paint adds the shared
+``apply_tooltip`` pass. ``begin`` proceeds, ``end`` is a no-op.
 """
 
 from __future__ import annotations

@@ -1,7 +1,8 @@
-"""ColorPickerRenderer + ColorPickerArbiter under the commit-echo rule.
+"""ColorPickerRenderer + the shared ContinuousEditArbiter under the commit-echo rule.
 
-The pure ``ColorPickerArbiter`` honour-or-defer decision is tested here without
-imgui; the renderer paint-seam tests drive a scripted fake imgui. The picker
+The pure honour-or-defer decision is tested here without imgui, driving the
+shared ``ContinuousEditArbiter`` with a ``ColorValueAccessor``; the renderer
+paint-seam tests drive a scripted fake imgui. The picker
 carries an arity-4 RGBA ``tuple`` where ``slider`` carries a ``float`` and
 ``input_text`` a ``str``; the reconciliation logic is identical, so the
 invariants mirror those suites, each fidelity-checked against the naive it beats.
@@ -26,7 +27,12 @@ from typing import TYPE_CHECKING, Self
 
 from punt_lux.display.renderers import color_picker_renderer
 from punt_lux.display.renderers.color_picker_renderer import ColorPickerRenderer
-from punt_lux.display.renderers.imgui.color_picker_selection import ColorPickerArbiter
+from punt_lux.display.renderers.imgui.continuous_edit_accessors import (
+    ColorValueAccessor,
+)
+from punt_lux.display.renderers.imgui.continuous_edit_selection import (
+    ContinuousEditArbiter,
+)
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.rgba_color import Rgba, RgbaColor
@@ -41,26 +47,31 @@ _GREEN: Rgba = (0.0, 1.0, 0.0, 1.0)
 _GREY: Rgba = (0.5, 0.5, 0.5, 1.0)
 
 
+def _arb(state: WidgetState, element_id: str) -> ContinuousEditArbiter[Rgba]:
+    """Build the shared arbiter with the color picker's RGBA accessor."""
+    return ContinuousEditArbiter(state, element_id, ColorValueAccessor())
+
+
 # -- the arbiter: the pure honour-or-defer decision ------------------------
 
 
 class TestArbiterResolve:
     def test_idle_resolves_to_the_hub_value(self) -> None:
         # HONOUR-WHEN-IDLE: a fresh (idle) picker renders the Hub color.
-        arb = ColorPickerArbiter(WidgetState(), "c")
+        arb = _arb(WidgetState(), "c")
         assert arb.resolve(_RED) == _RED
 
     def test_idle_tracks_the_latest_hub_value(self) -> None:
         # HONOUR-WHEN-IDLE: each idle frame honours the current Hub color, so an
         # agent-driven change is picked up without any per-channel bookkeeping.
-        arb = ColorPickerArbiter(WidgetState(), "c")
+        arb = _arb(WidgetState(), "c")
         assert arb.resolve(_RED) == _RED
         assert arb.resolve(_BLUE) == _BLUE
 
     def test_dragging_defers_to_the_local_buffer(self) -> None:
         # NO-CLOBBER: once a frame has observed a real drag, a Hub-driven color
         # is ignored — the in-progress color wins.
-        arb = ColorPickerArbiter(WidgetState(), "c")
+        arb = _arb(WidgetState(), "c")
         arb.observe(edited=True, value=_GREEN)
         assert arb.resolve(_BLUE) == _GREEN
         assert arb.resolve(_BLUE) == _GREEN
@@ -68,29 +79,29 @@ class TestArbiterResolve:
     def test_grab_without_drag_keeps_honouring(self) -> None:
         # HONOUR-DISCIPLINE: an active frame with no real drag does not begin
         # deferring — the picker still honours the Hub, so an echo can reach it.
-        arb = ColorPickerArbiter(WidgetState(), "c")
+        arb = _arb(WidgetState(), "c")
         arb.observe(edited=False, value=_RED)
         assert arb.resolve(_BLUE) == _BLUE
 
     def test_release_returns_to_honouring_the_hub(self) -> None:
-        arb = ColorPickerArbiter(WidgetState(), "c")
+        arb = _arb(WidgetState(), "c")
         arb.observe(edited=True, value=_GREEN)
         arb.release()
         assert arb.resolve(_BLUE) == _BLUE
 
     def test_slots_are_id_scoped(self) -> None:
         ws = WidgetState()
-        ColorPickerArbiter(ws, "a").observe(edited=True, value=_GREEN)
-        assert ColorPickerArbiter(ws, "a").resolve(_RED) == _GREEN
-        assert ColorPickerArbiter(ws, "b").resolve(_BLUE) == _BLUE
+        _arb(ws, "a").observe(edited=True, value=_GREEN)
+        assert _arb(ws, "a").resolve(_RED) == _GREEN
+        assert _arb(ws, "b").resolve(_BLUE) == _BLUE
 
     def test_editing_branch_returns_arity_four_from_a_three_tuple_store(self) -> None:
         # resolve's editing branch returns the buffer uncoerced via get_tuple,
         # which normalizes a length-3 store to arity 4 — so tuple == stays sound.
         ws = WidgetState()
-        arb = ColorPickerArbiter(ws, "c")
+        arb = _arb(ws, "c")
         arb.observe(edited=True, value=_GREEN)
-        ws.set(f"c{WidgetState.COLOR_BUFFER_SUFFIX}", (0.2, 0.4, 0.6))
+        ws.set(f"c{WidgetState.CONTINUOUS_EDIT_BUFFER_SUFFIX}", (0.2, 0.4, 0.6))
         assert arb.resolve(_RED) == (0.2, 0.4, 0.6, 1.0)
 
 
@@ -98,19 +109,19 @@ class TestArbiterCommitEcho:
     def test_commit_is_honoured_until_the_hub_value_moves(self) -> None:
         # REFOCUS-DURABILITY: after commit, an idle frame whose Hub color is still
         # the pre-echo color renders the committed color — the optimistic echo.
-        arb = ColorPickerArbiter(WidgetState(), "c")
+        arb = _arb(WidgetState(), "c")
         arb.commit(_GREEN, hub_value=_GREY)
         assert arb.resolve(_GREY) == _GREEN
         assert arb.resolve(_GREY) == _GREEN
 
     def test_commit_record_clears_once_the_echo_arrives(self) -> None:
-        arb = ColorPickerArbiter(WidgetState(), "c")
+        arb = _arb(WidgetState(), "c")
         arb.commit(_GREEN, hub_value=_GREY)
         assert arb.resolve(_GREEN) == _GREEN  # echo landed: Hub == committed
         assert arb.resolve(_RED) == _RED  # record gone: honour the Hub
 
     def test_dragging_wins_over_a_pending_commit(self) -> None:
-        arb = ColorPickerArbiter(WidgetState(), "c")
+        arb = _arb(WidgetState(), "c")
         arb.commit(_GREEN, hub_value=_GREY)
         arb.observe(edited=True, value=_BLUE)
         assert arb.resolve(_GREY) == _BLUE
@@ -121,7 +132,7 @@ class TestArbiterCommitEcho:
         # window honours GREEN while the Hub reads BLUE, but an override that
         # drives the Hub to a THIRD color drops the committed value and honours
         # the Hub. A wrong impl comparing hub against committed would keep GREEN.
-        arb = ColorPickerArbiter(WidgetState(), "c")
+        arb = _arb(WidgetState(), "c")
         arb.commit(_GREEN, hub_value=_BLUE)
         assert arb.resolve(_BLUE) == _GREEN  # window open, Hub still pre-echo BLUE
         assert arb.resolve(_GREY) == _GREY  # override to a third color: honour Hub
@@ -135,7 +146,7 @@ class TestArbiterTupleEquality:
         # returns the raw Hub value, bit-for-bit the quantized tuple, no epsilon.
         hex_val = RgbaColor((0.1 + 0.2, 0.7, 0.333333, 1.0)).to_hex(alpha=False)
         quantized = RgbaColor.from_hex(hex_val).as_tuple()
-        arb = ColorPickerArbiter(WidgetState(), "c")
+        arb = _arb(WidgetState(), "c")
         arb.commit(quantized, hub_value=_GREY)
         assert arb.resolve(_GREY) == quantized  # window open: honour committed
         assert arb.resolve(quantized) == quantized  # echo: Hub moved off commit-hub
@@ -144,7 +155,7 @@ class TestArbiterTupleEquality:
     def test_bit_distinct_neighbour_is_honoured_immediately(self) -> None:
         # A neighbour one ULP away in a single channel is a genuine agent
         # override, honoured at once — tuple == would not mask it.
-        arb = ColorPickerArbiter(WidgetState(), "c")
+        arb = _arb(WidgetState(), "c")
         arb.commit(_GREEN, hub_value=(0.3, 0.3, 0.3, 1.0))
         neighbour = (0.30000000000000004, 0.3, 0.3, 1.0)
         assert arb.resolve(neighbour) == neighbour
@@ -152,7 +163,7 @@ class TestArbiterTupleEquality:
     def test_signed_zero_channel_echo_closes_the_window(self) -> None:
         # -0.0 == 0.0 in IEEE-754, so a commit with a -0.0 channel whose echo
         # returns 0.0 still recognises the echo and closes the window.
-        arb = ColorPickerArbiter(WidgetState(), "c")
+        arb = _arb(WidgetState(), "c")
         commit_hub = (-0.0, 0.0, 0.0, 1.0)
         arb.commit(_GREEN, hub_value=commit_hub)
         assert arb.resolve((0.0, 0.0, 0.0, 1.0)) == _GREEN  # echo == commit-hub
@@ -199,7 +210,7 @@ class TestArbiterFidelity:
         naive.observe(edited=True, value=_GREEN)
         assert naive.resolve(_BLUE) == _BLUE  # clobbered — the bug
 
-        real = ColorPickerArbiter(WidgetState(), "c")
+        real = _arb(WidgetState(), "c")
         real.observe(edited=True, value=_GREEN)
         assert real.resolve(_BLUE) == _GREEN  # deferred — the fix
 
@@ -208,7 +219,7 @@ class TestArbiterFidelity:
         assert naive.resolve(_RED) == _RED
         assert naive.resolve(_BLUE) == _RED  # stale — the bug
 
-        real = ColorPickerArbiter(WidgetState(), "c")
+        real = _arb(WidgetState(), "c")
         assert real.resolve(_RED) == _RED
         assert real.resolve(_BLUE) == _BLUE  # honoured — the fix
 
@@ -216,23 +227,23 @@ class TestArbiterFidelity:
 class TestRemovalMidDrag:
     def test_removal_mid_drag_drops_the_buffer(self) -> None:
         ws = WidgetState()
-        arb = ColorPickerArbiter(ws, "c")
+        arb = _arb(ws, "c")
         arb.observe(edited=True, value=_GREEN)
         assert arb.resolve(_BLUE) == _GREEN  # buffer wins while dragging
 
         ws.discard_for("c")  # the element is removed mid-drag
 
-        assert ColorPickerArbiter(ws, "c").resolve(_RED) == _RED
+        assert _arb(ws, "c").resolve(_RED) == _RED
 
     def test_removal_clears_a_pending_commit_echo(self) -> None:
         ws = WidgetState()
-        arb = ColorPickerArbiter(ws, "c")
+        arb = _arb(ws, "c")
         arb.commit(_GREEN, hub_value=_GREY)
         assert arb.resolve(_GREY) == _GREEN  # pending: honour the committed color
 
         ws.discard_for("c")  # removed while the echo is pending
 
-        assert ColorPickerArbiter(ws, "c").resolve(_RED) == _RED
+        assert _arb(ws, "c").resolve(_RED) == _RED
 
 
 # -- the renderer: honour idle, defer dragging, commit once ----------------
@@ -516,7 +527,7 @@ class TestRendererRemoval:
         ws.discard_for("c")  # the element is removed mid-drag
 
         assert fired == []
-        assert ColorPickerArbiter(ws, "c").resolve(_RED) == _RED
+        assert _arb(ws, "c").resolve(_RED) == _RED
 
 
 class TestRendererAlphaVariant:

@@ -16,40 +16,24 @@ class WidgetState:
     PENDING_SUFFIX: ClassVar[str] = ":active_pending"
     _SESSION_SUFFIXES: ClassVar[tuple[str, ...]] = (HONOURED_SUFFIX, PENDING_SUFFIX)
 
-    # Suffixes of an input_text's commit-echo slots, all kept across a re-push
-    # (off ``_SESSION_SUFFIXES``) so a commit in flight across the resend
-    # survives. Editing = the local buffer stays authoritative mid-edit;
-    # committed = the value last committed, honoured optimistically until its
-    # Hub echo arrives; commit-hub = the Hub value observed at commit time, the
-    # marker that tells ``resolve`` when the echo has moved past it.
-    INPUT_EDITING_SUFFIX: ClassVar[str] = ":input_editing"
-    INPUT_COMMITTED_SUFFIX: ClassVar[str] = ":input_committed"
-    INPUT_COMMIT_HUB_SUFFIX: ClassVar[str] = ":input_commit_hub"
-
-    # Suffixes of a slider's commit-echo slots — the numeric analog of the
-    # input triple above, kept across a re-push for the same reason (a drag
-    # commit may still be in flight across the resend). Editing = the live
-    # thumb position stays authoritative mid-drag; committed = the value last
-    # released, honoured optimistically until its Hub echo lands; commit-hub =
-    # the Hub value observed at release, the marker ``resolve`` reads to tell
-    # when the echo has moved past it. Distinct from the ``INPUT_*`` triple so
-    # a slider and an input_text sharing neither id nor slot stay independent.
-    SLIDER_EDITING_SUFFIX: ClassVar[str] = ":slider_editing"
-    SLIDER_COMMITTED_SUFFIX: ClassVar[str] = ":slider_committed"
-    SLIDER_COMMIT_HUB_SUFFIX: ClassVar[str] = ":slider_commit_hub"
-
-    # Suffixes of a color_picker's commit-echo slots — the RGBA-tuple analog of
-    # the triples above. Unlike ``input_text`` / ``slider`` (whose buffer lives
-    # under the bare element id), the color buffer gets its OWN suffix: the
-    # per-patch mirror of ``widget_value`` writes the hex *string* under the
-    # bare id, so a buffer under the bare id would alias a tuple against a hex
-    # string on one key. Buffer = the live RGBA tuple mid-drag; editing = that
-    # tuple stays authoritative; committed = the released tuple, honoured until
-    # its echo; commit-hub = the Hub tuple observed at release.
-    COLOR_BUFFER_SUFFIX: ClassVar[str] = ":color_buffer"
-    COLOR_EDITING_SUFFIX: ClassVar[str] = ":color_editing"
-    COLOR_COMMITTED_SUFFIX: ClassVar[str] = ":color_committed"
-    COLOR_COMMIT_HUB_SUFFIX: ClassVar[str] = ":color_commit_hub"
+    # Suffixes of a continuous-edit widget's commit-echo slots, shared by every
+    # non-atomic mutable kind (input_text, slider, color_picker) — all kept
+    # across a re-push (off ``_SESSION_SUFFIXES``) so a commit in flight across
+    # the resend survives. Buffer = the live local edit (text, thumb position,
+    # or RGBA tuple) that stays authoritative while the widget is being edited;
+    # editing = the flag that marks that authority; committed = the value last
+    # committed, honoured optimistically until its Hub echo arrives; commit-hub =
+    # the Hub value observed at commit time, the marker that tells ``resolve``
+    # when the echo has moved past it. One neutral quad serves all three: element
+    # ids are unique within a scene and the arbiter is the sole reader/writer of
+    # these slots, so no two widgets collide, and the type-guarding getters map a
+    # wrong-typed stored value to their default. The buffer takes its own suffix
+    # (never the bare id) so it can never alias a per-patch hex-string mirror of
+    # ``widget_value`` on one key, for any kind uniformly.
+    CONTINUOUS_EDIT_BUFFER_SUFFIX: ClassVar[str] = ":continuous_edit_buffer"
+    CONTINUOUS_EDIT_EDITING_SUFFIX: ClassVar[str] = ":continuous_edit_editing"
+    CONTINUOUS_EDIT_COMMITTED_SUFFIX: ClassVar[str] = ":continuous_edit_committed"
+    CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX: ClassVar[str] = ":continuous_edit_commit_hub"
 
     _state: dict[str, Any]
 
@@ -132,10 +116,10 @@ class WidgetState:
         Each key is built from the id, never a substring match, so a survivor
         like ``btn_ok`` is never wiped. Clearing the dialog latches lets a
         re-added same-id dialog reopen; clearing the tab-bar slots lets a
-        re-added tab bar re-honour the Hub active tab; clearing the input,
-        slider, and color-picker editing and commit-echo slots lets a re-added
-        input_text, slider, or color_picker honour its fresh value instead of
-        an earlier commit's optimistic echo.
+        re-added tab bar re-honour the Hub active tab; clearing the shared
+        continuous-edit buffer and commit-echo quad lets a re-added input_text,
+        slider, or color_picker honour its fresh value instead of an earlier
+        commit's optimistic echo.
         """
         if not element_id:
             return
@@ -144,16 +128,10 @@ class WidgetState:
         self.discard(f"{element_id}__dismissed")
         self.discard(f"{element_id}{self.HONOURED_SUFFIX}")
         self.discard(f"{element_id}{self.PENDING_SUFFIX}")
-        self.discard(f"{element_id}{self.INPUT_EDITING_SUFFIX}")
-        self.discard(f"{element_id}{self.INPUT_COMMITTED_SUFFIX}")
-        self.discard(f"{element_id}{self.INPUT_COMMIT_HUB_SUFFIX}")
-        self.discard(f"{element_id}{self.SLIDER_EDITING_SUFFIX}")
-        self.discard(f"{element_id}{self.SLIDER_COMMITTED_SUFFIX}")
-        self.discard(f"{element_id}{self.SLIDER_COMMIT_HUB_SUFFIX}")
-        self.discard(f"{element_id}{self.COLOR_BUFFER_SUFFIX}")
-        self.discard(f"{element_id}{self.COLOR_EDITING_SUFFIX}")
-        self.discard(f"{element_id}{self.COLOR_COMMITTED_SUFFIX}")
-        self.discard(f"{element_id}{self.COLOR_COMMIT_HUB_SUFFIX}")
+        self.discard(f"{element_id}{self.CONTINUOUS_EDIT_BUFFER_SUFFIX}")
+        self.discard(f"{element_id}{self.CONTINUOUS_EDIT_EDITING_SUFFIX}")
+        self.discard(f"{element_id}{self.CONTINUOUS_EDIT_COMMITTED_SUFFIX}")
+        self.discard(f"{element_id}{self.CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX}")
 
     def reset_honoured(self) -> None:
         """Discard every tab-bar suppression slot, keeping durable user state.

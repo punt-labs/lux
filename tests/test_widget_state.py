@@ -3,9 +3,9 @@
 The slider path reads its buffer through ``get_float`` (a numeric miss falls
 back to the caller's default, never a magic ``""``) and the color_picker path
 through ``get_tuple`` (an RGBA-tuple miss falls back the same way, always
-normalized to arity 4). Each stores its editing/commit-echo state under kind-
-specific suffixes, which ``discard_for`` clears on removal so a re-added same-id
-widget starts clean.
+normalized to arity 4). Every non-atomic mutable kind stores its buffer and
+commit-echo state under the one shared ``CONTINUOUS_EDIT_*`` quad, which
+``discard_for`` clears on removal so a re-added same-id widget starts clean.
 """
 
 from __future__ import annotations
@@ -81,54 +81,26 @@ class TestGetTuple:
         assert ws.get_tuple("c", default=_HUB) == _HUB
 
 
-class TestColorSlotClearing:
-    def test_discard_for_clears_every_color_slot(self) -> None:
+class TestContinuousEditSlotClearing:
+    def test_discard_for_clears_every_continuous_edit_slot(self) -> None:
+        # One neutral quad serves input_text, slider, and color_picker alike;
+        # discard_for clears all four so a re-added same-id widget starts clean.
         ws = WidgetState()
         eid = "bg"
-        ws.set(f"{eid}{WidgetState.COLOR_BUFFER_SUFFIX}", (0.1, 0.2, 0.3, 1.0))
-        ws.set(f"{eid}{WidgetState.COLOR_EDITING_SUFFIX}", value=True)
-        ws.set(f"{eid}{WidgetState.COLOR_COMMITTED_SUFFIX}", (0.4, 0.5, 0.6, 1.0))
-        ws.set(f"{eid}{WidgetState.COLOR_COMMIT_HUB_SUFFIX}", (0.7, 0.8, 0.9, 1.0))
+        ws.set(f"{eid}{WidgetState.CONTINUOUS_EDIT_BUFFER_SUFFIX}", (0.1, 0.2, 0.3))
+        ws.set(f"{eid}{WidgetState.CONTINUOUS_EDIT_EDITING_SUFFIX}", value=True)
+        ws.set(f"{eid}{WidgetState.CONTINUOUS_EDIT_COMMITTED_SUFFIX}", 80.0)
+        ws.set(f"{eid}{WidgetState.CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX}", 50.0)
 
         ws.discard_for(eid)
 
-        assert ws.get(f"{eid}{WidgetState.COLOR_BUFFER_SUFFIX}") is None
-        assert ws.get(f"{eid}{WidgetState.COLOR_EDITING_SUFFIX}") is None
-        assert ws.get(f"{eid}{WidgetState.COLOR_COMMITTED_SUFFIX}") is None
-        assert ws.get(f"{eid}{WidgetState.COLOR_COMMIT_HUB_SUFFIX}") is None
+        assert ws.get(f"{eid}{WidgetState.CONTINUOUS_EDIT_BUFFER_SUFFIX}") is None
+        assert ws.get(f"{eid}{WidgetState.CONTINUOUS_EDIT_EDITING_SUFFIX}") is None
+        assert ws.get(f"{eid}{WidgetState.CONTINUOUS_EDIT_COMMITTED_SUFFIX}") is None
+        assert ws.get(f"{eid}{WidgetState.CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX}") is None
 
-    def test_color_buffer_suffix_does_not_alias_the_bare_id(self) -> None:
-        # The mirrored hex string writes under the bare id; the tuple buffer
-        # gets its own suffix so the two never collide in type on one key.
-        assert WidgetState.COLOR_BUFFER_SUFFIX != ""
-        assert WidgetState.COLOR_BUFFER_SUFFIX.startswith(":")
-
-
-class TestSliderSlotClearing:
-    def test_discard_for_clears_every_slider_slot(self) -> None:
-        ws = WidgetState()
-        eid = "vol"
-        ws.set(f"{eid}{WidgetState.SLIDER_EDITING_SUFFIX}", value=True)
-        ws.set(f"{eid}{WidgetState.SLIDER_COMMITTED_SUFFIX}", 80.0)
-        ws.set(f"{eid}{WidgetState.SLIDER_COMMIT_HUB_SUFFIX}", 50.0)
-
-        ws.discard_for(eid)
-
-        assert ws.get(f"{eid}{WidgetState.SLIDER_EDITING_SUFFIX}") is None
-        assert ws.get(f"{eid}{WidgetState.SLIDER_COMMITTED_SUFFIX}") is None
-        assert ws.get(f"{eid}{WidgetState.SLIDER_COMMIT_HUB_SUFFIX}") is None
-
-    def test_slider_suffixes_are_distinct_from_input_suffixes(self) -> None:
-        # The fork keeps the two triples independent — a rename to one neutral
-        # set is the color_picker extraction's job, not this migration's.
-        input_suffixes = {
-            WidgetState.INPUT_EDITING_SUFFIX,
-            WidgetState.INPUT_COMMITTED_SUFFIX,
-            WidgetState.INPUT_COMMIT_HUB_SUFFIX,
-        }
-        slider_suffixes = {
-            WidgetState.SLIDER_EDITING_SUFFIX,
-            WidgetState.SLIDER_COMMITTED_SUFFIX,
-            WidgetState.SLIDER_COMMIT_HUB_SUFFIX,
-        }
-        assert input_suffixes.isdisjoint(slider_suffixes)
+    def test_continuous_edit_buffer_suffix_does_not_alias_the_bare_id(self) -> None:
+        # The buffer takes its own suffix (never the bare id) so it can never
+        # collide with a per-patch hex-string mirror of widget_value on one key.
+        assert WidgetState.CONTINUOUS_EDIT_BUFFER_SUFFIX != ""
+        assert WidgetState.CONTINUOUS_EDIT_BUFFER_SUFFIX.startswith(":")

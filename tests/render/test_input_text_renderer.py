@@ -1,11 +1,11 @@
-"""InputTextRenderer + InputTextArbiter under the commit-echo rule.
+"""InputTextRenderer + the shared ContinuousEditArbiter under the commit-echo rule.
 
 The ``imgui.input_text`` call needs a live GL context, so the renderer tests
 drive ``render`` through a fake imgui that records the buffer handed to the
 widget and returns a scripted per-frame ``(changed, text)`` plus the
 ``is_item_active`` / ``is_item_deactivated_after_edit`` item-state flags. The
-honour-or-defer decision itself is the pure ``InputTextArbiter``, tested without
-imgui.
+honour-or-defer decision itself is the shared ``ContinuousEditArbiter`` driven
+by a ``StrValueAccessor``, tested without imgui.
 
 Five invariants of a controlled text input over Hub latency, each
 fidelity-checked against the naive implementation it must beat:
@@ -33,7 +33,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.display.renderers import input_text_renderer
-from punt_lux.display.renderers.imgui.input_text_selection import InputTextArbiter
+from punt_lux.display.renderers.imgui.continuous_edit_accessors import StrValueAccessor
+from punt_lux.display.renderers.imgui.continuous_edit_selection import (
+    ContinuousEditArbiter,
+)
 from punt_lux.display.renderers.input_text_renderer import InputTextRenderer
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.input_text import InputTextElement
@@ -41,6 +44,11 @@ from punt_lux.scene.widget_state import WidgetState
 
 if TYPE_CHECKING:
     import pytest
+
+
+def _arb(state: WidgetState, element_id: str) -> ContinuousEditArbiter[str]:
+    """Build the shared arbiter with the input_text's string accessor."""
+    return ContinuousEditArbiter(state, element_id, StrValueAccessor())
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,49 +117,49 @@ def _input(*, value: str = "", hint: str = "") -> InputTextElement:
 class TestArbiterResolve:
     def test_idle_resolves_to_the_hub_value(self) -> None:
         # HONOUR-WHEN-IDLE: a fresh (idle) field renders the Hub value.
-        arb = InputTextArbiter(WidgetState(), "it")
+        arb = _arb(WidgetState(), "it")
         assert arb.resolve("abc") == "abc"
 
     def test_idle_tracks_the_latest_hub_value(self) -> None:
         # HONOUR-WHEN-IDLE: each idle frame honours the current Hub value, so an
         # agent-driven change is picked up without any per-field bookkeeping.
-        arb = InputTextArbiter(WidgetState(), "it")
+        arb = _arb(WidgetState(), "it")
         assert arb.resolve("abc") == "abc"
         assert arb.resolve("xyz") == "xyz"
 
     def test_editing_defers_to_the_local_buffer(self) -> None:
         # NO-CLOBBER: once a frame has observed a real edit, a Hub-driven value
         # is ignored — the in-progress buffer wins.
-        arb = InputTextArbiter(WidgetState(), "it")
-        arb.observe(edited=True, text="hel")
+        arb = _arb(WidgetState(), "it")
+        arb.observe(edited=True, value="hel")
         assert arb.resolve("ZZZ") == "hel"
         assert arb.resolve("ZZZ") == "hel"
 
     def test_editing_keeps_a_cleared_field_empty(self) -> None:
         # A user who clears the field is editing an empty buffer — distinct from
         # an idle field, which would fall back to the Hub value.
-        arb = InputTextArbiter(WidgetState(), "it")
-        arb.observe(edited=True, text="")
+        arb = _arb(WidgetState(), "it")
+        arb.observe(edited=True, value="")
         assert arb.resolve("hub") == ""
 
     def test_focus_without_edit_keeps_honouring(self) -> None:
         # HONOUR-DISCIPLINE: an active frame with no real edit does not begin
         # deferring — the field still honours the Hub, so an echo can reach it.
-        arb = InputTextArbiter(WidgetState(), "it")
-        arb.observe(edited=False, text="abc")
+        arb = _arb(WidgetState(), "it")
+        arb.observe(edited=False, value="abc")
         assert arb.resolve("xyz") == "xyz"
 
     def test_release_returns_to_honouring_the_hub(self) -> None:
-        arb = InputTextArbiter(WidgetState(), "it")
-        arb.observe(edited=True, text="draft")
+        arb = _arb(WidgetState(), "it")
+        arb.observe(edited=True, value="draft")
         arb.release()
         assert arb.resolve("hub") == "hub"
 
     def test_slots_are_id_scoped(self) -> None:
         ws = WidgetState()
-        InputTextArbiter(ws, "a").observe(edited=True, text="aaa")
-        assert InputTextArbiter(ws, "a").resolve("x") == "aaa"
-        assert InputTextArbiter(ws, "b").resolve("y") == "y"
+        _arb(ws, "a").observe(edited=True, value="aaa")
+        assert _arb(ws, "a").resolve("x") == "aaa"
+        assert _arb(ws, "b").resolve("y") == "y"
 
 
 class TestArbiterCommitEcho:
@@ -159,7 +167,7 @@ class TestArbiterCommitEcho:
         # REFOCUS-DURABILITY at the arbiter: after commit, an idle frame whose
         # Hub value is still the pre-echo value renders the committed value —
         # the optimistic echo — not the stale Hub value.
-        arb = InputTextArbiter(WidgetState(), "it")
+        arb = _arb(WidgetState(), "it")
         arb.commit("hello", hub_value="")  # committed "hello"; Hub still ""
         assert arb.resolve("") == "hello"  # pre-echo window: honour committed
         assert arb.resolve("") == "hello"  # still pending
@@ -167,7 +175,7 @@ class TestArbiterCommitEcho:
     def test_commit_record_clears_once_the_echo_arrives(self) -> None:
         # Once the Hub value moves off the commit-time value (the echo, or an
         # agent override), the record clears and the field honours the Hub.
-        arb = InputTextArbiter(WidgetState(), "it")
+        arb = _arb(WidgetState(), "it")
         arb.commit("hello", hub_value="")
         assert arb.resolve("hello") == "hello"  # echo landed: Hub == committed
         assert arb.resolve("other") == "other"  # record gone: honour the Hub
@@ -175,9 +183,9 @@ class TestArbiterCommitEcho:
     def test_editing_wins_over_a_pending_commit(self) -> None:
         # A live edit still beats the commit-echo record: the buffer is
         # authoritative while editing, whatever the pending committed value.
-        arb = InputTextArbiter(WidgetState(), "it")
+        arb = _arb(WidgetState(), "it")
         arb.commit("hello", hub_value="")
-        arb.observe(edited=True, text="fresh")
+        arb.observe(edited=True, value="fresh")
         assert arb.resolve("") == "fresh"
 
     def test_agent_override_mid_window_drops_the_committed_value(self) -> None:
@@ -190,7 +198,7 @@ class TestArbiterCommitEcho:
         # and honours the Hub. A wrong impl comparing hub against committed would
         # keep returning "v1" here (the override differs from committed too) and
         # still pass every test that commits with hub_value="".
-        arb = InputTextArbiter(WidgetState(), "it")
+        arb = _arb(WidgetState(), "it")
         arb.commit("v1", hub_value="old")
         assert arb.resolve("old") == "v1"  # window open, Hub still pre-echo "old"
         assert arb.resolve("v2") == "v2"  # override to a third value: honour Hub
@@ -203,8 +211,8 @@ class TestArbiterCommitEcho:
         # is read directly to prove it persisted through the equal-value frames
         # and that _forget_commit fired exactly on the move.
         ws = WidgetState()
-        arb = InputTextArbiter(ws, "it")
-        committed_key = f"it{WidgetState.INPUT_COMMITTED_SUFFIX}"
+        arb = _arb(ws, "it")
+        committed_key = f"it{WidgetState.CONTINUOUS_EDIT_COMMITTED_SUFFIX}"
         arb.commit("same", hub_value="same")
         assert arb.resolve("same") == "same"  # committed == Hub: honour, record live
         assert ws.get(committed_key) == "same"  # record persists
@@ -223,8 +231,8 @@ class _HonourEveryFrameArbiter:
     def resolve(self, hub_value: str) -> str:
         return hub_value
 
-    def observe(self, *, edited: bool, text: str) -> None:
-        _ = (edited, text)
+    def observe(self, *, edited: bool, value: str) -> None:
+        _ = (edited, value)
 
     def release(self) -> None:
         return None
@@ -259,11 +267,12 @@ class _DeferOnFocusArbiter:
     _buffer_key: str
     _editing_key: str
 
-    def __new__(cls, state: WidgetState, element_id: str) -> Self:
+    def __new__(cls, state: WidgetState, element_id: str, accessor: object) -> Self:
+        _ = accessor  # the real arbiter takes an accessor; this foil ignores it
         self = super().__new__(cls)
         self._state = state
         self._buffer_key = element_id
-        self._editing_key = f"{element_id}{WidgetState.INPUT_EDITING_SUFFIX}"
+        self._editing_key = f"{element_id}{WidgetState.CONTINUOUS_EDIT_EDITING_SUFFIX}"
         return self
 
     def resolve(self, hub_value: str) -> str:
@@ -271,13 +280,13 @@ class _DeferOnFocusArbiter:
             return self._state.get_str(self._buffer_key)
         return hub_value
 
-    def observe(self, *, edited: bool, text: str) -> None:
+    def observe(self, *, edited: bool, value: str) -> None:
         _ = edited
         self._state.set(self._editing_key, value=True)
-        self._state.set(self._buffer_key, text)
+        self._state.set(self._buffer_key, value)
 
-    def commit(self, text: str, hub_value: str) -> None:
-        _ = (text, hub_value)
+    def commit(self, value: str, hub_value: str) -> None:
+        _ = (value, hub_value)
 
     def release(self) -> None:
         self._state.set(self._editing_key, value=False)
@@ -298,11 +307,12 @@ class _RawHonourArbiter:
     _buffer_key: str
     _editing_key: str
 
-    def __new__(cls, state: WidgetState, element_id: str) -> Self:
+    def __new__(cls, state: WidgetState, element_id: str, accessor: object) -> Self:
+        _ = accessor  # the real arbiter takes an accessor; this foil ignores it
         self = super().__new__(cls)
         self._state = state
         self._buffer_key = element_id
-        self._editing_key = f"{element_id}{WidgetState.INPUT_EDITING_SUFFIX}"
+        self._editing_key = f"{element_id}{WidgetState.CONTINUOUS_EDIT_EDITING_SUFFIX}"
         return self
 
     def resolve(self, hub_value: str) -> str:
@@ -310,13 +320,13 @@ class _RawHonourArbiter:
             return self._state.get_str(self._buffer_key)
         return hub_value
 
-    def observe(self, *, edited: bool, text: str) -> None:
+    def observe(self, *, edited: bool, value: str) -> None:
         if edited or self._state.get(self._editing_key, default=False) is True:
             self._state.set(self._editing_key, value=True)
-            self._state.set(self._buffer_key, text)
+            self._state.set(self._buffer_key, value)
 
-    def commit(self, text: str, hub_value: str) -> None:
-        _ = (text, hub_value)
+    def commit(self, value: str, hub_value: str) -> None:
+        _ = (value, hub_value)
 
     def release(self) -> None:
         self._state.set(self._editing_key, value=False)
@@ -328,11 +338,11 @@ class TestArbiterFidelity:
         # NO-CLOBBER fidelity: the honour-every-frame naive lets a stale Hub
         # value overwrite the buffer mid-edit; the real arbiter defers.
         naive = _HonourEveryFrameArbiter()
-        naive.observe(edited=True, text="hel")
+        naive.observe(edited=True, value="hel")
         assert naive.resolve("stale") == "stale"  # clobbered — the bug
 
-        real = InputTextArbiter(WidgetState(), "it")
-        real.observe(edited=True, text="hel")
+        real = _arb(WidgetState(), "it")
+        real.observe(edited=True, value="hel")
         assert real.resolve("stale") == "hel"  # deferred — the fix
 
     def test_seed_once_ignores_a_later_idle_hub_drive(self) -> None:
@@ -342,7 +352,7 @@ class TestArbiterFidelity:
         assert naive.resolve("abc") == "abc"
         assert naive.resolve("xyz") == "abc"  # stale — the bug
 
-        real = InputTextArbiter(WidgetState(), "it")
+        real = _arb(WidgetState(), "it")
         assert real.resolve("abc") == "abc"
         assert real.resolve("xyz") == "xyz"  # honoured — the fix
 
@@ -632,7 +642,7 @@ def _drive_refocus(
     )
     fake = _FakeImgui(*frames)
     _install(monkeypatch, fake)
-    monkeypatch.setattr(input_text_renderer, "InputTextArbiter", arbiter_cls)
+    monkeypatch.setattr(input_text_renderer, "ContinuousEditArbiter", arbiter_cls)
     elem = _input(value="")
     fired: list[ValueChanged] = []
     elem.add_handler(ValueChanged, fired.append)
@@ -685,8 +695,8 @@ class TestRemovalMidEdit:
         field honours its fresh Hub value.
         """
         ws = WidgetState()
-        arb = InputTextArbiter(ws, "it")
-        arb.observe(edited=True, text="draf")  # mid-edit: editing set, buffer held
+        arb = _arb(ws, "it")
+        arb.observe(edited=True, value="draf")  # mid-edit: editing set, buffer held
         assert arb.resolve("hub") == "draf"  # the buffer wins while editing
 
         elem = _input(value="hub")
@@ -697,7 +707,7 @@ class TestRemovalMidEdit:
 
         assert fired == []  # removal is not a commit — no ValueChanged
         # The in-progress draft is gone; a re-added field honours its fresh value.
-        assert InputTextArbiter(ws, "it").resolve("fresh") == "fresh"
+        assert _arb(ws, "it").resolve("fresh") == "fresh"
 
     def test_removal_clears_a_pending_commit_echo(self) -> None:
         """Removal drops a pending commit-echo record so a re-added field is clean.
@@ -707,10 +717,10 @@ class TestRemovalMidEdit:
         its fresh Hub value rather than a previous field's optimistic echo.
         """
         ws = WidgetState()
-        arb = InputTextArbiter(ws, "it")
+        arb = _arb(ws, "it")
         arb.commit("stale", hub_value="")
         assert arb.resolve("") == "stale"  # pending: honour the committed value
 
         ws.discard_for("it")  # the element is removed while the echo is pending
 
-        assert InputTextArbiter(ws, "it").resolve("fresh") == "fresh"
+        assert _arb(ws, "it").resolve("fresh") == "fresh"
