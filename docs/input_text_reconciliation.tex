@@ -747,6 +747,53 @@ deferring path is untouched: while a real edit is live the buffer remains
 authoritative and an echo updates only the Hub value, which is invariant~3
 standing as it did.
 
+% ============================================================
+\section{Scope and Known Limitations}
+\label{sec:scope}
+% ============================================================
+
+The reconciliation is by \emph{value equality} alone.  A commit carries no echo
+token or version number, so the arbiter recognises an echo only by the Hub value
+returning to the value observed at commit time; and one committed / commit-time
+Hub-value slot pair records only the \emph{latest} commit.  Two limitations
+follow from that single design choice.  Both are transient display artefacts, not
+data loss --- the committed value still reaches the Hub and its own echo still
+lands --- and both require an event to fall \emph{within one echo round-trip}, so
+on localhost, where that window is sub-millisecond, neither is observable in
+practice.
+
+\paragraph{Two commits within one round-trip.}
+If a field commits twice before the first echo returns, the single slot pair
+holds only the second commit and the first commit's Hub value.  While the first
+echo is in flight the display can transiently revert to the intermediate
+authoritative Hub value --- a flicker between the two committed values --- before
+the second commit's own echo lands and the display settles.  Widening the record
+to a queue or tagging each commit with a version would remove the flicker at the
+cost of the single-slot simplicity; the flicker is preferred while the window is
+sub-millisecond.
+
+\paragraph{Agent drive back to the commit-time value.}
+An agent that drives the Hub value \emph{back to the exact value observed at
+commit time} during the echo-latency window is indistinguishable, under
+value-equality reconciliation, from the pending echo of that commit.  The push is
+therefore masked --- treated as the awaited echo --- and does not re-render until
+the field next moves off that value.  A distinct third value is honoured
+immediately (the agent-override case of \texttt{resolve}); only the coincidence
+of the \emph{same} value collides.
+
+\paragraph{Relation to the verified model.}
+Both limitations live outside this specification's verified scope by
+construction.  \texttt{AgentPush} (Section~``The Hub Value'') is guarded to the
+settled state --- \texttt{focused = zfalse}, \texttt{editing = zfalse},
+\texttt{pending = zfalse} --- so the model never drives the Hub value while a
+commit is in flight, and the single \texttt{committed} component admits only one
+outstanding commit.  The transitions that exhibit the two artefacts --- a second
+commit before an echo, and an agent push \emph{during} \texttt{pending} --- are
+thus not reachable in the model, and the five invariants make no claim about
+them.  They are documented here, rather than modelled, because closing them would
+trade the single-slot / value-equality simplicity for machinery the localhost
+round-trip does not justify.
+
 \end{document}
 </content>
 </invoke>

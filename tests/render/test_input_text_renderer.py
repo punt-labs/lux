@@ -180,6 +180,39 @@ class TestArbiterCommitEcho:
         arb.observe(edited=True, text="fresh")
         assert arb.resolve("") == "fresh"
 
+    def test_agent_override_mid_window_drops_the_committed_value(self) -> None:
+        # AGENT-OVERRIDE-MID-WINDOW: the commit-hub marker is load-bearing.
+        # resolve honours the committed value only while the Hub still holds the
+        # value observed AT COMMIT TIME; it does not key off "hub != committed".
+        # Commit "v1" while the Hub holds a DISTINCT pre-echo "old" (not ""):
+        # the window honours "v1" as long as the Hub reads "old", but an agent
+        # override that drives the Hub to a THIRD value drops the committed value
+        # and honours the Hub. A wrong impl comparing hub against committed would
+        # keep returning "v1" here (the override differs from committed too) and
+        # still pass every test that commits with hub_value="".
+        arb = InputTextArbiter(WidgetState(), "it")
+        arb.commit("v1", hub_value="old")
+        assert arb.resolve("old") == "v1"  # window open, Hub still pre-echo "old"
+        assert arb.resolve("v2") == "v2"  # override to a third value: honour Hub
+
+    def test_commit_value_equal_to_current_hub_persists_then_clears(self) -> None:
+        # BOUNDARY commit(x, hub_value=x): committed and commit-hub coincide. The
+        # record is still live and honoured while the Hub reads x, and clears on
+        # the first Hub move to a different value. The output "x" is identical
+        # whether the record is present or already forgotten, so the record slot
+        # is read directly to prove it persisted through the equal-value frames
+        # and that _forget_commit fired exactly on the move.
+        ws = WidgetState()
+        arb = InputTextArbiter(ws, "it")
+        committed_key = f"it{WidgetState.INPUT_COMMITTED_SUFFIX}"
+        arb.commit("same", hub_value="same")
+        assert arb.resolve("same") == "same"  # committed == Hub: honour, record live
+        assert ws.get(committed_key) == "same"  # record persists
+        assert arb.resolve("same") == "same"  # still live, still honoured
+        assert ws.get(committed_key) == "same"
+        assert arb.resolve("other") == "other"  # Hub moved off: honour the Hub
+        assert ws.get(committed_key) is None  # _forget_commit fired on the move
+
 
 # -- fidelity: the naive implementations each invariant must beat ----------
 
@@ -454,6 +487,70 @@ class TestRendererPostCommit:
         # shows the committed value optimistically; frame 4, echo landed, honours
         # the Hub (now equal to the committed value).
         assert fake.recorded == ["", "hello", "hello", "hello"]
+
+    def test_agent_override_mid_window_tracks_the_hub_not_the_commit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # AGENT-OVERRIDE-MID-WINDOW through the paint seam: commit "v1" while the
+        # pre-echo Hub value is "" (the commit-hub marker). An idle frame in the
+        # window renders the committed "v1" optimistically; but when the agent
+        # drives value= to a DIVERGENT THIRD value ("v2") mid-window, the base
+        # handed to imgui must track the Hub ("v2"), not the committed "v1" — the
+        # override drops the optimistic echo. This drives the commit-hub marker
+        # with a distinct third value, which the "" cases never exercise.
+        fake = _FakeImgui(
+            _Frame(typed="v1", active=True, committed=False),
+            _Frame(typed=None, active=False, committed=True),
+            _Frame(typed=None, active=False, committed=False),
+            _Frame(typed=None, active=False, committed=False),
+        )
+        _install(monkeypatch, fake)
+        elem = _input(value="")  # pre-echo Hub value observed at commit time
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = InputTextRenderer(WidgetState())
+
+        renderer.render(elem)  # typing (active)
+        renderer.render(elem)  # blur -> commit "v1" fires once; commit-hub is ""
+        renderer.render(elem)  # idle; Hub still "" -> optimistic committed "v1"
+        renderer.render(_input(value="v2"))  # agent override to a third value
+
+        assert [e.value for e in fired] == ["v1"]  # exactly one commit fire
+        # Frame 4's base is the Hub "v2" (the override), NOT the committed "v1":
+        # the marker no longer matches, so resolve forgets the commit and honours
+        # the Hub.
+        assert fake.recorded == ["", "v1", "v1", "v2"]
+
+    def test_edit_in_the_window_wins_over_the_pending_commit(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # EDITING-WINS-OVER-PENDING-COMMIT end to end: commit "v1" (echo in
+        # flight), then re-focus and type "fresh" while the commit-echo record is
+        # still live. The live buffer is authoritative — the base handed to imgui
+        # becomes "fresh", not the pending committed "v1" — and only the first
+        # edit's commit fires.
+        fake = _FakeImgui(
+            _Frame(typed="v1", active=True, committed=False),
+            _Frame(typed=None, active=False, committed=True),
+            _Frame(typed="fresh", active=True, committed=False),
+            _Frame(typed=None, active=True, committed=False),
+        )
+        _install(monkeypatch, fake)
+        elem = _input(value="")  # elem.value stays pre-echo; the record is live
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = InputTextRenderer(WidgetState())
+
+        renderer.render(elem)  # typing (active)
+        renderer.render(elem)  # blur -> commit "v1"; record now live
+        renderer.render(elem)  # re-focus, edit "fresh": buffer becomes authoritative
+        renderer.render(elem)  # still active: the live buffer wins
+
+        assert [e.value for e in fired] == ["v1"]  # only the first edit committed
+        # Frame 3 shows the optimistic committed "v1" (resolve runs before the
+        # edit is observed); frame 4 shows the live buffer "fresh" — editing beats
+        # the pending commit.
+        assert fake.recorded == ["", "v1", "v1", "fresh"]
 
 
 class TestRendererRefocusDurability:
