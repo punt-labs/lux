@@ -64,10 +64,9 @@ class SliderArbiter:
 
         Reconciliation is by value equality alone: a commit carries no echo
         token, and one committed/commit-hub pair holds only the latest commit.
-        The caller guarantees finite values (``SliderElement.validate`` rejects
-        NaN/±inf), so ``x == x`` holds — a committed value's echo window always
-        closes. A ``NaN`` here would break that reflexivity and strand the
-        window open, which is why non-finite values never reach this path.
+        ``SliderElement.validate`` rejects NaN/±inf, so ``hub_value ==
+        commit_hub`` stays reflexive; a ``NaN`` commit-hub would never compare
+        equal, taking the forget branch and snapping the display to the raw Hub.
 
         Two non-data-loss limits follow from the single-slot design, each
         needing timing inside one echo round-trip (negligible on localhost):

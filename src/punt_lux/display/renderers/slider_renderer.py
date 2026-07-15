@@ -6,7 +6,7 @@ being dragged the local buffer wins and a Hub-driven value is deferred. Exactly
 one ``ValueChanged`` fires when the drag releases (via
 ``is_item_deactivated_after_edit``), never per drag frame — so a Hub re-push
 landing mid-drag cannot clobber the value under the thumb. The commit fire is
-wrapped for D21 remote dispatch.
+wrapped for remote dispatch so the interaction runs on the Hub, not locally.
 
 The arbiter keeps the buffer/commit-echo slots in ``float``; the integer
 variant converts to ``int`` only at the ``slider_int`` call and in the fired
@@ -15,7 +15,7 @@ payload (``float(int)`` is exact, so this never perturbs reconciliation).
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Self, final
 
 from imgui_bundle import imgui
 
@@ -29,14 +29,13 @@ from punt_lux.tracing import trace
 __all__ = ["SliderRenderer"]
 
 
+@final
 class SliderRenderer:
     """Render a SliderElement under the commit-on-idle rule.
 
     Holds the per-scene ``WidgetState`` (re-threaded on a scene switch) and
     builds a fresh ``SliderArbiter`` per element per frame; the arbiter owns
-    the buffer/commit-echo slots, so this class stays a thin ImGui seam. The
-    commit fire routes through the element's handler registry, wrapped for
-    remote dispatch, so the interaction runs on the Hub, not locally.
+    the buffer/commit-echo slots, so this class stays a thin ImGui seam.
     """
 
     _widget_state: WidgetState

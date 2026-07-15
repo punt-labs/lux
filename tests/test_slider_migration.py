@@ -251,6 +251,31 @@ class TestShowRejectsInvalidSlider:
         assert "[slider 'bad']" in result
         client.show.assert_not_called()
 
+    @patch(_CLIENT_GET)
+    def test_show_rejects_slider_nested_in_collapsing_header(
+        self, mock_get: MagicMock
+    ) -> None:
+        """A bad slider nested in a collapsing_header is collected by the walk."""
+        client = _mock_client()
+        mock_get.return_value = client
+        result = show(
+            "s1",
+            [
+                {
+                    "kind": "collapsing_header",
+                    "id": "hdr",
+                    "label": "Details",
+                    "children": [
+                        {"kind": "text", "id": "ok", "content": "fine"},
+                        {"kind": "slider", "id": "bad", "min": 10.0, "max": 0.0},
+                    ],
+                }
+            ],
+        )
+        assert result.startswith("error: scene not rendered")
+        assert "[slider 'bad']" in result
+        client.show.assert_not_called()
+
 
 # -- mutable-bounds patch rule (validate at the boundary, not per setter) ----
 

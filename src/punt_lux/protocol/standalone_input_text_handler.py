@@ -11,7 +11,7 @@ the caller supplies.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, final
 
 from punt_lux.domain.event_protocol import Handler
 from punt_lux.domain.handlers import DecoratorRegistry
@@ -24,6 +24,7 @@ if TYPE_CHECKING:
 __all__ = ["build_standalone_input_text_handler_decoder"]
 
 
+@final
 class _NoopValueHandler:
     """Serializable no-op handler for ``ValueChanged``."""
 
@@ -36,13 +37,10 @@ def build_standalone_input_text_handler_decoder(
 ) -> HandlerDecoder[ValueChanged]:
     """Return the ``HandlerDecoder`` for a standalone InputTextElement.
 
-    Registers one explicit factory:
-    - ``noop``: do-nothing handler (used when the only side effect is a
-      decorator like ``publish``)
-
-    The built-in state-sync handler is installed directly by
-    ``JsonInputTextDecoder`` so every decoded input keeps its text value
-    mirrored even when the wire JSON does not declare any handlers.
+    Registers only the ``noop`` factory — a do-nothing handler for when the
+    sole side effect is a decorator like ``publish``. The built-in state-sync
+    handler is installed directly by ``JsonInputTextDecoder`` so every decoded
+    input keeps its text value mirrored even when the wire JSON declares none.
     """
     factories: FactoryRegistry[ValueChanged] = FactoryRegistry()
 

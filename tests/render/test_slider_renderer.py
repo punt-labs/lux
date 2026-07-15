@@ -136,14 +136,17 @@ class TestArbiterCommitEcho:
 
 class TestArbiterFloatEquality:
     def test_full_precision_commit_echo_closes_the_window(self) -> None:
-        # EXACT-EQUALITY: a drag lands on 0.1 + 0.2 (not 0.3 in IEEE-754); the
-        # echo returns the SAME bits, so hub == commit-time-hub holds exactly
-        # and the window closes. No epsilon, no rounding.
+        # EXACT-EQUALITY: the commit records commit-hub 0.0 with a committed
+        # value of 0.1 + 0.2 (not 0.3 in IEEE-754). The echo is the Hub moving
+        # to 0.1 + 0.2, which differs from the commit-time Hub 0.0 — so resolve
+        # takes the FORGET branch and returns the raw Hub value, bit-for-bit
+        # 0.1 + 0.2, no epsilon, no rounding. The window closes because the Hub
+        # moved off commit-hub, not because committed == Hub.
         drift = 0.1 + 0.2  # 0.30000000000000004
         arb = SliderArbiter(WidgetState(), "s")
         arb.commit(drift, hub_value=0.0)
         assert arb.resolve(0.0) == drift  # window open: honour committed
-        assert arb.resolve(drift) == drift  # echo landed bit-for-bit: converge
+        assert arb.resolve(drift) == drift  # Hub moved off commit-hub: forget
         assert arb.resolve(0.5) == 0.5  # record cleared: honour the Hub
 
     def test_bit_distinct_neighbour_is_honoured_immediately(self) -> None:
