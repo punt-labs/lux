@@ -1,17 +1,11 @@
 """SliderElement — a numeric slider on the Element ABC.
 
-ABC subclass with keyword-only ``__new__``. The ``abc_di_defaults`` sentinels
-on ``renderer_factory`` / ``emit`` keep direct construction compiling; the
-Display binds the real factory in its post-receive rebind.
-
-The codec body lives in ``slider_codec.py``; ``to_dict`` / ``from_dict`` stay
-on the class as short delegators satisfying the runtime-checkable
-``domain.element.Element`` Protocol. The ``EventHandlerHost`` mixin owns the
-value-changed registry; ``_UpdateValueHandler`` mirrors the value on commit.
-
-Because ``min`` / ``max`` are patchable, the range invariant is checked at the
-element boundary — ``validate()`` before render, a whole-element re-check after
-``apply_patch`` — never per setter. ``_range_error_messages`` backs both checks.
+Keyword-only ``__new__`` with ``abc_di_defaults`` sentinels on
+``renderer_factory`` / ``emit``; the Display rebinds the real factory. The codec
+body lives in ``slider_codec.py``. Because ``min`` / ``max`` are patchable, every
+numeric invariant is checked at the element boundary — ``validate()`` before
+render, a whole-element re-check after ``apply_patch`` — never per setter, via
+the single ``_range_error_messages`` predicate.
 """
 
 from __future__ import annotations
@@ -49,11 +43,9 @@ class SliderElement(Element):
     """A numeric slider on the Element ABC.
 
     PY-TS-14 OK: ``tooltip`` stays ``str | None`` — absence is the documented
-    contract for no tooltip. The ``format`` *parameter* is ``str | None`` where
-    ``None`` means "use the variant default" (``%d`` for the integer slider,
-    ``%.1f`` for the float); the stored ``_format`` is always a concrete
-    ``str``. ``integer`` stays ``bool`` — a genuine two-state flag selecting the
-    ``slider_int`` variant, not a deferred design decision.
+    contract for no tooltip. The ``format`` *parameter* is ``str | None`` (``None``
+    means "use the variant default"), but the stored ``_format`` is always a
+    concrete ``str``. ``integer`` is a genuine two-state flag, not a deferred type.
     """
 
     _id: str
@@ -144,45 +136,37 @@ class SliderElement(Element):
         """Return the hover-tooltip text, or None for no tooltip."""
         return self._tooltip
 
-    # -- minimal setters for the scene patch path --------------------------
-    # Setters only coerce; the range invariant is re-checked once for the whole
-    # element in ``apply_patch``, never per setter.
+    # -- patch-path setters -------------------------------------------------
+    # Each only coerces its field; the numeric invariants are re-checked once
+    # for the whole element in ``apply_patch``, never per setter.
 
     def _set_value(self, value: object) -> None:
-        """Replace the thumb value (range re-checked at the element boundary)."""
         self._value = PatchField("value").as_number(value)
 
     def _set_min(self, value: object) -> None:
-        """Replace the range low end (range re-checked at the element boundary)."""
         self._min = PatchField("min").as_number(value)
 
     def _set_max(self, value: object) -> None:
-        """Replace the range high end (range re-checked at the element boundary)."""
         self._max = PatchField("max").as_number(value)
 
     def _set_format(self, value: object) -> None:
-        """Replace the printf display format."""
         self._format = PatchField("format").as_str(value)
 
     def _set_label(self, value: object) -> None:
-        """Replace the slider label."""
         self._label = PatchField("label").as_str(value)
 
     def _set_integer(self, value: object) -> None:
-        """Replace the integer-variant flag."""
         self._integer = PatchField("integer").as_bool(value)
 
     def _set_tooltip(self, value: object) -> None:
-        """Replace the tooltip text."""
         self._tooltip = PatchField("tooltip").as_optional_str(value)
 
     def apply_patch(self, patch: Mapping[str, object]) -> Self:
-        """Apply a field patch atomically, re-checking the range at the boundary.
+        """Apply a field patch atomically, re-checking the invariants at the boundary.
 
         The base setter loop rolls back on a coercion ``TypeError``; a
-        whole-element range re-check then rolls the whole patch back if the final
-        state lands out of range. Judging the final state accepts a combined
-        ``{"value": 150, "max": 200}`` that a per-setter raise would reject.
+        whole-element re-check then rolls the whole patch back if the final state
+        is invalid — so a combined ``{"value": 150, "max": 200}`` is accepted.
         """
         snapshot = dict(vars(self))
         super().apply_patch(patch)
@@ -199,36 +183,63 @@ class SliderElement(Element):
 
     # -- validation (DES-039) ----------------------------------------------
 
-    def _range_error_messages(self) -> tuple[str, ...]:
-        """Return the range/finiteness errors — the shared numeric predicate.
+    def _numeric_fields(self) -> tuple[tuple[str, float], ...]:
+        """Return the ``(name, value)`` pairs the numeric predicates scan."""
+        return (("value", self._value), ("min", self._min), ("max", self._max))
 
-        Non-finite values report first: a ``NaN`` breaks both ImGui's slider and
-        the value-equality reconciliation (``NaN != NaN``), so it must never
-        install. Once finite, an inverted range is reported alone — an
-        out-of-range check against an empty ``[min, max]`` would only add noise.
+    def _range_error_messages(self) -> tuple[str, ...]:
+        """Return finiteness, integrality, and bounds errors — the shared predicate.
+
+        Non-finite values report alone: a ``NaN`` breaks ImGui's slider and the
+        value-equality reconciliation (``NaN != NaN``), so integrality or bounds
+        errors against it are noise. Once finite, the two report together.
         """
-        fields = (("value", self._value), ("min", self._min), ("max", self._max))
         nonfinite = tuple(
             f"{name} must be finite, got {v!r}"
-            for name, v in fields
+            for name, v in self._numeric_fields()
             if not math.isfinite(v)
         )
         if nonfinite:
             return nonfinite
+        return self._integral_error_messages() + self._bounds_error_messages()
+
+    def _integral_error_messages(self) -> tuple[str, ...]:
+        """Return an error per non-integral field on the integer variant.
+
+        ``slider_int`` truncates its bounds to ``int`` and commits whole numbers,
+        so a non-integral bound or value would let a truncated commit fall
+        outside the float range the Hub re-checks.
+        """
+        return (
+            tuple(
+                f"{name} ({v}) must be a whole number for an integer slider"
+                for name, v in self._numeric_fields()
+                if not float(v).is_integer()
+            )
+            if self._integer
+            else ()
+        )
+
+    def _bounds_error_messages(self) -> tuple[str, ...]:
+        """Return the inverted-range error alone, else any out-of-range error.
+
+        An in-range check against an empty ``[min, max]`` would only add noise.
+        """
         if self._min > self._max:
             return (f"min ({self._min}) must be <= max ({self._max})",)
-        if not (self._min <= self._value <= self._max):
-            return (f"value ({self._value}) must be in [{self._min}, {self._max}]",)
-        return ()
+        return (
+            ()
+            if self._min <= self._value <= self._max
+            else (f"value ({self._value}) must be in [{self._min}, {self._max}]",)
+        )
 
     def _format_invalid(self) -> bool:
-        """Return whether ``format`` is not exactly one printf conversion matching
-        the variant.
+        """Return whether ``format`` is not exactly one variant-matching conversion.
 
         Escaped ``%%`` is a literal percent; one real conversion must remain, from
-        the ``diouxX`` family (integer slider) or ``eEfFgGaA`` (float). Width and
-        precision are numeric only: a ``*`` makes ImGui's ``vsnprintf`` read an
-        unsupplied vararg (only the value is passed), so ``%*f`` / ``%.*d`` fault.
+        ``diouxX`` (integer slider) or ``eEfFgGaA`` (float). Width/precision are
+        numeric only: a ``*`` makes ImGui's ``vsnprintf`` read an unsupplied
+        vararg (only the value is passed), so ``%*f`` / ``%.*d`` fault.
         """
         specifiers = "diouxX" if self._integer else "eEfFgGaA"
         conversion = rf"%[-+ #0]*\d*(?:\.\d+)?[hlLjztq]*[{specifiers}]"
@@ -237,19 +248,12 @@ class SliderElement(Element):
 
     def validate(self) -> tuple[ValidationError, ...]:
         """Return every range, finiteness, and format error at once (no fail-fast)."""
-        errors = [
-            ValidationError(self._id, self._kind, message)
-            for message in self._range_error_messages()
-        ]
+        messages = list(self._range_error_messages())
         if self._format_invalid():
-            errors.append(
-                ValidationError(
-                    self._id,
-                    self._kind,
-                    f"format must be a single printf conversion, got {self._format!r}",
-                )
+            messages.append(
+                f"format must be a single printf conversion, got {self._format!r}"
             )
-        return tuple(errors)
+        return tuple(ValidationError(self._id, self._kind, m) for m in messages)
 
     # -- codec delegators --------------------------------------------------
 
@@ -261,9 +265,8 @@ class SliderElement(Element):
     def from_dict(cls, d: Mapping[str, object]) -> SliderElement:
         """Construct a SliderElement from a JSON-decoded mapping.
 
-        Wires a noop-only handler decoder so a slider with no ``handlers``
-        decodes without a publish bus; a ``publish`` decorator chain raises via
-        ``RaisingPublishSink``.
+        Wires a noop-only handler decoder so a slider with no ``handlers`` decodes
+        without a publish bus; a ``publish`` chain raises via ``RaisingPublishSink``.
         """
         decoder = JsonSliderDecoder(
             renderer_factory=RAISING_FACTORY,

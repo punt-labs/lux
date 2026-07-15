@@ -225,6 +225,39 @@ class TestSelfValidation:
         assert elem.format == "%d"
         assert not any("format" in e.message for e in elem.validate())
 
+    def test_integer_slider_rejects_non_integral_bounds(self) -> None:
+        # slider_int truncates its bounds to int, so non-integral bounds would let
+        # a committed integer fall outside the float range the Hub re-checks. Both
+        # bounds (and the in-range value, itself non-integral) are named.
+        errors = SliderElement(
+            id="sl", min=0.1, max=0.2, value=0.15, integer=True
+        ).validate()
+        messages = " ".join(e.message for e in errors)
+        assert "min" in messages
+        assert "max" in messages
+        assert "whole number" in messages
+
+    def test_integer_slider_rejects_non_integral_value(self) -> None:
+        errors = SliderElement(
+            id="sl", value=1.5, min=0.0, max=10.0, integer=True
+        ).validate()
+        assert len(errors) == 1
+        assert "value" in errors[0].message
+        assert "whole number" in errors[0].message
+
+    def test_integer_slider_accepts_integral_valued_floats(self) -> None:
+        # Integral floats (3.0, not 3) are fine — the truncation is lossless.
+        errors = SliderElement(
+            id="sl", min=0.0, max=10.0, value=3.0, integer=True
+        ).validate()
+        assert not any("whole number" in e.message for e in errors)
+
+    def test_float_slider_accepts_non_integral_bounds(self) -> None:
+        # The integrality rule is scoped to the integer variant; a float slider
+        # with fractional bounds is unaffected.
+        errors = SliderElement(id="sl", min=0.1, max=0.2, value=0.15).validate()
+        assert errors == ()
+
     def test_valid_slider_passes_the_tree_walk(self) -> None:
         assert ElementTreeValidator().validate_tree([SliderElement(id="sl")]).ok
 
@@ -356,6 +389,14 @@ class TestPatchPath:
         with pytest.raises(TypeError, match="value"):
             s.apply_patch({"value": "fast"})
         assert s.value == 25.0
+
+    def test_apply_patch_rejects_flip_to_integer_over_non_integral_bounds(self) -> None:
+        # Flipping integer False->True over existing fractional bounds is caught
+        # by the same boundary re-check, and the flip rolls back.
+        s = SliderElement(id="sl", min=0.1, max=0.9, value=0.5)
+        with pytest.raises(ValueError, match="whole number"):
+            s.apply_patch({"integer": True})
+        assert s.integer is False
 
     def test_apply_patch_is_atomic_on_range_rejection(self) -> None:
         """A rejected multi-field patch leaves every field unchanged.
