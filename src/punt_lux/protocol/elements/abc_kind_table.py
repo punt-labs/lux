@@ -62,6 +62,8 @@ from punt_lux.protocol.elements.progress_codec import (
     JsonProgressDecoder,
     JsonProgressEncoder,
 )
+from punt_lux.protocol.elements.radio import RadioElement
+from punt_lux.protocol.elements.radio_codec import JsonRadioDecoder, JsonRadioEncoder
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.slider_codec import JsonSliderDecoder, JsonSliderEncoder
 from punt_lux.protocol.elements.tab_bar import TabBarElement
@@ -91,6 +93,9 @@ from punt_lux.protocol.standalone_input_number_handler import (
 )
 from punt_lux.protocol.standalone_input_text_handler import (
     build_standalone_input_text_handler_decoder,
+)
+from punt_lux.protocol.standalone_radio_handler import (
+    build_standalone_radio_handler_decoder,
 )
 from punt_lux.protocol.standalone_slider_handler import (
     build_standalone_slider_handler_decoder,
@@ -196,6 +201,13 @@ class DefaultAbcKinds:
                     ComboElement, JsonComboDecoder, JsonComboEncoder().encode
                 ),
                 handler_builder=build_standalone_combo_handler_decoder,
+            ),
+            LeafKindSpec(
+                kind="radio",
+                codec=KindCodec(
+                    RadioElement, JsonRadioDecoder, JsonRadioEncoder().encode
+                ),
+                handler_builder=build_standalone_radio_handler_decoder,
             ),
         ]
 

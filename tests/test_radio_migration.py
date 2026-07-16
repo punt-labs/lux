@@ -1,4 +1,4 @@
-"""Migration gate for the ABC ``combo`` — an atomic-selection interactive input.
+"""Migration gate for the ABC ``radio`` — an atomic-selection interactive input.
 
 Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation, the built-in
 state-sync, the wire-boundary rejection, and the capability guard. The
@@ -23,7 +23,7 @@ from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol import SceneMessage
-from punt_lux.protocol.elements import ComboElement, build_element_codec
+from punt_lux.protocol.elements import RadioElement, build_element_codec
 from punt_lux.protocol.elements.abc_kind_names import AbcKindNames
 from punt_lux.protocol.elements.abc_kind_verify import AbcKindVerifier
 from punt_lux.protocol.elements.abc_registry import AbcElementRegistry
@@ -77,20 +77,20 @@ def _record(resp: QueryResponse, element_id: str) -> dict[str, object]:
 
 class TestLevel1Serialization:
     def test_roundtrips_to_abc(self) -> None:
-        elem = ComboElement(id="co", label="Pick", items=["A", "B", "C"], selected=1)
+        elem = RadioElement(id="ra", label="Pick", items=["A", "B", "C"], selected=1)
         restored = _decode(elem.to_dict())
-        assert isinstance(restored, ComboElement)
+        assert isinstance(restored, RadioElement)
         assert restored.selected == 1
         assert restored.items == ["A", "B", "C"]
         assert restored.label == "Pick"
 
     def test_tooltipless_wire_is_byte_identical_to_legacy(self) -> None:
         # The legacy dataclass emitted exactly these five keys; a tooltip-less
-        # combo must match byte-for-byte so snapshot parity holds.
-        payload = ComboElement(id="co", label="Pick", items=["A", "B"]).to_dict()
+        # radio must match byte-for-byte so snapshot parity holds.
+        payload = RadioElement(id="ra", label="Pick", items=["A", "B"]).to_dict()
         assert payload == {
-            "kind": "combo",
-            "id": "co",
+            "kind": "radio",
+            "id": "ra",
             "label": "Pick",
             "items": ["A", "B"],
             "selected": 0,
@@ -98,54 +98,54 @@ class TestLevel1Serialization:
 
     def test_tooltip_round_trips(self) -> None:
         # The legacy to_dict silently dropped tooltip; the ABC encoder keeps it.
-        elem = ComboElement(id="co", items=["A"], tooltip="choose one")
+        elem = RadioElement(id="ra", items=["A"], tooltip="choose one")
         payload = elem.to_dict()
         assert payload["tooltip"] == "choose one"
         restored = _decode(payload)
-        assert isinstance(restored, ComboElement)
+        assert isinstance(restored, RadioElement)
         assert restored.tooltip == "choose one"
 
     def test_absent_tooltip_stays_none(self) -> None:
-        restored = _decode(ComboElement(id="co", items=["A"]).to_dict())
-        assert isinstance(restored, ComboElement)
+        restored = _decode(RadioElement(id="ra", items=["A"]).to_dict())
+        assert isinstance(restored, RadioElement)
         assert restored.tooltip is None
 
     def test_encoder_factory_encodes_without_raising(self) -> None:
-        encoded = JsonEncoderFactory().encode(ComboElement(id="co", items=["A", "B"]))
-        assert encoded["kind"] == "combo"
+        encoded = JsonEncoderFactory().encode(RadioElement(id="ra", items=["A", "B"]))
+        assert encoded["kind"] == "radio"
         assert encoded["selected"] == 0
 
     def test_absent_from_legacy_codec_table(self) -> None:
         # No dual live path: the migrated kind leaves the ``ElementCodec`` table.
         # A still-legacy input (``selectable``) stays the negative control.
         kinds = build_element_codec().registered_kinds
-        assert "combo" not in kinds
+        assert "radio" not in kinds
         assert "selectable" in kinds
 
 
-# -- capability guard: combo cannot ship handler-less -----------------------
+# -- capability guard: radio cannot ship handler-less -----------------------
 
 
 class TestCapabilityGuard:
-    def test_combo_is_a_registered_interactive_kind(self) -> None:
-        assert "combo" in AbcKindNames.MIGRATED_ABC_KINDS
-        assert "combo" in AbcKindVerifier.INTERACTIVE_KINDS
+    def test_radio_is_a_registered_interactive_kind(self) -> None:
+        assert "radio" in AbcKindNames.MIGRATED_ABC_KINDS
+        assert "radio" in AbcKindVerifier.INTERACTIVE_KINDS
 
-    def test_guard_rejects_a_handler_less_combo_spec(self) -> None:
+    def test_guard_rejects_a_handler_less_radio_spec(self) -> None:
         from punt_lux.protocol.elements.abc_kind_codec import KindCodec
         from punt_lux.protocol.elements.abc_leaf_spec import LeafKindSpec
-        from punt_lux.protocol.elements.combo_codec import (
-            JsonComboDecoder,
-            JsonComboEncoder,
+        from punt_lux.protocol.elements.radio_codec import (
+            JsonRadioDecoder,
+            JsonRadioEncoder,
         )
 
         registry = AbcElementRegistry()
         # A spec that forgets its handler_builder must fail the capability check.
         registry.register(
             LeafKindSpec(
-                kind="combo",
+                kind="radio",
                 codec=KindCodec(
-                    ComboElement, JsonComboDecoder, JsonComboEncoder().encode
+                    RadioElement, JsonRadioDecoder, JsonRadioEncoder().encode
                 ),
             )
         )
@@ -158,17 +158,17 @@ class TestCapabilityGuard:
 
 class TestMalformedWireRejected:
     def test_missing_id_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match=r"combo element.*'id'"):
-            ComboElement.from_dict({"label": "N", "items": ["A"]})
+        with pytest.raises(ValueError, match=r"radio element.*'id'"):
+            RadioElement.from_dict({"label": "N", "items": ["A"]})
 
     def test_non_string_item_is_rejected(self) -> None:
-        with pytest.raises(ValueError, match=r"combo element.*items"):
-            ComboElement.from_dict({"id": "co", "items": ["A", 3]})
+        with pytest.raises(ValueError, match=r"radio element.*items"):
+            RadioElement.from_dict({"id": "ra", "items": ["A", 3]})
 
     def test_non_list_handlers_is_rejected(self) -> None:
         with pytest.raises(TypeError, match="must be a list"):
-            ComboElement.from_dict(
-                {"id": "co", "items": ["A"], "handlers": {"not": "a list"}}
+            RadioElement.from_dict(
+                {"id": "ra", "items": ["A"], "handlers": {"not": "a list"}}
             )
 
 
@@ -176,55 +176,55 @@ class TestMalformedWireRejected:
 
 
 class TestSelfValidation:
-    def test_valid_combo_has_no_errors(self) -> None:
-        assert ComboElement(id="co", items=["A", "B"], selected=1).validate() == ()
+    def test_valid_radio_has_no_errors(self) -> None:
+        assert RadioElement(id="ra", items=["A", "B"], selected=1).validate() == ()
 
     def test_is_an_abc_element(self) -> None:
-        assert isinstance(ComboElement(id="co"), AbcElement)
+        assert isinstance(RadioElement(id="ra"), AbcElement)
 
     def test_leaf_has_no_children(self) -> None:
-        assert ComboElement(id="co").child_elements() == ()
+        assert RadioElement(id="ra").child_elements() == ()
 
     def test_negative_index_reports_one_error(self) -> None:
-        errors = ComboElement(id="co", items=["A"], selected=-1).validate()
+        errors = RadioElement(id="ra", items=["A"], selected=-1).validate()
         assert len(errors) == 1
         assert ">= 0" in errors[0].message
-        assert errors[0].element_kind == "combo"
+        assert errors[0].element_kind == "radio"
 
     def test_out_of_range_index_reports_one_error(self) -> None:
-        errors = ComboElement(id="co", items=["A", "B"], selected=5).validate()
+        errors = RadioElement(id="ra", items=["A", "B"], selected=5).validate()
         assert len(errors) == 1
         assert "selected" in errors[0].message
         assert "len(items)" in errors[0].message
 
     def test_itemless_nonzero_index_reports_one_error(self) -> None:
-        errors = ComboElement(id="co", items=[], selected=2).validate()
+        errors = RadioElement(id="ra", items=[], selected=2).validate()
         assert len(errors) == 1
         assert "empty" in errors[0].message
 
     def test_itemless_zero_index_is_valid(self) -> None:
-        # A combo awaiting deferred population is valid at index 0.
-        assert ComboElement(id="co", items=[], selected=0).validate() == ()
+        # A radio group awaiting deferred population is valid at index 0.
+        assert RadioElement(id="ra", items=[], selected=0).validate() == ()
 
-    def test_valid_combo_passes_the_tree_walk(self) -> None:
-        assert ElementTreeValidator().validate_tree([ComboElement(id="co")]).ok
+    def test_valid_radio_passes_the_tree_walk(self) -> None:
+        assert ElementTreeValidator().validate_tree([RadioElement(id="ra")]).ok
 
 
-class TestShowRejectsInvalidCombo:
+class TestShowRejectsInvalidRadio:
     @patch(_CLIENT_GET)
     def test_show_rejects_out_of_range_index(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client
         result = show(
-            "s1", [{"kind": "combo", "id": "co", "items": ["A", "B"], "selected": 9}]
+            "s1", [{"kind": "radio", "id": "ra", "items": ["A", "B"], "selected": 9}]
         )
         assert result.startswith("error: scene not rendered")
-        assert "[combo 'co']" in result
+        assert "[radio 'ra']" in result
         client.show.assert_not_called()
 
     @patch(_CLIENT_GET)
-    def test_show_rejects_combo_nested_in_group(self, mock_get: MagicMock) -> None:
-        """A bad combo nested in an all-ABC group is collected by the walk."""
+    def test_show_rejects_radio_nested_in_group(self, mock_get: MagicMock) -> None:
+        """A bad radio nested in an all-ABC group is collected by the walk."""
         client = _mock_client()
         mock_get.return_value = client
         result = show(
@@ -235,20 +235,20 @@ class TestShowRejectsInvalidCombo:
                     "id": "g1",
                     "children": [
                         {"kind": "text", "id": "ok", "content": "fine"},
-                        {"kind": "combo", "id": "bad", "items": ["A"], "selected": 3},
+                        {"kind": "radio", "id": "bad", "items": ["A"], "selected": 3},
                     ],
                 }
             ],
         )
         assert result.startswith("error: scene not rendered")
-        assert "[combo 'bad']" in result
+        assert "[radio 'bad']" in result
         client.show.assert_not_called()
 
     @patch(_CLIENT_GET)
-    def test_show_rejects_combo_nested_in_collapsing_header(
+    def test_show_rejects_radio_nested_in_collapsing_header(
         self, mock_get: MagicMock
     ) -> None:
-        """A bad combo nested in a collapsing_header is collected by the walk."""
+        """A bad radio nested in a collapsing_header is collected by the walk."""
         client = _mock_client()
         mock_get.return_value = client
         result = show(
@@ -260,13 +260,13 @@ class TestShowRejectsInvalidCombo:
                     "label": "Details",
                     "children": [
                         {"kind": "text", "id": "ok", "content": "fine"},
-                        {"kind": "combo", "id": "bad", "items": ["A"], "selected": 3},
+                        {"kind": "radio", "id": "bad", "items": ["A"], "selected": 3},
                     ],
                 }
             ],
         )
         assert result.startswith("error: scene not rendered")
-        assert "[combo 'bad']" in result
+        assert "[radio 'bad']" in result
         client.show.assert_not_called()
 
 
@@ -275,57 +275,57 @@ class TestShowRejectsInvalidCombo:
 
 class TestPatchPath:
     def test_apply_patch_advances_selected_in_place(self) -> None:
-        c = ComboElement(id="co", items=["A", "B", "C"], selected=0)
-        returned = c.apply_patch({"selected": 2})
-        assert returned is c
-        assert c.selected == 2
+        r = RadioElement(id="ra", items=["A", "B", "C"], selected=0)
+        returned = r.apply_patch({"selected": 2})
+        assert returned is r
+        assert r.selected == 2
 
     def test_combined_items_then_index_is_judged_on_final_state(self) -> None:
         # ``selected`` 3 exceeds the current 2-item list, but the same patch
         # widens ``items`` to 4. A per-setter raise would wrongly reject; the
         # element-boundary re-check judges the final state and accepts it.
-        c = ComboElement(id="co", items=["A", "B"], selected=0)
-        c.apply_patch({"items": ["A", "B", "C", "D"], "selected": 3})
-        assert c.selected == 3
-        assert c.items == ["A", "B", "C", "D"]
+        r = RadioElement(id="ra", items=["A", "B"], selected=0)
+        r.apply_patch({"items": ["A", "B", "C", "D"], "selected": 3})
+        assert r.selected == 3
+        assert r.items == ["A", "B", "C", "D"]
 
     def test_apply_patch_rejects_out_of_range_and_rolls_back(self) -> None:
-        c = ComboElement(id="co", items=["A", "B"], selected=1)
+        r = RadioElement(id="ra", items=["A", "B"], selected=1)
         with pytest.raises(ValueError, match="selected"):
-            c.apply_patch({"selected": 9})
-        assert c.selected == 1
+            r.apply_patch({"selected": 9})
+        assert r.selected == 1
 
     def test_apply_patch_rejects_non_int_index(self) -> None:
-        c = ComboElement(id="co", items=["A", "B"], selected=0)
+        r = RadioElement(id="ra", items=["A", "B"], selected=0)
         with pytest.raises(TypeError, match="selected"):
-            c.apply_patch({"selected": "one"})
-        assert c.selected == 0
+            r.apply_patch({"selected": "one"})
+        assert r.selected == 0
 
     def test_apply_patch_rejects_bool_index(self) -> None:
         # ``bool`` is a subclass of ``int`` but is never a valid selection index.
-        c = ComboElement(id="co", items=["A", "B"], selected=0)
+        r = RadioElement(id="ra", items=["A", "B"], selected=0)
         with pytest.raises(TypeError, match="selected"):
-            c.apply_patch({"selected": True})
-        assert c.selected == 0
+            r.apply_patch({"selected": True})
+        assert r.selected == 0
 
     def test_apply_patch_is_atomic_on_range_rejection(self) -> None:
-        c = ComboElement(id="co", items=["A", "B"], selected=0, label="orig")
+        r = RadioElement(id="ra", items=["A", "B"], selected=0, label="orig")
         with pytest.raises(ValueError, match="selected"):
-            c.apply_patch({"label": "new", "selected": 9})
-        assert c.label == "orig"
-        assert c.selected == 0
+            r.apply_patch({"label": "new", "selected": 9})
+        assert r.label == "orig"
+        assert r.selected == 0
 
 
 # -- the all-ABC fork gate --------------------------------------------------
 
 
 class TestForkGate:
-    def test_combo_is_a_migrated_abc_kind(self) -> None:
+    def test_radio_is_a_migrated_abc_kind(self) -> None:
         wire = {
             "kind": "group",
             "id": "g",
             "layout": "rows",
-            "children": [{"kind": "combo", "id": "co", "items": ["A"]}],
+            "children": [{"kind": "radio", "id": "ra", "items": ["A"]}],
         }
         assert ContainerAbcGate.is_all_abc(wire)
 
@@ -335,25 +335,25 @@ class TestForkGate:
 
 class TestLevel2WireRoundtrip:
     def test_crosses_as_pickled_entry(self) -> None:
-        elem = _decode(ComboElement(id="co", items=["A", "B"], selected=1).to_dict())
-        assert isinstance(elem, ComboElement)
+        elem = _decode(RadioElement(id="ra", items=["A", "B"], selected=1).to_dict())
+        assert isinstance(elem, RadioElement)
         wire = message_to_dict(SceneMessage(id="s1", elements=[elem]))
         entry = wire["elements"][0]
-        assert "_pickled" in entry, "ABC combo must use native pickle wire"
+        assert "_pickled" in entry, "ABC radio must use native pickle wire"
         restored = message_from_dict(wire)
         assert isinstance(restored, SceneMessage)
         r_elem = restored.elements[0]
-        assert isinstance(r_elem, ComboElement)
+        assert isinstance(r_elem, RadioElement)
         assert r_elem.selected == 1
 
     def test_builtin_state_sync_handler_survives_the_wire(self) -> None:
-        elem = _decode(ComboElement(id="co", items=["A"]).to_dict())
-        assert isinstance(elem, ComboElement)
+        elem = _decode(RadioElement(id="ra", items=["A"]).to_dict())
+        assert isinstance(elem, RadioElement)
         wire = message_to_dict(SceneMessage(id="s1", elements=[elem]))
         restored = message_from_dict(wire)
         assert isinstance(restored, SceneMessage)
         r_elem = restored.elements[0]
-        assert isinstance(r_elem, ComboElement)
+        assert isinstance(r_elem, RadioElement)
         assert r_elem.handler_count(ValueChanged) == 1
 
 
@@ -361,16 +361,16 @@ class TestLevel2WireRoundtrip:
 
 
 class TestLevel3Crossing:
-    def test_rebind_binds_the_combo_renderer_factory(self) -> None:
+    def test_rebind_binds_the_radio_renderer_factory(self) -> None:
         scene = SceneMessage(
-            id="s1", elements=[ComboElement(id="co", items=["A"], selected=0)]
+            id="s1", elements=[RadioElement(id="ra", items=["A"], selected=0)]
         )
         received = message_from_dict(message_to_dict(scene))
         assert isinstance(received, SceneMessage)
-        combo = received.elements[0]
-        assert isinstance(combo, ComboElement)
+        radio = received.elements[0]
+        assert isinstance(radio, RadioElement)
 
-        before = combo._renderer_factory
+        before = radio._renderer_factory
         assert isinstance(before, RaisingRendererFactory)
 
         server = _server()
@@ -378,7 +378,7 @@ class TestLevel3Crossing:
 
         factory = server._imgui_renderer_factory
         assert isinstance(factory, ImGuiRendererFactory)
-        assert combo._renderer_factory is factory
+        assert radio._renderer_factory is factory
 
 
 # -- built-in state-sync + echo-suppression ---------------------------------
@@ -386,12 +386,12 @@ class TestLevel3Crossing:
 
 class TestInteraction:
     def test_builtin_handler_syncs_selection_on_the_hub_copy(self) -> None:
-        elem = _decode(ComboElement(id="co", items=["A", "B", "C"]).to_dict())
-        assert isinstance(elem, ComboElement)
+        elem = _decode(RadioElement(id="ra", items=["A", "B", "C"]).to_dict())
+        assert isinstance(elem, RadioElement)
         elem.fire(
             ValueChanged(
                 scene_id=SceneId("s"),
-                element_id=ElementId("co"),
+                element_id=ElementId("ra"),
                 owner_id=ClientId("c"),
                 value=2,
             )
@@ -401,8 +401,8 @@ class TestInteraction:
     def test_hub_driven_change_does_not_refire(self) -> None:
         # A Hub-set index must NOT emit a RemoteEventHandlerInvocation; a genuine
         # pick DOES emit exactly one, carrying the int index.
-        elem = _decode(ComboElement(id="co", items=["A", "B", "C"]).to_dict())
-        assert isinstance(elem, ComboElement)
+        elem = _decode(RadioElement(id="ra", items=["A", "B", "C"]).to_dict())
+        assert isinstance(elem, RadioElement)
         sent: list[RemoteEventHandlerInvocation] = []
         elem.wrap_handlers_for_remote(sent.append)
 
@@ -412,7 +412,7 @@ class TestInteraction:
         elem.fire(
             ValueChanged(
                 scene_id=SceneId("s"),
-                element_id=ElementId("co"),
+                element_id=ElementId("ra"),
                 owner_id=ClientId("c"),
                 value=2,
             )
@@ -427,15 +427,15 @@ class TestInteraction:
 
 class TestLevel5Introspection:
     def test_reports_abc_render_path(self) -> None:
-        elem = _decode(ComboElement(id="co", items=["A"], selected=0).to_dict())
-        record = _record(_inspect(_server(), elem), "co")
+        elem = _decode(RadioElement(id="ra", items=["A"], selected=0).to_dict())
+        record = _record(_inspect(_server(), elem), "ra")
         assert record["render_path"] == "abc"
 
     def test_resolved_props_read_back_including_defaults(self) -> None:
         elem = _decode(
-            ComboElement(id="co", label="Pick", items=["A", "B"], selected=1).to_dict()
+            RadioElement(id="ra", label="Pick", items=["A", "B"], selected=1).to_dict()
         )
-        props = _record(_inspect(_server(), elem), "co")["props"]
+        props = _record(_inspect(_server(), elem), "ra")["props"]
         assert isinstance(props, dict)
         assert props == {
             "label": "Pick",

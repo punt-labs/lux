@@ -42,6 +42,7 @@ class AbcKindNames:
             "slider",
             "color_picker",
             "combo",
+            "radio",
             "group",
             "collapsing_header",
             "tab_bar",

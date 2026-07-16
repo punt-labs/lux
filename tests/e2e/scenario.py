@@ -28,6 +28,7 @@ __all__ = [
     "COMBO_COMMIT_INDEX",
     "INPUT_COMMIT_TEXT",
     "NUMBER_COMMIT_VALUE",
+    "RADIO_COMMIT_INDEX",
     "SCENARIOS",
     "SLIDER_COMMIT_VALUE",
     "InteractionExpectation",
@@ -59,6 +60,11 @@ NUMBER_COMMIT_VALUE = 33.0
 # three-item combo. Shared with the agent's synthetic-event builder: a pick's
 # structural source is the chosen index, but the agent injects a fixed target.
 COMBO_COMMIT_INDEX = 1
+
+# The index a radio pick commits in the loop — the second item of the scenario's
+# three-item radio group. Shared with the agent's synthetic-event builder for the
+# same reason as the combo: the agent injects a fixed target index.
+RADIO_COMMIT_INDEX = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -542,6 +548,72 @@ class Scenario:
         )
 
     @classmethod
+    def group_radio_progress(cls) -> Self:
+        """A group holding a publishing radio and a display-only progress.
+
+        Picking an item crosses as ``value_changed`` carrying the selected index
+        (an ``int``); the built-in state-sync handler writes the Hub ``selected``
+        (``0`` -> the picked index), so the dispatch re-push carries the mutated
+        index. A wire ``handlers`` entry publishes ``choice_selected``; the agent
+        reacts by advancing the bar. Proves the atomic-selection radio rides the
+        faithful boundary as a plain ``int`` index, like the combo's.
+        """
+        return cls(
+            name="group-radio-progress",
+            scene_id="e2e-radio-scene",
+            elements=(
+                {
+                    "kind": "group",
+                    "id": "ra-surface",
+                    "layout": "rows",
+                    "children": (
+                        {
+                            "kind": "radio",
+                            "id": "choice-field",
+                            "label": "Choice",
+                            "items": ("Alpha", "Beta", "Gamma"),
+                            "selected": 0,
+                            "handlers": [
+                                {
+                                    "event": "changed",
+                                    "factory": "noop",
+                                    "wrap": [
+                                        {
+                                            "decorator": "publish",
+                                            "topics": ["choice_selected"],
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "kind": "progress",
+                            "id": "ra-progress",
+                            "fraction": 0.0,
+                            "label": "idle",
+                        },
+                    ),
+                },
+            ),
+            target_element_id="choice-field",
+            interaction=InteractionExpectation(
+                event_kind="value_changed", value=RADIO_COMMIT_INDEX
+            ),
+            publish=WirePublish("choice_selected"),
+            react=(
+                ReactPatch(element_id="ra-progress", field="fraction", value=1.0),
+                ReactPatch(element_id="ra-progress", field="label", value="selected"),
+            ),
+            display_only_id="ra-progress",
+            repush=PropAfterDispatch(
+                element_id="choice-field",
+                field="selected",
+                value=RADIO_COMMIT_INDEX,
+                flipped=True,
+            ),
+        )
+
+    @classmethod
     def collapsing_header_toggle_progress(cls) -> Self:
         """A collapsing_header beside a display-only progress (the interactive loop).
 
@@ -925,6 +997,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario.group_input_number_progress(),
     Scenario.group_color_picker_progress(),
     Scenario.group_combo_progress(),
+    Scenario.group_radio_progress(),
     Scenario.collapsing_header_toggle_progress(),
     Scenario.collapsing_header_button_progress(),
     Scenario.tab_bar_change_progress(),
