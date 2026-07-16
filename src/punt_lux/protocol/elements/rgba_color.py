@@ -36,10 +36,19 @@ class RgbaColor:
     def from_hex(cls, hex_str: str) -> Self:
         """Return the color a well-formed ``#RRGGBB`` / ``#RRGGBBAA`` encodes.
 
-        Total on a validated hex; a malformed hex is a construction bypass and
-        raises ``ValueError`` (PY-EH-8) rather than whitening silently.
+        Well-formed means exactly one leading ``#`` followed by 6 or 8 hex
+        digits. Anything else — no ``#``, a doubled ``#``, a wrong length, a
+        non-hex digit — is a construction bypass and raises ``ValueError``
+        (PY-EH-8) rather than whitening silently. Length is checked before the
+        channel bytes are parsed, so the method stays total on every input.
         """
-        s = hex_str.lstrip("#")
+        if not hex_str.startswith("#"):
+            msg = f"hex color must start with '#', got {hex_str!r}"
+            raise ValueError(msg)
+        s = hex_str[1:]
+        if len(s) not in (6, 8):
+            msg = f"hex color must be 6 or 8 digits, got {hex_str!r}"
+            raise ValueError(msg)
         try:
             r = int(s[0:2], 16) / 255.0
             g = int(s[2:4], 16) / 255.0
@@ -48,9 +57,6 @@ class RgbaColor:
         except ValueError as exc:
             msg = f"not a well-formed hex color: {hex_str!r}"
             raise ValueError(msg) from exc
-        if len(s) not in (6, 8):
-            msg = f"hex color must be 6 or 8 digits, got {hex_str!r}"
-            raise ValueError(msg)
         return cls((r, g, b, a))
 
     def to_hex(self, *, alpha: bool) -> str:

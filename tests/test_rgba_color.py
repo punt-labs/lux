@@ -34,7 +34,19 @@ class TestFromHex:
         # arity 4 regardless of the wire form, so tuple == stays well-defined.
         assert len(RgbaColor.from_hex("#123456").as_tuple()) == 4
 
-    @pytest.mark.parametrize("bad", ["#ZZZZZZ", "#12345", "#1234567", "not-hex", ""])
+    @pytest.mark.parametrize(
+        "bad",
+        [
+            "#ZZZZZZ",
+            "#12345",
+            "#1234567",
+            "not-hex",
+            "",
+            "FF00FF",  # no leading '#' — lstrip would have wrongly accepted it
+            "##FF00FF",  # a doubled '#' — lstrip would have wrongly accepted it
+            "#FF00",  # wrong length (4 digits)
+        ],
+    )
     def test_malformed_hex_raises(self, bad: str) -> None:
         with pytest.raises(ValueError, match="hex"):
             RgbaColor.from_hex(bad)
