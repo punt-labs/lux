@@ -1,0 +1,599 @@
+%
+% reconciliation_hub_reject.tex
+%
+% A Z specification of the CONVERGENCE half of the lux commit-on-idle
+% reconciliation: what happens when the value a field commits is one the Hub
+% will REJECT rather than install.  It is a focused sibling of
+% input_text_reconciliation.tex, which models the honour / defer / commit-echo
+% discipline over a carrier [VALUE] that is IMPLICITLY the set of Hub-accepted
+% values.  That implicit assumption -- every committed value is one the Hub
+% installs -- is the one this document makes explicit and then defends.
+%
+% The defect class (honour-forever divergence) surfaced twice on input_number:
+%   Round 1: a typed out-of-range value (150 into [0,100]) was committed; the
+%     Hub's range check rejected it.
+%   Round 2: a non-finite value (1e400 -> +inf) on a field unbounded on that
+%     side clamped through unchanged and was committed; the Hub's finiteness
+%     check rejected it.
+% In both, the renderer committed a value OUTSIDE the Hub-accepted domain.  The
+% Hub's apply_patch raises ValueError; EventHandlerHost.fire swallows it and does
+% not re-push; so the Hub value never advances to the committed value.  The
+% arbiter forgets its optimistic echo only when the Hub value moves OFF the
+% commit-time value -- which now never happens -- so the Display honours the
+% rejected value FOREVER while the Hub sits on the old one.  A silent, permanent
+% Hub/Display divergence: no test round finds it, because no test drives the
+% renderer past the Hub's boundary.
+%
+% This model distinguishes the Hub-accepted subset ``accepted'' from an
+% arbitrary committed value, adds an explicit Hub-REJECT transition, and states
+% the convergence invariant the defect violates.  With the reject transition
+% enabled and Commit UNGUARDED, ProB reaches the honour-forever state; with the
+% fix -- Commit guarded so it only ever commits an accepted value -- the reject
+% transition is dead and convergence holds.
+%
+% Source of record:
+%   src/punt_lux/protocol/elements/input_number.py
+%       -- InputNumberElement.apply_patch: re-checks range AND finiteness at the
+%          boundary and raises ValueError on any invalid result (the REJECT);
+%          .clamped(): projects into [min,max] but does NOT sanitise non-finite,
+%          so +inf on an unbounded side passes through -- the round-2 hole.
+%       -- NumericInputChecks: the range/finiteness/format predicate defining the
+%          Hub-accepted domain (this model's ``accepted'').
+%   src/punt_lux/display/renderers/input_number_renderer.py
+%       -- InputNumberRenderer.render / ._commit: projects the raw entry through
+%          elem.clamped before commit.  The fix extends that projection to a total
+%          sanitiser into the accepted domain, so ``committed in accepted'' holds
+%          by construction -- this model's Commit guard.
+%   src/punt_lux/display/renderers/imgui/continuous_edit_selection.py
+%       -- ContinuousEditArbiter.resolve: returns the committed value while the
+%          Hub value still equals the commit-time Hub value; forgets it once the
+%          Hub value moves off -- the branch that never fires under a rejected
+%          commit.
+%
+% Type-check:  fuzz -t docs/reconciliation_hub_reject.tex
+% Model-check (see Section "Verification" for the exact goals):
+%   probcli docs/reconciliation_hub_reject.tex -model_check -p DEFAULT_SETSIZE 2
+%   probcli docs/reconciliation_hub_reject.tex -model_check -nodead \
+%       -goal "pending=ztrue & committed /: accepted" -p DEFAULT_SETSIZE 2
+%   probcli docs/reconciliation_hub_reject.tex -model_check -nodead \
+%       -goal "diverged=ztrue" -p DEFAULT_SETSIZE 2
+%   probcli docs/reconciliation_hub_reject.tex -model_check -nodead \
+%       -goal "editing=ztrue & edited=zfalse" -p DEFAULT_SETSIZE 2
+%
+% Formatting follows the fuzz house rules: \quad~ for continuation indent,
+% schema lines under 80 columns, predicates broken at \land/\lor/\implies with
+% the operator starting the continuation line.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{Hub Rejection and Convergence in the lux Commit-on-Idle Discipline:
+  a Z Specification}
+\author{Formal model of the honour-forever divergence and its exclusion}
+\date{July 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+The commit-on-idle reconciliation of \texttt{input\_text\_reconciliation.tex}
+governs a field whose value is Hub-authoritative and replicated to a Display.
+Its carrier \texttt{[VALUE]} stands for whatever a field holds --- text, a float,
+an RGBA tuple --- and its \texttt{HubEcho} operation installs the committed value
+at the Hub unconditionally.  That unconditional install encodes an assumption the
+present document makes explicit: \emph{every value a field commits is one the Hub
+will accept}.  The carrier is, in effect, the set of Hub-accepted values.
+
+The assumption is false for a numeric field.  An \texttt{input\_float} widget does
+not clamp, and the renderer's own projection into range, \texttt{elem.clamped},
+leaves a value non-finite when the field is unbounded on the offending side: a
+typed \texttt{1e400} becomes \texttt{+inf} and passes through.  The field commits
+that value; the Hub's \texttt{apply\_patch} re-checks range \emph{and} finiteness
+and raises \texttt{ValueError}; the firing host logs the error and does not
+re-push.  The Hub value therefore never advances to the committed value.
+
+The arbiter's optimistic echo is what turns a rejected commit into a permanent
+fault.  On commit the arbiter records the committed value and the Hub value
+observed at commit time, and while the field is idle it returns the committed
+value until the Hub value moves \emph{off} that commit-time value --- the moment
+it treats as the echo landing.  When the Hub rejects the commit, the Hub value
+never moves; the arbiter's forget branch never fires; and the Display honours the
+rejected value for the rest of the field's life while the Hub holds the old one.
+This is the \emph{honour-forever divergence}.  It surfaced twice on
+\texttt{input\_number} --- once for an out-of-range value, once for a non-finite
+one --- and that recurrence is why the boundary is modelled here rather than
+patched a third time.
+
+The correction is a single discipline: \emph{a field commits only a value the Hub
+will accept}.  The renderer's pre-commit projection is widened from a range clamp
+to a total sanitiser onto the accepted domain, so a non-finite or out-of-range
+entry is repaired before it is committed, and the value that travels to the Hub is
+always one \texttt{apply\_patch} installs.  The Hub then always echoes, the forget
+branch always eventually fires, and the display converges.
+
+This document distinguishes the Hub-accepted subset from an arbitrary committed
+value, adds an explicit Hub-reject transition, and states the convergence
+property the defect violates.  Over a small bounded carrier ProB enumerates every
+interleaving of edit, commit, echo, and reject, and either confirms convergence or
+produces the exact honour-forever trace.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [VALUE]
+\end{zed}
+
+\texttt{VALUE} is the set of values the field may hold and the widget may commit.
+Crucially it is \emph{not} restricted to Hub-accepted values: the widget can
+produce a value the Hub refuses, and the whole point of this model is that such a
+value can be committed.  Two values suffice to exhibit the divergence --- an
+accepted starting value and one value the Hub rejects; three widen the
+interleaving without adding a reachable fault.  The carrier is bounded by ProB's
+\texttt{DEFAULT\_SETSIZE}.
+
+% ============================================================
+\section{Free Types and Constants}
+% ============================================================
+
+\begin{zed}
+  ZBOOL ::= ztrue | zfalse
+\end{zed}
+
+A two-valued flag written as a free type rather than the toolkit \texttt{bool}, so
+ProB animates it as a small enumerated set.
+
+\begin{axdef}
+  v0 : VALUE \\
+  accepted : \power VALUE
+\where
+  v0 \in accepted
+\end{axdef}
+
+\texttt{accepted} is the Hub-accepted domain: the set of values
+\texttt{apply\_patch} installs rather than rejecting.  For a numeric field it is
+the finite values within \texttt{[min, max]}; the model leaves it an arbitrary
+subset so ProB checks every shape of boundary, including the one where only the
+start value is accepted.  \texttt{v0} is that start value --- both the initial
+display and the initial Hub value --- and it must be accepted, since the Hub holds
+it.  A value in \texttt{VALUE} but outside \texttt{accepted} is one the widget can
+commit and the Hub will reject; with \texttt{DEFAULT\_SETSIZE 2} and
+\texttt{accepted} taken as \texttt{\{v0\}}, the other value is exactly such a one.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema, eight components.  Its predicate carries only
+structural coherence --- that a field can defer or be mid-edit only while focused.
+That holds in every design, correct or buggy, so it constrains rather than tests.
+The convergence property (Section~\ref{sec:inv}) is deliberately \emph{absent}
+here, so a divergent state stays reachable and ProB can find it.
+
+\begin{schema}{Field}
+  disp : VALUE \\
+  hub : VALUE \\
+  focused : ZBOOL \\
+  editing : ZBOOL \\
+  edited : ZBOOL \\
+  pending : ZBOOL \\
+  committed : VALUE \\
+  diverged : ZBOOL
+\where
+  editing = ztrue \implies focused = ztrue \\
+  edited = ztrue \implies focused = ztrue
+\end{schema}
+
+\texttt{disp} is the value the Display renders --- the arbiter's \texttt{resolve}
+output.  \texttt{hub} is the Hub-authoritative value.  \texttt{focused},
+\texttt{editing} (the defer flag) and \texttt{edited} (the real-edit witness)
+carry the honour/defer discipline unchanged from the parent model, kept so the
+convergence question is asked over a faithful edit cycle rather than an abstract
+one.
+
+\texttt{pending} marks the echo-latency window: set from a commit, and cleared
+only when the Hub adopts the committed value.  While it holds, \texttt{resolve}
+returns \texttt{committed}, so the display shows the committed value.
+\texttt{committed} is the value most recently committed --- possibly one outside
+\texttt{accepted}.  \texttt{diverged} is pure bookkeeping for the invariant: it
+latches \texttt{ztrue} the moment the Hub rejects an outstanding commit, the event
+after which the display honours a value the Hub will never hold.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Field'
+\where
+  disp' = v0 \\
+  hub' = v0 \\
+  focused' = zfalse \\
+  editing' = zfalse \\
+  edited' = zfalse \\
+  pending' = zfalse \\
+  committed' = v0 \\
+  diverged' = zfalse
+\end{schema}
+
+A single initial state: the field unfocused and idle, display and Hub both on the
+accepted value \texttt{v0}, no commit outstanding, nothing diverged.
+
+% ============================================================
+\section{The Edit Cycle}
+% ============================================================
+
+Focusing begins a fresh session and, following the corrected parent design, does
+\emph{not} begin deferring: a focused-but-unedited field still honours the Hub.
+
+\begin{schema}{Focus}
+  \Delta Field
+\where
+  focused = zfalse \\
+  focused' = ztrue \\
+  editing' = zfalse \\
+  edited' = zfalse \\
+  disp' = disp \\
+  hub' = hub \\
+  pending' = pending \\
+  committed' = committed \\
+  diverged' = diverged
+\end{schema}
+
+A keystroke changes the text and begins deferring.  The typed value \texttt{e?}
+ranges over the whole of \texttt{VALUE} --- including values outside
+\texttt{accepted}: this is where the user types \texttt{1e400}, the value the Hub
+will later reject.  Modelling \texttt{e?} as unrestricted is what lets the widget
+present the Hub with a value it refuses.
+
+\begin{schema}{Keystroke}
+  \Delta Field \\
+  e? : VALUE
+\where
+  focused = ztrue \\
+  editing' = ztrue \\
+  edited' = ztrue \\
+  disp' = e? \\
+  focused' = focused \\
+  hub' = hub \\
+  pending' = pending \\
+  committed' = committed \\
+  diverged' = diverged
+\end{schema}
+
+A commit is the deactivation of an edited field.  It records the committed value
+and opens the echo-latency window; the Hub is not updated here.  The guard
+\texttt{disp $\in$ accepted} is the \emph{fix}: the field commits only a value the
+Hub will accept.  It models the renderer's total pre-commit sanitiser --- a
+non-finite or out-of-range entry is repaired into \texttt{accepted} before this
+point, so the committed value is always installable.  Deleting the guard is the
+defect (Section~\ref{sec:fidelity}): the widget then commits whatever it displays,
+rejected values included.
+
+\begin{schema}{Commit}
+  \Delta Field
+\where
+  focused = ztrue \\
+  editing = ztrue \\
+  disp \in accepted \\
+  committed' = disp \\
+  pending' = ztrue \\
+  focused' = zfalse \\
+  editing' = zfalse \\
+  edited' = zfalse \\
+  disp' = disp \\
+  hub' = hub \\
+  diverged' = diverged
+\end{schema}
+
+A field may also lose focus without an edit.  This commits nothing.
+
+\begin{schema}{BlurNoEdit}
+  \Delta Field
+\where
+  focused = ztrue \\
+  editing = zfalse \\
+  focused' = zfalse \\
+  edited' = zfalse \\
+  editing' = zfalse \\
+  disp' = disp \\
+  hub' = hub \\
+  pending' = pending \\
+  committed' = committed \\
+  diverged' = diverged
+\end{schema}
+
+% ============================================================
+\section{The Hub Response}
+% ============================================================
+
+A committed value reaches the Hub, which either installs it or rejects it.  The
+two outcomes are the two operations here, and they partition on whether the
+committed value is accepted.
+
+\texttt{HubEchoAccept} is the delayed echo of an \emph{accepted} commit: the Hub
+adopts the committed value and the echo-latency window closes.  From here an
+honour frame renders \texttt{hub}, which now equals \texttt{committed}: the
+optimistic display and the real Hub value have converged.
+
+\begin{schema}{HubEchoAccept}
+  \Delta Field
+\where
+  pending = ztrue \\
+  committed \in accepted \\
+  hub' = committed \\
+  pending' = zfalse \\
+  disp' = disp \\
+  focused' = focused \\
+  editing' = editing \\
+  edited' = edited \\
+  committed' = committed \\
+  diverged' = diverged
+\end{schema}
+
+\texttt{HubReject} is the delayed \emph{refusal} of a commit the Hub will not
+install: the committed value is outside \texttt{accepted}, so \texttt{apply\_patch}
+raises and the firing host swallows the error.  The Hub value does not move, and
+the echo-latency window does not close --- \texttt{pending} stays set, so
+\texttt{resolve} keeps returning the rejected value.  The operation latches
+\texttt{diverged}: from this state the display honours a value the Hub will never
+hold, and no operation can carry the Hub to it, because only
+\texttt{HubEchoAccept} advances \texttt{hub} and it is disabled while the committed
+value is unaccepted.
+
+\begin{schema}{HubReject}
+  \Delta Field
+\where
+  pending = ztrue \\
+  committed \notin accepted \\
+  diverged' = ztrue \\
+  hub' = hub \\
+  pending' = pending \\
+  disp' = disp \\
+  focused' = focused \\
+  editing' = editing \\
+  edited' = edited \\
+  committed' = committed
+\end{schema}
+
+% ============================================================
+\section{The Render Frames}
+\label{sec:frames}
+% ============================================================
+
+A frame in which the field is not deferring honours: it drives the display to the
+value the field is authoritative for --- the committed value while a commit is in
+flight, the raw Hub value otherwise.  This is the \texttt{resolve} rule: it is
+what makes the display show the committed value throughout the window, and hence
+what makes a rejected commit visible for as long as the window stays open.
+
+\begin{schema}{IdleHonour}
+  \Delta Field
+\where
+  focused = zfalse \\
+  editing = zfalse \\
+  disp' = \IF pending = ztrue \THEN committed \ELSE hub \\
+  focused' = focused \\
+  editing' = editing \\
+  edited' = edited \\
+  hub' = hub \\
+  pending' = pending \\
+  committed' = committed \\
+  diverged' = diverged
+\end{schema}
+
+\begin{schema}{FocusedHonour}
+  \Delta Field
+\where
+  focused = ztrue \\
+  editing = zfalse \\
+  disp' = \IF pending = ztrue \THEN committed \ELSE hub \\
+  focused' = focused \\
+  editing' = editing \\
+  edited' = edited \\
+  hub' = hub \\
+  pending' = pending \\
+  committed' = committed \\
+  diverged' = diverged
+\end{schema}
+
+A deferring field --- \texttt{editing} set --- honours nothing: its display is the
+buffer, moved only by a further keystroke.  That case is the absence of an honour
+frame while \texttt{editing} holds.  It is what keeps a step always available: an
+unfocused field can \texttt{IdleHonour}; a focused non-deferring field can
+\texttt{FocusedHonour}; a deferring field is focused, so it can \texttt{Keystroke}.
+A step is therefore enabled in every reachable state, and the machine cannot
+deadlock (Section~\ref{sec:inv}, invariant~3).
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+Three properties must hold across all reachable states.  None is placed in the
+\texttt{Field} schema: a predicate placed there would guard every successor,
+silently disabling any operation that would break it and masking the very defect
+the model exists to catch.
+
+\paragraph{Invariant 1 --- convergence (no honour-forever).}
+Whenever a commit is outstanding, the outstanding value is one the Hub will
+accept.  Then the echo can always land: \texttt{HubEchoAccept} is enabled, the
+window closes, and the display converges to the Hub.  The negation --- a commit
+outstanding whose value the Hub will refuse --- is the honour-forever state, in
+which \texttt{resolve} returns the committed value on every frame while no
+operation can carry the Hub to it.  The invariant is that this state is never
+reached:
+\[
+  pending = ztrue \implies committed \in accepted.
+\]
+
+\paragraph{Invariant 2 --- rejection never occurs.}
+Equivalently, and as a named event: the Hub never rejects an outstanding commit,
+so the divergence latch never fires:
+\[
+  diverged = zfalse.
+\]
+The two forms coincide.  \texttt{HubReject} is enabled exactly when invariant~1's
+negation holds, so if invariant~1 holds on every reachable state then
+\texttt{HubReject} never fires and \texttt{diverged} stays clear; and if
+invariant~1's negation is reachable then \texttt{HubReject} fires from that state
+and latches \texttt{diverged}.  Invariant~1 is the property; invariant~2 is the
+witness that makes the offending trace end on a single named transition.
+
+\paragraph{Invariant 3 --- deadlock freedom.}
+No reachable state leaves the machine unable to progress.  The honour frames cover
+the not-deferring case; a deferring field is focused and can \texttt{Keystroke};
+so a step is always enabled.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz -t docs/reconciliation_hub_reject.tex
+\end{verbatim}
+
+Invariants 1 and 2 are state properties, checked by asking ProB whether their
+negation is reachable.  A goal not found means the invariant holds on every
+reachable state:
+\begin{verbatim}
+  # Invariant 1 -- convergence (must report: goal NOT found)
+  probcli docs/reconciliation_hub_reject.tex -model_check -nodead \
+    -goal "pending=ztrue & committed /: accepted" -p DEFAULT_SETSIZE 2
+
+  # Invariant 2 -- rejection never occurs (must report: goal NOT found)
+  probcli docs/reconciliation_hub_reject.tex -model_check -nodead \
+    -goal "diverged=ztrue" -p DEFAULT_SETSIZE 2
+
+  # Inherited coherence -- defer only after a real edit (must report: NOT found)
+  probcli docs/reconciliation_hub_reject.tex -model_check -nodead \
+    -goal "editing=ztrue & edited=zfalse" -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Invariant 3 is the deadlock check over the full reachable state space:
+\begin{verbatim}
+  # Invariant 3 -- deadlock freedom (must report: no deadlock, no invariant viol.)
+  probcli docs/reconciliation_hub_reject.tex -model_check -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+All return the same verdict at \texttt{DEFAULT\_SETSIZE 3}: the extra value widens
+the interleaving of a second edit against an in-flight commit without adding a
+reachable violation.  Because \texttt{accepted} is left underspecified, ProB
+discharges each goal over \emph{every} valuation of the accepted domain that
+contains \texttt{v0} --- so convergence is proved not for one boundary but for all.
+
+% ============================================================
+\section{Fidelity: reproducing the honour-forever divergence}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce the known defect proves nothing.  The defect is the
+corrected specification with the commit guard removed: strike
+\texttt{disp $\in$ accepted} from \texttt{Commit}, so the field commits whatever it
+displays, rejected values included.  Nothing else changes.  Under
+\texttt{DEFAULT\_SETSIZE 2}, take \texttt{accepted = \{v0\}}, and write $v_0 = v0$
+for the accepted start value and $v_r$ for the other, rejected, value.
+
+With the guard gone, both convergence goals turn from \emph{not found} to
+\emph{found}.  The shortest trace to \texttt{diverged = ztrue}:
+\begin{enumerate}
+  \item \texttt{Init}: \texttt{disp = hub = committed = $v_0$}, unfocused, idle,
+    \texttt{pending = zfalse}, \texttt{diverged = zfalse}.
+  \item \texttt{Focus}: \texttt{focused = ztrue}, still not editing.
+  \item \texttt{Keystroke($v_r$)}: the user types the value the Hub will reject.
+    \texttt{disp = $v_r$}, \texttt{editing = ztrue}.
+  \item \texttt{Commit} (unguarded): \texttt{committed = $v_r$},
+    \texttt{pending = ztrue}, \texttt{hub = $v_0$}, \texttt{focused = zfalse},
+    \texttt{editing = zfalse}.  A commit is now outstanding for a value outside
+    \texttt{accepted} --- invariant~1's negation already holds:
+    \texttt{pending = ztrue} and \texttt{committed = $v_r$ $\notin$ accepted}.
+  \item \texttt{IdleHonour}: \texttt{pending} holds, so \texttt{disp' = committed
+    = $v_r$}.  The Display shows the rejected value.
+  \item \texttt{HubReject}: \texttt{committed = $v_r$ $\notin$ accepted}, so the
+    Hub refuses.  \texttt{hub} stays $v_0$, \texttt{pending} stays \texttt{ztrue},
+    and \texttt{diverged} latches \texttt{ztrue}.
+\end{enumerate}
+From the state after step~6 the divergence is permanent.  \texttt{HubEchoAccept}
+is disabled (\texttt{committed $\notin$ accepted}); \texttt{HubReject} only
+re-latches; every \texttt{IdleHonour} rewrites \texttt{disp = committed = $v_r$}.
+The Display honours $v_r$ forever, the Hub holds $v_0$ forever, and the arbiter's
+forget branch --- which fires only when \texttt{hub} moves off the commit-time
+value --- never fires because \texttt{hub} never moves.  This is exactly the
+field-observed fault: a value typed past the Hub's boundary, committed, echoed
+nowhere, and displayed indefinitely.
+
+Under the corrected design the guard \texttt{disp $\in$ accepted} makes step~4
+impossible for $v_r$: \texttt{Commit} is disabled while the display holds a
+rejected value, so the user must repair the entry (a further \texttt{Keystroke}
+into \texttt{accepted}) or blur.  \texttt{committed $\in$ accepted} therefore holds
+throughout every window; \texttt{HubReject} is dead; \texttt{HubEchoAccept} always
+eventually fires; and the reachability search confirms
+\texttt{pending = ztrue \& committed /: accepted} and \texttt{diverged = ztrue} are
+both \emph{not found}, for every valuation of \texttt{accepted}.
+
+% ============================================================
+\section{From the Model to the Code}
+% ============================================================
+
+The model's commit guard is one change to the numeric renderer.  Today
+\texttt{InputNumberRenderer} projects a raw entry through \texttt{elem.clamped}
+before committing; \texttt{clamped} bounds the value into \texttt{[min, max]} but
+does nothing to a non-finite value on an unbounded side, so \texttt{+inf} survives
+to the commit and the Hub rejects it.  The corrected projection is a \emph{total
+sanitiser} onto the accepted domain: it maps every widget value --- non-finite
+included --- to a finite in-range value before the value is observed, committed, or
+fired.  A non-finite entry collapses to a bound (or to the field's current value
+when the field is unbounded), an out-of-range entry clamps, and the value that
+reaches the Hub is one \texttt{apply\_patch} installs without raising.
+
+Concretely, the pre-commit projection must satisfy, for every widget value
+\texttt{r}, \texttt{sanitise(r) $\in$ accepted} --- the model's guard discharged as
+a totality obligation on the sanitiser rather than as a runtime check on the
+commit.  With that obligation met, \texttt{apply\_patch}'s boundary re-check
+becomes a never-tripped invariant, the arbiter's forget branch always eventually
+fires, and no rejected value can be honoured.
+
+The obligation is exactly the one the parent model discharged \emph{structurally}
+for the colour carrier --- a hex string cannot encode a non-finite value, so its
+parse is total onto \texttt{[0,1]} --- and \emph{by validation} for the slider,
+whose \texttt{validate} carries a \texttt{math.isfinite} guard because raw floats
+cross the wire.  The numeric field is the slider's case: raw numbers cross the
+wire, so finiteness must be enforced, and the natural place is the same
+pre-commit projection that already enforces range.
+
+% ============================================================
+\section{Scope and Relation to the Parent Model}
+\label{sec:scope}
+% ============================================================
+
+This specification isolates the \emph{convergence} concern and takes the parent
+model's honour/defer/clobber concerns as given.  It keeps the edit cycle
+(\texttt{Focus}, \texttt{Keystroke}, \texttt{Commit}, the two honour frames) so
+that the convergence question is asked over a faithful commit-echo loop, but it
+does not restate the durability (\texttt{lost}) or no-clobber
+(\texttt{clobbered}) invariants; those are proved in
+\texttt{input\_text\_reconciliation.tex} and are unaffected by the commit guard,
+which only narrows the set of committable values.
+
+Two modelling choices bound the claim.  First, \texttt{accepted} is static: the
+Hub's accepted domain does not change under the field's own operations, which
+matches a field whose \texttt{min}/\texttt{max}/finiteness rule is fixed for the
+life of the element.  A field whose bounds an agent narrows \emph{while a commit
+is in flight} could reject a previously-acceptable commit; that is a distinct
+interleaving, outside this model, and would be caught by the same invariant were
+\texttt{accepted} made mutable.  Second, a single \texttt{committed} component
+admits only one outstanding commit, as in the parent model; the honour-forever
+fault needs only one, and modelling a queue would add interleaving the fault does
+not require.  Both are consistent with the parent model's single-slot,
+value-equality reconciliation.
+
+\end{document}
