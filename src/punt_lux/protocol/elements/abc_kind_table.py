@@ -1,9 +1,10 @@
 """The default ABC-kind registration table — the one file a migration edits.
 
-``DefaultAbcKinds.build()`` registers every migrated kind's spec into a fresh
-``AbcElementRegistry`` and cross-checks the result against ``AbcKindNames``.
-Migrating a new kind adds one ``register(...)`` line here plus its string in
-``AbcKindNames`` — no other module in the decode/encode path changes.
+``DefaultAbcKinds.build()`` assembles every migrated kind's spec, verifies the
+table with ``AbcKindVerifier`` (name and capability parity), then registers them
+into a fresh ``AbcElementRegistry``. Migrating a new kind adds one spec here plus
+its string in ``AbcKindNames`` — no other module in the decode/encode path
+changes.
 
 This module is the aggregation leaf: it imports every migrated kind's element,
 decoder, encoder, and standalone-handler builder, exactly as the encoder and
@@ -12,15 +13,15 @@ element factories once did inline.
 
 from __future__ import annotations
 
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
-from punt_lux.protocol.elements.abc_kind_names import AbcKindNames
-from punt_lux.protocol.elements.abc_kind_spec import KindCodec
+from punt_lux.protocol.elements.abc_kind_codec import KindCodec
 from punt_lux.protocol.elements.abc_kind_specs import (
     ContainerKindSpec,
     DialogKindSpec,
-    LeafKindSpec,
 )
+from punt_lux.protocol.elements.abc_kind_verify import AbcKindVerifier
+from punt_lux.protocol.elements.abc_leaf_spec import LeafKindSpec
 from punt_lux.protocol.elements.abc_registry import AbcElementRegistry
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.button_codec import JsonButtonDecoder, JsonButtonEncoder
@@ -93,6 +94,9 @@ from punt_lux.protocol.standalone_tab_bar_handler import (
     build_standalone_tab_bar_handler_decoder,
 )
 
+if TYPE_CHECKING:
+    from punt_lux.protocol.elements.abc_kind_spec import AbcKindSpec
+
 __all__ = ["DEFAULT_ABC_REGISTRY", "DefaultAbcKinds"]
 
 
@@ -106,43 +110,32 @@ class DefaultAbcKinds:
 
     @classmethod
     def build(cls) -> AbcElementRegistry:
-        """Register every migrated kind and cross-check against ``AbcKindNames``."""
+        """Register every migrated kind, then verify the registry."""
         registry = AbcElementRegistry()
-        cls._register_static_leaves(registry)
-        cls._register_handler_leaves(registry)
-        cls._register_containers(registry)
-        cls.verify_names(registry)
+        for spec in (*cls._leaf_specs(), *cls._container_specs()):
+            registry.register(spec)
+        AbcKindVerifier.verify(registry)
         return registry
 
     @staticmethod
-    def _register_static_leaves(registry: AbcElementRegistry) -> None:
-        """Register leaves with no handler wiring (Text, Progress) and Dialog."""
-        registry.register(
+    def _leaf_specs() -> list[AbcKindSpec]:
+        """Return the leaf specs: static (Text, Progress), Dialog, interactive."""
+        return [
             LeafKindSpec(
                 kind="text",
                 codec=KindCodec(TextElement, JsonTextDecoder, JsonTextEncoder().encode),
-            )
-        )
-        registry.register(
+            ),
             LeafKindSpec(
                 kind="progress",
                 codec=KindCodec(
                     ProgressElement, JsonProgressDecoder, JsonProgressEncoder().encode
                 ),
-            )
-        )
-        registry.register(
+            ),
             DialogKindSpec(
                 codec=KindCodec(
                     DialogElement, JsonDialogDecoder, JsonDialogEncoder().encode
                 ),
-            )
-        )
-
-    @staticmethod
-    def _register_handler_leaves(registry: AbcElementRegistry) -> None:
-        """Register interactive leaves whose decoders wire declarative handlers."""
-        registry.register(
+            ),
             LeafKindSpec(
                 kind="button",
                 codec=KindCodec(
@@ -150,18 +143,14 @@ class DefaultAbcKinds:
                 ),
                 handler_builder=build_standalone_button_handler_decoder,
                 pre_decode=ButtonWireSugar.canonicalize,
-            )
-        )
-        registry.register(
+            ),
             LeafKindSpec(
                 kind="checkbox",
                 codec=KindCodec(
                     CheckboxElement, JsonCheckboxDecoder, JsonCheckboxEncoder().encode
                 ),
                 handler_builder=build_standalone_checkbox_handler_decoder,
-            )
-        )
-        registry.register(
+            ),
             LeafKindSpec(
                 kind="input_text",
                 codec=KindCodec(
@@ -170,9 +159,7 @@ class DefaultAbcKinds:
                     JsonInputTextEncoder().encode,
                 ),
                 handler_builder=build_standalone_input_text_handler_decoder,
-            )
-        )
-        registry.register(
+            ),
             LeafKindSpec(
                 kind="input_number",
                 codec=KindCodec(
@@ -181,18 +168,14 @@ class DefaultAbcKinds:
                     JsonInputNumberEncoder().encode,
                 ),
                 handler_builder=build_standalone_input_number_handler_decoder,
-            )
-        )
-        registry.register(
+            ),
             LeafKindSpec(
                 kind="slider",
                 codec=KindCodec(
                     SliderElement, JsonSliderDecoder, JsonSliderEncoder().encode
                 ),
                 handler_builder=build_standalone_slider_handler_decoder,
-            )
-        )
-        registry.register(
+            ),
             LeafKindSpec(
                 kind="color_picker",
                 codec=KindCodec(
@@ -201,21 +184,19 @@ class DefaultAbcKinds:
                     JsonColorPickerEncoder().encode,
                 ),
                 handler_builder=build_standalone_color_picker_handler_decoder,
-            )
-        )
+            ),
+        ]
 
     @staticmethod
-    def _register_containers(registry: AbcElementRegistry) -> None:
-        """Register the conditionally-ABC container kinds."""
-        registry.register(
+    def _container_specs() -> list[AbcKindSpec]:
+        """Return the conditionally-ABC container specs."""
+        return [
             ContainerKindSpec(
                 kind="group",
                 codec=KindCodec(
                     GroupElement, JsonGroupDecoder, JsonGroupEncoder().encode
                 ),
-            )
-        )
-        registry.register(
+            ),
             ContainerKindSpec(
                 kind="collapsing_header",
                 codec=KindCodec(
@@ -224,34 +205,15 @@ class DefaultAbcKinds:
                     JsonCollapsingHeaderEncoder().encode,
                 ),
                 handler_builder=build_standalone_collapsing_header_handler_decoder,
-            )
-        )
-        registry.register(
+            ),
             ContainerKindSpec(
                 kind="tab_bar",
                 codec=KindCodec(
                     TabBarElement, JsonTabBarDecoder, JsonTabBarEncoder().encode
                 ),
                 handler_builder=build_standalone_tab_bar_handler_decoder,
-            )
-        )
-
-    @staticmethod
-    def verify_names(registry: AbcElementRegistry) -> None:
-        """Fail loud if the registry and ``AbcKindNames`` disagree on the kind set.
-
-        The two data homes exist because the import-light gate cannot see
-        element classes; this cross-check turns any drift between them into an
-        import-time error rather than a latent wire bug.
-        """
-        if registry.all_kinds != AbcKindNames.MIGRATED_ABC_KINDS:
-            diff = registry.all_kinds ^ AbcKindNames.MIGRATED_ABC_KINDS
-            msg = f"ABC registry and AbcKindNames disagree on migrated kinds: {diff}"
-            raise RuntimeError(msg)
-        if registry.container_kinds != AbcKindNames.ABC_CONTAINER_KINDS:
-            diff = registry.container_kinds ^ AbcKindNames.ABC_CONTAINER_KINDS
-            msg = f"ABC registry and AbcKindNames disagree on container kinds: {diff}"
-            raise RuntimeError(msg)
+            ),
+        ]
 
 
 DEFAULT_ABC_REGISTRY: AbcElementRegistry = DefaultAbcKinds.build()

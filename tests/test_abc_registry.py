@@ -1,55 +1,109 @@
-"""Tests for the ABC-kind registry and its cross-check against ``AbcKindNames``.
+"""Tests for the ABC-kind registry, its verifier, and the spec contract.
 
-The registry is the single source of truth for which kinds decode/encode onto
-the Element ABC. ``AbcKindNames`` holds the same fact as import-light strings
-for the container gate; ``DefaultAbcKinds.verify_names`` is the fail-loud guard
-that keeps the two data homes in agreement. These tests pin the registry's
-contract and prove the guard catches drift.
+``AbcElementRegistry`` is the authoritative store of which kinds decode/encode
+onto the Element ABC. ``AbcKindNames`` holds the same fact as import-light
+strings for the container gate; ``AbcKindVerifier`` is the fail-loud guard that
+keeps the two data homes in agreement AND that every interactive kind actually
+wires its handler capability. These tests pin the contract and prove the guard
+catches both name drift and a missing capability.
 """
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Any, cast
+
 import pytest
 
+from punt_lux.protocol.elements.abc_kind_codec import KindCodec
 from punt_lux.protocol.elements.abc_kind_names import AbcKindNames
-from punt_lux.protocol.elements.abc_kind_spec import KindCodec
-from punt_lux.protocol.elements.abc_kind_specs import ContainerKindSpec, LeafKindSpec
+from punt_lux.protocol.elements.abc_kind_specs import (
+    ContainerKindSpec,
+    DialogKindSpec,
+)
 from punt_lux.protocol.elements.abc_kind_table import (
     DEFAULT_ABC_REGISTRY,
-    DefaultAbcKinds,
 )
+from punt_lux.protocol.elements.abc_kind_verify import AbcKindVerifier
+from punt_lux.protocol.elements.abc_leaf_spec import LeafKindSpec
 from punt_lux.protocol.elements.abc_registry import AbcElementRegistry
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from punt_lux.domain.handlers.decorators import PublishSink
+    from punt_lux.protocol.elements.abc_kind_spec import AbcKindSpec
+    from punt_lux.protocol.handler_decoder import HandlerDecoder
 
 
 def _no_encode(_elem: object) -> dict[str, object]:
-    """A stand-in encoder — the name cross-check never invokes it."""
+    """A stand-in encoder — the verifier never invokes it."""
     return {}
 
 
 def _dummy_codec() -> KindCodec:
-    """A codec whose classes are never invoked by the name cross-check."""
+    """A codec whose classes are never invoked by the verifier."""
     return KindCodec(
-        element_cls=type("Dummy", (), {}),
-        decoder_cls=object,
-        encoder=_no_encode,
+        element_cls=type("Dummy", (), {}), decoder_cls=object, encoder=_no_encode
     )
 
 
-def _full_registry(*, group_as_leaf: bool) -> AbcElementRegistry:
-    """Build a registry covering every migrated kind.
+def _identity_pre_decode(raw: Mapping[str, object]) -> Mapping[str, object]:
+    """A pre-decode marker — presence is all the verifier reads."""
+    return raw
 
-    With ``group_as_leaf`` the ``group`` container is mis-registered as a leaf,
-    so ``all_kinds`` still matches the names but ``container_kinds`` does not.
-    """
+
+def _unused_handler_builder(_sink: PublishSink) -> HandlerDecoder[Any]:
+    """Presence marks a spec handler-wired; the verifier never invokes it."""
+    raise AssertionError("handler builder must not be called in verification")
+
+
+def _leaf(kind: str, *, handler: bool = False, sugar: bool = False) -> LeafKindSpec:
+    """Build a leaf spec, optionally handler-wired and/or sugar-canonicalizing."""
+    return LeafKindSpec(
+        kind=kind,
+        codec=_dummy_codec(),
+        handler_builder=_unused_handler_builder if handler else None,
+        pre_decode=_identity_pre_decode if sugar else None,
+    )
+
+
+def _container(kind: str, *, handler: bool = False) -> ContainerKindSpec:
+    """Build a container spec, optionally handler-wired."""
+    return ContainerKindSpec(
+        kind=kind,
+        codec=_dummy_codec(),
+        handler_builder=_unused_handler_builder if handler else None,
+    )
+
+
+def _full_specs() -> list[AbcKindSpec]:
+    """Every migrated kind as a correctly-wired spec over dummy codecs."""
+    return [
+        _leaf("text"),
+        _leaf("progress"),
+        DialogKindSpec(codec=_dummy_codec()),
+        _leaf("button", handler=True, sugar=True),
+        _leaf("checkbox", handler=True),
+        _leaf("input_text", handler=True),
+        _leaf("input_number", handler=True),
+        _leaf("slider", handler=True),
+        _leaf("color_picker", handler=True),
+        _container("group"),
+        _container("collapsing_header", handler=True),
+        _container("tab_bar", handler=True),
+    ]
+
+
+def _with_button(button: LeafKindSpec) -> list[AbcKindSpec]:
+    """Return the full spec list with ``button`` swapped in."""
+    return [button if spec.kind == "button" else spec for spec in _full_specs()]
+
+
+def _registry(specs: list[AbcKindSpec]) -> AbcElementRegistry:
+    """Register ``specs`` into a fresh registry for verification."""
     registry = AbcElementRegistry()
-    for kind in AbcKindNames.MIGRATED_ABC_KINDS:
-        as_container = kind in AbcKindNames.ABC_CONTAINER_KINDS and not (
-            group_as_leaf and kind == "group"
-        )
-        if as_container:
-            registry.register(ContainerKindSpec(kind=kind, codec=_dummy_codec()))
-        else:
-            registry.register(LeafKindSpec(kind=kind, codec=_dummy_codec()))
+    for spec in specs:
+        registry.register(spec)
     return registry
 
 
@@ -78,31 +132,56 @@ class TestDefaultRegistryContract:
         assert "dialog" not in DEFAULT_ABC_REGISTRY.container_kinds
 
 
-class TestDuplicateRegistration:
-    """A kind registers exactly once."""
+class TestRegisterGuards:
+    """``register`` rejects non-specs and duplicate kinds."""
 
     def test_duplicate_kind_raises(self) -> None:
         registry = AbcElementRegistry()
-        registry.register(LeafKindSpec(kind="text", codec=_dummy_codec()))
+        registry.register(_leaf("text"))
         with pytest.raises(ValueError, match="Duplicate ABC kind registration"):
-            registry.register(LeafKindSpec(kind="text", codec=_dummy_codec()))
+            registry.register(_leaf("text"))
 
-
-class TestNameCrossCheck:
-    """``verify_names`` is the fail-loud guard between the two data homes."""
-
-    def test_default_registry_agrees_with_names(self) -> None:
-        # The production build passed this at import; assert it explicitly.
-        DefaultAbcKinds.verify_names(_full_registry(group_as_leaf=False))
-
-    def test_spec_without_a_name_raises(self) -> None:
+    def test_non_spec_raises(self) -> None:
         registry = AbcElementRegistry()
-        registry.register(LeafKindSpec(kind="widget", codec=_dummy_codec()))
-        with pytest.raises(RuntimeError, match="disagree on migrated kinds"):
-            DefaultAbcKinds.verify_names(registry)
+        with pytest.raises(TypeError, match="not an AbcKindSpec"):
+            registry.register(cast("AbcKindSpec", object()))
 
-    def test_container_mis_registered_as_leaf_raises(self) -> None:
-        # ``all_kinds`` matches, but a container declared as a leaf is caught by
-        # the second half of the guard.
+
+class TestKindCodec:
+    """``KindCodec`` owns the encode call the three specs delegate to."""
+
+    def test_encode_delegates_to_encoder(self) -> None:
+        codec = KindCodec(element_cls=object, decoder_cls=object, encoder=_no_encode)
+        assert codec.encode(object()) == {}
+
+
+class TestNameParity:
+    """``AbcKindVerifier`` fails loud when the specs disagree with the names."""
+
+    def test_full_specs_verify_clean(self) -> None:
+        AbcKindVerifier.verify(_registry(_full_specs()))
+
+    def test_extra_kind_raises(self) -> None:
+        specs: list[AbcKindSpec] = [*_full_specs(), _leaf("widget")]
+        with pytest.raises(RuntimeError, match="disagree on migrated kinds"):
+            AbcKindVerifier.verify(_registry(specs))
+
+    def test_container_mis_flagged_as_leaf_raises(self) -> None:
+        specs: list[AbcKindSpec] = [s for s in _full_specs() if s.kind != "group"]
+        specs.append(_leaf("group"))
         with pytest.raises(RuntimeError, match="disagree on container kinds"):
-            DefaultAbcKinds.verify_names(_full_registry(group_as_leaf=True))
+            AbcKindVerifier.verify(_registry(specs))
+
+
+class TestCapabilityParity:
+    """Every interactive kind must wire handlers; Button must canonicalize sugar."""
+
+    def test_interactive_kind_without_handler_raises(self) -> None:
+        specs = _with_button(_leaf("button", sugar=True))
+        with pytest.raises(RuntimeError, match="'handlers' capability"):
+            AbcKindVerifier.verify(_registry(specs))
+
+    def test_button_without_pre_decode_raises(self) -> None:
+        specs = _with_button(_leaf("button", handler=True))
+        with pytest.raises(RuntimeError, match="'pre_decode' capability"):
+            AbcKindVerifier.verify(_registry(specs))

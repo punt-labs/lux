@@ -1,24 +1,18 @@
-"""``AbcElementRegistry`` — the single source of truth for migrated ABC kinds.
+"""``AbcElementRegistry`` — the authoritative store of migrated ABC kinds.
 
-Every consumer that once hand-copied "which kinds are on the ABC path" reads it
-from here instead: the factory builds its per-kind decoders from
-``build_decoders``, the encoder factory dispatches from ``encoder_dispatch``,
-and the aggregator's isinstance guards read ``abc_types``. Adding a kind adds
-one spec to the registration table — no consumer changes.
-
-The registry holds element classes (via each spec), so it participates in the
-element import graph. The import-light kind *names* live separately in
-``AbcKindNames``; the two are reconciled by a fail-loud cross-check when the
-default registry is built.
+Consumers read the kind set here (``build_decoders``, ``encoder_dispatch``,
+``abc_types``) instead of hand-copying it; ``AbcKindVerifier`` reconciles it with
+the import-light ``AbcKindNames`` the container gate reads.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
+from punt_lux.protocol.elements.abc_kind_spec import AbcKindSpec
+
 if TYPE_CHECKING:
     from punt_lux.protocol.elements.abc_kind_spec import (
-        AbcKindSpec,
         KindDecoder,
         KindEncoder,
         TierBinding,
@@ -28,11 +22,7 @@ __all__ = ["AbcElementRegistry"]
 
 
 class AbcElementRegistry:
-    """Maps each migrated wire ``kind`` to its ``AbcKindSpec``.
-
-    Instance-based so the default production registry and any test registry are
-    independent. A kind registers exactly once; a duplicate raises ``ValueError``.
-    """
+    """Maps each migrated wire ``kind`` to its ``AbcKindSpec`` (instance-based)."""
 
     _specs: dict[str, AbcKindSpec]
 
@@ -41,12 +31,21 @@ class AbcElementRegistry:
         self._specs = {}
         return self
 
-    def register(self, spec: AbcKindSpec) -> None:
-        """Register one kind's spec; raise on a duplicate ``kind``."""
+    def register(self, spec: object) -> None:
+        """Register one kind's spec; reject a non-spec or duplicate ``kind``."""
+        # ``spec`` is typed ``object`` so this is the validated boundary
+        # (PY-EH-1): the ``runtime_checkable`` isinstance is the load-bearing
+        # gate a hand-built malformed spec fails on, not a redundant static check.
+        if not isinstance(spec, AbcKindSpec):
+            raise TypeError(f"not an AbcKindSpec: {spec!r}")
         if spec.kind in self._specs:
-            msg = f"Duplicate ABC kind registration: {spec.kind!r}"
-            raise ValueError(msg)
+            raise ValueError(f"Duplicate ABC kind registration: {spec.kind!r}")
         self._specs[spec.kind] = spec
+
+    @property
+    def specs(self) -> tuple[AbcKindSpec, ...]:
+        """Return the registered specs, for verification and introspection."""
+        return tuple(self._specs.values())
 
     @property
     def all_kinds(self) -> frozenset[str]:
