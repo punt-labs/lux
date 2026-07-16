@@ -1,71 +1,60 @@
 # pyright: reportUnknownMemberType=false, reportMissingModuleSource=false
-"""Renderer for RadioElement — a horizontal set of radio buttons."""
+"""Renderer for RadioElement — a horizontal set of radio buttons.
+
+Stateless: ``render`` reads ``elem.selected`` — the Hub-authoritative index —
+each frame and holds no per-scene copy, so an agent-driven change shows on the
+next render; an empty-but-valid group paints ``f"{label}: (empty)"``. Painting
+the Hub index programmatically never reports a click, so a re-push carrying the
+same index cannot form a fire -> Hub -> re-push -> fire loop; only a genuine pick
+of a *different* item fires ``ValueChanged``, wrapped for D21 remote dispatch.
+"""
 
 from __future__ import annotations
 
-import logging
-import time
 from typing import Self
 
 from imgui_bundle import imgui
 
+from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.radio import RadioElement
-from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
-from punt_lux.scene import WidgetState
-from punt_lux.types import EmitEventFn
+from punt_lux.tracing import trace
 
 __all__ = ["RadioRenderer"]
 
-_log = logging.getLogger(__name__)
-
 
 class RadioRenderer:
-    """Render a RadioElement as a horizontal list of radio buttons."""
+    """Render a RadioElement as a horizontal list of radio buttons.
 
-    _widget_state: WidgetState
-    _emit_event: EmitEventFn
+    Honours the Hub selection: each ``imgui.radio_button`` is active iff its index
+    equals ``elem.selected``. A click on a different item fires ``ValueChanged``
+    carrying the new index through the element's handler registry, which the
+    Display has wrapped for D21 remote dispatch.
+    """
 
-    def __new__(cls, widget_state: WidgetState, emit_event: EmitEventFn) -> Self:
-        self = super().__new__(cls)
-        self._widget_state = widget_state
-        self._emit_event = emit_event
-        return self
+    def __new__(cls) -> Self:
+        return super().__new__(cls)
 
-    @property
-    def widget_state(self) -> WidgetState:
-        return self._widget_state
-
-    @widget_state.setter
-    def widget_state(self, value: WidgetState) -> None:
-        self._widget_state = value
-
+    @trace
     def render(self, elem: RadioElement) -> None:
-        eid = elem.id
         label = elem.label
         items = elem.items
-        current: int = self._widget_state.ensure(eid, elem.selected)
-        if items and (current < 0 or current >= len(items)):
-            _log.warning(
-                "radio %s widget_state index %d out of range [0,%d); resetting to 0",
-                eid,
-                current,
-                len(items),
-            )
-            current = 0
-            self._widget_state.set(eid, 0)
+        if not items:
+            imgui.text(f"{label}: (empty)")
+            return
+        eid = elem.id
+        current = elem.selected
         if label:
             imgui.text(label)
         for i, item in enumerate(items):
             if imgui.radio_button(f"{item}##{eid}_{i}", current == i) and current != i:
-                self._widget_state.set(eid, i)
-                self._emit_event(
-                    RemoteEventHandlerInvocation(
-                        element_id=eid,
-                        action="changed",
-                        ts=time.time(),
-                        value={"index": i, "item": item},
+                elem.fire(
+                    ValueChanged(
+                        scene_id=SceneId("__display__"),
+                        element_id=ElementId(eid),
+                        owner_id=ClientId("__display__"),
+                        value=i,
                     )
                 )
-                current = i
             if i < len(items) - 1:
                 imgui.same_line()

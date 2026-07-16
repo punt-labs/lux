@@ -72,10 +72,7 @@ class ElementRenderer:
     _emit_event: EmitEventFn
     _current_scene_id: str | None
     _check_dirty_window: DirtyWindowFn
-    # Bound after construction (the factory needs this ElementRenderer first).
-    # Used only by ``_render_dialog`` to build the dialog's ImGui renderer for
-    # a dialog held by a legacy container; a top-level dialog paints through
-    # the ABC ``render()`` template and never reaches that method.
+    # Bound post-construction; only ``_render_dialog`` uses it (legacy-nested dialog).
     _imgui_renderer_factory: ImGuiRendererFactory
     # Per-kind renderer classes for the basics + inputs families.
     # Other families still go through ``_RENDERERS`` until extracted.
@@ -136,10 +133,10 @@ class ElementRenderer:
         self._button_renderer = ButtonRenderer()
         self._slider_renderer = SliderRenderer(widget_state)
         self._checkbox_renderer = CheckboxRenderer()
-        self._combo_renderer = ComboRenderer(widget_state, emit_event)
+        self._combo_renderer = ComboRenderer()
         self._input_text_renderer = InputTextRenderer(widget_state)
         self._input_number_renderer = InputNumberRenderer(widget_state)
-        self._radio_renderer = RadioRenderer(widget_state, emit_event)
+        self._radio_renderer = RadioRenderer()
         self._color_picker_renderer = ColorPickerRenderer(widget_state)
         self._selectable_renderer = SelectableRenderer(widget_state, emit_event)
         self._draw_element_renderer = DrawElementRenderer()
@@ -148,9 +145,7 @@ class ElementRenderer:
         )
         return self
 
-    # Per-kind dispatch table: (element type, renderer-attribute name).  Single
-    # source of truth for both _dispatch_native and element_kind_count — adding
-    # a per-kind renderer here updates both call sites at once.
+    # (element type, renderer attr) — single source for _dispatch_native and count.
     _NATIVE_DISPATCH: ClassVar[tuple[tuple[type, str], ...]] = (
         (TextElement, "_text_renderer"),
         (ImageElement, "_image_renderer"),
@@ -169,15 +164,12 @@ class ElementRenderer:
         (SelectableElement, "_selectable_renderer"),
     )
 
-    # Renderer attributes that own per-scene WidgetState.  The widget_state
-    # setter forwards updates to each so a scene switch reaches every input
-    # renderer's view of widget state simultaneously.
+    # Renderer attributes owning per-scene WidgetState; the widget_state setter
+    # forwards a scene switch to each.
     _WIDGET_STATE_RENDERERS: ClassVar[tuple[str, ...]] = (
         "_slider_renderer",
-        "_combo_renderer",
         "_input_text_renderer",
         "_input_number_renderer",
-        "_radio_renderer",
         "_color_picker_renderer",
         "_selectable_renderer",
         "_container_renderer",
@@ -212,6 +204,16 @@ class ElementRenderer:
     def checkbox_renderer(self) -> CheckboxRenderer:
         """Return the per-kind checkbox renderer for the ImGui checkbox adapter."""
         return self._checkbox_renderer
+
+    @property
+    def combo_renderer(self) -> ComboRenderer:
+        """Return the per-kind combo renderer for the ImGui combo adapter."""
+        return self._combo_renderer
+
+    @property
+    def radio_renderer(self) -> RadioRenderer:
+        """Return the per-kind radio renderer for the ImGui radio adapter."""
+        return self._radio_renderer
 
     @property
     def input_text_renderer(self) -> InputTextRenderer:

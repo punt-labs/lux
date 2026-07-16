@@ -1,13 +1,10 @@
-"""JsonCheckboxDecoder + JsonCheckboxEncoder — wire codec for ``CheckboxElement``.
+"""JsonComboDecoder + JsonComboEncoder — wire codec for ``ComboElement``.
 
-Per the text/text_codec split pattern: the codec body that used to live
-on ``CheckboxElement`` (frozen dataclass) moves into this sibling module.
-``CheckboxElement.to_dict`` / ``CheckboxElement.from_dict`` remain as
-short delegators so the runtime-checkable ``domain.element.Element``
-Protocol stays satisfied.
-
-The decoder injects the tier's ``renderer_factory`` + ``emit`` at
-construction so the element is born with its DI wired in.
+Per the checkbox/checkbox_codec split: the codec body lives here, and
+``ComboElement.to_dict`` / ``ComboElement.from_dict`` remain short delegators so
+the runtime-checkable ``domain.element.Element`` Protocol stays satisfied. The
+decoder injects the tier's ``renderer_factory`` + ``emit`` at construction so the
+element is born with its DI wired in.
 """
 
 from __future__ import annotations
@@ -23,32 +20,28 @@ from punt_lux.tracing import trace
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from punt_lux.protocol.elements.checkbox import CheckboxElement
+    from punt_lux.protocol.elements.combo import ComboElement
     from punt_lux.protocol.handler_decoder import HandlerDecoder
     from punt_lux.protocol.renderer import Emit, RendererFactory
 
-__all__ = ["JsonCheckboxDecoder", "JsonCheckboxEncoder"]
+__all__ = ["JsonComboDecoder", "JsonComboEncoder"]
 
 
-_CHECKBOX_EVENT_TYPES: dict[str, type[ValueChanged]] = {"changed": ValueChanged}
+_COMBO_EVENT_TYPES: dict[str, type[ValueChanged]] = {"changed": ValueChanged}
 
 
-class JsonCheckboxDecoder:
-    """Decode a wire dict to a fully-constructed ``CheckboxElement``.
+class JsonComboDecoder:
+    """Decode a wire dict to a fully-constructed ``ComboElement``.
 
-    Constructed once per tier with that tier's ``renderer_factory`` +
-    ``emit`` + ``HandlerDecoder``; every decoded element is born with
-    the same injected DI. Boundary validation (PY-EH-1) routes through
-    ``ElementWireContext``.
-
-    Parallel to ``JsonButtonDecoder``: always registers the built-in
-    ``ApplyPatchOnChange`` for state sync, then installs any
+    Constructed once per tier with that tier's ``renderer_factory`` + ``emit`` +
+    ``HandlerDecoder``. Parallel to ``JsonCheckboxDecoder``: always registers the
+    built-in ``ApplyPatchOnChange`` for state sync, then installs any
     wire-declared handlers from the ``handlers`` key.
     """
 
     _rf: RendererFactory
     _emit: Emit
-    _cls: type[CheckboxElement]
+    _cls: type[ComboElement]
     _handler_decoder: HandlerDecoder[ValueChanged]
 
     def __new__(
@@ -56,7 +49,7 @@ class JsonCheckboxDecoder:
         *,
         renderer_factory: RendererFactory,
         emit: Emit,
-        element_cls: type[CheckboxElement],
+        element_cls: type[ComboElement],
         handler_decoder: HandlerDecoder[ValueChanged],
     ) -> Self:
         self = super().__new__(cls)
@@ -67,37 +60,34 @@ class JsonCheckboxDecoder:
         return self
 
     @trace
-    def decode(self, raw: Mapping[str, object]) -> CheckboxElement:
-        """Construct a CheckboxElement from a JSON-decoded mapping."""
-        ctx = ElementWireContext.for_kind("checkbox")
+    def decode(self, raw: Mapping[str, object]) -> ComboElement:
+        """Construct a ComboElement from a JSON-decoded mapping."""
+        ctx = ElementWireContext.for_kind("combo")
         elem = self._cls(
             renderer_factory=self._rf,
             emit=self._emit,
             id=ctx.require_str(raw, "id"),
             label=ctx.optional_str(raw, "label", default=""),
-            value=ctx.optional_bool(raw, "value", default=False),
+            items=ctx.optional_string_list(raw, "items"),
+            selected=ctx.optional_int_with_default(raw, "selected", default=0),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),
         )
-        elem.add_handler(ValueChanged, ApplyPatchOnChange(elem, field="value"))
+        elem.add_handler(ValueChanged, ApplyPatchOnChange(elem, field="selected"))
         self._install_handlers(elem, raw)
         return elem
 
-    def _install_handlers(
-        self, elem: CheckboxElement, raw: Mapping[str, object]
-    ) -> None:
+    def _install_handlers(self, elem: ComboElement, raw: Mapping[str, object]) -> None:
         """Install value-changed handlers declared by the wire ``handlers`` list."""
         handlers_raw = raw.get("handlers")
         if handlers_raw is None:
             return
         if not isinstance(handlers_raw, list):
-            msg = (
-                f"checkbox 'handlers' must be a list, got {type(handlers_raw).__name__}"
-            )
+            msg = f"combo 'handlers' must be a list, got {type(handlers_raw).__name__}"
             raise TypeError(msg)
         for i, spec in enumerate(cast("list[object]", handlers_raw)):
             if not isinstance(spec, dict):
                 msg = (
-                    f"checkbox 'handlers[{i}]' must be a mapping, "
+                    f"combo 'handlers[{i}]' must be a mapping, "
                     f"got {type(spec).__name__}"
                 )
                 raise TypeError(msg)
@@ -114,26 +104,27 @@ class JsonCheckboxDecoder:
         event_name = spec.get("event")
         if not isinstance(event_name, str) or not event_name:
             msg = (
-                f"checkbox 'handlers[{index}]' requires an 'event' string, "
+                f"combo 'handlers[{index}]' requires an 'event' string, "
                 f"got {event_name!r}"
             )
             raise ValueError(msg)
-        event_type = _CHECKBOX_EVENT_TYPES.get(event_name)
+        event_type = _COMBO_EVENT_TYPES.get(event_name)
         if event_type is None:
-            known = sorted(_CHECKBOX_EVENT_TYPES)
+            known = sorted(_COMBO_EVENT_TYPES)
             msg = (
-                f"checkbox 'handlers[{index}].event' = {event_name!r} is not "
+                f"combo 'handlers[{index}].event' = {event_name!r} is not "
                 f"recognised (expected one of {known})"
             )
             raise ValueError(msg)
         return event_type
 
 
-class JsonCheckboxEncoder:
-    """Encode a ``CheckboxElement`` to its JSON-compatible wire dict.
+class JsonComboEncoder:
+    """Encode a ``ComboElement`` to its JSON-compatible wire dict.
 
-    Stateless. ``tooltip`` is omitted when absent so the wire shape
-    matches the prior dataclass codec byte-for-byte.
+    Stateless. ``tooltip`` is omitted when absent via ``strip_none`` so the wire
+    for a tooltip-less combo matches the prior dataclass codec byte-for-byte; a
+    present tooltip now round-trips (the legacy ``to_dict`` silently dropped it).
     """
 
     __slots__ = ()
@@ -141,14 +132,15 @@ class JsonCheckboxEncoder:
     def __new__(cls) -> Self:
         return super().__new__(cls)
 
-    def encode(self, elem: CheckboxElement) -> dict[str, object]:
-        """Serialize a CheckboxElement to a JSON-compatible dict."""
+    def encode(self, elem: ComboElement) -> dict[str, object]:
+        """Serialize a ComboElement to a JSON-compatible dict."""
         return strip_none(
             {
                 "kind": elem.kind,
                 "id": elem.id,
                 "label": elem.label,
-                "value": elem.value,
+                "items": elem.items,
+                "selected": elem.selected,
                 "tooltip": elem.tooltip,
             }
         )

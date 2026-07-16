@@ -1,10 +1,10 @@
 """Inputs-family codec registration — wires each per-kind module's codec.
 
-Per-kind classes live in ``combo.py``, ``radio.py``, ``selectable.py``.
+The only per-kind class still registered here is ``selectable.py``.
 ``button.py``, ``checkbox.py``, ``input_text.py``, ``input_number.py``,
-``slider.py``, and ``color_picker.py`` are registered separately through
-``JsonElementFactory`` (Element ABC dispatch — see ``__init__.py``); their
-entries are removed here to avoid double registration.
+``slider.py``, ``color_picker.py``, ``combo.py``, and ``radio.py`` are registered
+separately through ``JsonElementFactory`` (Element ABC dispatch — see
+``__init__.py``); their entries are removed here to avoid double registration.
 
 The ``InputsRegistry`` class consolidates the remaining register calls behind a
 single ``apply`` method so the package ``__init__`` does not grow as each family
@@ -16,8 +16,6 @@ from __future__ import annotations
 from typing import Self
 
 from punt_lux.protocol.elements.codec import Register
-from punt_lux.protocol.elements.combo import ComboElement
-from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement
 
 __all__ = ["InputsRegistry"]
@@ -37,8 +35,6 @@ class InputsRegistry:
 
     def apply(self, register: Register) -> None:
         """Register every inputs-family element kind's codec."""
-        register("combo", ComboElement, ComboElement.to_dict, ComboElement.from_dict)
-        register("radio", RadioElement, RadioElement.to_dict, RadioElement.from_dict)
         register(
             "selectable",
             SelectableElement,

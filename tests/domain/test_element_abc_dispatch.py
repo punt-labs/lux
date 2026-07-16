@@ -378,21 +378,21 @@ def test_wrap_handlers_for_remote_is_idempotent_for_checkbox_bucket() -> None:
 
 
 def test_checkbox_handler_survives_serialization_roundtrip() -> None:
-    """_UpdateValueHandler survives native serialization."""
+    """The shared ApplyPatchOnChange survives native serialization."""
     import pickle
 
     from punt_lux.protocol.elements.checkbox_codec import JsonCheckboxDecoder
+    from punt_lux.protocol.elements.value_change_handlers import (
+        build_standalone_value_handler_decoder,
+    )
     from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
     from punt_lux.protocol.renderers import RaisingRendererFactory
-    from punt_lux.protocol.standalone_checkbox_handler import (
-        build_standalone_checkbox_handler_decoder,
-    )
 
     decoder = JsonCheckboxDecoder(
         renderer_factory=RaisingRendererFactory(),
         emit=_emit,
         element_cls=CheckboxElement,
-        handler_decoder=build_standalone_checkbox_handler_decoder(
+        handler_decoder=build_standalone_value_handler_decoder(
             RaisingPublishSink("test"),  # type: ignore[arg-type]  # structural Protocol match
         ),
     )

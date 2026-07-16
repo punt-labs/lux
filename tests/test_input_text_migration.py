@@ -83,10 +83,10 @@ class TestLevel1Serialization:
 
     def test_absent_from_legacy_codec_table(self) -> None:
         # No dual live path: the migrated kind leaves the ``ElementCodec`` table.
-        # A still-legacy input (``combo``) stays registered as the negative control.
+        # A still-legacy input (``selectable``) stays the negative control.
         kinds = build_element_codec().registered_kinds
         assert "input_text" not in kinds
-        assert "combo" in kinds
+        assert "selectable" in kinds
 
 
 # -- wire-boundary rejection (reject, do not silently coerce) ----------------

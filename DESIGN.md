@@ -4758,3 +4758,103 @@ named file would leave the disease.
   `docs/architecture/migration/element-factory-decomposition-design.md` (the
   design); DES-041 (the migration this un-ratchets); `tests/CLAUDE.md` (the
   half-migration regression class); bead `lux-xs7r.2`.
+
+## DES-052: Atomic-Selection Migration — `combo` and `radio` as an Int-Index Checkbox
+
+**Status:** accepted. Modules: `protocol/elements/combo.py`, `radio.py`,
+`combo_codec.py`, `radio_codec.py`, `standalone_combo_handler.py`,
+`standalone_radio_handler.py`, `display/renderers/{combo,radio}_renderer.py`,
+`display/renderers/imgui/{combo,radio}.py`; `PatchField.as_int`.
+
+`combo` (a dropdown) and `radio` (a radio group) are the two remaining
+**atomic-selection** interactive leaves — both commit a *discrete* selection, an
+`int` index into `items`, exactly as `checkbox` commits a `bool`. They are
+`checkbox` with an integer payload: there is no in-progress edit to reconcile, so
+**no `ContinuousEditArbiter`**, no commit-on-idle, no echo token. Migrated
+together as one minimal family (DES-041's permitted grouping), combo-first then
+radio, each fully verified before the next.
+
+### Decision
+
+- **Checkbox reconciliation, not slider.** The stateless renderer reads
+  `elem.selected` each frame; `imgui.combo` / `imgui.radio_button` report
+  `changed` only on a genuine user pick, giving free echo-suppression and free
+  idle-honour. A user selection fires exactly one `ValueChanged(value=<index>)`,
+  wrapped for D21 remote dispatch; the built-in `_UpdateSelectedHandler` applies
+  `{"selected": <index>}` on the Hub's authoritative copy. The legacy
+  Display-local `WidgetState` mirror (which cached the first-seen value and did
+  not honour a later Hub re-push) is retired.
+- **Value is the selected index (`int`); no protocol touch.** The index rides
+  `ValueChanged.value`'s existing `bool | int | float | str` arm — no union
+  widening, no new `InteractionEventBuilder` arm. The element wire
+  `{kind, id, label, items, selected}` is byte-identical for tooltip-less
+  elements (snapshot-parity holds); the legacy `{index, item}` interaction dict
+  is dropped (no consumer read `item`; the Hub recomputes it from
+  `items[selected]`).
+- **`apply_patch` re-checks the whole element.** `selected`'s validity depends on
+  `items`, so a combined `{items, selected}` patch is judged on final state and
+  rolled back atomically if the new index is out of range — the slider pattern.
+- **`validate()` rejects, it does not clamp (DES-039).** An out-of-range or
+  itemless-nonzero `selected` returns an error and the malformed tree is never
+  rendered; the agent is told to fix its data. This deliberately replaces the
+  legacy renderers' *silent clamp-to-0 + warning log* — the silent-accept-invalid
+  the self-validation model closes. Operator-ratified.
+- **`PatchField.as_int`** — a shared boundary coercer on the class that owns the
+  other `as_*` coercers (PY-OO-5); rejects `bool` (an `int` subclass) and non-int
+  (an index must be an exact whole number).
+- **Lands additively (DES-051).** Each kind is one `abc_kind_table` spec + one
+  `MIGRATED_ABC_KINDS` + one `INTERACTIVE_KINDS` string; the capability guard now
+  requires each kind's handler. Legacy fork-wiring removed (fork-don't-mix), but
+  each element is **kept in `element_renderer._NATIVE_DISPATCH`** exactly as the
+  checkbox exemplar does — for DES-042 transitional rendering of a migrated leaf
+  nested in a still-legacy container.
+
+### Rationale
+
+- **Reuse the proven atomic path.** `checkbox` already demonstrated the
+  no-arbiter atomic-selection reconciliation; combo/radio are a mechanical
+  int-payload replay, so the migration carries no new reconciliation risk.
+- **Reject over clamp is correctness the agent can act on.** A silently-clamped
+  out-of-range index hides the agent's data bug; surfacing it is the whole point
+  of self-validation.
+- **Int index over a discriminated selection type.** `items` is genuinely open
+  data and `selected` is a total `int` (default 0), not an absence — no Optional,
+  no discriminated state to model.
+
+### Rejected alternatives
+
+- **Two separate PRs.** Combo and radio are one design applied twice (same wire,
+  same value semantics, same event, same reconciliation) — one rollback-coherent
+  unit; two PRs duplicate an identical review and split the unit.
+- **Keep the legacy clamp-to-0.** Rejected — it is the silent-accept-invalid
+  DES-039 exists to close.
+- **Carry the `{index, item}` interaction dict.** Rejected — `item` is derivable
+  from `items[selected]` and no consumer reads it; the scalar index is the
+  minimal payload.
+- **Share a common atomic-selection abstraction across checkbox/combo/radio.**
+  Rejected for now — checkbox is a `bool` toggle, combo/radio are `int` indices;
+  the only shared shape is "read the value each frame, fire once," which the
+  exemplar already expresses. Two near-identical `checkbox` clones do not justify
+  a premature base abstraction (composition/Protocol already carry the contract).
+
+### Consequences
+
+- A future selection-style kind is a checkbox-shaped clone landing as one table
+  entry; `selectable` (a `bool`-in-a-list, nearer checkbox) is the next and last
+  B2 kind.
+- Out-of-range selections now fail loud at validation — a behavior change from
+  legacy, aligned with every other migrated element.
+- Process note: this migration hit the shared-worktree parallel-agent collision
+  the standards warn about (a suspected-dead agent recovered while a replacement
+  edited the same tree, briefly orphaning combo's baseline). Recovered by a
+  leader proxy-commit + a clean whole-tree rebaseline; the lesson is to isolate
+  concurrent element migrations in separate worktrees.
+
+### References
+
+- `combo.py` / `radio.py` (elements), the `*_codec.py` / `standalone_*_handler.py`
+  / `*_renderer.py` / `imgui/*.py` sets, `PatchField.as_int`;
+  `docs/architecture/migration/combo-radio-design.md` (the design); DES-051 (the
+  registry this lands through), DES-042 (transitional rendering), DES-039
+  (self-validation), DES-041 (fork-don't-mix / minimal family); `checkbox` (the
+  exemplar); beads `lux-qnyf`, `lux-r2ay`.

@@ -24,10 +24,10 @@ from punt_lux.protocol.elements.checkbox_codec import (
     JsonCheckboxEncoder,
 )
 from punt_lux.protocol.elements.patch_field import PatchField
-from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
-from punt_lux.protocol.standalone_checkbox_handler import (
-    build_standalone_checkbox_handler_decoder,
+from punt_lux.protocol.elements.value_change_handlers import (
+    build_standalone_value_handler_decoder,
 )
+from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -136,7 +136,7 @@ class CheckboxElement(Element):
             renderer_factory=RAISING_FACTORY,
             emit=NO_EMIT,
             element_cls=cls,
-            handler_decoder=build_standalone_checkbox_handler_decoder(
+            handler_decoder=build_standalone_value_handler_decoder(
                 cast("PublishSink", RaisingPublishSink("CheckboxElement.from_dict")),
             ),
         )

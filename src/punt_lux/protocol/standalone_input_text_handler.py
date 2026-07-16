@@ -1,11 +1,11 @@
 """Standalone ``HandlerDecoder[ValueChanged]`` builder for InputTextElement.
 
-Parallel to ``standalone_checkbox_handler.py``: an input_text without a parent
-composite model has no verb vocabulary, so the explicit factory registry
-contains only ``noop``. The built-in state-sync handler (``_UpdateTextHandler``)
-is installed separately by ``JsonInputTextDecoder`` before any wire-declared
-handlers are decoded. The decorator registry binds to whatever ``PublishSink``
-the caller supplies.
+Mirrors the shared value-change handler pattern in ``value_change_handlers.py``:
+an input_text without a parent composite model has no verb vocabulary, so the
+explicit factory registry contains only ``noop``. The built-in state-sync
+handler (``_UpdateTextHandler``) is installed separately by
+``JsonInputTextDecoder`` before any wire-declared handlers are decoded. The
+decorator registry binds to whatever ``PublishSink`` the caller supplies.
 """
 
 from __future__ import annotations

@@ -41,6 +41,8 @@ from punt_lux.protocol.elements.color_picker_codec import (
     JsonColorPickerDecoder,
     JsonColorPickerEncoder,
 )
+from punt_lux.protocol.elements.combo import ComboElement
+from punt_lux.protocol.elements.combo_codec import JsonComboDecoder, JsonComboEncoder
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder, JsonDialogEncoder
 from punt_lux.protocol.elements.group import GroupElement
@@ -60,6 +62,8 @@ from punt_lux.protocol.elements.progress_codec import (
     JsonProgressDecoder,
     JsonProgressEncoder,
 )
+from punt_lux.protocol.elements.radio import RadioElement
+from punt_lux.protocol.elements.radio_codec import JsonRadioDecoder, JsonRadioEncoder
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.slider_codec import JsonSliderDecoder, JsonSliderEncoder
 from punt_lux.protocol.elements.tab_bar import TabBarElement
@@ -69,11 +73,11 @@ from punt_lux.protocol.elements.tab_bar_codec import (
 )
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.text_codec import JsonTextDecoder, JsonTextEncoder
+from punt_lux.protocol.elements.value_change_handlers import (
+    build_standalone_value_handler_decoder,
+)
 from punt_lux.protocol.standalone_button_handler import (
     build_standalone_button_handler_decoder,
-)
-from punt_lux.protocol.standalone_checkbox_handler import (
-    build_standalone_checkbox_handler_decoder,
 )
 from punt_lux.protocol.standalone_collapsing_header_handler import (
     build_standalone_collapsing_header_handler_decoder,
@@ -149,7 +153,7 @@ class DefaultAbcKinds:
                 codec=KindCodec(
                     CheckboxElement, JsonCheckboxDecoder, JsonCheckboxEncoder().encode
                 ),
-                handler_builder=build_standalone_checkbox_handler_decoder,
+                handler_builder=build_standalone_value_handler_decoder,
             ),
             LeafKindSpec(
                 kind="input_text",
@@ -184,6 +188,20 @@ class DefaultAbcKinds:
                     JsonColorPickerEncoder().encode,
                 ),
                 handler_builder=build_standalone_color_picker_handler_decoder,
+            ),
+            LeafKindSpec(
+                kind="combo",
+                codec=KindCodec(
+                    ComboElement, JsonComboDecoder, JsonComboEncoder().encode
+                ),
+                handler_builder=build_standalone_value_handler_decoder,
+            ),
+            LeafKindSpec(
+                kind="radio",
+                codec=KindCodec(
+                    RadioElement, JsonRadioDecoder, JsonRadioEncoder().encode
+                ),
+                handler_builder=build_standalone_value_handler_decoder,
             ),
         ]
 

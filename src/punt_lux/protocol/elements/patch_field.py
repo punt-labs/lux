@@ -53,6 +53,18 @@ class PatchField:
             raise TypeError(msg)
         return float(value)
 
+    def as_int(self, value: object) -> int:
+        """Return ``value`` as an ``int`` or raise ``TypeError``.
+
+        Rejects ``bool`` (a subclass of ``int``) and ``float``: a selection
+        index must be an exact whole number, never a truncated float, so
+        ``as_number``'s int-coercion is deliberately not reused here.
+        """
+        if isinstance(value, bool) or not isinstance(value, int):
+            msg = f"{self._name} must be an int, got {type(value).__name__}"
+            raise TypeError(msg)
+        return value
+
     def as_optional_number(self, value: object) -> float | None:
         """Return ``value`` as ``float | None`` or raise; ``None`` clears the field.
 

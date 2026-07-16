@@ -17,7 +17,7 @@ agent reacted *because* the event arrived, not merely that an update landed.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Self, cast
+from typing import TYPE_CHECKING, ClassVar, Self, cast
 
 from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
 from punt_lux.domain.element_abc import Element as AbcElement
@@ -30,8 +30,10 @@ from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
+from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
+from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.tools.hub_factory import hub_element_factory
@@ -39,8 +41,10 @@ from punt_lux.tools.inbox import drain_inbox, ensure_writer, next_event
 
 from .scenario import (
     COLOR_COMMIT_VALUE,
+    COMBO_COMMIT_INDEX,
     INPUT_COMMIT_TEXT,
     NUMBER_COMMIT_VALUE,
+    RADIO_COMMIT_INDEX,
     SLIDER_COMMIT_VALUE,
 )
 from .target_handlers import RecordingClickHandler
@@ -91,6 +95,20 @@ class SimulatedAgent:
     _connection_id: ConnectionId
     _rig: InProcessLoop
     _scene_id: str
+
+    # Kinds whose injected interaction is a ``ValueChanged`` carrying a fixed
+    # commit value (an edit/drag/pick has no structural source, so the agent
+    # injects a constant). Checkbox is excluded — its value derives from state.
+    _FIXED_VALUE_COMMITS: ClassVar[
+        tuple[tuple[type, bool | int | float | str], ...]
+    ] = (
+        (InputTextElement, INPUT_COMMIT_TEXT),
+        (SliderElement, SLIDER_COMMIT_VALUE),
+        (InputNumberElement, NUMBER_COMMIT_VALUE),
+        (ColorPickerElement, COLOR_COMMIT_VALUE),
+        (ComboElement, COMBO_COMMIT_INDEX),
+        (RadioElement, RADIO_COMMIT_INDEX),
+    )
 
     def __new__(cls, *, connection_id: str, rig: InProcessLoop) -> Self:
         self = super().__new__(cls)
@@ -285,34 +303,14 @@ class SimulatedAgent:
                 owner_id=ClientId("__display__"),
                 value=not element.value,
             )
-        if isinstance(element, InputTextElement):
-            return ValueChanged(
-                scene_id=SceneId("__display__"),
-                element_id=ElementId(element.id),
-                owner_id=ClientId("__display__"),
-                value=INPUT_COMMIT_TEXT,
-            )
-        if isinstance(element, SliderElement):
-            return ValueChanged(
-                scene_id=SceneId("__display__"),
-                element_id=ElementId(element.id),
-                owner_id=ClientId("__display__"),
-                value=SLIDER_COMMIT_VALUE,
-            )
-        if isinstance(element, InputNumberElement):
-            return ValueChanged(
-                scene_id=SceneId("__display__"),
-                element_id=ElementId(element.id),
-                owner_id=ClientId("__display__"),
-                value=NUMBER_COMMIT_VALUE,
-            )
-        if isinstance(element, ColorPickerElement):
-            return ValueChanged(
-                scene_id=SceneId("__display__"),
-                element_id=ElementId(element.id),
-                owner_id=ClientId("__display__"),
-                value=COLOR_COMMIT_VALUE,
-            )
+        for elem_type, value in self._FIXED_VALUE_COMMITS:
+            if isinstance(element, elem_type):
+                return ValueChanged(
+                    scene_id=SceneId("__display__"),
+                    element_id=ElementId(element.id),
+                    owner_id=ClientId("__display__"),
+                    value=value,
+                )
         if isinstance(element, CollapsingHeaderElement):
             return HeaderToggled(
                 scene_id=SceneId("__display__"),
@@ -349,7 +347,9 @@ class SimulatedAgent:
             | InputTextElement
             | InputNumberElement
             | SliderElement
-            | ColorPickerElement,
+            | ColorPickerElement
+            | ComboElement
+            | RadioElement,
         ):
             return ValueChanged
         if isinstance(element, CollapsingHeaderElement):
