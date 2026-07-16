@@ -38,8 +38,7 @@ __all__ = [
     "build_standalone_value_handler_decoder",
 ]
 
-# The atomic-value field an interactive change patches: the boolean ``value`` of
-# a checkbox, or the integer ``selected`` index of a combo or radio.
+# Which field a change patches: ``value`` (checkbox) or ``selected`` (combo/radio).
 type ChangedField = Literal["value", "selected"]
 
 
@@ -52,6 +51,8 @@ class ApplyPatchOnChange:
     side, ``wrap_handlers_for_remote`` wraps it in a ``RemoteDispatchGroup`` that
     sends the interaction to the Hub instead of mutating locally.
     """
+
+    __slots__ = ("_elem", "_field")
 
     _elem: Element
     _field: ChangedField

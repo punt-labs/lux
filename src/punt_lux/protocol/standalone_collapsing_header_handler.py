@@ -1,10 +1,11 @@
 """Standalone ``HandlerDecoder[HeaderToggled]`` builder for CollapsingHeaderElement.
 
-Parallel to ``standalone_checkbox_handler.py``: a collapsing header without a
-parent composite model has no verb vocabulary, so the explicit factory registry
-holds only ``noop``. The built-in state-sync handler (``_UpdateOpenHandler``) is
-installed separately by ``JsonCollapsingHeaderDecoder`` before any wire handlers.
-The decorator registry binds to whatever ``PublishSink`` the caller supplies.
+Mirrors the shared value-change handler pattern in ``value_change_handlers.py``:
+a collapsing header without a parent composite model has no verb vocabulary, so
+the explicit factory registry holds only ``noop``. The built-in state-sync
+handler (``_UpdateOpenHandler``) is installed separately by
+``JsonCollapsingHeaderDecoder`` before any wire handlers. The decorator registry
+binds to whatever ``PublishSink`` the caller supplies.
 """
 
 from __future__ import annotations
