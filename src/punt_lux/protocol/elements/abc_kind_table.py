@@ -41,6 +41,8 @@ from punt_lux.protocol.elements.color_picker_codec import (
     JsonColorPickerDecoder,
     JsonColorPickerEncoder,
 )
+from punt_lux.protocol.elements.combo import ComboElement
+from punt_lux.protocol.elements.combo_codec import JsonComboDecoder, JsonComboEncoder
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder, JsonDialogEncoder
 from punt_lux.protocol.elements.group import GroupElement
@@ -80,6 +82,9 @@ from punt_lux.protocol.standalone_collapsing_header_handler import (
 )
 from punt_lux.protocol.standalone_color_picker_handler import (
     build_standalone_color_picker_handler_decoder,
+)
+from punt_lux.protocol.standalone_combo_handler import (
+    build_standalone_combo_handler_decoder,
 )
 from punt_lux.protocol.standalone_input_number_handler import (
     build_standalone_input_number_handler_decoder,
@@ -184,6 +189,13 @@ class DefaultAbcKinds:
                     JsonColorPickerEncoder().encode,
                 ),
                 handler_builder=build_standalone_color_picker_handler_decoder,
+            ),
+            LeafKindSpec(
+                kind="combo",
+                codec=KindCodec(
+                    ComboElement, JsonComboDecoder, JsonComboEncoder().encode
+                ),
+                handler_builder=build_standalone_combo_handler_decoder,
             ),
         ]
 

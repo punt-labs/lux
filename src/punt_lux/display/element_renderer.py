@@ -136,7 +136,7 @@ class ElementRenderer:
         self._button_renderer = ButtonRenderer()
         self._slider_renderer = SliderRenderer(widget_state)
         self._checkbox_renderer = CheckboxRenderer()
-        self._combo_renderer = ComboRenderer(widget_state, emit_event)
+        self._combo_renderer = ComboRenderer()
         self._input_text_renderer = InputTextRenderer(widget_state)
         self._input_number_renderer = InputNumberRenderer(widget_state)
         self._radio_renderer = RadioRenderer(widget_state, emit_event)
@@ -174,7 +174,6 @@ class ElementRenderer:
     # renderer's view of widget state simultaneously.
     _WIDGET_STATE_RENDERERS: ClassVar[tuple[str, ...]] = (
         "_slider_renderer",
-        "_combo_renderer",
         "_input_text_renderer",
         "_input_number_renderer",
         "_radio_renderer",
@@ -212,6 +211,15 @@ class ElementRenderer:
     def checkbox_renderer(self) -> CheckboxRenderer:
         """Return the per-kind checkbox renderer for the ImGui checkbox adapter."""
         return self._checkbox_renderer
+
+    @property
+    def combo_renderer(self) -> ComboRenderer:
+        """Return the per-kind combo renderer for the ImGui combo adapter.
+
+        Owned here, not by the factory, so the D21 fire path stays on the one
+        stateless renderer the ABC adapter paints through.
+        """
+        return self._combo_renderer
 
     @property
     def input_text_renderer(self) -> InputTextRenderer:

@@ -25,6 +25,7 @@ from .repush_effect import PropAfterDispatch, RemovedAfterDispatch, RepushEffect
 
 __all__ = [
     "COLOR_COMMIT_VALUE",
+    "COMBO_COMMIT_INDEX",
     "INPUT_COMMIT_TEXT",
     "NUMBER_COMMIT_VALUE",
     "SCENARIOS",
@@ -53,6 +54,11 @@ COLOR_COMMIT_VALUE = "#3366CC"
 # scenario's [0, 100] input. Shared with the agent's synthetic-event builder for
 # the same reason: a typed number has no structural source for its value.
 NUMBER_COMMIT_VALUE = 33.0
+
+# The index a combo pick commits in the loop — the second item of the scenario's
+# three-item combo. Shared with the agent's synthetic-event builder: a pick's
+# structural source is the chosen index, but the agent injects a fixed target.
+COMBO_COMMIT_INDEX = 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -470,6 +476,72 @@ class Scenario:
         )
 
     @classmethod
+    def group_combo_progress(cls) -> Self:
+        """A group holding a publishing combo and a display-only progress.
+
+        Picking an item crosses as ``value_changed`` carrying the selected index
+        (an ``int``); the built-in state-sync handler writes the Hub ``selected``
+        (``0`` -> the picked index), so the dispatch re-push carries the mutated
+        index. A wire ``handlers`` entry publishes ``option_selected``; the agent
+        reacts by advancing the bar. Proves the atomic-selection combo rides the
+        faithful boundary as a plain ``int`` index, like the checkbox's bool.
+        """
+        return cls(
+            name="group-combo-progress",
+            scene_id="e2e-combo-scene",
+            elements=(
+                {
+                    "kind": "group",
+                    "id": "co-surface",
+                    "layout": "rows",
+                    "children": (
+                        {
+                            "kind": "combo",
+                            "id": "option-field",
+                            "label": "Option",
+                            "items": ("Alpha", "Beta", "Gamma"),
+                            "selected": 0,
+                            "handlers": [
+                                {
+                                    "event": "changed",
+                                    "factory": "noop",
+                                    "wrap": [
+                                        {
+                                            "decorator": "publish",
+                                            "topics": ["option_selected"],
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "kind": "progress",
+                            "id": "co-progress",
+                            "fraction": 0.0,
+                            "label": "idle",
+                        },
+                    ),
+                },
+            ),
+            target_element_id="option-field",
+            interaction=InteractionExpectation(
+                event_kind="value_changed", value=COMBO_COMMIT_INDEX
+            ),
+            publish=WirePublish("option_selected"),
+            react=(
+                ReactPatch(element_id="co-progress", field="fraction", value=1.0),
+                ReactPatch(element_id="co-progress", field="label", value="selected"),
+            ),
+            display_only_id="co-progress",
+            repush=PropAfterDispatch(
+                element_id="option-field",
+                field="selected",
+                value=COMBO_COMMIT_INDEX,
+                flipped=True,
+            ),
+        )
+
+    @classmethod
     def collapsing_header_toggle_progress(cls) -> Self:
         """A collapsing_header beside a display-only progress (the interactive loop).
 
@@ -852,6 +924,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario.group_slider_progress(),
     Scenario.group_input_number_progress(),
     Scenario.group_color_picker_progress(),
+    Scenario.group_combo_progress(),
     Scenario.collapsing_header_toggle_progress(),
     Scenario.collapsing_header_button_progress(),
     Scenario.tab_bar_change_progress(),

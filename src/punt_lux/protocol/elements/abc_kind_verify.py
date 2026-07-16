@@ -45,6 +45,7 @@ class AbcKindVerifier:
             "input_number",
             "slider",
             "color_picker",
+            "combo",
             "dialog",
             "collapsing_header",
             "tab_bar",
