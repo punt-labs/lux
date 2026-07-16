@@ -14,8 +14,11 @@ must still fire exactly once (the two conditions feed one ``if``).
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Self
+from typing import Self
+
+import pytest
 
 from punt_lux.display.renderers import input_number_renderer
 from punt_lux.display.renderers.imgui.continuous_edit_accessors import (
@@ -28,9 +31,6 @@ from punt_lux.display.renderers.input_number_renderer import InputNumberRenderer
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.scene.widget_state import WidgetState
-
-if TYPE_CHECKING:
-    import pytest
 
 
 def _arb(state: WidgetState, element_id: str) -> ContinuousEditArbiter[float]:
@@ -378,6 +378,55 @@ class TestRendererClamp:
         renderer.render(elem)
 
         assert [e.value for e in fired] == [150.0]
+
+    @pytest.mark.parametrize("overflow", [float("inf"), float("-inf")])
+    @pytest.mark.parametrize(
+        ("min_bound", "max_bound", "good"),
+        [
+            (0.0, None, 12.0),  # open above: +inf has no bound to clamp it (round 2)
+            (None, 0.0, -12.0),  # open below: -inf has no bound to clamp it
+            (None, None, 12.0),  # fully open: no bound can rescue a non-finite entry
+        ],
+    )
+    def test_overflow_entry_on_an_open_bound_fires_a_finite_value(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        overflow: float,
+        min_bound: float | None,
+        max_bound: float | None,
+        good: float,
+    ) -> None:
+        # OVERFLOW-DROP: input_float can yield ±inf from an entry like "1e400". On
+        # a field lacking the bound to clamp it, plain clamping would leave the
+        # non-finite value in place, the Hub apply_patch would reject it on
+        # finiteness, fire would swallow the raise, and the arbiter would honour
+        # the ±inf forever. sanitized drops the gesture for the element's validated
+        # value, so observe/commit/fire only ever see a finite, Hub-valid number.
+        fake = _FakeImgui(
+            _Frame(edited=overflow, active=True, committed=False),
+            _Frame(edited=None, active=False, committed=True),
+        )
+        _install(monkeypatch, fake)
+        ws = WidgetState()
+        elem = InputNumberElement(
+            id="n", label="Qty", value=good, min=min_bound, max=max_bound
+        )
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = InputNumberRenderer(ws)
+
+        renderer.render(elem)  # editing to ±inf -> buffer dropped to the valid value
+        renderer.render(elem)  # deactivate -> commit fires the finite value
+
+        values = [e.value for e in fired]
+        assert values == [good]
+        assert all(isinstance(v, float) and math.isfinite(v) for v in values)
+        # The buffer shown next frame is the finite validated value, never ±inf.
+        assert fake.recorded == [good, good]
+        # No honour-forever: the committed value is honoured through the echo, then
+        # forgotten once the Hub value moves — never a stale non-finite value.
+        assert _arb(ws, "n").resolve(good) == good
+        assert _arb(ws, "n").resolve(99.0) == 99.0
 
     def test_int_variant_clamps_to_the_integral_bound_and_stays_int(
         self, monkeypatch: pytest.MonkeyPatch

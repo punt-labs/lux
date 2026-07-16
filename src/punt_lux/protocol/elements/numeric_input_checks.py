@@ -1,13 +1,4 @@
-"""NumericInputChecks — the range/finiteness/format predicate for a numeric input.
-
-Composed by ``InputNumberElement`` and judged once for the whole (patchable) field
-set at the element boundary — never per setter. It owns the two range operations
-the element delegates: ``all_messages`` (well-formedness) and ``clamp``.
-
-Finiteness is a reconciliation precondition: ``NaN`` (the one float where
-``x == x`` is false) could never close its optimistic-echo window, so it is
-reported alone — other errors against it are noise.
-"""
+"""NumericInputChecks — the range/finiteness/format predicate for a numeric input."""
 
 from __future__ import annotations
 
@@ -20,12 +11,7 @@ __all__ = ["NumericInputChecks"]
 
 @final
 class NumericInputChecks:
-    """Finiteness, integrality, bounds, step, and format checks for a numeric input.
-
-    A value object built fresh from an element's current fields. Integrality is
-    enforced here (not just at the widget) because ``input_int`` truncates its
-    bounds to ``int``, which could push a commit outside the Hub-re-checked range.
-    """
+    """Finiteness, integrality, bounds, step, and format checks for a numeric input."""
 
     _value: float
     _min: float | None
@@ -55,22 +41,14 @@ class NumericInputChecks:
         return self
 
     def range_error_messages(self) -> tuple[str, ...]:
-        """Return finiteness, integrality, bounds, and step errors (no fail-fast).
-
-        Non-finite values report alone; once finite, the rest report together.
-        """
+        """Return finiteness, integrality, bounds, and step errors (no fail-fast)."""
         nonfinite = self._nonfinite_errors()
         if nonfinite:
             return nonfinite
         return self._integral_errors() + self._bounds_errors() + self._step_errors()
 
     def format_error_message(self) -> str | None:
-        """Return the printf-format error, or ``None`` when the format is well-formed.
-
-        Exactly one variant-matching conversion must survive escaped ``%%``
-        (``diouxX`` for integer, ``eEfFgGaA`` for float); width/precision stay
-        numeric — a ``*`` would read an unsupplied vararg.
-        """
+        """Return the printf-format error, or None when the format is well-formed."""
         specifiers = "diouxX" if self._integer else "eEfFgGaA"
         conversion = rf"%[-+ #0]*\d*(?:\.\d+)?[hlLjztq]*[{specifiers}]"
         literal = r"(?:[^%]|%%)*"
@@ -86,15 +64,29 @@ class NumericInputChecks:
             messages.append(fmt_error)
         return tuple(messages)
 
-    def clamp(self, value: int | float) -> int | float:
-        """Return ``value`` clamped into ``[min, max]`` (``±inf`` for an absent bound).
+    def sanitized(self, raw: int | float) -> int | float:
+        """Return the Hub-valid value the renderer may observe/commit/fire.
 
-        The renderer clamps here before commit; the integer variant returns ``int``.
+        Re-checked against ``apply_patch``'s own predicate, so a non-finite overflow
+        with no valid projection is dropped for the validated value, never committed.
         """
-        low = -math.inf if self._min is None else self._min
-        high = math.inf if self._max is None else self._max
-        bounded = min(high, max(low, value))
-        return int(bounded) if self._integer else bounded
+        projected = raw
+        if math.isfinite(raw):
+            low = -math.inf if self._min is None else self._min
+            high = math.inf if self._max is None else self._max
+            bounded = min(high, max(low, raw))
+            projected = int(bounded) if self._integer else bounded
+        substituted = type(self)(
+            value=projected,
+            min=self._min,
+            max=self._max,
+            step=self._step,
+            integer=self._integer,
+            format=self._format,
+        )
+        if not substituted.range_error_messages():
+            return projected
+        return int(self._value) if self._integer else self._value
 
     def _present_fields(self) -> tuple[tuple[str, float], ...]:
         fields: list[tuple[str, float]] = [("value", self._value)]
@@ -120,14 +112,19 @@ class NumericInputChecks:
         )
 
     def _bounds_errors(self) -> tuple[str, ...]:
-        """Return the inverted-range error alone, else any out-of-range error."""
-        if self._min is not None and self._max is not None and self._min > self._max:
+        if self._inverted_range():
             return (f"min ({self._min}) must be <= max ({self._max})",)
+        if self._value_out_of_range():
+            return (f"value ({self._value}) must be in {self._range_text()}",)
+        return ()
+
+    def _inverted_range(self) -> bool:
+        return self._min is not None and self._max is not None and self._min > self._max
+
+    def _value_out_of_range(self) -> bool:
         below = self._min is not None and self._value < self._min
         above = self._max is not None and self._value > self._max
-        if not (below or above):
-            return ()
-        return (f"value ({self._value}) must be in {self._range_text()}",)
+        return below or above
 
     def _range_text(self) -> str:
         if self._min is not None and self._max is not None:

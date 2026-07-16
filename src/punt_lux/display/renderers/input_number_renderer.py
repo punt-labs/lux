@@ -13,8 +13,8 @@ stepper release, which ``EndGroup`` propagates); a discrete change on a
 non-active frame is the fallback for a stepper build that does not report the
 deactivate. Both drive a single ``if``, so a gesture never double-fires.
 
-``input_float`` / ``input_int`` do not clamp at the widget, so ``_draw``'s return
-is projected through ``elem.clamped`` before commit — the bounds live on the element.
+``input_float`` / ``input_int`` do not clamp or reject an overflow, so ``_draw``'s
+return is sanitized (bounds, integral, finite) before commit — never Hub-rejected.
 """
 
 from __future__ import annotations
@@ -72,7 +72,7 @@ class InputNumberRenderer:
         arbiter = ContinuousEditArbiter(self._widget_state, elem.id, _ACCESSOR)
         resolved = arbiter.resolve(elem.value)
         changed, raw_val = self._draw(elem, resolved)
-        new_val = elem.clamped(raw_val)
+        new_val = elem.sanitized(raw_val)
         active = imgui.is_item_active()
         if active:
             arbiter.observe(edited=changed, value=float(new_val))

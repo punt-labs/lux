@@ -245,14 +245,14 @@ class InputNumberElement(Element):
 
     # -- rendering support -------------------------------------------------
 
-    def clamped(self, value: int | float) -> int | float:
-        """Return ``value`` clamped into ``[min, max]`` — the renderer's commit guard.
+    def sanitized(self, value: int | float) -> int | float:
+        """Return the Hub-valid value the renderer may commit — its commit guard.
 
-        Delegates to ``NumericInputChecks.clamp``. The widget does not clamp, so a
-        raw entry is projected into range before it is observed, committed, or
-        fired — keeping the ``apply_patch`` bounds re-check a never-tripped invariant.
+        Delegates to ``NumericInputChecks.sanitized``: a raw entry is clamped, made
+        integral, and re-checked against ``apply_patch``'s predicate, so a non-finite
+        overflow is dropped for the validated value — the commit is never Hub-rejected.
         """
-        return self._checks().clamp(value)
+        return self._checks().sanitized(value)
 
     # -- introspection (Inspectable) ---------------------------------------
 
