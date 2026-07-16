@@ -56,10 +56,19 @@ class AbcKindNames:
 
     @classmethod
     def is_migrated(cls, kind: object) -> bool:
-        """Return whether ``kind`` decodes onto an Element-ABC class."""
-        return kind in cls.MIGRATED_ABC_KINDS
+        """Return whether ``kind`` decodes onto an Element-ABC class.
+
+        A non-str ``kind`` (including an unhashable wire value like ``{}`` or
+        ``[]``) returns ``False`` — the validated boundary (PY-EH-1), so the
+        container gate fails closed rather than raising ``TypeError`` on the
+        ``in`` membership test.
+        """
+        return isinstance(kind, str) and kind in cls.MIGRATED_ABC_KINDS
 
     @classmethod
     def is_container(cls, kind: object) -> bool:
-        """Return whether ``kind`` is a conditionally-ABC container kind."""
-        return kind in cls.ABC_CONTAINER_KINDS
+        """Return whether ``kind`` is a conditionally-ABC container kind.
+
+        A non-str ``kind`` returns ``False`` — see :meth:`is_migrated`.
+        """
+        return isinstance(kind, str) and kind in cls.ABC_CONTAINER_KINDS
