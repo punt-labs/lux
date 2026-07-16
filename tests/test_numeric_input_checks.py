@@ -1,12 +1,14 @@
 """NumericInputChecks.sanitized — the renderer's commit guard, in isolation.
 
-``sanitized`` projects a raw widget entry into the Hub-valid value set: clamped
-into bounds, made integral, and re-checked against the same predicate
-``apply_patch`` runs. A non-finite overflow (``±inf`` / ``NaN``) that the widget
-can hand back for an entry like ``"1e400"`` has no valid projection on a field
-lacking the bound to clamp it, so the gesture is dropped for the element's own
-validated value — never a value the Hub would reject. These tests pin that
-guarantee for every bound shape, with no imgui seam.
+``sanitized`` projects a raw widget entry into the Hub-valid value set via
+``min(high, max(low, raw))``, makes it integral, and re-checks the result against
+the same predicate ``apply_patch`` runs. A non-finite overflow (``±inf``) the
+widget can hand back for an entry like ``"1e400"`` collapses to the bound it
+overflowed — ``+inf`` to a finite ``max``, ``-inf`` to a finite ``min``. Only when
+that side is unbounded (the clamp stays non-finite) or the entry is ``NaN`` (no
+bound to pick) is the gesture dropped for the element's own validated value.
+Whatever is returned is range-valid, so ``apply_patch``'s re-check never trips.
+These tests pin that guarantee for every bound shape, with no imgui seam.
 """
 
 from __future__ import annotations
@@ -55,22 +57,42 @@ class TestSanitizedFiniteProjection:
         assert _checks(min=low, max=high).sanitized(raw) == expected
 
 
-class TestSanitizedNonFiniteDropped:
-    @pytest.mark.parametrize("bad", [math.inf, -math.inf, math.nan])
+class TestSanitizedNonFiniteClampsToBound:
     @pytest.mark.parametrize(
-        ("low", "high"),
+        ("low", "high", "bad", "expected"),
         [
-            (0.0, 100.0),  # both set: inf is out of range, nan never compares
-            (0.0, None),  # min only: +inf has no upper bound to clamp it (round 2)
-            (None, 100.0),  # max only: -inf has no lower bound to clamp it
-            (None, None),  # unbounded: no bound can rescue a non-finite entry
+            (0.0, 100.0, math.inf, 100.0),  # +inf overflows a finite max -> max
+            (0.0, 100.0, -math.inf, 0.0),  # -inf overflows a finite min -> min
+            (0.0, None, -math.inf, 0.0),  # -inf with a finite min -> min
+            (None, 100.0, math.inf, 100.0),  # +inf with a finite max -> max
         ],
     )
-    def test_non_finite_entry_drops_to_the_validated_value(
+    def test_overflow_collapses_to_the_bound_it_overflowed(
+        self, low: float | None, high: float | None, bad: float, expected: float
+    ) -> None:
+        # min(high, max(low, ±inf)) already maps the overflow to the finite bound.
+        assert _checks(min=low, max=high).sanitized(bad) == expected
+
+
+class TestSanitizedNonFiniteDropped:
+    @pytest.mark.parametrize(
+        ("low", "high", "bad"),
+        [
+            (0.0, None, math.inf),  # +inf, max unbounded -> no bound to clamp it
+            (None, 100.0, -math.inf),  # -inf, min unbounded -> no bound to clamp it
+            (None, None, math.inf),  # fully open above
+            (None, None, -math.inf),  # fully open below
+            (0.0, 100.0, math.nan),  # NaN: non-directional, no bound to pick
+            (0.0, None, math.nan),
+            (None, 100.0, math.nan),
+            (None, None, math.nan),
+        ],
+    )
+    def test_unbounded_overflow_or_nan_drops_to_the_validated_value(
         self, low: float | None, high: float | None, bad: float
     ) -> None:
-        # The gesture is dropped: the fallback is the element's own validated
-        # value, which is finite and Hub-valid by construction.
+        # No finite bound on the offending side (or a NaN): the gesture is dropped
+        # for the element's own validated value, finite and Hub-valid by construction.
         result = _checks(min=low, max=high).sanitized(bad)
         assert result == _FALLBACK
         assert math.isfinite(result)
@@ -96,7 +118,15 @@ class TestSanitizedIntegerVariant:
         assert result == 42
         assert isinstance(result, int)
 
-    def test_non_finite_integer_entry_drops_to_int_validated_value(self) -> None:
+    def test_overflow_integer_entry_clamps_to_int_bound(self) -> None:
+        # +inf on a bounded integer field collapses to the (integral) max, as int.
+        result = _checks(min=0.0, max=100.0, integer=True).sanitized(math.inf)
+        assert result == 100
+        assert isinstance(result, int)
+
+    def test_unbounded_non_finite_integer_entry_drops_to_int_validated_value(
+        self,
+    ) -> None:
         # int(math.inf) would raise; the finiteness guard makes the cast total and
         # the drop returns the validated value as an ``int`` for the payload.
         result = _checks(min=0.0, max=None, integer=True, value=3.0).sanitized(math.inf)

@@ -379,29 +379,29 @@ class TestRendererClamp:
 
         assert [e.value for e in fired] == [150.0]
 
-    @pytest.mark.parametrize("overflow", [float("inf"), float("-inf")])
     @pytest.mark.parametrize(
-        ("min_bound", "max_bound", "good"),
+        ("min_bound", "max_bound", "overflow", "good"),
         [
-            (0.0, None, 12.0),  # open above: +inf has no bound to clamp it (round 2)
-            (None, 0.0, -12.0),  # open below: -inf has no bound to clamp it
-            (None, None, 12.0),  # fully open: no bound can rescue a non-finite entry
+            (0.0, None, float("inf"), 12.0),  # +inf, max unbounded (round 2)
+            (None, 0.0, float("-inf"), -12.0),  # -inf, min unbounded
+            (None, None, float("inf"), 12.0),  # fully open above
+            (None, None, float("-inf"), 12.0),  # fully open below
         ],
     )
-    def test_overflow_entry_on_an_open_bound_fires_a_finite_value(
+    def test_overflow_on_an_open_side_drops_to_the_validated_value(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        overflow: float,
         min_bound: float | None,
         max_bound: float | None,
+        overflow: float,
         good: float,
     ) -> None:
         # OVERFLOW-DROP: input_float can yield ±inf from an entry like "1e400". On
-        # a field lacking the bound to clamp it, plain clamping would leave the
-        # non-finite value in place, the Hub apply_patch would reject it on
-        # finiteness, fire would swallow the raise, and the arbiter would honour
-        # the ±inf forever. sanitized drops the gesture for the element's validated
-        # value, so observe/commit/fire only ever see a finite, Hub-valid number.
+        # a field with no bound on the offending side, min/max cannot collapse it,
+        # so plain clamping would leave the non-finite value in place, the Hub
+        # apply_patch would reject it on finiteness, fire would swallow the raise,
+        # and the arbiter would honour the ±inf forever. sanitized drops the gesture
+        # for the validated value, so observe/commit/fire see only a finite number.
         fake = _FakeImgui(
             _Frame(edited=overflow, active=True, committed=False),
             _Frame(edited=None, active=False, committed=True),
@@ -427,6 +427,39 @@ class TestRendererClamp:
         # forgotten once the Hub value moves — never a stale non-finite value.
         assert _arb(ws, "n").resolve(good) == good
         assert _arb(ws, "n").resolve(99.0) == 99.0
+
+    @pytest.mark.parametrize(
+        ("overflow", "expected"),
+        [
+            (float("inf"), 100.0),  # +inf overflows the finite max -> fires the max
+            (float("-inf"), 0.0),  # -inf overflows the finite min -> fires the min
+        ],
+    )
+    def test_overflow_on_a_bounded_side_fires_the_bound(
+        self, monkeypatch: pytest.MonkeyPatch, overflow: float, expected: float
+    ) -> None:
+        # DIRECTIONAL CLAMP: on a [0, 100] field ``min(high, max(low, ±inf))`` maps
+        # the overflow to the bound it overflowed, so the fired value is that finite
+        # bound (not a drop to the prior value) and the Hub accepts it.
+        fake = _FakeImgui(
+            _Frame(edited=overflow, active=True, committed=False),
+            _Frame(edited=None, active=False, committed=True),
+        )
+        _install(monkeypatch, fake)
+        ws = WidgetState()
+        elem = _number(value=12.0)
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = InputNumberRenderer(ws)
+
+        renderer.render(elem)  # editing to ±inf -> buffer clamped to the bound
+        renderer.render(elem)  # deactivate -> commit fires the finite bound
+
+        assert [e.value for e in fired] == [expected]
+        assert fake.recorded == [12.0, expected]
+        # No honour-forever: the committed bound is honoured through the echo window.
+        assert _arb(ws, "n").resolve(12.0) == expected
+        assert _arb(ws, "n").resolve(expected) == expected
 
     def test_int_variant_clamps_to_the_integral_bound_and_stays_int(
         self, monkeypatch: pytest.MonkeyPatch

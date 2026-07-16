@@ -67,25 +67,25 @@ class NumericInputChecks:
     def sanitized(self, raw: int | float) -> int | float:
         """Return the Hub-valid value the renderer may observe/commit/fire.
 
-        Re-checked against ``apply_patch``'s own predicate, so a non-finite overflow
-        with no valid projection is dropped for the validated value, never committed.
+        A non-finite overflow collapses to the bound it overflowed (``+inf``->max,
+        ``-inf``->min); only with that side unbounded (clamp stays non-finite) or a
+        ``NaN`` is the gesture dropped for the element's own validated value.
         """
-        projected = raw
-        if math.isfinite(raw):
-            low = -math.inf if self._min is None else self._min
-            high = math.inf if self._max is None else self._max
-            bounded = min(high, max(low, raw))
-            projected = int(bounded) if self._integer else bounded
-        substituted = type(self)(
-            value=projected,
-            min=self._min,
-            max=self._max,
-            step=self._step,
-            integer=self._integer,
-            format=self._format,
-        )
-        if not substituted.range_error_messages():
-            return projected
+        low = -math.inf if self._min is None else self._min
+        high = math.inf if self._max is None else self._max
+        projected = math.nan if math.isnan(raw) else min(high, max(low, raw))
+        if math.isfinite(projected):
+            projected = int(projected) if self._integer else projected
+            substituted = type(self)(
+                value=projected,
+                min=self._min,
+                max=self._max,
+                step=self._step,
+                integer=self._integer,
+                format=self._format,
+            )
+            if not substituted.range_error_messages():
+                return projected
         return int(self._value) if self._integer else self._value
 
     def _present_fields(self) -> tuple[tuple[str, float], ...]:

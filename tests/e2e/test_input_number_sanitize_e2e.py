@@ -183,3 +183,27 @@ def test_non_finite_entry_is_sanitized_and_hub_accepts(
     assert hub_elem.value == 5.0
     shown = InspectionView(loop_env.rig.inspect(_SCENE)).props("open")
     assert shown["value"] == 5.0
+
+
+def test_non_finite_entry_on_a_bounded_field_fires_the_bound(
+    loop_env: LoopHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Round 2, bounded: a ``+inf`` entry on a finite ``max`` field fires that max.
+
+    ``min(high, max(low, +inf))`` collapses the overflow to the finite bound, so
+    the crossed value is the max (not a drop to the prior value) and ``apply_patch``
+    accepts the changed value on the Hub copy — no raise, no swallow.
+    """
+    factory = hub_element_factory(ConnectionId(_CONN))
+    wire = _wire("capped", min_bound=0.0, max_bound=100.0)
+    hub_elem = factory.element_from_dict(wire)
+    assert isinstance(hub_elem, InputNumberElement)
+    _install(_SCENE, [hub_elem], loop_env)
+
+    crossed = _drive(monkeypatch, "capped", math.inf, loop_env)
+
+    assert len(crossed) == 1
+    assert crossed[0].value == 100.0  # collapsed to the finite max, never +inf
+    assert hub_elem.value == 100.0  # apply_patch accepted the changed value
+    shown = InspectionView(loop_env.rig.inspect(_SCENE)).props("capped")
+    assert shown["value"] == 100.0
