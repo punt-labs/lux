@@ -259,6 +259,18 @@ class TestForkGate:
         wire = {"kind": "group", "children": ["not-a-dict"]}
         assert not JsonGroupDecoder.is_all_abc(wire)
 
+    def test_is_all_abc_survives_unhashable_child_kind(self) -> None:
+        """An unhashable child ``kind`` fails closed, never raising TypeError.
+
+        A malformed child like ``{"kind": {}}`` or ``{"kind": []}`` would make
+        the ``kind in frozenset`` membership test raise; the gate must report it
+        as non-ABC and fork legacy instead of crashing mid-walk.
+        """
+        bad_kinds: tuple[object, ...] = ({}, [])
+        for bad_kind in bad_kinds:
+            wire = {"kind": "group", "children": [{"kind": bad_kind}]}
+            assert not JsonGroupDecoder.is_all_abc(wire)
+
     def test_from_dict_rejects_non_abc_subtree(self) -> None:
         """GroupElement.from_dict guards the all-ABC invariant at its boundary."""
         wire = {"kind": "group", "id": "g", "children": [_table_wire()]}

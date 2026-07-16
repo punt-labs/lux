@@ -27,6 +27,7 @@ from punt_lux.domain.interaction import ButtonClicked
 from punt_lux.protocol.elements._util import strip_none
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.button_codec import JsonButtonDecoder
+from punt_lux.protocol.elements.button_sugar import ButtonWireSugar
 from punt_lux.protocol.elements.element_wire import ElementWireContext
 from punt_lux.protocol.handler_decoder import FactoryRegistry, HandlerDecoder
 
@@ -120,9 +121,7 @@ class JsonDialogDecoder:
         raw: Mapping[str, object],
     ) -> Mapping[str, object]:
         """Promote top-level ``click`` and ``publish`` sugar on a child button."""
-        from punt_lux.protocol.element_factory import JsonElementFactory
-
-        return JsonElementFactory.canonicalize_button_sugar(raw)
+        return ButtonWireSugar.canonicalize(raw)
 
     def _build_button_decoder(self, model: DialogModel) -> JsonButtonDecoder:
         """Build a per-dialog Button decoder bound to ``model``'s verbs."""

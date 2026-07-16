@@ -1,39 +1,18 @@
 """JsonEncoderFactory — stateless outbound wire encoder, dispatched by type.
 
-``encode(elem)`` routes ``type(elem)`` via ``_DISPATCH`` to a per-kind encoder.
+``encode(elem)`` routes ``type(elem)`` via the shared ``AbcElementRegistry``'s
+encoder dispatch to a per-kind encoder. Adding a migrated kind adds a spec to
+the registration table, not an arm here.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from typing import ClassVar, Self
+from typing import TYPE_CHECKING, Self
 
-from punt_lux.protocol.elements.button import ButtonElement
-from punt_lux.protocol.elements.button_codec import JsonButtonEncoder
-from punt_lux.protocol.elements.checkbox import CheckboxElement
-from punt_lux.protocol.elements.checkbox_codec import JsonCheckboxEncoder
-from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
-from punt_lux.protocol.elements.collapsing_header_codec import (
-    JsonCollapsingHeaderEncoder,
-)
-from punt_lux.protocol.elements.color_picker import ColorPickerElement
-from punt_lux.protocol.elements.color_picker_codec import JsonColorPickerEncoder
-from punt_lux.protocol.elements.dialog import DialogElement
-from punt_lux.protocol.elements.dialog_codec import JsonDialogEncoder
-from punt_lux.protocol.elements.group import GroupElement
-from punt_lux.protocol.elements.group_codec import JsonGroupEncoder
-from punt_lux.protocol.elements.input_number import InputNumberElement
-from punt_lux.protocol.elements.input_number_codec import JsonInputNumberEncoder
-from punt_lux.protocol.elements.input_text import InputTextElement
-from punt_lux.protocol.elements.input_text_codec import JsonInputTextEncoder
-from punt_lux.protocol.elements.progress import ProgressElement
-from punt_lux.protocol.elements.progress_codec import JsonProgressEncoder
-from punt_lux.protocol.elements.slider import SliderElement
-from punt_lux.protocol.elements.slider_codec import JsonSliderEncoder
-from punt_lux.protocol.elements.tab_bar import TabBarElement
-from punt_lux.protocol.elements.tab_bar_codec import JsonTabBarEncoder
-from punt_lux.protocol.elements.text import TextElement
-from punt_lux.protocol.elements.text_codec import JsonTextEncoder
+from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
+
+if TYPE_CHECKING:
+    from punt_lux.protocol.elements.abc_kind_spec import KindEncoder
 
 __all__ = ["JsonEncoderFactory"]
 
@@ -41,30 +20,18 @@ __all__ = ["JsonEncoderFactory"]
 class JsonEncoderFactory:
     """Dispatch elements to per-kind encoders by their concrete type."""
 
-    __slots__ = ()
+    __slots__ = ("_dispatch",)
 
-    # Element type -> the per-kind stateless encoder's bound ``encode``.
-    _DISPATCH: ClassVar[tuple[tuple[type, Callable[..., dict[str, object]]], ...]] = (
-        (TextElement, JsonTextEncoder().encode),
-        (ButtonElement, JsonButtonEncoder().encode),
-        (CheckboxElement, JsonCheckboxEncoder().encode),
-        (InputTextElement, JsonInputTextEncoder().encode),
-        (InputNumberElement, JsonInputNumberEncoder().encode),
-        (DialogElement, JsonDialogEncoder().encode),
-        (GroupElement, JsonGroupEncoder().encode),
-        (CollapsingHeaderElement, JsonCollapsingHeaderEncoder().encode),
-        (TabBarElement, JsonTabBarEncoder().encode),
-        (ProgressElement, JsonProgressEncoder().encode),
-        (SliderElement, JsonSliderEncoder().encode),
-        (ColorPickerElement, JsonColorPickerEncoder().encode),
-    )
+    _dispatch: tuple[tuple[type, KindEncoder], ...]
 
     def __new__(cls) -> Self:
-        return super().__new__(cls)
+        self = super().__new__(cls)
+        self._dispatch = DEFAULT_ABC_REGISTRY.encoder_dispatch()
+        return self
 
     def encode(self, elem: object) -> dict[str, object]:
         """Dispatch by ``type(elem)`` to the per-kind encoder."""
-        for element_type, encode in self._DISPATCH:
+        for element_type, encode in self._dispatch:
             if isinstance(elem, element_type):
                 return encode(elem)
         msg = f"JsonEncoderFactory has no encoder for {type(elem).__name__}"

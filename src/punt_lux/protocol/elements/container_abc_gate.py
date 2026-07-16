@@ -14,34 +14,13 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Self, cast
 
+from punt_lux.protocol.elements.abc_kind_names import AbcKindNames
+
 __all__ = ["ContainerAbcGate"]
 
-# Wire kinds that decode onto the Element ABC. A container is all-ABC only when
-# every element in its subtree is one of these AND every nested container is
-# itself all-ABC. A kind joins this set only once its ABC decoder is wired into
-# the factory — otherwise an all-ABC parent would recurse a not-yet-migrated
-# child through a decoder that does not exist.
-_MIGRATED_ABC_KINDS = frozenset(
-    {
-        "text",
-        "button",
-        "checkbox",
-        "input_text",
-        "input_number",
-        "slider",
-        "color_picker",
-        "dialog",
-        "progress",
-        "group",
-        "collapsing_header",
-        "tab_bar",
-    }
-)
-
-# The migrated container kinds whose own subtree must itself be all-ABC.
-_CONTAINER_KINDS = frozenset({"group", "collapsing_header", "tab_bar"})
-
 # The two layouts an ABC group renders; ``paged`` stays on the legacy path.
+# Group-specific gate logic, not a "which kinds are ABC" fact, so it stays here
+# rather than in ``AbcKindNames``.
 _STACK_LAYOUTS = frozenset({"rows", "columns"})
 
 
@@ -107,9 +86,9 @@ class ContainerAbcGate:
             return f"non-mapping child {raw_child!r}"
         child = cast("Mapping[str, object]", raw_child)
         kind = child.get("kind")
-        if kind not in _MIGRATED_ABC_KINDS:
+        if not AbcKindNames.is_migrated(kind):
             return str(kind)
-        if kind in _CONTAINER_KINDS:
+        if AbcKindNames.is_container(kind):
             return cls.first_non_abc_kind(child)
         return None
 

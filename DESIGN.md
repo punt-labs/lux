@@ -4655,3 +4655,106 @@ Development Loop) exists.
   `color_picker_renderer.py` (the render path), DES-048 (the reconciliation the
   grouping preserves), DES-039 (self-validation + verification), `target.md`
   (render calls stay Display-local); bead `lux-5nn0`, PR #253.
+
+## DES-051: One ABC-Kind Registry — Retire the Six-Copy Element-Factory Ratchet
+
+**Status:** accepted. Modules: `protocol/elements/abc_kind_names.py`,
+`abc_kind_spec.py`, `abc_kind_specs.py`, `abc_registry.py`, `abc_kind_table.py`,
+`button_sugar.py`; consumers `element_factory.py`, `encoder_factory.py`,
+`container_abc_gate.py`, `elements/__init__.py`, `dialog_codec.py`.
+
+The Element-ABC migration (DES-041 fork-don't-mix) was feeding a god-module.
+`element_factory.py` grew one per-kind dispatch entry on every migrated kind
+(211 → 356 lines across six migrations) and stayed invisible to `make check`
+because the OO ratchet compares only *touched* files against the baseline — the
+over-target debt surfaced only when `make update-oo` refused. The deeper defect
+was that a single fact — *which kinds are on the ABC path* — was hand-copied into
+six code enumerations across four modules (`_ABC_KINDS`, `_ABC_LEAF_TYPES`, the
+`__new__` decoder dict, the `_decode_legacy` isinstance union, the encoder
+`_DISPATCH`, and the `_element_to_dict` union), plus two string sets in the
+container gate. The `checkbox` half-migration regression (recorded in
+`tests/CLAUDE.md`) is exactly a "these copies drifted" failure. Trimming only the
+named file would leave the disease.
+
+### Decision
+
+- **One `AbcElementRegistry` is the single source of truth.** It holds a per-kind
+  `AbcKindSpec` (a `runtime_checkable` Protocol, structural — not a base class)
+  that knows how to build that kind's decoder from a `TierBinding` DI value
+  object and how to encode it. The five class-bearing enumerations collapse into
+  registry properties (`leaf_kinds`, `container_kinds`, `abc_types`,
+  `build_decoders`, `encoder_dispatch`) consumed by the factory, encoder, and
+  aggregator.
+- **Three parametrized spec classes, not twelve.** `LeafKindSpec`,
+  `DialogKindSpec`, `ContainerKindSpec` carry the per-kind element/decoder/encoder
+  *classes as data* (PY-OO-5); the data varies, the behavior does not. One
+  `abc_kind_table.py` (`DefaultAbcKinds`) is the sole file a future migration
+  edits — one spec value plus one name string.
+- **The container gate stays import-light; two data homes, one guard.** The gate
+  cannot import element classes (aggregator → container codecs → gate → registry
+  → element classes closes a cycle), so kind *strings* live in `AbcKindNames`
+  (zero element imports). The heavy spec table and the light name set are the two
+  survivors, reconciled by a **fail-loud import-time cross-check**
+  (`DefaultAbcKinds.verify_names`): drift is a `RuntimeError` at process start,
+  never a silent wire bug. Six hand-copied code enumerations become two data sets
+  with a mechanical guard.
+- **De-specialize the button sugar.** `canonicalize_button_sugar` moves out of
+  the central dispatcher into its own `button_sugar.py` (`ButtonWireSugar`); the
+  factory's `decode` loses its only `if kind == "button"` branch, and
+  `dialog_codec` re-points to the new home.
+
+### Rationale
+
+- **Kill the ratchet at the root, not the symptom.** The general solution (one
+  source of truth) stops *every* future migration from growing this module —
+  `element_factory.py` drops 356 → ~130 and per-kind registration becomes
+  additive in the table file. A file split would clear 300 lines but leave the
+  six-copy drift class intact.
+- **Fail-loud over hope.** The layering genuinely forbids a single data home;
+  rather than trust manual sync, the cross-check makes divergence impossible to
+  ship.
+- **Behavior-preserving by construction.** The wire format is unchanged; the spec
+  builds the identical decoder per kind with the same DI. Verified: `make check`
+  green (2232), `snapshot-parity` 132 (byte-identical corpus), integration 50,
+  the 25-kind roundtrip suite 76, plus fidelity tests that the cross-check raises
+  on a spec-without-name and a container-mis-declared-as-leaf.
+
+### Rejected alternatives
+
+- **Split `element_factory.py` into two files.** Clears 300 lines but every
+  migration still edits both and the six-way duplication survives — symptom, not
+  disease.
+- **Move only the `__new__` dict to a data module.** Fixes one of six copies; the
+  rest drift independently. A partial single-source is not a single source.
+- **A bespoke `*KindSpec` class per kind (~12).** Maximum locality, but each new
+  kind adds a class not a value; three construction shapes do not justify twelve
+  classes.
+- **Fold `AbcKindNames` into the registry (one data home).** Ideal but closes an
+  import cycle — infeasible under the current layering. The fail-loud cross-check
+  is the honest second-best.
+- **Self-registering codecs via import side effects.** Eliminates the table but
+  makes registration depend on import order and on every codec module being
+  imported — a fragile implicit contract. Explicit `DefaultAbcKinds.build()` is
+  inspectable, ordered, cross-checkable.
+
+### Consequences
+
+- A future element migration edits `abc_kind_table.py` (one spec) and
+  `abc_kind_names.py` (one string); `element_factory.py`, `encoder_factory.py`,
+  and `elements/__init__.py` never change for a new kind. The ratchet stops.
+- Two data homes remain by necessity, but drift is a hard import-time failure.
+- Three implementation deviations from the design, each to avoid a per-file OO
+  regression or preserve behavior: button sugar in its own module (not folded
+  into `button_codec.py`); the factory uses the module-singleton registry (no
+  injectable `__new__` param that would widen `avg_params`); `_decode_legacy`
+  keeps the class-based `isinstance(elem, registry.abc_types)` guard (a
+  kind-string guard would wrongly reject legacy-forked containers that share a
+  kind string but decode to a distinct `Legacy*` class).
+
+### References
+
+- `abc_registry.py`, `abc_kind_spec.py`, `abc_kind_specs.py`,
+  `abc_kind_table.py`, `abc_kind_names.py`, `button_sugar.py`;
+  `docs/architecture/migration/element-factory-decomposition-design.md` (the
+  design); DES-041 (the migration this un-ratchets); `tests/CLAUDE.md` (the
+  half-migration regression class); bead `lux-xs7r.2`.
