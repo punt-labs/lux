@@ -2,12 +2,11 @@
 """Renderer for RadioElement — a horizontal set of radio buttons.
 
 Stateless: ``render`` reads ``elem.selected`` — the Hub-authoritative index —
-each frame and holds no per-scene copy, so an agent-driven change is reflected on
-the next render. ``imgui.radio_button`` reports a click for the pressed item;
-painting the Hub index programmatically never reports a click, so a Hub re-push
-carrying the same index cannot form a fire -> Hub -> re-push -> fire loop. Only a
-genuine pick of a *different* item fires ``ValueChanged`` (the legacy
-``current != i`` guard), wrapped for D21 remote dispatch on the Display side.
+each frame and holds no per-scene copy, so an agent-driven change shows on the
+next render; an empty-but-valid group paints ``f"{label}: (empty)"``. Painting
+the Hub index programmatically never reports a click, so a re-push carrying the
+same index cannot form a fire -> Hub -> re-push -> fire loop; only a genuine pick
+of a *different* item fires ``ValueChanged``, wrapped for D21 remote dispatch.
 """
 
 from __future__ import annotations
@@ -38,11 +37,12 @@ class RadioRenderer:
 
     @trace
     def render(self, elem: RadioElement) -> None:
-        eid = elem.id
         label = elem.label
         items = elem.items
         if not items:
+            imgui.text(f"{label}: (empty)")
             return
+        eid = elem.id
         current = elem.selected
         if label:
             imgui.text(label)
