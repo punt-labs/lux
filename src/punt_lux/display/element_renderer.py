@@ -138,7 +138,7 @@ class ElementRenderer:
         self._checkbox_renderer = CheckboxRenderer()
         self._combo_renderer = ComboRenderer(widget_state, emit_event)
         self._input_text_renderer = InputTextRenderer(widget_state)
-        self._input_number_renderer = InputNumberRenderer(widget_state, emit_event)
+        self._input_number_renderer = InputNumberRenderer(widget_state)
         self._radio_renderer = RadioRenderer(widget_state, emit_event)
         self._color_picker_renderer = ColorPickerRenderer(widget_state)
         self._selectable_renderer = SelectableRenderer(widget_state, emit_event)
@@ -222,21 +222,21 @@ class ElementRenderer:
     def slider_renderer(self) -> SliderRenderer:
         """Return the per-kind slider renderer for the ImGui adapter.
 
-        The instance is owned here, not by the factory, so the D21 fire path
-        and the commit-echo reconciliation stay on the one renderer the ABC
-        slider adapter paints through.
+        Each interactive input renderer (slider, color_picker, input_number) is
+        owned here, not by the factory, so the D21 fire path and the commit-echo
+        reconciliation stay on the one renderer the ABC adapter paints through.
         """
         return self._slider_renderer
 
     @property
     def color_picker_renderer(self) -> ColorPickerRenderer:
-        """Return the per-kind color-picker renderer for the ImGui adapter.
-
-        The instance is owned here, not by the factory, so the D21 fire path
-        and the commit-echo reconciliation stay on the one renderer the ABC
-        color-picker adapter paints through.
-        """
+        """Return the color-picker renderer (owned here — see ``slider_renderer``)."""
         return self._color_picker_renderer
+
+    @property
+    def input_number_renderer(self) -> InputNumberRenderer:
+        """Return the input_number renderer (owned here — see ``slider_renderer``)."""
+        return self._input_number_renderer
 
     @property
     def widget_state(self) -> WidgetState:
