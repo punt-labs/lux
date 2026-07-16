@@ -21,6 +21,7 @@ from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.dialog import DialogElement
+from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.slider import SliderElement
@@ -41,6 +42,7 @@ _ABC_TYPES: tuple[type, ...] = (
     DialogElement,
     ProgressElement,
     InputTextElement,
+    InputNumberElement,
     SliderElement,
     ColorPickerElement,
 )
@@ -50,10 +52,9 @@ class DomainPump:
     """Mirror native-kind SceneMessages into a domain Display.
 
     "Native" = element kinds with their own per-class renderer in
-    ``display.renderers`` — currently the six basics (Text, Image,
-    Separator, Progress, Spinner, Markdown) plus the nine inputs (Button,
-    Slider, Checkbox, Combo, InputText, InputNumber, Radio, ColorPicker,
-    Selectable).
+    ``display.renderers`` — the basics (Text, Image, Separator, Progress,
+    Spinner, Markdown) plus the inputs (Button, Slider, Checkbox, Combo,
+    InputText, InputNumber, Radio, ColorPicker, Selectable).
 
     A scene containing only native kinds is routed through ``Display.apply``;
     a scene containing any non-native kind is skipped (mixed-scene rule —

@@ -27,6 +27,7 @@ _MIGRATED_ABC_KINDS = frozenset(
         "button",
         "checkbox",
         "input_text",
+        "input_number",
         "slider",
         "color_picker",
         "dialog",
