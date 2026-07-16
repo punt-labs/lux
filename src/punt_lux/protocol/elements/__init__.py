@@ -32,6 +32,7 @@ from punt_lux.protocol.elements import container_dispatch
 # _strip_none is re-exported for protocol.messages.scene; lives in
 # _util because the codec layer above the per-element modules uses it.
 from punt_lux.protocol.elements._util import strip_none as _strip_none
+from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.protocol.elements.basics import BasicsRegistry
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
@@ -176,21 +177,7 @@ _ENCODER_FACTORY = JsonEncoderFactory()
 
 def _element_to_dict(elem: Element) -> dict[str, Any]:
     """Serialize an element — legacy dataclass or ABC kind — to a wire dict."""
-    if isinstance(
-        elem,
-        TextElement
-        | ButtonElement
-        | CheckboxElement
-        | InputTextElement
-        | InputNumberElement
-        | SliderElement
-        | ColorPickerElement
-        | DialogElement
-        | GroupElement
-        | CollapsingHeaderElement
-        | TabBarElement
-        | ProgressElement,
-    ):
+    if isinstance(elem, DEFAULT_ABC_REGISTRY.abc_types):
         # Each per-kind encoder owns its own tooltip emission.
         return _ENCODER_FACTORY.encode(elem)
     result = _to_dict_codec.to_dict(elem)
