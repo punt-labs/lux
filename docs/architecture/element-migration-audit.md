@@ -91,16 +91,16 @@ are now resolved; the entries are kept as history so the resolution is on record
 
 - **`domain_pump._ABC_TYPES` — resolved.** The tuple now enumerates every ABC
   leaf — `(TextElement, ButtonElement, CheckboxElement, DialogElement,
-  ProgressElement, InputTextElement, SliderElement, ColorPickerElement)`
-  (`domain_pump.py:37`) — so anonymous-id synthesis raises the intended
-  `ValueError` for any ABC kind rather than falling through to
+  ProgressElement, InputTextElement, InputNumberElement, SliderElement,
+  ColorPickerElement)` (`domain_pump.py:37`) — so anonymous-id synthesis raises
+  the intended `ValueError` for any ABC kind rather than falling through to
   `dataclasses.replace`. Each new interactive migration adds its class here as one
-  of the six fork-wiring seams; `input_number` adds `InputNumberElement` next.
+  of the fork-wiring seams; `input_number` added `InputNumberElement`.
 - **`_element_to_dict` encode special-case — resolved.** The encode dispatcher's
   ABC `isinstance` union now includes `CheckboxElement` (and the other migrated
-  kinds), so each per-kind encoder owns its own tooltip emission and the tooltip is
-  emitted exactly once (`__init__.py:179`). New ABC kinds are added to this union
-  as part of their migration (seam 3); `input_number` adds `InputNumberElement`.
+  kinds, `InputNumberElement` among them), so each per-kind encoder owns its own
+  tooltip emission and the tooltip is emitted exactly once (`__init__.py:179`).
+  New ABC kinds are added to this union as part of their migration (seam 3).
 
 ## 3. Per-element migration table
 
@@ -125,7 +125,7 @@ The 25 kinds are the `Element` union at `__init__.py:130`.
 | 10 | `slider` | `SliderElement` (`slider.py`) | **ABC** ✓ | **Interactive** (`value`) | non-atomic; `ContinuousEditArbiter[float]` (commit-on-idle) |
 | 11 | `combo` | `ComboElement` (`combo.py`) | Legacy dataclass | **Interactive** (`value`) | `widget_value()` |
 | 12 | `input_text` | `InputTextElement` (`input_text.py`) | **ABC** ✓ | **Interactive** (`value`) | non-atomic; `ContinuousEditArbiter[str]` (commit-on-idle) |
-| 13 | `input_number` | `InputNumberElement` (`input_number.py`) | Legacy dataclass (**design in progress**, `lux-xs7r.1`) | **Interactive** (`value`) | non-atomic; reuses `ContinuousEditArbiter[float]` — see `migration/input-number-element-design.md` |
+| 13 | `input_number` | `InputNumberElement` (`input_number.py`) | **ABC** ✓ | **Interactive** (`value`) | non-atomic; reuses `ContinuousEditArbiter[float]` + `FloatValueAccessor` (commit-on-idle); optional `min`/`max`/`step`; range predicate extracted to `NumericInputChecks` |
 | 14 | `radio` | `RadioElement` (`radio.py`) | Legacy dataclass | **Interactive** (`value`) | `widget_value()` |
 | 15 | `color_picker` | `ColorPickerElement` (`color_picker.py`) | **ABC** ✓ | **Interactive** (`value`) | non-atomic; `ContinuousEditArbiter[Rgba]` (tuple carrier, commit-on-idle) |
 | 16 | `selectable` | `SelectableElement` (`selectable.py:15`) | Legacy dataclass | **Interactive** (`selected`) | `widget_value()` |
@@ -140,14 +140,14 @@ The 25 kinds are the `Element` union at `__init__.py:130`.
 | 25 | `draw` | `DrawElement` (`graphics.py:27`) | Legacy dataclass | Display-only | typed draw-command family (curve/line/shape/text) |
 
 Summary: **this audit's original count was 4 migrated, 21 legacy.** Since then
-the migration has advanced to **11 migrated, 14 legacy** (with `input_number` in
-design as the 12th, `lux-xs7r.1`). Migrated: the io-model leaves `text`,
-`button`, `checkbox`, `dialog`; the display-only primitive `progress`; the three
-non-atomic mutable inputs `input_text`, `slider`, `color_picker` (all on the
-shipped shared `ContinuousEditArbiter`); and the containers `group`, `tab_bar`,
+the migration has advanced to **12 migrated, 13 legacy** (`input_number` is the
+12th, `lux-xs7r.1`). Migrated: the io-model leaves `text`, `button`, `checkbox`,
+`dialog`; the display-only primitive `progress`; the four non-atomic mutable
+inputs `input_text`, `slider`, `color_picker`, `input_number` (all on the shipped
+shared `ContinuousEditArbiter`); and the containers `group`, `tab_bar`,
 `collapsing_header`. The authoritative live status is
 [`migration/README.md`](migration/README.md) §"Where we are"; this table is the
-per-element analysis. Of the 14 legacy: interactive inputs (combo, input_number,
+per-element analysis. Of the 13 legacy: interactive inputs (combo,
 radio, selectable, plus interactive composite modal — and, structurally,
 table/plot only if selection becomes Hub-authoritative) and display-only kinds
 (image, separator, spinner, markdown, window, tree, plot, draw), with table
