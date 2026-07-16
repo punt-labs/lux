@@ -1,15 +1,12 @@
 """NumericInputChecks — the range/finiteness/format predicate for a numeric input.
 
-Composed by ``InputNumberElement``: because ``value`` / ``min`` / ``max`` / ``step``
-are all patchable, the invariant is judged once for the whole field set at the
-element boundary — ``validate()`` before render and the ``apply_patch`` re-check —
-never per setter. Optional bounds and step skip their comparison when absent
-(``None`` = unbounded / no stepper).
+Composed by ``InputNumberElement`` and judged once for the whole (patchable) field
+set at the element boundary — never per setter. It owns the two range operations
+the element delegates: ``all_messages`` (well-formedness) and ``clamp``.
 
-Finiteness is the reconciliation-soundness precondition, not a nicety: ``NaN`` is
-the one float where ``x == x`` is false, so a committed ``NaN`` could never close
-its optimistic-echo window. It is reported alone — integrality or bounds errors
-against a non-finite value are noise.
+Finiteness is a reconciliation precondition: ``NaN`` (the one float where
+``x == x`` is false) could never close its optimistic-echo window, so it is
+reported alone — other errors against it are noise.
 """
 
 from __future__ import annotations
@@ -25,11 +22,9 @@ __all__ = ["NumericInputChecks"]
 class NumericInputChecks:
     """Finiteness, integrality, bounds, step, and format checks for a numeric input.
 
-    A value object built fresh from an element's current fields. The integer
-    variant renders via ``input_int``, which truncates its bounds to ``int`` —
-    so a non-integral bound would let a truncated commit fall outside the range
-    the Hub re-checks; that is why integrality is enforced here, not merely at
-    the widget.
+    A value object built fresh from an element's current fields. Integrality is
+    enforced here (not just at the widget) because ``input_int`` truncates its
+    bounds to ``int``, which could push a commit outside the Hub-re-checked range.
     """
 
     _value: float
@@ -62,8 +57,7 @@ class NumericInputChecks:
     def range_error_messages(self) -> tuple[str, ...]:
         """Return finiteness, integrality, bounds, and step errors (no fail-fast).
 
-        Non-finite values report alone; once finite, the remaining checks report
-        together so a caller sees every degeneracy at once.
+        Non-finite values report alone; once finite, the rest report together.
         """
         nonfinite = self._nonfinite_errors()
         if nonfinite:
@@ -73,10 +67,9 @@ class NumericInputChecks:
     def format_error_message(self) -> str | None:
         """Return the printf-format error, or ``None`` when the format is well-formed.
 
-        Exactly one variant-matching conversion must remain after escaped ``%%``
-        literals: ``diouxX`` for the integer variant, ``eEfFgGaA`` for float.
-        Width/precision are numeric only — a ``*`` would read an unsupplied
-        vararg, since only the value is passed.
+        Exactly one variant-matching conversion must survive escaped ``%%``
+        (``diouxX`` for integer, ``eEfFgGaA`` for float); width/precision stay
+        numeric — a ``*`` would read an unsupplied vararg.
         """
         specifiers = "diouxX" if self._integer else "eEfFgGaA"
         conversion = rf"%[-+ #0]*\d*(?:\.\d+)?[hlLjztq]*[{specifiers}]"
@@ -85,8 +78,25 @@ class NumericInputChecks:
             return None
         return f"format must be a single printf conversion, got {self._format!r}"
 
+    def all_messages(self) -> tuple[str, ...]:
+        """Return every range, finiteness, and format error (well-formedness)."""
+        messages = list(self.range_error_messages())
+        fmt_error = self.format_error_message()
+        if fmt_error is not None:
+            messages.append(fmt_error)
+        return tuple(messages)
+
+    def clamp(self, value: int | float) -> int | float:
+        """Return ``value`` clamped into ``[min, max]`` (``±inf`` for an absent bound).
+
+        The renderer clamps here before commit; the integer variant returns ``int``.
+        """
+        low = -math.inf if self._min is None else self._min
+        high = math.inf if self._max is None else self._max
+        bounded = min(high, max(low, value))
+        return int(bounded) if self._integer else bounded
+
     def _present_fields(self) -> tuple[tuple[str, float], ...]:
-        """Return ``(name, value)`` for ``value`` plus every present bound and step."""
         fields: list[tuple[str, float]] = [("value", self._value)]
         for name, v in (("min", self._min), ("max", self._max), ("step", self._step)):
             if v is not None:
@@ -94,7 +104,6 @@ class NumericInputChecks:
         return tuple(fields)
 
     def _nonfinite_errors(self) -> tuple[str, ...]:
-        """Return an error per non-finite present field (``value`` / bounds / step)."""
         return tuple(
             f"{name} must be finite, got {v!r}"
             for name, v in self._present_fields()
@@ -102,7 +111,6 @@ class NumericInputChecks:
         )
 
     def _integral_errors(self) -> tuple[str, ...]:
-        """Return an error per non-integral present field on the integer variant."""
         if not self._integer:
             return ()
         return tuple(
@@ -112,11 +120,7 @@ class NumericInputChecks:
         )
 
     def _bounds_errors(self) -> tuple[str, ...]:
-        """Return the inverted-range error alone, else any out-of-range error.
-
-        A missing bound imposes no constraint on that side; an in-range check
-        against an inverted ``[min, max]`` would only add noise.
-        """
+        """Return the inverted-range error alone, else any out-of-range error."""
         if self._min is not None and self._max is not None and self._min > self._max:
             return (f"min ({self._min}) must be <= max ({self._max})",)
         below = self._min is not None and self._value < self._min
@@ -126,7 +130,6 @@ class NumericInputChecks:
         return (f"value ({self._value}) must be in {self._range_text()}",)
 
     def _range_text(self) -> str:
-        """Return a readable description of the present bounds for an error."""
         if self._min is not None and self._max is not None:
             return f"[{self._min}, {self._max}]"
         if self._min is not None:
@@ -134,7 +137,6 @@ class NumericInputChecks:
         return f"(-inf, {self._max}]"
 
     def _step_errors(self) -> tuple[str, ...]:
-        """Return the negative-step error, if any; ``0`` is the 'no buttons' value."""
         if self._step is not None and self._step < 0:
             return (f"step ({self._step}) must be >= 0",)
         return ()

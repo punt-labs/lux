@@ -385,6 +385,25 @@ class TestPatchPath:
         assert n.label == "orig"
         assert n.value == 25.0
 
+    def test_apply_patch_rejects_a_malformed_format_and_rolls_back(self) -> None:
+        # apply_patch re-checks format, not just range: a printf with a ``*`` width
+        # reads an unsupplied vararg, so the patch is rejected at the boundary
+        # rather than installed to fault at the next render.
+        n = InputNumberElement(id="in", value=1.0, format="%.3f")
+        with pytest.raises(ValueError, match="format"):
+            n.apply_patch({"format": "%*f"})
+        assert n.format == "%.3f"
+
+    def test_apply_patch_rejects_integer_flip_that_strands_a_float_format(self) -> None:
+        # Flipping to the integer variant while the format stays float (``%.3f``
+        # needs ``eEfFgGaA``, the int variant needs ``diouxX``) is rejected — the
+        # cross-field invariant is judged for the whole element after the patch.
+        n = InputNumberElement(id="in", value=3.0, format="%.3f")
+        with pytest.raises(ValueError, match="format"):
+            n.apply_patch({"integer": True})
+        assert n.integer is False
+        assert n.format == "%.3f"
+
 
 # -- the all-ABC fork gate --------------------------------------------------
 

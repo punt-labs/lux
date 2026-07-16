@@ -9,10 +9,12 @@ remote dispatch. The arbiter buffers a ``float``; the integer variant converts t
 
 Two commit conditions feed one commit call, so a frame commits at most once: a
 typing gesture ends with ``is_item_deactivated_after_edit`` (blur / Enter / a
-stepper release, which ``EndGroup`` propagates from the compound widget); a
-discrete change on a frame that is not active is the fallback for a stepper build
-that does not report the deactivate. Both drive a single ``if`` — never two
-branches — so a gesture never double-fires even on a frame that satisfies both.
+stepper release, which ``EndGroup`` propagates); a discrete change on a
+non-active frame is the fallback for a stepper build that does not report the
+deactivate. Both drive a single ``if``, so a gesture never double-fires.
+
+``input_float`` / ``input_int`` do not clamp at the widget, so ``_draw``'s return
+is projected through ``elem.clamped`` before commit — the bounds live on the element.
 """
 
 from __future__ import annotations
@@ -68,9 +70,9 @@ class InputNumberRenderer:
     @trace
     def render(self, elem: InputNumberElement) -> None:
         arbiter = ContinuousEditArbiter(self._widget_state, elem.id, _ACCESSOR)
-        label = f"{elem.label}##{elem.id}"
         resolved = arbiter.resolve(elem.value)
-        changed, new_val = self._draw(elem, label, resolved)
+        changed, raw_val = self._draw(elem, resolved)
+        new_val = elem.clamped(raw_val)
         active = imgui.is_item_active()
         if active:
             arbiter.observe(edited=changed, value=float(new_val))
@@ -98,10 +100,9 @@ class InputNumberRenderer:
         arbiter.commit(float(new_val), elem.value)
 
     @staticmethod
-    def _draw(
-        elem: InputNumberElement, label: str, resolved: float
-    ) -> tuple[bool, int | float]:
+    def _draw(elem: InputNumberElement, resolved: float) -> tuple[bool, int | float]:
         """Draw the int/float variant; the int seam coerces to ``int`` for input_int."""
+        label = f"{elem.label}##{elem.id}"
         if elem.integer:
             step = int(elem.step) if elem.step is not None else 0
             return imgui.input_int(label, int(resolved), step, step * 10)

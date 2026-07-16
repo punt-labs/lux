@@ -1,14 +1,11 @@
-"""InputNumberElement — a numeric input with optional step + clamping bounds.
+"""InputNumberElement — a numeric input with optional step and clamping bounds.
 
-Keyword-only ``__new__`` with ``abc_di_defaults`` sentinels on
-``renderer_factory`` / ``emit``; the Display rebinds the real factory. The codec
-body lives in ``input_number_codec.py``. Because ``value`` / ``min`` / ``max`` are
-patchable, every numeric invariant is checked at the element boundary —
-``validate()`` before render, a whole-element re-check after ``apply_patch`` —
-never per setter, via the composed ``NumericInputChecks`` predicate.
-
-``min`` / ``max`` / ``step`` are genuinely optional (``None`` = unbounded / no
-stepper), the one field-shape difference from ``slider``, whose bounds are total.
+Keyword-only ``__new__`` with ``abc_di_defaults`` sentinels on ``renderer_factory``
+/ ``emit`` (the Display rebinds the real factory); the codec body lives in
+``input_number_codec.py``. Every numeric invariant is re-checked for the whole
+element via the composed ``NumericInputChecks`` predicate — by ``validate`` before
+render and by ``apply_patch`` — never per setter. ``min`` / ``max`` / ``step`` are
+genuinely optional (``None`` = unbounded / no stepper).
 """
 
 from __future__ import annotations
@@ -47,12 +44,9 @@ _DEFAULT_FORMATS: dict[bool, str] = {False: "%.3f", True: "%d"}
 class InputNumberElement(Element):
     """A numeric input field on the Element ABC, with optional step and bounds.
 
-    PY-TS-14 OK: ``min`` / ``max`` / ``step`` stay ``float | None`` — ``None`` is
-    the documented absent state (no lower/upper bound, no stepper), a real
-    discriminated semantics with no natural ``float`` stand-in. ``tooltip`` is
-    likewise genuinely optional. The ``format`` *parameter* is ``str | None``
-    (``None`` means "use the variant default"), but the stored ``_format`` is
-    always a concrete ``str``. ``integer`` is a genuine two-state flag.
+    Each ``| None`` field is justified inline at its declaration (PY-TS-14):
+    bounds/step are genuinely absent when unset, ``tooltip`` is optional UI state,
+    and the ``format`` *parameter* resolves ``None`` to a concrete stored ``str``.
     """
 
     _id: str
@@ -156,8 +150,8 @@ class InputNumberElement(Element):
         return self._tooltip
 
     # -- patch-path setters -------------------------------------------------
-    # Each only coerces its field; the numeric invariants are re-checked once
-    # for the whole element in ``apply_patch``, never per setter.
+    # Each coerces its field; the invariants are re-checked whole-element in
+    # ``apply_patch``, never per setter.
 
     def _set_value(self, value: object) -> None:
         self._value = PatchField("value").as_number(value)
@@ -184,15 +178,14 @@ class InputNumberElement(Element):
         self._tooltip = PatchField("tooltip").as_optional_str(value)
 
     def apply_patch(self, patch: Mapping[str, object]) -> Self:
-        """Apply a field patch atomically, re-checking the invariants at the boundary.
+        """Apply a field patch atomically, re-checking every invariant at the boundary.
 
-        The base setter loop rolls back on a coercion ``TypeError``; a
-        whole-element re-check then rolls the whole patch back if the final state
-        is invalid — so a combined ``{"value": 150, "max": 200}`` is accepted.
+        The setter loop rolls back on a coercion ``TypeError``; the whole-element
+        re-check (range *and* format) rolls the patch back on any invalid result.
         """
         snapshot = dict(vars(self))
         super().apply_patch(patch)
-        messages = self._checks().range_error_messages()
+        messages = self._error_messages()
         if messages:
             vars(self).clear()
             vars(self).update(snapshot)
@@ -203,7 +196,7 @@ class InputNumberElement(Element):
         """Return the value-changed bucket's spec under the fixed 'changed' action."""
         return (RemoteDispatchSpec(ValueChanged, self.action, "value_changed"),)
 
-    # -- validation (DES-039) ----------------------------------------------
+    # -- validation --------------------------------------------------------
 
     def _checks(self) -> NumericInputChecks:
         """Return the range/format predicate over this element's current fields."""
@@ -216,14 +209,15 @@ class InputNumberElement(Element):
             format=self._format,
         )
 
+    def _error_messages(self) -> tuple[str, ...]:
+        """Return this element's range, finiteness, and format errors."""
+        return self._checks().all_messages()
+
     def validate(self) -> tuple[ValidationError, ...]:
         """Return every range, finiteness, and format error at once (no fail-fast)."""
-        checks = self._checks()
-        messages = list(checks.range_error_messages())
-        fmt_error = checks.format_error_message()
-        if fmt_error is not None:
-            messages.append(fmt_error)
-        return tuple(ValidationError(self._id, self._kind, m) for m in messages)
+        return tuple(
+            ValidationError(self._id, self._kind, m) for m in self._error_messages()
+        )
 
     # -- codec delegators --------------------------------------------------
 
@@ -233,11 +227,8 @@ class InputNumberElement(Element):
 
     @classmethod
     def from_dict(cls, d: Mapping[str, object]) -> InputNumberElement:
-        """Construct an InputNumberElement from a JSON-decoded mapping.
-
-        Wires a noop-only handler decoder so an input with no ``handlers`` decodes
-        without a publish bus; a ``publish`` chain raises via ``RaisingPublishSink``.
-        """
+        """Construct an InputNumberElement from a mapping (noop handler bus; a
+        ``publish`` chain raises via ``RaisingPublishSink``)."""
         decoder = JsonInputNumberDecoder(
             renderer_factory=RAISING_FACTORY,
             emit=NO_EMIT,
@@ -251,6 +242,17 @@ class InputNumberElement(Element):
     def widget_value(self) -> float:
         """Return the value SceneManager mirrors into WidgetState after a patch."""
         return self._value
+
+    # -- rendering support -------------------------------------------------
+
+    def clamped(self, value: int | float) -> int | float:
+        """Return ``value`` clamped into ``[min, max]`` — the renderer's commit guard.
+
+        Delegates to ``NumericInputChecks.clamp``. The widget does not clamp, so a
+        raw entry is projected into range before it is observed, committed, or
+        fired — keeping the ``apply_patch`` bounds re-check a never-tripped invariant.
+        """
+        return self._checks().clamp(value)
 
     # -- introspection (Inspectable) ---------------------------------------
 

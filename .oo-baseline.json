@@ -587,7 +587,7 @@
   "src/punt_lux/display/renderers/input_number_renderer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.5,
+    "avg_params": 1.33,
     "max_complexity": 5.0,
     "avg_complexity": 1.83,
     "module_size": 93.0,
@@ -2017,9 +2017,9 @@
   "src/punt_lux/protocol/elements/input_number.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 0.75,
-    "max_complexity": 3.0,
-    "avg_complexity": 1.11,
+    "avg_params": 0.73,
+    "max_complexity": 2.0,
+    "avg_complexity": 1.07,
     "module_size": 220.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
@@ -2108,9 +2108,9 @@
   "src/punt_lux/protocol/elements/numeric_input_checks.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 0.67,
+    "avg_params": 0.64,
     "max_complexity": 8.0,
-    "avg_complexity": 3.33,
+    "avg_complexity": 3.0,
     "module_size": 119.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,

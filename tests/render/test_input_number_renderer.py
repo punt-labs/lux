@@ -311,6 +311,96 @@ class TestRendererIntVariant:
         assert fake.recorded == [0.0, 7.0, 7.0]
 
 
+class TestRendererClamp:
+    def test_over_max_entry_clamps_the_fired_committed_and_shown_value(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # CLAMP-OVER-MAX: the user types 150 into a [0, 100] field. input_float
+        # does not clamp at the widget, so the renderer clamps to 100 before
+        # observe/commit/fire. The buffer shown next frame, and the committed and
+        # fired value, are all 100 — never 150 — so Hub and Display cannot diverge.
+        fake = _FakeImgui(
+            _Frame(edited=150.0, active=True, committed=False),
+            _Frame(edited=None, active=False, committed=True),
+        )
+        _install(monkeypatch, fake)
+        ws = WidgetState()
+        elem = _number(value=0.0)
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = InputNumberRenderer(ws)
+
+        renderer.render(elem)  # editing to 150 -> buffer clamped to 100
+        renderer.render(elem)  # deactivate -> commit fires the clamped 100
+
+        assert [e.value for e in fired] == [100.0]
+        # The displayed position converges to the clamped buffer, not 150.
+        assert fake.recorded == [0.0, 100.0]
+        # No divergence: the committed 100 is honoured through the echo window,
+        # then forgotten once the Hub echoes 100 (no honour-forever on a stale 150).
+        assert _arb(ws, "n").resolve(0.0) == 100.0
+        assert _arb(ws, "n").resolve(100.0) == 100.0
+
+    def test_under_min_entry_clamps_up_to_the_lower_bound(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # CLAMP-UNDER-MIN: typing -50 into [0, 100] clamps up to the floor, 0.
+        fake = _FakeImgui(
+            _Frame(edited=-50.0, active=True, committed=False),
+            _Frame(edited=None, active=False, committed=True),
+        )
+        _install(monkeypatch, fake)
+        elem = _number(value=10.0)
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = InputNumberRenderer(WidgetState())
+
+        renderer.render(elem)
+        renderer.render(elem)
+
+        assert [e.value for e in fired] == [0.0]
+
+    def test_unbounded_field_passes_the_value_through_unclamped(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # UNBOUNDED: with min=max=None every finite entry is honoured untouched.
+        fake = _FakeImgui(
+            _Frame(edited=150.0, active=True, committed=False),
+            _Frame(edited=None, active=False, committed=True),
+        )
+        _install(monkeypatch, fake)
+        elem = InputNumberElement(id="n", label="Qty", value=0.0)
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = InputNumberRenderer(WidgetState())
+
+        renderer.render(elem)
+        renderer.render(elem)
+
+        assert [e.value for e in fired] == [150.0]
+
+    def test_int_variant_clamps_to_the_integral_bound_and_stays_int(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # CLAMP-INT: an over-max integer entry clamps to the (validated integral)
+        # max and the fired payload stays an ``int``, not the float bound.
+        fake = _FakeImgui(
+            _Frame(edited=150.0, active=True, committed=False),
+            _Frame(edited=None, active=False, committed=True),
+        )
+        _install(monkeypatch, fake)
+        elem = _number(value=0.0, integer=True)
+        fired: list[ValueChanged] = []
+        elem.add_handler(ValueChanged, fired.append)
+        renderer = InputNumberRenderer(WidgetState())
+
+        renderer.render(elem)
+        renderer.render(elem)
+
+        assert fired[0].value == 100
+        assert isinstance(fired[0].value, int)
+
+
 class TestRendererStepper:
     def test_discrete_stepper_change_commits_once(
         self, monkeypatch: pytest.MonkeyPatch
