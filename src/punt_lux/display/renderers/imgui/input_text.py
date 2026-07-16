@@ -1,9 +1,9 @@
 """ImGuiInputTextRenderer — Renderer-Protocol adapter for ``InputTextElement``.
 
 A leaf: paints through ``ElementRenderer``'s per-scene ``InputTextRenderer``,
-which reconciles the Hub value with the user's buffer via the
-``InputTextArbiter`` and fires ``ValueChanged`` on a genuine edit (wrapped for
-D21 remote dispatch on the display side). The paint adds the shared
+which reconciles the Hub value with the user's buffer via the shared
+``ContinuousEditArbiter`` and fires ``ValueChanged`` on a genuine edit (wrapped
+for D21 remote dispatch on the display side). The paint adds the shared
 ``apply_tooltip`` pass. ``begin`` proceeds, ``end`` is a no-op.
 """
 

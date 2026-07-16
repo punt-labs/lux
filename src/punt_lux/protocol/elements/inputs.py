@@ -1,14 +1,14 @@
 """Inputs-family codec registration — wires each per-kind module's codec.
 
-Per-kind classes live in ``slider.py``, ``combo.py``, ``input_text.py``,
-``input_number.py``, ``radio.py``, ``color_picker.py``, ``selectable.py``.
-``button.py`` and ``checkbox.py`` are registered separately through
-``JsonElementFactory`` (Element ABC dispatch — see ``__init__.py``);
-their entries are removed here to avoid double registration.
+Per-kind classes live in ``combo.py``, ``input_number.py``, ``radio.py``,
+``selectable.py``. ``button.py``, ``checkbox.py``, ``input_text.py``,
+``slider.py``, and ``color_picker.py`` are registered separately through
+``JsonElementFactory`` (Element ABC dispatch — see ``__init__.py``); their
+entries are removed here to avoid double registration.
 
-The ``InputsRegistry`` class consolidates the seven remaining register
-calls behind a single ``apply`` method so the package ``__init__`` does
-not grow as each family migrates.
+The ``InputsRegistry`` class consolidates the remaining register calls behind a
+single ``apply`` method so the package ``__init__`` does not grow as each family
+migrates.
 """
 
 from __future__ import annotations
@@ -16,7 +16,6 @@ from __future__ import annotations
 from typing import Self
 
 from punt_lux.protocol.elements.codec import Register
-from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.radio import RadioElement
@@ -47,12 +46,6 @@ class InputsRegistry:
             InputNumberElement.from_dict,
         )
         register("radio", RadioElement, RadioElement.to_dict, RadioElement.from_dict)
-        register(
-            "color_picker",
-            ColorPickerElement,
-            ColorPickerElement.to_dict,
-            ColorPickerElement.from_dict,
-        )
         register(
             "selectable",
             SelectableElement,

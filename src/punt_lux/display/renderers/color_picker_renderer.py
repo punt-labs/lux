@@ -1,78 +1,101 @@
 # pyright: reportUnknownMemberType=false, reportMissingModuleSource=false
-"""Renderer for ColorPickerElement — RGB / RGBA edit and picker modes."""
+"""Renderer for ColorPickerElement — a commit-on-idle RGB(A) color picker.
+
+Idle, the color tracks ``elem.value`` (a hex string parsed to a tuple); while a
+sub-control is dragged the local buffer wins and a Hub value is deferred, so a
+re-push landing mid-drag cannot clobber the color. Exactly one ``ValueChanged``
+fires on a sub-control release, wrapped for remote dispatch. The arbiter buffers
+RGBA tuples; the wire fire carries a hex string, and on release the *quantized*
+(8-bit round-tripped) tuple is committed so it bit-equals the echo — no
+full-precision→8-bit pop while the window is open.
+"""
 
 from __future__ import annotations
 
-import time
-from typing import Self
+from typing import Self, final
 
-from imgui_bundle import ImVec4, imgui
+from imgui_bundle import imgui
 
-from punt_lux.display.renderers._color import parse_rgba
+from punt_lux.display.renderers.imgui.color_channel_strip import ColorChannelStrip
+from punt_lux.display.renderers.imgui.continuous_edit_accessors import (
+    ColorValueAccessor,
+)
+from punt_lux.display.renderers.imgui.continuous_edit_selection import (
+    ContinuousEditArbiter,
+)
+from punt_lux.display.renderers.imgui.full_color_picker import FullColorPicker
+from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
-from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
+from punt_lux.protocol.elements.rgba_color import Rgba, RgbaColor
 from punt_lux.scene import WidgetState
-from punt_lux.types import EmitEventFn
+from punt_lux.tracing import trace
 
 __all__ = ["ColorPickerRenderer"]
 
+# The accessor, channel strip, and full picker are stateless — one shared each.
+_ACCESSOR = ColorValueAccessor()
+_STRIP = ColorChannelStrip()
+_PICKER = FullColorPicker()
 
+
+@final
 class ColorPickerRenderer:
-    """Render a ColorPickerElement, choosing edit / picker and RGB / RGBA variants."""
+    """Render a ColorPickerElement under the commit-on-idle rule.
+
+    Holds the per-scene ``WidgetState`` and builds a fresh
+    ``ContinuousEditArbiter`` (with a ``ColorValueAccessor``) per frame; the
+    arbiter owns the buffer/commit-echo slots, so this stays a thin ImGui seam.
+    """
 
     _widget_state: WidgetState
-    _emit_event: EmitEventFn
 
-    def __new__(cls, widget_state: WidgetState, emit_event: EmitEventFn) -> Self:
+    def __new__(cls, widget_state: WidgetState) -> Self:
         self = super().__new__(cls)
         self._widget_state = widget_state
-        self._emit_event = emit_event
         return self
 
     @property
     def widget_state(self) -> WidgetState:
+        """Return the per-scene widget state the buffer/honour slots live in."""
         return self._widget_state
 
     @widget_state.setter
     def widget_state(self, value: WidgetState) -> None:
+        """Re-thread the renderer to the scene being rendered."""
         self._widget_state = value
 
+    @trace
     def render(self, elem: ColorPickerElement) -> None:
-        eid = elem.id
-        r, g, b, a = parse_rgba(elem.value)
-        initial = ImVec4(r / 255.0, g / 255.0, b / 255.0, a / 255.0)
-        current = self._widget_state.ensure(eid, initial)
-        changed, new_color = self._draw(elem, current)
-        if changed:
-            self._widget_state.set(eid, new_color)
-            hex_val = self._encode(new_color, alpha=elem.alpha)
-            self._emit_event(
-                RemoteEventHandlerInvocation(
-                    element_id=eid,
-                    action="changed",
-                    ts=time.time(),
+        arbiter = ContinuousEditArbiter(self._widget_state, elem.id, _ACCESSOR)
+        hub_tuple = RgbaColor.from_hex(elem.value).as_tuple()
+        resolved = arbiter.resolve(hub_tuple)
+        changed, new_tuple = self._draw(elem, resolved)
+        if imgui.is_item_active():
+            arbiter.observe(edited=changed, value=new_tuple)
+        else:
+            arbiter.release()
+        if imgui.is_item_deactivated_after_edit():
+            hex_val = RgbaColor(new_tuple).to_hex(alpha=elem.alpha)
+            elem.fire(
+                ValueChanged(
+                    scene_id=SceneId("__display__"),
+                    element_id=ElementId(elem.id),
+                    owner_id=ClientId("__display__"),
                     value=hex_val,
                 )
             )
+            arbiter.commit(RgbaColor.from_hex(hex_val).as_tuple(), hub_tuple)
 
     @staticmethod
-    def _draw(elem: ColorPickerElement, current: ImVec4) -> tuple[bool, ImVec4]:
-        label = elem.label
-        eid = elem.id
+    def _draw(elem: ColorPickerElement, resolved: Rgba) -> tuple[bool, Rgba]:
+        """Draw the inline or full-picker variant, returning ``(changed, tuple)``.
+
+        Both variants route their RGB channels through ``ColorChannelStrip``, whose
+        per-channel fills scale with the value; the full-picker variant adds the SV
+        square, hue bar, and hex readout. Each groups its sub-controls, so the
+        caller's ``is_item_*`` reads see one item and one commit fires per release.
+        """
         if elem.picker:
-            if elem.alpha:
-                return imgui.color_picker4(f"{label}##{eid}", current)
-            return imgui.color_picker3(f"{label}##{eid}", current)
-        if elem.alpha:
-            return imgui.color_edit4(f"{label}##{eid}", current)
-        return imgui.color_edit3(f"{label}##{eid}", current)
-
-    @staticmethod
-    def _encode(color: ImVec4, *, alpha: bool) -> str:
-        r = int(max(0.0, min(1.0, color[0])) * 255)
-        g = int(max(0.0, min(1.0, color[1])) * 255)
-        b = int(max(0.0, min(1.0, color[2])) * 255)
-        if alpha:
-            a = int(max(0.0, min(1.0, color[3])) * 255)
-            return f"#{r:02X}{g:02X}{b:02X}{a:02X}"
-        return f"#{r:02X}{g:02X}{b:02X}"
+            return _PICKER.draw(elem, resolved)
+        return _STRIP.draw(elem, resolved)

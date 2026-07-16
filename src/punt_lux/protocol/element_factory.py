@@ -25,6 +25,8 @@ from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.collapsing_header_codec import (
     JsonCollapsingHeaderDecoder,
 )
+from punt_lux.protocol.elements.color_picker import ColorPickerElement
+from punt_lux.protocol.elements.color_picker_codec import JsonColorPickerDecoder
 from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder
@@ -50,6 +52,9 @@ from punt_lux.protocol.standalone_checkbox_handler import (
 from punt_lux.protocol.standalone_collapsing_header_handler import (
     build_standalone_collapsing_header_handler_decoder,
 )
+from punt_lux.protocol.standalone_color_picker_handler import (
+    build_standalone_color_picker_handler_decoder,
+)
 from punt_lux.protocol.standalone_input_text_handler import (
     build_standalone_input_text_handler_decoder,
 )
@@ -73,7 +78,16 @@ if TYPE_CHECKING:
 __all__ = ["JsonElementFactory"]
 
 _ABC_KINDS = frozenset(
-    {"text", "button", "checkbox", "dialog", "progress", "input_text", "slider"}
+    {
+        "text",
+        "button",
+        "checkbox",
+        "dialog",
+        "progress",
+        "input_text",
+        "slider",
+        "color_picker",
+    }
 )
 
 # The migrated ABC-leaf classes. Both the leaf-decode assertion and the
@@ -86,6 +100,7 @@ _ABC_LEAF_TYPES: tuple[type, ...] = (
     ProgressElement,
     InputTextElement,
     SliderElement,
+    ColorPickerElement,
 )
 
 
@@ -164,6 +179,14 @@ class JsonElementFactory:
                 emit=emit,
                 element_cls=SliderElement,
                 handler_decoder=build_standalone_slider_handler_decoder(publish_sink),
+            ).decode,
+            "color_picker": JsonColorPickerDecoder(
+                renderer_factory=renderer_factory,
+                emit=emit,
+                element_cls=ColorPickerElement,
+                handler_decoder=build_standalone_color_picker_handler_decoder(
+                    publish_sink
+                ),
             ).decode,
         }
         # The group decoder recurses each child through this factory's own
@@ -300,6 +323,7 @@ class JsonElementFactory:
             | CheckboxElement
             | InputTextElement
             | SliderElement
+            | ColorPickerElement
             | DialogElement
             | GroupElement
             | CollapsingHeaderElement

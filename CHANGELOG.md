@@ -81,9 +81,10 @@
   release (never per drag frame). Through the echo-latency window the just-
   committed value is honoured optimistically, so a re-grab builds on it. The
   discipline is the *same* verified state machine `input_text` uses
-  (`docs/input_text_reconciliation.tex`) — the model is type-agnostic, so a
-  bespoke `SliderArbiter` (the float sibling of `InputTextArbiter`) implements it
-  unchanged; exact float `==` is the correct reconciliation predicate (values are
+  (`docs/input_text_reconciliation.tex`) — the model is type-agnostic, so the
+  shared `ContinuousEditArbiter[T]` drives it for the float carrier via a
+  `FloatValueAccessor` (the `ValueAccessor[T]` seam) unchanged; exact float `==`
+  is the correct reconciliation predicate (values are
   copied not recomputed, JSON round-trips doubles exactly). `validate()` rejects
   an inverted range, an out-of-range value, a non-finite `value`/`min`/`max`
   (`NaN`/`±inf` — the soundness precondition for value-equality reconciliation),
@@ -92,6 +93,37 @@
   state, so a value arriving before its widening `max` is accepted). Decodes to
   the ABC path when its subtree is all-ABC; `resolved_props()` reports
   `value`/`min`/`max`/`format`/`integer`/`tooltip`.
+- **`color_picker` interactive color input on the ABC path** — the third
+  non-atomic mutable control (after `input_text` and `slider`). A single ABC
+  `ColorPickerElement` (hex-string `value`, orthogonal `alpha`/`picker` flags)
+  carrying a commit-on-idle drag reconciliation over an **RGBA-tuple carrier**:
+  while idle the picker tracks the Hub color, while dragging a sub-control the
+  local buffer wins so a Hub re-push landing mid-drag cannot clobber the color
+  under the cursor, and exactly one `ValueChanged` fires on release. The
+  color_edit/color_picker sub-controls each fire an independent deactivate, so a
+  gesture across the SV square and hue bar commits the whole color once per
+  sub-control release — never a partial channel. The discipline is the *same*
+  verified state machine `input_text`/`slider` use
+  (`docs/input_text_reconciliation.tex`) — the model is type-agnostic, so the
+  shared `ContinuousEditArbiter[T]` drives it for the RGBA-tuple carrier via a
+  `ColorValueAccessor` (the `ValueAccessor[T]` seam) unchanged. All three
+  non-atomic controls (`input_text`, `slider`, `color_picker`) now fold onto that
+  one generic arbiter plus three trivial `@final` accessors, replacing the
+  bespoke per-element arbiters. Tuple `==` is elementwise, so the optimistic-echo
+  window closes
+  atomically only when every channel echoes back; the renderer commits the
+  *quantized* (8-bit round-tripped) tuple so the committed value bit-equals the
+  echo (no full-precision→8-bit color pop). `validate()` rejects a malformed hex
+  (the reconciliation-soundness precondition — a well-formed hex parses to finite
+  channels, so no `NaN` is reachable and no `math.isfinite` loop is needed);
+  length is not checked against `alpha` (a 6-digit value under RGBA pads to
+  opaque, an 8-digit value under RGB drops its alpha). A new frozen `RgbaColor`
+  value object owns the hex↔tuple↔hex conversion. Decodes to the ABC path when
+  its subtree is all-ABC; `resolved_props()` reports
+  `value`/`alpha`/`picker`/`tooltip`.
+- **Color-picker tooltips are now shown** — a `tooltip` on a color picker was
+  previously dropped on the wire (the legacy codec never emitted or read it); it
+  is now carried and rendered, matching `input_text`/`slider`/`checkbox`.
 - **Slider tooltips are now shown** — a `tooltip` on a slider was previously
   dropped on the wire (the legacy codec never emitted or read it); it is now
   carried and rendered, matching `input_text` and `checkbox`.
@@ -127,6 +159,19 @@
 
 ### Fixed
 
+- **Color-picker channel bars now scale with their value in both modes** — every
+  RGB(A) channel fill is painted proportional to its 0..255 value (0%..100%)
+  instead of ImGui's fixed 3px color marker, which drew an identical sliver for
+  `R=216` and `R=37`. Both the inline `color_edit` variant and the full `picker`
+  variant route their channels through a shared `ColorChannelStrip` that
+  replicates ImGui's grouped layout while painting its own scaled fill; the full
+  picker keeps the SV square, hue bar, and hex readout via a `FullColorPicker`
+  widget (with a fixed 240px item width constraining the previously oversized
+  square). Every sub-control stays inside one `begin_group`/`end_group`, so the
+  single `is_item_active` / `is_item_deactivated_after_edit` read still aggregates
+  over the whole control and the `ContinuousEditArbiter` commit-on-release seam is
+  untouched — exactly one `ValueChanged` fires per gesture. The full picker's
+  right-click context menu is disabled.
 - **Interaction re-push no longer duplicates a container's children** — the Hub's
   `scene_roots` returned every indexed element (roots *plus* every descendant), so
   a re-push after an interaction hoisted each container child to a top-level root

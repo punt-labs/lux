@@ -74,7 +74,8 @@ class ValueChanged:
     element_id: ElementId
     owner_id: ClientId
     # PY-TS-14 OK: the payload is discriminated by the firing element's kind —
-    # checkbox→bool, input_text→str, slider→float (int for the integer variant).
+    # checkbox→bool, input_text→str, color_picker→str (a hex color), slider→float
+    # (int for the integer variant).
     value: bool | int | float | str
     kind: ClassVar[Literal["value_changed"]] = "value_changed"
 

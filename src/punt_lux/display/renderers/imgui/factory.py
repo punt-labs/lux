@@ -15,6 +15,7 @@ from punt_lux.display.renderers.imgui.checkbox import ImGuiCheckboxRenderer
 from punt_lux.display.renderers.imgui.collapsing_header import (
     ImGuiCollapsingHeaderRenderer,
 )
+from punt_lux.display.renderers.imgui.color_picker import ImGuiColorPickerRenderer
 from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
 from punt_lux.display.renderers.imgui.group import ImGuiGroupRenderer
 from punt_lux.display.renderers.imgui.input_text import ImGuiInputTextRenderer
@@ -25,6 +26,7 @@ from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
+from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.input_text import InputTextElement
@@ -65,6 +67,7 @@ class ImGuiRendererFactory:
         (TabBarElement, ImGuiTabBarRenderer),
         (ProgressElement, ImGuiProgressRenderer),
         (SliderElement, ImGuiSliderRenderer),
+        (ColorPickerElement, ImGuiColorPickerRenderer),
     )
 
     def __new__(

@@ -1,16 +1,11 @@
 # pyright: reportUnknownMemberType=false, reportMissingModuleSource=false
 """Renderer for SliderElement — a commit-on-idle numeric slider.
 
-While idle the thumb is synced to the Hub-authoritative ``elem.value``; while
-being dragged the local buffer wins and a Hub-driven value is deferred. Exactly
-one ``ValueChanged`` fires when the drag releases (via
-``is_item_deactivated_after_edit``), never per drag frame — so a Hub re-push
-landing mid-drag cannot clobber the value under the thumb. The commit fire is
-wrapped for remote dispatch so the interaction runs on the Hub, not locally.
-
-The arbiter keeps the buffer/commit-echo slots in ``float``; the integer
-variant converts to ``int`` only at the ``slider_int`` call and in the fired
-payload (``float(int)`` is exact, so this never perturbs reconciliation).
+Idle, the thumb tracks ``elem.value``; while dragged the local buffer wins and a
+Hub value is deferred, so a re-push landing mid-drag cannot clobber the thumb.
+Exactly one ``ValueChanged`` fires on release, wrapped for remote dispatch. The
+arbiter buffers a ``float``; the integer variant converts to ``int`` only at
+``slider_int`` and in the payload (``float(int)`` is exact).
 """
 
 from __future__ import annotations
@@ -19,7 +14,12 @@ from typing import Self, final
 
 from imgui_bundle import imgui
 
-from punt_lux.display.renderers.imgui.slider_selection import SliderArbiter
+from punt_lux.display.renderers.imgui.continuous_edit_accessors import (
+    FloatValueAccessor,
+)
+from punt_lux.display.renderers.imgui.continuous_edit_selection import (
+    ContinuousEditArbiter,
+)
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.slider import SliderElement
@@ -28,14 +28,17 @@ from punt_lux.tracing import trace
 
 __all__ = ["SliderRenderer"]
 
+# The float accessor is stateless, so one shared instance serves every frame.
+_ACCESSOR = FloatValueAccessor()
+
 
 @final
 class SliderRenderer:
     """Render a SliderElement under the commit-on-idle rule.
 
-    Holds the per-scene ``WidgetState`` (re-threaded on a scene switch) and
-    builds a fresh ``SliderArbiter`` per element per frame; the arbiter owns
-    the buffer/commit-echo slots, so this class stays a thin ImGui seam.
+    Holds the per-scene ``WidgetState`` and builds a fresh
+    ``ContinuousEditArbiter`` (with a ``FloatValueAccessor``) per frame; the
+    arbiter owns the buffer/commit-echo slots, so this stays a thin ImGui seam.
     """
 
     _widget_state: WidgetState
@@ -57,7 +60,7 @@ class SliderRenderer:
 
     @trace
     def render(self, elem: SliderElement) -> None:
-        arbiter = SliderArbiter(self._widget_state, elem.id)
+        arbiter = ContinuousEditArbiter(self._widget_state, elem.id, _ACCESSOR)
         label = f"{elem.label}##{elem.id}"
         resolved = arbiter.resolve(elem.value)
         changed, new_val = self._draw(elem, label, resolved)
@@ -80,11 +83,7 @@ class SliderRenderer:
     def _draw(
         elem: SliderElement, label: str, resolved: float
     ) -> tuple[bool, int | float]:
-        """Draw the int or float variant, returning ImGui's ``(changed, value)``.
-
-        ImGui clamps the returned thumb position into ``[min, max]``, so the
-        value handed back is always in range.
-        """
+        """Draw the int/float variant; ImGui clamps ``(changed, value)`` into range."""
         if elem.integer:
             return imgui.slider_int(label, int(resolved), int(elem.min), int(elem.max))
         return imgui.slider_float(
