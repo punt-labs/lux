@@ -1,15 +1,13 @@
 """``LeafKindSpec`` — a migrated leaf kind's decode/encode spec.
 
-A leaf decodes through a ``renderer_factory``/``emit`` decoder, optionally
-handler-wired (interactive leaves) and/or ``pre_decode`` sugar-canonicalizing
-(only Button). It composes a ``KindCodec`` (PY-OO-5) and constructs its decoder
-dynamically at the wire boundary, so the decoder is ``Any`` until ``decode`` is
-re-typed ``KindDecoder``.
+Handler-wired for interactive leaves; ``pre_decode`` sugar-canonicalizes Button.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
+
+from punt_lux.protocol.elements.abc_capability import Capability
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -69,9 +67,12 @@ class LeafKindSpec:
         return False
 
     @property
-    def capabilities(self) -> frozenset[str]:
+    def capabilities(self) -> frozenset[Capability]:
         """Return the wire capabilities this leaf's built decoder carries."""
-        wired = (("handlers", self._handler_builder), ("pre_decode", self._pre_decode))
+        wired = (
+            (Capability.HANDLERS, self._handler_builder),
+            (Capability.PRE_DECODE, self._pre_decode),
+        )
         return frozenset(tag for tag, wiring in wired if wiring is not None)
 
     def build_decoder(self, binding: TierBinding) -> KindDecoder:

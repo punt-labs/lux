@@ -1,16 +1,14 @@
-"""``DialogKindSpec`` and ``ContainerKindSpec`` — the two non-leaf spec shapes.
+"""``DialogKindSpec`` and ``ContainerKindSpec`` — two of the three spec shapes.
 
-- ``DialogKindSpec`` — the one leaf whose decoder takes the tier ``publish_sink``.
-- ``ContainerKindSpec`` — a container decoder over the factory's ``recurse``.
-
-Each composes a ``KindCodec`` (PY-OO-5) and constructs its decoder dynamically at
-the wire boundary, so it is ``Any`` until ``decode`` is re-typed ``KindDecoder``.
-``LeafKindSpec`` — the primary shape — lives in ``abc_leaf_spec``.
+Split from the primary ``LeafKindSpec`` (``abc_leaf_spec``) for complexity budget,
+not a domain split — Dialog is a leaf taking the tier ``publish_sink``.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
+
+from punt_lux.protocol.elements.abc_capability import Capability
 
 if TYPE_CHECKING:
     from punt_lux.protocol.elements.abc_kind_codec import KindCodec
@@ -55,9 +53,10 @@ class DialogKindSpec:
         return False
 
     @property
-    def capabilities(self) -> frozenset[str]:
+    def capabilities(self) -> frozenset[Capability]:
         """Dialog always wires its child-button handlers via the publish sink."""
-        return frozenset({"handlers"})
+        # Class invariant (not a derived slot): Dialog's decoder always gets the sink.
+        return frozenset({Capability.HANDLERS})
 
     def build_decoder(self, binding: TierBinding) -> KindDecoder:
         """Construct the Dialog decoder bound to ``binding``'s tier DI."""
@@ -114,9 +113,10 @@ class ContainerKindSpec:
         return True
 
     @property
-    def capabilities(self) -> frozenset[str]:
+    def capabilities(self) -> frozenset[Capability]:
         """Return the wire capabilities this container's built decoder carries."""
-        return frozenset() if self._handler_builder is None else frozenset({"handlers"})
+        handler = self._handler_builder
+        return frozenset({Capability.HANDLERS}) if handler else frozenset()
 
     def build_decoder(self, binding: TierBinding) -> KindDecoder:
         """Construct this container's decoder bound to ``binding``'s tier DI."""

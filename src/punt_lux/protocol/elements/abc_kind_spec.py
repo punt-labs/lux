@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.element_abc import Element as AbcElement
     from punt_lux.domain.handlers.decorators import PublishSink
+    from punt_lux.protocol.elements.abc_capability import Capability
     from punt_lux.protocol.elements.container_dispatch import RecurseFromDict
     from punt_lux.protocol.handler_decoder import HandlerDecoder
     from punt_lux.protocol.renderer import Emit, RendererFactory
@@ -59,9 +60,8 @@ class TierBinding:
 class AbcKindSpec(Protocol):
     """One migrated kind's decode/encode knowledge (structural contract).
 
-    ``capabilities`` names the wire behaviours the built decoder carries —
-    ``"handlers"`` (fires interaction events) and ``"pre_decode"`` (canonicalizes
-    wire sugar) — so an import-time guard can verify interactive kinds are wired.
+    ``capabilities`` reports the ``Capability`` tags the built decoder carries so
+    an import-time guard can verify interactive kinds are wired.
     """
 
     @property
@@ -71,6 +71,6 @@ class AbcKindSpec(Protocol):
     @property
     def is_container(self) -> bool: ...
     @property
-    def capabilities(self) -> frozenset[str]: ...
+    def capabilities(self) -> frozenset[Capability]: ...
     def build_decoder(self, binding: TierBinding) -> KindDecoder: ...
     def encode(self, elem: object) -> dict[str, object]: ...
