@@ -51,6 +51,30 @@ def test_as_bool_rejects_int_one() -> None:
         PatchField("value").as_bool(1)
 
 
+def test_as_optional_number_passes_none_through() -> None:
+    assert PatchField("min").as_optional_number(None) is None
+
+
+def test_as_optional_number_coerces_int_to_float() -> None:
+    result = PatchField("step").as_optional_number(3)
+    assert result == 3.0
+    assert isinstance(result, float)
+
+
+def test_as_optional_number_returns_float() -> None:
+    assert PatchField("max").as_optional_number(1.5) == 1.5
+
+
+def test_as_optional_number_rejects_bool() -> None:
+    with pytest.raises(TypeError, match=r"min must be a number, got bool"):
+        PatchField("min").as_optional_number(True)
+
+
+def test_as_optional_number_rejects_non_number() -> None:
+    with pytest.raises(TypeError, match=r"step must be a number, got str"):
+        PatchField("step").as_optional_number("fast")
+
+
 def test_the_four_exemplars_no_longer_define_local_coercers() -> None:
     """The static coercers were deleted from every exemplar (no 5th copy).
 

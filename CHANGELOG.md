@@ -121,6 +121,32 @@
   value object owns the hex↔tuple↔hex conversion. Decodes to the ABC path when
   its subtree is all-ABC; `resolved_props()` reports
   `value`/`alpha`/`picker`/`tooltip`.
+- **`input_number` interactive numeric input on the ABC path** — the fourth
+  non-atomic mutable control (after `input_text`, `slider`, `color_picker`). A
+  single ABC `InputNumberElement` (float `value`, a printf `format`, an `integer`
+  variant flag, and genuinely-optional `min`/`max`/`step` where `None` means
+  unbounded / no stepper) carrying a commit-on-idle typing reconciliation: while
+  idle the field tracks the Hub value, while typing the local buffer wins so a Hub
+  re-push landing mid-edit cannot clobber the value under the cursor, and exactly
+  one `ValueChanged` fires on commit (blur / Enter / a stepper release) — never
+  per keystroke. The discipline is the *same* verified state machine the other
+  three controls use (`docs/input_text_reconciliation.tex`) — the model is
+  type-agnostic, so the shared `ContinuousEditArbiter[T]` drives the float carrier
+  via the existing `FloatValueAccessor` (the `ValueAccessor[T]` seam) **unchanged**;
+  the `integer` variant is a coercion at the `input_int` widget seam (`int` payload,
+  `float` carrier), `float(int)` round-tripping exactly. `validate()` rejects an
+  inverted range, an out-of-range value, a non-finite `value`/`min`/`max`/`step`
+  (`NaN`/`±inf` — the value-equality soundness precondition), a non-integral
+  `value`/bound/step under the integer variant, a negative `step`, and a malformed
+  `format`; because the bounds are patchable the invariant is re-checked at the
+  element boundary (skipping any absent bound), so a combined patch is judged on
+  its final state. The range/finiteness/format predicate is extracted into a
+  composed `NumericInputChecks` value object so the element module stays within the
+  size budget. Decodes to the ABC path when its subtree is all-ABC;
+  `resolved_props()` reports `value`/`min`/`max`/`step`/`format`/`integer`/`tooltip`.
+- **Number-input tooltips are now shown** — a `tooltip` on a numeric input was
+  previously dropped on the wire (the legacy codec never emitted or read it); it
+  is now carried and rendered, matching `input_text`/`slider`/`color_picker`/`checkbox`.
 - **Color-picker tooltips are now shown** — a `tooltip` on a color picker was
   previously dropped on the wire (the legacy codec never emitted or read it); it
   is now carried and rendered, matching `input_text`/`slider`/`checkbox`.

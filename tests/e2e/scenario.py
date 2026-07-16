@@ -26,6 +26,7 @@ from .repush_effect import PropAfterDispatch, RemovedAfterDispatch, RepushEffect
 __all__ = [
     "COLOR_COMMIT_VALUE",
     "INPUT_COMMIT_TEXT",
+    "NUMBER_COMMIT_VALUE",
     "SCENARIOS",
     "SLIDER_COMMIT_VALUE",
     "InteractionExpectation",
@@ -47,6 +48,11 @@ SLIDER_COMMIT_VALUE = 42.5
 # synthetic-event builder for the same reason: a color drag has no structural
 # source for its value.
 COLOR_COMMIT_VALUE = "#3366CC"
+
+# The number an input_number edit commits in the loop — in range for the
+# scenario's [0, 100] input. Shared with the agent's synthetic-event builder for
+# the same reason: a typed number has no structural source for its value.
+NUMBER_COMMIT_VALUE = 33.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -327,6 +333,73 @@ class Scenario:
                 element_id="level-field",
                 field="value",
                 value=SLIDER_COMMIT_VALUE,
+                flipped=True,
+            ),
+        )
+
+    @classmethod
+    def group_input_number_progress(cls) -> Self:
+        """A group holding a publishing input_number and a display-only progress.
+
+        Committing an edit crosses as ``value_changed`` carrying the final number;
+        the built-in state-sync handler writes the Hub ``value`` (``0`` -> the
+        committed number), so the dispatch re-push carries the mutated value. A
+        wire ``handlers`` entry publishes ``qty_changed``; the agent reacts by
+        advancing the bar. Proves the fourth non-atomic mutable kind rides the
+        faithful boundary as a plain number, exactly like the slider.
+        """
+        return cls(
+            name="group-input-number-progress",
+            scene_id="e2e-input-number-scene",
+            elements=(
+                {
+                    "kind": "group",
+                    "id": "in-surface",
+                    "layout": "rows",
+                    "children": (
+                        {
+                            "kind": "input_number",
+                            "id": "qty-field",
+                            "label": "Qty",
+                            "value": 0.0,
+                            "min": 0.0,
+                            "max": 100.0,
+                            "handlers": [
+                                {
+                                    "event": "changed",
+                                    "factory": "noop",
+                                    "wrap": [
+                                        {
+                                            "decorator": "publish",
+                                            "topics": ["qty_changed"],
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "kind": "progress",
+                            "id": "in-progress",
+                            "fraction": 0.0,
+                            "label": "idle",
+                        },
+                    ),
+                },
+            ),
+            target_element_id="qty-field",
+            interaction=InteractionExpectation(
+                event_kind="value_changed", value=NUMBER_COMMIT_VALUE
+            ),
+            publish=WirePublish("qty_changed"),
+            react=(
+                ReactPatch(element_id="in-progress", field="fraction", value=1.0),
+                ReactPatch(element_id="in-progress", field="label", value="entered"),
+            ),
+            display_only_id="in-progress",
+            repush=PropAfterDispatch(
+                element_id="qty-field",
+                field="value",
+                value=NUMBER_COMMIT_VALUE,
                 flipped=True,
             ),
         )
@@ -777,6 +850,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario.group_checkbox_progress(),
     Scenario.group_input_text_progress(),
     Scenario.group_slider_progress(),
+    Scenario.group_input_number_progress(),
     Scenario.group_color_picker_progress(),
     Scenario.collapsing_header_toggle_progress(),
     Scenario.collapsing_header_button_progress(),

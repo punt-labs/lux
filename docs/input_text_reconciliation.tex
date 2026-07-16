@@ -11,8 +11,12 @@
 %
 % This model is the shared discipline of the continuous-edit reconciliation
 % arbiters.  It is type-agnostic -- its carrier [VALUE] stands for the text an
-% input_text holds, the float a slider holds, or the arity-4 RGBA float tuple a
-% color_picker holds -- so it governs ALL THREE arbiters unchanged.  The tuple
+% input_text holds, the float a slider or an input_number holds, or the arity-4
+% RGBA float tuple a color_picker holds -- so it governs ALL FOUR arbiters
+% unchanged.  The input_number reuses the slider's float carrier verbatim (the
+% integer variant is a float-representable value, coerced to int only at the
+% input_int widget seam), so it adds no new carrier and no new interleaving.  The
+% tuple
 % adds no new interleaving: a color is atomic at the wire (one hex string), the
 % widget (one changed/deactivate signal), the commit (one ValueChanged), and the
 % echo (one atomic apply_patch), so there is no partial-echo or per-component
@@ -33,13 +37,20 @@
 %       -- StrValueAccessor / FloatValueAccessor / ColorValueAccessor: the per-type
 %          buffer read (with its miss policy) and committed coercion. The color
 %          carrier's finiteness precondition is discharged structurally by the hex
-%          encoding; the float carrier's by SliderElement.validate.
+%          encoding; the float carrier's by SliderElement.validate and
+%          InputNumberElement.validate (both math.isfinite, since raw numbers cross
+%          the wire). The one FloatValueAccessor serves both float kinds unchanged.
 %   src/punt_lux/display/renderers/input_text_renderer.py
 %       -- InputTextRenderer.render: the per-frame active/deactivate/fire
 %          decision over an ImGui input_text widget
 %   src/punt_lux/display/renderers/slider_renderer.py
 %       -- SliderRenderer.render: the per-frame active/deactivate/fire
 %          decision over an ImGui slider_float / slider_int widget
+%   src/punt_lux/display/renderers/input_number_renderer.py
+%       -- InputNumberRenderer.render: the per-frame active/deactivate/fire
+%          decision over an ImGui input_float / input_int widget, reusing the
+%          FloatValueAccessor; the two commit conditions (deactivate-after-edit,
+%          discrete stepper change) feed one commit so a gesture never double-fires
 %   src/punt_lux/display/renderers/color_picker_renderer.py
 %       -- ColorPickerRenderer.render: the per-frame active/deactivate/fire
 %          decision over ImGui color_edit3/4 / color_picker3/4 widgets, committing

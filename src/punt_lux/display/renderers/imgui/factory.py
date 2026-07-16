@@ -18,6 +18,7 @@ from punt_lux.display.renderers.imgui.collapsing_header import (
 from punt_lux.display.renderers.imgui.color_picker import ImGuiColorPickerRenderer
 from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
 from punt_lux.display.renderers.imgui.group import ImGuiGroupRenderer
+from punt_lux.display.renderers.imgui.input_number import ImGuiInputNumberRenderer
 from punt_lux.display.renderers.imgui.input_text import ImGuiInputTextRenderer
 from punt_lux.display.renderers.imgui.progress import ImGuiProgressRenderer
 from punt_lux.display.renderers.imgui.slider import ImGuiSliderRenderer
@@ -29,6 +30,7 @@ from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.group import GroupElement
+from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.slider import SliderElement
@@ -61,6 +63,7 @@ class ImGuiRendererFactory:
         (ButtonElement, ImGuiButtonRenderer),
         (CheckboxElement, ImGuiCheckboxRenderer),
         (InputTextElement, ImGuiInputTextRenderer),
+        (InputNumberElement, ImGuiInputNumberRenderer),
         (DialogElement, ImGuiDialogRenderer),
         (GroupElement, ImGuiGroupRenderer),
         (CollapsingHeaderElement, ImGuiCollapsingHeaderRenderer),

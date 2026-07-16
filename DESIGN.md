@@ -4419,3 +4419,239 @@ the pipeline the ratified legacy `replace()` seam builds on.
   `element-contract.md` (validation contract, sub-element addressing),
   `domain/hub/hub_display.py` / `element_index.py` (the authoritative store this
   writes through); bead `lux-4n5n`.
+
+## DES-048: Commit-on-Idle Reconciliation — the Mechanism for Display-Local Continuous Input
+
+**Status:** accepted. The concrete mechanism implementing DES-046's
+"continuous, in-progress input is Display-local" for the non-atomic mutable
+kinds (`input_text`, `slider`, `color_picker`, `input_number`). Model:
+[`docs/input_text_reconciliation.tex`](docs/input_text_reconciliation.tex)
+(ProB-verified).
+
+DES-046 draws the line — continuous input is Display-local so a whole-UI resend
+never interrupts a gesture — but does not say *how* the Display holds an
+in-progress edit while still honoring an agent's drive of the same field. A
+non-atomic edit (typing a filter, dragging a slider, painting a color) passes
+through many intermediate states before it settles, and the agent (Hub) may
+re-push a new authoritative value *during* the edit. The naive handling loses in
+two directions: honor every Hub re-push and the user's half-typed value is
+clobbered mid-keystroke; ignore the Hub and the agent can never drive the field.
+Worse, a pipelined edit — commit, then re-focus before the commit's echo returns
+from the Hub — reads a stale base and silently drops the second edit. Empirical
+patching chased that clobber across many review rounds before it was
+model-checked.
+
+### Decision
+
+A per-element **arbiter** mediates every frame between the Hub value and the
+Display-local edit buffer, on four id-keyed slots (buffer, editing flag,
+committed value, commit-time-Hub value):
+
+- **Idle** (no active edit) → honor the Hub value.
+- **Editing** (`is_item_active`) → the local buffer wins; the Hub value is
+  *deferred*, not applied — a mid-drag re-push cannot clobber the gesture. No
+  per-keystroke event fires.
+- **Commit** (`is_item_deactivated_after_edit`) → fire exactly **one**
+  `ValueChanged`, and record the committed value plus the Hub value at commit
+  time.
+- **Optimistic-echo retention** → after commit, keep returning the committed
+  value while `hub_value == commit_time_hub` (through the echo-latency window),
+  so a re-focus during that window edits from the committed value, not a stale
+  base. The window closes by **value equality alone** the instant the Hub moves
+  off the commit-time marker — no echo token, no version counter.
+
+### Rationale
+
+- **No clobber, no spam, no lost pipelined edit** — the three failure modes
+  above are eliminated by construction, not by patching.
+- **Value equality is sufficient.** JSON round-trips the carrier exactly, so a
+  bit-identical stored copy compares equal; the only precondition is
+  reflexivity (`x == x`), which fails only for a NaN carrier — discharged at the
+  `validate()` boundary (DES-039). This retired an earlier echo-token/version
+  design as unnecessary machinery.
+- **Model-checked, not sampled.** The five invariants (never-lost,
+  editing-implies-not-yet-edited, never-clobbered, fires-at-most-once, and
+  deadlock-freedom) are proven exhaustively over a bounded carrier; the z-spec
+  *falsified* the obvious "defer-on-first-edit" refocus fix, which still loses a
+  commit via type-before-echo. This is the recurrence rule from CLAUDE.md
+  applied: the second occurrence of the defect class was formalized, not
+  re-patched.
+
+### Rejected alternatives
+
+- **Last-write-wins (honor every Hub re-push).** Rejected — clobbers the live
+  gesture; the exact failure DES-046 forbids.
+- **Fire per keystroke / per drag frame.** Rejected — event spam, and the Hub
+  reconciles intermediate states that were never intended as commits.
+- **Echo token / version counter to detect the in-flight commit.** Rejected —
+  value equality over an exactly-round-tripping carrier already closes the echo
+  window; a token is machinery for a problem that does not exist once the
+  carrier round-trips.
+
+### Consequences
+
+- Every non-atomic mutable kind is **interactive** (a `ValueChanged` on commit,
+  Hub re-dispatch) and carries the arbiter in its renderer.
+- The carrier must round-trip through JSON exactly and be reflexive under `==`;
+  `validate()` rejects NaN for the float carrier and hex structurally forbids it
+  for color.
+- The mechanism generalizes across carriers — the direct basis for DES-049
+  (one arbiter, many value types).
+
+### References
+
+- [`docs/input_text_reconciliation.tex`](docs/input_text_reconciliation.tex)
+  (the ProB-verified model + partition coverage), DES-046 (the locality
+  principle this implements), DES-039 (the `validate()` boundary that discharges
+  the NaN precondition); `docs/architecture/migration/slider-element-design.md`,
+  `color-picker-element-design.md`; beads `lux-ociy`, `lux-2qay`, `lux-5nn0`.
+
+## DES-049: The Shared `ContinuousEditArbiter` — One Verified Reconciler Behind a Value-Accessor Seam
+
+**Status:** accepted. Extracted once three carriers existed (rule of three).
+Design:
+[`docs/architecture/migration/continuous-edit-extraction-design.md`](docs/architecture/migration/continuous-edit-extraction-design.md).
+
+The DES-048 mechanism was first shipped three times as bespoke arbiters —
+`InputTextArbiter` (str), `SliderArbiter` (float), `ColorPickerArbiter` (RGBA
+tuple). Their honor/defer/commit/optimistic-echo control flow is *byte-identical*;
+they differ only in the carrier type and the two lines that touch it. The
+question was when and how to unify them without a premature or wrong-shaped
+abstraction.
+
+### Decision
+
+- **General solution, or not at all — and not before three.** Do not abstract
+  from one or two cases (the seam would be guessed and likely wrong). Build the
+  concrete arbiters until three exist, then extract the general reconciler
+  **empirically** — diff the three, and let the seam be exactly what the diff
+  shows, no more.
+- **One `ContinuousEditArbiter[T]`** (PEP-695 generic, `@final`) holds the four
+  slots and the byte-identical control flow, delegating the only two
+  carrier-typed touches to an injected **`ValueAccessor[T]`** — a
+  `runtime_checkable` two-method Protocol (`read` for the editing-branch buffer
+  read, `coerce` for the committed return). Three `@final` stateless accessors
+  (`Str`/`Float`/`Color`) carry the per-type miss policy and coercion. The three
+  bespoke arbiters are **deleted and every renderer wired to the shared one in
+  the same change** (PY-RF-2 behavior-preserving; the three shipped test suites
+  are the regression gate, with only key-layout edits permitted).
+
+### Rationale
+
+- **The seam is measured, not guessed.** Diffing three working implementations
+  proved the accessor is exactly two methods — the empirical derivation caught
+  that the "differences" the earlier sketches listed were fewer than claimed
+  (e.g. color's own-suffix buffer key collapsed into a shared convention).
+- **The model is data-independent, so verification is free.** The
+  DES-048 z-spec's carrier `[VALUE]` is abstract; str, float, RGBA-tuple, and
+  int are all valid instantiations, so the *same* ProB model governs the shared
+  arbiter and every carrier unchanged — no per-kind spec.
+- **Net simplification.** Three ~94-line arbiters became one 129-line generic
+  plus three tiny accessors; `WidgetState`'s three suffix families collapsed to
+  one.
+
+### Rejected alternatives
+
+- **Per-kind bespoke arbiters forever.** Rejected — the same reconciliation
+  logic duplicated per kind, each a place the model must be re-verified by hand.
+- **Abstract from the first (or second) kind.** Rejected — the seam would be a
+  guess; the rule of three exists precisely so the abstraction is derived from
+  evidence, not anticipated.
+- **A dedicated accessor per carrier variant** (e.g. `IntValueAccessor`).
+  Rejected — a rendering variant expressible as a coercion (int is a `float`
+  coerced at the widget seam) does not warrant forking the arbiter's type
+  surface; `input_number` reuses `FloatValueAccessor` unchanged, the first proof
+  the seam generalizes.
+
+### Consequences
+
+- A new non-atomic kind migrates by supplying a `ValueAccessor` (or reusing an
+  existing one) and wiring the shared arbiter — it *inherits* DES-048's proven
+  safety instead of re-deriving it. `input_number` was the first such reuse.
+- The non-atomic interleaving problem (agent-drive vs. user-edit on shared
+  editable state) is **closed for the class**, not per widget.
+- `docs/input_text_reconciliation.tex`'s source-of-record names the shared
+  module; its `fuzz` + five ProB goals are the merge gate whenever the arbiter
+  or any carrier changes.
+
+### References
+
+- [`docs/architecture/migration/continuous-edit-extraction-design.md`](docs/architecture/migration/continuous-edit-extraction-design.md),
+  DES-048 (the mechanism unified here), `continuous_edit_selection.py` /
+  `continuous_edit_accessors.py` (the shipped arbiter + accessors),
+  `docs/input_text_reconciliation.tex` (governs all carriers unchanged); bead
+  `lux-ld6y`, PR #253.
+
+## DES-050: Value-Proportional Color Channels — Custom Rendering Where Stock ImGui Markers Are Labels
+
+**Status:** accepted. Surfaced by the operator demo of `color_picker`, not by
+tests. Renderers: `imgui/color_channel_strip.py`, `imgui/full_color_picker.py`.
+
+Stock ImGui `color_edit3` / `color_picker3` render each RGB channel input with a
+**fixed-width color marker** — `RenderColorComponentMarker` draws a
+`style.ColorMarkerSize` (default 3px) tab that *identifies* the channel (red for
+R, green for G, blue for B). It is a label, not a gauge: R=16 and R=240 draw the
+identical sliver. No `ImGuiColorEditFlags` value makes it proportional. The
+migration's test suite (2100+ green) could not see this — only driving the live
+widget did, which is why the demo gate (DES-039 verification, CLAUDE.md
+Development Loop) exists.
+
+### Decision
+
+- **Custom per-channel fill.** `ColorChannelStrip` replaces the stock inline
+  `color_edit` channels with a strip that paints its own rect behind each
+  channel spanning `width × value/255`, so the fill scales with the value; the
+  editable `drag_int` (with `AlwaysClamp`, so typed input honors 0..255) and the
+  swatch remain.
+- **Full picker composes, does not rebuild.** `FullColorPicker` renders stock
+  `color_picker3` with `DisplayHex | NoSidePreview | NoOptions` (which suppresses
+  *both* the RGB and HSV marker rows, keeps the marker-free hex readout, and
+  seals the right-click that could restore the marker rows) and appends the
+  `ColorChannelStrip` for RGB.
+- **Reconciliation is untouched.** The custom widgets sit inside a single
+  `begin_group`/`end_group` — exactly as stock `ColorEdit`/`ColorPicker` wrap
+  their own sub-controls — so ImGui's `EndGroup` aggregates the group's
+  active/deactivated status and the DES-048 arbiter still sees the whole widget
+  as one item: one commit per gesture, no per-channel or double fire.
+
+### Rationale
+
+- **Correctness the user can see.** A color editor whose channel bars do not
+  move with the value is broken UX regardless of a green suite; the fill *is* the
+  feedback.
+- **Keep what stock does well.** The SV square and hue bar work and are the
+  primary editing surface; the composition keeps them and replaces only the
+  broken channel rendering.
+- **Drop HSV deliberately.** The HSV input row uses the same fixed markers —
+  keeping it would relocate the exact bug onto H/S/V. The SV square + hue bar
+  already give HSV-space editing, and the hex row (a single text field, no
+  per-channel marker) preserves an exact-value readout.
+
+### Rejected alternatives
+
+- **Accept the stock rendering.** Rejected — the channels do not reflect their
+  value; the defect the demo caught.
+- **Keep the HSV row.** Rejected — reintroduces the fixed-marker bug on H/S/V.
+- **Rebuild the popup picker for `picker=false`.** Rejected — `picker=true`
+  already provides the full SV/hue picker; the compact inline mode with
+  value-proportional channels is the intended `picker=false` surface.
+- **A flag or theme tweak.** Rejected — no `ImGuiColorEditFlags` makes the marker
+  proportional; the marker is a label by construction.
+
+### Consequences
+
+- Color channel rendering is custom in both modes (`picker=false` inline strip,
+  `picker=true` composed picker); both re-verified live for fill-scaling and
+  one-commit-per-gesture across the two-widget group.
+- `HSV` numeric input is not offered on the migrated `color_picker`; SV/hue +
+  hex cover the space marker-free.
+- Reinforces the demo-as-verifier discipline: `make check` is the gate for
+  compilability and logic; the live demo is the only check for render
+  correctness (there is no automated visual-regression layer).
+
+### References
+
+- `imgui/color_channel_strip.py`, `imgui/full_color_picker.py`,
+  `color_picker_renderer.py` (the render path), DES-048 (the reconciliation the
+  grouping preserves), DES-039 (self-validation + verification), `target.md`
+  (render calls stay Display-local); bead `lux-5nn0`, PR #253.

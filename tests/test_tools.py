@@ -25,7 +25,6 @@ from punt_lux.protocol import (
     ComboElement,
     DrawElement,
     GroupElement,
-    InputNumberElement,
     InputTextElement,
     LegacyGroupElement,
     MarkdownElement,
@@ -952,22 +951,27 @@ def _seed_legacy_root(
     *,
     scene: str = "s1",
     element_id: str = "sl1",
-    value: float = 50.0,
+    selected: int = 2,
     connection: str = "local",
 ) -> None:
-    """Install one legacy (non-ABC) input_number root under ``connection``.
+    """Install one legacy (non-ABC) combo root under ``connection``.
 
     A frozen wire dataclass is realized by ``dataclasses.replace`` on the write
     path — a legacy *root* is fully patchable, and its index entry is rebound to
     the fresh instance.
     """
-    number = agent_element_factory().element_from_dict(
-        {"kind": "input_number", "id": element_id, "value": value}
+    combo = agent_element_factory().element_from_dict(
+        {
+            "kind": "combo",
+            "id": element_id,
+            "items": ["a", "b", "c"],
+            "selected": selected,
+        }
     )
     store.replace_scene(
         ConnectionId(connection),
         SceneId(scene),
-        [cast("DomainElement", number)],
+        [cast("DomainElement", combo)],
     )
 
 
@@ -979,14 +983,14 @@ def _seed_legacy_window_with_child(
     child_id: str = "sl_child",
     title: str = "Old",
     connection: str = "local",
-) -> InputNumberElement:
-    """Install a legacy window root holding one legacy input_number child.
+) -> ComboElement:
+    """Install a legacy window root holding one legacy combo child.
 
     A legacy composite: the whole subtree is frozen values, so a ``replace`` on
     the root shares the child by reference. Returns the child object so a test
     can assert its identity survives a root patch.
     """
-    child = InputNumberElement(id=child_id, label="Vol", value=50.0)
+    child = ComboElement(id=child_id, label="Vol", items=["a", "b", "c"], selected=2)
     window = WindowElement(id=window_id, title=title, children=[child])
     store.replace_scene(
         ConnectionId(connection),
@@ -1492,18 +1496,18 @@ class TestUpdateTool:
         same id, and the re-push carries the new value rebuilt from the store.
         """
         store = HubDisplay()
-        _seed_legacy_root(store, element_id="sl1", value=50.0)
+        _seed_legacy_root(store, element_id="sl1", selected=2)
         client = _bind_store(monkeypatch, store)
 
-        result = update("s1", [{"id": "sl1", "set": {"value": 10.0}}])
+        result = update("s1", [{"id": "sl1", "set": {"selected": 1}}])
 
         assert result == "ack:s1"
-        number = store.resolve(SceneId("s1"), ElementId("sl1"))
-        assert isinstance(number, InputNumberElement)
-        assert number.value == 10.0
+        combo = store.resolve(SceneId("s1"), ElementId("sl1"))
+        assert isinstance(combo, ComboElement)
+        assert combo.selected == 1
         client.show_async.assert_called_once()
         pushed = client.show_async.call_args.kwargs["elements"]
-        assert pushed[0].value == 10.0
+        assert pushed[0].selected == 1
 
     def test_update_legacy_composite_root_shares_children_by_reference(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1546,14 +1550,14 @@ class TestUpdateTool:
         )
         client = _bind_store(monkeypatch, store)
 
-        result = update("s1", [{"id": "sl_child", "set": {"value": 10.0}}])
+        result = update("s1", [{"id": "sl_child", "set": {"selected": 1}}])
 
         assert result.startswith("error: scene not updated")
         assert "show" in result
         assert "window" in result
         # Store untouched — the nested child keeps its original value and identity.
         assert store.resolve(SceneId("s1"), ElementId("sl_child")) is child
-        assert child.value == 50.0
+        assert child.selected == 2
         client.show_async.assert_not_called()
 
     def test_update_nested_legacy_removal_defers_to_show(
@@ -1602,7 +1606,7 @@ class TestUpdateTool:
 
         assert result.startswith("error: scene not updated")
         assert "immutable" in result
-        assert store.resolve(SceneId("s1"), ElementId("sl1")).kind == "input_number"
+        assert store.resolve(SceneId("s1"), ElementId("sl1")).kind == "combo"
         client.show_async.assert_not_called()
 
     def test_update_rejects_unknown_field_abc(
@@ -1702,13 +1706,13 @@ class TestUpdateTool:
         """
         store = HubDisplay()
         header = CollapsingHeaderElement(id="hdr", label="Details", open=False)
-        number = agent_element_factory().element_from_dict(
-            {"kind": "input_number", "id": "sl1", "value": 50.0}
+        combo = agent_element_factory().element_from_dict(
+            {"kind": "combo", "id": "sl1", "items": ["a", "b", "c"], "selected": 2}
         )
         store.replace_scene(
             ConnectionId("local"),
             SceneId("s1"),
-            [cast("DomainElement", header), cast("DomainElement", number)],
+            [cast("DomainElement", header), cast("DomainElement", combo)],
         )
         client = _bind_store(monkeypatch, store)
 
@@ -1716,7 +1720,7 @@ class TestUpdateTool:
             "s1",
             [
                 {"id": "hdr", "set": {"open": True}},
-                {"id": "sl1", "set": {"value": 10.0}},
+                {"id": "sl1", "set": {"selected": 1}},
             ],
         )
 
@@ -1724,9 +1728,9 @@ class TestUpdateTool:
         patched_header = store.resolve(SceneId("s1"), ElementId("hdr"))
         assert isinstance(patched_header, CollapsingHeaderElement)
         assert patched_header.open is True
-        patched_number = store.resolve(SceneId("s1"), ElementId("sl1"))
-        assert isinstance(patched_number, InputNumberElement)
-        assert patched_number.value == 10.0
+        patched_combo = store.resolve(SceneId("s1"), ElementId("sl1"))
+        assert isinstance(patched_combo, ComboElement)
+        assert patched_combo.selected == 1
         client.show_async.assert_called_once()
 
     def test_update_cross_connection_legacy_ownership_is_rejected(
@@ -1736,24 +1740,24 @@ class TestUpdateTool:
 
         Ownership is checked before the seam for legacy roots exactly as for ABC
         elements: connection ``other`` may neither patch nor remove ``local``'s
-        slider. The store is untouched and nothing is re-pushed.
+        combo. The store is untouched and nothing is re-pushed.
         """
         store = HubDisplay()
-        _seed_legacy_root(store, element_id="sl1", value=50.0, connection="local")
+        _seed_legacy_root(store, element_id="sl1", selected=2, connection="local")
         client = _bind_store(monkeypatch, store)
 
         token = _session_key.set("intruder")
         try:
-            patched = update("s1", [{"id": "sl1", "set": {"value": 10.0}}])
+            patched = update("s1", [{"id": "sl1", "set": {"selected": 1}}])
             removed = update("s1", [{"id": "sl1", "remove": True}])
         finally:
             _session_key.reset(token)
 
         assert patched.startswith("error: scene not updated")
         assert removed.startswith("error: scene not updated")
-        number = store.resolve(SceneId("s1"), ElementId("sl1"))
-        assert isinstance(number, InputNumberElement)
-        assert number.value == 50.0
+        combo = store.resolve(SceneId("s1"), ElementId("sl1"))
+        assert isinstance(combo, ComboElement)
+        assert combo.selected == 2
         client.show_async.assert_not_called()
 
     def test_update_batch_with_legacy_composite_rejection_is_atomic(

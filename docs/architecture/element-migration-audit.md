@@ -84,26 +84,23 @@ enumerates the wrappable kinds **by isinstance inside the ABC**
 to that method or the method must be refactored so each element declares its own
 interaction — see Decision (e).
 
-### 2a. Two discrepancies to verify before migrating more kinds
+### 2a. Two former discrepancies — both resolved
 
-These are inconsistencies in the current shipped code, not future work. Per the
-"no existing excuse" rule they belong to whoever next touches these files.
+These were inconsistencies in the shipped code when this audit was written. Both
+are now resolved; the entries are kept as history so the resolution is on record.
 
-- **`domain_pump._ABC_TYPES` omits `CheckboxElement`** (`domain_pump.py:32`).
-  The tuple is `(TextElement, ButtonElement, DialogElement)`. `element-contract.md`'s
-  "Migration status" section states checkbox is a shipped ABC element, and it *is* an ABC subclass
-  (`checkbox.py:41`). The tuple gates anonymous-id synthesis (`domain_pump.py:128`):
-  an anonymous-id Checkbox would fall through to `dataclasses.replace` on an ABC
-  instance instead of raising the intended `ValueError`. In practice checkboxes
-  always carry an explicit id, so this is latent, not active — but it is a real
-  inconsistency and any table-of-truth for the ABC set must reconcile it.
-- **`_element_to_dict` encode special-case omits Checkbox** (`__init__.py:185`).
-  The encode dispatcher routes `TextElement | ButtonElement | DialogElement`
-  through `JsonEncoderFactory` and everything else through the codec table with a
-  trailing tooltip append (`__init__.py:191`). Checkbox reaches encode through
-  the codec table (registered at `inputs.py:48`) and its own `to_dict`
-  (`checkbox.py:144`). Confirm the tooltip is emitted exactly once for checkbox
-  and not double-appended before adding more ABC kinds to either branch.
+- **`domain_pump._ABC_TYPES` — resolved.** The tuple now enumerates every ABC
+  leaf — `(TextElement, ButtonElement, CheckboxElement, DialogElement,
+  ProgressElement, InputTextElement, InputNumberElement, SliderElement,
+  ColorPickerElement)` (`domain_pump.py:37`) — so anonymous-id synthesis raises
+  the intended `ValueError` for any ABC kind rather than falling through to
+  `dataclasses.replace`. Each new interactive migration adds its class here as one
+  of the fork-wiring seams; `input_number` added `InputNumberElement`.
+- **`_element_to_dict` encode special-case — resolved.** The encode dispatcher's
+  ABC `isinstance` union now includes `CheckboxElement` (and the other migrated
+  kinds, `InputNumberElement` among them), so each per-kind encoder owns its own
+  tooltip emission and the tooltip is emitted exactly once (`__init__.py:179`).
+  New ABC kinds are added to this union as part of their migration (seam 3).
 
 ## 3. Per-element migration table
 
@@ -122,19 +119,19 @@ The 25 kinds are the `Element` union at `__init__.py:130`.
 | 4 | `dialog` | `DialogElement` (`dialog.py:131`) | **ABC** ✓ | **Interactive** (composite) | private model + children (`dialog.py:50`,`:215`) |
 | 5 | `image` | `ImageElement` (`image.py`) | Legacy dataclass | Display-only | image texture (`texture_cache`) |
 | 6 | `separator` | `SeparatorElement` (`separator.py:15`) | Legacy dataclass | Display-only | anonymous id (`""`) → id-synthesis path |
-| 7 | `progress` | `ProgressElement` (`progress.py`) | Legacy dataclass | Display-only | — |
+| 7 | `progress` | `ProgressElement` (`progress.py`) | **ABC** ✓ | Display-only | — |
 | 8 | `spinner` | `SpinnerElement` (`spinner.py`) | Legacy dataclass | Display-only | — |
 | 9 | `markdown` | `MarkdownElement` (`markdown.py`) | Legacy dataclass | Display-only | — |
-| 10 | `slider` | `SliderElement` (`slider.py:15`) | Legacy dataclass | **Interactive** (`value`) | `widget_value()` → WidgetState mirror |
+| 10 | `slider` | `SliderElement` (`slider.py`) | **ABC** ✓ | **Interactive** (`value`) | non-atomic; `ContinuousEditArbiter[float]` (commit-on-idle) |
 | 11 | `combo` | `ComboElement` (`combo.py`) | Legacy dataclass | **Interactive** (`value`) | `widget_value()` |
-| 12 | `input_text` | `InputTextElement` (`input_text.py`) | Legacy dataclass | **Interactive** (`value`) | `widget_value()` |
-| 13 | `input_number` | `InputNumberElement` (`input_number.py`) | Legacy dataclass | **Interactive** (`value`) | `widget_value()` |
+| 12 | `input_text` | `InputTextElement` (`input_text.py`) | **ABC** ✓ | **Interactive** (`value`) | non-atomic; `ContinuousEditArbiter[str]` (commit-on-idle) |
+| 13 | `input_number` | `InputNumberElement` (`input_number.py`) | **ABC** ✓ | **Interactive** (`value`) | non-atomic; reuses `ContinuousEditArbiter[float]` + `FloatValueAccessor` (commit-on-idle); optional `min`/`max`/`step`; range predicate extracted to `NumericInputChecks` |
 | 14 | `radio` | `RadioElement` (`radio.py`) | Legacy dataclass | **Interactive** (`value`) | `widget_value()` |
-| 15 | `color_picker` | `ColorPickerElement` (`color_picker.py`) | Legacy dataclass | **Interactive** (`value`) | WidgetState seeded as `ImVec4`; excluded from `_widget_value` (`manager.py:81`) |
+| 15 | `color_picker` | `ColorPickerElement` (`color_picker.py`) | **ABC** ✓ | **Interactive** (`value`) | non-atomic; `ContinuousEditArbiter[Rgba]` (tuple carrier, commit-on-idle) |
 | 16 | `selectable` | `SelectableElement` (`selectable.py:15`) | Legacy dataclass | **Interactive** (`selected`) | `widget_value()` |
-| 17 | `group` | `GroupElement` (`layout.py:27`) | Legacy dataclass | Display-only composite | children + `pages` + `page_source` combo linkage |
-| 18 | `tab_bar` | `TabBarElement` (`layout.py:48`) | Legacy dataclass | Display-only composite | children live in `tabs: list[dict]`; active-tab view state |
-| 19 | `collapsing_header` | `CollapsingHeaderElement` (`layout.py:58`) | Legacy dataclass | Display-only composite | children; open/closed view state |
+| 17 | `group` | `GroupElement` (`group.py`) | **ABC** ✓ | Display-only composite | rows/columns forked ABC; paged group stays legacy |
+| 18 | `tab_bar` | `TabBarElement` (`tab_bar.py`) | **ABC** ✓ | Display-only composite | typed `Tab` children; active-tab view state |
+| 19 | `collapsing_header` | `CollapsingHeaderElement` (`collapsing_header.py`) | **ABC** ✓ | Display-only composite | typed children; open/closed view state |
 | 20 | `window` | `WindowElement` (`layout.py:70`) | Legacy dataclass | Display-only composite | drag/resize position; `_dirty_windows` (`manager.py:481`) |
 | 21 | `tree` | `TreeElement` (`layout.py:91`) | Legacy dataclass | Display-only composite | `nodes: list[dict]` (not Element children); expansion view state |
 | 22 | `modal` | `ModalElement` (`layout.py:113`) | Legacy dataclass | **Interactive** composite | emits `"closed"`; children |
@@ -142,15 +139,18 @@ The 25 kinds are the `Element` union at `__init__.py:130`.
 | 24 | `plot` | `PlotElement` (`plot_element.py:17`) | Legacy dataclass | Display-only | `series: list[dict]` — untyped (`plot_element.py:27`) |
 | 25 | `draw` | `DrawElement` (`graphics.py:27`) | Legacy dataclass | Display-only | typed draw-command family (curve/line/shape/text) |
 
-Summary: **as of this audit, 4 migrated, 21 legacy.** Since then `group`
-(the first container, PR #240) and `progress` (the first display-only
-primitive, PR #241) have crossed — **6 migrated, 19 legacy**. The authoritative
-live status is [`migration/README.md`](migration/README.md) §"Where we are";
-this table is the original per-element analysis. Of the 19 legacy: **~8
-interactive** (slider, combo, input_text, input_number, radio, color_picker,
-selectable, modal, and — structurally — the table/plot only if selection
-becomes Hub-authoritative), **~11 display-only** (image, separator, spinner,
-markdown, tab_bar, collapsing_header, window, tree, plot, draw), with table
+Summary: **this audit's original count was 4 migrated, 21 legacy.** Since then
+the migration has advanced to **12 migrated, 13 legacy** (`input_number` is the
+12th, `lux-xs7r.1`). Migrated: the io-model leaves `text`, `button`, `checkbox`,
+`dialog`; the display-only primitive `progress`; the four non-atomic mutable
+inputs `input_text`, `slider`, `color_picker`, `input_number` (all on the shipped
+shared `ContinuousEditArbiter`); and the containers `group`, `tab_bar`,
+`collapsing_header`. The authoritative live status is
+[`migration/README.md`](migration/README.md) §"Where we are"; this table is the
+per-element analysis. Of the 13 legacy: interactive inputs (combo,
+radio, selectable, plus interactive composite modal — and, structurally,
+table/plot only if selection becomes Hub-authoritative) and display-only kinds
+(image, separator, spinner, markdown, window, tree, plot, draw), with table
 sitting on the boundary.
 
 ## 4. What "migrated" means per class

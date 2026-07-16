@@ -2,25 +2,23 @@
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Self, final
 
 __all__ = ["PatchField"]
 
 
+@final
 class PatchField:
     """Coerce a JSON-decoded ``apply_patch`` value for one named field.
 
-    ``Element.apply_patch`` dispatches wire values straight to the
-    ``_set_<field>`` setters, so each value arrives as ``object``. PY-EH-1
-    demands boundary validation before assigning to a narrowly-typed
-    attribute; a wrong-typed patch value is a construction bypass, so the
-    coercers raise ``TypeError`` (PY-EH-2) naming the offending field.
-
-    Binds the field name once so a setter reads as intent:
-    ``self._label = PatchField("label").as_str(value)``.
+    ``Element.apply_patch`` dispatches wire values to the ``_set_<field>`` setters
+    as ``object``; a wrong-typed value is a construction bypass, so each coercer
+    validates at the boundary and raises ``TypeError`` naming the field. Binding the
+    name once reads as intent: ``self._label = PatchField("label").as_str(value)``.
     """
 
     _name: str
+    __slots__ = ("_name",)
 
     def __new__(cls, name: str) -> Self:
         self = super().__new__(cls)
@@ -49,13 +47,15 @@ class PatchField:
         return value
 
     def as_number(self, value: object) -> float:
-        """Return ``value`` as ``float`` or raise ``TypeError``.
-
-        Rejects ``bool`` (a JSON ``true``/``false`` is not a fraction) and
-        coerces ``int`` to ``float``, mirroring the wire boundary's
-        ``ElementWireContext.require_number`` contract.
-        """
+        """Return ``value`` as ``float`` — ``int`` coerced, ``bool`` rejected."""
         if isinstance(value, bool) or not isinstance(value, int | float):
             msg = f"{self._name} must be a number, got {type(value).__name__}"
             raise TypeError(msg)
         return float(value)
+
+    def as_optional_number(self, value: object) -> float | None:
+        """Return ``value`` as ``float | None`` or raise; ``None`` clears the field.
+
+        The optional twin of ``as_number`` for ``min`` / ``max`` / ``step``.
+        """
+        return None if value is None else self.as_number(value)

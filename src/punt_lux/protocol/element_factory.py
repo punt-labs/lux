@@ -33,6 +33,8 @@ from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder
 from punt_lux.protocol.elements.element_wire import ElementWireContext
 from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.group_codec import JsonGroupDecoder
+from punt_lux.protocol.elements.input_number import InputNumberElement
+from punt_lux.protocol.elements.input_number_codec import JsonInputNumberDecoder
 from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.input_text_codec import JsonInputTextDecoder
 from punt_lux.protocol.elements.progress import ProgressElement
@@ -54,6 +56,9 @@ from punt_lux.protocol.standalone_collapsing_header_handler import (
 )
 from punt_lux.protocol.standalone_color_picker_handler import (
     build_standalone_color_picker_handler_decoder,
+)
+from punt_lux.protocol.standalone_input_number_handler import (
+    build_standalone_input_number_handler_decoder,
 )
 from punt_lux.protocol.standalone_input_text_handler import (
     build_standalone_input_text_handler_decoder,
@@ -85,6 +90,7 @@ _ABC_KINDS = frozenset(
         "dialog",
         "progress",
         "input_text",
+        "input_number",
         "slider",
         "color_picker",
     }
@@ -99,6 +105,7 @@ _ABC_LEAF_TYPES: tuple[type, ...] = (
     DialogElement,
     ProgressElement,
     InputTextElement,
+    InputNumberElement,
     SliderElement,
     ColorPickerElement,
 )
@@ -171,6 +178,14 @@ class JsonElementFactory:
                 emit=emit,
                 element_cls=InputTextElement,
                 handler_decoder=build_standalone_input_text_handler_decoder(
+                    publish_sink
+                ),
+            ).decode,
+            "input_number": JsonInputNumberDecoder(
+                renderer_factory=renderer_factory,
+                emit=emit,
+                element_cls=InputNumberElement,
+                handler_decoder=build_standalone_input_number_handler_decoder(
                     publish_sink
                 ),
             ).decode,
@@ -322,6 +337,7 @@ class JsonElementFactory:
             | ButtonElement
             | CheckboxElement
             | InputTextElement
+            | InputNumberElement
             | SliderElement
             | ColorPickerElement
             | DialogElement
