@@ -73,11 +73,11 @@ from punt_lux.protocol.elements.tab_bar_codec import (
 )
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.text_codec import JsonTextDecoder, JsonTextEncoder
+from punt_lux.protocol.elements.value_change_handlers import (
+    build_standalone_value_handler_decoder,
+)
 from punt_lux.protocol.standalone_button_handler import (
     build_standalone_button_handler_decoder,
-)
-from punt_lux.protocol.standalone_checkbox_handler import (
-    build_standalone_checkbox_handler_decoder,
 )
 from punt_lux.protocol.standalone_collapsing_header_handler import (
     build_standalone_collapsing_header_handler_decoder,
@@ -85,17 +85,11 @@ from punt_lux.protocol.standalone_collapsing_header_handler import (
 from punt_lux.protocol.standalone_color_picker_handler import (
     build_standalone_color_picker_handler_decoder,
 )
-from punt_lux.protocol.standalone_combo_handler import (
-    build_standalone_combo_handler_decoder,
-)
 from punt_lux.protocol.standalone_input_number_handler import (
     build_standalone_input_number_handler_decoder,
 )
 from punt_lux.protocol.standalone_input_text_handler import (
     build_standalone_input_text_handler_decoder,
-)
-from punt_lux.protocol.standalone_radio_handler import (
-    build_standalone_radio_handler_decoder,
 )
 from punt_lux.protocol.standalone_slider_handler import (
     build_standalone_slider_handler_decoder,
@@ -159,7 +153,7 @@ class DefaultAbcKinds:
                 codec=KindCodec(
                     CheckboxElement, JsonCheckboxDecoder, JsonCheckboxEncoder().encode
                 ),
-                handler_builder=build_standalone_checkbox_handler_decoder,
+                handler_builder=build_standalone_value_handler_decoder,
             ),
             LeafKindSpec(
                 kind="input_text",
@@ -200,14 +194,14 @@ class DefaultAbcKinds:
                 codec=KindCodec(
                     ComboElement, JsonComboDecoder, JsonComboEncoder().encode
                 ),
-                handler_builder=build_standalone_combo_handler_decoder,
+                handler_builder=build_standalone_value_handler_decoder,
             ),
             LeafKindSpec(
                 kind="radio",
                 codec=KindCodec(
                     RadioElement, JsonRadioDecoder, JsonRadioEncoder().encode
                 ),
-                handler_builder=build_standalone_radio_handler_decoder,
+                handler_builder=build_standalone_value_handler_decoder,
             ),
         ]
 

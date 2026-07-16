@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Self, cast
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements._util import strip_none
 from punt_lux.protocol.elements.element_wire import ElementWireContext
+from punt_lux.protocol.elements.value_change_handlers import ApplyPatchOnChange
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
@@ -26,34 +27,6 @@ if TYPE_CHECKING:
 __all__ = ["JsonRadioDecoder", "JsonRadioEncoder"]
 
 
-class _UpdateSelectedHandler:
-    """Serializable handler that updates a radio's selection on pick.
-
-    On the Hub side this runs when ``ValueChanged`` fires — updating the
-    authoritative ``selected`` index via ``apply_patch``. On the Display side,
-    ``wrap_handlers_for_remote`` wraps it in a ``RemoteDispatchGroup`` that sends
-    the interaction to the Hub.
-    """
-
-    _elem: RadioElement
-
-    def __new__(cls, elem: RadioElement) -> Self:
-        self = super().__new__(cls)
-        self._elem = elem
-        return self
-
-    def __reduce__(self) -> tuple[object, ...]:
-        return (object.__new__, (type(self),), {"_elem": self._elem})
-
-    def __setstate__(self, state: dict[str, object]) -> None:
-        for key, value in state.items():
-            object.__setattr__(self, key, value)
-
-    @trace
-    def __call__(self, event: ValueChanged) -> None:
-        self._elem.apply_patch({"selected": event.value})
-
-
 _RADIO_EVENT_TYPES: dict[str, type[ValueChanged]] = {"changed": ValueChanged}
 
 
@@ -62,7 +35,7 @@ class JsonRadioDecoder:
 
     Constructed once per tier with that tier's ``renderer_factory`` + ``emit`` +
     ``HandlerDecoder``. Parallel to ``JsonCheckboxDecoder``: always registers the
-    built-in ``_UpdateSelectedHandler`` for state sync, then installs any
+    built-in ``ApplyPatchOnChange`` for state sync, then installs any
     wire-declared handlers from the ``handlers`` key.
     """
 
@@ -99,7 +72,7 @@ class JsonRadioDecoder:
             selected=ctx.optional_int_with_default(raw, "selected", default=0),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),
         )
-        elem.add_handler(ValueChanged, _UpdateSelectedHandler(elem))
+        elem.add_handler(ValueChanged, ApplyPatchOnChange(elem, field="selected"))
         self._install_handlers(elem, raw)
         return elem
 

@@ -10,7 +10,7 @@ replica **after dispatch but before any agent update**:
 - ``PropAfterDispatch`` — asserts the replica field after dispatch. Its
   proof strength depends on the scenario. The checkbox variant is the
   genuine re-push-carried-a-mutation proof: the value flips
-  ``False``→``True`` only via the dispatch re-push (``_UpdateValueHandler``
+  ``False``→``True`` only via the dispatch re-push (``ApplyPatchOnChange``
   runs on the Hub copy, and the flipped value reaches the replica only if
   the leg fired). The button variant is weaker by design: it asserts an
   unchanged field on an element that persists in the replica from the

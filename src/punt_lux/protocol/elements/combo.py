@@ -25,10 +25,10 @@ from punt_lux.domain.validation import ValidationError
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.combo_codec import JsonComboDecoder, JsonComboEncoder
 from punt_lux.protocol.elements.patch_field import PatchField
-from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
-from punt_lux.protocol.standalone_combo_handler import (
-    build_standalone_combo_handler_decoder,
+from punt_lux.protocol.elements.value_change_handlers import (
+    build_standalone_value_handler_decoder,
 )
+from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -206,7 +206,7 @@ class ComboElement(Element):
             renderer_factory=RAISING_FACTORY,
             emit=NO_EMIT,
             element_cls=cls,
-            handler_decoder=build_standalone_combo_handler_decoder(
+            handler_decoder=build_standalone_value_handler_decoder(
                 cast("PublishSink", RaisingPublishSink("ComboElement.from_dict")),
             ),
         )
