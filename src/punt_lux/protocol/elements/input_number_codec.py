@@ -77,6 +77,7 @@ class JsonInputNumberDecoder:
     _emit: Emit
     _cls: type[InputNumberElement]
     _handler_decoder: HandlerDecoder[ValueChanged]
+    __slots__ = ("_cls", "_emit", "_handler_decoder", "_rf")
 
     def __new__(
         cls,
@@ -167,10 +168,8 @@ class JsonInputNumberEncoder:
     """Encode an ``InputNumberElement`` to its JSON-compatible wire dict.
 
     Stateless. ``min`` / ``max`` / ``step`` are emitted only when present,
-    ``integer`` only when ``True``, and ``tooltip`` only when present — so the
-    wire shape matches the prior dataclass codec byte-for-byte in the
-    tooltip-absent case; a present ``tooltip`` is now carried (the legacy codec
-    dropped it — this activates it for parity with slider / input_text).
+    ``integer`` only when ``True``, and ``tooltip`` only when present — matching
+    the prior wire shape, now also carrying ``tooltip`` (for parity with slider).
     """
 
     __slots__ = ()

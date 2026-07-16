@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
-from typing import Self
+from typing import Self, final
 
 __all__ = ["PatchField"]
 
 
+@final
 class PatchField:
     """Coerce a JSON-decoded ``apply_patch`` value for one named field.
 
-    ``Element.apply_patch`` dispatches wire values straight to the
-    ``_set_<field>`` setters, so each arrives as ``object``. PY-EH-1 demands
-    boundary validation before assigning to a narrowly-typed attribute; a
-    wrong-typed patch value is a construction bypass, so the coercers raise
-    ``TypeError`` (PY-EH-2) naming the field. Binding the name once lets a
-    setter read as intent: ``self._label = PatchField("label").as_str(value)``.
+    ``Element.apply_patch`` dispatches wire values to the ``_set_<field>`` setters
+    as ``object``; a wrong-typed value is a construction bypass, so each coercer
+    validates at the boundary and raises ``TypeError`` naming the field. Binding the
+    name once reads as intent: ``self._label = PatchField("label").as_str(value)``.
     """
 
     _name: str
+    __slots__ = ("_name",)
 
     def __new__(cls, name: str) -> Self:
         self = super().__new__(cls)
