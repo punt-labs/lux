@@ -38,6 +38,11 @@ _FILLS: tuple[ImVec4, ...] = (
     ImVec4(0.30, 0.45, 0.95, 0.55),
     ImVec4(0.70, 0.70, 0.70, 0.55),
 )
+# AlwaysClamp clamps typed (Ctrl+click) input to the 0..255 min/max, not just
+# dragging. Without it a typed 999 flows into the returned tuple and the fill
+# paints past the field until RgbaColor clamps it at commit — the declared
+# channel bounds must hold on every input path, not only the drag.
+_CHANNEL_FLAGS = imgui.SliderFlags_.always_clamp.value
 # A transparent frame lets the fill show; DragInt otherwise paints an opaque
 # FrameBg over it.
 _TRANSPARENT = ImVec4(0.0, 0.0, 0.0, 0.0)
@@ -70,11 +75,9 @@ class ColorChannelStrip:
         imgui.begin_group()
         style = imgui.get_style()
         spacing = style.item_inner_spacing.x
-        rounding = style.frame_rounding
         frame_h = imgui.get_frame_height()
         # Reserve count spacings: count-1 between channels, one before the swatch.
         w_inputs = max(imgui.calc_item_width() - (frame_h + count * spacing), 1.0)
-        draw_list = imgui.get_window_draw_list()
 
         for col in _FRAME_COLS:
             imgui.push_style_color(col.value, _TRANSPARENT)
@@ -89,9 +92,10 @@ class ColorChannelStrip:
             prev = split
             imgui.set_next_item_width(width)
             pos = imgui.get_cursor_screen_pos()
-            fill = _FILLS[idx]
-            self._fill(draw_list, pos, width, frame_h, rounding, chans[idx], fill)
-            edited, chans[idx] = imgui.drag_int(f"##c{idx}", chans[idx], 1.0, 0, 255)
+            self._fill(pos, width, frame_h, chans[idx], _FILLS[idx])
+            edited, chans[idx] = imgui.drag_int(
+                f"##c{idx}", chans[idx], 1.0, 0, 255, flags=_CHANNEL_FLAGS
+            )
             changed = changed or edited
 
         imgui.pop_style_color(len(_FRAME_COLS))
@@ -104,23 +108,18 @@ class ColorChannelStrip:
 
     @staticmethod
     def _fill(
-        draw_list: imgui.ImDrawList,
-        pos: ImVec2,
-        width: float,
-        height: float,
-        rounding: float,
-        value: int,
-        tint: ImVec4,
+        pos: ImVec2, width: float, height: float, value: int, tint: ImVec4
     ) -> None:
         """Paint the value-proportional colored fill behind one channel field."""
         fraction = value / 255.0
         if fraction <= 0.0:
             return
-        draw_list.add_rect_filled(
-            ImVec2(pos.x, pos.y),
+        # draw_list and frame rounding are frame-global; fetch, don't thread them.
+        imgui.get_window_draw_list().add_rect_filled(
+            pos,
             ImVec2(pos.x + width * fraction, pos.y + height),
             imgui.get_color_u32(tint),
-            rounding,
+            imgui.get_style().frame_rounding,
         )
 
     @staticmethod

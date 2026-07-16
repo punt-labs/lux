@@ -318,6 +318,7 @@ class _FakeImgui:
 
     recorded: list[Rgba]
     picker_flags: list[int]
+    channel_flags: list[int]
     draw_list: _FakeDrawList
     _frames: list[_Frame]
     _index: int
@@ -330,6 +331,7 @@ class _FakeImgui:
         self = super().__new__(cls)
         self.recorded = []
         self.picker_flags = []
+        self.channel_flags = []
         self.draw_list = _FakeDrawList()
         self._frames = list(frames)
         self._index = 0
@@ -431,15 +433,16 @@ class _FakeImgui:
         _lo: int = 0,
         _hi: int = 0,
         _fmt: str = "%d",
-        _flags: int = 0,
+        flags: int = 0,
     ) -> tuple[bool, int]:
-        """Record the resolved-in channel; return the dragged channel when set.
+        """Record the resolved-in channel and its clamp flags; return the drag.
 
         On the picker path (``_picked`` set), a channel bar edits only on a
         ``channel_drag`` frame — an SV-square drag leaves every channel quiet.
         """
         idx = int(label.removeprefix("##c"))
         self._channel_ins[idx] = v
+        self.channel_flags.append(flags)
         frame = self._current
         if self._picked:
             if frame.channel_drag and frame.dragged is not None:
@@ -776,6 +779,28 @@ class TestChannelFillScalesWithValue:
         assert r_high > r_low
         assert r_high == pytest.approx(60.0 * 216 / 255)
         assert r_low == pytest.approx(60.0 * 37 / 255)
+
+
+class TestChannelInputIsClamped:
+    """Each channel DragInt carries AlwaysClamp so typed input stays 0..255.
+
+    Without the flag ImGui clamps dragging but not Ctrl+click typed input, so a
+    typed 999 would flow into the returned tuple and paint the fill past the
+    field. AlwaysClamp holds the declared channel bounds on every input path.
+    """
+
+    def test_every_channel_drag_int_sets_always_clamp(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        always_clamp = imgui.SliderFlags_.always_clamp.value
+        fake = _FakeImgui(_Frame(dragged=None, active=False, committed=False))
+        _install(monkeypatch, fake)
+        renderer = ColorPickerRenderer(WidgetState())
+
+        renderer.render(_picker(value="#FF3399"))  # three RGB channels
+
+        assert len(fake.channel_flags) == 3
+        assert all(flags & always_clamp for flags in fake.channel_flags)
 
 
 class TestRendererPickerVariant:
