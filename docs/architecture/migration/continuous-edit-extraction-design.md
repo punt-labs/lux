@@ -1,25 +1,30 @@
 # Extracting the shared `ContinuousEditArbiter` (`lux-ld6y`)
 
-**Status:** design, awaiting operator direction-check. Designed **empirically
-from the three now-working arbiters**, not from the earlier speculative sketches.
-**Bead:** `lux-ld6y` — the shared continuous-edit extraction, unblocked now that
-all three non-atomic mutable kinds are migrated and green.
-**Scope:** a behavior-preserving refactor (PY-RF-2) that deletes the three
-bespoke arbiters and folds all three renderers onto one shared
+**Status:** implemented. Designed **empirically from the three then-shipped
+arbiters**, not from the earlier speculative sketches, and folded exactly as
+recommended below.
+**Bead:** `lux-ld6y` — the shared continuous-edit extraction, unblocked once all
+three non-atomic mutable kinds were migrated and green.
+**Scope:** a behavior-preserving refactor (PY-RF-2) that deleted the three
+bespoke arbiters and folded all three renderers onto one shared
 `ContinuousEditArbiter[T]` in a single change. No new element, no protocol
 change, no state-machine change.
 
-**The three shipped implementations this design is derived from:**
+**The three pre-fold implementations this design was derived from** — the
+bespoke `InputTextArbiter` (`str` carrier), `SliderArbiter` (`float` carrier),
+and `ColorPickerArbiter` (arity-4 RGBA `tuple` carrier). They no longer exist as
+separate files; the fold replaced all three with the shared module the links
+below now point at:
 
-- [`input_text_selection.py`](../../../src/punt_lux/display/renderers/imgui/input_text_selection.py)
-  — `InputTextArbiter` (`str` carrier)
-- [`slider_selection.py`](../../../src/punt_lux/display/renderers/imgui/slider_selection.py)
-  — `SliderArbiter` (`float` carrier)
-- [`color_picker_selection.py`](../../../src/punt_lux/display/renderers/imgui/color_picker_selection.py)
-  — `ColorPickerArbiter` (arity-4 RGBA `tuple` carrier)
-- [`widget_state.py`](../../../src/punt_lux/scene/widget_state.py) — the
-  `INPUT_*` / `SLIDER_*` / `COLOR_*` suffix families and `get_str` / `get_float`
-  / `get_tuple`.
+- [`continuous_edit_selection.py`](../../../src/punt_lux/display/renderers/imgui/continuous_edit_selection.py)
+  — `ValueAccessor[T]` Protocol + `ContinuousEditArbiter[T]`, the one generic
+  arbiter that replaced the three bespoke ones.
+- [`continuous_edit_accessors.py`](../../../src/punt_lux/display/renderers/imgui/continuous_edit_accessors.py)
+  — `StrValueAccessor` / `FloatValueAccessor` / `ColorValueAccessor`, the three
+  `@final` per-carrier leaves.
+- [`widget_state.py`](../../../src/punt_lux/scene/widget_state.py) — the one
+  `CONTINUOUS_EDIT_*` suffix family (collapsed from the pre-fold `INPUT_*` /
+  `SLIDER_*` / `COLOR_*` families) and `get_str` / `get_float` / `get_tuple`.
 
 **Prior sketches (inputs, not the answer):**
 [`slider-element-design.md`](./slider-element-design.md) §3.2–3.3 and
@@ -184,8 +189,8 @@ a logic seam.
 ### 1.5 Type annotations and imports
 
 Every signature annotates the carrier type (`str` / `float` / `Rgba`); these all
-become the generic `T`. `color_picker_selection.py` additionally imports
-`Rgba, RgbaColor` — the only import divergence; it moves to the
+become the generic `T`. The pre-fold color arbiter additionally imported
+`Rgba, RgbaColor` — the only import divergence; it moved to the
 `ColorValueAccessor` (§3), not the shared arbiter.
 
 ### 1.6 Diff summary
@@ -333,12 +338,12 @@ parametrise, or is it absorbable?
 
 ### 4.1 The empirical finding
 
-`color_picker`'s buffer lives under `COLOR_BUFFER_SUFFIX`
-([`color_picker_selection.py:56`](../../../src/punt_lux/display/renderers/imgui/color_picker_selection.py)),
-justified by the comment at
-[`widget_state.py:44`](../../../src/punt_lux/scene/widget_state.py): a per-patch
-mirror of `widget_value` writes the hex *string* under the bare id, so a tuple
-buffer under the bare id would alias a tuple against a hex string on one key.
+Pre-fold, `color_picker`'s buffer lived under its own `COLOR_BUFFER_SUFFIX`
+(in the bespoke color arbiter), justified by the comment now carried at
+[`widget_state.py`](../../../src/punt_lux/scene/widget_state.py) on
+`CONTINUOUS_EDIT_BUFFER_SUFFIX`: a per-patch mirror of `widget_value` writes the
+hex *string* under the bare id, so a tuple buffer under the bare id would alias a
+tuple against a hex string on one key.
 
 **Verified against the code:** `widget_value()` is *defined* on the elements
 (`color_picker.py:208`, `slider.py:281`, etc.) but has **no live caller in
