@@ -1,11 +1,11 @@
 # pyright: reportUnknownMemberType=false
 """The shared continuous-edit arbiter — the honour-or-defer decision, imgui-free.
 
-A non-atomic mutable widget (``input_text``, ``slider``, ``color_picker``)
-carries one Hub-authoritative ``value``, but while the user edits, the *local
-buffer* — not the Hub value — is authoritative. This arbiter encodes the
-controlled-input-over-latency rule (how form libraries handle a slow round
-trip) so the honour-vs-keep-editing decision is testable without ImGui.
+A non-atomic mutable widget (``input_text``, ``slider``, ``input_number``,
+``color_picker``) carries one Hub-authoritative ``value``, but while the user
+edits, the *local buffer* — not the Hub value — is authoritative. This arbiter
+encodes the controlled-input-over-latency rule (how form libraries handle a slow
+round trip) so the honour-vs-keep-editing decision is testable without ImGui.
 
 Idle: the rendered value is ``elem.value`` each frame, so an agent-driven
 change appears next frame (checkbox-style). Editing: the buffer is
@@ -24,8 +24,8 @@ The four slots (buffer, editing, committed, commit-hub) and the whole
 honour/defer/commit/echo control flow are carrier-agnostic: they use only the
 untyped ``WidgetState`` accessors and Python ``==``. The two carrier-typed
 touches — the buffer read (with its per-type miss policy) and the committed
-coercion — are delegated to an injected ``ValueAccessor[T]``. Governed by
-``docs/input_text_reconciliation.tex``.
+coercion — are delegated to an injected ``ValueAccessor[T]``. The general,
+data-independent model is ``docs/commit_on_idle_reconciliation.tex`` (ProB-verified).
 """
 
 from __future__ import annotations

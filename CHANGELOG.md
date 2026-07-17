@@ -81,7 +81,7 @@
   release (never per drag frame). Through the echo-latency window the just-
   committed value is honoured optimistically, so a re-grab builds on it. The
   discipline is the *same* verified state machine `input_text` uses
-  (`docs/input_text_reconciliation.tex`) — the model is type-agnostic, so the
+  (`docs/commit_on_idle_reconciliation.tex`) — the model is type-agnostic, so the
   shared `ContinuousEditArbiter[T]` drives it for the float carrier via a
   `FloatValueAccessor` (the `ValueAccessor[T]` seam) unchanged; exact float `==`
   is the correct reconciliation predicate (values are
@@ -104,7 +104,7 @@
   gesture across the SV square and hue bar commits the whole color once per
   sub-control release — never a partial channel. The discipline is the *same*
   verified state machine `input_text`/`slider` use
-  (`docs/input_text_reconciliation.tex`) — the model is type-agnostic, so the
+  (`docs/commit_on_idle_reconciliation.tex`) — the model is type-agnostic, so the
   shared `ContinuousEditArbiter[T]` drives it for the RGBA-tuple carrier via a
   `ColorValueAccessor` (the `ValueAccessor[T]` seam) unchanged. All three
   non-atomic controls (`input_text`, `slider`, `color_picker`) now fold onto that
@@ -130,7 +130,7 @@
   re-push landing mid-edit cannot clobber the value under the cursor, and exactly
   one `ValueChanged` fires on commit (blur / Enter / a stepper release) — never
   per keystroke. The discipline is the *same* verified state machine the other
-  three controls use (`docs/input_text_reconciliation.tex`) — the model is
+  three controls use (`docs/commit_on_idle_reconciliation.tex`) — the model is
   type-agnostic, so the shared `ContinuousEditArbiter[T]` drives the float carrier
   via the existing `FloatValueAccessor` (the `ValueAccessor[T]` seam) **unchanged**;
   the `integer` variant is a coercion at the `input_int` widget seam (`int` payload,

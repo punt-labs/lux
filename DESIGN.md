@@ -4425,7 +4425,7 @@ the pipeline the ratified legacy `replace()` seam builds on.
 **Status:** accepted. The concrete mechanism implementing DES-046's
 "continuous, in-progress input is Display-local" for the non-atomic mutable
 kinds (`input_text`, `slider`, `color_picker`, `input_number`). Model:
-[`docs/input_text_reconciliation.tex`](docs/input_text_reconciliation.tex)
+[`docs/commit_on_idle_reconciliation.tex`](docs/commit_on_idle_reconciliation.tex)
 (ProB-verified).
 
 DES-046 draws the line — continuous input is Display-local so a whole-UI resend
@@ -4500,7 +4500,7 @@ committed value, commit-time-Hub value):
 
 ### References
 
-- [`docs/input_text_reconciliation.tex`](docs/input_text_reconciliation.tex)
+- [`docs/commit_on_idle_reconciliation.tex`](docs/commit_on_idle_reconciliation.tex)
   (the ProB-verified model + partition coverage), DES-046 (the locality
   principle this implements), DES-039 (the `validate()` boundary that discharges
   the NaN precondition); `docs/architecture/migration/slider-element-design.md`,
@@ -4570,7 +4570,7 @@ abstraction.
   safety instead of re-deriving it. `input_number` was the first such reuse.
 - The non-atomic interleaving problem (agent-drive vs. user-edit on shared
   editable state) is **closed for the class**, not per widget.
-- `docs/input_text_reconciliation.tex`'s source-of-record names the shared
+- `docs/commit_on_idle_reconciliation.tex`'s source-of-record names the shared
   module; its `fuzz` + five ProB goals are the merge gate whenever the arbiter
   or any carrier changes.
 
@@ -4579,7 +4579,7 @@ abstraction.
 - [`docs/architecture/migration/continuous-edit-extraction-design.md`](docs/architecture/migration/continuous-edit-extraction-design.md),
   DES-048 (the mechanism unified here), `continuous_edit_selection.py` /
   `continuous_edit_accessors.py` (the shipped arbiter + accessors),
-  `docs/input_text_reconciliation.tex` (governs all carriers unchanged); bead
+  `docs/commit_on_idle_reconciliation.tex` (governs all carriers unchanged); bead
   `lux-ld6y`, PR #253.
 
 ## DES-050: Value-Proportional Color Channels — Custom Rendering Where Stock ImGui Markers Are Labels

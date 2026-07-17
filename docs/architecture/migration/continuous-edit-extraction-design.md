@@ -482,7 +482,7 @@ class ContinuousEditArbiter[T]:
     and the honour/defer/commit/optimistic-echo discipline are identical for
     text, float, and RGBA-tuple carriers. The two carrier-typed touches — the
     buffer read (with its miss policy) and the committed coercion — are delegated
-    to an injected ValueAccessor[T]. Governed by input_text_reconciliation.tex.
+    to an injected ValueAccessor[T]. Governed by commit_on_idle_reconciliation.tex.
     """
 
     _state: WidgetState
@@ -634,17 +634,18 @@ PR-2 boundary the `color_picker` design already scoped
 ## 8. z-spec: the model is unchanged; update its source-of-record block
 
 The shared arbiter implements
-[`docs/input_text_reconciliation.tex`](../../input_text_reconciliation.tex)
+[`docs/commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex)
 **unchanged** — it is the *same state machine* for all three carriers. The `.tex`
-header already declares the model type-agnostic over its carrier `[VALUE]`,
-naming text, float, and the RGBA tuple as three valid instantiations
-([`input_text_reconciliation.tex:13-24`](../../input_text_reconciliation.tex)).
+header already declares the model data-independent over its carrier `[VALUE]`,
+naming text, float, and the RGBA tuple as three valid instantiations (the header
+comment block and the "Basic Types" section of
+[`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex)).
 Folding three implementations into one does not touch a single transition,
 invariant, or fidelity variant.
 
 **Two z-spec actions:**
 
-1. **Re-run as the merge gate.** `fuzz -t docs/input_text_reconciliation.tex`
+1. **Re-run as the merge gate.** `fuzz -t docs/commit_on_idle_reconciliation.tex`
    clean, and the five ProB goals — `lost=ztrue`, `editing=ztrue & edited=zfalse`,
    `clobbered=ztrue`, `fires>1` (all *not found*), and the deadlock check — at
    `DEFAULT_SETSIZE` 2 and 3, all reporting the verified verdict. Because the fold
@@ -654,7 +655,8 @@ invariant, or fidelity variant.
    untouched, so fidelity stands.
 
 2. **Rename the source-of-record.** The `.tex` "Source of record" block
-   ([`input_text_reconciliation.tex:26-49`](../../input_text_reconciliation.tex))
+   (in the header comment of
+   [`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex))
    currently names the three bespoke arbiter files. After the fold, it names the
    **one** shared arbiter — `display/renderers/imgui/continuous_edit_selection.py
    :: ContinuousEditArbiter` (plus the accessors module) — as the single source of
