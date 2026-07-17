@@ -17,7 +17,7 @@ The reconciliation itself is the **now-shipped shared abstraction**
 [`continuous_edit_accessors.py`](../../../src/punt_lux/display/renderers/imgui/continuous_edit_accessors.py)
 — `ValueAccessor[T]` + the three leaf accessors), extracted in PR #253. The
 ProB-verified, data-independent reconciliation state machine is
-[`input_text_reconciliation.tex`](../../input_text_reconciliation.tex).
+[`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex).
 **Tracking:** epic `lux-xs7r`; this element is `lux-xs7r.1`.
 
 ---
@@ -486,11 +486,11 @@ commit-on-idle:
 
 ---
 
-## 6. z-spec — reuse `input_text_reconciliation.tex` unchanged, no new spec
+## 6. z-spec — reuse `commit_on_idle_reconciliation.tex` unchanged, no new spec
 
 The shipped `ContinuousEditArbiter[T]` is the governed reconciliation, and its
 governing spec is the data-independent
-[`input_text_reconciliation.tex`](../../input_text_reconciliation.tex), whose
+[`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex), whose
 carrier is the abstract `[VALUE]`. `input_number`'s carrier is `float` (with the
 `int` variant a `float`-representable value) — a valid `[VALUE]` instantiation,
 exactly as `str` (input_text), `float` (slider), and the RGBA tuple (color_picker)
@@ -506,7 +506,7 @@ the `int` variant, integrality is exact and reflexivity is trivial.
 
 Therefore this migration **adds no new Z spec.** The merge gate for the
 reconciliation logic is re-running the shared model: `fuzz -t
-docs/input_text_reconciliation.tex` clean, and the five ProB goals (`lost`,
+docs/commit_on_idle_reconciliation.tex` clean, and the five ProB goals (`lost`,
 `editing∧¬edited`, `clobbered`, `fires>1`, deadlock) at `DEFAULT_SETSIZE` 2 and 3
 reporting the verified verdict — since the model is the shared discipline all four
 arbiters now implement. The two documented non-loss limits (F1 double-commit

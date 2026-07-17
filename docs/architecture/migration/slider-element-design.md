@@ -13,7 +13,7 @@ its commit-on-idle arbiter
 its renderer
 ([`input_text_renderer.py`](../../../src/punt_lux/display/renderers/input_text_renderer.py)),
 and its ProB-verified reconciliation state machine
-([`input_text_reconciliation.tex`](../../input_text_reconciliation.tex)).
+([`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex)).
 **Tracking:** epic `lux-xs7r`; the shared-abstraction extraction deferred to
 `color_picker` #3 is `lux-ld6y`.
 
@@ -22,7 +22,7 @@ and its ProB-verified reconciliation state machine
 ## Top-line verdict: the input_text reconciliation model governs slider unchanged
 
 **Yes.** The verified state machine in
-[`input_text_reconciliation.tex`](../../input_text_reconciliation.tex) governs
+[`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex) governs
 `slider`'s drag reconciliation **unchanged** — same states, same operations,
 same five invariants, same fidelity variants. Only the *type of the carried
 value* differs: `slider` carries a `float` in `[min, max]` where `input_text`
@@ -35,7 +35,7 @@ echo, the agent push). Substituting "the set of reachable float positions in
 relation or the invariants.
 
 Therefore **this migration reuses
-[`input_text_reconciliation.tex`](../../input_text_reconciliation.tex) as its
+[`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex) as its
 governing specification and adds no new Z spec.** The `.tex` is already
 committed as a regression artifact; re-running `fuzz -t` plus the five
 model-check goals whenever either arbiter changes covers slider too, because
@@ -43,7 +43,7 @@ the model is the shared discipline both elements implement.
 
 The mapping from the model's vocabulary to slider's ImGui idiom:
 
-| Model ([`.tex`](../../input_text_reconciliation.tex)) | `input_text` | `slider` |
+| Model ([`.tex`](../../commit_on_idle_reconciliation.tex)) | `input_text` | `slider` |
 | --- | --- | --- |
 | `focused` | `is_item_active()` | `is_item_active()` (thumb grabbed / keyboard focus) |
 | `edited` (real-edit witness) | `changed` from `input_text_with_hint` | `changed` from `slider_float` / `slider_int` |
@@ -321,7 +321,7 @@ differs. The #3 extraction collapses these into one generic
 | `resolve`: editing → buffer; elif committed set and `hub == commit-hub` → committed; else forget + hub | yes | yes |
 | Reconciliation is by **value equality alone** — no echo token, single-slot latest-commit | yes | yes |
 | The two non-loss limits (F1 double-commit flicker, F2 agent-back-to-commit masking) | yes | yes (§6) |
-| The five invariants of [`input_text_reconciliation.tex`](../../input_text_reconciliation.tex) | governed | governed |
+| The five invariants of [`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex) | governed | governed |
 
 ### 3.3 What GENUINELY DIFFERS (enumerated, so #3 knows exactly what to parametrise)
 
@@ -525,7 +525,7 @@ installs.
 ## 6. Known edges — F1 and F2 apply identically
 
 The two documented non-loss limits from
-[`input_text_reconciliation.tex`](../../input_text_reconciliation.tex) §"Scope and
+[`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex) §"Scope and
 Known Limitations" apply to `slider` unchanged, and are deferred to the
 echo-token scheme (`lux-ld6y`) exactly as for `input_text`:
 
@@ -630,10 +630,10 @@ re-push reflects the mutated value).
 ### 7.5 z-spec regression re-run (no new spec)
 
 Because the migration reuses
-[`input_text_reconciliation.tex`](../../input_text_reconciliation.tex) as the
+[`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex) as the
 governing spec (§verdict), the merge gate for the reconciliation logic is
 re-running that model against the shared discipline both arbiters now implement:
-`fuzz -t docs/input_text_reconciliation.tex` clean, and the five ProB goals
+`fuzz -t docs/commit_on_idle_reconciliation.tex` clean, and the five ProB goals
 (`lost`, `editing∧¬edited`, `clobbered`, `fires>1`, deadlock) all reporting the
 verified verdict, at `DEFAULT_SETSIZE` 2 and 3. If — and only if — implementation
 surfaces a genuinely different interleaving or invariant for slider (none is

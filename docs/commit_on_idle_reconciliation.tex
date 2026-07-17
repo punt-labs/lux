@@ -1,19 +1,32 @@
 %
-% input_text_reconciliation.tex
+% commit_on_idle_reconciliation.tex
 %
-% A Z specification of the lux input_text honour/commit reconciliation
-% state machine: the buffer/editing/commit discipline that decides, on a
-% Hub/Display round trip with a DELAYED echo, when the local buffer defers
-% the Hub value and when it honours it.  Formalises the second
-% reconciliation-latency defect in input_text (Copilot MEDIUM, ``Refocus
-% loses commit echo'') after the first (pipelined-edits clobber) motivated
-% the commit-on-idle redesign.
+% THE general Z specification of lux's commit-on-idle reconciliation
+% discipline: the honour / defer / commit-echo state machine that governs
+% EVERY non-atomic mutable (continuous-edit) element -- input_text, slider,
+% input_number, color_picker -- through the ONE shared ContinuousEditArbiter.
+% It is the buffer/editing/commit discipline that decides, on a Hub/Display
+% round trip with a DELAYED echo, when the local buffer defers the Hub value
+% and when it honours it.
 %
-% This model is the shared discipline of the continuous-edit reconciliation
-% arbiters.  It is type-agnostic -- its carrier [VALUE] stands for the text an
-% input_text holds, the float a slider or an input_number holds, or the arity-4
-% RGBA float tuple a color_picker holds -- so it governs ALL FOUR arbiters
-% unchanged.  The input_number reuses the slider's float carrier verbatim (the
+% The model was first extracted from input_text, where two reconciliation-
+% latency defects surfaced across two review rounds -- the pipelined-edits
+% clobber (which motivated the commit-on-idle redesign) and the residual
+% ``refocus loses commit echo'' (Copilot MEDIUM) -- but it is not an input_text
+% model.  It is data-independent: its carrier [VALUE] is a parameter, not a
+% concrete type, and the same state machine governs all four arbiters unchanged
+% under three valid instantiations -- [VALUE] := str (the text an input_text
+% holds), [VALUE] := float (the number a slider or an input_number holds), and
+% [VALUE] := RGBA-tuple (the arity-4 float tuple a color_picker holds).  A
+% specification that governs four components is named for none of them: hence
+% commit_on_idle, not input_text.
+%
+% The two atomic-selection kinds are explicitly OUT of scope.  Checkbox, combo,
+% radio, and selectable hold no editable buffer, open no echo-latency window,
+% carry no arbiter, and need no reconciliation: an atomic selection commits in
+% one step and honours the Hub every frame, so this discipline does not apply.
+%
+% The input_number reuses the slider's float carrier verbatim (the
 % integer variant is a float-representable value, coerced to int only at the
 % input_int widget seam), so it adds no new carrier and no new interleaving.  The
 % tuple
@@ -59,16 +72,16 @@
 %       -- WidgetState: the per-scene shared CONTINUOUS_EDIT_* buffer/editing/
 %          commit-echo quad and its removal clear (discard_for)
 %
-% Type-check:  fuzz -t docs/input_text_reconciliation.tex
+% Type-check:  fuzz -t docs/commit_on_idle_reconciliation.tex
 % Model-check (see Section "Verification" for the exact goal predicates):
-%   probcli docs/input_text_reconciliation.tex -model_check -p DEFAULT_SETSIZE 2
-%   probcli docs/input_text_reconciliation.tex -model_check -nodead \
+%   probcli docs/commit_on_idle_reconciliation.tex -model_check -p DEFAULT_SETSIZE 2
+%   probcli docs/commit_on_idle_reconciliation.tex -model_check -nodead \
 %       -goal "lost=ztrue" -p DEFAULT_SETSIZE 2
-%   probcli docs/input_text_reconciliation.tex -model_check -nodead \
+%   probcli docs/commit_on_idle_reconciliation.tex -model_check -nodead \
 %       -goal "editing=ztrue & edited=zfalse" -p DEFAULT_SETSIZE 2
-%   probcli docs/input_text_reconciliation.tex -model_check -nodead \
+%   probcli docs/commit_on_idle_reconciliation.tex -model_check -nodead \
 %       -goal "fires>1" -p DEFAULT_SETSIZE 2
-%   probcli docs/input_text_reconciliation.tex -model_check -nodead \
+%   probcli docs/commit_on_idle_reconciliation.tex -model_check -nodead \
 %       -goal "clobbered=ztrue" -p DEFAULT_SETSIZE 2
 %
 % Formatting follows the fuzz house rules: \quad~ for continuation
@@ -84,14 +97,43 @@
 
 \begin{document}
 
-\title{The lux input\_text Reconciliation Discipline: a Z Specification}
-\author{Formal model of the honour / defer / commit-echo state machine}
+\title{The lux Commit-on-Idle Reconciliation Discipline: a Z Specification}
+\author{Formal model of the honour / defer / commit-echo state machine\\
+  shared by every continuous-edit element}
 \date{July 2026}
 \maketitle
 
 % ============================================================
 \section{Introduction}
 % ============================================================
+
+This is the Z model of lux's \emph{commit-on-idle} reconciliation discipline:
+the honour / defer / commit-echo state machine that every non-atomic mutable
+element shares.  A non-atomic mutable --- a \emph{continuous-edit} --- element is
+one whose value the user changes through a sustained gesture rather than a
+single click: \texttt{input\_text}, \texttt{slider}, \texttt{input\_number}, and
+\texttt{color\_picker}.  All four are reconciled through the one shared
+\texttt{ContinuousEditArbiter}, and this specification governs all four
+unchanged.  It does so because it is \emph{data-independent}: its only carrier,
+\texttt{VALUE} (Section~``Basic Types''), is a parameter, not a concrete type,
+and the machine never inspects the internal structure of a value --- only
+whether two values are equal.  The carrier has three valid instantiations, one
+per carried type: the text a \texttt{input\_text} holds
+(\texttt{VALUE}~$:=$~\texttt{str}), the number a \texttt{slider} or an
+\texttt{input\_number} holds (\texttt{VALUE}~$:=$~\texttt{float}), and the
+arity-4 RGBA float tuple a \texttt{color\_picker} holds
+(\texttt{VALUE}~$:=$~tuple).  The two \emph{atomic-selection} kinds ---
+\texttt{checkbox}, \texttt{combo}, \texttt{radio}, and \texttt{selectable} ---
+are out of scope (Section~\ref{sec:scope}): an atomic selection commits in one
+step and honours the Hub every frame, so it has no buffer, no echo-latency
+window, no arbiter, and nothing to reconcile.
+
+The exposition below is cast in terms of \texttt{input\_text}, the element the
+model was first extracted from and the canonical instantiation
+(\texttt{VALUE}~$:=$~\texttt{str}).  Nothing in the argument depends on the value
+being text: read ``text'' as ``value'' and the same reasoning holds for the
+float and tuple carriers.  Section~``Basic Types'' records why the two other
+carriers add no new interleaving for the model to miss.
 
 An \texttt{input\_text} carries one Hub-authoritative \texttt{value}, replicated
 to the Display and rendered every frame by an ImGui text widget that keeps its
@@ -154,12 +196,28 @@ offending trace.
   [VALUE]
 \end{zed}
 
-\texttt{VALUE} is the set of text values the field may hold.  Two values suffice
-to exhibit the loss: an initial and pre-echo value, and a distinct committed
-value whose echo has not yet arrived.  Three exercise the interleaving of a
-second edit against an in-flight echo more thoroughly.  The carrier is bounded
-by ProB's \texttt{DEFAULT\_SETSIZE}, so no explicit cardinality constant is
-needed.
+\texttt{VALUE} is the set of values the field may hold.  It is a \emph{given
+set} --- a parameter, not a concrete type --- and that is the whole of the
+model's generality: the machine compares values for equality and never inspects
+their structure, so the same schemas govern the \texttt{str} carrier of an
+\texttt{input\_text}, the \texttt{float} carrier of a \texttt{slider} or an
+\texttt{input\_number}, and the RGBA-tuple carrier of a \texttt{color\_picker}
+without change.  The other two carriers add no new interleaving for the model to
+miss.  The float carrier is a single value crossing the wire exactly as text
+does; the one type-specific proof obligation --- that value equality is
+reflexive, which fails for a \texttt{NaN} --- is discharged outside the model by
+the elements' \texttt{validate} guards (\texttt{math.isfinite}) and, for the
+tuple, structurally by its hex-string wire encoding, which cannot represent
+\texttt{NaN}.  The tuple carrier is atomic at the wire (one hex string), the
+widget (one changed/deactivate signal), the commit (one \texttt{ValueChanged}),
+and the echo (one apply), so it exhibits no partial-echo or per-component race
+absent from the text case.
+
+Two values suffice to exhibit the loss: an initial and pre-echo value, and a
+distinct committed value whose echo has not yet arrived.  Three exercise the
+interleaving of a second edit against an in-flight echo more thoroughly.  The
+carrier is bounded by ProB's \texttt{DEFAULT\_SETSIZE}, so no explicit
+cardinality constant is needed.
 
 % ============================================================
 \section{Free Types and Constants}
@@ -552,7 +610,7 @@ state.
 
 Type-checking is a \texttt{fuzz} pass:
 \begin{verbatim}
-  fuzz -t docs/input_text_reconciliation.tex
+  fuzz -t docs/commit_on_idle_reconciliation.tex
 \end{verbatim}
 
 Invariants 1, 2, 3, and 4 are state properties, checked by asking ProB whether
@@ -560,26 +618,26 @@ their negation is \emph{reachable}.  A goal that is not found means the invarian
 holds on every reachable state:
 \begin{verbatim}
   # Invariant 1 -- commit durability (must report: goal NOT found)
-  probcli docs/input_text_reconciliation.tex -model_check -nodead \
+  probcli docs/commit_on_idle_reconciliation.tex -model_check -nodead \
     -goal "lost=ztrue" -p DEFAULT_SETSIZE 2
 
   # Invariant 2 -- honour discipline (must report: goal NOT found)
-  probcli docs/input_text_reconciliation.tex -model_check -nodead \
+  probcli docs/commit_on_idle_reconciliation.tex -model_check -nodead \
     -goal "editing=ztrue & edited=zfalse" -p DEFAULT_SETSIZE 2
 
   # Invariant 3 -- no clobber (must report: goal NOT found)
-  probcli docs/input_text_reconciliation.tex -model_check -nodead \
+  probcli docs/commit_on_idle_reconciliation.tex -model_check -nodead \
     -goal "clobbered=ztrue" -p DEFAULT_SETSIZE 2
 
   # Invariant 4 -- commit once (must report: goal NOT found)
-  probcli docs/input_text_reconciliation.tex -model_check -nodead \
+  probcli docs/commit_on_idle_reconciliation.tex -model_check -nodead \
     -goal "fires>1" -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
 Invariant 5 is the deadlock check over the full reachable state space:
 \begin{verbatim}
   # Invariant 5 -- deadlock freedom (must report: no deadlock, no violation)
-  probcli docs/input_text_reconciliation.tex -model_check -p DEFAULT_SETSIZE 2
+  probcli docs/commit_on_idle_reconciliation.tex -model_check -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
 All five return the same verdict at \texttt{DEFAULT\_SETSIZE 3}: the extra value

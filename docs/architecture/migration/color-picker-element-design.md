@@ -19,7 +19,7 @@ their renderers
 [`slider_renderer.py`](../../../src/punt_lux/display/renderers/slider_renderer.py)),
 and the ProB-verified, data-independent reconciliation state machine both
 implement
-([`input_text_reconciliation.tex`](../../input_text_reconciliation.tex)).
+([`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex)).
 **Tracking:** epic `lux-xs7r`; the shared-abstraction extraction is `lux-ld6y`.
 **Slider provenance:** the share-vs-differ analysis in
 [`slider-element-design.md`](./slider-element-design.md) §3.2–3.3 is the
@@ -42,7 +42,7 @@ reconciliation carrier is the RGBA tuple; tuple `==` is elementwise, so
 honour/defer/commit/optimistic-echo apply to the whole color atomically. See
 [Part B](#part-b--the-key-design-question-one-arbiter-over-a-tuple-carrier).
 
-**V2 — reuse [`input_text_reconciliation.tex`](../../input_text_reconciliation.tex)
+**V2 — reuse [`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex)
 unchanged; add no new Z spec.** The model's carrier `[VALUE]` is abstract; a
 tuple of finite floats is a valid instantiation of it, exactly as `str` (for
 `input_text`) and `float` (for `slider`) are. The tuple introduces **no new
@@ -505,7 +505,7 @@ to one seam. Noted so the choice is deliberate.
 ### B.3 Z-spec reuse verdict: the tuple carrier is governed unchanged
 
 The question the leader must be able to defend: does the data-independent
-[`input_text_reconciliation.tex`](../../input_text_reconciliation.tex) govern a
+[`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex) govern a
 **tuple** carrier unchanged, or does the tuple introduce a genuinely new
 interleaving or invariant needing a spec extension?
 
@@ -513,7 +513,7 @@ interleaving or invariant needing a spec extension?
 must hold:
 
 1. **The model's carrier is abstract.** The spec's basic type is `[VALUE]`
-   (`input_text_reconciliation.tex` §"Basic Types"), which ProB enumerates over a
+   (`commit_on_idle_reconciliation.tex` §"Basic Types"), which ProB enumerates over a
    bounded set; every operation reasons purely about value *equality* (`disp =
    committed`, `hub = committed`) and value *movement* (the honour frames, the
    echo, the agent push). The `.tex` header already declares the model
@@ -529,7 +529,7 @@ must hold:
    The model already enumerates every interleaving of focus, keystroke, commit,
    echo, and re-focus over one atomic value; a wider atomic value adds no
    reachable state. In particular the model's `HubEcho`
-   (`input_text_reconciliation.tex` §"The Hub Value") sets `hub' = committed`
+   (`commit_on_idle_reconciliation.tex` §"The Hub Value") sets `hub' = committed`
    atomically — which for a tuple is the whole color arriving at once, exactly the
    atomic `apply_patch` the Hub performs. There is no half-echoed tuple state for
    the model to be blind to.
@@ -548,7 +548,7 @@ must hold:
    crossed the wire; `color_picker` gets it for free from the hex encoding.
 
 Therefore this migration **reuses
-[`input_text_reconciliation.tex`](../../input_text_reconciliation.tex) as its
+[`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex) as its
 governing specification and adds no new Z spec.** The merge gate for the
 reconciliation logic is re-running that model — `fuzz -t` clean, and the five
 ProB goals (`lost`, `editing∧¬edited`, `clobbered`, `fires>1`, deadlock) all
@@ -571,7 +571,7 @@ non-atomic boundary exists, and §B.1 is the rigorous positive.
 ### B.4 Known edges — F1 and F2 apply identically
 
 The two documented non-loss limits from
-[`input_text_reconciliation.tex`](../../input_text_reconciliation.tex) §"Scope
+[`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex) §"Scope
 and Known Limitations" apply to `color_picker` unchanged, deferred to the
 echo-token scheme (`lux-ld6y`) exactly as for the other two:
 
@@ -621,7 +621,7 @@ enumerated it for two; the third confirms it:
 | `resolve`: editing → buffer; elif committed set and `hub == commit-hub` → committed; else forget + hub | yes | yes | yes |
 | Reconciliation by **value equality alone** — no echo token, single-slot latest-commit | yes | yes | yes |
 | The two non-loss limits (F1 flicker, F2 same-value masking) | yes | yes | yes |
-| Governed by [`input_text_reconciliation.tex`](../../input_text_reconciliation.tex) | yes | yes | yes |
+| Governed by [`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex) | yes | yes | yes |
 
 The `resolve`/`observe`/`commit`/`release`/`_forget_commit`/`_editing` bodies of
 [`input_text_selection.py`](../../../src/punt_lux/display/renderers/imgui/input_text_selection.py)
@@ -803,7 +803,7 @@ one shared abstraction.
   wire, the widget, the commit, and the echo; four per-component arbiters would
   invent state for a value with no per-component interaction. Tuple `==` gives
   atomic echo-window closure for free.
-- **Reuse [`input_text_reconciliation.tex`](../../input_text_reconciliation.tex)
+- **Reuse [`commit_on_idle_reconciliation.tex`](../../commit_on_idle_reconciliation.tex)
   unchanged; no new Z spec** (V2). The carrier `[VALUE]` is abstract; the tuple
   adds no new interleaving (atomic at every boundary); the per-component
   finiteness precondition is discharged **structurally** by the hex encoding —
