@@ -1,4 +1,4 @@
-"""Structural contract for a stateless leaf-widget painter."""
+"""Structural contract for a renderer that paints one element kind."""
 
 from __future__ import annotations
 
@@ -12,12 +12,12 @@ __all__ = ["LeafWidgetRenderer"]
 
 @runtime_checkable
 class LeafWidgetRenderer(Protocol):
-    """Paint one element as an ImGui widget.
+    """Paint one element kind through a single ``render`` call.
 
     The single-method family contract every per-kind renderer satisfies
-    structurally — no base class. ``isinstance(x, LeafWidgetRenderer)``
-    asserts membership at runtime; the concrete renderers narrow ``elem``
-    to their own element type.
+    structurally — no base class. Implementations may be stateless (a
+    self-contained widget) or compose injected collaborators (an
+    ``emit_event`` callback, or widget state plus a recursive child render).
     """
 
     def render(self, elem: Element) -> None:
