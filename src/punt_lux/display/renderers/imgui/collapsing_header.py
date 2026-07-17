@@ -49,11 +49,12 @@ class ImGuiCollapsingHeaderRenderer:
     def begin(self) -> bool:
         """Honour the Hub ``open`` flag; return whether the body renders.
 
-        Fires ``HeaderToggled`` only on a genuine user toggle (the reported
-        state differs from the honoured Hub value), never on a Hub-driven echo.
+        The tooltip attaches here, right after the header item: ``is_item_hovered``
+        tracks the last item, so applying it in ``end`` would bind to the last child.
         """
         imgui.set_next_item_open(self._elem.open)
         reported = imgui.collapsing_header(f"{self._elem.label}##{self._elem.id}")
+        self._factory.apply_tooltip(self._elem)
         event = self._toggle_event(reported=reported)
         if event is not None:
             self._elem.fire(event)
@@ -78,6 +79,5 @@ class ImGuiCollapsingHeaderRenderer:
         """No-op — a container's only body is its children (default recursion)."""
 
     def end(self, *, opened: bool) -> None:
-        """Apply the hover tooltip; ``collapsing_header`` has no matching close call."""
+        """No matching close call; the tooltip attached to the header in ``begin``."""
         _ = opened
-        self._factory.apply_tooltip(self._elem)

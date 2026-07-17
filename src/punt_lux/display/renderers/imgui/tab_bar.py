@@ -47,16 +47,16 @@ class ImGuiTabBarRenderer:
         """No-op — a tab bar's body is its tabs' children (the render override)."""
 
     def end(self, *, opened: bool) -> None:
-        """Close the surface, record the honoured active tab, apply the tooltip.
+        """Close the surface and record the honoured active tab.
 
-        The active tab is recorded only on an opened frame: a not-opened frame (a
-        tab bar in a collapsed collapsing_header) force-selected nothing, so honour
-        written there would misread ImGui's tab-0 default as a spurious user switch.
+        The active tab is recorded only on an opened frame: a not-opened frame
+        force-selected nothing, so honour written there would misread ImGui's
+        tab-0 default as a spurious user switch. No tooltip is painted: a tab bar
+        has only per-tab items, no whole-bar item, so it has no target.
         """
         if opened:
             imgui.end_tab_bar()
             self._arbiter().record_honoured(self._elem.active_tab)
-        self._factory.apply_tooltip(self._elem)
 
     def begin_tab(self, tab: Tab, *, active: str) -> bool:
         """Open one tab item, honouring the Hub value and firing on a user switch."""
