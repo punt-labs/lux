@@ -5,11 +5,8 @@
 from __future__ import annotations
 
 import logging
-import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
-
-import numpy as np
+from typing import TYPE_CHECKING, ClassVar, Self, cast
 
 from punt_lux.display.renderers import (
     ButtonRenderer,
@@ -30,9 +27,11 @@ from punt_lux.display.renderers import (
 )
 from punt_lux.display.renderers.container_renderer import ContainerRenderer
 from punt_lux.display.renderers.draw_element_renderer import DrawElementRenderer
+from punt_lux.display.renderers.modal_renderer import ModalRenderer
+from punt_lux.display.renderers.plot_renderer import PlotRenderer
+from punt_lux.display.renderers.tree_renderer import TreeRenderer
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
-from punt_lux.protocol import RemoteEventHandlerInvocation
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
@@ -55,6 +54,8 @@ from punt_lux.scene import WidgetState
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui import ImGuiRendererFactory
     from punt_lux.protocol import Element
+    from punt_lux.protocol.elements.layout import ModalElement, TreeElement
+    from punt_lux.protocol.elements.plot_element import PlotElement
     from punt_lux.types import EmitEventFn
 
 logger = logging.getLogger(__name__)
@@ -95,6 +96,10 @@ class ElementRenderer:
     # Layout containers (group, tab bar, collapsing header, window) recurse
     # their children back through ``render_element`` via a callback.
     _container_renderer: ContainerRenderer
+    # Legacy composite/leaf paint surfaces extracted into their own renderers.
+    _tree_renderer: TreeRenderer
+    _plot_renderer: PlotRenderer
+    _modal_renderer: ModalRenderer
 
     _RENDERERS: ClassVar[dict[str, str]] = {
         "draw": "_render_draw",
@@ -143,6 +148,11 @@ class ElementRenderer:
         self._container_renderer = ContainerRenderer(
             widget_state, check_dirty_window, self.render_element
         )
+        self._tree_renderer = TreeRenderer(emit_event)
+        self._plot_renderer = PlotRenderer()
+        self._modal_renderer = ModalRenderer(
+            widget_state, emit_event, self.render_element
+        )
         return self
 
     # (element type, renderer attr) — single source for _dispatch_native and count.
@@ -171,6 +181,7 @@ class ElementRenderer:
         "_input_number_renderer",
         "_color_picker_renderer",
         "_container_renderer",
+        "_modal_renderer",
     )
 
     @property
@@ -345,69 +356,8 @@ class ElementRenderer:
     # -- tree rendering --------------------------------------------------------
 
     def _render_tree(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        tree: Any = elem
-        eid: str = tree.id
-        label: str = tree.label
-        nodes: list[dict[str, Any]] = tree.nodes
-
-        flat: bool = getattr(tree, "flat", False)
-
-        if label:
-            imgui.text(label)
-        for i, node in enumerate(nodes):
-            self._render_tree_node(node, f"{eid}_{i}", eid, flat=flat)
-
-    def _render_tree_node(
-        self,
-        node: dict[str, Any],
-        node_id: str,
-        tree_id: str,
-        *,
-        flat: bool = False,
-    ) -> None:
-        from imgui_bundle import imgui
-
-        label: str = node.get("label", "")
-        children: list[dict[str, Any]] = node.get("children", [])
-
-        if children:
-            if flat:
-                no_push = imgui.TreeNodeFlags_.no_tree_push_on_open.value
-                opened = imgui.tree_node_ex(f"{label}##{node_id}", no_push)
-            else:
-                opened = imgui.tree_node(f"{label}##{node_id}")
-            if imgui.is_item_clicked():
-                self._emit_node_click(tree_id, node_id, label)
-            if opened:
-                for i, child in enumerate(children):
-                    self._render_tree_node(child, f"{node_id}_{i}", tree_id, flat=flat)
-                if not flat:
-                    imgui.tree_pop()
-        else:
-            if flat:
-                selected = False
-                clicked, _ = imgui.selectable(f"{label}##{node_id}", selected)
-                if clicked:
-                    self._emit_node_click(tree_id, node_id, label)
-            else:
-                leaf = imgui.TreeNodeFlags_.leaf.value
-                no_push = imgui.TreeNodeFlags_.no_tree_push_on_open.value
-                flags = leaf | no_push
-                imgui.tree_node_ex(f"{label}##{node_id}", flags)
-                if imgui.is_item_clicked():
-                    self._emit_node_click(tree_id, node_id, label)
-
-    def _emit_node_click(self, tree_id: str, node_id: str, label: str) -> None:
-        self._emit_event(
-            RemoteEventHandlerInvocation(
-                element_id=tree_id,
-                action="node_clicked",
-                ts=time.time(),
-                value={"node_id": node_id, "label": label},
-            )
-        )
+        """Delegate tree rendering to the extracted TreeRenderer."""
+        self._tree_renderer.render(cast("TreeElement", elem))
 
     # -- table rendering -------------------------------------------------------
 
@@ -422,94 +372,14 @@ class ElementRenderer:
     # -- plot rendering --------------------------------------------------------
 
     def _render_plot(self, elem: Element) -> None:
-        from imgui_bundle import ImVec2, implot
-
-        plt: Any = elem
-        title: str = plt.title
-        plot_title = title if "##" in title else f"{title}##{plt.id}"
-
-        if implot.begin_plot(plot_title, ImVec2(plt.width, plt.height)):
-            if plt.x_label or plt.y_label:
-                implot.setup_axes(plt.x_label or "", plt.y_label or "")
-            for series in plt.series:
-                self._plot_series(series)
-            implot.end_plot()
-
-    @staticmethod
-    def _plot_series(series: dict[str, Any]) -> None:
-        """Plot one series (line / scatter / bar) from its wire mapping."""
-        from imgui_bundle import implot
-
-        x_data = np.array(series.get("x", []), dtype=np.float64)
-        y_data = np.array(series.get("y", []), dtype=np.float64)
-        if len(x_data) == 0 or len(y_data) == 0:
-            return
-
-        label: str = series.get("label", "data")
-        s_type: str = series.get("type", "line")
-        if s_type == "line":
-            implot.plot_line(label, x_data, y_data)
-        elif s_type == "scatter":
-            implot.plot_scatter(label, x_data, y_data)
-        elif s_type == "bar":
-            try:
-                implot.plot_bars(label, x_data, y_data, 0.67)
-            except TypeError:
-                implot.plot_bars(label, y_data, 0.67)
+        """Delegate plot rendering to the extracted PlotRenderer."""
+        self._plot_renderer.render(cast("PlotElement", elem))
 
     # -- modal rendering -------------------------------------------------------
 
-    _MODAL_OPEN = 1
-    _MODAL_CLOSED = 0
-
     def _render_modal(self, elem: Element) -> None:
-        from imgui_bundle import imgui
-
-        md: Any = elem
-        eid: str = md.id
-        title: str = md.title or md.id
-        should_open: bool = md.open
-        popup_id = f"{title}##{eid}"
-        open_key = f"{eid}__open"
-        dismiss_key = f"{eid}__dismissed"
-
-        on = self._MODAL_OPEN
-        off = self._MODAL_CLOSED
-        was_open = self._widget_state.ensure(open_key, off) == on
-        dismissed = self._widget_state.ensure(dismiss_key, off) == on
-
-        # When the agent sets open=False, clear the dismissed latch
-        # so the modal can be re-opened later.
-        if not should_open:
-            if was_open or dismissed:
-                self._widget_state.set(open_key, self._MODAL_CLOSED)
-                self._widget_state.set(dismiss_key, self._MODAL_CLOSED)
-            return
-
-        # Don't re-open if user already dismissed and agent hasn't acked yet.
-        if should_open and not was_open and not dismissed:
-            imgui.open_popup(popup_id)
-            self._widget_state.set(open_key, self._MODAL_OPEN)
-            was_open = True
-
-        visible, _p_open = imgui.begin_popup_modal(popup_id, True)  # noqa: FBT003
-
-        if visible:
-            for child in md.children:
-                self.render_element(child)
-            imgui.end_popup()
-
-        if was_open and not visible:
-            self._widget_state.set(open_key, self._MODAL_CLOSED)
-            self._widget_state.set(dismiss_key, self._MODAL_OPEN)
-            self._emit_event(
-                RemoteEventHandlerInvocation(
-                    element_id=eid,
-                    action="closed",
-                    ts=time.time(),
-                    value=None,
-                )
-            )
+        """Delegate modal rendering to the extracted ModalRenderer."""
+        self._modal_renderer.render(cast("ModalElement", elem))
 
     # -- dialog rendering ------------------------------------------------------
 
