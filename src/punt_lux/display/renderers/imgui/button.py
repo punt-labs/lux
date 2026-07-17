@@ -1,14 +1,15 @@
 """ImGuiButtonRenderer — Renderer-Protocol adapter for ``ButtonElement``.
 
-A leaf: paints through ``ElementRenderer``'s per-kind ``ButtonRenderer``
-(the same instance whose click ``fire``s ``ButtonClicked``, wrapped for D21
-remote dispatch) plus the shared ``apply_tooltip`` pass, reached via the
-factory's narrow accessor. ``begin`` proceeds, ``end`` is a no-op.
+A leaf: paints through a per-paint ``ButtonRenderer`` (whose click ``fire``s
+``ButtonClicked``, wrapped for D21 remote dispatch) plus the shared tooltip
+pass the factory owns. ``begin`` proceeds, ``end`` is a no-op.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
+
+from punt_lux.display.renderers.button_renderer import ButtonRenderer
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -19,7 +20,7 @@ __all__ = ["ImGuiButtonRenderer"]
 
 @final
 class ImGuiButtonRenderer:
-    """Paint a ButtonElement via ElementRenderer's ButtonRenderer + tooltip."""
+    """Paint a ButtonElement via a per-paint ButtonRenderer + tooltip."""
 
     _elem: ButtonElement
     _factory: ImGuiRendererFactory
@@ -36,9 +37,8 @@ class ImGuiButtonRenderer:
 
     def paint(self) -> None:
         """Paint the button (fires ButtonClicked on click) + tooltip pass."""
-        er = self._factory.element_renderer
-        er.button_renderer.render(self._elem)
-        er.apply_tooltip(self._elem)
+        ButtonRenderer().render(self._elem)
+        self._factory.apply_tooltip(self._elem)
 
     def end(self, *, opened: bool) -> None:
         """Leaf — no surface to close."""

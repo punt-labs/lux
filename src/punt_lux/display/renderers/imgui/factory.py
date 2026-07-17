@@ -1,14 +1,15 @@
 """ImGuiRendererFactory — surface-shared mediator for ImGui per-kind renderers.
 
-Constructed once at Display startup and bound onto received elements by the
-Display's post-receive rebind (``Element.bind_renderer_factory``). Holds the
-Display-tier surface-shared state (``WidgetState``, ``TextureCache``, ``Emit``)
-and dispatches by element type to the per-kind adapter, its sole mediator.
+Constructed once at Display startup, holding the Display-tier surface-shared
+state (``WidgetState``, ``TextureCache``, ``Emit``). It dispatches by element
+type to the per-kind adapter; ``handles`` lets ``render_element`` route every
+migrated kind here (the one render-side authority, retiring the parallel
+native-dispatch table), and every adapter shares the one ``apply_tooltip`` pass.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Self
+from typing import TYPE_CHECKING, ClassVar, Self, TypeGuard
 
 from punt_lux.display.renderers.imgui.button import ImGuiButtonRenderer
 from punt_lux.display.renderers.imgui.checkbox import ImGuiCheckboxRenderer
@@ -27,6 +28,8 @@ from punt_lux.display.renderers.imgui.selectable import ImGuiSelectableRenderer
 from punt_lux.display.renderers.imgui.slider import ImGuiSliderRenderer
 from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
+from punt_lux.display.renderers.tooltip_painter import TooltipPainter
+from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
@@ -46,12 +49,15 @@ from punt_lux.protocol.elements.text import TextElement
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from punt_lux.display.element_renderer import ElementRenderer
     from punt_lux.display.texture_cache import TextureCache
+    from punt_lux.protocol import Element
     from punt_lux.protocol.renderer import Emit, Renderer
     from punt_lux.scene.widget_state import WidgetState
 
 __all__ = ["ImGuiRendererFactory"]
+
+# One stateless painter serves every element's shared hover-tooltip pass.
+_TOOLTIP = TooltipPainter()
 
 
 class ImGuiRendererFactory:
@@ -60,9 +66,8 @@ class ImGuiRendererFactory:
     _widget_state: WidgetState
     _texture_cache: TextureCache
     _emit: Emit
-    _element_renderer: ElementRenderer
 
-    # Element type -> adapter constructor. This table drives ``__call__``
+    # Element type -> adapter constructor driving ``__call__``/``handles``
     # dispatch. Every adapter shares the ``(elem, factory)`` constructor shape.
     _DISPATCH: ClassVar[tuple[tuple[type, Callable[..., Renderer]], ...]] = (
         (TextElement, ImGuiTextRenderer),
@@ -88,13 +93,11 @@ class ImGuiRendererFactory:
         widget_state: WidgetState,
         texture_cache: TextureCache,
         emit: Emit,
-        element_renderer: ElementRenderer,
     ) -> Self:
         self = super().__new__(cls)
         self._widget_state = widget_state
         self._texture_cache = texture_cache
         self._emit = emit
-        self._element_renderer = element_renderer
         return self
 
     @property
@@ -106,9 +109,8 @@ class ImGuiRendererFactory:
     def widget_state(self, value: WidgetState) -> None:
         """Re-thread the factory to the scene being rendered.
 
-        The ABC tab-bar adapter reads echo-suppression state through the
-        factory, so a scene switch must reach it here or the adapter never sees
-        a re-push reset.
+        ABC adapters read per-scene state (echo suppression, edit buffers)
+        through the factory, so a scene switch must reach it here.
         """
         self._widget_state = value
 
@@ -122,14 +124,18 @@ class ImGuiRendererFactory:
         """Return the Display-tier emit channel (a no-op; clicks route to Hub)."""
         return self._emit
 
-    @property
-    def element_renderer(self) -> ElementRenderer:
-        """Return the ElementRenderer that owns the per-kind renderers.
+    def handles(self, elem: object) -> TypeGuard[AbcElement]:
+        """Return whether ``elem`` paints through one of this factory's adapters.
 
-        Adapters paint through its per-scene sub-renderers and shared
-        ``apply_tooltip`` post-processing.
+        A boolean predicate (PY-EH-4) ``render_element`` branches on; every
+        dispatched type is an Element-ABC subclass, so a True answer narrows
+        ``elem`` to ``AbcElement`` (``__call__`` still raises for an unknown type).
         """
-        return self._element_renderer
+        return any(isinstance(elem, element_type) for element_type, _ in self._DISPATCH)
+
+    def apply_tooltip(self, elem: Element) -> None:
+        """Paint ``elem``'s shared generic hover tooltip, if it has one."""
+        _TOOLTIP.paint(elem)
 
     def __call__(self, elem: object) -> Renderer:
         """Return the ImGui adapter for ``elem``, or raise if unsupported."""

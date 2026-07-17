@@ -30,7 +30,7 @@ from punt_lux.display.glfw_window import GlfwWindow
 from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.macos import hide_from_dock_and_cmd_tab
 from punt_lux.display.menu_manager import MenuManager
-from punt_lux.display.renderers.imgui import ImGuiRendererFactory
+from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.domain.display import Display
@@ -263,14 +263,9 @@ class DisplayServer:
             texture_cache=self._textures,
             # Display-tier emit is a no-op; interactions route to the Hub.
             emit=lambda _msg: None,
-            # ImGuiTextRenderer delegates back to ElementRenderer so the
-            # generic post-processing (styled-text tooltip hover) keeps
-            # working through the per-kind renderer dispatch path.
-            element_renderer=self._element_renderer,
         )
-        # Bind the factory back so ElementRenderer can build the dialog
-        # renderer for a dialog held by a legacy container (the factory needs
-        # the ElementRenderer first, so the link is completed here).
+        # Bind the factory so ElementRenderer's ``render_element`` resolves each
+        # migrated kind's adapter through it (the one dispatch authority).
         self._element_renderer.imgui_renderer_factory = self._imgui_renderer_factory
 
         # Register display-specific query handlers that need ImGui state.

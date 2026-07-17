@@ -1,16 +1,17 @@
 """ImGuiCheckboxRenderer — Renderer-Protocol adapter for ``CheckboxElement``.
 
-A leaf: paints through ``ElementRenderer``'s stateless per-kind
-``CheckboxRenderer``, which reads ``elem.value`` (the Hub-authoritative state)
-directly each frame and holds no per-scene state, so nothing needs
-re-threading. A genuine user toggle still ``fire``s ``ValueChanged``, wrapped
-for D21 remote dispatch on the display side. The paint adds the shared
-``apply_tooltip`` pass. ``begin`` proceeds, ``end`` is a no-op.
+A leaf: paints through a per-paint stateless ``CheckboxRenderer``, which reads
+``elem.value`` (the Hub-authoritative state) directly each frame. A genuine user
+toggle ``fire``s ``ValueChanged``, wrapped for D21 remote dispatch. The paint
+adds the shared tooltip pass the factory owns. ``begin`` proceeds, ``end`` is a
+no-op.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
+
+from punt_lux.display.renderers.checkbox_renderer import CheckboxRenderer
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -21,7 +22,7 @@ __all__ = ["ImGuiCheckboxRenderer"]
 
 @final
 class ImGuiCheckboxRenderer:
-    """Paint a CheckboxElement via ElementRenderer's CheckboxRenderer + tooltip."""
+    """Paint a CheckboxElement via a per-paint CheckboxRenderer + tooltip."""
 
     _elem: CheckboxElement
     _factory: ImGuiRendererFactory
@@ -38,9 +39,8 @@ class ImGuiCheckboxRenderer:
 
     def paint(self) -> None:
         """Paint the checkbox (fires ValueChanged on toggle) + tooltip pass."""
-        er = self._factory.element_renderer
-        er.checkbox_renderer.render(self._elem)
-        er.apply_tooltip(self._elem)
+        CheckboxRenderer().render(self._elem)
+        self._factory.apply_tooltip(self._elem)
 
     def end(self, *, opened: bool) -> None:
         """Leaf — no surface to close."""

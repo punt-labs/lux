@@ -43,7 +43,7 @@ class ImGuiProgressRenderer:
         elem = self._elem
         overlay = elem.label or f"{int(elem.fraction * 100)}%"
         imgui.progress_bar(elem.fraction, ImVec2(-1, 0), overlay)
-        self._factory.element_renderer.apply_tooltip(elem)
+        self._factory.apply_tooltip(elem)
 
     def end(self, *, opened: bool) -> None:
         """Leaf — no surface to close."""

@@ -1,16 +1,17 @@
 """ImGuiComboRenderer — Renderer-Protocol adapter for ``ComboElement``.
 
-A leaf: paints through ``ElementRenderer``'s stateless per-kind ``ComboRenderer``,
-which reads ``elem.selected`` (the Hub-authoritative index) directly each frame
-and holds no per-scene state, so nothing needs re-threading. A genuine user pick
-still ``fire``s ``ValueChanged``, wrapped for D21 remote dispatch on the display
-side. The paint adds the shared ``apply_tooltip`` pass. ``begin`` proceeds,
-``end`` is a no-op.
+A leaf: paints through a per-paint stateless ``ComboRenderer``, which reads
+``elem.selected`` (the Hub-authoritative index) directly each frame. A genuine
+user pick ``fire``s ``ValueChanged``, wrapped for D21 remote dispatch. The paint
+adds the shared tooltip pass the factory owns. ``begin`` proceeds, ``end`` is a
+no-op.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
+
+from punt_lux.display.renderers.combo_renderer import ComboRenderer
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -21,7 +22,7 @@ __all__ = ["ImGuiComboRenderer"]
 
 @final
 class ImGuiComboRenderer:
-    """Paint a ComboElement via ElementRenderer's ComboRenderer + tooltip."""
+    """Paint a ComboElement via a per-paint ComboRenderer + tooltip."""
 
     _elem: ComboElement
     _factory: ImGuiRendererFactory
@@ -38,9 +39,8 @@ class ImGuiComboRenderer:
 
     def paint(self) -> None:
         """Paint the combo (fires ValueChanged on pick) + tooltip pass."""
-        er = self._factory.element_renderer
-        er.combo_renderer.render(self._elem)
-        er.apply_tooltip(self._elem)
+        ComboRenderer().render(self._elem)
+        self._factory.apply_tooltip(self._elem)
 
     def end(self, *, opened: bool) -> None:
         """Leaf — no surface to close."""

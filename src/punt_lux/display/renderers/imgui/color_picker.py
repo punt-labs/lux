@@ -1,15 +1,18 @@
 """ImGuiColorPickerRenderer — Renderer-Protocol adapter for ``ColorPickerElement``.
 
-A leaf: paints through ``ElementRenderer``'s per-scene ``ColorPickerRenderer``,
-which reconciles the Hub value with the user's drag via the shared
-``ContinuousEditArbiter`` and fires ``ValueChanged`` on release (wrapped for D21
-remote dispatch on the display side). The paint adds the shared
-``apply_tooltip`` pass. ``begin`` proceeds, ``end`` is a no-op.
+A leaf: paints through a per-paint ``ColorPickerRenderer`` built on the factory's
+per-scene ``WidgetState`` (its ``ContinuousEditArbiter`` buffer lives keyed in
+that state, not on the renderer). It reconciles the Hub value with the user's
+drag and fires ``ValueChanged`` on release (wrapped for D21 remote dispatch). The
+paint adds the shared tooltip pass the factory owns. ``begin`` proceeds, ``end``
+is a no-op.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
+
+from punt_lux.display.renderers.color_picker_renderer import ColorPickerRenderer
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -20,7 +23,7 @@ __all__ = ["ImGuiColorPickerRenderer"]
 
 @final
 class ImGuiColorPickerRenderer:
-    """Paint a ColorPickerElement via ElementRenderer's per-scene renderer + tooltip."""
+    """Paint a ColorPickerElement via a per-paint ColorPickerRenderer + tooltip."""
 
     _elem: ColorPickerElement
     _factory: ImGuiRendererFactory
@@ -37,9 +40,8 @@ class ImGuiColorPickerRenderer:
 
     def paint(self) -> None:
         """Paint the picker (fires ValueChanged on release) + tooltip pass."""
-        er = self._factory.element_renderer
-        er.color_picker_renderer.render(self._elem)
-        er.apply_tooltip(self._elem)
+        ColorPickerRenderer(self._factory.widget_state).render(self._elem)
+        self._factory.apply_tooltip(self._elem)
 
     def end(self, *, opened: bool) -> None:
         """Leaf — no surface to close."""

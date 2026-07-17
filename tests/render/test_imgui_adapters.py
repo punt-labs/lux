@@ -8,10 +8,14 @@ tested here; the live interaction loops are the leader-run e2e.
 
 from __future__ import annotations
 
-from typing import Self
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 from punt_lux.display.element_renderer import ElementRenderer
+from punt_lux.display.renderers.imgui import (
+    button as button_module,
+    checkbox as checkbox_module,
+)
 from punt_lux.display.renderers.imgui.button import ImGuiButtonRenderer
 from punt_lux.display.renderers.imgui.checkbox import ImGuiCheckboxRenderer
 from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
@@ -25,6 +29,9 @@ from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.scene.widget_state import WidgetState
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _no_emit(_msg: object) -> None:
@@ -58,7 +65,6 @@ def _factory(widget_state: WidgetState | None = None) -> ImGuiRendererFactory:
         widget_state=ws,
         texture_cache=TextureCache(),
         emit=_no_emit,
-        element_renderer=_element_renderer(ws),
     )
 
 
@@ -92,59 +98,38 @@ def test_introspection_element_kind_total_is_25() -> None:
 # -- leaf adapters ---------------------------------------------------------
 
 
-class _StubElementRenderer:
-    """Element renderer stub exposing the narrow paint seam only."""
-
-    button_renderer: MagicMock
-    checkbox_renderer: MagicMock
-    _tooltip: MagicMock
-
-    def __new__(cls) -> Self:
-        self = super().__new__(cls)
-        self.button_renderer = MagicMock()
-        self.checkbox_renderer = MagicMock()
-        self._tooltip = MagicMock()
-        return self
-
-    def apply_tooltip(self, elem: object) -> None:
-        self._tooltip(elem)
-
-
-class _StubFactory:
-    """Factory stub exposing only ``element_renderer``."""
-
-    _element_renderer: _StubElementRenderer
-
-    def __new__(cls, element_renderer: _StubElementRenderer) -> Self:
-        self = super().__new__(cls)
-        self._element_renderer = element_renderer
-        return self
-
-    @property
-    def element_renderer(self) -> _StubElementRenderer:
-        return self._element_renderer
-
-
-def test_button_adapter_begin_true_paint_delegates_end_noop() -> None:
-    er = _StubElementRenderer()
+def test_button_adapter_paints_via_renderer_then_shared_tooltip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    render = MagicMock()
+    monkeypatch.setattr(button_module, "ButtonRenderer", lambda: render)
+    factory = MagicMock()
     elem = ButtonElement(id="b", label="Go")
-    adapter = ImGuiButtonRenderer(elem, _StubFactory(er))  # type: ignore[arg-type]
+    adapter = ImGuiButtonRenderer(elem, factory)
+
     assert adapter.begin() is True
     adapter.paint()
     adapter.end(opened=True)
-    er.button_renderer.render.assert_called_once_with(elem)
-    er._tooltip.assert_called_once_with(elem)
+
+    render.render.assert_called_once_with(elem)
+    factory.apply_tooltip.assert_called_once_with(elem)
 
 
-def test_checkbox_adapter_begin_true_paint_delegates_end_noop() -> None:
-    er = _StubElementRenderer()
+def test_checkbox_adapter_paints_via_renderer_then_shared_tooltip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    render = MagicMock()
+    monkeypatch.setattr(checkbox_module, "CheckboxRenderer", lambda: render)
+    factory = MagicMock()
     elem = CheckboxElement(id="c", label="On")
-    adapter = ImGuiCheckboxRenderer(elem, _StubFactory(er))  # type: ignore[arg-type]
+    adapter = ImGuiCheckboxRenderer(elem, factory)
+
     assert adapter.begin() is True
     adapter.paint()
     adapter.end(opened=True)
-    er.checkbox_renderer.render.assert_called_once_with(elem)
-    er._tooltip.assert_called_once_with(elem)
+
+    render.render.assert_called_once_with(elem)
+    factory.apply_tooltip.assert_called_once_with(elem)
 
 
 # -- dialog renderer (GL-free surface) -------------------------------------
