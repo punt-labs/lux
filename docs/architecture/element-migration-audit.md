@@ -123,12 +123,12 @@ The 25 kinds are the `Element` union at `__init__.py:130`.
 | 8 | `spinner` | `SpinnerElement` (`spinner.py`) | Legacy dataclass | Display-only | — |
 | 9 | `markdown` | `MarkdownElement` (`markdown.py`) | Legacy dataclass | Display-only | — |
 | 10 | `slider` | `SliderElement` (`slider.py`) | **ABC** ✓ | **Interactive** (`value`) | non-atomic; `ContinuousEditArbiter[float]` (commit-on-idle) |
-| 11 | `combo` | `ComboElement` (`combo.py`) | Legacy dataclass | **Interactive** (`value`) | `widget_value()` |
+| 11 | `combo` | `ComboElement` (`combo.py`) | **ABC** ✓ | **Interactive** (`selected`) | atomic-selection int index; shared `ApplyPatchOnChange` |
 | 12 | `input_text` | `InputTextElement` (`input_text.py`) | **ABC** ✓ | **Interactive** (`value`) | non-atomic; `ContinuousEditArbiter[str]` (commit-on-idle) |
 | 13 | `input_number` | `InputNumberElement` (`input_number.py`) | **ABC** ✓ | **Interactive** (`value`) | non-atomic; reuses `ContinuousEditArbiter[float]` + `FloatValueAccessor` (commit-on-idle); optional `min`/`max`/`step`; range predicate extracted to `NumericInputChecks` |
-| 14 | `radio` | `RadioElement` (`radio.py`) | Legacy dataclass | **Interactive** (`value`) | `widget_value()` |
+| 14 | `radio` | `RadioElement` (`radio.py`) | **ABC** ✓ | **Interactive** (`selected`) | atomic-selection int index; shared `ApplyPatchOnChange` |
 | 15 | `color_picker` | `ColorPickerElement` (`color_picker.py`) | **ABC** ✓ | **Interactive** (`value`) | non-atomic; `ContinuousEditArbiter[Rgba]` (tuple carrier, commit-on-idle) |
-| 16 | `selectable` | `SelectableElement` (`selectable.py:15`) | Legacy dataclass | **Interactive** (`selected`) | `widget_value()` |
+| 16 | `selectable` | `SelectableElement` (`selectable.py:52`) | **ABC** ✓ | **Interactive** (`selected`) | atomic bool toggle; shared `ApplyPatchOnChange(field="selected")`; checkbox pattern |
 | 17 | `group` | `GroupElement` (`group.py`) | **ABC** ✓ | Display-only composite | rows/columns forked ABC; paged group stays legacy |
 | 18 | `tab_bar` | `TabBarElement` (`tab_bar.py`) | **ABC** ✓ | Display-only composite | typed `Tab` children; active-tab view state |
 | 19 | `collapsing_header` | `CollapsingHeaderElement` (`collapsing_header.py`) | **ABC** ✓ | Display-only composite | typed children; open/closed view state |
@@ -140,18 +140,19 @@ The 25 kinds are the `Element` union at `__init__.py:130`.
 | 25 | `draw` | `DrawElement` (`graphics.py:27`) | Legacy dataclass | Display-only | typed draw-command family (curve/line/shape/text) |
 
 Summary: **this audit's original count was 4 migrated, 21 legacy.** Since then
-the migration has advanced to **12 migrated, 13 legacy** (`input_number` is the
-12th, `lux-xs7r.1`). Migrated: the io-model leaves `text`, `button`, `checkbox`,
-`dialog`; the display-only primitive `progress`; the four non-atomic mutable
-inputs `input_text`, `slider`, `color_picker`, `input_number` (all on the shipped
-shared `ContinuousEditArbiter`); and the containers `group`, `tab_bar`,
+the migration has advanced to **15 migrated, 10 legacy** (`selectable` is the
+15th). Migrated: the io-model leaves `text`, `button`, `checkbox`, `dialog`; the
+display-only primitive `progress`; the four non-atomic mutable inputs
+`input_text`, `slider`, `color_picker`, `input_number` (all on the shared
+`ContinuousEditArbiter`); the three atomic-selection inputs `combo`, `radio`,
+`selectable` (all on the shared `ApplyPatchOnChange` value handler — combo/radio
+key an int index, selectable a bool); and the containers `group`, `tab_bar`,
 `collapsing_header`. The authoritative live status is
 [`migration/README.md`](migration/README.md) §"Where we are"; this table is the
-per-element analysis. Of the 13 legacy: interactive inputs (combo,
-radio, selectable, plus interactive composite modal — and, structurally,
-table/plot only if selection becomes Hub-authoritative) and display-only kinds
-(image, separator, spinner, markdown, window, tree, plot, draw), with table
-sitting on the boundary.
+per-element analysis. Of the 10 legacy: the interactive composite `modal` — and,
+structurally, `table`/`plot` only if selection becomes Hub-authoritative — plus
+the display-only kinds `image`, `separator`, `spinner`, `markdown`, `window`,
+`tree`, `plot`, `draw`, with `table` sitting on the boundary.
 
 ## 4. What "migrated" means per class
 

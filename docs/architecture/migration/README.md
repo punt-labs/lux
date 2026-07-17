@@ -10,12 +10,14 @@ ADRs in [`../../../DESIGN.md`](../../../DESIGN.md)).
 
 ## Where we are
 
-**6 of 25 element kinds are on the new Element-ABC path**, and the foundation
+**15 of 25 element kinds are on the new Element-ABC path**, and the foundation
 under them is complete:
 
 - **Migrated kinds:** the io-model leaves `text`, `button`, `checkbox`,
-  `dialog`; the first container `group` (rows / columns); and the first
-  display-only primitive `progress`.
+  `dialog`; the display-only primitive `progress`; the four non-atomic mutable
+  inputs `input_text`, `slider`, `color_picker`, `input_number`; the three
+  atomic-selection inputs `combo`, `radio`, `selectable`; and the containers
+  `group`, `tab_bar`, `collapsing_header`.
 - **The render engine (PR #239):** `Element.render()` is now the real paint
   path — a fixed Template-Method skeleton (`_begin` / `_paint_self` /
   `_render_children` / `_end`) on the ABC, with per-kind ImGui adapters
@@ -32,10 +34,11 @@ under them is complete:
   batch; no out-of-range value is installed. Committed as a regression artifact
   (re-run `fuzz` + the model-check whenever the modeled code changes).
 
-The other 19 kinds are still legacy frozen dataclasses on the `SceneManager` +
-dual-write `DomainPump` path. Of them: ~8 are interactive (need the full D21
-remote-dispatch treatment) and ~11 are display-only; `table` sits on the
-boundary because it carries built-in view state.
+The other 10 kinds are still legacy frozen dataclasses on the `SceneManager` +
+dual-write `DomainPump` path: the interactive composite `modal`, and the
+display-only `image`, `separator`, `spinner`, `markdown`, `window`, `tree`,
+`plot`, `draw`; `table` sits on the boundary because it carries built-in view
+state.
 
 Two composition facts, not to be conflated:
 
