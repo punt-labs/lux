@@ -922,7 +922,7 @@ class TestSerialization:
         assert isinstance(grp.children[1], ButtonElement)
 
     def test_tab_bar_roundtrip(self):
-        # A legacy selectable child keeps the subtree off the all-ABC path, so
+        # A legacy spinner child keeps the subtree off the all-ABC path, so
         # the tab bar decodes onto the legacy dataclass whose tabs are dicts.
         e = LegacyTabBarElement(
             id="tb1",
@@ -935,7 +935,7 @@ class TestSerialization:
                     "label": "Tab 2",
                     "children": [
                         ButtonElement(id="b1", label="Action"),
-                        SelectableElement(id="sel1", label="Vol"),
+                        SpinnerElement(id="sel1", label="Vol"),
                     ],
                 },
             ],
@@ -952,7 +952,7 @@ class TestSerialization:
         assert len(tb.tabs[1]["children"]) == 2
 
     def test_collapsing_header_roundtrip(self):
-        # A legacy selectable child keeps the subtree off the all-ABC path, so
+        # A legacy spinner child keeps the subtree off the all-ABC path, so
         # the header decodes onto the legacy dataclass that carries ``default_open``.
         e = LegacyCollapsingHeaderElement(
             id="ch1",
@@ -960,7 +960,7 @@ class TestSerialization:
             default_open=True,
             children=[
                 CheckboxElement(id="cb1", label="Debug"),
-                SelectableElement(id="sel1", label="Level"),
+                SpinnerElement(id="sel1", label="Level"),
             ],
         )
         scene = SceneMessage(id="s1", elements=[e])
@@ -1292,14 +1292,14 @@ class TestSerialization:
                 TextElement(id="t2", content="B"),
             ],
         )
-        # A legacy selectable sibling keeps the tab bar's subtree off the
+        # A legacy spinner sibling keeps the tab bar's subtree off the
         # all-ABC path, so it decodes legacy and forces the nested group legacy.
         outer = LegacyTabBarElement(
             id="tb1",
             tabs=[
                 {
                     "label": "Layout",
-                    "children": [inner, SelectableElement(id="sel1", label="Vol")],
+                    "children": [inner, SpinnerElement(id="sel1", label="Vol")],
                 }
             ],
         )

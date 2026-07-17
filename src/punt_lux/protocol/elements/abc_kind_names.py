@@ -43,6 +43,7 @@ class AbcKindNames:
             "color_picker",
             "combo",
             "radio",
+            "selectable",
             "group",
             "collapsing_header",
             "tab_bar",

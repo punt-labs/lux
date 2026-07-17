@@ -50,7 +50,6 @@ from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
-from punt_lux.protocol.elements.inputs import InputsRegistry
 from punt_lux.protocol.elements.layout import (
     LegacyCollapsingHeaderElement,
     LegacyGroupElement,
@@ -162,7 +161,6 @@ def build_element_codec() -> ElementCodec:
     """
     codec = ElementCodec()
     BasicsRegistry().apply(codec.register)
-    InputsRegistry().apply(codec.register)
     _register_layout(codec.register)
     _register_graphics(codec.register)
     _register_table(codec.register)

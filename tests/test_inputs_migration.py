@@ -162,7 +162,7 @@ def test_checkbox_absent_from_legacy_codec_table() -> None:
     text/button/checkbox/dialog/slider decode and encode through the per-kind
     ABC path; leaving any of them in the legacy ``ElementCodec`` table would be
     two live registrations for one kind. A still-legacy input kind
-    (``selectable``) remains registered as the negative control.
+    (``spinner``) remains registered as the negative control.
     """
     from punt_lux.protocol.elements import build_element_codec
 
@@ -171,7 +171,7 @@ def test_checkbox_absent_from_legacy_codec_table() -> None:
     assert "button" not in kinds
     assert "text" not in kinds
     assert "slider" not in kinds
-    assert "selectable" in kinds
+    assert "spinner" in kinds
 
 
 def test_combo_round_trip_with_items() -> None:
@@ -234,10 +234,11 @@ def test_color_picker_round_trip_alpha_and_picker() -> None:
     assert restored.value == "#FF8080AA"
 
 
-def test_selectable_omits_selected_when_false() -> None:
+def test_selectable_always_emits_selected() -> None:
+    # The design states the value; an unselected row still emits selected: false.
     elem = SelectableElement(id="sel1", label="Item")
     payload = element_to_dict(elem)
-    assert "selected" not in payload
+    assert payload["selected"] is False
 
 
 def test_selectable_emits_selected_when_true() -> None:
@@ -317,17 +318,6 @@ def test_button_click_routes_through_display_to_element_handlers() -> None:
     stored = snap.element(ElementId("b1"))
     assert isinstance(stored, ButtonElement)
     assert stored.label == "OK"
-
-
-# -- inputs.py is now an aggregator only ------------------------------------
-
-
-def test_inputs_module_holds_only_registration() -> None:
-    """inputs.py is a thin registration shim; the only class is InputsRegistry."""
-    from punt_lux.protocol.elements import inputs
-
-    assert hasattr(inputs, "InputsRegistry")
-    assert inputs.__all__ == ["InputsRegistry"]
 
 
 def test_inputs_codec_helpers_are_gone_from_every_per_kind_module() -> None:

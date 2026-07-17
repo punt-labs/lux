@@ -126,10 +126,10 @@ class TestLevel1Serialization:
 
     def test_absent_from_legacy_codec_table(self) -> None:
         # No dual live path: the migrated kind leaves the ``ElementCodec`` table.
-        # A still-legacy input (``selectable``) stays the negative control.
+        # A still-legacy input (``spinner``) stays the negative control.
         kinds = build_element_codec().registered_kinds
         assert "slider" not in kinds
-        assert "selectable" in kinds
+        assert "spinner" in kinds
 
 
 # -- wire-boundary rejection (reject, do not silently coerce) ----------------

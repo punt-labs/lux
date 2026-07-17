@@ -47,6 +47,7 @@ class AbcKindVerifier:
             "color_picker",
             "combo",
             "radio",
+            "selectable",
             "dialog",
             "collapsing_header",
             "tab_bar",
