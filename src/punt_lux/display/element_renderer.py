@@ -164,8 +164,7 @@ class ElementRenderer:
         (SelectableElement, "_selectable_renderer"),
     )
 
-    # Renderer attributes owning per-scene WidgetState; the widget_state setter
-    # forwards a scene switch to each.
+    # Renderer attrs owning per-scene WidgetState; the setter forwards scene switches.
     _WIDGET_STATE_RENDERERS: ClassVar[tuple[str, ...]] = (
         "_slider_renderer",
         "_input_text_renderer",
@@ -288,9 +287,7 @@ class ElementRenderer:
             else:
                 imgui.text(f"[unsupported element: {elem.kind}]")
 
-        # A dialog applies its own tooltip in ImGuiDialogRenderer.end (both the
-        # top-level ABC path and the nested _render_dialog path); skip the
-        # generic post-pass so the tooltip is not applied twice.
+        # Dialog paints its own tooltip in ImGuiDialogRenderer.end; skip generic pass.
         if not isinstance(elem, DialogElement):
             self.apply_tooltip(elem)
 
