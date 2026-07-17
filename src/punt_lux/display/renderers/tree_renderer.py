@@ -13,7 +13,7 @@ dispatcher.
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, Self, final
+from typing import TYPE_CHECKING, Any, ClassVar, Self, final
 
 from imgui_bundle import imgui
 
@@ -29,6 +29,9 @@ __all__ = ["TreeRenderer"]
 @final
 class TreeRenderer:
     """Paint a tree element, emitting a node-click event on selection."""
+
+    _LEAF: ClassVar[int] = imgui.TreeNodeFlags_.leaf.value
+    _NO_PUSH: ClassVar[int] = imgui.TreeNodeFlags_.no_tree_push_on_open.value
 
     _emit_event: EmitEventFn
 
@@ -62,8 +65,7 @@ class TreeRenderer:
 
         if children:
             if flat:
-                no_push = imgui.TreeNodeFlags_.no_tree_push_on_open.value
-                opened = imgui.tree_node_ex(f"{label}##{node_id}", no_push)
+                opened = imgui.tree_node_ex(f"{label}##{node_id}", self._NO_PUSH)
             else:
                 opened = imgui.tree_node(f"{label}##{node_id}")
             if imgui.is_item_clicked():
@@ -75,13 +77,12 @@ class TreeRenderer:
                     imgui.tree_pop()
         else:
             if flat:
-                clicked, _ = imgui.selectable(f"{label}##{node_id}", False)  # noqa: FBT003
+                selected = False
+                clicked, _ = imgui.selectable(f"{label}##{node_id}", selected)
                 if clicked:
                     self._emit_node_click(tree_id, node_id, label)
             else:
-                leaf = imgui.TreeNodeFlags_.leaf.value
-                no_push = imgui.TreeNodeFlags_.no_tree_push_on_open.value
-                imgui.tree_node_ex(f"{label}##{node_id}", leaf | no_push)
+                imgui.tree_node_ex(f"{label}##{node_id}", self._LEAF | self._NO_PUSH)
                 if imgui.is_item_clicked():
                     self._emit_node_click(tree_id, node_id, label)
 

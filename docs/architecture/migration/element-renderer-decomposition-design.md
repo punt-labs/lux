@@ -397,7 +397,11 @@ evaluator (Python implementation, rendering).
 - **Literal over str-with-comment.** `PlotRenderer` is the right home to replace
   `s_type: str` with `Literal["line", "scatter", "bar"]` on a typed `PlotSeries`
   value class (the draw-command family is the model; audit §4). Full plot typing
-  is the `plot` migration, but the extraction opens the door.
+  is the `plot` migration, but the extraction opens the door. The extracted
+  `TreeRenderer` carries the identical debt in its node walk (`node: dict[str,
+  Any]`, `children: list[dict[str, Any]]`); typing those into a `TreeNode` value
+  class is deferred to the `tree` element migration for the same reason, so the
+  deferral is documented rather than silent.
 - **Reduce `| None`.** `render_element` no longer needs
   `_current_scene_id: str | None` threaded for native dispatch; scene id flows to
   the renderers that need it (`table`, `modal`) via injection, tightening the
