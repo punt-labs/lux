@@ -10,10 +10,9 @@ state differs from the Hub value — it fires ``HeaderToggled`` through the
 element's handler registry, which the Display has wrapped for remote dispatch.
 
 Echo-suppression: because the Hub value is honoured every frame, ImGui reports
-that same value except on the frame the user clicks the disclosure triangle. A
-Hub-driven change is therefore never a re-fire — ``_toggle_event`` returns
-``None`` whenever the reported state already equals the Hub ``open`` value. That
-is the safety property that stops a fire -> Hub -> re-push -> fire loop.
+that same value except on the frame the user clicks the disclosure triangle. So a
+Hub-driven change is never a re-fire — ``_toggle_event`` returns ``None`` when the
+reported state already equals the Hub ``open``, stopping a fire -> re-push loop.
 """
 
 from __future__ import annotations
@@ -79,5 +78,6 @@ class ImGuiCollapsingHeaderRenderer:
         """No-op — a container's only body is its children (default recursion)."""
 
     def end(self, *, opened: bool) -> None:
-        """No-op — ``collapsing_header`` has no matching close call."""
+        """Apply the hover tooltip; ``collapsing_header`` has no matching close call."""
         _ = opened
+        self._factory.apply_tooltip(self._elem)

@@ -18,14 +18,22 @@ from punt_lux.display.renderers.imgui import (
 )
 from punt_lux.display.renderers.imgui.button import ImGuiButtonRenderer
 from punt_lux.display.renderers.imgui.checkbox import ImGuiCheckboxRenderer
+from punt_lux.display.renderers.imgui.collapsing_header import (
+    ImGuiCollapsingHeaderRenderer,
+)
 from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
+from punt_lux.display.renderers.imgui.group import ImGuiGroupRenderer
+from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
+from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.dialog import DialogElement
+from punt_lux.protocol.elements.group import GroupElement
+from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.scene.widget_state import WidgetState
@@ -129,6 +137,46 @@ def test_checkbox_adapter_paints_via_renderer_then_shared_tooltip(
     adapter.end(opened=True)
 
     render.render.assert_called_once_with(elem)
+    factory.apply_tooltip.assert_called_once_with(elem)
+
+
+# -- container adapters: the shared tooltip pass runs in end() -------------
+#
+# Regression guard: the three container adapters route through the factory,
+# which returns before ``render_element``'s generic tooltip pass. They must
+# paint the tooltip themselves in ``end()`` or a container's tooltip is
+# silently dropped (the collapsing_header header is hoverable, so the drop is
+# user-visible). ``end(opened=False)`` is GL-free — it skips every ImGui close
+# call and only runs the tooltip pass — so it exercises the fix without a frame.
+
+
+def test_collapsing_header_adapter_applies_tooltip_in_end() -> None:
+    factory = MagicMock()
+    elem = CollapsingHeaderElement(id="c", label="Section", tooltip="hint")
+    adapter = ImGuiCollapsingHeaderRenderer(elem, factory)
+
+    adapter.end(opened=False)
+
+    factory.apply_tooltip.assert_called_once_with(elem)
+
+
+def test_group_adapter_applies_tooltip_in_end() -> None:
+    factory = MagicMock()
+    elem = GroupElement(id="g", tooltip="hint")
+    adapter = ImGuiGroupRenderer(elem, factory)
+
+    adapter.end(opened=False)
+
+    factory.apply_tooltip.assert_called_once_with(elem)
+
+
+def test_tab_bar_adapter_applies_tooltip_in_end() -> None:
+    factory = MagicMock()
+    elem = TabBarElement(id="tb", tooltip="hint")
+    adapter = ImGuiTabBarRenderer(elem, factory)
+
+    adapter.end(opened=False)
+
     factory.apply_tooltip.assert_called_once_with(elem)
 
 

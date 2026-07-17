@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from dataclasses import fields
 from typing import TYPE_CHECKING, ClassVar, Self, cast
 
 from punt_lux.display.renderers import (
@@ -18,7 +19,6 @@ from punt_lux.display.renderers.container_renderer import ContainerRenderer
 from punt_lux.display.renderers.draw_element_renderer import DrawElementRenderer
 from punt_lux.display.renderers.modal_renderer import ModalRenderer
 from punt_lux.display.renderers.plot_renderer import PlotRenderer
-from punt_lux.display.renderers.tooltip_painter import TooltipPainter
 from punt_lux.display.renderers.tree_renderer import TreeRenderer
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
@@ -60,9 +60,8 @@ class ElementRenderer:
     _emit_event: EmitEventFn
     _current_scene_id: str | None
     _check_dirty_window: DirtyWindowFn
-    # Central to render_element — resolves every migrated kind's adapter.
+    # Resolves every migrated kind's adapter and owns the one shared tooltip pass.
     _imgui_renderer_factory: ImGuiRendererFactory
-    _tooltip_painter: TooltipPainter
     # Pre-ABC display leaves with no adapter yet — the residual dispatch table.
     _image_renderer: ImageRenderer
     _separator_renderer: SeparatorRenderer
@@ -99,8 +98,11 @@ class ElementRenderer:
         (SpinnerElement, "_spinner_renderer"),
         (MarkdownElement, "_markdown_renderer"),
     )
+    # Derived from the dispatch table, not double-listed. Each residual element is
+    # a slotted dataclass: read the ``kind`` field default, not the slot descriptor.
     _RESIDUAL_KINDS: ClassVar[frozenset[str]] = frozenset(
-        {"image", "separator", "spinner", "markdown"}
+        str(next(f.default for f in fields(element_type) if f.name == "kind"))
+        for element_type, _ in _RESIDUAL_DISPATCH
     )
 
     # Renderer attrs owning per-scene WidgetState; the setter forwards scene switches.
@@ -124,7 +126,6 @@ class ElementRenderer:
         self._emit_event = emit_event
         self._check_dirty_window = check_dirty_window
         self._current_scene_id = None
-        self._tooltip_painter = TooltipPainter()
         self._image_renderer = ImageRenderer(texture_cache)
         self._separator_renderer = SeparatorRenderer()
         self._spinner_renderer = SpinnerRenderer()
@@ -148,10 +149,9 @@ class ElementRenderer:
         and the ABC registry's migrated kinds, de-duplicated (a container kind
         exists in both the legacy table and the ABC registry during the fork).
         """
-        kinds = set(self._RENDERERS)
-        kinds |= self._RESIDUAL_KINDS
-        kinds |= DEFAULT_ABC_REGISTRY.all_kinds
-        return len(kinds)
+        return len(
+            set(self._RENDERERS) | self._RESIDUAL_KINDS | DEFAULT_ABC_REGISTRY.all_kinds
+        )
 
     @property
     def widget_state(self) -> WidgetState:
@@ -206,7 +206,7 @@ class ElementRenderer:
                 getattr(self, method_name)(elem)
             else:
                 imgui.text(f"[unsupported element: {elem.kind}]")
-        self._tooltip_painter.paint(elem)
+        self._imgui_renderer_factory.apply_tooltip(elem)
 
     def _render_via_factory(self, elem: AbcElement) -> None:
         """Paint a factory-backed ABC element (leaf or transitional dialog).

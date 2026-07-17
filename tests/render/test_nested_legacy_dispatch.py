@@ -117,27 +117,27 @@ def test_render_element_sends_handled_kinds_via_factory_without_generic_tooltip(
     er = _renderer()
     via_factory, tooltip = MagicMock(), MagicMock()
     monkeypatch.setattr(er, "_render_via_factory", via_factory)
-    monkeypatch.setattr(er, "_tooltip_painter", tooltip)
+    monkeypatch.setattr(er.imgui_renderer_factory, "apply_tooltip", tooltip)
 
     text = TextElement(id="t", content="hi", tooltip="hint")
     er.render_element(text)
 
     via_factory.assert_called_once_with(text)
-    tooltip.paint.assert_not_called()
+    tooltip.assert_not_called()
 
 
 def test_render_element_runs_generic_tooltip_for_legacy_kinds(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Contrast: a legacy element takes the string dispatch and DOES get the
-    # shared tooltip pass afterward.
+    # shared tooltip pass afterward — now the factory-owned painter.
     er = _renderer()
     render_group, tooltip = MagicMock(), MagicMock()
     monkeypatch.setattr(er, "_render_group", render_group)
-    monkeypatch.setattr(er, "_tooltip_painter", tooltip)
+    monkeypatch.setattr(er.imgui_renderer_factory, "apply_tooltip", tooltip)
 
     group = LegacyGroupElement(id="g", children=[])
     er.render_element(group)
 
     render_group.assert_called_once_with(group)
-    tooltip.paint.assert_called_once_with(group)
+    tooltip.assert_called_once_with(group)
