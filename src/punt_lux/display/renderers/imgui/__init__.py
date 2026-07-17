@@ -1,26 +1,12 @@
-"""ImGui renderer adapters — surface-shared factory + per-kind adapters.
+"""ImGui renderer adapters — the RendererFactory and per-kind adapters.
 
-The RendererFactory implementation that paints through ImGui. The factory
-owns surface-shared state (``WidgetState``, ``TextureCache``, ``Emit``);
-each per-kind adapter is a thin Renderer-Protocol satisfier
-(``begin``/``paint``/``end``) reached via the factory. Text, button, and
-checkbox are leaves that paint through ``ElementRenderer``'s per-kind
-renderers; the dialog opens a modal and draws its child Buttons through the
-unified button path.
+Kept import-light on purpose: the package ``__init__`` re-exports nothing, so
+importing a helper submodule (``color_channel_strip``, ``continuous_edit_*``)
+never boots the factory. Consumers import the factory from its own module
+(``punt_lux.display.renderers.imgui.factory``), which breaks the import cycle
+the stateless continuous-edit renderers would otherwise close.
 """
 
 from __future__ import annotations
 
-from punt_lux.display.renderers.imgui.button import ImGuiButtonRenderer
-from punt_lux.display.renderers.imgui.checkbox import ImGuiCheckboxRenderer
-from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
-from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
-
-__all__ = [
-    "ImGuiButtonRenderer",
-    "ImGuiCheckboxRenderer",
-    "ImGuiDialogRenderer",
-    "ImGuiRendererFactory",
-    "ImGuiTextRenderer",
-]
+__all__: list[str] = []

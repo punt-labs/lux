@@ -50,10 +50,10 @@ class ImGuiGroupRenderer:
         """No-op — the group's only body is its children (default recursion)."""
 
     def end(self, *, opened: bool) -> None:
-        """Close the stack surface ``begin`` opened for this group's layout."""
-        if not opened:
-            return
-        if self._elem.layout == "rows":
-            imgui.end_vertical()
-        else:
-            imgui.end_horizontal()
+        """Close the stack surface ``begin`` opened, then apply the hover tooltip."""
+        if opened:
+            if self._elem.layout == "rows":
+                imgui.end_vertical()
+            else:
+                imgui.end_horizontal()
+        self._factory.apply_tooltip(self._elem)

@@ -16,7 +16,6 @@ from punt_lux.display.renderers.image_renderer import ImageRenderer
 from punt_lux.display.renderers.input_number_renderer import InputNumberRenderer
 from punt_lux.display.renderers.input_text_renderer import InputTextRenderer
 from punt_lux.display.renderers.markdown_renderer import MarkdownRenderer
-from punt_lux.display.renderers.progress_renderer import ProgressRenderer
 from punt_lux.display.renderers.radio_renderer import RadioRenderer
 from punt_lux.display.renderers.selectable_renderer import SelectableRenderer
 from punt_lux.display.renderers.separator_renderer import SeparatorRenderer
@@ -33,7 +32,6 @@ __all__ = [
     "InputNumberRenderer",
     "InputTextRenderer",
     "MarkdownRenderer",
-    "ProgressRenderer",
     "RadioRenderer",
     "SelectableRenderer",
     "SeparatorRenderer",

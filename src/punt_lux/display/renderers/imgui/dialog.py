@@ -59,7 +59,7 @@ class ImGuiDialogRenderer:
         ``end`` can reconstruct the external-close condition from it and
         this frame's visibility.
         """
-        ws = self._factory.element_renderer.widget_state
+        ws = self._factory.widget_state
         was_open = ws.ensure(self._open_key, self._CLOSED) == self._OPEN
         dismissed = ws.ensure(self._dismiss_key, self._CLOSED) == self._OPEN
 
@@ -90,7 +90,7 @@ class ImGuiDialogRenderer:
             imgui.end_popup()
         if self._was_open and not opened:
             self._handle_external_close()
-        self._factory.element_renderer.apply_tooltip(self._elem)
+        self._factory.apply_tooltip(self._elem)
 
     def _handle_external_close(self) -> None:
         """Sync latches and close the model after an ImGui-driven close.
@@ -101,7 +101,7 @@ class ImGuiDialogRenderer:
         so the rest of the system sees it. Without this, ``model._visible``
         stays True while the popup is gone — state drift.
         """
-        ws = self._factory.element_renderer.widget_state
+        ws = self._factory.widget_state
         ws.set(self._open_key, self._CLOSED)
         ws.set(self._dismiss_key, self._OPEN)
         if self._elem.visible:

@@ -8,23 +8,40 @@ tested here; the live interaction loops are the leader-run e2e.
 
 from __future__ import annotations
 
-from typing import Self
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 from punt_lux.display.element_renderer import ElementRenderer
+from punt_lux.display.renderers.imgui import (
+    button as button_module,
+    checkbox as checkbox_module,
+    collapsing_header as collapsing_header_module,
+    group as group_module,
+)
 from punt_lux.display.renderers.imgui.button import ImGuiButtonRenderer
 from punt_lux.display.renderers.imgui.checkbox import ImGuiCheckboxRenderer
+from punt_lux.display.renderers.imgui.collapsing_header import (
+    ImGuiCollapsingHeaderRenderer,
+)
 from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
+from punt_lux.display.renderers.imgui.group import ImGuiGroupRenderer
+from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
+from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.dialog import DialogElement
+from punt_lux.protocol.elements.group import GroupElement
+from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.scene.widget_state import WidgetState
+
+if TYPE_CHECKING:
+    import pytest
 
 
 def _no_emit(_msg: object) -> None:
@@ -58,7 +75,6 @@ def _factory(widget_state: WidgetState | None = None) -> ImGuiRendererFactory:
         widget_state=ws,
         texture_cache=TextureCache(),
         emit=_no_emit,
-        element_renderer=_element_renderer(ws),
     )
 
 
@@ -92,59 +108,107 @@ def test_introspection_element_kind_total_is_25() -> None:
 # -- leaf adapters ---------------------------------------------------------
 
 
-class _StubElementRenderer:
-    """Element renderer stub exposing the narrow paint seam only."""
-
-    button_renderer: MagicMock
-    checkbox_renderer: MagicMock
-    _tooltip: MagicMock
-
-    def __new__(cls) -> Self:
-        self = super().__new__(cls)
-        self.button_renderer = MagicMock()
-        self.checkbox_renderer = MagicMock()
-        self._tooltip = MagicMock()
-        return self
-
-    def apply_tooltip(self, elem: object) -> None:
-        self._tooltip(elem)
-
-
-class _StubFactory:
-    """Factory stub exposing only ``element_renderer``."""
-
-    _element_renderer: _StubElementRenderer
-
-    def __new__(cls, element_renderer: _StubElementRenderer) -> Self:
-        self = super().__new__(cls)
-        self._element_renderer = element_renderer
-        return self
-
-    @property
-    def element_renderer(self) -> _StubElementRenderer:
-        return self._element_renderer
-
-
-def test_button_adapter_begin_true_paint_delegates_end_noop() -> None:
-    er = _StubElementRenderer()
+def test_button_adapter_paints_via_renderer_then_shared_tooltip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    render = MagicMock()
+    monkeypatch.setattr(button_module, "ButtonRenderer", lambda: render)
+    factory = MagicMock()
     elem = ButtonElement(id="b", label="Go")
-    adapter = ImGuiButtonRenderer(elem, _StubFactory(er))  # type: ignore[arg-type]
+    adapter = ImGuiButtonRenderer(elem, factory)
+
     assert adapter.begin() is True
     adapter.paint()
     adapter.end(opened=True)
-    er.button_renderer.render.assert_called_once_with(elem)
-    er._tooltip.assert_called_once_with(elem)
+
+    render.render.assert_called_once_with(elem)
+    factory.apply_tooltip.assert_called_once_with(elem)
 
 
-def test_checkbox_adapter_begin_true_paint_delegates_end_noop() -> None:
-    er = _StubElementRenderer()
+def test_checkbox_adapter_paints_via_renderer_then_shared_tooltip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    render = MagicMock()
+    monkeypatch.setattr(checkbox_module, "CheckboxRenderer", lambda: render)
+    factory = MagicMock()
     elem = CheckboxElement(id="c", label="On")
-    adapter = ImGuiCheckboxRenderer(elem, _StubFactory(er))  # type: ignore[arg-type]
+    adapter = ImGuiCheckboxRenderer(elem, factory)
+
     assert adapter.begin() is True
     adapter.paint()
     adapter.end(opened=True)
-    er.checkbox_renderer.render.assert_called_once_with(elem)
-    er._tooltip.assert_called_once_with(elem)
+
+    render.render.assert_called_once_with(elem)
+    factory.apply_tooltip.assert_called_once_with(elem)
+
+
+# -- container adapters: the tooltip attaches to the container's own item ---
+#
+# Regression guard for the hover-item timing bug: the container adapters route
+# through the factory, which returns before ``render_element``'s generic tooltip
+# pass, so they must paint the tooltip themselves — but at the point where
+# ImGui's ``is_item_hovered`` refers to the *container's own* chrome, not the
+# last child. That point differs per container:
+#   - collapsing_header: the header item lives in ``begin`` — tooltip attaches
+#     there, before any child; painting it in ``end`` (after children) would
+#     bind to the last child.
+#   - group: ``begin_vertical``/``end_vertical`` act as one item whose bbox
+#     registers only after the close — tooltip attaches in ``end`` after it.
+#   - tab_bar: only per-tab items exist, no whole-bar item — so no tooltip is
+#     painted (the field round-trips without a wrong-item target).
+
+
+def test_collapsing_header_adapter_applies_tooltip_in_begin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The header item is submitted in begin(); the tooltip must attach there.
+    fake_imgui = MagicMock()
+    fake_imgui.collapsing_header.return_value = False  # collapsed: no toggle fire
+    monkeypatch.setattr(collapsing_header_module, "imgui", fake_imgui)
+    factory = MagicMock()
+    elem = CollapsingHeaderElement(id="c", label="Section", tooltip="hint")
+    adapter = ImGuiCollapsingHeaderRenderer(elem, factory)
+
+    adapter.begin()
+    factory.apply_tooltip.assert_called_once_with(elem)
+
+    # end() must NOT re-apply — that would bind the tooltip to the last child.
+    factory.apply_tooltip.reset_mock()
+    adapter.end(opened=True)
+    factory.apply_tooltip.assert_not_called()
+
+
+def test_group_adapter_applies_tooltip_after_end_group(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The group's bbox becomes one hoverable item only after end_vertical, so the
+    # tooltip must attach in end(), strictly after the close.
+    fake_imgui = MagicMock()
+    monkeypatch.setattr(group_module, "imgui", fake_imgui)
+    factory = MagicMock()
+    elem = GroupElement(id="g", tooltip="hint")  # layout defaults to "rows"
+    adapter = ImGuiGroupRenderer(elem, factory)
+
+    order = MagicMock()
+    order.attach_mock(fake_imgui.end_vertical, "end_vertical")
+    order.attach_mock(factory.apply_tooltip, "apply_tooltip")
+    adapter.end(opened=True)
+
+    assert [call[0] for call in order.mock_calls] == ["end_vertical", "apply_tooltip"]
+    factory.apply_tooltip.assert_called_once_with(elem)
+
+
+def test_tab_bar_adapter_paints_no_tooltip_no_whole_bar_item() -> None:
+    # A tab bar has only per-tab items and no single whole-bar hover target, so
+    # painting the tooltip would bind it to the last tab. It is not painted; the
+    # field round-trips without a target. (Old code wrongly applied it in end.)
+    factory = MagicMock()
+    elem = TabBarElement(id="tb", tooltip="hint")
+    adapter = ImGuiTabBarRenderer(elem, factory)
+
+    adapter.end(opened=False)
+
+    factory.apply_tooltip.assert_not_called()
 
 
 # -- dialog renderer (GL-free surface) -------------------------------------

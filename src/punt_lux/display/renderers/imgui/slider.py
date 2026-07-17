@@ -1,15 +1,18 @@
 """ImGuiSliderRenderer — Renderer-Protocol adapter for ``SliderElement``.
 
-A leaf: paints through ``ElementRenderer``'s per-scene ``SliderRenderer``,
-which reconciles the Hub value with the user's drag via the shared
-``ContinuousEditArbiter`` and fires ``ValueChanged`` on release (wrapped for D21
-remote dispatch on the display side). The paint adds the shared
-``apply_tooltip`` pass. ``begin`` proceeds, ``end`` is a no-op.
+A leaf: paints through a per-paint ``SliderRenderer`` built on the factory's
+per-scene ``WidgetState`` (its ``ContinuousEditArbiter`` buffer lives keyed in
+that state, not on the renderer). It reconciles the Hub value with the user's
+drag and fires ``ValueChanged`` on release (wrapped for D21 remote dispatch). The
+paint adds the shared tooltip pass the factory owns. ``begin`` proceeds, ``end``
+is a no-op.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
+
+from punt_lux.display.renderers.slider_renderer import SliderRenderer
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -20,7 +23,7 @@ __all__ = ["ImGuiSliderRenderer"]
 
 @final
 class ImGuiSliderRenderer:
-    """Paint a SliderElement via ElementRenderer's SliderRenderer + tooltip."""
+    """Paint a SliderElement via a per-paint SliderRenderer + tooltip."""
 
     _elem: SliderElement
     _factory: ImGuiRendererFactory
@@ -37,9 +40,8 @@ class ImGuiSliderRenderer:
 
     def paint(self) -> None:
         """Paint the slider (fires ValueChanged on release) + tooltip pass."""
-        er = self._factory.element_renderer
-        er.slider_renderer.render(self._elem)
-        er.apply_tooltip(self._elem)
+        SliderRenderer(self._factory.widget_state).render(self._elem)
+        self._factory.apply_tooltip(self._elem)
 
     def end(self, *, opened: bool) -> None:
         """Leaf — no surface to close."""

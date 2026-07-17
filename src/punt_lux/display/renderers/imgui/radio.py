@@ -1,16 +1,17 @@
 """ImGuiRadioRenderer — Renderer-Protocol adapter for ``RadioElement``.
 
-A leaf: paints through ``ElementRenderer``'s stateless per-kind ``RadioRenderer``,
-which reads ``elem.selected`` (the Hub-authoritative index) directly each frame
-and holds no per-scene state, so nothing needs re-threading. A genuine user pick
-still ``fire``s ``ValueChanged``, wrapped for D21 remote dispatch on the display
-side. The paint adds the shared ``apply_tooltip`` pass. ``begin`` proceeds,
-``end`` is a no-op.
+A leaf: paints through a per-paint stateless ``RadioRenderer``, which reads
+``elem.selected`` (the Hub-authoritative index) directly each frame. A genuine
+user pick ``fire``s ``ValueChanged``, wrapped for D21 remote dispatch. The paint
+adds the shared tooltip pass the factory owns. ``begin`` proceeds, ``end`` is a
+no-op.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
+
+from punt_lux.display.renderers.radio_renderer import RadioRenderer
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -21,7 +22,7 @@ __all__ = ["ImGuiRadioRenderer"]
 
 @final
 class ImGuiRadioRenderer:
-    """Paint a RadioElement via ElementRenderer's RadioRenderer + tooltip."""
+    """Paint a RadioElement via a per-paint RadioRenderer + tooltip."""
 
     _elem: RadioElement
     _factory: ImGuiRendererFactory
@@ -38,9 +39,8 @@ class ImGuiRadioRenderer:
 
     def paint(self) -> None:
         """Paint the radio group (fires ValueChanged on pick) + tooltip pass."""
-        er = self._factory.element_renderer
-        er.radio_renderer.render(self._elem)
-        er.apply_tooltip(self._elem)
+        RadioRenderer().render(self._elem)
+        self._factory.apply_tooltip(self._elem)
 
     def end(self, *, opened: bool) -> None:
         """Leaf — no surface to close."""
