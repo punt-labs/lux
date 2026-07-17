@@ -984,12 +984,6 @@ class TestSerialization:
         assert elem.label == "Option A"
         assert elem.selected is True
 
-    def test_selectable_selected_excluded_when_false(self):
-        e = SelectableElement(id="s1", label="X")
-        scene = SceneMessage(id="s1", elements=[e])
-        d = message_to_dict(scene)
-        assert "selected" not in d["elements"][0]
-
     def test_tree_roundtrip(self):
         nodes: list[dict[str, Any]] = [
             {

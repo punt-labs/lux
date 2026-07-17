@@ -1,12 +1,12 @@
 """Shared ``Handler[ValueChanged]`` implementations for the atomic input kinds.
 
-The three atomic-value kinds — checkbox, combo, radio — each need two handlers
-that were, before this module, triplicated per kind:
+The atomic interactive kinds — checkbox, combo, radio, selectable — each need
+two handlers that were, before this module, duplicated per kind:
 
 - ``ApplyPatchOnChange`` mirrors an interactive change onto the element's
-  authoritative state. Checkbox patches ``value``; combo and radio patch
-  ``selected``. The only per-kind difference is which field the patch names, so
-  the class is parameterised by ``field`` and depends on nothing but
+  authoritative state. Checkbox patches ``value``; combo, radio, and selectable
+  patch ``selected``. The only per-kind difference is which field the patch
+  names, so the class is parameterised by ``field`` and depends on nothing but
   ``Element.apply_patch`` and the ``ValueChanged`` payload.
 - ``NoopValueHandler`` is the Null-Object stand-in (PY-DP-9) used when a
   standalone element's only side effect is a decorator such as ``publish``.
@@ -38,7 +38,7 @@ __all__ = [
     "build_standalone_value_handler_decoder",
 ]
 
-# Which field a change patches: ``value`` (checkbox) or ``selected`` (combo/radio).
+# Which field a change patches: ``value`` for checkbox, ``selected`` otherwise.
 type ChangedField = Literal["value", "selected"]
 
 
@@ -93,7 +93,7 @@ def build_standalone_value_handler_decoder(
 ) -> HandlerDecoder[ValueChanged]:
     """Return the ``HandlerDecoder`` for a standalone atomic-value element.
 
-    A checkbox, combo, or radio without a parent composite model has no verb
+    An atomic interactive element without a parent composite model has no verb
     vocabulary, so the explicit factory registry contains only ``noop``. The
     built-in state-sync handler (``ApplyPatchOnChange``) is installed directly by
     the kind's decoder so the element keeps its value mirrored even when the wire
