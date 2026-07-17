@@ -4943,3 +4943,101 @@ the shared handler with **zero** new handler code.
   `docs/architecture/migration/selectable-element-design.md`; DES-052 (the dedup
   this pays off), DES-051 (the registry), DES-042 (transitional rendering),
   DES-039 (self-validation); `checkbox` (the exemplar); bead `lux-07f5`.
+
+## DES-054: One Render-Dispatch Table — Retire `_NATIVE_DISPATCH`, Route Through the Factory
+
+**Status:** accepted. Modules: `display/element_renderer.py`,
+`display/renderers/imgui/factory.py`, `display/renderers/tooltip_painter.py`,
+`display/renderers/imgui/__init__.py`,
+`display/renderers/{tree,plot,modal,leaf_widget}_renderer.py`. Design doc:
+`docs/architecture/migration/element-renderer-decomposition-design.md`.
+
+`element_renderer.py` was the worst-over-target module (467 lines) and, worse,
+it *grew* on every atomic-kind migration — each added a `_<kind>_renderer`
+property, offset by hand to keep the OO ratchet from recording the debt going
+up. The root cause was not size: `element_renderer._NATIVE_DISPATCH` was a
+**second copy** of `imgui/factory.py`'s `_DISPATCH` — two hand-maintained tables
+carrying the same fact (which kind paints via which renderer), reached by two
+routes (the ABC path via `Element.render()` → the factory adapter; the native
+path via `_dispatch_native`). The checkbox half-migration regression was that
+drift. This is DES-051's disease (the six-copy element-factory ratchet) one
+layer down, in the render tier.
+
+Decomposed in two rollback-coherent PRs. PR1: extract the three un-extracted
+inline legacy paint bodies (`tree`/`plot`/`modal`) into `@final` renderer classes
+behind a `runtime_checkable LeafWidgetRenderer` Protocol — behaviour-preserving,
+467→358. PR2 (the core of this decision): delete the duplicate.
+
+### Decision
+
+- **Delete `_NATIVE_DISPATCH`; route through the one factory.** `render_element`'s
+  ABC branch resolves through the `ImGuiRendererFactory` — the registry that
+  already holds the kind→adapter mapping — via a new
+  `factory.handles(elem) -> TypeGuard[AbcElement]` predicate (PY-EH-4: a
+  narrowing predicate; `__call__` keeps raising for a genuinely-unknown type).
+  This generalises what `_render_dialog` already did, so `_render_dialog` folds
+  into the shared `factory(elem).begin/paint/end` branch.
+- **Explicit factory route, not `elem.render()`.** `_wrap_abc_elements`
+  (`server.py`) binds the real factory only on top-level ABC elements and their
+  ABC subtree; a migrated ABC leaf nested in a *legacy* container keeps the
+  `RAISING_FACTORY` sentinel, so `elem.render()` would raise. The ElementRenderer
+  drives its own real factory explicitly. This *strengthens* DES-042: the
+  transitional (legacy-nested-leaf) path and the top-level ABC path now resolve
+  the identical adapter — byte-identical paint, drift removed by construction
+  rather than by discipline.
+- **Stateless renderers per-paint; break the cycle.** Each ImGui adapter
+  constructs its stateless renderer per paint from `factory.widget_state` (the
+  renderers hold no frame-spanning state beyond `WidgetState`, verified for
+  slider/input_text/input_number/color_picker). `apply_tooltip` moves onto a new
+  factory-owned `TooltipPainter` value class, so adapters stop reaching back
+  through `factory._element_renderer`; that back-reference is deleted and the
+  `ElementRenderer ⇄ factory` import cycle is broken (PL-CU-2 — `factory.py`
+  imports `element_renderer` only under `TYPE_CHECKING`).
+- **Minimal residual table.** The native table is trimmed 15 → 4 — only the
+  pre-ABC display leaves with no adapter (`image`/`separator`/`spinner`/
+  `markdown`). It can only lose rows and empties in the B1 basics migration; the
+  four are NOT given adapters now (that would front-run B1).
+
+### Rationale — shrink-as-migrate
+
+After this, migrating a kind adds one row to `factory._DISPATCH` and one spec to
+`abc_kind_table` (the DES-051 sources) and **deletes** its legacy `_RENDERERS`
+row and delegator — `element_renderer.py` is never edited to *add* a kind again
+and loses lines per migration. The per-kind accretion that forced hand-offsets
+is gone. `element_renderer.py` dropped 467 → 251 across the two PRs (under the
+300 target); `factory.py` (120 → 124) absorbed `handles()` + `apply_tooltip`,
+offset manually to stay well under target — genuine paydown, not
+rebaseline-absorption. (One ratified `--rebaseline`: deleting 10 zero-param dead
+accessors raised element_renderer's mean `avg_params` 0.68 → 1.0 — a mean-shift
+artifact, still 4× under the 4.0 threshold, on a file that shed 107 lines.)
+
+### Rejected alternatives
+
+- **Per-family split of the renderers.** Clears the line count by relocating
+  mass but keeps `_NATIVE_DISPATCH` growing one row per migration — symptom, not
+  disease (the "split the file" option DES-051 rejected). Rejected.
+- **A new `RenderKindRegistry`.** The Display already has that registry — the
+  factory. A second one beside it re-creates the many-copies drift. Rejected;
+  its spirit (one additive source) is adopted via the factory.
+- **`elem.render()` for the ABC branch.** Would raise on a legacy-nested ABC leaf
+  (sentinel factory). Rejected in favour of the explicit factory route.
+- **Give the four residual leaves adapters now.** Front-runs their B1 migration.
+  Rejected; keep the shrinking 4-entry residual table.
+
+### Consequences
+
+- The render dispatch has one authoritative table. A future kind migration is
+  additive to the factory + subtractive from element_renderer.
+- Optional hardening (a later PR): a DES-051-style import-time drift guard
+  asserting `factory._DISPATCH` covers exactly the ABC registry's kinds, so a
+  migration that adds a codec spec but forgets the adapter fails at process
+  start, not as a silent `[unsupported element]`.
+- The dead `ProgressRenderer` was removed (its adapter draws directly,
+  byte-identical).
+
+### References
+
+`docs/architecture/migration/element-renderer-decomposition-design.md`;
+`element_renderer.py`, `imgui/factory.py`, `tooltip_painter.py`; DES-051 (the
+same duplicate-table lesson, one layer up), DES-042 (transitional rendering,
+strengthened here), DES-041 (fork-don't-mix); bead `lux-m4r8`.
