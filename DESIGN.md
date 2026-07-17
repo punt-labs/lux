@@ -4858,3 +4858,88 @@ radio, each fully verified before the next.
   registry this lands through), DES-042 (transitional rendering), DES-039
   (self-validation), DES-041 (fork-don't-mix / minimal family); `checkbox` (the
   exemplar); beads `lux-qnyf`, `lux-r2ay`.
+
+## DES-053: `selectable` as a Bool Checkbox in a List Row — the Shared-Handler Payoff
+
+**Status:** accepted. Modules: `protocol/elements/selectable.py`,
+`selectable_codec.py`, `display/renderers/selectable_renderer.py`,
+`display/renderers/imgui/selectable.py`; `protocol/elements/inputs.py` deleted.
+
+`selectable` is the last B2 kind and the simplest atomic leaf: a `bool` on/off
+toggle that paints as a clickable list row via `imgui.selectable` instead of
+`imgui.checkbox`. It carries no index-into-`items` (that is combo/radio), so
+there is no cross-field invariant, no `apply_patch` override, no `validate()`
+override, and — being atomic — no `ContinuousEditArbiter`. It maps onto the
+`checkbox` exemplar field-for-field with wire key `selected` (bool) in place of
+`value`. With three prior atomic kinds (checkbox/combo/radio) already sharing
+`ApplyPatchOnChange` (DES-052), `selectable` is the **payoff case** — it reuses
+the shared handler with **zero** new handler code.
+
+### Decision
+
+- **Reuse the shared handler.** The decoder installs
+  `ApplyPatchOnChange(elem, field="selected")` — the `ChangedField =
+  Literal["value","selected"]` alias already carries `"selected"` (combo/radio's
+  arm), so no new handler module and no widening. `NoopValueHandler` +
+  `build_standalone_value_handler_decoder` are reused for the standalone path.
+- **No `apply_patch` / `validate` override.** A `bool` toggle plus a `str` label
+  is always well-formed — there is no invalid-but-representable state to police.
+  `SelectableElement` inherits the ABC no-error `validate()` default. This is
+  the *component-appropriate* DES-039 answer ("no constraints"), not a gap; a
+  non-bool `selected` is rejected at the codec boundary (PY-EH-1), and the gate
+  asserts the positive tree-walk + codec rejection rather than a nonexistent
+  nested-rejection path.
+- **Always emit `selected`.** The encoder serializes `selected` unconditionally
+  (an unselected row is `{…,"selected":false}`), matching checkbox/combo/radio.
+  **We do not preserve the legacy omit-when-false quirk** — correctness and
+  sibling-consistency decide, not legacy byte-identity (operator ruling). The
+  legacy omit-when-false pinning test is flipped to assert always-emit. Tooltip
+  round-trips (legacy silently dropped it).
+- **Delete `inputs.py`.** `selectable` was `InputsRegistry`'s only remaining
+  registration; once it lands on the ABC registry the module is empty, so it and
+  its `build_element_codec` call are removed (PL-PP-1, no tombstone).
+- **Additive DES-051 landing.** One `abc_kind_table` spec + one
+  `MIGRATED_ABC_KINDS` + one `INTERACTIVE_KINDS` string; the capability guard
+  requires its handler. Kept in `_NATIVE_DISPATCH` (DES-042) for a selectable
+  nested in a still-legacy container. No protocol touch — the bool rides
+  `ValueChanged.value`'s existing arm.
+
+### Rationale
+
+- **The dedup pays off exactly as intended.** The combo/radio rule-of-three
+  extraction (DES-052) existed so the next atomic kind would land with no new
+  handler; `selectable` is that kind. A vacuous `validate()` and a reused handler
+  are the right minimalism, not under-engineering.
+- **Correctness over legacy.** An always-emitted `selected` is the correct,
+  consistent wire; the legacy space quirk gets fixed, not preserved.
+
+### Rejected alternatives
+
+- **A selectable-specific update handler.** Rejected — the shared
+  `ApplyPatchOnChange(field="selected")` already covers it; a bespoke handler
+  would re-introduce the duplication DES-052 removed.
+- **Preserve the legacy omit-when-false wire.** Rejected — matching legacy is
+  never a goal; a value that exists is serialized.
+- **A validate() override for symmetry with combo/radio.** Rejected — there is
+  no selectable invariant to express; a bool+label is always valid, and an empty
+  override asserting nothing is noise.
+
+### Consequences
+
+- B2 (interactive value inputs) is complete: slider, input_text, input_number,
+  color_picker, combo, radio, selectable all migrated.
+- `element_renderer.py` (over-target, 467) took the `selectable_renderer`
+  property; the +3 was **offset to net-zero, not rebaselined up** — the third
+  time this over-target file absorbed a per-kind renderer property and was
+  trimmed back (combo, radio, selectable). Its continued accretion is a signal it
+  should be decomposed before the B1 batch adds more.
+- `selectable.py`'s dataclass→ABC growth (46→170) is the established, ratified
+  ABC-migration baseline drift.
+
+### References
+
+- `selectable.py` / `selectable_codec.py` / `selectable_renderer.py` /
+  `imgui/selectable.py`; `value_change_handlers.py` (the shared handler reused);
+  `docs/architecture/migration/selectable-element-design.md`; DES-052 (the dedup
+  this pays off), DES-051 (the registry), DES-042 (transitional rendering),
+  DES-039 (self-validation); `checkbox` (the exemplar); bead `lux-07f5`.
