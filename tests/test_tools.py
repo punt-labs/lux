@@ -951,27 +951,26 @@ def _seed_legacy_root(
     *,
     scene: str = "s1",
     element_id: str = "sl1",
-    selected: bool = False,
+    label: str = "opt",
     connection: str = "local",
 ) -> None:
-    """Install one legacy (non-ABC) selectable root under ``connection``.
+    """Install one legacy (non-ABC) spinner root under ``connection``.
 
     A frozen wire dataclass is realized by ``dataclasses.replace`` on the write
     path — a legacy *root* is fully patchable, and its index entry is rebound to
     the fresh instance.
     """
-    selectable = agent_element_factory().element_from_dict(
+    spinner = agent_element_factory().element_from_dict(
         {
-            "kind": "selectable",
+            "kind": "spinner",
             "id": element_id,
-            "label": "opt",
-            "selected": selected,
+            "label": label,
         }
     )
     store.replace_scene(
         ConnectionId(connection),
         SceneId(scene),
-        [cast("DomainElement", selectable)],
+        [cast("DomainElement", spinner)],
     )
 
 
@@ -983,14 +982,14 @@ def _seed_legacy_window_with_child(
     child_id: str = "sl_child",
     title: str = "Old",
     connection: str = "local",
-) -> SelectableElement:
-    """Install a legacy window root holding one legacy selectable child.
+) -> SpinnerElement:
+    """Install a legacy window root holding one legacy spinner child.
 
     A legacy composite: the whole subtree is frozen values, so a ``replace`` on
     the root shares the child by reference. Returns the child object so a test
     can assert its identity survives a root patch.
     """
-    child = SelectableElement(id=child_id, label="Vol", selected=False)
+    child = SpinnerElement(id=child_id, label="Vol")
     window = WindowElement(id=window_id, title=title, children=[child])
     store.replace_scene(
         ConnectionId(connection),
@@ -1496,18 +1495,18 @@ class TestUpdateTool:
         same id, and the re-push carries the new value rebuilt from the store.
         """
         store = HubDisplay()
-        _seed_legacy_root(store, element_id="sl1", selected=False)
+        _seed_legacy_root(store, element_id="sl1", label="opt")
         client = _bind_store(monkeypatch, store)
 
-        result = update("s1", [{"id": "sl1", "set": {"selected": True}}])
+        result = update("s1", [{"id": "sl1", "set": {"label": "New"}}])
 
         assert result == "ack:s1"
-        selectable = store.resolve(SceneId("s1"), ElementId("sl1"))
-        assert isinstance(selectable, SelectableElement)
-        assert selectable.selected is True
+        spinner = store.resolve(SceneId("s1"), ElementId("sl1"))
+        assert isinstance(spinner, SpinnerElement)
+        assert spinner.label == "New"
         client.show_async.assert_called_once()
         pushed = client.show_async.call_args.kwargs["elements"]
-        assert pushed[0].selected is True
+        assert pushed[0].label == "New"
 
     def test_update_legacy_composite_root_shares_children_by_reference(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1550,14 +1549,14 @@ class TestUpdateTool:
         )
         client = _bind_store(monkeypatch, store)
 
-        result = update("s1", [{"id": "sl_child", "set": {"selected": True}}])
+        result = update("s1", [{"id": "sl_child", "set": {"label": "New"}}])
 
         assert result.startswith("error: scene not updated")
         assert "show" in result
         assert "window" in result
         # Store untouched — the nested child keeps its original value and identity.
         assert store.resolve(SceneId("s1"), ElementId("sl_child")) is child
-        assert child.selected is False
+        assert child.label == "Vol"
         client.show_async.assert_not_called()
 
     def test_update_nested_legacy_removal_defers_to_show(
@@ -1606,7 +1605,7 @@ class TestUpdateTool:
 
         assert result.startswith("error: scene not updated")
         assert "immutable" in result
-        assert store.resolve(SceneId("s1"), ElementId("sl1")).kind == "selectable"
+        assert store.resolve(SceneId("s1"), ElementId("sl1")).kind == "spinner"
         client.show_async.assert_not_called()
 
     def test_update_rejects_unknown_field_abc(
@@ -1743,21 +1742,21 @@ class TestUpdateTool:
         selectable. The store is untouched and nothing is re-pushed.
         """
         store = HubDisplay()
-        _seed_legacy_root(store, element_id="sl1", selected=True, connection="local")
+        _seed_legacy_root(store, element_id="sl1", label="opt", connection="local")
         client = _bind_store(monkeypatch, store)
 
         token = _session_key.set("intruder")
         try:
-            patched = update("s1", [{"id": "sl1", "set": {"selected": False}}])
+            patched = update("s1", [{"id": "sl1", "set": {"label": "hacked"}}])
             removed = update("s1", [{"id": "sl1", "remove": True}])
         finally:
             _session_key.reset(token)
 
         assert patched.startswith("error: scene not updated")
         assert removed.startswith("error: scene not updated")
-        selectable = store.resolve(SceneId("s1"), ElementId("sl1"))
-        assert isinstance(selectable, SelectableElement)
-        assert selectable.selected is True
+        spinner = store.resolve(SceneId("s1"), ElementId("sl1"))
+        assert isinstance(spinner, SpinnerElement)
+        assert spinner.label == "opt"
         client.show_async.assert_not_called()
 
     def test_update_batch_with_legacy_composite_rejection_is_atomic(

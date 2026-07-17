@@ -138,7 +138,7 @@ class ElementRenderer:
         self._input_number_renderer = InputNumberRenderer(widget_state)
         self._radio_renderer = RadioRenderer()
         self._color_picker_renderer = ColorPickerRenderer(widget_state)
-        self._selectable_renderer = SelectableRenderer(widget_state, emit_event)
+        self._selectable_renderer = SelectableRenderer()
         self._draw_element_renderer = DrawElementRenderer()
         self._container_renderer = ContainerRenderer(
             widget_state, check_dirty_window, self.render_element
@@ -164,14 +164,12 @@ class ElementRenderer:
         (SelectableElement, "_selectable_renderer"),
     )
 
-    # Renderer attributes owning per-scene WidgetState; the widget_state setter
-    # forwards a scene switch to each.
+    # Renderer attrs owning per-scene WidgetState; the setter forwards scene switches.
     _WIDGET_STATE_RENDERERS: ClassVar[tuple[str, ...]] = (
         "_slider_renderer",
         "_input_text_renderer",
         "_input_number_renderer",
         "_color_picker_renderer",
-        "_selectable_renderer",
         "_container_renderer",
     )
 
@@ -214,6 +212,11 @@ class ElementRenderer:
     def radio_renderer(self) -> RadioRenderer:
         """Return the per-kind radio renderer for the ImGui radio adapter."""
         return self._radio_renderer
+
+    @property
+    def selectable_renderer(self) -> SelectableRenderer:
+        """Return the per-kind selectable renderer for the ImGui adapter."""
+        return self._selectable_renderer
 
     @property
     def input_text_renderer(self) -> InputTextRenderer:
@@ -284,9 +287,7 @@ class ElementRenderer:
             else:
                 imgui.text(f"[unsupported element: {elem.kind}]")
 
-        # A dialog applies its own tooltip in ImGuiDialogRenderer.end (both the
-        # top-level ABC path and the nested _render_dialog path); skip the
-        # generic post-pass so the tooltip is not applied twice.
+        # Dialog paints its own tooltip in ImGuiDialogRenderer.end; skip generic pass.
         if not isinstance(elem, DialogElement):
             self.apply_tooltip(elem)
 

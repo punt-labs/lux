@@ -34,6 +34,7 @@ from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.radio import RadioElement
+from punt_lux.protocol.elements.selectable import SelectableElement
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.tools.hub_factory import hub_element_factory
@@ -303,6 +304,13 @@ class SimulatedAgent:
                 owner_id=ClientId("__display__"),
                 value=not element.value,
             )
+        if isinstance(element, SelectableElement):
+            return ValueChanged(
+                scene_id=SceneId("__display__"),
+                element_id=ElementId(element.id),
+                owner_id=ClientId("__display__"),
+                value=not element.selected,
+            )
         for elem_type, value in self._FIXED_VALUE_COMMITS:
             if isinstance(element, elem_type):
                 return ValueChanged(
@@ -349,7 +357,8 @@ class SimulatedAgent:
             | SliderElement
             | ColorPickerElement
             | ComboElement
-            | RadioElement,
+            | RadioElement
+            | SelectableElement,
         ):
             return ValueChanged
         if isinstance(element, CollapsingHeaderElement):

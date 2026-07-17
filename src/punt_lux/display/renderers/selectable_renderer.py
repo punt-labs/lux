@@ -1,53 +1,52 @@
 # pyright: reportUnknownMemberType=false, reportMissingModuleSource=false
-"""Renderer for SelectableElement — toggleable list item."""
+"""Renderer for SelectableElement — emits an ImGui selectable list row."""
 
 from __future__ import annotations
 
-import time
 from typing import Self
 
 from imgui_bundle import imgui
 
+from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.domain.interaction import ValueChanged
 from punt_lux.protocol.elements.selectable import SelectableElement
-from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
-from punt_lux.scene import WidgetState
-from punt_lux.types import EmitEventFn
+from punt_lux.tracing import trace
 
 __all__ = ["SelectableRenderer"]
 
 
 class SelectableRenderer:
-    """Render a SelectableElement via imgui.selectable."""
+    """Render a SelectableElement via imgui.selectable, honouring the Hub value.
 
-    _widget_state: WidgetState
-    _emit_event: EmitEventFn
+    ``render`` passes ``elem.selected`` — the Hub-authoritative state — to
+    ``imgui.selectable`` on every frame, so an agent-driven value change is
+    reflected on the next render rather than one frame late or never. The
+    renderer keeps no per-frame copy of the value: the element is the single
+    source of truth and the widget is a pure function of it.
 
-    def __new__(cls, widget_state: WidgetState, emit_event: EmitEventFn) -> Self:
-        self = super().__new__(cls)
-        self._widget_state = widget_state
-        self._emit_event = emit_event
-        return self
+    Echo-suppression is free here. ``imgui.selectable`` reports ``clicked``
+    only on a genuine user click; painting the Hub value programmatically
+    leaves it False. A Hub re-push carrying the same value therefore never
+    fires, so the fire -> Hub -> re-push -> fire loop cannot form. On a real
+    click it fires ``ValueChanged`` through the element's handler registry,
+    which the Display has wrapped for remote dispatch by
+    ``DisplayServer._wrap_abc_elements`` (via ``elem.wrap_handlers_for_remote``):
+    the wrapper sends the invocation to the Hub instead of running the real
+    handler body locally.
+    """
 
-    @property
-    def widget_state(self) -> WidgetState:
-        return self._widget_state
+    def __new__(cls) -> Self:
+        return super().__new__(cls)
 
-    @widget_state.setter
-    def widget_state(self, value: WidgetState) -> None:
-        self._widget_state = value
-
+    @trace
     def render(self, elem: SelectableElement) -> None:
-        eid = elem.id
-        label = elem.label
-        current: bool = self._widget_state.ensure(eid, elem.selected)
-        clicked, new_val = imgui.selectable(f"{label}##{eid}", current)
+        clicked, value = imgui.selectable(f"{elem.label}##{elem.id}", elem.selected)
         if clicked:
-            self._widget_state.set(eid, new_val)
-            self._emit_event(
-                RemoteEventHandlerInvocation(
-                    element_id=eid,
-                    action="clicked",
-                    ts=time.time(),
-                    value=new_val,
+            elem.fire(
+                ValueChanged(
+                    scene_id=SceneId("__display__"),
+                    element_id=ElementId(elem.id),
+                    owner_id=ClientId("__display__"),
+                    value=value,
                 )
             )

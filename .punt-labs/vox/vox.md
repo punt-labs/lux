@@ -1,4 +1,4 @@
 ---
 notify: "y"
-speak: "y"
+speak: "n"
 ---

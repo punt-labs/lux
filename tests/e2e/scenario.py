@@ -220,6 +220,65 @@ class Scenario:
         )
 
     @classmethod
+    def group_selectable_progress(cls) -> Self:
+        """A group holding a publishing selectable row and a display-only progress.
+
+        Clicking the row crosses as ``value_changed`` (value ``True``); the
+        built-in state-sync handler flips the Hub ``selected`` ``False``→``True``,
+        so the dispatch re-push carries the mutated value. A wire ``handlers``
+        entry publishes ``row_selected``. Proves the bool-atomic selectable rides
+        the faithful boundary like the checkbox, keyed on ``selected``.
+        """
+        return cls(
+            name="group-selectable-progress",
+            scene_id="e2e-selectable-scene",
+            elements=(
+                {
+                    "kind": "group",
+                    "id": "sel-surface",
+                    "layout": "rows",
+                    "children": (
+                        {
+                            "kind": "selectable",
+                            "id": "row-field",
+                            "label": "Bass boost",
+                            "selected": False,
+                            "handlers": [
+                                {
+                                    "event": "changed",
+                                    "factory": "noop",
+                                    "wrap": [
+                                        {
+                                            "decorator": "publish",
+                                            "topics": ["row_selected"],
+                                        }
+                                    ],
+                                }
+                            ],
+                        },
+                        {
+                            "kind": "progress",
+                            "id": "sel-progress",
+                            "fraction": 0.0,
+                            "label": "idle",
+                        },
+                    ),
+                },
+            ),
+            target_element_id="row-field",
+            interaction=InteractionExpectation(event_kind="value_changed", value=True),
+            publish=WirePublish("row_selected"),
+            react=(
+                ReactPatch(element_id="sel-progress", field="fraction", value=1.0),
+                ReactPatch(element_id="sel-progress", field="label", value="selected"),
+            ),
+            display_only_id="sel-progress",
+            repush=PropAfterDispatch(
+                element_id="row-field", field="selected", value=True, flipped=True
+            ),
+        )
+
+    @classmethod
     def group_input_text_progress(cls) -> Self:
         """A group holding a publishing input_text and a display-only progress.
 
@@ -992,6 +1051,7 @@ class Scenario:
 SCENARIOS: tuple[Scenario, ...] = (
     Scenario.group_button_progress(),
     Scenario.group_checkbox_progress(),
+    Scenario.group_selectable_progress(),
     Scenario.group_input_text_progress(),
     Scenario.group_slider_progress(),
     Scenario.group_input_number_progress(),
