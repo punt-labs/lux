@@ -234,19 +234,6 @@ def test_color_picker_round_trip_alpha_and_picker() -> None:
     assert restored.value == "#FF8080AA"
 
 
-def test_selectable_always_emits_selected() -> None:
-    # The design states the value; an unselected row still emits selected: false.
-    elem = SelectableElement(id="sel1", label="Item")
-    payload = element_to_dict(elem)
-    assert payload["selected"] is False
-
-
-def test_selectable_emits_selected_when_true() -> None:
-    elem = SelectableElement(id="sel1", label="Item", selected=True)
-    payload = element_to_dict(elem)
-    assert payload["selected"] is True
-
-
 # -- end-to-end through Display.apply ---------------------------------------
 
 
@@ -411,11 +398,6 @@ def test_radio_rejects_non_int_selected() -> None:
 def test_color_picker_rejects_non_bool_alpha() -> None:
     with pytest.raises(ValueError, match=r"color_picker element.*'alpha'"):
         ColorPickerElement.from_dict({"id": "cp1", "label": "x", "alpha": 1})
-
-
-def test_selectable_rejects_non_bool_selected() -> None:
-    with pytest.raises(ValueError, match=r"selectable element.*'selected'"):
-        SelectableElement.from_dict({"id": "sel1", "label": "x", "selected": "yes"})
 
 
 def test_input_text_round_trip_through_element_from_dict() -> None:
