@@ -24,14 +24,22 @@ and what must be true to leave it. The state those schemas observe:
 
 ```text
 LoopState
-  signals   : ℙ SIGNAL      -- issues, alerts, messages not yet triaged
-  open      : ℙ BEAD        -- open beads: the single work funnel
-  validated : ℙ BEAD        -- re-proven against current main
-  claimed   : ℙ BEAD        -- the current batch
+  signals       : ℙ SIGNAL  -- issues, alerts, messages not yet triaged
+  open          : ℙ BEAD    -- open beads: the single work funnel
+  validated     : ℙ BEAD    -- re-proven against current main
+  claimed       : ℙ BEAD    -- the current batch
+  closed        : ℙ BEAD    -- beads completed by a merged PR
+  activeWorkers : ℙ WORKER  -- sub-agents editing the shared worktree
+  testCount     : ℕ         -- tests collected by the suite
   ------------------------------------------------------------------
   validated ⊆ open
   claimed   ⊆ validated
+  open ∩ closed = ∅         -- a bead is open or closed, never both
 ```
+
+A bead's lifecycle is a walk through these sets: `open → validated → claimed
+→ closed`. Steps that were performed ("the recap was sent") appear as named
+predicates over declared terms, never as bare primed flags.
 
 ## Roles
 
@@ -56,7 +64,9 @@ function backlog_loop():
 
     # 1. INTAKE — every signal becomes a bead or is disposed at the door
     for signal in [github_issues, dependabot_alerts, biff_messages,
-                   operator_requests, defects_found_while_working]:
+                   operator_requests, new_scope_found_while_working]:
+                   # a defect inside an open PR's unit is fixed in that PR,
+                   # never filed — only genuinely NEW scope arrives here
         if duplicate(signal):  close_at_door(signal, link_existing_bead)
         elif invalid(signal):  close_at_door(signal, stated_reason)
         else:                  bd_create(signal, labels, link_back_to_source)
@@ -102,19 +112,26 @@ EnterBatch ≙ [ LoopState ]                -- no precondition: the backlog loop
                                           -- has standing to run
 
 ExitBatch ≙ [ Δ LoopState |
-  signals′ = ∅                            -- every signal became a bead or was
-                                          --   disposed at the door with a reason
-  ∧ claimed′ = ∅                          -- the batch is drained: every claimed
+  intakeDisposed(signals)                 -- every signal observed at this
+                                          --   iteration's intake became a bead
+                                          --   or was closed at the door with a
+                                          --   reason; new signals keep accruing,
+                                          --   so the live queue is never empty
+  ∧ claimed′ = ∅ ∧ claimed ⊆ closed′      -- the batch drained: every claimed
                                           --   bead closed by a merged PR
-  ∧ (∀ i : resolvedIssues • closed(i))    -- GitHub issues answered with their PR
-  ∧ batchRecapSent′ ]
+  ∧ resolvedIssuesClosed(mergedPRs)       -- GitHub issues answered with their PR
+  ∧ batchRecapSent(claimed) ]
 ```
 
 ### Intake
 
 Work arrives from five places: GitHub issues filed by users, Dependabot
 security alerts, biff messages from agents in other repositories, requests
-from the operator, and defects we find ourselves while working. At intake,
+from the operator, and new lines of work we discover ourselves. That last
+source carries a boundary: a defect found inside the unit of an open PR is
+fixed in that PR and never becomes a bead; only genuinely new scope —
+discovered outside any open PR, or clearly a separate rollback unit — enters
+at intake. At intake,
 each signal is either turned into a bead or closed at the door with a stated
 reason — duplicate of an existing bead, or invalid. Nothing is left sitting
 in an external queue: a GitHub issue gets a reply naming its bead, and it is
@@ -253,7 +270,9 @@ function close_out():
     start the next unit immediately       # no stopping to report
 ```
 
-Entry and exit for one PR iteration:
+Entry and exit for one PR iteration. `merge_gate` in the pseudocode is the
+pre-merge subset of these conditions; `ExitPR` describes the state after
+close-out completes.
 
 ```text
 EnterPR ≙ [ LoopState; unit : ℙ BEAD |
@@ -268,9 +287,11 @@ ExitPR ≙ [ Δ LoopState; pr : PR |
   ∧ localFindings(pr) = ∅                 -- held BEFORE the PR opened
   ∧ demoConfirmed(pr)                     -- held BEFORE the PR opened
   ∧ ciGreen(head(pr))
+  ∧ reviewedByBots(head(pr))              -- Copilot + Bugbot on the latest
+                                          --   commit, per the merge_gate rules
   ∧ unresolvedThreads(pr) = ∅
   ∧ materialFindings(latestRound(pr)) = ∅
-  ∧ beadsOf(pr) ⊆ closedBeads′
+  ∧ beadsOf(pr) ⊆ closed′
   ∧ mergeRecapSent(pr) ]
 ```
 
@@ -343,7 +364,7 @@ ExitMission ≙ [ Δ LoopState; m : MISSION |
   ∧ findings(m) = ∅                       -- the do-while ran dry
   ∧ (∀ c : commitsOf(m) • checkGreen(c))  -- every commit passed make check
   ∧ testCount′ ≥ testCount                -- coverage never decreases
-  ∧ closed(m) ]
+  ∧ missionClosed(m) ]
 ```
 
 ### Who does what
