@@ -570,27 +570,27 @@ display is never spawned while one is alive, which is I5.
   shutting' = shutting
 \end{schema}
 
-\texttt{Reconn} handles the dead-peer path.  It reconnects and re-queues
-the scene that was in flight so nothing already drained is dropped; the
-display's shown state is preserved, modelling a reconnect to a live display
-whose rendered state survives a dropped socket.  If a deployment instead
-finds the display process gone on this path (a fresh, empty display on
-reconnect), this path must also re-mark every live scene, exactly as
-\texttt{Ensure}/\texttt{Remark} do --- see the note in
-Section~\ref{sec:verify}.
+\texttt{Reconn} handles the dead-peer path.  A dead peer may come back as a
+fresh, empty display on reconnect, so this path is modelled honestly: the
+reconnected display shows nothing, and the worker re-marks every live scene
+--- exactly as \texttt{Ensure}/\texttt{Remark} do after a reap.  There is no
+process to kill, so \texttt{Reconn} reconnects, resets the display to empty,
+and re-marks in one step.  I4 holds \emph{because of} that re-mark: the fresh
+display starts blank, so the system cannot come to rest until every live
+scene is pushed again.
 
 \begin{schema}{Reconn}
   \Delta Repl
 \where
   wphase = wreconn \\
   display' = dup \\
-  dirty' = dirty \cup snapScene \\
+  displayed' = (\lambda s : SCENE @ vempty) \\
+  dirty' = dirty \cup \{ s : SCENE | store~s = vlive \} \\
+  batch' = \emptyset \\
   snapScene' = \emptyset \\
   snapVal' = vempty \\
-  batch' = batch \setminus snapScene \\
   wphase' = wproc \\
   store' = store \\
-  displayed' = displayed \\
   cleared' = cleared \\
   storeLockMut' = storeLockMut \\
   mutScene' = mutScene \\
@@ -926,14 +926,15 @@ order in \texttt{ApplyClear} closes it: with clear-first the goal returns
 repainting.
 
 \paragraph{Note --- the dead-peer path.}
-\texttt{Reconn} models a reconnect to a display whose rendered state
-survives a dropped socket, so it re-queues only the in-flight scene.  If a
-deployment's \texttt{OSError} instead means the display process is gone ---
-a fresh, empty display on reconnect --- then I4 requires this path to
-re-mark every live scene, as the reap path does.  Model-checking I4 with
-\texttt{Reconn} weakened to reset \texttt{displayed} without re-marking
-makes the \texttt{Quiescent} violation reachable, which is the evidence for
-that requirement.
+Both send-failure paths re-mark every live scene.  A dead peer may return as
+a fresh, empty display on reconnect, so \texttt{Reconn} resets the display to
+empty and re-marks every live scene, exactly as the reap path does; it
+differs only in having no process to kill.  I4 holds on this path
+\emph{because of} the re-mark: were \texttt{Reconn} to reset \texttt{displayed}
+without re-marking --- re-queuing only the scene in flight --- the
+\texttt{Quiescent} violation would be reachable for the scenes that were
+already clean, since the fresh display shows none of them.  The re-mark is
+what closes that gap.
 
 % ============================================================
 \section{Fidelity: reproducing the store race}
