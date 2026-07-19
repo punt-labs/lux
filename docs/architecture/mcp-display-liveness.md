@@ -156,13 +156,22 @@ with cond:
     while not dirty and not cleared: cond.wait()
     cond.wait(0.016)                 # coalesce a burst
     batch, was_cleared = drain(dirty), take(cleared)
+if was_cleared: push_clear()         # blank FIRST — see below
 for scene in batch:                  # snapshot LATEST state under the store lock
     with hub_display.read_lock():    # copy roots out, then push outside the lock
         roots = list(hub_display.scene_roots(scene))
         frame = hub_display.frame_id_for(scene)
     push(scene, roots, frame)
-if was_cleared: push_clear()
 ```
+
+The clear is sent before the batch, never after. A `clear` followed quickly by
+a `show` lands in the same coalescing window, and if the worker painted the new
+scene first and then sent the clear, the clear would blank the scene it just
+painted — the display would sit empty while the Hub's store holds a live
+scene. Blanking first and then repainting the batch always leaves the display
+showing the store's latest state. Model-checking found the lost update in the
+send-then-clear order and verified clear-first against it
+(`docs/hub_replicator.tex`).
 
 Coalescing takes no extra effort. Many changes to one scene mark it as changed
 just once. When the worker is about to send, it reads that scene's current state
@@ -237,8 +246,16 @@ except BlockingIOError:              # send-timeout: peer accepts but won't drai
     remark_all_dirty()               # re-mark every live scene, re-push fresh state
 except OSError:                      # ECONNRESET/EPIPE: peer already dead
     client.close()                   # same: force a fresh connection
-    reconnect()                      # reconnect only — nothing to kill
+    reconnect()                      # nothing to kill — the peer is gone
+    remark_all_dirty()               # the display may come back empty, so
+                                     # re-push every live scene from the store
 ```
+
+Both failure paths end by re-marking every live scene. A dead peer usually
+means the display process is gone, and whatever display the next send reaches
+is empty. Re-marking costs at most one redundant resend of scenes the display
+already had — resending a whole scene is idempotent — and it removes the case
+where a scene that was already clean before the crash stays missing forever.
 
 A stuck display still answers new connection attempts, so `is_running()`
 (`paths.py:139`) reports it as alive (`_probe` returns `ACCEPTING`,
@@ -440,6 +457,15 @@ following:
   thread changes it, giving a changed-size error or a half-read list of roots.
   With the lock in place, ProB should find no such trace. A model that cannot show
   the bug it is meant to guard against is too vague to trust.
+
+This verification is done. The spec is `docs/hub_replicator.tex`, checked
+exhaustively with ProB — all invariants hold, no deadlock, and the
+lock-removed variant reproduces the torn read. It also caught two defects in
+an earlier draft of this design: the clear was ordered after the batch (a
+`clear` → `show` burst lost the show), and the dead-peer path did not re-mark
+scenes. Both fixes are folded in above. The derived test partitions are in
+`docs/hub_replicator_coverage.md`; the implementation fills them. Re-run
+`fuzz` and the model-check whenever the modeled behavior changes.
 
 ## Out of scope
 
