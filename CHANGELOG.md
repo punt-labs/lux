@@ -185,6 +185,14 @@
 
 ### Fixed
 
+- **lux MCP tool calls now fail fast on an unresponsive display** — the
+  `mcpServers.lux` entry in `plugin.json` gains a per-server `timeout` of 5s.
+  Without it, calls inherited the ~30-minute default MCP idle timeout, so a
+  single hung call (e.g. `clear` against a stalled Display or `mcp-proxy`→`luxd`
+  WebSocket) blocked the agent for tens of minutes. lux renders are tens of
+  milliseconds; anything past ~5s means the surface is broken, so the call
+  aborts there rather than waiting on a dead display.
+
 - **Color-picker channel bars now scale with their value in both modes** — every
   RGB(A) channel fill is painted proportional to its 0..255 value (0%..100%)
   instead of ImGui's fixed 3px color marker, which drew an identical sliver for
