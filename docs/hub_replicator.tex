@@ -1,0 +1,974 @@
+%
+% hub_replicator.tex
+%
+% A Z specification of the lux Hub replicator: one background worker that
+% is the sole writer to the display connection, several mutator threads
+% (MCP tool calls and Hub-side click handlers) that only ever touch the
+% Hub's store, a read/write lock on the store, the client send lock, and a
+% kill-and-restart path that runs while mutators keep changing the store.
+%
+% Models the DESIGN in docs/architecture/mcp-display-liveness.md, sections
+% "The Hub replicator: one background worker", "The store needs a lock",
+% and "Killing a stuck display and starting a new one".  It does NOT model
+% the current code, which still carries the store race this design closes.
+%
+% Type-check:  fuzz docs/hub_replicator.tex
+% Model-check (see the Verification section for the exact goal predicates):
+%   probcli docs/hub_replicator.tex -model_check -p DEFAULT_SETSIZE 2
+%   probcli docs/hub_replicator.tex -model_check -nodead \
+%       -goal "readLock = held & clientLock = held" -p DEFAULT_SETSIZE 2
+%
+% Formatting follows the fuzz house rules: \quad~ for continuation indent,
+% schema lines under 80 columns, predicates broken at \land/\lor/\implies.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{The lux Hub Replicator: a Z Specification}
+\author{Formal model of the single-writer, two-lock replication discipline}
+\date{July 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+An MCP \texttt{clear} call once froze an agent for about 38 minutes: the
+tool sent to the display synchronously, on the agent's own thread, over a
+socket with no send timeout, while holding the client send lock.  The fix
+moves every send to the display onto one background worker inside the Hub
+--- the \emph{replicator} --- and keeps every agent-facing tool on the
+Hub's in-memory store, which it updates and returns from at once.
+
+The worker introduces real concurrency.  It is a background thread; it
+drains a set of changed scenes that several other threads mark; it reads a
+store that those threads mutate; and it kills and restarts a wedged
+display while those threads keep running.  This document models that
+concurrency as a finite state machine over a small fixed set of scenes and
+mutator threads, so that ProB can enumerate every interleaving and either
+confirm the invariants or produce the exact offending trace.
+
+Five properties must hold across every interleaving:
+
+\begin{description}
+  \item[I1 --- single writer.] Only the worker ever writes to the display
+    connection.  No mutator thread holds the client send lock.
+  \item[I2 --- agent-path liveness.] No mutator operation is ever disabled
+    by display I/O or by the client send lock.  A mutator makes progress
+    even while the worker is stuck sending to a dead display.
+  \item[I3 --- no lock cycle.] No thread ever holds the store lock and the
+    client send lock at the same time.  The worker snapshots under the
+    store read lock, releases it, and only then takes the client lock to
+    send.
+  \item[I4 --- no lost update.] Whenever the system comes to rest with the
+    display up, the display shows the store's latest state for every scene
+    --- including after a reap and respawn, which re-marks every live
+    scene.
+  \item[I5 --- one display.] The worker never spawns a fresh display while
+    one is still alive; a respawn follows a kill.
+\end{description}
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [SCENE, MUTATOR]
+\end{zed}
+
+\texttt{SCENE} is the set of scenes the Hub can hold; two suffice to
+exhibit a coalesced batch and a per-scene lost update.  \texttt{MUTATOR}
+is the set of threads that change the store: MCP tool calls (\texttt{show},
+\texttt{update}, \texttt{clear}) and Hub-side click handlers.  Both kinds
+do the same thing to the store, so one carrier covers both; two mutators
+exhibit lock contention.  Both carriers are bounded by ProB's
+\texttt{DEFAULT\_SETSIZE}.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  VAL ::= vempty | vlive | vtorn
+\end{zed}
+
+The content of one scene in the store or on the display, abstracted to a
+token.  \texttt{vempty}: no elements (a scene that has been cleared or
+never populated).  \texttt{vlive}: a committed, consistent scene tree.
+\texttt{vtorn}: the half-updated state a scene passes through while a
+mutator is inside a multi-step \texttt{replace\_scene} --- the value that,
+if read without the lock, is the ``dictionary changed size during
+iteration'' defect.  Real scene structure is elided; what matters is
+whether a read observes a committed value or a torn one.
+
+\begin{zed}
+  DPROC ::= dup | dstuck | ddead
+\end{zed}
+
+The display process as the worker's send sees it.  \texttt{dup}: alive and
+draining its socket; a send succeeds.  \texttt{dstuck}: alive but no longer
+reading, so the send buffer fills and the time-limited send raises
+\texttt{BlockingIOError}.  \texttt{ddead}: the peer is gone, so the send
+raises a plain \texttt{OSError} (\texttt{ECONNRESET}/\texttt{EPIPE}).
+
+\begin{zed}
+  LOCK ::= held | free
+\end{zed}
+
+\begin{zed}
+  FLAG ::= set | clear
+\end{zed}
+
+Two-valued markers for the worker's read lock and client lock, and for the
+cleared and shutting signals, respectively.  A dedicated free type is used
+rather than a built-in boolean so the spec is self-contained for
+\texttt{fuzz}.
+
+\begin{zed}
+  WPHASE ::= \\
+  \quad~ widle | wdrain | wproc | wsnap | wsend | \\
+  \quad~ wreap | wensure | wremark | wreconn | \\
+  \quad~ wflush | wstopped
+\end{zed}
+
+The worker's own program counter.  \texttt{widle}: waiting on the
+condition.  \texttt{wdrain}: woken, about to take the whole changed-scene
+set.  \texttt{wproc}: iterating the drained batch.  \texttt{wsnap}: holding
+the store read lock, copying one scene's roots.  \texttt{wsend}: holding
+the client lock, sending that copy.  \texttt{wreap}/\texttt{wensure}/%
+\texttt{wremark}: the reap-respawn-remark recovery after a send timeout.
+\texttt{wreconn}: the reconnect recovery after a dead peer.
+\texttt{wflush}/\texttt{wstopped}: the final bounded flush at shutdown.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema.  Its predicate carries only
+\emph{structural} coherence --- the locks and the snapshot hold at most one
+thing, and the write lock is held exactly when a scene is mid-replace.
+These hold in every design, correct or buggy, so they constrain the state
+space without masking the safety properties.  The safety properties
+(Section~\ref{sec:inv}) are deliberately \emph{absent} here, so that a
+violating state stays reachable and ProB can find it.
+
+\begin{schema}{Repl}
+  store : SCENE \fun VAL \\
+  displayed : SCENE \fun VAL \\
+  dirty : \power SCENE \\
+  batch : \power SCENE \\
+  cleared : FLAG \\
+  snapScene : \power SCENE \\
+  snapVal : VAL \\
+  storeLockMut : \power MUTATOR \\
+  mutScene : \power SCENE \\
+  readLock : LOCK \\
+  clientLock : LOCK \\
+  display : DPROC \\
+  shutting : FLAG \\
+  wphase : WPHASE
+\where
+  \# storeLockMut \leq 1 \\
+  \# snapScene \leq 1 \\
+  \# mutScene \leq 1 \\
+  (storeLockMut = \emptyset \iff mutScene = \emptyset)
+\end{schema}
+
+\texttt{store} is the Hub's authoritative copy; \texttt{displayed} is what
+the display is currently showing.  \texttt{dirty} is the changed-scene set
+guarded by the worker's condition, and \texttt{cleared} the cleared flag
+beside it.  \texttt{batch} is the set the worker drained and is now
+pushing.  \texttt{snapScene}/\texttt{snapVal} are the one scene the worker
+has copied out under the read lock and the value it copied.
+\texttt{storeLockMut} names the mutator holding the store write lock (empty
+or one), and \texttt{mutScene} the scene it is mid-replacing.
+\texttt{readLock} and \texttt{clientLock} record whether the worker holds
+the store read lock and the client send lock.  \texttt{display} is the
+display process state; \texttt{shutting} the clean-shutdown signal;
+\texttt{wphase} the worker's program counter.
+
+Modelling the store read/write lock as \emph{one} mutually-exclusive slot
+(\texttt{readLock} for the sole reader, \texttt{storeLockMut} for the one
+writer) is sound because there is exactly one reader thread in this design
+--- the worker.  A read/write lock exists to allow concurrent readers; with
+a single reader the only exclusion that can ever fire is reader-versus-%
+writer, which a single slot captures.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Repl'
+\where
+  store' = (\lambda s : SCENE @ vempty) \\
+  displayed' = (\lambda s : SCENE @ vempty) \\
+  dirty' = \emptyset \\
+  batch' = \emptyset \\
+  cleared' = clear \\
+  snapScene' = \emptyset \\
+  snapVal' = vempty \\
+  storeLockMut' = \emptyset \\
+  mutScene' = \emptyset \\
+  readLock' = free \\
+  clientLock' = free \\
+  display' = dup \\
+  shutting' = clear \\
+  wphase' = widle
+\end{schema}
+
+A single initial state: empty store, empty display, nothing dirty, no
+locks held, the worker idle, the display up.
+
+% ============================================================
+\section{Mutator Operations}
+% ============================================================
+
+A mutator changes the store under the write lock in two steps, so the
+scene passes through a torn intermediate the worker must never read.  The
+first step takes the lock and begins the replace; the second commits the
+new value, marks the scene dirty, and releases the lock.  Marking dirty is
+part of the commit: the tool calls \texttt{mark\_dirty} on the same thread,
+immediately after \texttt{replace\_scene} returns and before it yields, so
+no other thread observes the store between the store write and the mark.
+
+The write lock is taken only when it is free \emph{and} the worker is not
+mid-snapshot (\texttt{readLock = free}).  That guard is the store lock's
+reader-writer exclusion; removing it from the worker's snapshot yields the
+buggy variant of Section~\ref{sec:fidelity}.
+
+\begin{schema}{ReplaceBegin}
+  \Delta Repl \\
+  m? : MUTATOR \\
+  s? : SCENE
+\where
+  storeLockMut = \emptyset \\
+  readLock = free \\
+  storeLockMut' = \{ m? \} \\
+  mutScene' = \{ s? \} \\
+  store' = store \oplus \{ s? \mapsto vtorn \} \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  cleared' = cleared \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  display' = display \\
+  shutting' = shutting \\
+  wphase' = wphase
+\end{schema}
+
+\begin{schema}{ReplaceCommit}
+  \Delta Repl \\
+  m? : MUTATOR
+\where
+  m? \in storeLockMut \\
+  store' = store \oplus (mutScene \cross \{ vlive \}) \\
+  dirty' = dirty \cup mutScene \\
+  storeLockMut' = \emptyset \\
+  mutScene' = \emptyset \\
+  displayed' = displayed \\
+  batch' = batch \\
+  cleared' = cleared \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  display' = display \\
+  shutting' = shutting \\
+  wphase' = wphase
+\end{schema}
+
+The \texttt{clear} tool empties the whole store under the write lock and
+sets the cleared flag instead of marking a scene dirty.  Modelled as one
+step, since the torn-read race is already exhibited by \texttt{replace}:
+
+\begin{schema}{ClearStore}
+  \Delta Repl
+\where
+  storeLockMut = \emptyset \\
+  readLock = free \\
+  store' = (\lambda s : SCENE @ vempty) \\
+  cleared' = set \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  display' = display \\
+  shutting' = shutting \\
+  wphase' = wphase
+\end{schema}
+
+% ============================================================
+\section{The Worker Loop}
+% ============================================================
+
+The worker waits on the condition, wakes when something is dirty or the
+screen was cleared, drains the whole set, and pushes each scene by copying
+its current roots under the read lock and sending the copy outside the
+lock.  Coalescing needs no extra mechanism: many marks of one scene add it
+to the set once, and the worker reads that scene's current store value when
+it snapshots, so the display receives the newest value, never a
+half-finished one.
+
+\begin{schema}{Wake}
+  \Delta Repl
+\where
+  wphase = widle \\
+  shutting = clear \\
+  (dirty \neq \emptyset \lor cleared = set) \\
+  wphase' = wdrain \\
+  store' = store \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  cleared' = cleared \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  display' = display \\
+  shutting' = shutting
+\end{schema}
+
+\texttt{Drain} takes the whole changed-scene set at once and clears it,
+holding the cleared flag for the end of the cycle.  New marks that arrive
+after this point re-populate \texttt{dirty} for the next cycle.
+
+\begin{schema}{Drain}
+  \Delta Repl
+\where
+  wphase = wdrain \\
+  batch' = dirty \\
+  dirty' = \emptyset \\
+  wphase' = wproc \\
+  store' = store \\
+  displayed' = displayed \\
+  cleared' = cleared \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  display' = display \\
+  shutting' = shutting
+\end{schema}
+
+\texttt{Snap} takes the store read lock, picks one scene still in the
+batch, and copies its current value.  The read lock is available only when
+no mutator holds the write lock (\texttt{storeLockMut = $\emptyset$}); that
+guard is what stops the worker reading a torn scene.  The guard
+\texttt{cleared = clear} holds a scene's paint until any pending clear has
+been applied, so a cleared cycle blanks before it repaints.
+
+\begin{schema}{Snap}
+  \Delta Repl
+\where
+  wphase = wproc \\
+  batch \neq \emptyset \\
+  cleared = clear \\
+  storeLockMut = \emptyset \\
+  (\exists s : SCENE @ \\
+  \quad~ s \in batch \land snapScene' = \{ s \} \land snapVal' = store~s) \\
+  readLock' = held \\
+  wphase' = wsnap \\
+  store' = store \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  cleared' = cleared \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  clientLock' = clientLock \\
+  display' = display \\
+  shutting' = shutting
+\end{schema}
+
+\texttt{SendBegin} releases the store read lock and only then takes the
+client send lock.  This release-before-acquire is the whole of I3: the two
+locks are never held together, so no cycle can form.
+
+\begin{schema}{SendBegin}
+  \Delta Repl
+\where
+  wphase = wsnap \\
+  readLock' = free \\
+  clientLock' = held \\
+  wphase' = wsend \\
+  store' = store \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  cleared' = cleared \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  display' = display \\
+  shutting' = shutting
+\end{schema}
+
+The time-limited send has three outcomes, keyed on the display process.
+On success the display now shows the copied value and the scene leaves the
+batch.
+
+\begin{schema}{SendOk}
+  \Delta Repl
+\where
+  wphase = wsend \\
+  display = dup \\
+  clientLock' = free \\
+  displayed' = displayed \oplus (snapScene \cross \{ snapVal \}) \\
+  batch' = batch \setminus snapScene \\
+  snapScene' = \emptyset \\
+  snapVal' = vempty \\
+  wphase' = wproc \\
+  store' = store \\
+  dirty' = dirty \\
+  cleared' = cleared \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  display' = display \\
+  shutting' = shutting
+\end{schema}
+
+On a send timeout (\texttt{BlockingIOError}) the display is alive but
+wedged.  The send gives up within its time limit and releases the client
+lock, and the worker turns to the reap-respawn path.  The batch is kept:
+the respawn re-marks every live scene, which re-covers the scene in flight.
+
+\begin{schema}{SendStuck}
+  \Delta Repl
+\where
+  wphase = wsend \\
+  display = dstuck \\
+  clientLock' = free \\
+  wphase' = wreap \\
+  store' = store \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  cleared' = cleared \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  display' = display \\
+  shutting' = shutting
+\end{schema}
+
+On a dead peer (\texttt{OSError}) there is nothing to kill; the worker
+closes the dead descriptor and reconnects.
+
+\begin{schema}{SendDead}
+  \Delta Repl
+\where
+  wphase = wsend \\
+  display = ddead \\
+  clientLock' = free \\
+  wphase' = wreconn \\
+  store' = store \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  cleared' = cleared \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  display' = display \\
+  shutting' = shutting
+\end{schema}
+
+% ============================================================
+\section{Reap, Respawn, Reconnect}
+% ============================================================
+
+A stuck display still answers new connections, so it must be killed before
+a fresh one is started.  \texttt{Reap} terminates the wedged process;
+\texttt{Ensure} starts a fresh, empty one; \texttt{Remark} re-marks every
+live scene so the fresh display is repainted from the store's current
+state.  \texttt{Ensure} is enabled only from \texttt{ddead}: a fresh
+display is never spawned while one is alive, which is I5.
+
+\begin{schema}{Reap}
+  \Delta Repl
+\where
+  wphase = wreap \\
+  display' = ddead \\
+  wphase' = wensure \\
+  store' = store \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  cleared' = cleared \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  shutting' = shutting
+\end{schema}
+
+\begin{schema}{Ensure}
+  \Delta Repl
+\where
+  wphase = wensure \\
+  display = ddead \\
+  display' = dup \\
+  displayed' = (\lambda s : SCENE @ vempty) \\
+  snapScene' = \emptyset \\
+  snapVal' = vempty \\
+  wphase' = wremark \\
+  store' = store \\
+  dirty' = dirty \\
+  batch' = batch \\
+  cleared' = cleared \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  shutting' = shutting
+\end{schema}
+
+\begin{schema}{Remark}
+  \Delta Repl
+\where
+  wphase = wremark \\
+  dirty' = dirty \cup \{ s : SCENE | store~s = vlive \} \\
+  batch' = \emptyset \\
+  wphase' = wproc \\
+  store' = store \\
+  displayed' = displayed \\
+  cleared' = cleared \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  display' = display \\
+  shutting' = shutting
+\end{schema}
+
+\texttt{Reconn} handles the dead-peer path.  It reconnects and re-queues
+the scene that was in flight so nothing already drained is dropped; the
+display's shown state is preserved, modelling a reconnect to a live display
+whose rendered state survives a dropped socket.  If a deployment instead
+finds the display process gone on this path (a fresh, empty display on
+reconnect), this path must also re-mark every live scene, exactly as
+\texttt{Ensure}/\texttt{Remark} do --- see the note in
+Section~\ref{sec:verify}.
+
+\begin{schema}{Reconn}
+  \Delta Repl
+\where
+  wphase = wreconn \\
+  display' = dup \\
+  dirty' = dirty \cup snapScene \\
+  snapScene' = \emptyset \\
+  snapVal' = vempty \\
+  batch' = batch \setminus snapScene \\
+  wphase' = wproc \\
+  store' = store \\
+  displayed' = displayed \\
+  cleared' = cleared \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  shutting' = shutting
+\end{schema}
+
+% ============================================================
+\section{Ending a Cycle, Clear, Shutdown}
+% ============================================================
+
+A cleared cycle blanks the display \emph{before} it repaints the batch.
+\texttt{ApplyClear} pushes the blank first, and \texttt{Snap} is guarded by
+\texttt{cleared = clear}, so no scene is painted until the clear has been
+applied.  The worker then repaints each batch scene from the store's
+current value, so a \texttt{show} that coalesced after the \texttt{clear}
+survives.
+
+This is a deliberate departure from the design text, which pushes the clear
+\emph{after} the batch (\texttt{for scene in batch: push(...); if
+was\_cleared: push\_clear()}).  Model-checking I4 against that order finds a
+lost update: a \texttt{clear} followed by a \texttt{show} within the
+worker's 16\,ms coalescing window paints the new scene and then blanks it
+(Section~\ref{sec:verify}).  The clear-first order specified here is
+convergent for both \texttt{show}-then-\texttt{clear} and
+\texttt{clear}-then-\texttt{show}; the design document should be amended to
+match.  The clear's own send is modelled as an immediate blank; its send
+has the same time limit and the same two failure outcomes as a scene send,
+which the scene-send operations already cover.
+
+\begin{schema}{ApplyClear}
+  \Delta Repl
+\where
+  wphase = wproc \\
+  cleared = set \\
+  displayed' = (\lambda s : SCENE @ vempty) \\
+  cleared' = clear \\
+  store' = store \\
+  dirty' = dirty \\
+  batch' = batch \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  display' = display \\
+  shutting' = shutting \\
+  wphase' = wphase
+\end{schema}
+
+When the batch is empty and the clear (if any) has been applied, the worker
+goes idle.
+
+\begin{schema}{ProcDone}
+  \Delta Repl
+\where
+  wphase = wproc \\
+  batch = \emptyset \\
+  cleared = clear \\
+  wphase' = widle \\
+  store' = store \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  cleared' = cleared \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  display' = display \\
+  shutting' = shutting
+\end{schema}
+
+The display fails independently of the worker: an environment step may
+wedge it or kill it.  These are the events the worker's next send detects.
+
+\begin{schema}{DisplayWedge}
+  \Delta Repl
+\where
+  display = dup \\
+  display' = dstuck \\
+  store' = store \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  cleared' = cleared \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  shutting' = shutting \\
+  wphase' = wphase
+\end{schema}
+
+\begin{schema}{DisplayCrash}
+  \Delta Repl
+\where
+  display = dup \\
+  display' = ddead \\
+  store' = store \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  cleared' = cleared \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  shutting' = shutting \\
+  wphase' = wphase
+\end{schema}
+
+At clean shutdown the worker makes one last bounded flush of whatever is
+still dirty and then stops.  The flush is best-effort: losing the last
+frame is acceptable because the process is exiting.  \texttt{Restart}
+re-enters a fresh idle state, modelling luxd starting again, and keeps the
+model live so the deadlock check reports only genuine lock deadlocks, never
+this deliberate terminal stop.
+
+\begin{schema}{ShutdownReq}
+  \Delta Repl
+\where
+  shutting = clear \\
+  shutting' = set \\
+  store' = store \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  cleared' = cleared \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  display' = display \\
+  wphase' = wphase
+\end{schema}
+
+\begin{schema}{Flush}
+  \Delta Repl
+\where
+  wphase = widle \\
+  shutting = set \\
+  dirty' = \emptyset \\
+  wphase' = wstopped \\
+  store' = store \\
+  displayed' = displayed \\
+  batch' = batch \\
+  cleared' = cleared \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  display' = display \\
+  shutting' = shutting
+\end{schema}
+
+\begin{schema}{Restart}
+  \Delta Repl
+\where
+  wphase = wstopped \\
+  store' = (\lambda s : SCENE @ vempty) \\
+  displayed' = (\lambda s : SCENE @ vempty) \\
+  dirty' = \emptyset \\
+  batch' = \emptyset \\
+  cleared' = clear \\
+  snapScene' = \emptyset \\
+  snapVal' = vempty \\
+  storeLockMut' = \emptyset \\
+  mutScene' = \emptyset \\
+  readLock' = free \\
+  clientLock' = free \\
+  display' = dup \\
+  shutting' = clear \\
+  wphase' = widle
+\end{schema}
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+Five properties must hold across all reachable states.  None is placed in
+the \texttt{Repl} schema: a predicate placed there would be enforced as a
+guard on every successor, silently disabling any operation that would break
+it and thereby masking the very defect this model exists to catch.
+
+\paragraph{Invariant 1 --- single writer.}
+Only the worker ever holds the client send lock, and it holds it only while
+sending:
+\[
+  clientLock = held \implies wphase = wsend.
+\]
+No mutator operation mentions \texttt{clientLock} in its effect, so no
+mutator can ever hold it.  The design removes the two second-writer paths
+the current code has --- the inline resend in the click dispatch and the
+beads app's direct render --- so that the worker's \texttt{wsend} is the
+only place a send happens.
+
+\paragraph{Invariant 2 --- agent-path liveness.}
+No mutator operation is guarded by \texttt{clientLock}, \texttt{display},
+\texttt{readLock}, or \texttt{wphase}: \texttt{ReplaceBegin},
+\texttt{ReplaceCommit}, and \texttt{ClearStore} depend only on the store
+write lock.  So no state of the display or of the worker's send can disable
+a mutator.  The witness (Section~\ref{sec:verify}) is a reachable state in
+which the worker is stuck sending to a wedged display while a mutator holds
+the write lock and is free to commit.
+
+\paragraph{Invariant 3 --- no lock cycle.}
+No thread holds the store lock and the client send lock at once:
+\[
+  \lnot\,(readLock = held \land clientLock = held).
+\]
+The worker takes the read lock in \texttt{Snap}, releases it in
+\texttt{SendBegin} \emph{before} taking the client lock, and no mutator
+ever takes the client lock.  The two locks are therefore always acquired in
+one order and never held together, so no cyclic wait can form.
+
+\paragraph{Invariant 4 --- no lost update.}
+Whenever the system is at rest with the display up, the display shows the
+store's latest value for every scene.  ``At rest'' means the worker is
+idle, nothing is dirty or cleared, no mutator holds the write lock, and no
+shutdown is in progress:
+\[
+  Quiescent \implies (\forall s : SCENE @ displayed~s = store~s),
+\]
+where
+\begin{eqnarray*}
+  Quiescent & \defs & wphase = widle \land dirty = \emptyset \land
+    cleared = clear \\
+  & & {} \land storeLockMut = \emptyset \land shutting = clear \land
+    display = dup.
+\end{eqnarray*}
+After a reap and respawn the fresh display is empty, so \texttt{Remark}
+re-marks every live scene; the system cannot come to rest until those
+scenes are pushed, which restores \texttt{displayed = store}.
+
+\paragraph{Invariant 5 --- one display.}
+A fresh display is spawned only after the old one is killed:
+\texttt{Ensure} is enabled only from \texttt{display = ddead}, and
+\texttt{Reap} is the only step that reaches \texttt{ddead} on the recovery
+path.  So the worker never holds two live displays.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz docs/hub_replicator.tex
+\end{verbatim}
+
+I3, I4, and I5 are state properties, checked by asking ProB whether their
+negation is \emph{reachable}.  A goal reported \emph{not found} means the
+invariant holds on every reachable state:
+\begin{verbatim}
+  # Invariant 3 (must report: goal NOT found)
+  probcli docs/hub_replicator.tex -model_check -nodead \
+    -goal "readLock = held & clientLock = held" \
+    -p DEFAULT_SETSIZE 2
+
+  # Invariant 4 (must report: goal NOT found)
+  probcli docs/hub_replicator.tex -model_check -nodead \
+    -goal "wphase = widle & dirty = {} & cleared = clear &
+           storeLockMut = {} & shutting = clear & display = dup &
+           card({s | s : SCENE & displayed(s) /= store(s)}) > 0" \
+    -p DEFAULT_SETSIZE 2
+
+  # Invariant 5 (must report: goal NOT found)
+  probcli docs/hub_replicator.tex -model_check -nodead \
+    -goal "wphase = wensure & display /= ddead" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+I1 is corroborated by a reachability goal that must be \emph{not found} ---
+no state holds the client lock outside a send:
+\begin{verbatim}
+  # Invariant 1 (must report: goal NOT found)
+  probcli docs/hub_replicator.tex -model_check -nodead \
+    -goal "clientLock = held & wphase /= wsend" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+I2 is a liveness witness that must be \emph{found}: a reachable state in
+which the worker is sending to a wedged display while a mutator holds the
+write lock and can still commit --- the agent path is not blocked by
+display I/O:
+\begin{verbatim}
+  # Invariant 2 (must report: goal FOUND)
+  probcli docs/hub_replicator.tex -model_check -nodead \
+    -goal "display = dstuck & clientLock = held & storeLockMut /= {}" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Deadlock freedom is the full-state-space check.  \texttt{Restart} keeps the
+model live, so any deadlock reported would be a genuine lock deadlock:
+\begin{verbatim}
+  # Deadlock freedom (must report: no deadlock / no counterexample)
+  probcli docs/hub_replicator.tex -model_check -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+\paragraph{Finding --- clear ordering.}
+Model-checking I4 against the design document's stated order --- push the
+batch scenes, then \texttt{if was\_cleared: push\_clear()} --- returns
+\emph{goal found}.  Replace \texttt{ApplyClear} (which blanks first) with a
+\texttt{PushClear} that blanks at the end of the cycle, and this trace is
+reachable:
+\begin{verbatim}
+  ClearStore              ; store emptied, cleared set
+  ReplaceBegin/Commit s1  ; a show() lands after the clear, within
+                          ;   the 16ms coalescing window; store s1 = vlive
+  Drain                   ; batch = {s1}, cleared carried
+  Snap; SendBegin; SendOk ; display now shows s1 = vlive
+  PushClear               ; display blanked to empty
+  -- rest: displayed s1 = vempty, store s1 = vlive  (lost update)
+\end{verbatim}
+A \texttt{clear} immediately followed by a \texttt{show} is an ordinary
+sequence, so this is a reachable defect, not a corner case.  The clear-first
+order in \texttt{ApplyClear} closes it: with clear-first the goal returns
+\emph{not found}.  The design document should be amended to blank before
+repainting.
+
+\paragraph{Note --- the dead-peer path.}
+\texttt{Reconn} models a reconnect to a display whose rendered state
+survives a dropped socket, so it re-queues only the in-flight scene.  If a
+deployment's \texttt{OSError} instead means the display process is gone ---
+a fresh, empty display on reconnect --- then I4 requires this path to
+re-mark every live scene, as the reap path does.  Model-checking I4 with
+\texttt{Reconn} weakened to reset \texttt{displayed} without re-marking
+makes the \texttt{Quiescent} violation reachable, which is the evidence for
+that requirement.
+
+% ============================================================
+\section{Fidelity: reproducing the store race}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce the known defect proves nothing.  The buggy
+variant is this specification with one change: the store's reader-writer
+exclusion is removed from the worker's snapshot.  Concretely, delete the
+guard \texttt{storeLockMut = $\emptyset$} from \texttt{Snap}, so the worker
+can copy a scene's value while a mutator is inside \texttt{replace\_scene}
+and the scene is \texttt{vtorn}.  The torn read then becomes reachable:
+
+\begin{enumerate}
+  \item Mutator $m$ runs \texttt{ReplaceBegin} on scene $s$: it takes the
+    write lock and sets \texttt{store~$s$ = vtorn}, with
+    \texttt{storeLockMut = \{m\}}.
+  \item Meanwhile the worker has a batch containing $s$ and is at
+    \texttt{wproc}.  Without the exclusion guard, \texttt{Snap} fires: it
+    copies \texttt{snapVal = store~$s$ = vtorn}.
+  \item The worker is now about to send a half-updated scene: a state with
+    \texttt{snapVal = vtorn}.
+\end{enumerate}
+
+The property that separates the two designs is therefore
+\begin{verbatim}
+  # must be NOT found for the correct spec, FOUND for the buggy variant
+  probcli <spec>.tex -model_check -nodead \
+    -goal "snapVal = vtorn" -p DEFAULT_SETSIZE 2
+\end{verbatim}
+Under the intact exclusion the worker's \texttt{Snap} cannot fire while any
+mutator holds the write lock, so \texttt{snapVal} is never \texttt{vtorn};
+the reachability search returns \emph{goal not found}.  With the guard
+removed it returns \emph{goal found} --- the trace above.  That difference
+is the evidence that the model detects the race the store lock was added to
+prevent.
+
+\end{document}
