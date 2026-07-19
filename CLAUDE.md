@@ -27,6 +27,19 @@ wins. The full linked index is in [Key Documents](#key-documents) below.
 @docs/README.md
 @docs/architecture/target/target.md
 
+These org-wide standards from the `punt-kit` sibling repo are the merged source
+of truth for how Punt Labs tools are built, `@`-imported so they load at session
+start. `architecture.md` is the engine-and-clients model that lux **is** — the
+Hub is the engine, the Display is a decomposition of that one engine, and the MCP
+tools, CLI, library, and REST are its thin client surfaces. `oo.md` is the
+object-oriented stance lux's Python answers to. `python.md` is the Python
+standard, including the mandatory OO ratchet lux already runs. These are
+cross-repo (external) imports, so the first load may ask for approval.
+
+@../punt-kit/standards/architecture.md
+@../punt-kit/standards/oo.md
+@../punt-kit/standards/python.md
+
 ## Read This First
 
 **This codebase is being rewritten toward a new architecture.** The repo
