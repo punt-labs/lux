@@ -12,6 +12,7 @@ import os
 import re
 from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from pathlib import Path
 from socket import socket
 from typing import TYPE_CHECKING
 from urllib.parse import urlparse
@@ -45,12 +46,7 @@ _active_sessions: set[str] = set()
 
 async def _health_route(request: Request) -> JSONResponse:  # noqa: ARG001
     """Return hub health status."""
-    return JSONResponse(
-        {
-            "status": "ok",
-            "sessions": len(_active_sessions),
-        }
-    )
+    return JSONResponse({"status": "ok", "sessions": len(_active_sessions)})
 
 
 async def _mcp_websocket_route(websocket: WebSocket) -> None:
@@ -58,7 +54,11 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
 
     Each connection gets its own isolated MCP session; auth is checked first.
     """
-    from mcp.server.websocket import websocket_server
+    # WebSocket is the deliberate luxd<->mcp-proxy transport leg, supported
+    # through mcp 1.x; a streamable-HTTP migration is tracked as future work.
+    from mcp.server.websocket import (
+        websocket_server,  # pyright: ignore[reportDeprecated]
+    )
 
     # Sanitize user-controlled value before logging (CWE-117).
     raw_key = websocket.query_params.get("session_key", "")
@@ -81,7 +81,7 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
 
     _active_sessions.add(session_key)
     try:
-        async with websocket_server(
+        async with websocket_server(  # pyright: ignore[reportDeprecated]
             websocket.scope, websocket.receive, websocket.send
         ) as (read_stream, write_stream):
             from punt_lux.tools import run_mcp_session
@@ -142,8 +142,6 @@ def build_app(
 
 
 def _write_port_file(port_path: object, port: int) -> None:
-    from pathlib import Path
-
     p = Path(str(port_path))
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(str(port))
@@ -151,8 +149,6 @@ def _write_port_file(port_path: object, port: int) -> None:
 
 
 def _remove_port_file(port_path: object) -> None:
-    from pathlib import Path
-
     p = Path(str(port_path))
     try:
         p.unlink(missing_ok=True)

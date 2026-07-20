@@ -321,6 +321,14 @@
   lost-racer-clean-exit, and deadlock-freedom. A regression artifact for future
   lifecycle changes.
 
+### Security
+
+- **Upgraded the `mcp` SDK to `>=1.28.1,<2`**, closing three HIGH advisories in
+  the transitive dependency: WebSocket Host/Origin validation, HTTP session
+  principal verification, and cross-client task access. The version is capped
+  below 2.0 because that release removes the WebSocket server transport that
+  luxd uses for the luxd-to-mcp-proxy leg.
+
 ## [0.19.1] - 2026-07-04
 
 ### Changed
