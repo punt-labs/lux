@@ -187,8 +187,10 @@
 
 - **Plot series without labels no longer flicker or fight for one legend slot.**
   Two series that share a label — including the label-less default "data" —
-  used to collide on a single ImPlot item; each series now gets a unique item
-  ID with the same visible legend text.
+  used to collide on a single ImPlot item. Each series and each plot is now
+  scoped on the ImGui id stack, so labels and titles render verbatim (a label
+  ending in "#" is no longer truncated) while every item still gets a distinct
+  id. A non-str wire label is rejected rather than rendered as garbage.
 - **MCP tools no longer block on the display; the 38-minute hang class is closed
   by construction.** Every mutation tool (`show`, `show_table`, `show_dashboard`,
   `update`, `clear`) now writes only to the Hub's authoritative store and returns
