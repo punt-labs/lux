@@ -82,15 +82,17 @@ socket errors --- a timeout (\texttt{BlockingIOError}) or a dead peer
 fail: an unspawnable display or a refused reconnect raises before the work is
 re-marked, and any other error inside the cycle escapes the two socket
 handlers.  That third, generic failure must not drop the drained work: the
-worker restores the exact batch --- re-marking its scenes \emph{and}
-re-setting the cleared flag --- and backs off.  Every heal of a batch that
-carried a clear re-marks that clear, because a reconnect to the same display
-leaves the old scenes on screen and only a fresh blank removes them;
-blank-then-repaint is idempotent.  Finally, a drained scene whose store copy
-is empty is pushed as a blank into its own recorded frame, so an emptied or
-departed scene vanishes --- unless the batch already carried a clear, which
-blanked the whole display, in which case the empty scene is skipped rather
-than blanked twice.
+worker re-marks it --- every scene the cycle drained \emph{and} the clear it
+carried --- and backs off.  The two socket heals re-mark more: the whole
+drained batch, together with every scene the store still holds live, together
+with the carried clear.  The drained scenes matter because a batch can drain
+a scene whose only job is to be blanked, and a reconnect can land on the same
+still-running display that keeps its stale copy, so a lost blank must be
+re-queued or the departed scene lingers forever; blank-then-repaint is
+idempotent.  Finally, a drained scene whose store copy is empty is pushed as a
+blank into its own recorded frame, so an emptied or departed scene vanishes
+--- unless the batch already carried a clear, which blanked the whole display,
+in which case the empty scene is skipped rather than blanked twice.
 
 % ============================================================
 \section{Basic Types}
@@ -686,21 +688,34 @@ closes the dead descriptor and reconnects.
 
 A stuck display still answers new connections, so it must be killed before
 a fresh one is started.  \texttt{Reap} terminates the wedged process;
-\texttt{Ensure} starts a fresh, empty one; \texttt{Remark} re-marks every
-live scene so the fresh display is repainted from the store's current
-state, and re-marks the clear if the failed batch carried one.
-\texttt{Ensure} is enabled only from \texttt{ddead}: a fresh display is never
-spawned while one is alive, which is I5.
+\texttt{Ensure} starts a fresh, empty one; \texttt{Remark} re-marks the work
+so the display is repainted from the store's current state, and re-marks the
+clear if the failed batch carried one.  \texttt{Ensure} is enabled only from
+\texttt{ddead}: a fresh display is never spawned while one is alive, which is
+I5.
 
-The clear re-mark is the subtle half of the heal.  A cleared scene is empty
-in the store, so it is absent from the live set \texttt{Remark} re-marks;
-without also re-marking the clear, a reconnect to the same surviving display
-would leave the old, pre-clear scene on screen forever.  Re-marking the
-clear re-arms the live flag, so the next cycle blanks the display again
-before repainting; blank-then-repaint is idempotent.  The re-mark is
-expressed against \texttt{batchCleared} --- the clear this failed batch
-carried --- and merges into whatever the live flag already holds, so a fresh
-clear that arrived mid-cycle is never lost.
+The re-mark set is \texttt{drained} $\cup$ the live scenes: every scene the
+failed batch drained, plus every scene the store still holds live.  The two
+unions cover complementary gaps.  The live scenes must be re-marked because a
+fresh or reconnected display shows none of them until they are pushed again.
+The \emph{drained} scenes must be re-marked because a batch can drain a scene
+that is \emph{not} live --- an emptied or departed scene whose only remaining
+job is to be blanked; that blank can be lost to the failed send, and it is
+absent from the live set, so re-marking only the live scenes would drop it.
+Unioning \texttt{drained} keeps the emptied scene's blank in the queue until
+it lands.  \texttt{SendRecovery.\_remark} does exactly this: it re-marks
+\texttt{batch.scenes} together with \texttt{live\_scene\_ids()}.
+
+The clear re-mark is the third part of the heal.  A cleared scene is empty in
+the store, so it is absent from the live set, and \texttt{clear} marks no
+scene dirty, so it is absent from \texttt{drained} as well; without re-marking
+the clear, a reconnect to the same surviving display would leave the old,
+pre-clear scene on screen forever.  Re-marking the clear re-arms the live
+flag, so the next cycle blanks the display again before repainting;
+blank-then-repaint is idempotent.  The re-mark is expressed against
+\texttt{batchCleared} --- the clear this failed batch carried --- and merges
+into whatever the live flag already holds, so a fresh clear that arrived
+mid-cycle is never lost.
 
 \begin{schema}{Reap}
   \Delta Repl
@@ -751,7 +766,7 @@ clear that arrived mid-cycle is never lost.
   \Delta Repl
 \where
   wphase = wremark \\
-  dirty' = dirty \cup \{ s : SCENE | store~s = vlive \} \\
+  dirty' = (dirty \cup drained) \cup \{ s : SCENE | store~s = vlive \} \\
   (batchCleared = set \implies cleared' = set) \\
   (batchCleared = clear \implies cleared' = cleared) \\
   batch' = \emptyset \\
@@ -770,23 +785,33 @@ clear that arrived mid-cycle is never lost.
   shutting' = shutting
 \end{schema}
 
-\texttt{Reconn} handles the dead-peer path.  A dead peer may come back as a
-fresh, empty display on reconnect, so this path is modelled honestly: the
-reconnected display shows nothing, and the worker re-marks every live scene
---- and the clear, if the batch carried one --- exactly as
-\texttt{Ensure}/\texttt{Remark} do after a reap.  There is no process to
-kill, so \texttt{Reconn} reconnects, resets the display to empty, and
-re-marks in one step.  I4 holds \emph{because of} that re-mark: the fresh
-display starts blank, so the system cannot come to rest until every live
-scene is pushed again.
+\texttt{Reconn} handles the dead-peer path, and it is modelled adversarially.
+A plain \texttt{OSError} does not mean the display \emph{process} died; it
+means \emph{this connection} did.  The display is a long-lived process that
+keeps its last-received scene copy and renders it every frame, so a reconnect
+can land on the same still-running display, showing exactly what it showed
+before the drop.  \texttt{Reconn} therefore leaves \texttt{displayed}
+unchanged --- the worst case, stale content and all --- rather than pretending
+a fresh blank display.  There is no process to kill, so it reconnects and
+re-marks in one step: \texttt{drained} $\cup$ the live scenes, plus the clear
+the batch carried.  I4 holds \emph{because of} that re-mark, not because of
+any reset: every scene the failed cycle touched, and every live scene, is
+re-queued, so the stale display cannot stay wrong once the queue drains.
+
+Modelling the reconnect this way is what makes the \texttt{drained} half of
+the re-mark load-bearing.  Under a reset-to-empty reconnect a fresh display
+would already blank every emptied scene, and re-marking \texttt{drained} would
+change nothing an observer could see.  Against a stale-content display it is
+the only thing that re-blanks an emptied scene whose blank was lost to the
+failed send; Section~\ref{sec:fidelity} removes it and reproduces the linger.
 
 \begin{schema}{Reconn}
   \Delta Repl
 \where
   wphase = wreconn \\
   display' = dup \\
-  displayed' = (\lambda s : SCENE @ vempty) \\
-  dirty' = dirty \cup \{ s : SCENE | store~s = vlive \} \\
+  displayed' = displayed \\
+  dirty' = (dirty \cup drained) \cup \{ s : SCENE | store~s = vlive \} \\
   (batchCleared = set \implies cleared' = set) \\
   (batchCleared = clear \implies cleared' = cleared) \\
   batch' = \emptyset \\
@@ -808,17 +833,24 @@ cycle other than the two socket outcomes --- a display that will not spawn,
 a reconnect that is refused, or any exception the two socket handlers do not
 catch.  It can strike while the worker is sending (\texttt{wsend}) or
 mid-heal (\texttt{wreap}, \texttt{wensure}, \texttt{wreconn}).  The drained
-work must not be lost, so the worker restores the \emph{exact} drained set
---- every scene it drained back into \texttt{dirty}, and the clear it
-carried back into the live flag --- releases whatever locks it held, and
-returns to \texttt{widle} to back off and retry.  It restores
-\texttt{drained}, not the unsent remainder \texttt{batch}: if the batch
-carried a clear, the re-marked clear will blank the whole display next cycle,
-so every scene the batch drained --- including those already sent this cycle
---- must be repainted, or an already-painted scene would be blanked and never
-redrawn.  Unlike \texttt{Remark}, which re-marks every live scene for a fresh
-display, \texttt{CycleFail} re-marks only what this cycle drained: the display
-was not replaced, so only the interrupted cycle's work need be redone.
+work must not be lost, so the worker re-marks it --- \texttt{drained}, plus
+the clear the batch carried --- releases whatever locks it held, and returns
+to \texttt{widle} to back off and retry.  Restoring \texttt{drained} rather
+than the unsent remainder \texttt{batch} is what saves an already-sent scene:
+if the batch carried a clear, the re-marked clear will blank the whole
+display next cycle, so every scene the batch drained --- including those
+already sent --- must be repainted, or a painted scene would be blanked and
+never redrawn.
+
+Unlike \texttt{Remark} and \texttt{Reconn}, \texttt{CycleFail} does \emph{not}
+union the live scenes: it re-marks \texttt{drained} alone.  This matches
+\texttt{SendRecovery.restore}, which re-queues \texttt{batch.scenes} without
+\texttt{live\_scene\_ids}, and it is sound because \texttt{CycleFail} does not
+replace the display.  A live scene the failed cycle did not touch is still
+shown correctly on the same unblanked display, so it needs no repaint; only
+the interrupted cycle's drained work does.  The live union is needed only when
+the display is reset (\texttt{Remark}) or reconnected onto stale content
+(\texttt{Reconn}), where a live scene may not be shown.
 
 \begin{schema}{CycleFail}
   \Delta Repl
@@ -1074,20 +1106,23 @@ where
   & & {} \land storeLockMut = \emptyset \land shutting = clear \land
     display = dup.
 \end{eqnarray*}
-After a reap and respawn the fresh display is empty, so \texttt{Remark}
-re-marks every live scene; the system cannot come to rest until those
-scenes are pushed, which restores \texttt{displayed = store}.  A generic
-cycle failure is no weaker: \texttt{CycleFail} puts the drained scenes back
-in \texttt{dirty} and re-sets the cleared flag, so the same argument holds
---- the system cannot be \texttt{Quiescent} while that restored work is
-outstanding.  An emptied scene reaches rest only once its blank has been
-pushed (\texttt{SendOk} with \texttt{snapVal = vempty}), or, under a clear,
-once the whole-display blank has set it empty; either way
-\texttt{displayed~s = store~s = vempty} at rest.  \texttt{batchCleared} does
-not appear in \texttt{Quiescent} because it is \texttt{clear} at every
-\texttt{widle} state: every path into \texttt{widle} ---
-\texttt{ProcDone}, \texttt{CycleFail}, \texttt{Init}, \texttt{Restart} ---
-resets it.
+Every recovery re-marks at least \texttt{drained} plus the carried clear, so
+the system cannot come to rest until that work has been pushed, which restores
+\texttt{displayed = store}.  The two display-replacing recoveries also union
+the live scenes: \texttt{Remark} follows a respawn onto a fresh, empty
+display, and \texttt{Reconn} follows a reconnect onto a stale-content display,
+and in both a live scene may not be shown, so re-marking it is what closes
+that gap.  \texttt{CycleFail} does not replace the display, so a live scene it
+did not touch is still shown correctly and needs no repaint; it re-marks
+\texttt{drained} alone.  In every case the re-mark covers the two gaps that
+can actually open --- a live scene a replaced display is not showing, and an
+emptied scene whose blank was lost --- so no scene can stay wrong at rest.  An emptied scene reaches rest only once its blank has
+been pushed (\texttt{SendOk} with \texttt{snapVal = vempty}), or, under a
+clear, once the whole-display blank has set it empty; either way
+\texttt{displayed~s = store~s = vempty}.  \texttt{batchCleared} does not
+appear in \texttt{Quiescent} because it is \texttt{clear} at every
+\texttt{widle} state: every path into \texttt{widle} --- \texttt{ProcDone},
+\texttt{CycleFail}, \texttt{Init}, \texttt{Restart} --- resets it.
 
 \paragraph{Invariant 5 --- one display.}
 A fresh display is spawned only after the old one is killed:
@@ -1198,45 +1233,45 @@ order --- the \texttt{wblank} phase preceding \texttt{wproc} --- closes it:
 with clear-first the goal returns \emph{not found}, and the shipped
 \texttt{\_attempt} sends \texttt{clear\_async} before the per-scene repaint.
 
-\paragraph{Note --- the socket-error paths re-mark live scenes.}
-Both socket-error paths re-mark every live scene, and re-mark the clear the
-failed batch carried.  \texttt{Reap}/\texttt{Ensure} kill and respawn, so the
-model resets \texttt{displayed} to empty --- a fresh display shows nothing,
-and the re-mark of every live scene is what makes I4 hold: the system cannot
-come to rest until those scenes are pushed again.  \texttt{Reconn} models the
-dead-peer path the same way, resetting \texttt{displayed} to empty on the
-assumption that a reconnect yields a display that must be fully repainted.
+\paragraph{Note --- the two reconnect models.}
+The reap path and the dead-peer path differ in one honest way, and the model
+keeps them apart.  \texttt{Reap}/\texttt{Ensure} kill the wedged process and
+spawn a new one, which genuinely starts blank, so the model resets
+\texttt{displayed} to empty.  \texttt{Reconn} does not spawn anything: an
+\texttt{OSError} kills the connection, not necessarily the display process,
+and that process keeps its last-received copy and renders it every frame.
+The model therefore leaves \texttt{displayed} unchanged on \texttt{Reconn} ---
+the adversarial, faithful case of a reconnect onto a still-running display
+that still shows the pre-failure scene.
 
-Under that assumption the clear re-mark of behaviour~2 is idempotent rather
-than load-bearing: a reset-to-empty display already shows no cleared scene,
-so re-marking the clear only reconfirms a blank that is already true.  Its
-real purpose shows only under the opposite assumption --- a reconnect that
-lands on the \emph{same} still-running display, which keeps its last-received
-copy.  There the pre-clear scene would linger, and re-marking the clear is
-what blanks it again.  The model does not adopt that adversarial reconnect,
-for a reason worth stating plainly: the code's socket-error recovery
-re-marks only the \emph{live} scenes, not the full drained batch, so an
-\emph{emptied} scene (store empty, not a clear) whose blank was lost to the
-failed send would \emph{not} be re-queued, and on a stale-content reconnect
-it would linger --- a reachable \texttt{Quiescent} violation the code as
-written does not close.  The generic-failure path (\texttt{CycleFail})
-restores the whole batch and so is safe; the socket-error paths are safe
-only if a reconnect repaints from blank.  This is recorded as the one place
-where the model and the code cannot be reconciled without either an
-adversarial-reconnect refinement that would fail I4, or a code change that
-restores the full batch on the socket-error paths as well.
+That choice is what makes the \texttt{drained} half of the re-mark
+load-bearing.  Had \texttt{Reconn} reset to empty, a fresh display would
+already blank every emptied scene, and unioning \texttt{drained} into the
+re-mark would change nothing an observer could see --- the model would verify
+clean while being too abstract to guard the fix.  Against a stale-content
+reconnect it is exactly the union that saves an emptied scene: its blank,
+lost to the failed send, is absent from the live set but present in
+\texttt{drained}, so re-marking \texttt{drained} $\cup$ live re-queues it.
+Section~\ref{sec:fidelity} removes that union and reproduces the linger the
+fix closes.  This is the gap flagged in the previous revision of this report,
+now closed in both the code (\texttt{SendRecovery.\_remark} unions
+\texttt{batch.scenes}) and the model.
 
 % ============================================================
-\section{Fidelity: reproducing the store race}
+\section{Fidelity: reproducing the known defects}
 \label{sec:fidelity}
 % ============================================================
 
-A model that cannot reproduce the known defect proves nothing.  The buggy
-variant is this specification with one change: the store's reader-writer
-exclusion is removed from the worker's snapshot.  Concretely, delete the
-guard \texttt{storeLockMut = $\emptyset$} from \texttt{Snap}, so the worker
-can copy a scene's value while a mutator is inside \texttt{replace\_scene}
-and the scene is \texttt{vtorn}.  The torn read then becomes reachable:
+A model that cannot reproduce the known defects proves nothing.  This
+specification guards two, and removing either fix makes the corresponding
+defect reachable.
+
+\paragraph{The store race.}
+The first buggy variant removes the store's reader-writer exclusion from the
+worker's snapshot.  Concretely, delete the guard \texttt{storeLockMut =
+$\emptyset$} from \texttt{Snap}, so the worker can copy a scene's value while
+a mutator is inside \texttt{replace\_scene} and the scene is \texttt{vtorn}.
+The torn read then becomes reachable:
 
 \begin{enumerate}
   \item Mutator $m$ runs \texttt{ReplaceBegin} on scene $s$: it takes the
@@ -1261,5 +1296,43 @@ the reachability search returns \emph{goal not found}.  With the guard
 removed it returns \emph{goal found} --- the trace above.  That difference
 is the evidence that the model detects the race the store lock was added to
 prevent.
+
+\paragraph{The emptied-scene linger.}
+The second buggy variant removes the \texttt{drained} half of the recovery
+re-mark.  Concretely, in \texttt{Reconn} replace
+\texttt{dirty$'$ = (dirty $\cup$ drained) $\cup$ \{s | store~s = vlive\}}
+with the live-only \texttt{dirty$'$ = dirty $\cup$ \{s | store~s = vlive\}}
+--- the pre-fix recovery that re-marked only the live scenes.  With
+\texttt{Reconn} modelled against a stale-content display, an emptied scene's
+lost blank is then never re-queued:
+
+\begin{enumerate}
+  \item \texttt{show} paints scene $s$: \texttt{store~$s$ = vlive},
+    \texttt{displayed~$s$ = vlive}.
+  \item \texttt{EmptyScene}~$s$: \texttt{store~$s$ = vempty}, $s$ marked
+    dirty.  Its blank is now the worker's job.
+  \item The worker drains $s$ and sends its blank; the send raises
+    \texttt{OSError}.  \texttt{SendDead} $\to$ \texttt{wreconn}.
+  \item \texttt{Reconn} leaves \texttt{displayed~$s$ = vlive} (stale
+    display) and, live-only, re-marks nothing for $s$ --- $s$ is empty in the
+    store, so it is not live.  $s$ is dropped.
+  \item At rest: \texttt{displayed~$s$ = vlive}, \texttt{store~$s$ = vempty}
+    --- a \texttt{Quiescent} lost update.
+\end{enumerate}
+
+The property that separates the two designs is I4 itself:
+\begin{verbatim}
+  # must be NOT found for the correct spec, FOUND for the live-only variant
+  probcli <spec>.tex -model_check -nodead \
+    -goal "wphase = widle & dirty = {} & cleared = clear &
+           storeLockMut = {} & shutting = clear & display = dup &
+           card({s | s : SCENE & displayed(s) /= store(s)}) > 0" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+With the \texttt{drained} union intact the emptied scene is re-queued and
+reblanked, so the goal returns \emph{not found}.  With it removed the goal
+returns \emph{found} --- the trace above.  That difference is the evidence
+that the model detects the defect reviewers found in the live-only recovery,
+which \texttt{SendRecovery.\_remark}'s union of \texttt{batch.scenes} closes.
 
 \end{document}
