@@ -41,7 +41,7 @@ def beads(
     elements = browser.build_elements((issues, load_error))
 
     with DisplayClient(paths.socket_path, name="lux-beads") as client:
-        client.show(
+        client.show_async(
             f"beads-{project}",
             elements,
             title=f"Beads: {project}",

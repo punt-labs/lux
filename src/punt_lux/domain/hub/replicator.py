@@ -41,8 +41,11 @@ _COALESCE_SECONDS = 0.016
 # Bound the join at shutdown so a wedged final flush cannot hang the process.
 _STOP_JOIN_TIMEOUT = 5.0
 # After a recovery that could not heal the display (an unspawnable process, a
-# refused reconnect), wait this long before retrying so the worker never spins.
-_RETRY_BACKOFF_SECONDS = 0.1
+# refused reconnect), wait this long before the first retry so the worker never
+# spins. The delay doubles each consecutive failure up to the cap and resets on a
+# clean cycle, so a permanently absent display logs at a sane rate, not a firehose.
+_BASE_BACKOFF_SECONDS = 0.1
+_MAX_BACKOFF_SECONDS = 2.0
 
 
 @final
@@ -61,8 +64,15 @@ class HubReplicator:
     _signal: DirtySignal
     _recovery: SendRecovery
     _thread: threading.Thread | None
-    _stopped: bool
-    __slots__ = ("_clients", "_reader", "_recovery", "_signal", "_stopped", "_thread")
+    _backoff: float
+    __slots__ = (
+        "_backoff",
+        "_clients",
+        "_reader",
+        "_recovery",
+        "_signal",
+        "_thread",
+    )
 
     def __new__(
         cls,
@@ -76,7 +86,7 @@ class HubReplicator:
         self._signal = DirtySignal()
         self._recovery = SendRecovery(clients, lifecycle, self._signal, reader)
         self._thread = None
-        self._stopped = False
+        self._backoff = _BASE_BACKOFF_SECONDS
         return self
 
     # -- surface API: queue-only, called by tools and click dispatch --------
@@ -102,22 +112,29 @@ class HubReplicator:
         self._thread.start()
 
     def _require_live(self) -> None:
-        """Reject a restart of a stopped worker — a stopped replicator is terminal.
+        """Reject a restart after a stop — a stopped replicator is terminal.
 
-        Its dirty signal is latched to shutting, so a fresh thread would exit at
-        once and every mark would silently go nowhere. luxd restarting is a new
-        process, hence a new replicator, so this never blocks a real restart.
+        The stop latches the dirty signal shutting, so a fresh thread would exit
+        at once and every mark would silently go nowhere. The signal is the single
+        source of that fact, so ``start`` and the worker's own exit can never
+        disagree. luxd restarting is a new process, hence a new replicator, so this
+        never blocks a real restart.
         """
-        if self._stopped:
+        if self._signal.is_shutting:
             msg = "replicator was stopped; construct a fresh one to restart"
             raise RuntimeError(msg)
 
     def stop(self) -> None:
-        """Flush pending, stop, and join; a joined stop is terminal, else startable."""
+        """Flush pending, stop, and join. A stop is terminal, even before a start.
+
+        Requesting the stop latches the dirty signal shutting, so any later
+        ``start`` raises rather than spawning a worker that would exit at once.
+        With no worker thread yet there is nothing to join, so a stop before a
+        start is a clean no-op that still makes the replicator terminal.
+        """
         self._signal.request_stop()
         thread = self._thread
         if thread is not None:
-            self._stopped = True
             thread.join(timeout=_STOP_JOIN_TIMEOUT)
             if thread.is_alive():
                 logger.warning("replicator worker did not stop within timeout")
@@ -136,37 +153,44 @@ class HubReplicator:
                 return
 
     def _run_cycle(self, batch: DrainedBatch) -> None:
-        """Push the batch, recover from a send failure, and never lose the batch.
+        """Push the batch; on an unhandled failure restore it and back off.
 
-        The worker's own top-level guard: a recovery step that itself fails — an
-        unspawnable display, a refused reconnect — or a send raising anything
-        other than a socket error must not drop the drained work. The batch is
-        put back and the worker backs off, so a display that cannot start retries
-        without spinning. A clean-shutdown cycle keeps neither: it is the last one.
+        The worker's top-level guard: a recovery step that itself fails — an
+        unspawnable display, a refused reconnect — or a send raising anything other
+        than a socket error must not kill the worker or drop the drained work. A
+        shutdown flush is the last cycle, so its work is dropped by design and only
+        logged; any other failure puts the batch back and grows the delay — doubling
+        to the cap — so a persistently unspawnable display retries at a sane rate
+        rather than a firehose. A clean cycle resets the delay so a recovered
+        display responds promptly again.
         """
         try:
             self._push_cycle(batch)
         except Exception:
+            if batch.shutting:
+                logger.exception("replicator shutdown flush failed; dropping the batch")
+                return
             logger.exception("replicator cycle failed; retrying the batch")
-            if not batch.shutting:
-                self._recovery.restore(batch)
-                time.sleep(_RETRY_BACKOFF_SECONDS)
+            self._recovery.restore(batch)
+            time.sleep(self._backoff)
+            self._backoff = min(self._backoff * 2, _MAX_BACKOFF_SECONDS)
+        else:
+            self._backoff = _BASE_BACKOFF_SECONDS
 
     def _push_cycle(self, batch: DrainedBatch) -> None:
         """Blank first if cleared, then repaint each scene; recover on a failure.
 
         ``BlockingIOError`` (send timeout) is caught before ``OSError`` (dead
-        peer) because the former is a kind of the latter. A shutdown batch is
-        the last one: recovery is inactive, so the final flush is best-effort
-        and never reaps or reconnects.
+        peer) because the former is a kind of the latter. ``recover`` reads the
+        batch's shutting flag itself, so a shutdown flush is best-effort — it
+        never reaps or reconnects — without the caller having to say so.
         """
-        active = not batch.shutting
         try:
             self._attempt(batch)
         except BlockingIOError:
-            self._recovery.recover(batch, wedged=True, active=active)
+            self._recovery.recover(batch, wedged=True)
         except OSError:
-            self._recovery.recover(batch, wedged=False, active=active)
+            self._recovery.recover(batch, wedged=False)
 
     def _attempt(self, batch: DrainedBatch) -> None:
         """Send the cycle: blank first when cleared, then repaint each scene.
@@ -187,7 +211,14 @@ class HubReplicator:
         send happens with no store lock held — the store lock and the client send
         lock are never held together. An empty scene blanks its frame unless the
         cycle already blanked the whole display with a clear.
+
+        Once that blank lands, the scene's presentation is reclaimed: the scene is
+        gone from the store, and nothing repaints it without a re-show that records
+        a fresh presentation, so the entry is dead weight. The reclaim runs only
+        after a successful blank, so a failed send keeps the presentation for the
+        recovery re-mark to blank again.
         """
-        self._reader.snapshot(scene_id).push(
-            self._clients.get(), blank_empty=blank_empty
-        )
+        snapshot = self._reader.snapshot(scene_id)
+        snapshot.push(self._clients.get(), blank_empty=blank_empty)
+        if blank_empty and snapshot.is_empty:
+            self._reader.reclaim(scene_id)

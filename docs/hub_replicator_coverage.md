@@ -127,6 +127,8 @@ the real worker.
 | BL1 | a scene emptied without a clear (an update to nothing, or a departed session) is marked dirty | pushed with no roots to blank its own frame, using the frame it was shown in |
 | BL2 | an empty scene in a batch that also carried a clear | skipped — the clear already blanked the whole display |
 | BL3 | a connection drops | every scene it touched is returned and marked dirty, blanking the emptied ones and repainting the shared ones |
+| BL4 | the worker blanks an emptied scene | the scene's presentation is forgotten once the blank lands, so the frame map does not grow for the process lifetime |
+| BL5 | a whole-display clear empties the scenes | each cleared scene's presentation is forgotten at the source, so a churning-id clear workload does not grow the frame map |
 
 ### ApplyClear / ProcDone — ending the cycle
 
@@ -148,10 +150,11 @@ the real worker.
 
 | # | Partition | Expected |
 |---|---|---|
-| SH1 | **shutdown with pending dirty scenes** | **one final bounded flush, then stop** |
-| SH2 | shutdown with a stuck display | the final send fails within the time limit; shutdown continues |
+| SH1 | **a stop while a send is in flight** | **the send completes before the worker exits; the stop joins cleanly** |
+| SH2 | a send fails during the shutting cycle | best-effort — the display is left as-is: no reap, no reconnect, no re-mark |
 | SH3 | shutdown with nothing pending | stop immediately |
-| SH4 | luxd restarts after a stop | fresh idle state |
+| SH4 | luxd restarts after a stop | a fresh replicator over the same store — idle, then sends on the first mark |
+| SH5 | a start after any stop, even before the worker ran | raises loudly — the stop latched the signal shutting, so a restart cannot spawn a silently dead worker |
 
 ## 2. Coverage table
 
@@ -199,17 +202,20 @@ display-lifecycle audit applied.
 | RR2 | test_hub_replicator::test_a_recovery_failure_restores_the_batch_and_retries | COVERED |
 | BL1 | test_hub_replicator::test_an_emptied_scene_is_blanked_into_its_frame | COVERED |
 | BL2 | test_hub_replicator::test_a_show_then_clear_ends_blank | COVERED |
-| BL3 | test_hub_display_frames::test_drop_connection_returns_the_scenes_it_touched | COVERED |
+| BL3 | test_lifecycle::test_disconnect_marks_each_scene_the_drop_touched_dirty; test_hub_display_frames::test_drop_connection_returns_the_scenes_it_touched | COVERED |
+| BL4 | test_hub_replicator::test_blanking_an_emptied_scene_reclaims_its_presentation; test_hub_replicator::test_a_failed_blank_is_re_marked_then_retried_and_the_frame_reclaimed | COVERED |
+| BL5 | test_hub_display_frames::test_clear_forgets_each_scenes_frame | COVERED |
 | E1 | test_hub_replicator::test_clear_is_sent_before_the_batch | COVERED |
 | E2 | test_hub_replicator::test_a_clear_with_no_batch_only_blanks | COVERED |
 | E3 | test_hub_replicator::test_a_dirty_scene_is_sent_to_the_display | COVERED |
 | F1 | test_hub_replicator::test_a_wedged_display_is_reaped_respawned_and_repainted | COVERED |
 | F2 | test_hub_replicator::test_a_dead_peer_reconnects_without_reaping | COVERED |
 | F3 | test_dirty_signal::test_an_idle_signal_blocks_until_a_mark_arrives | COVERED |
-| SH1 | test_hub_replicator::test_shutdown_flushes_a_pending_scene_then_stops | COVERED |
-| SH2 | test_hub_replicator::test_shutdown_with_a_stuck_display_does_not_reap | COVERED |
+| SH1 | test_hub_replicator::test_a_stop_flushes_a_send_in_flight_then_exits | COVERED |
+| SH2 | test_recovery::test_a_shutdown_flush_heals_nothing | COVERED |
 | SH3 | test_dirty_signal::test_stop_with_nothing_pending_returns_shutting_at_once | COVERED |
 | SH4 | test_hub_replicator::test_a_fresh_replicator_after_a_stop_starts_idle_and_works | COVERED |
+| SH5 | test_hub_replicator::test_a_stop_before_start_makes_start_raise; test_hub_replicator::test_restarting_a_stopped_replicator_raises | COVERED |
 
 ## 3. Merge-critical partitions
 

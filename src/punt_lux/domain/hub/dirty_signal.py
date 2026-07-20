@@ -85,6 +85,17 @@ class DirtySignal:
             self._shutting = True
             self._cond.notify()
 
+    @property
+    def is_shutting(self) -> bool:
+        """Whether a stop has been requested — latched true once asked.
+
+        This is the single source of the stop fact. The replicator asks it to
+        reject a start after a stop, so the flag that makes the worker exit and
+        the flag that forbids a restart can never disagree.
+        """
+        with self._cond:
+            return self._shutting
+
     def wait_and_drain(self, coalesce_seconds: float) -> DrainedBatch:
         """Block until there is work or a stop, coalesce a burst, then drain.
 

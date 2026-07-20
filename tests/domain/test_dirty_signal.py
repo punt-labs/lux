@@ -90,6 +90,18 @@ def test_stop_with_a_pending_scene_flushes_it_and_signals_shutting() -> None:
     assert batch.shutting
 
 
+def test_is_shutting_latches_true_once_a_stop_is_requested() -> None:
+    # The single source of the stop fact: the replicator asks this to reject a
+    # start after a stop, so the flag that makes the worker exit and the flag that
+    # forbids a restart are one and the same.
+    signal = DirtySignal()
+    assert not signal.is_shutting
+
+    signal.request_stop()
+
+    assert signal.is_shutting
+
+
 def test_an_idle_signal_blocks_until_a_mark_arrives() -> None:
     signal = DirtySignal()
     drained: list[frozenset[SceneId]] = []

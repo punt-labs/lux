@@ -84,10 +84,13 @@ class BeadsBrowser:
         project = Path.cwd().name or "unknown"
         scene_id = SceneId(f"beads-{project}")
         elements = cast("list[DomainElement]", self.build_elements(self.load()))
-        hub_display.register_client(ConnectionId("app-beads"))
-        hub_display.replace_scene(ConnectionId("app-beads"), scene_id, elements)
-        hub_display.record_presentation(
+        # One write region: the roots and their frame land together, so the
+        # replicator can never snapshot the new roots with a stale frame. show_scene
+        # registers the connection as part of the replace, so no separate call.
+        hub_display.show_scene(
+            ConnectionId("app-beads"),
             scene_id,
+            elements,
             ScenePresentation(frame_id=scene_id, frame_title=f"Beads: {project}"),
         )
         hub_replicator.mark_dirty(scene_id)

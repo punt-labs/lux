@@ -1,15 +1,17 @@
-"""HubDisplay keeps a scene's frame for the scene's lifetime.
+"""HubDisplay keeps a scene's frame until it is blanked away.
 
-A presentation is recorded when a scene is shown and overwritten only by a
-re-show. It is never dropped when the scene empties — through a clear, a
-``drop_connection``, or an ``update`` that removes the last root — so an emptied
-scene can still be blanked into the frame it was shown in rather than a default
-one. That is what lets the replicator push an empty scene to the right frame
-instead of leaving stale content on the display.
+A presentation is recorded when a scene is shown. When a scene empties through an
+``update`` that removes the last root, a ``drop_connection``, or a direct empty
+replace, the frame is kept so the replicator can blank the scene into the frame it
+was shown in rather than a default one; the replicator reclaims it once the blank
+is delivered. A whole-display clear is the exception: it forgets each scene's
+frame up front, because the clear blanks the whole display and needs no per-frame
+targeting. A re-show overwrites the frame with the new presentation.
 """
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Literal, Self
@@ -56,8 +58,13 @@ def _seed_framed_scene() -> HubDisplay:
     return hub_display
 
 
-def test_frame_persists_after_clear() -> None:
-    """An empty ``replace_scene`` (the clear path) keeps the frame to blank into."""
+def test_frame_persists_after_an_empty_replace() -> None:
+    """An empty ``replace_scene`` (update-to-empty) keeps the frame to blank into.
+
+    This is the update path, not the whole-display clear: the store keeps the
+    frame so the replicator's blank lands in it, and the replicator reclaims it
+    only after the blank is delivered.
+    """
     hub_display = _seed_framed_scene()
     assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
 
@@ -65,6 +72,23 @@ def test_frame_persists_after_clear() -> None:
 
     # The scene is empty but its frame is kept, so a blank push lands in it.
     assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+
+
+def test_clear_forgets_each_scenes_frame() -> None:
+    """The whole-display clear forgets each emptied scene's frame up front.
+
+    Unlike the update-to-empty path, a clear blanks the whole display and needs no
+    per-frame targeting, so it reclaims the presentation immediately — bounding the
+    frame map under a churning-id clear workload. A later lookup falls back to the
+    self-framed default.
+    """
+    hub_display = _seed_framed_scene()
+    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+
+    HubSceneWriter(hub_display).clear(_OWNER)
+
+    assert not hub_display.scene_roots(_SCENE)  # emptied
+    assert hub_display.presentation_for(_SCENE).frame_id == str(_SCENE)  # forgotten
 
 
 def test_frame_persists_after_connection_drop() -> None:
@@ -91,8 +115,10 @@ def test_drop_connection_returns_the_scenes_it_touched() -> None:
 def test_non_empty_replace_keeps_the_frame() -> None:
     """A re-show (non-empty ``replace_scene``) preserves the recorded frame.
 
-    Only a clear forgets the frame — a re-show keeps it so the scene lands back
-    in the frame it was originally shown in.
+    A re-show with the same frame keeps it, so the scene lands back in the frame
+    it was originally shown in; a re-show with a new presentation would overwrite
+    it. The frame is only dropped when the scene is blanked away — by a clear or by
+    the replicator's post-blank reclaim.
     """
     hub_display = _seed_framed_scene()
 
@@ -169,3 +195,35 @@ def test_removing_last_root_via_update_keeps_the_frame() -> None:
     assert isinstance(result, WriteAccepted)
     assert not hub_display.scene_roots(_SCENE)
     assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+
+
+def test_show_scene_commits_roots_and_frame_under_one_lock() -> None:
+    """show_scene commits the new roots and the new frame in one write region.
+
+    A concurrent snapshot must never pair the new roots with the old frame, or the
+    reverse. Holding the store lock blocks the whole show_scene: while it is held
+    neither the roots nor the frame have moved, and on release both flip together.
+    """
+    hub_display = _seed_framed_scene()  # root "root", frame _FRAME
+    committed = threading.Event()
+
+    def reshow() -> None:
+        hub_display.show_scene(
+            _OWNER,
+            _SCENE,
+            [_WireLeaf(id="fresh")],
+            ScenePresentation(frame_id="new-frame"),
+        )
+        committed.set()
+
+    with hub_display.write_lock():  # the reshow cannot commit while this is held
+        worker = threading.Thread(target=reshow)
+        worker.start()
+        assert not committed.wait(0.3)  # provably blocked on the store lock
+        # Neither half has changed: old root and old frame both still present.
+        assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"root"}
+        assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+    assert committed.wait(2.0)  # lock released; the reshow commits both together
+    worker.join(timeout=2.0)
+    assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"fresh"}
+    assert hub_display.presentation_for(_SCENE).frame_id == "new-frame"

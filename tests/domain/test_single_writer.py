@@ -32,9 +32,13 @@ _SENDER_MODULES = frozenset(
 )
 
 # The DisplayClient send surface — a call to any of these is "writing to the
-# display". The word boundary on ``client`` keeps a dict ``.clear()`` (e.g.
-# ``_fd_to_client.clear()``) from matching the blocking ``client.clear()`` send.
-_SEND_CALL_RE = re.compile(r"\.(?:show_async|clear_async)\(|\bclient\.(?:show|clear)\(")
+# display", on any receiver name, so a Hub-side module cannot dodge the guard by
+# binding the client to a name other than ``client``. The blocking ``show`` is
+# matched with its ``(`` argument list; there is deliberately no ``.clear(`` term —
+# the blocking clear no longer exists, and leaving it out keeps a no-arg dict
+# ``.clear()`` (e.g. ``_fd_to_client.clear()``) from matching. ``clear_async`` is
+# the only display clear.
+_SEND_CALL_RE = re.compile(r"\.show_async\(|\.clear_async\(|\.show\(")
 
 
 def test_no_module_outside_the_sender_set_writes_to_the_display() -> None:

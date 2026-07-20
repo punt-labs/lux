@@ -125,7 +125,7 @@ class TestConnect:
                 client.connect()
             mock_set.assert_called_once()
             (applied_to,) = mock_set.call_args.args
-            assert isinstance(applied_to, socket.socket)  # its own connected fd
+            assert applied_to is client._sock  # its own connected fd, not any socket
             client.close()
         finally:
             if server_conn:
@@ -301,7 +301,7 @@ class TestSendMessages:
             shutil.rmtree(short_dir, ignore_errors=True)
 
     def test_clear_sends_clear(self, tmp_path: Path) -> None:
-        """clear() sends a ClearMessage (no ack expected)."""
+        """clear_async() sends a ClearMessage (no ack expected)."""
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
@@ -324,7 +324,7 @@ class TestSendMessages:
             with DisplayClient(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                client.clear()
+                client.clear_async()
             # Join BEFORE closing server_conn — the server thread may
             # still be inside recv_message's finally block restoring
             # sock.settimeout() when the main thread closes the fd.

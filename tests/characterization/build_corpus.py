@@ -215,6 +215,16 @@ LIFECYCLE_SCENARIOS: tuple[Scenario, ...] = (
         },
         setup={"display_running": True, "client": {}},
     ),
+    Scenario(
+        name="show-bad-layout",
+        tool="show",
+        inputs={
+            "scene_id": "s1",
+            "elements": [],
+            "layout": "diagonal",
+        },
+        setup={"display_running": True, "client": {}},
+    ),
     # ``update`` mutates the Hub's authoritative store first. A ``set`` aimed at
     # an un-installed id is a hard error — a field patch cannot apply to an
     # element that is not there. A ``remove`` of an un-installed id is idempotent:

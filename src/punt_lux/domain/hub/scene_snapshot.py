@@ -50,6 +50,11 @@ class SceneSnapshot:
     _roots: tuple[WireElement, ...]
     _presentation: ScenePresentation
 
+    @property
+    def is_empty(self) -> bool:
+        """Whether the scene had no roots — an emptied or departed scene."""
+        return not self._roots
+
     def push(self, sender: ScenePusher, *, blank_empty: bool) -> None:
         """Resend the copied scene; blank an empty scene's frame, or skip it.
 
@@ -63,12 +68,13 @@ class SceneSnapshot:
 
 @final
 class SceneReader:
-    """The store's replicator-facing read side: locked snapshots and live ids.
+    """The store's replicator-facing side: locked snapshots, live ids, reclaim.
 
-    Composes the element index, the presentation registry, and the store lock,
-    and holds the read lock only long enough to copy a scene's state out — so
-    the lock discipline lives here, in the store, and never escapes to the
-    replicator that calls it.
+    Composes the element index, the presentation registry, and the store lock.
+    ``snapshot`` and ``live_scene_ids`` hold the read lock only long enough to
+    copy a scene's state out; ``reclaim`` takes the write lock to forget a
+    blanked scene's presentation. Both disciplines live here, in the store, and
+    never escape to the replicator that calls them.
     """
 
     _index: ElementIndex
@@ -99,3 +105,13 @@ class SceneReader:
         """Return every scene still holding a non-removed root, read under lock."""
         with self._lock.read():
             return tuple(s for s in self._index.scenes() if self._index.scene_roots(s))
+
+    def reclaim(self, scene_id: SceneId) -> None:
+        """Forget a blanked scene's presentation under the write lock.
+
+        The replicator calls this after it blanks an emptied scene: the scene is
+        gone from the store, so its presentation is dead weight. A later re-show
+        records a fresh one.
+        """
+        with self._lock.write():
+            self._frames.forget(scene_id)

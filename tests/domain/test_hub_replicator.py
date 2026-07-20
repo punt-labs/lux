@@ -354,9 +354,14 @@ def test_a_dead_peer_recovery_re_marks_a_consumed_clear() -> None:
 def test_an_emptied_scene_is_blanked_into_its_frame() -> None:
     # A9: a scene emptied without a clear is pushed with no roots, blanking its
     # frame. That is how a scene an update stripped to nothing, or one a departed
-    # session left, disappears from the display rather than lingering.
+    # session left, disappears from the display rather than lingering. The frame is
+    # named distinctly from the scene so a regression that blanked into the default
+    # frame (frame_id == scene id) would fail on the frames assertion.
     store = HubDisplay()
-    scene = _seed(store, "s1")
+    scene = SceneId("s1")
+    store.register_client(_CONN)
+    store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
+    store.record_presentation(scene, ScenePresentation(frame_id="hello-frame"))
     store.replace_scene(_CONN, scene, ())  # empty the scene
     repl, sender, _provider, _lifecycle = _replicator(store)
     repl.start()
@@ -364,9 +369,75 @@ def test_an_emptied_scene_is_blanked_into_its_frame() -> None:
         repl.mark_dirty(scene)  # the now-empty scene
         assert sender.wait_sent(2.0)
         assert sender.shows == ["s1"]  # pushed to blank the frame
+        assert sender.frames == ["hello-frame"]  # into the frame it was shown in
         (pushed,) = sender.roots
         assert pushed == []  # with no roots
     finally:
+        repl.stop()
+
+
+def test_blanking_an_emptied_scene_reclaims_its_presentation() -> None:
+    # Once the worker blanks an emptied scene, its presentation is forgotten: the
+    # scene is gone from the store and nothing repaints it without a re-show, so
+    # the frame map does not grow for the process lifetime. A distinct frame name
+    # makes the reclaim observable — presentation_for falls back to the self-framed
+    # default (frame_id == scene id) once the recorded frame is dropped.
+    store = HubDisplay()
+    scene = SceneId("s1")
+    store.register_client(_CONN)
+    store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
+    store.record_presentation(scene, ScenePresentation(frame_id="hello-frame"))
+    store.replace_scene(_CONN, scene, ())  # empty the scene
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert sender.wait_sent(2.0)
+        assert sender.frames == ["hello-frame"]  # blanked into its own frame first
+        for _ in range(200):  # the reclaim runs just after the send returns
+            if store.presentation_for(scene).frame_id == "s1":
+                break
+            threading.Event().wait(0.01)
+        assert store.presentation_for(scene).frame_id == "s1"  # reclaimed
+    finally:
+        repl.stop()
+
+
+def test_a_failed_blank_is_re_marked_then_retried_and_the_frame_reclaimed() -> None:
+    # The full chain for an emptied scene whose blank send fails: the scene has no
+    # roots, so it is absent from live_scene_ids; the recovery re-marks it from the
+    # batch's own scenes, the retry blanks it into the frame it was shown in, and
+    # only then is its presentation reclaimed. Forgetting waits for a delivered
+    # blank, so the retry still has the recorded frame to blank into.
+    store = HubDisplay()
+    scene = SceneId("s1")
+    store.register_client(_CONN)
+    store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
+    store.record_presentation(scene, ScenePresentation(frame_id="hello-frame"))
+    store.replace_scene(_CONN, scene, ())  # empty the scene
+    repl, sender, provider, _lifecycle = _replicator(store)
+    gate = threading.Event()
+    sender.block_next(gate)  # park the worker in the first blank send
+    sender.arm_failure(OSError())  # ...which then fails as a dead peer
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert sender.wait_entered(2.0)
+        gate.set()  # release → OSError → recovery re-marks the scene from the batch
+        for _ in range(300):
+            if sender.frames == ["hello-frame"]:
+                break
+            threading.Event().wait(0.01)
+        assert provider.drops == 1  # dead-peer reconnect
+        assert sender.frames == ["hello-frame"]  # the retry blanked into the frame
+        assert sender.roots == [[]]  # with no roots
+        for _ in range(200):
+            if store.presentation_for(scene).frame_id == "s1":
+                break
+            threading.Event().wait(0.01)
+        assert store.presentation_for(scene).frame_id == "s1"  # reclaimed after blank
+    finally:
+        gate.set()
         repl.stop()
 
 
@@ -487,18 +558,25 @@ def test_the_worker_snapshot_waits_for_a_mutation_to_commit() -> None:
         repl.stop()
 
 
-def test_shutdown_flushes_a_pending_scene_then_stops() -> None:
-    # SH1: a stop with pending work does one final bounded flush before stopping.
-    # Requesting the stop before the worker starts makes the first drain provably
-    # see shutting=True alongside the pending scene, so the single-cycle flush is
-    # deterministic rather than racing the 16 ms coalesce window.
+def test_a_stop_flushes_a_send_in_flight_then_exits() -> None:
+    # SH1: a scene marked before the stop is sent before the worker exits — a stop
+    # never abandons a send already in flight. The worker is parked mid-send via
+    # the gate, so the flush is provably underway when the stop is requested, and
+    # the stop runs on its own thread because it joins the worker it is stopping.
     store = HubDisplay()
     scene = _seed(store, "s1")
     repl, sender, _provider, _lifecycle = _replicator(store)
-    repl.mark_dirty(scene)
-    repl.stop()  # request the stop before the worker's first drain
+    gate = threading.Event()
+    sender.block_next(gate)
     repl.start()
-    repl.stop()  # join the now-finished worker
+    repl.mark_dirty(scene)
+    assert sender.wait_entered(2.0)  # the worker is inside the send
+    stopper = threading.Thread(target=repl.stop)
+    stopper.start()
+    gate.set()  # release the flush; it completes before the worker exits
+    assert sender.wait_sent(2.0)
+    stopper.join(2.0)
+    assert not stopper.is_alive()  # the stop joined the worker cleanly
     assert sender.shows == ["s1"]
 
 
@@ -554,31 +632,16 @@ def test_a_fresh_replicator_after_a_stop_starts_idle_and_works() -> None:
         second.stop()
 
 
-def test_shutdown_with_a_stuck_display_does_not_reap() -> None:
-    # SH2: the final flush is best-effort — a stuck send fails within its limit
-    # and shutdown continues without reaping or respawning. The stop is requested
-    # before the worker starts, so the flush is deterministically the shutting
-    # cycle rather than racing the coalesce window.
-    store = HubDisplay()
-    scene = _seed(store, "s1")
-    repl, sender, provider, lifecycle = _replicator(store)
-    sender.arm_failure(BlockingIOError())
-    repl.mark_dirty(scene)
-    repl.stop()  # request the stop before the worker's first drain
-    repl.start()
-    repl.stop()  # join the now-finished worker
-    assert lifecycle.calls == []
-    assert provider.drops == 0
-
-
-def test_stop_without_start_is_a_no_op() -> None:
-    # A replicator that was never started stops cleanly — there is no worker
-    # thread to join, and the stop must not raise. It stays startable.
+def test_a_stop_before_start_makes_start_raise() -> None:
+    # A stop is terminal even before the worker ran: with no thread to join the
+    # stop itself is a clean no-op, but it latches the dirty signal shutting, so a
+    # later start would spawn a worker that exits at once and drops every mark. The
+    # start must raise loudly, not fail silently.
     store = HubDisplay()
     repl, _sender, _provider, _lifecycle = _replicator(store)
-    repl.stop()
-    repl.start()  # a stop before the worker ran leaves it startable
-    repl.stop()
+    repl.stop()  # no worker to join; latches shutting
+    with pytest.raises(RuntimeError, match="was stopped"):
+        repl.start()
 
 
 def test_restarting_a_stopped_replicator_raises() -> None:

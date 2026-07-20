@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch
     from punt_lux.domain.hub.replicator_ports import ClientProvider, DisplayLifecycle
     from punt_lux.domain.hub.scene_snapshot import SceneReader
+    from punt_lux.domain.ids import SceneId
 
 logger = logging.getLogger(__name__)
 
@@ -53,15 +54,16 @@ class SendRecovery:
         self._reader = reader
         return self
 
-    def recover(self, batch: DrainedBatch, *, wedged: bool, active: bool) -> None:
+    def recover(self, batch: DrainedBatch, *, wedged: bool) -> None:
         """Heal the display and re-mark the work so nothing is lost.
 
         A wedged display is killed and respawned; a dead peer is only dropped so
-        the next send reconnects. A clean-shutdown flush (``active`` false) is
-        best-effort: it logs and leaves the display as-is rather than reaping or
-        reconnecting.
+        the next send reconnects. A shutdown flush — the batch's shutting flag —
+        is best-effort: it logs and leaves the display as-is rather than reaping or
+        reconnecting, since the process is going away. Reading the flag from the
+        batch here makes that policy unbypassable by the caller.
         """
-        if not active:
+        if batch.shutting:
             logger.warning("replicator shutdown flush failed; display left as-is")
             return
         if wedged:
@@ -72,17 +74,24 @@ class SendRecovery:
 
     def restore(self, batch: DrainedBatch) -> None:
         """Put a failed batch back on the queue so the next cycle retries it."""
-        if batch.cleared:
-            self._signal.mark_cleared()
-        self._signal.add_all(batch.scenes)
+        self._requeue(batch.scenes, cleared=batch.cleared)
 
     def _remark(self, batch: DrainedBatch) -> None:
-        """Re-mark every live scene, and a consumed clear, after a recovery.
+        """Re-mark the live scenes, the batch's own scenes, and a consumed clear.
 
-        The clear is re-marked because a reconnect to the same display leaves the
-        old scenes on screen; without blanking again a cleared-but-rendered scene
-        would linger forever. Blank-then-repaint is idempotent.
+        The batch's own scenes join the live ones because a scene the batch
+        emptied has no roots — it is not in ``live_scene_ids`` — so without this
+        its blank push would be lost on a reconnect and stale content would linger
+        in that frame. The clear is re-marked because a reconnect to the same
+        display leaves the old scenes on screen; without blanking again a
+        cleared-but-rendered scene would linger forever. Blank-then-repaint is
+        idempotent.
         """
-        if batch.cleared:
+        scenes = frozenset(self._reader.live_scene_ids()) | batch.scenes
+        self._requeue(scenes, cleared=batch.cleared)
+
+    def _requeue(self, scenes: frozenset[SceneId], *, cleared: bool) -> None:
+        """Re-mark a set of scenes, and a consumed clear, back onto the signal."""
+        if cleared:
             self._signal.mark_cleared()
-        self._signal.add_all(self._reader.live_scene_ids())
+        self._signal.add_all(scenes)

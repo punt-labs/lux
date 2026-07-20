@@ -364,7 +364,7 @@ class TestShowBeadsCLI:
         mock_client = MagicMock()
         mock_client.__enter__ = MagicMock(return_value=mock_client)
         mock_client.__exit__ = MagicMock(return_value=False)
-        mock_client.show = MagicMock(return_value=MagicMock(scene_id="beads-test"))
+        mock_client.show_async = MagicMock(return_value=None)
 
         sock = str(tmp_path / "test.sock")
         with (
@@ -386,8 +386,8 @@ class TestShowBeadsCLI:
         assert "bd error" in result.output
         # Verify the scene has the error element, not "No active issues".
         sent_elements = (
-            mock_client.show.call_args.kwargs.get("elements")
-            or mock_client.show.call_args.args[1]
+            mock_client.show_async.call_args.kwargs.get("elements")
+            or mock_client.show_async.call_args.args[1]
         )
         ids = [getattr(e, "id", None) for e in sent_elements]
         assert "bd-error" in ids, f"expected bd-error element, got: {ids}"
@@ -402,7 +402,7 @@ class TestShowBeadsCLI:
         mock_client = MagicMock()
         mock_client.__enter__ = MagicMock(return_value=mock_client)
         mock_client.__exit__ = MagicMock(return_value=False)
-        mock_client.show = MagicMock(return_value=MagicMock(scene_id="beads-test"))
+        mock_client.show_async = MagicMock(return_value=None)
 
         # bd does server-side filtering; mock returns only active issues
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
@@ -422,8 +422,8 @@ class TestShowBeadsCLI:
 
         assert result.exit_code == 0
         assert "2 issues" in result.output
-        mock_client.show.assert_called_once()
-        call_args = mock_client.show.call_args
+        mock_client.show_async.assert_called_once()
+        call_args = mock_client.show_async.call_args
         scene_id = call_args[0][0]
         assert scene_id.startswith("beads-")  # project-scoped tab
 

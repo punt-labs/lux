@@ -115,11 +115,12 @@ def _recovery(
 _SCENE = SceneId("s1")
 _BATCH = DrainedBatch(frozenset({_SCENE}), cleared=False, shutting=False)
 _CLEARED_BATCH = DrainedBatch(frozenset({_SCENE}), cleared=True, shutting=False)
+_SHUTTING_BATCH = DrainedBatch(frozenset({_SCENE}), cleared=False, shutting=True)
 
 
 def test_a_wedged_display_is_reaped_then_respawned_then_remarked() -> None:
     recovery, provider, lifecycle, signal = _recovery((_SCENE,))
-    recovery.recover(_BATCH, wedged=True, active=True)
+    recovery.recover(_BATCH, wedged=True)
     assert lifecycle.calls == ["reap", "ensure"]  # kill before respawn
     assert provider.drops == 1
     assert signal.added == [_SCENE]  # every live scene re-marked
@@ -127,7 +128,7 @@ def test_a_wedged_display_is_reaped_then_respawned_then_remarked() -> None:
 
 def test_a_dead_peer_reconnects_without_reaping() -> None:
     recovery, provider, lifecycle, signal = _recovery((_SCENE,))
-    recovery.recover(_BATCH, wedged=False, active=True)
+    recovery.recover(_BATCH, wedged=False)
     assert lifecycle.calls == []  # nothing killed
     assert provider.drops == 1
     assert signal.added == [_SCENE]
@@ -135,14 +136,18 @@ def test_a_dead_peer_reconnects_without_reaping() -> None:
 
 def test_recovery_of_a_cleared_batch_re_marks_the_clear() -> None:
     recovery, _provider, _lifecycle, signal = _recovery((_SCENE,))
-    recovery.recover(_CLEARED_BATCH, wedged=False, active=True)
+    recovery.recover(_CLEARED_BATCH, wedged=False)
     assert signal.cleared_marks == 1  # the consumed clear is re-marked
     assert signal.added == [_SCENE]
 
 
-def test_an_inactive_flush_heals_nothing() -> None:
+def test_a_shutdown_flush_heals_nothing() -> None:
+    # SH2: a send that fails during the shutting cycle is best-effort — the batch
+    # carries shutting, so recover leaves the display as-is: no reap, no drop, no
+    # re-mark, since the process is going away. recover reads the flag itself, so
+    # the caller cannot bypass the policy.
     recovery, provider, lifecycle, signal = _recovery((_SCENE,))
-    recovery.recover(_BATCH, wedged=True, active=False)
+    recovery.recover(_SHUTTING_BATCH, wedged=True)
     assert lifecycle.calls == []
     assert provider.drops == 0
     assert signal.added == []

@@ -597,10 +597,6 @@ class DisplayClient:
         self._store_menu_item(item)
         self._send(RegisterMenuMessage(items=self._registered_menu_items))
 
-    def clear(self) -> None:
-        """Clear all content from the display."""
-        self._send(ClearMessage())
-
     def clear_async(self) -> None:
         """Clear all content from the display.  Safe from callbacks."""
         self._send(ClearMessage())

@@ -13,16 +13,18 @@ responsibility:
 - ``SubtreeInstaller`` / ``SubtreeRemover`` — the mirror install and teardown
   walks ``apply`` delegates to.
 
-A scene's presentation is kept for the scene's lifetime and overwritten only by a
-re-show, so an emptied scene can still be blanked into the frame it was shown in.
-``drop_connection`` tears down each root a departing connection owned — ABC roots
-via the Observer cascade, wire-only roots directly through the ``SubtreeRemover``
-— and returns the scenes it touched so the caller can repaint them.
+A scene's presentation is kept until the scene is blanked away or re-shown, so an
+emptied scene can still be blanked into the frame it was shown in; once the
+replicator delivers that blank it reclaims the presentation. ``drop_connection``
+tears down each root a departing connection owned — ABC roots via the Observer
+cascade, wire-only roots directly through the ``SubtreeRemover`` — and returns the
+scenes it touched so the caller can repaint them.
 
 Every write runs under ``StoreLock`` so a snapshot never reads a half-applied
-scene. Reads that cross to the replicator go through ``scene_snapshot`` and
-``live_scene_ids``, which take the lock in read mode and copy the state out, so
-the lock discipline is the store's own behavior and never escapes to the caller.
+scene. Every read takes the lock in read mode too — the replicator's crossing
+reads through ``scene_snapshot`` and ``live_scene_ids``, and the facade's own
+``scene_roots`` and ``presentation_for`` — so the lock discipline is the store's
+own behavior and never escapes to the caller.
 """
 
 from __future__ import annotations
@@ -154,8 +156,9 @@ class HubDisplay:
     # -- index access ------------------------------------------------------
 
     def scene_roots(self, scene_id: SceneId) -> list[WireElement]:
-        """Return non-removed root elements for a scene."""
-        return self._index.scene_roots(scene_id)
+        """Return non-removed root elements for a scene, read under the lock."""
+        with self._lock.read():
+            return self._index.scene_roots(scene_id)
 
     @property
     def reader(self) -> SceneReader:
@@ -176,9 +179,21 @@ class HubDisplay:
         with self._lock.write():
             self._frames.record(scene_id, presentation)
 
+    def forget_presentation(self, scene_id: SceneId) -> None:
+        """Drop a scene's presentation once a clear blanks it away.
+
+        A whole-display clear empties the scene and blanks the display, and
+        nothing repaints it without a re-show recording a fresh presentation, so
+        the entry is dead weight. Bounds the frame map on the clear path, as the
+        replicator's post-blank reclaim does on the per-scene path.
+        """
+        with self._lock.write():
+            self._frames.forget(scene_id)
+
     def presentation_for(self, scene_id: SceneId) -> ScenePresentation:
-        """Return how a scene was shown, or a self-framed default."""
-        return self._frames.presentation_for(scene_id)
+        """Return how a scene was shown, or a self-framed default, read under lock."""
+        with self._lock.read():
+            return self._frames.presentation_for(scene_id)
 
     def resolve(self, scene_id: SceneId, element_id: ElementId) -> WireElement:
         """Return the indexed Element or raise ``UnknownElementError``."""

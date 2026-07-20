@@ -521,6 +521,21 @@ class TestShowTool:
         # The recorded presentation is what the replicator resends the scene with.
         assert store.presentation_for(SceneId("s1")).frame_id == "dash"
 
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_show_rejects_an_unknown_layout(self, mock_get: MagicMock) -> None:
+        # An out-of-set layout is rejected at the wire boundary before anything is
+        # installed — the error names the allowed values and the client is never
+        # touched, so a typo cannot reach the store or the display.
+        client = _mock_client()
+        mock_get.return_value = client
+
+        result = show("s1", [], layout="diagonal")
+
+        assert result == (
+            "error: layout must be single/rows/columns/grid, got 'diagonal'"
+        )
+        client.show.assert_not_called()
+
     def test_show_valid_table_renders(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # Demonstration (a): a well-formed table validates clean and is accepted.
         store = HubDisplay()

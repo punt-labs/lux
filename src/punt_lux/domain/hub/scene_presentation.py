@@ -106,9 +106,9 @@ class ScenePresentationRegistry:
     applies when no ``frame_id`` is given — so a resend of a never-explicitly-framed
     scene lands exactly where it always did.
 
-    A presentation is kept for the scene's lifetime and overwritten only by a
-    re-show, so an emptied scene can still be blanked into the frame it was shown
-    in rather than a default one.
+    A presentation is kept until the scene is blanked away or re-shown: an emptied
+    scene can still be blanked into the frame it was shown in, and once that blank
+    lands the replicator ``forget``s it, so the map does not grow without bound.
     """
 
     _presentations: dict[SceneId, ScenePresentation]
@@ -122,6 +122,14 @@ class ScenePresentationRegistry:
     def record(self, scene_id: SceneId, presentation: ScenePresentation) -> None:
         """Remember how a scene was shown, for a later whole-scene resend."""
         self._presentations[scene_id] = presentation
+
+    def forget(self, scene_id: SceneId) -> None:
+        """Drop a scene's presentation after it has been blanked away.
+
+        Idempotent: forgetting an unrecorded scene is a no-op, so a blank of a
+        never-explicitly-framed scene reclaims nothing and does not raise.
+        """
+        self._presentations.pop(scene_id, None)
 
     def presentation_for(self, scene_id: SceneId) -> ScenePresentation:
         """Return the scene's recorded presentation, or a self-framed default."""

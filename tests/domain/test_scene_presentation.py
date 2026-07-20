@@ -80,6 +80,24 @@ def test_a_recorded_presentation_persists_for_the_scene_lifetime() -> None:
     assert reg.presentation_for(SceneId("s1")).frame_id == "custom-frame"
 
 
+def test_forget_drops_a_recorded_presentation() -> None:
+    # The replicator calls forget once it blanks an emptied scene away, so the map
+    # does not grow for the process lifetime; a later lookup falls back to the
+    # self-framed default.
+    reg = ScenePresentationRegistry()
+    reg.record(SceneId("s1"), ScenePresentation(frame_id="custom-frame"))
+    reg.forget(SceneId("s1"))
+    assert reg.presentation_for(SceneId("s1")).frame_id == "s1"  # back to default
+
+
+def test_forget_of_an_unrecorded_scene_is_a_no_op() -> None:
+    # Forgetting a never-explicitly-framed scene reclaims nothing and does not
+    # raise, so a blank of such a scene is safe.
+    reg = ScenePresentationRegistry()
+    reg.forget(SceneId("never-recorded"))
+    assert reg.presentation_for(SceneId("never-recorded")).frame_id == "never-recorded"
+
+
 def test_push_resends_every_presentation_field() -> None:
     pres = ScenePresentation(
         frame_id="board",
