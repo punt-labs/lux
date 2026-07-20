@@ -144,19 +144,17 @@ class HubDisplay:
     def read_lock(self) -> AbstractContextManager[bool]:
         """Hold the store lock while the replicator copies a scene out to resend.
 
-        Held only long enough to snapshot a scene's roots and presentation, then
-        released before the send — so the store lock and the client send lock
-        are never held together.
+        Released before the send, so the store lock and the client send lock are
+        never held together.
         """
         return self._lock.read()
 
     def write_lock(self) -> AbstractContextManager[bool]:
         """Hold the store lock across an external mutation batch.
 
-        ``HubSceneWriter`` takes this so its whole parse-guard-commit-remove
-        batch commits under one lock and the replicator's snapshot never lands
-        mid-batch. Reentrant, so nested ``apply`` / ``replace_scene`` calls
-        inside the batch re-enter it freely.
+        ``HubSceneWriter`` takes this so its whole parse-guard-commit-remove batch
+        commits under one lock and the replicator's snapshot never lands mid-batch;
+        reentrant, so nested ``apply`` / ``replace_scene`` re-enter it freely.
         """
         return self._lock.write()
 
@@ -194,20 +192,12 @@ class HubDisplay:
         with self._lock.write():
             self._frames.record(scene_id, presentation)
 
-    def record_frame(self, scene_id: SceneId, frame_id: str) -> None:
-        """Remember only a scene's frame, defaulting the rest of its presentation."""
-        self.record_presentation(scene_id, ScenePresentation(frame_id=frame_id))
-
     def presentation_for(self, scene_id: SceneId) -> ScenePresentation:
         """Return how a scene was shown, or a self-framed default."""
         return self._frames.presentation_for(scene_id)
 
-    def frame_id_for(self, scene_id: SceneId) -> str:
-        """Return the frame a scene was shown in, or its own id when unrecorded."""
-        return self._frames.frame_for(scene_id)
-
     def maybe_forget_frame(self, scene_id: SceneId) -> None:
-        """Forget the scene's frame association iff no root remains in it.
+        """Forget the scene's presentation iff no root remains in it.
 
         The single teardown criterion, checked uniformly after every path
         that can empty a scene — an empty ``replace_scene`` (clear), a
@@ -215,7 +205,7 @@ class HubDisplay:
         ``update``. Keying on the scene's own roots, not on which scenes a
         connection touched, is what leaves a shared scene's frame intact while
         any owner still holds a root in it. A later re-show re-records; until
-        then ``frame_id_for`` reverts to the scene's own id.
+        then ``presentation_for`` reverts to a frame named for the scene.
         """
         with self._lock.write():
             if not self.scene_roots(scene_id):
@@ -324,24 +314,33 @@ class HubDisplay:
     # -- cleanup trigger ---------------------------------------------------
 
     def drop_connection(self, connection_id: ConnectionId) -> None:
-        """Forget the client and ``mark_removed`` every root it owned.
+        """Forget the client, tear down every root it owned, and forget emptied
+        frames.
 
-        Does NOT walk the subtree itself — that bypasses the Observer
-        cascade and leaves parent composites' children tuples stale.
-        Only ABC Elements participate in the cascade; wire-dataclass
-        roots have no observer registry and are dropped by direct index
-        cleanup in the ``SubtreeRemover``.
-
-        After the roots are torn down, each scene the connection touched is
-        offered to ``maybe_forget_frame``: a scene another connection still
-        holds a root in keeps its frame, a scene now empty gives it up.
+        Does NOT walk the subtree itself — that bypasses the Observer cascade and
+        leaves parent composites' children stale. ABC roots drop via the cascade;
+        wire-dataclass roots have no observer and drop through the SubtreeRemover.
+        A scene another connection still holds a root in keeps its frame.
         """
         self._clients.discard(connection_id)
         owned = self._owners.keys_for(connection_id)
+        self._drop_owned_roots(connection_id, owned)
+        self._forget_frames_for({scene for scene, _ in owned})
+
+    def _drop_owned_roots(
+        self,
+        connection_id: ConnectionId,
+        owned: tuple[tuple[SceneId, ElementId], ...],
+    ) -> None:
+        """Tear down each scene-root the connection owned, leaving children to
+        the Observer cascade."""
         for scene_id, element_id in owned:
             if self._children.is_root(scene_id, element_id):
                 self._remover.drop_root(scene_id, element_id, connection_id)
-        for scene_id in {scene for scene, _ in owned}:
+
+    def _forget_frames_for(self, scene_ids: set[SceneId]) -> None:
+        """Offer each touched scene to ``maybe_forget_frame`` after a teardown."""
+        for scene_id in scene_ids:
             self.maybe_forget_frame(scene_id)
 
     # -- private helpers ---------------------------------------------------

@@ -265,8 +265,8 @@ every PR is gated automatically.
 4. Commit the regenerated corpus in the same PR as the production change.
 
 **Manual regression check** (sanity gate the corpus exists at all): change
-one byte of a tool's output — for example, edit `"ack:"` to `"ACK:"` in
-`show()` — and run `make snapshot-parity`. Six snapshots fail with a
+one byte of a tool's output — for example, edit `"shown:"` to `"SHOWN:"` in
+`show()` — and run `make snapshot-parity`. The `show*` snapshots fail with a
 unified diff each. Revert the production change; the gate returns to
 green. `test_parity.py`'s module docstring shows the exact diff format
 the migration PRs are reviewed against.

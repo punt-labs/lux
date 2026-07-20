@@ -7,11 +7,13 @@ import logging
 import time
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 from punt_lux.config import ConfigManager
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub_display
+from punt_lux.domain.hub.replicator_instance import hub_replicator
+from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.hub.scene_writer import HubSceneWriter
 from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.ids import ConnectionId, SceneId
@@ -26,7 +28,25 @@ from punt_lux.tools.server import (
     mcp,
 )
 
+if TYPE_CHECKING:
+    from punt_lux.display_client import DisplayClient
+
 logger = logging.getLogger(__name__)
+
+
+def _connection_id() -> ConnectionId:
+    """Return the calling MCP session's ``ConnectionId``."""
+    return ConnectionId(_session_key.get())
+
+
+def _display_running() -> bool:
+    """Whether a live display process owns the socket."""
+    return DisplayPaths().is_running()
+
+
+def _client() -> DisplayClient:
+    """Return the Hub's connected display client for a read-only round-trip."""
+    return client_registry.get()
 
 
 @mcp.tool()
@@ -120,13 +140,13 @@ def show(
         "tab"   — one scene visible at a time via tab bar (default)
         "stack" — all scenes stacked vertically with collapsing headers
 
-    Returns ``"ack:<scene_id>"`` on success or ``"timeout"`` if the
-    display doesn't respond.
+    Writes the scene to the Hub and returns ``"shown:<scene_id>"`` at once — the
+    replicator sends it in the background; "shown" means accepted, not drawn.
     """
     frame_id = scene_id if frame_id is None else frame_id
     frame_title = (title or scene_id) if frame_title is None else frame_title
 
-    connection_id = ConnectionId(_session_key.get())
+    connection_id = _connection_id()
     factory = hub_element_factory(connection_id)
     typed_elements: list[WireElement] = [factory.element_from_dict(e) for e in elements]
 
@@ -142,34 +162,31 @@ def show(
         if len(frame_size) != 2:
             return "error: frame_size must be [width, height]"
         size_tuple = (frame_size[0], frame_size[1])
-    if frame_layout is not None and frame_layout not in ("tab", "stack"):
-        return f"error: frame_layout must be 'tab' or 'stack', got {frame_layout!r}"
-    scene = SceneId(scene_id)
+    frame_layout_typed: Literal["tab", "stack"] | None
+    match frame_layout:
+        case None | "tab" | "stack":
+            frame_layout_typed = frame_layout
+        case _:
+            return f"error: frame_layout must be 'tab' or 'stack', got {frame_layout!r}"
 
-    def _call() -> str:
-        client = client_registry.get()
-        hub_display.replace_scene(
-            connection_id,
-            scene,
-            cast("Sequence[DomainElement]", typed_elements),
-        )
-        hub_display.record_frame(scene, frame_id)
-        ack = client.show(
-            scene_id,
-            typed_elements,
+    scene = SceneId(scene_id)
+    hub_display.replace_scene(
+        connection_id, scene, cast("Sequence[DomainElement]", typed_elements)
+    )
+    hub_display.record_presentation(
+        scene,
+        ScenePresentation(
+            frame_id=frame_id,
             title=title,
             layout=layout,
-            frame_id=frame_id,
             frame_title=frame_title,
             frame_size=size_tuple,
             frame_flags=frame_flags,
-            frame_layout=frame_layout,  # type: ignore[arg-type]  # validated above
-        )
-        if ack is None:
-            return "timeout"
-        return f"ack:{ack.scene_id}"
-
-    return client_registry.with_reconnect(_call)
+            frame_layout=frame_layout_typed,
+        ),
+    )
+    hub_replicator.mark_dirty(scene)
+    return f"shown:{scene_id}"
 
 
 @mcp.tool()
@@ -399,25 +416,19 @@ def update(scene_id: str, patches: list[dict[str, Any]]) -> str:
     Each patch targets an element by id and can set fields or remove it:
       {"id": "t1", "set": {"content": "Updated text"}}  or  {"id": "b1", "remove": true}
 
-    The Hub mutates its authoritative store first, then re-pushes the scene —
-    the same replication a click takes. Returns ``"ack:<scene_id>"`` on success.
-    A rejected write — an invalid patch, an unknown field, or a ``set`` that
-    would break an element — mutates nothing and returns
-    ``"error: scene not updated — <reason>"``, so callers must not assume
-    success-only semantics.
+    The Hub mutates its authoritative store and marks the scene dirty; the
+    background replicator re-sends it, the same replication a click takes, and the
+    tool returns ``"shown:<scene_id>"``. A rejected write — an invalid patch, an
+    unknown field, or a ``set`` that would break an element — mutates nothing and
+    returns ``"error: scene not updated — <reason>"``.
     """
-    connection_id = ConnectionId(_session_key.get())
-    # Mutate once, outside the retry, so a failed re-push cannot re-drive it.
+    connection_id = _connection_id()
     writer = HubSceneWriter(hub_display)
     result = writer.apply(connection_id, SceneId(scene_id), patches)
     if isinstance(result, WriteRejected):
         return f"error: scene not updated — {result.reason}"
-
-    def _repush() -> str:
-        client_registry.repush_scene(scene_id)
-        return f"ack:{scene_id}"
-
-    return client_registry.with_reconnect(_repush)
+    hub_replicator.mark_dirty(SceneId(scene_id))
+    return f"shown:{scene_id}"
 
 
 @mcp.tool()
@@ -433,7 +444,7 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
     """
 
     def _call() -> str:
-        client = client_registry.get()
+        client = _client()
         client.set_menu(menus)
         return "ok"
 
@@ -462,7 +473,7 @@ def register_tool(
         item["icon"] = icon
 
     def _call() -> str:
-        client = client_registry.get()
+        client = _client()
         client.register_menu_item(item)
         with client_registry.lock:
             key = _session_key.get()
@@ -483,11 +494,11 @@ def set_theme(theme: str) -> str:
 
     Example: set_theme("imgui_colors_light") for dashboards and data views.
     """
-    if not DisplayPaths().is_running():
+    if not _display_running():
         return "not running"
 
     def _call() -> str:
-        client = client_registry.get()
+        client = _client()
         response = client.query("set_theme", {"theme": theme})
         if response is None:
             return "timeout"
@@ -524,11 +535,11 @@ def set_window_settings(
         params["fps_idle"] = fps_idle
     if not params:
         return "error: no settings provided"
-    if not DisplayPaths().is_running():
+    if not _display_running():
         return "not running"
 
     def _call() -> str:
-        client = client_registry.get()
+        client = _client()
         response = client.query("set_window_settings", params)
         if response is None:
             return "timeout"
@@ -559,37 +570,28 @@ def set_frame_state(
 
 @mcp.tool()
 def clear() -> str:
-    """Clear the Lux display window. Returns "not running" when display is off.
+    """Clear the Lux display window. Returns ``"cleared"``.
 
-    The Hub store is the authority, the Display only a replica, so emptying the
-    store must not hinge on the Display being up. Every scene the caller owns is
-    removed from the authoritative Hub store unconditionally, before any display
-    check. Only then is the Display told to clear — global (ALL rendered scenes,
-    not only the caller's), honest for the single-connection slice; scoping it
-    per caller for the multi-user target is a separate change. When the Display
-    is off, the store is cleared all the same and the display leg reports
-    "not running".
+    The Hub store is the authority, so emptying it never hinges on the display
+    being up: every scene the caller owns is removed, the replicator is told the
+    screen was cleared, and the tool returns at once — the replicator blanks the
+    display in the background. The blank is global (ALL rendered scenes, not only
+    the caller's), honest for the single-connection slice; per-caller scoping is
+    a separate change.
     """
-    # Mutate the authority once, outside the retry; emptying owned scenes is idempotent.
-    HubSceneWriter(hub_display).clear(ConnectionId(_session_key.get()))
-    if not DisplayPaths().is_running():
-        return "not running"
-
-    def _clear() -> str:
-        client_registry.get().clear()
-        return "cleared"
-
-    return client_registry.with_reconnect(_clear)
+    HubSceneWriter(hub_display).clear(_connection_id())
+    hub_replicator.mark_cleared()
+    return "cleared"
 
 
 @mcp.tool()
 def ping() -> str:
     """Ping the display server. Returns round-trip time, "timeout", or "not running"."""
-    if not DisplayPaths().is_running():
+    if not _display_running():
         return "not running"
 
     def _call() -> str:
-        client = client_registry.get()
+        client = _client()
         pong = client.ping()
         if pong is None:
             return "timeout"
@@ -609,11 +611,11 @@ def inspect_scene(scene_id: str) -> str:
     the display server has for a given scene_id. Returns "not running"
     if the display server is not available.
     """
-    if not DisplayPaths().is_running():
+    if not _display_running():
         return "not running"
 
     def _call() -> str:
-        client = client_registry.get()
+        client = _client()
         response = client.query("inspect_scene", {"scene_id": scene_id})
         if response is None:
             return "timeout"
@@ -633,11 +635,11 @@ def list_scenes() -> str:
     display is currently showing. Returns "not running" if the display
     server is not available.
     """
-    if not DisplayPaths().is_running():
+    if not _display_running():
         return "not running"
 
     def _call() -> str:
-        client = client_registry.get()
+        client = _client()
         response = client.query("list_scenes")
         if response is None:
             return "timeout"
@@ -654,11 +656,11 @@ def screenshot() -> str:
     The agent can read this image to see exactly what is rendered.
     Returns "not running" if the display server is not available.
     """
-    if not DisplayPaths().is_running():
+    if not _display_running():
         return "not running"
 
     def _call() -> str:
-        client = client_registry.get()
+        client = _client()
         response = client.query("screenshot")
         if response is None:
             return "timeout"

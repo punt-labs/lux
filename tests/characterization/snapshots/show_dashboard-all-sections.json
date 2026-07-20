@@ -63,7 +63,7 @@
       "Dashboard"
     ]
   ],
-  "response": "ack:dash",
+  "response": "shown:dash",
   "setup": {
     "client": {
       "show": {

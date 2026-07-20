@@ -134,6 +134,7 @@ ignore = [
 "src/punt_lux/cli.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/show.py" = ["T20", "FBT", "PLC0415"]
 "src/punt_lux/luxd.py" = ["PLC0415"]
+"src/punt_lux/apps/beads.py" = ["PLC0415"]
 "src/punt_lux/tools/server.py" = ["PLC0415"]
 "src/punt_lux/tools/__init__.py" = ["PLC0415"]
 # Element classes use `id` as a keyword/field name throughout the protocol —

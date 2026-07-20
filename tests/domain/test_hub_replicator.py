@@ -47,17 +47,31 @@ class _FakeSender:
     """
 
     shows: list[str]
+    frames: list[str | None]
+    roots: list[list[WireElement]]
     clears: int
     timeline: list[str]
     _fail: OSError | None
     _gate: threading.Event | None
     _lock: threading.Lock
     _sent: threading.Event
-    __slots__ = ("_fail", "_gate", "_lock", "_sent", "clears", "shows", "timeline")
+    __slots__ = (
+        "_fail",
+        "_gate",
+        "_lock",
+        "_sent",
+        "clears",
+        "frames",
+        "roots",
+        "shows",
+        "timeline",
+    )
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self.shows = []
+        self.frames = []
+        self.roots = []
         self.clears = 0
         self.timeline = []
         self._fail = None
@@ -87,11 +101,15 @@ class _FakeSender:
         self,
         scene_id: str,
         elements: list[WireElement],
+        *,
+        frame_id: str | None = None,
         **_kwargs: object,
     ) -> None:
         self._guard()
         with self._lock:
             self.shows.append(scene_id)
+            self.frames.append(frame_id)
+            self.roots.append(list(elements))
             self.timeline.append(f"show:{scene_id}")
         self._sent.set()
 
@@ -160,6 +178,41 @@ def test_a_dirty_scene_is_sent_to_the_display() -> None:
         repl.mark_dirty(scene)
         assert sender.wait_sent(2.0)
         assert sender.shows == ["s1"]
+    finally:
+        repl.stop()
+
+
+def test_the_resend_carries_the_recorded_frame() -> None:
+    # A scene shown into a differently-named frame is resent into that frame,
+    # never hoisted into a frame named for itself.
+    store = HubDisplay()
+    scene = SceneId("s1")
+    store.register_client(_CONN)
+    store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
+    store.record_presentation(scene, ScenePresentation(frame_id="hello-frame"))
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert sender.wait_sent(2.0)
+        assert sender.frames == ["hello-frame"]
+    finally:
+        repl.stop()
+
+
+def test_the_resend_carries_the_stores_current_value() -> None:
+    # The worker snapshots the store at send time, so a mutation that lands
+    # before the send is carried, not a stale copy.
+    store = HubDisplay()
+    scene = _seed(store, "s1", content="first")
+    store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="second")])
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert sender.wait_sent(2.0)
+        (pushed,) = sender.roots
+        assert [e.to_dict()["content"] for e in pushed] == ["second"]
     finally:
         repl.stop()
 

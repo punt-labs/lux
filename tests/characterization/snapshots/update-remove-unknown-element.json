@@ -14,7 +14,7 @@
       "upd-scene"
     ]
   ],
-  "response": "ack:upd-scene",
+  "response": "shown:upd-scene",
   "setup": {
     "client": {},
     "display_running": true

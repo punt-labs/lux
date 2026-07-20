@@ -64,22 +64,22 @@ def _seed_framed_scene() -> HubDisplay:
 def test_frame_reverts_to_fallback_after_clear() -> None:
     """An empty ``replace_scene`` (the clear path) forgets the frame."""
     hub_display = _seed_framed_scene()
-    assert hub_display.frame_id_for(_SCENE) == _FRAME
+    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
 
     hub_display.replace_scene(_OWNER, _SCENE, ())
 
     # The scene now holds nothing; the frame reverts to the scene's own id.
-    assert hub_display.frame_id_for(_SCENE) == str(_SCENE)
+    assert hub_display.presentation_for(_SCENE).frame_id == str(_SCENE)
 
 
 def test_frame_reverts_to_fallback_after_connection_drop() -> None:
     """Dropping the owning connection forgets its scenes' frames."""
     hub_display = _seed_framed_scene()
-    assert hub_display.frame_id_for(_SCENE) == _FRAME
+    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
 
     hub_display.drop_connection(_OWNER)
 
-    assert hub_display.frame_id_for(_SCENE) == str(_SCENE)
+    assert hub_display.presentation_for(_SCENE).frame_id == str(_SCENE)
 
 
 def test_non_empty_replace_keeps_the_frame() -> None:
@@ -92,7 +92,7 @@ def test_non_empty_replace_keeps_the_frame() -> None:
 
     hub_display.replace_scene(_OWNER, _SCENE, [_WireLeaf(id="fresh")])
 
-    assert hub_display.frame_id_for(_SCENE) == _FRAME
+    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_dropping_one_owner_keeps_frame_while_another_holds_a_root() -> None:
@@ -115,7 +115,7 @@ def test_dropping_one_owner_keeps_frame_while_another_holds_a_root() -> None:
 
     # _OTHER's root survives, so the frame association survives with it.
     assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"other"}
-    assert hub_display.frame_id_for(_SCENE) == _FRAME
+    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_dropping_a_child_only_owner_keeps_frame() -> None:
@@ -140,7 +140,7 @@ def test_dropping_a_child_only_owner_keeps_frame() -> None:
 
     # The root remains, so the frame is kept.
     assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"root"}
-    assert hub_display.frame_id_for(_SCENE) == _FRAME
+    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_removing_last_root_via_update_forgets_the_frame() -> None:
@@ -156,7 +156,7 @@ def test_removing_last_root_via_update_forgets_the_frame() -> None:
     text = TextElement(id="t1", content="hello")
     hub_display.apply(_OWNER, AddElement(scene_id=_SCENE, element=text, parent_id=None))
     hub_display.record_presentation(_SCENE, ScenePresentation(frame_id=_FRAME))
-    assert hub_display.frame_id_for(_SCENE) == _FRAME
+    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
 
     result = HubSceneWriter(hub_display).apply(
         _OWNER, _SCENE, [{"id": "t1", "remove": True}]
@@ -164,4 +164,4 @@ def test_removing_last_root_via_update_forgets_the_frame() -> None:
 
     assert isinstance(result, WriteAccepted)
     assert not hub_display.scene_roots(_SCENE)
-    assert hub_display.frame_id_for(_SCENE) == str(_SCENE)
+    assert hub_display.presentation_for(_SCENE).frame_id == str(_SCENE)

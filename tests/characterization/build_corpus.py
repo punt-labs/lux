@@ -164,13 +164,13 @@ LIFECYCLE_SCENARIOS: tuple[Scenario, ...] = (
         setup={"display_running": True, "client": {"clear": {}}},
     ),
     Scenario(
-        name="clear-not-running",
+        name="clear-display-off",
         tool="clear",
         inputs={},
         setup={"display_running": False},
     ),
     Scenario(
-        name="show-ack",
+        name="show-shown",
         tool="show",
         inputs={
             "scene_id": "s1",
@@ -185,13 +185,15 @@ LIFECYCLE_SCENARIOS: tuple[Scenario, ...] = (
         },
     ),
     Scenario(
-        name="show-timeout",
+        name="show-framed",
         tool="show",
         inputs={
             "scene_id": "s1",
             "elements": [{"kind": "text", "id": "t1", "content": "Hi"}],
+            "frame_id": "dash",
+            "frame_title": "Dashboard",
         },
-        setup={"display_running": True, "client": {"show": {"return": None}}},
+        setup={"display_running": True},
     ),
     Scenario(
         name="show-bad-frame-size",
@@ -250,7 +252,7 @@ LIFECYCLE_SCENARIOS: tuple[Scenario, ...] = (
 
 COMPOSITION_SCENARIOS: tuple[Scenario, ...] = (
     Scenario(
-        name="show_table-ack",
+        name="show_table-shown",
         tool="show_table",
         inputs={
             "scene_id": "issues",
@@ -777,10 +779,9 @@ CONTROL_SCENARIOS: tuple[Scenario, ...] = (
 
 
 # ---------------------------------------------------------------------------
-# Interaction scenarios — ``recv`` returns either the next queued event or
-# the literal ``"none"`` when the timeout expires. The snapshot pair pins
-# both halves so PR 2 (inputs family) can verify event delivery survives
-# the migration.
+# Interaction scenarios — ``recv`` drains the next queued event or returns the
+# literal ``"none"`` when the inbox is empty. The snapshot pair pins both halves
+# so the inputs family can verify event delivery survives the migration.
 # ---------------------------------------------------------------------------
 
 
@@ -788,13 +789,13 @@ INTERACTION_SCENARIOS: tuple[Scenario, ...] = (
     Scenario(
         name="recv-empty",
         tool="recv",
-        inputs={"timeout": 0.1},
+        inputs={},
         setup={"inbox_empty": True},
     ),
     Scenario(
         name="recv-button-click",
         tool="recv",
-        inputs={"timeout": 1.0},
+        inputs={},
         setup={
             "inbox_event": {
                 "topic": "ui.button.click",
@@ -809,7 +810,7 @@ INTERACTION_SCENARIOS: tuple[Scenario, ...] = (
     Scenario(
         name="recv-slider-change",
         tool="recv",
-        inputs={"timeout": 1.0},
+        inputs={},
         setup={
             "inbox_event": {
                 "topic": "ui.slider.changed",

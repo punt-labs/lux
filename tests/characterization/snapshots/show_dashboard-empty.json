@@ -5,7 +5,7 @@
       "empty"
     ]
   ],
-  "response": "ack:empty",
+  "response": "shown:empty",
   "setup": {
     "client": {
       "show": {

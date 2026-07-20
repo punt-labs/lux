@@ -44,13 +44,14 @@ def test_hub_interaction_dispatch_runs_grouped_button_handlers_once(
         AddElement(scene_id=scene_id, element=button, parent_id=None),
     )
 
-    mock_client = MagicMock()
-    fake_registry = SimpleNamespace(get=MagicMock(return_value=mock_client))
+    mock_replicator = MagicMock()
 
     import punt_lux.domain.hub as hub_module
 
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
-    monkeypatch.setattr(hub_module, "client_registry", fake_registry)
+    monkeypatch.setattr(
+        "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
+    )
 
     clients_module.ClientRegistry._hub_interaction_dispatch(
         RemoteEventHandlerInvocation(
@@ -66,8 +67,8 @@ def test_hub_interaction_dispatch_runs_grouped_button_handlers_once(
         ("first", str(owner)),
         ("second", str(owner)),
     ]
-    mock_client.show_async.assert_called_once()
-    assert mock_client.show_async.call_args.kwargs["elements"] == [button]
+    # A click marks the scene dirty; the replicator resends it, not the dispatch.
+    mock_replicator.mark_dirty.assert_called_once_with(scene_id)
 
 
 def test_hub_interaction_dispatch_missing_scene_id_returns_silently(
@@ -160,10 +161,14 @@ def test_hub_interaction_dispatch_non_abc_element_returns_silently(
     fake_registry.get.assert_not_called()
 
 
-def test_hub_interaction_dispatch_scene_repush_failure_does_not_crash(
+def test_hub_interaction_dispatch_marks_dirty_without_display_io(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """When the scene re-push raises, the handler still completes."""
+    """The dispatch fires the handler and marks the scene dirty — never sends.
+
+    Marking dirty is queue-only, so a click can never fail on display I/O the way
+    the old inline re-push could. The replicator does the send in the background.
+    """
     import punt_lux.domain.hub as hub_module
 
     isolated_display = HubDisplay()
@@ -180,12 +185,11 @@ def test_hub_interaction_dispatch_scene_repush_failure_does_not_crash(
         AddElement(scene_id=scene_id, element=button, parent_id=None),
     )
 
-    mock_client = MagicMock()
-    mock_client.show_async.side_effect = OSError("socket broken")
-    fake_registry = SimpleNamespace(get=MagicMock(return_value=mock_client))
-
+    mock_replicator = MagicMock()
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
-    monkeypatch.setattr(hub_module, "client_registry", fake_registry)
+    monkeypatch.setattr(
+        "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
+    )
 
     clients_module.ClientRegistry._hub_interaction_dispatch(
         RemoteEventHandlerInvocation(
@@ -198,6 +202,7 @@ def test_hub_interaction_dispatch_scene_repush_failure_does_not_crash(
     )
 
     assert fired == ["ok"]
+    mock_replicator.mark_dirty.assert_called_once_with(scene_id)
 
 
 def test_hub_interaction_dispatch_runs_checkbox_value_changed_handler(
@@ -221,13 +226,14 @@ def test_hub_interaction_dispatch_runs_checkbox_value_changed_handler(
         AddElement(scene_id=scene_id, element=checkbox, parent_id=None),
     )
 
-    mock_client = MagicMock()
-    fake_registry = SimpleNamespace(get=MagicMock(return_value=mock_client))
+    mock_replicator = MagicMock()
 
     import punt_lux.domain.hub as hub_module
 
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
-    monkeypatch.setattr(hub_module, "client_registry", fake_registry)
+    monkeypatch.setattr(
+        "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
+    )
 
     clients_module.ClientRegistry._hub_interaction_dispatch(
         RemoteEventHandlerInvocation(
@@ -241,8 +247,7 @@ def test_hub_interaction_dispatch_runs_checkbox_value_changed_handler(
     )
 
     assert seen == [("handled", False)]
-    mock_client.show_async.assert_called_once()
-    assert mock_client.show_async.call_args.kwargs["elements"] == [checkbox]
+    mock_replicator.mark_dirty.assert_called_once_with(scene_id)
 
 
 def test_hub_interaction_dispatch_unknown_event_kind_returns_silently(

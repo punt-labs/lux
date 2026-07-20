@@ -67,6 +67,16 @@ class ClientRegistry:
                 self._client.start_listener()
             return self._client
 
+    def drop(self) -> None:
+        """Close the current client so the next ``get`` binds a fresh connection.
+
+        The replicator calls this after a send fails: closing the dead socket
+        makes ``get`` reconnect on the next send rather than reuse a stale fd.
+        """
+        with self._lock:
+            if self._client is not None:
+                self._client.close()
+
     def with_reconnect[T](self, fn: Callable[[], T]) -> T:
         """Run ``fn``; on ``OSError`` close, reconnect, restart listener, retry once."""
         try:
@@ -157,41 +167,13 @@ class ClientRegistry:
         )
         element.fire(event)
 
-        # Master→slave replication: if the handler mutated the scene
-        # (e.g., dialog dismissed itself via mark_removed), re-push
-        # the full scene tree to the Display. ImGui handles the diff.
-        try:
-            ClientRegistry.repush_scene(scene_id)
-        except Exception:
-            logger.exception("hub dispatch scene re-push failed for %s", scene_id)
+        # The handler may have mutated the scene (e.g., a dialog dismissed itself
+        # via mark_removed). Mark it dirty; the replicator — the sole writer to
+        # the display — resends the whole scene. mark_dirty is queue-only and
+        # cannot fail, so a click never blocks on the display.
+        from punt_lux.domain.hub.replicator_instance import hub_replicator
 
-    @staticmethod
-    def repush_scene(scene_id: str) -> None:
-        """Re-send a scene's authoritative roots to the Display (whole-UI resend).
-
-        The Hub-authoritative replication step shared by the D21 interaction
-        dispatch and the agent ``update`` / ``clear`` tools: read the current
-        roots from the authoritative ``HubDisplay`` and push the whole scene so
-        the Display replaces its copy. ImGui diffs the frame. Render calls never
-        cross the boundary — only serialized UI state does.
-        """
-        from punt_lux.domain.hub import (
-            client_registry as registry,
-            hub_display as display_store,
-        )
-        from punt_lux.domain.ids import SceneId
-
-        scene = SceneId(scene_id)
-        roots = display_store.scene_roots(scene)
-        client = registry.get()
-        # Resend into the scene's original frame — the one it was shown in — so a
-        # scene explicitly placed in a differently-named frame is not hoisted into
-        # a frame named for itself. Unrecorded scenes fall back to their own id.
-        client.show_async(
-            scene_id,
-            elements=roots,  # type: ignore[arg-type]  # WireElement ≅ Element union
-            frame_id=display_store.frame_id_for(scene),
-        )
+        hub_replicator.mark_dirty(SceneId(scene_id))
 
     @staticmethod
     def _build_hub_event(
@@ -238,14 +220,17 @@ class ClientRegistry:
         return None
 
     def _on_beads_browser(self, _msg: RemoteEventHandlerInvocation) -> None:
-        """Open Beads Browser in a daemon thread; log render failures."""
-        if (client := self._client) is None:
-            logger.warning("_on_beads_browser: client is None, ignoring menu click")
-            return
+        """Build the beads board off-thread; it writes the Hub and marks dirty.
+
+        The load runs ``bd`` in a subprocess, so it stays off the listener
+        thread. The render itself only mutates the Hub store and signals the
+        replicator — no display I/O — so the sole writer to the display is still
+        the replicator.
+        """
 
         def _render() -> None:
             try:
-                BeadsBrowser().render(client)
+                BeadsBrowser().render()
             except Exception:
                 logger.exception("BeadsBrowser.render failed in background thread")
 
