@@ -40,19 +40,24 @@ __all__ = ["SceneReader", "SceneSnapshot"]
 class SceneSnapshot:
     """A scene copied out of the store, ready to resend without further reads.
 
-    Holds the deep-copied roots and the presentation. ``push`` sends the copy;
-    a snapshot of a since-cleared scene holds no roots and pushes nothing — the
-    clear already blanked the display, so repainting an empty framed show would
-    only re-open a blank frame.
+    Holds the deep-copied roots and the presentation. An empty scene is pushed
+    with no roots to blank its frame — that is how a scene a session left, or one
+    an update stripped to nothing, disappears — unless the cycle already blanked
+    the whole display with a clear, in which case the empty scene is skipped.
     """
 
     _scene_id: SceneId
     _roots: tuple[WireElement, ...]
     _presentation: ScenePresentation
 
-    def push(self, sender: ScenePusher) -> None:
-        """Resend the copied scene through ``sender``; a no-op when empty."""
-        if self._roots:
+    def push(self, sender: ScenePusher, *, blank_empty: bool) -> None:
+        """Resend the copied scene; blank an empty scene's frame, or skip it.
+
+        A scene with roots is always sent. An empty scene is sent with no roots —
+        blanking its frame — unless ``blank_empty`` is false, meaning the cycle
+        already blanked the whole display with a clear.
+        """
+        if self._roots or blank_empty:
             self._presentation.push(sender, self._scene_id, self._roots)
 
 

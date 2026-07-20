@@ -13,11 +13,11 @@ responsibility:
 - ``SubtreeInstaller`` / ``SubtreeRemover`` — the mirror install and teardown
   walks ``apply`` delegates to.
 
-A scene's frame is forgotten on one criterion — no roots left — checked by
-``maybe_forget_frame`` after every teardown, so a shared scene's frame survives
-while any owner still holds a root. ``drop_connection`` tears down each root a
-departing connection owned: ABC roots via the Observer cascade, wire-only roots
-directly through the ``SubtreeRemover``.
+A scene's presentation is kept for the scene's lifetime and overwritten only by a
+re-show, so an emptied scene can still be blanked into the frame it was shown in.
+``drop_connection`` tears down each root a departing connection owned — ABC roots
+via the Observer cascade, wire-only roots directly through the ``SubtreeRemover``
+— and returns the scenes it touched so the caller can repaint them.
 
 Every write runs under ``StoreLock`` so a snapshot never reads a half-applied
 scene. Reads that cross to the replicator go through ``scene_snapshot`` and
@@ -124,7 +124,6 @@ class HubDisplay:
             self._owners,
             self._children,
             self._remover,
-            self.maybe_forget_frame,
         )
         return self
 
@@ -181,21 +180,6 @@ class HubDisplay:
         """Return how a scene was shown, or a self-framed default."""
         return self._frames.presentation_for(scene_id)
 
-    def maybe_forget_frame(self, scene_id: SceneId) -> None:
-        """Forget the scene's presentation iff no root remains in it.
-
-        The single teardown criterion, checked uniformly after every path
-        that can empty a scene — an empty ``replace_scene`` (clear), a
-        ``drop_connection``, and a direct remove of the last root through
-        ``update``. Keying on the scene's own roots, not on which scenes a
-        connection touched, is what leaves a shared scene's frame intact while
-        any owner still holds a root in it. A later re-show re-records; until
-        then ``presentation_for`` reverts to a frame named for the scene.
-        """
-        with self._lock.write():
-            if not self.scene_roots(scene_id):
-                self._frames.forget(scene_id)
-
     def resolve(self, scene_id: SceneId, element_id: ElementId) -> WireElement:
         """Return the indexed Element or raise ``UnknownElementError``."""
         return self._index.lookup(scene_id, element_id)
@@ -245,7 +229,6 @@ class HubDisplay:
                     connection_id,
                     AddElement(scene_id=scene_id, element=root, parent_id=None),
                 )
-            self.maybe_forget_frame(scene_id)
 
     def show_scene(
         self,
@@ -314,9 +297,14 @@ class HubDisplay:
 
     # -- cleanup trigger ---------------------------------------------------
 
-    def drop_connection(self, connection_id: ConnectionId) -> None:
-        """Tear down a departing connection's roots — see ``ConnectionDropper``."""
-        self._dropper.drop(connection_id)
+    def drop_connection(self, connection_id: ConnectionId) -> frozenset[SceneId]:
+        """Tear down a departing connection's roots; return the scenes it touched.
+
+        The caller marks the returned scenes dirty so the replicator blanks the
+        ones the drop emptied and repaints the ones a survivor still holds. See
+        ``ConnectionDropper``.
+        """
+        return self._dropper.drop(connection_id)
 
     # -- private helpers ---------------------------------------------------
 

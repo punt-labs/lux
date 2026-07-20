@@ -7,8 +7,9 @@ The Hub remembers that presentation so the background replicator can repaint the
 scene from scratch after a coalesced change, a reconnect, or a display respawn,
 and the frame keeps the title and geometry the caller asked for.
 
-``ScenePresentationRegistry`` tracks one presentation per live scene, forgotten
-on the same no-root-remaining criterion its sibling storage collaborators use.
+``ScenePresentationRegistry`` keeps one presentation per scene for the scene's
+lifetime, overwritten only by a re-show, so an emptied scene can still be blanked
+into the frame it was shown in.
 """
 
 from __future__ import annotations
@@ -105,9 +106,9 @@ class ScenePresentationRegistry:
     applies when no ``frame_id`` is given — so a resend of a never-explicitly-framed
     scene lands exactly where it always did.
 
-    The map tracks scene lifetime: ``record`` when a scene is shown, ``forget``
-    when it is cleared or its owning connection drops — the same unwind its
-    sibling storage collaborators (index, owners, roots, children) perform.
+    A presentation is kept for the scene's lifetime and overwritten only by a
+    re-show, so an emptied scene can still be blanked into the frame it was shown
+    in rather than a default one.
     """
 
     _presentations: dict[SceneId, ScenePresentation]
@@ -127,13 +128,3 @@ class ScenePresentationRegistry:
         return self._presentations.get(
             scene_id, ScenePresentation(frame_id=str(scene_id))
         )
-
-    def forget(self, scene_id: SceneId) -> None:
-        """Drop the scene's presentation. No-op if absent.
-
-        Called when a scene is cleared or its owning connection drops, so a
-        never-re-shown scene stops occupying the map. A later re-show
-        re-records; until then ``presentation_for`` reverts to a self-framed
-        default.
-        """
-        self._presentations.pop(scene_id, None)

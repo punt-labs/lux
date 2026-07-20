@@ -169,18 +169,25 @@ class HubReplicator:
             self._recovery.recover(batch, wedged=False, active=active)
 
     def _attempt(self, batch: DrainedBatch) -> None:
-        """Send the cycle: blank first when cleared, then repaint each scene."""
+        """Send the cycle: blank first when cleared, then repaint each scene.
+
+        When the batch carried a clear, ``clear_async`` already blanked the whole
+        display, so an empty scene in the batch is skipped rather than re-blanked;
+        otherwise an empty scene is pushed to blank its own frame.
+        """
         if batch.cleared:
             self._clients.get().clear_async()
         for scene in batch.scenes:
-            self._send_scene(scene)
+            self._send_scene(scene, blank_empty=not batch.cleared)
 
-    def _send_scene(self, scene_id: SceneId) -> None:
+    def _send_scene(self, scene_id: SceneId, *, blank_empty: bool) -> None:
         """Send a copy of the scene the store took under its read lock.
 
         The store returns a snapshot whose roots are already copied out, so the
         send happens with no store lock held — the store lock and the client send
-        lock are never held together. A since-cleared scene snapshots empty and
-        pushes nothing, so a drained mark never repaints a blank.
+        lock are never held together. An empty scene blanks its frame unless the
+        cycle already blanked the whole display with a clear.
         """
-        self._reader.snapshot(scene_id).push(self._clients.get())
+        self._reader.snapshot(scene_id).push(
+            self._clients.get(), blank_empty=blank_empty
+        )

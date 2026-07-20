@@ -351,11 +351,10 @@ def test_a_dead_peer_recovery_re_marks_a_consumed_clear() -> None:
         repl.stop()
 
 
-def test_a_since_emptied_scene_is_skipped_not_sent() -> None:
-    # 5b: a drained mark for a scene the store no longer holds is skipped. The
-    # clear already blanked the display; resending an empty framed show would
-    # re-open a blank frame. So the worker snapshots it as not-live and sends
-    # nothing — no show, no clear.
+def test_an_emptied_scene_is_blanked_into_its_frame() -> None:
+    # A9: a scene emptied without a clear is pushed with no roots, blanking its
+    # frame. That is how a scene an update stripped to nothing, or one a departed
+    # session left, disappears from the display rather than lingering.
     store = HubDisplay()
     scene = _seed(store, "s1")
     store.replace_scene(_CONN, scene, ())  # empty the scene
@@ -363,9 +362,10 @@ def test_a_since_emptied_scene_is_skipped_not_sent() -> None:
     repl.start()
     try:
         repl.mark_dirty(scene)  # the now-empty scene
-        assert not sender.wait_sent(0.5)
-        assert sender.shows == []
-        assert sender.clears == 0
+        assert sender.wait_sent(2.0)
+        assert sender.shows == ["s1"]  # pushed to blank the frame
+        (pushed,) = sender.roots
+        assert pushed == []  # with no roots
     finally:
         repl.stop()
 

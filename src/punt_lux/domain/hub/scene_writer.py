@@ -180,13 +180,11 @@ class HubSceneWriter:
         ``None`` so the ownership check returns without raising, and ``discard``
         no-ops on already-dropped storage.
 
-        Removing the last root empties the scene, so the scene is offered to
-        ``maybe_forget_frame`` on the same no-root-remaining criterion the clear
-        and disconnect paths use — a no-op while any root survives.
+        Removing the last root empties the scene; the scene's presentation is kept
+        so a later resend blanks it into the frame it was shown in.
         """
         for element_id in removals:
             self._display.apply(scope.connection_id, scope.removal(element_id))
-        self._display.maybe_forget_frame(scope.scene_id)
 
     def _require_owner(self, scope: SceneScope, element_id: ElementId) -> None:
         """Raise unless the scope's connection owns an installed ``element_id``.

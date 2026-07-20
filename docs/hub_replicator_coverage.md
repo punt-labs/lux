@@ -117,6 +117,17 @@ recovery semantics; each is covered against the real worker.
 | RR1 | reap/ensure raises (an unspawnable display) or the send raises a non-socket error | the drained batch is restored (re-marked) and the worker backs off, so nothing is lost and the worker never spins |
 | RR2 | the display recovers on the retry after a transient respawn failure | the restored batch repaints once the display is back |
 
+### Blank on empty — an emptied scene disappears from the display
+
+These extend the spec pending the jms model extension; each is covered against
+the real worker.
+
+| # | Partition | Expected |
+|---|---|---|
+| BL1 | a scene emptied without a clear (an update to nothing, or a departed session) is marked dirty | pushed with no roots to blank its own frame, using the frame it was shown in |
+| BL2 | an empty scene in a batch that also carried a clear | skipped — the clear already blanked the whole display |
+| BL3 | a connection drops | every scene it touched is returned and marked dirty, blanking the emptied ones and repainting the shared ones |
+
 ### ApplyClear / ProcDone — ending the cycle
 
 | # | Partition | Expected |
@@ -186,6 +197,9 @@ display-lifecycle audit applied.
 | RC4 | test_hub_replicator::test_a_dead_peer_recovery_re_marks_a_consumed_clear | COVERED |
 | RR1 | test_hub_replicator::test_a_recovery_failure_restores_the_batch_and_retries | COVERED |
 | RR2 | test_hub_replicator::test_a_recovery_failure_restores_the_batch_and_retries | COVERED |
+| BL1 | test_hub_replicator::test_an_emptied_scene_is_blanked_into_its_frame | COVERED |
+| BL2 | test_hub_replicator::test_a_show_then_clear_ends_blank | COVERED |
+| BL3 | test_hub_display_frames::test_drop_connection_returns_the_scenes_it_touched | COVERED |
 | E1 | test_hub_replicator::test_clear_is_sent_before_the_batch | COVERED |
 | E2 | test_hub_replicator::test_a_clear_with_no_batch_only_blanks | COVERED |
 | E3 | test_hub_replicator::test_a_dirty_scene_is_sent_to_the_display | COVERED |

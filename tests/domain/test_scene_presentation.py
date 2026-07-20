@@ -72,17 +72,12 @@ def test_record_overwrites_a_prior_presentation() -> None:
     assert reg.presentation_for(SceneId("s1")).frame_id == "frame-b"
 
 
-def test_forget_reverts_to_the_scene_id_fallback() -> None:
+def test_a_recorded_presentation_persists_for_the_scene_lifetime() -> None:
+    # A presentation is kept once recorded and only overwritten by a re-show, so
+    # an emptied scene can still be blanked into the frame it was shown in.
     reg = ScenePresentationRegistry()
     reg.record(SceneId("s1"), ScenePresentation(frame_id="custom-frame"))
-    reg.forget(SceneId("s1"))
-    assert reg.presentation_for(SceneId("s1")).frame_id == "s1"
-
-
-def test_forget_is_idempotent_on_an_unrecorded_scene() -> None:
-    reg = ScenePresentationRegistry()
-    reg.forget(SceneId("never-shown"))  # no-op, must not raise
-    assert reg.presentation_for(SceneId("never-shown")).frame_id == "never-shown"
+    assert reg.presentation_for(SceneId("s1")).frame_id == "custom-frame"
 
 
 def test_push_resends_every_presentation_field() -> None:
