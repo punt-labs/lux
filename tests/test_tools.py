@@ -14,6 +14,7 @@ from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.element_index import UnknownElementError
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
 from punt_lux.paths import DisplayPaths
@@ -1105,7 +1106,9 @@ class TestUpdateTool:
         """
         store = HubDisplay()
         _seed_store(store)
-        store.record_frame(SceneId("s1"), "hello-frame")
+        store.record_presentation(
+            SceneId("s1"), ScenePresentation(frame_id="hello-frame")
+        )
         client = _bind_store(monkeypatch, store)
 
         ClientRegistry.repush_scene("s1")

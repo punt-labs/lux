@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from typing import Literal, Self
 
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.hub.scene_writer import HubSceneWriter
 from punt_lux.domain.hub.write_result import WriteAccepted
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
@@ -56,7 +57,7 @@ def _seed_framed_scene() -> HubDisplay:
         _OWNER,
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="root"), parent_id=None),
     )
-    hub_display.record_frame(_SCENE, _FRAME)
+    hub_display.record_presentation(_SCENE, ScenePresentation(frame_id=_FRAME))
     return hub_display
 
 
@@ -154,7 +155,7 @@ def test_removing_last_root_via_update_forgets_the_frame() -> None:
     hub_display.register_client(_OWNER)
     text = TextElement(id="t1", content="hello")
     hub_display.apply(_OWNER, AddElement(scene_id=_SCENE, element=text, parent_id=None))
-    hub_display.record_frame(_SCENE, _FRAME)
+    hub_display.record_presentation(_SCENE, ScenePresentation(frame_id=_FRAME))
     assert hub_display.frame_id_for(_SCENE) == _FRAME
 
     result = HubSceneWriter(hub_display).apply(

@@ -17,13 +17,10 @@ from punt_lux.domain.ids import ElementId, SceneId
 
 __all__ = ["ElementIndex", "UnknownElementError", "UnknownSceneError"]
 
-# Anonymous elements (empty id) carry no name to key on, and several may
-# repeat within one scene. Each is stored under a synthesized handle drawn
-# from this reserved namespace so they never overwrite one another — or a
-# named element. The leading NUL is a reserved-namespace convention (like the
-# ``\x00unhonoured`` widget-state sentinel), not a runtime-enforced rule:
-# ``ElementId`` is an unvalidated ``NewType(str)``, but a realistic
-# agent-supplied id never begins with NUL, so a synth handle cannot collide.
+# Anonymous elements (empty id) carry no name to key on and several may repeat
+# in one scene, so each is stored under a synthesized handle from this reserved
+# namespace and never overwrites another. The leading NUL cannot collide with a
+# realistic agent-supplied id (``ElementId`` is an unvalidated ``NewType(str)``).
 _ANON_KEY_PREFIX = "\x00lux-anon:"
 
 
@@ -169,6 +166,10 @@ class ElementIndex:
             if (elem := scene.get(key)) is not None and not self._is_removed(elem)
         ]
 
+    def scenes(self) -> tuple[SceneId, ...]:
+        """Return every root-bearing scene key, live or since-emptied."""
+        return tuple(self._roots_by_scene)
+
     def discard(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Remove an indexed element. No-op if absent.
 
@@ -183,10 +184,9 @@ class ElementIndex:
 
     @staticmethod
     def _is_removed(elem: WireElement) -> bool:
-        """Return True if ``elem`` is an ABC element flagged removed.
+        """Return True if ``elem`` is a migrated ABC element flagged removed.
 
-        Legacy wire dataclasses have no lifecycle flag and are never removed;
-        only migrated ABC elements carry ``removed``. The ABC type is imported
+        Legacy wire dataclasses have no lifecycle flag; the ABC type is imported
         lazily to avoid a circular import with ``element_abc``.
         """
         from punt_lux.domain.element_abc import Element as ElementABC

@@ -17,10 +17,11 @@ collaborators, each with one responsibility:
   storage layer in one walk.
 - ``HubClientRegistry`` (`hub_clients.py`) — set of connections
   currently registered as Hub clients.
-- ``FrameRegistry`` (`frame_registry.py`) — ``scene_id → frame_id`` so a
-  re-push resends a scene into the frame it was originally shown in;
-  forgotten when a teardown leaves the scene with no roots, so it tracks
-  scene lifetime like the four collaborators above.
+- ``ScenePresentationRegistry`` (`scene_presentation.py`) — ``scene_id →
+  ScenePresentation`` so a resend repaints a scene into the frame, with the
+  title, size, and layout it was originally shown with; forgotten when a
+  teardown leaves the scene with no roots, so it tracks scene lifetime like
+  the four collaborators above.
 
 A scene's frame is forgotten on exactly one criterion — the scene has no
 roots left — checked uniformly by ``maybe_forget_frame`` after every
@@ -29,34 +30,42 @@ direct remove of the last root through ``update``. Keying the forget on the
 scene's own state, not on which scenes a connection touched, is what keeps a
 shared scene's frame alive while any owner still holds a root in it.
 
-``apply`` dispatches on the typed ``Update`` sum and delegates to the
-collaborators. ``drop_connection`` flips ``mark_removed`` on each
-ABC-root the connection owned; the Observer cascade prunes the rest of
-the tree, ending with the parent composite calling
-``apply(RemoveElement(...))``, which clears the index entry and fires
-the next layer of observers. Wire-only (non-ABC) roots have no cascade
+``apply`` dispatches on the typed ``Update`` sum and delegates the install and
+teardown walks to two mirror collaborators — ``SubtreeInstaller`` wires a
+subtree into every storage map, ``SubtreeRemover`` tears one out.
+``drop_connection`` flips ``mark_removed`` on each ABC-root the connection
+owned; the Observer cascade prunes the rest of the tree, ending with the parent
+composite calling ``apply(RemoveElement(...))``, which clears the index entry
+and fires the next layer of observers. Wire-only (non-ABC) roots have no cascade
 to drive removal — ``drop_connection`` removes them directly through the
 ``SubtreeRemover``, which walks the ``ChildIndex`` to drop every descendant.
+
+Every write runs under ``StoreLock`` so the replicator's snapshot never reads a
+half-applied scene; the replicator takes the same lock, in read mode, only to
+copy a scene out before it resends.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.domain.composite import Composite
 from punt_lux.domain.element import Element as WireElement
-from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub.child_index import ChildIndex
 from punt_lux.domain.hub.element_index import (
     ElementIndex,
     UnknownElementError,
     UnknownSceneError,
 )
-from punt_lux.domain.hub.frame_registry import FrameRegistry
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.owner_tracker import OwnerTracker
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
 from punt_lux.domain.hub.root_registry import RootRegistry
+from punt_lux.domain.hub.scene_presentation import (
+    ScenePresentation,
+    ScenePresentationRegistry,
+)
+from punt_lux.domain.hub.store_lock import StoreLock
+from punt_lux.domain.hub.subtree_installer import SubtreeInstaller
 from punt_lux.domain.hub.subtree_remover import SubtreeRemover
 from punt_lux.domain.hub.write_seam import WriteSeam
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
@@ -64,7 +73,8 @@ from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Sequence
+    from contextlib import AbstractContextManager
 
 __all__ = [
     "HubDisplay",
@@ -98,9 +108,11 @@ class HubDisplay:
     _roots: RootRegistry
     _children: ChildIndex
     _clients: HubClientRegistry
-    _frames: FrameRegistry
+    _frames: ScenePresentationRegistry
     _seam: WriteSeam
     _remover: SubtreeRemover
+    _installer: SubtreeInstaller
+    _lock: StoreLock
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
@@ -109,17 +121,44 @@ class HubDisplay:
         self._roots = RootRegistry()
         self._children = ChildIndex()
         self._clients = HubClientRegistry()
-        self._frames = FrameRegistry()
+        self._frames = ScenePresentationRegistry()
         self._seam = WriteSeam(self._index, self._children)
         self._remover = SubtreeRemover(
             self._index, self._owners, self._roots, self._children
         )
+        self._installer = SubtreeInstaller(
+            self._index,
+            self._owners,
+            self._roots,
+            self._children,
+            self._remove_root,
+        )
+        self._lock = StoreLock()
         return self
 
     @property
     def write_seam(self) -> WriteSeam:
         """Return the field-mutation seam the authoritative write path uses."""
         return self._seam
+
+    def read_lock(self) -> AbstractContextManager[bool]:
+        """Hold the store lock while the replicator copies a scene out to resend.
+
+        Held only long enough to snapshot a scene's roots and presentation, then
+        released before the send — so the store lock and the client send lock
+        are never held together.
+        """
+        return self._lock.read()
+
+    def write_lock(self) -> AbstractContextManager[bool]:
+        """Hold the store lock across an external mutation batch.
+
+        ``HubSceneWriter`` takes this so its whole parse-guard-commit-remove
+        batch commits under one lock and the replicator's snapshot never lands
+        mid-batch. Reentrant, so nested ``apply`` / ``replace_scene`` calls
+        inside the batch re-enter it freely.
+        """
+        return self._lock.write()
 
     # -- clients registry --------------------------------------------------
 
@@ -137,11 +176,31 @@ class HubDisplay:
         """Return non-removed root elements for a scene."""
         return self._index.scene_roots(scene_id)
 
-    # -- frame association -------------------------------------------------
+    def scene_ids(self) -> tuple[SceneId, ...]:
+        """Return every scene that still holds at least one non-removed root.
+
+        The replicator marks each one dirty after a display respawn so the
+        fresh, empty display is repainted from the store's current state; a
+        since-emptied scene is omitted so nothing repaints a blank.
+        """
+        return tuple(s for s in self._index.scenes() if self.scene_roots(s))
+
+    # -- presentation ------------------------------------------------------
+
+    def record_presentation(
+        self, scene_id: SceneId, presentation: ScenePresentation
+    ) -> None:
+        """Remember how a scene was shown, for a later whole-scene resend."""
+        with self._lock.write():
+            self._frames.record(scene_id, presentation)
 
     def record_frame(self, scene_id: SceneId, frame_id: str) -> None:
-        """Remember the frame a scene was shown in, for a later re-push."""
-        self._frames.record(scene_id, frame_id)
+        """Remember only a scene's frame, defaulting the rest of its presentation."""
+        self.record_presentation(scene_id, ScenePresentation(frame_id=frame_id))
+
+    def presentation_for(self, scene_id: SceneId) -> ScenePresentation:
+        """Return how a scene was shown, or a self-framed default."""
+        return self._frames.presentation_for(scene_id)
 
     def frame_id_for(self, scene_id: SceneId) -> str:
         """Return the frame a scene was shown in, or its own id when unrecorded."""
@@ -158,8 +217,9 @@ class HubDisplay:
         any owner still holds a root in it. A later re-show re-records; until
         then ``frame_id_for`` reverts to the scene's own id.
         """
-        if not self.scene_roots(scene_id):
-            self._frames.forget(scene_id)
+        with self._lock.write():
+            if not self.scene_roots(scene_id):
+                self._frames.forget(scene_id)
 
     def resolve(self, scene_id: SceneId, element_id: ElementId) -> WireElement:
         """Return the indexed Element or raise ``UnknownElementError``."""
@@ -198,18 +258,19 @@ class HubDisplay:
         ownership, root observers, and child indexes are rebuilt in one
         place.
         """
-        self.register_client(connection_id)
-        for root_id in self._owned_roots_in_scene(connection_id, scene_id):
-            self.apply(
-                connection_id,
-                RemoveElement(scene_id=scene_id, element_id=root_id),
-            )
-        for root in roots:
-            self.apply(
-                connection_id,
-                AddElement(scene_id=scene_id, element=root, parent_id=None),
-            )
-        self.maybe_forget_frame(scene_id)
+        with self._lock.write():
+            self.register_client(connection_id)
+            for root_id in self._owned_roots_in_scene(connection_id, scene_id):
+                self.apply(
+                    connection_id,
+                    RemoveElement(scene_id=scene_id, element_id=root_id),
+                )
+            for root in roots:
+                self.apply(
+                    connection_id,
+                    AddElement(scene_id=scene_id, element=root, parent_id=None),
+                )
+            self.maybe_forget_frame(scene_id)
 
     # -- apply -------------------------------------------------------------
 
@@ -232,15 +293,20 @@ class HubDisplay:
         enforcement so a misbehaving client cannot mutate or evict
         another client's state from the Hub mirror.
         """
-        match update:
-            case AddElement(scene_id=sid, parent_id=pid, element=elem):
-                self._install_subtree(sid, elem, parent_id=pid, owner=connection_id)
-            case SetProperty(scene_id=sid, element_id=eid, field=field, value=value):
-                self._owners.require_ownership(sid, eid, connection_id)
-                self._seam.set_property(sid, eid, field, value)
-            case RemoveElement(scene_id=sid, element_id=eid):
-                self._owners.require_ownership(sid, eid, connection_id)
-                self._remover.remove_subtree(sid, eid)
+        with self._lock.write():
+            match update:
+                case AddElement(scene_id=sid, parent_id=pid, element=elem):
+                    self._installer.install(
+                        sid, elem, parent_id=pid, owner=connection_id
+                    )
+                case SetProperty(
+                    scene_id=sid, element_id=eid, field=field, value=value
+                ):
+                    self._owners.require_ownership(sid, eid, connection_id)
+                    self._seam.set_property(sid, eid, field, value)
+                case RemoveElement(scene_id=sid, element_id=eid):
+                    self._owners.require_ownership(sid, eid, connection_id)
+                    self._remover.remove_subtree(sid, eid)
 
     def _owned_roots_in_scene(
         self,
@@ -280,110 +346,17 @@ class HubDisplay:
 
     # -- private helpers ---------------------------------------------------
 
-    def _install_subtree(
-        self,
-        scene_id: SceneId,
-        element: WireElement,
-        *,
-        parent_id: ElementId | None,
-        owner: ConnectionId,
+    def _remove_root(
+        self, owner: ConnectionId, scene_id: SceneId, element_id: ElementId
     ) -> None:
-        """Install ``element`` and recurse into composite children.
+        """Route an ABC root's self-removal back through the authoritative path.
 
-        Single entry point shared by both the root and child branches —
-        the display-side ``DomainPump._install_subtree`` follows the
-        same Composite-Protocol recursion shape so the two stores stay
-        in lockstep. Without recursion, a Dialog whose Buttons live in
-        ``children`` would land in the index alone; subsequent clicks
-        would route to elements ``resolve`` cannot find.
+        The installer registers this as the scene-root observer callback; when a
+        root flips ``_removed`` it lands here, and the removal runs through
+        ``apply`` so ownership enforcement and the storage teardown are shared
+        with every other remove.
         """
-        if parent_id is None:
-            key = self._install_scene(scene_id, element, owner=owner)
-        else:
-            key = self._install_child(scene_id, parent_id, element, owner=owner)
-        if isinstance(element, Composite):
-            for child in element.children:
-                self._install_subtree(scene_id, child, parent_id=key, owner=owner)
-
-    def _install_scene(
-        self, scene_id: SceneId, element: WireElement, *, owner: ConnectionId
-    ) -> ElementId:
-        """Install ``element`` as a scene-root; return its assigned store key.
-
-        The key is the element's id for a named element, or a synthesized
-        handle for an anonymous one — the index assigns it and every parallel
-        map (owners, root registry, observer) keys on the same handle so
-        repeated anonymous roots never collapse onto a shared ``""`` slot.
-        """
-        key = self._index.install_root(scene_id, ElementId(element.id), element)
-        self._owners.record(scene_id, key, owner)
-        if isinstance(element, AbcElement):
-            self._roots.register(scene_id, key, element)
-            element.add_observer(self._root_observer_for(scene_id, key))
-        return key
-
-    def _install_child(
-        self,
-        scene_id: SceneId,
-        parent_id: ElementId,
-        element: WireElement,
-        *,
-        owner: ConnectionId,
-    ) -> ElementId:
-        """Install ``element`` under ``parent_id``; return its assigned store key.
-
-        Index-only wiring; the parent-as-observer is the parent composite's
-        responsibility, not HubDisplay's. The parent → child edge is recorded
-        so cascade removal can drop the descendant from storage even when the
-        parent has no observer (wire-only subtrees). An anonymous child keys on
-        a synthesized handle, so repeated anonymous children in one parent stay
-        distinct throughout the owner and child-edge maps.
-        """
-        key = self._index.install_child(scene_id, parent_id, element)
-        self._owners.record(scene_id, key, owner)
-        self._children.record(scene_id, parent_id, key)
-        return key
-
-    def _remove_subtree(self, scene_id: SceneId, element_id: ElementId) -> None:
-        """Clear the element and every descendant from storage.
-
-        Walks the ``ChildIndex`` to enumerate descendants in install
-        order, then drops each in turn. For ABC subtrees the Observer
-        cascade has already pruned the parent composite's children
-        tuple; for wire-only subtrees no cascade exists, so this walk
-        is the sole removal path. Either way, storage cleanup runs
-        here so future ``resolve`` calls fail loud.
-        """
-        for descendant_id in self._children.descendants(scene_id, element_id):
-            self._drop_storage(scene_id, descendant_id)
-        self._drop_storage(scene_id, element_id)
-
-    def _drop_storage(self, scene_id: SceneId, element_id: ElementId) -> None:
-        """Drop one element from every storage collaborator. Idempotent."""
-        self._index.discard(scene_id, element_id)
-        self._owners.discard(scene_id, element_id)
-        self._roots.discard(scene_id, element_id)
-        self._children.discard(scene_id, element_id)
-
-    def _root_observer_for(
-        self, scene_id: SceneId, element_id: ElementId
-    ) -> Callable[[str], None]:
-        """Return the observer callback for a scene-root Element.
-
-        Fires on every property change; on ``"removed"`` it routes the
-        removal back through ``apply(RemoveElement(...))`` so the index
-        and the Element's lifecycle stay coupled.
-        """
-
-        def _observe(property_name: str) -> None:
-            if property_name != "removed":
-                return
-            owner = self._owners.get(scene_id, element_id)
-            if owner is None:
-                return
-            self.apply(owner, RemoveElement(scene_id=scene_id, element_id=element_id))
-
-        return _observe
+        self.apply(owner, RemoveElement(scene_id=scene_id, element_id=element_id))
 
 
 hub_display = HubDisplay()
