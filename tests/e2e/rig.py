@@ -41,9 +41,10 @@ if TYPE_CHECKING:
     from collections.abc import Iterator, Sequence
 
     from punt_lux.domain.element import Element as DomainElement
+    from punt_lux.domain.ids import SceneId
     from punt_lux.protocol import Element as WireElement
 
-__all__ = ["InProcessLoop"]
+__all__ = ["InProcessLoop", "SyncReplicator"]
 
 # handle_scene ignores the owner fd (noqa ARG002 there); the rig has no
 # socket, so any int stands in for the replica's owning client.
@@ -224,11 +225,40 @@ class _HubRepushClient:
     def show_async(
         self,
         scene_id: str,
-        *,
         elements: Sequence[DomainElement],
+        *,
         frame_id: str | None = None,
         **_kwargs: object,
     ) -> None:
         """Re-install ``elements`` into the replica (the re-push leg)."""
         _ = frame_id
         self._rig.push_scene(scene_id, list(elements))
+
+
+class SyncReplicator:
+    """Replicator double: ``mark_dirty`` re-pushes the scene synchronously.
+
+    Stands in for the background worker so the click → handler → re-push leg runs
+    in-process and deterministically, without a thread or a socket — it snapshots
+    the mutated scene from the Hub store and re-installs it into the replica, the
+    exact effect the production replicator has once it drains the dirty scene.
+    """
+
+    _rig: InProcessLoop
+    __slots__ = ("_rig",)
+
+    def __new__(cls, rig: InProcessLoop) -> Self:
+        self = super().__new__(cls)
+        self._rig = rig
+        return self
+
+    def mark_dirty(self, scene_id: SceneId) -> None:
+        """Snapshot the scene from the Hub store and re-push it to the replica."""
+        from punt_lux.domain.hub import hub_display
+
+        roots = hub_display.scene_roots(scene_id)
+        presentation = hub_display.presentation_for(scene_id)
+        presentation.push(self._rig.repush_client, scene_id, roots)
+
+    def mark_cleared(self) -> None:
+        """No harness scenario clears; a real clear would blank the replica."""

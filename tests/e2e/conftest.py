@@ -19,7 +19,7 @@ from punt_lux.domain.ids import ConnectionId
 from punt_lux.tools.inbox import drop_session
 
 from .agent import SimulatedAgent
-from .rig import InProcessLoop
+from .rig import InProcessLoop, SyncReplicator
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -58,9 +58,15 @@ class LoopHarness:
 
 @pytest.fixture
 def loop_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[LoopHarness]:
-    """Yield a started harness; the Hub re-push resolves to the rig's replica."""
+    """Yield a started harness; a click's re-push resolves to the rig's replica."""
     rig = InProcessLoop.start()
     monkeypatch.setattr(client_registry, "get", lambda: rig.repush_client)
+    # A click marks the scene dirty; the sync replicator re-pushes it at once,
+    # standing in for the background worker so the loop stays deterministic.
+    monkeypatch.setattr(
+        "punt_lux.domain.hub.replicator_instance.hub_replicator",
+        SyncReplicator(rig),
+    )
     harness = LoopHarness(rig)
     yield harness
     harness.teardown()
