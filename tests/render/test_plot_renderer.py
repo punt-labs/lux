@@ -154,6 +154,26 @@ def test_render_rejects_non_str_label(monkeypatch: pytest.MonkeyPatch) -> None:
         PlotRenderer().render(plot)
 
 
+def test_render_ends_plot_even_when_a_series_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A raising series must not leave ImPlot's plot stack unbalanced."""
+    implot = MagicMock()
+    implot.begin_plot.return_value = True
+    imgui = MagicMock()
+    _patch(monkeypatch, implot, imgui)
+    plot = PlotElement(
+        id="p",
+        series=[{"type": "line", "x": [1], "y": [2], "label": None}],
+    )
+
+    with pytest.raises(TypeError):
+        PlotRenderer().render(plot)
+
+    implot.end_plot.assert_called_once_with()
+    imgui.pop_id.assert_called_once_with()
+
+
 def test_render_skips_series_with_empty_data(monkeypatch: pytest.MonkeyPatch) -> None:
     implot = MagicMock()
     implot.begin_plot.return_value = True

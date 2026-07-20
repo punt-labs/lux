@@ -43,11 +43,13 @@ class PlotRenderer:
         imgui.push_id(elem.id)
         try:
             if implot.begin_plot(elem.title, ImVec2(elem.width, elem.height)):
-                if elem.x_label or elem.y_label:
-                    implot.setup_axes(elem.x_label or "", elem.y_label or "")
-                for index, series in enumerate(elem.series):
-                    self._plot_series(series, index)
-                implot.end_plot()
+                try:
+                    if elem.x_label or elem.y_label:
+                        implot.setup_axes(elem.x_label or "", elem.y_label or "")
+                    for index, series in enumerate(elem.series):
+                        self._plot_series(series, index)
+                finally:
+                    implot.end_plot()
         finally:
             imgui.pop_id()
 
