@@ -52,12 +52,14 @@ def _client() -> DisplayClient:
 def _bounded(call: Callable[[], str]) -> str:
     """Run a ``set_*`` round-trip; return ``"timeout"`` if the send fails.
 
-    The send is ``SO_SNDTIMEO``-bounded, so a wedged display raises ``OSError``
-    within the limit and the tool reports ``"timeout"`` — never killing it.
+    The ``SO_SNDTIMEO``-bounded send raises ``OSError`` within the limit; the tool
+    drops the dead connection so the next ``set_*`` reconnects, and reports
+    ``"timeout"`` — never killing the display.
     """
     try:
         return call()
     except OSError:
+        client_registry.drop()
         return "timeout"
 
 
@@ -114,8 +116,7 @@ def show(
       Spinner:      {"kind": "spinner", "id": "sp1", "label": "Loading..."}
 
     Rich text:
-      Markdown:     {"kind": "markdown", "id": "md1",
-                     "content": "# Title\\n\\nBold **text**."}
+      Markdown:     {"kind": "markdown", "id": "md1", "content": "# Title\\n**bold**"}
 
     Canvas element:
       Draw:         {"kind": "draw", "id": "d1", "commands": [...]}
@@ -136,8 +137,7 @@ def show(
                      "x": 50, "y": 50, "width": 300, "height": 200,
                      "children": [...]}
 
-    All elements with an id support an optional ``"tooltip"`` field
-    (string shown on hover).
+    All elements with an id support an optional ``"tooltip"`` (shown on hover).
 
     Frame sizing (only with ``frame_id``):
       frame_size:  [width, height] in pixels — initial size hint (first use only).

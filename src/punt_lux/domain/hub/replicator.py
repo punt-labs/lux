@@ -61,7 +61,8 @@ class HubReplicator:
     _signal: DirtySignal
     _recovery: SendRecovery
     _thread: threading.Thread | None
-    __slots__ = ("_clients", "_reader", "_recovery", "_signal", "_thread")
+    _stopped: bool
+    __slots__ = ("_clients", "_reader", "_recovery", "_signal", "_stopped", "_thread")
 
     def __new__(
         cls,
@@ -75,6 +76,7 @@ class HubReplicator:
         self._signal = DirtySignal()
         self._recovery = SendRecovery(clients, lifecycle, self._signal, reader)
         self._thread = None
+        self._stopped = False
         return self
 
     # -- surface API: queue-only, called by tools and click dispatch --------
@@ -90,7 +92,8 @@ class HubReplicator:
     # -- lifecycle: starts with luxd, stops with luxd -----------------------
 
     def start(self) -> None:
-        """Start the worker thread. Idempotent."""
+        """Start the worker thread. Idempotent; raises if already stopped."""
+        self._require_live()
         if self._thread is not None and self._thread.is_alive():
             return
         self._thread = threading.Thread(
@@ -98,11 +101,23 @@ class HubReplicator:
         )
         self._thread.start()
 
+    def _require_live(self) -> None:
+        """Reject a restart of a stopped worker — a stopped replicator is terminal.
+
+        Its dirty signal is latched to shutting, so a fresh thread would exit at
+        once and every mark would silently go nowhere. luxd restarting is a new
+        process, hence a new replicator, so this never blocks a real restart.
+        """
+        if self._stopped:
+            msg = "replicator was stopped; construct a fresh one to restart"
+            raise RuntimeError(msg)
+
     def stop(self) -> None:
-        """Ask the worker to flush pending scenes and stop, then join it."""
+        """Flush pending, stop, and join; a joined stop is terminal, else startable."""
         self._signal.request_stop()
         thread = self._thread
         if thread is not None:
+            self._stopped = True
             thread.join(timeout=_STOP_JOIN_TIMEOUT)
             if thread.is_alive():
                 logger.warning("replicator worker did not stop within timeout")

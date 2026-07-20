@@ -14,6 +14,8 @@ import threading
 from pathlib import Path
 from typing import TYPE_CHECKING, Self
 
+import pytest
+
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.replicator import HubReplicator
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
@@ -571,7 +573,21 @@ def test_shutdown_with_a_stuck_display_does_not_reap() -> None:
 
 def test_stop_without_start_is_a_no_op() -> None:
     # A replicator that was never started stops cleanly — there is no worker
-    # thread to join, and the stop must not raise.
+    # thread to join, and the stop must not raise. It stays startable.
     store = HubDisplay()
     repl, _sender, _provider, _lifecycle = _replicator(store)
     repl.stop()
+    repl.start()  # a stop before the worker ran leaves it startable
+    repl.stop()
+
+
+def test_restarting_a_stopped_replicator_raises() -> None:
+    # A6: a replicator that ran and stopped is terminal. Restarting it would
+    # spawn a worker whose latched signal makes it exit at once, silently
+    # dropping every later mark. The restart must raise, not fail silently.
+    store = HubDisplay()
+    repl, _sender, _provider, _lifecycle = _replicator(store)
+    repl.start()
+    repl.stop()
+    with pytest.raises(RuntimeError, match="was stopped"):
+        repl.start()

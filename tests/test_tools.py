@@ -455,6 +455,23 @@ class TestSetThemeTool:
             "set_theme", {"theme": "imgui_colors_light"}
         )
 
+    @patch("punt_lux.domain.hub.clients.client_registry.drop")
+    @patch.object(DisplayPaths, "is_running", return_value=True)
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_set_theme_timeout_drops_the_dead_connection(
+        self, mock_get: MagicMock, _mock_running: MagicMock, mock_drop: MagicMock
+    ) -> None:
+        # A5: a wedged or dead display makes the bounded round-trip raise OSError.
+        # The tool reports "timeout" and drops the connection so the next set_*
+        # reconnects, instead of reusing the dead fd forever.
+        client = _mock_client()
+        client.query.side_effect = OSError("EPIPE")
+        mock_get.return_value = client
+
+        result = set_theme("imgui_colors_light")
+        assert result == "timeout"
+        mock_drop.assert_called_once()
+
 
 class TestShowTool:
     def test_show_marks_the_scene_dirty(self, monkeypatch: pytest.MonkeyPatch) -> None:
