@@ -43,6 +43,14 @@ _TRANSPORT_POLICY = LoopbackTransportPolicy()
 _active_sessions: set[str] = set()
 
 
+def _sanitize_for_log(value: str | None) -> str:
+    """Strip control characters and cap length before logging (CWE-117).
+
+    A missing header (``None``) logs as an empty string.
+    """
+    return _CONTROL_CHAR_RE.sub("", value or "")[:64]
+
+
 # ---------------------------------------------------------------------------
 # Route handlers
 # ---------------------------------------------------------------------------
@@ -64,15 +72,15 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
         websocket_server,  # pyright: ignore[reportDeprecated]
     )
 
-    # Sanitize user-controlled value before logging (CWE-117).
     raw_key = websocket.query_params.get("session_key", "")
     if not raw_key:
         raw_key = str(uuid.uuid4())[:8]
-    session_key = _CONTROL_CHAR_RE.sub("", raw_key)[:64]
+    session_key = _sanitize_for_log(raw_key)
 
     origin = websocket.headers.get("Origin")
     if _TRANSPORT_POLICY.rejects_origin(origin):
-        logger.warning("Rejected CSWSH: Origin=%s, session_key=%s", origin, session_key)
+        safe = _sanitize_for_log(origin)
+        logger.warning("Rejected CSWSH: Origin=%s, session_key=%s", safe, session_key)
         await websocket.close(code=1008)
         return
 
@@ -225,13 +233,7 @@ def serve(
     logger.info("luxd stopped")
 
 
-_LOG_LEVELS: dict[str, int] = {
-    "DEBUG": logging.DEBUG,
-    "INFO": logging.INFO,
-    "WARNING": logging.WARNING,
-    "ERROR": logging.ERROR,
-    "CRITICAL": logging.CRITICAL,
-}
+_LOG_LEVELS: dict[str, int] = logging.getLevelNamesMapping()
 
 
 def main() -> None:

@@ -1718,10 +1718,10 @@
   "src/punt_lux/luxd.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.11,
+    "avg_params": 1.1,
     "max_complexity": 4.0,
     "avg_complexity": 2.0,
-    "module_size": 202.0,
+    "module_size": 201.0,
     "classes_per_module": 0.0,
     "class_to_func_ratio": 0.0,
     "init_violations": 0.0,

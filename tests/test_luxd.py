@@ -6,7 +6,24 @@ import pytest
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from punt_lux.luxd import _active_sessions, build_app
+from punt_lux.luxd import (
+    DEFAULT_HUB_PORT,
+    _active_sessions,
+    _sanitize_for_log,
+    build_app,
+)
+
+
+class TestSanitizeForLog:
+    def test_strips_control_characters(self):
+        """Control characters (log-injection vectors) are removed before logging."""
+        assert _sanitize_for_log("evil\r\nINJECTED\x00tail") == "evilINJECTEDtail"
+
+    def test_none_logs_as_empty_string(self):
+        assert _sanitize_for_log(None) == ""
+
+    def test_caps_length(self):
+        assert len(_sanitize_for_log("x" * 200)) == 64
 
 
 class TestHealthRoute:
@@ -57,7 +74,8 @@ class TestMcpWebsocketRoute:
         client = TestClient(app)
         _active_sessions.discard("loopback")
         with client.websocket_connect(
-            "/mcp?session_key=loopback", headers={"Host": "127.0.0.1:8430"}
+            "/mcp?session_key=loopback",
+            headers={"Host": f"127.0.0.1:{DEFAULT_HUB_PORT}"},
         ):
             assert "loopback" in _active_sessions
         assert "loopback" not in _active_sessions
@@ -80,7 +98,8 @@ class TestMcpWebsocketRoute:
         client = TestClient(app)
         _active_sessions.discard("test-pid")
         with client.websocket_connect(
-            "/mcp?session_key=test-pid", headers={"Host": "127.0.0.1:8430"}
+            "/mcp?session_key=test-pid",
+            headers={"Host": f"127.0.0.1:{DEFAULT_HUB_PORT}"},
         ):
             # The handshake opened, so the session must be registered and counted;
             # a failed handshake would raise here instead of reporting a session.
