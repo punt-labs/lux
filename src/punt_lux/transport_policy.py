@@ -24,7 +24,7 @@ class LoopbackTransportPolicy:
     # Loopback hosts luxd trusts; every guard value below derives from these.
     _DEFAULT_HOSTNAMES: ClassVar[tuple[str, ...]] = ("127.0.0.1", "localhost")
 
-    def __new__(cls, hostnames: tuple[str, ...] | None = None) -> Self:
+    def __new__(cls, hostnames: tuple[str, ...] = ()) -> Self:
         self = super().__new__(cls)
         self._hostnames = hostnames or cls._DEFAULT_HOSTNAMES
         return self
