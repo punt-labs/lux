@@ -8,9 +8,9 @@ freeze an agent.
 The worker waits on a condition, wakes when a scene is dirty or the screen was
 cleared, coalesces a 16 ms burst, and drains the whole changed set. It blanks
 first when a clear is pending — a ``clear`` then ``show`` in one window must
-leave the new scene on screen — then repaints each scene by snapshotting its
-roots under the store read lock and sending the copy outside the lock, so the
-store lock and the client send lock are never held together. A send is
+leave the new scene on screen — then repaints each scene from a copy the store
+took under its read lock and handed out, so the store lock and the client send
+lock are never held together. A send is
 time-limited (``SO_SNDTIMEO`` on the socket): a wedged display raises
 ``BlockingIOError`` and the worker reaps and respawns it; a dead peer raises
 ``OSError`` and the worker reconnects. Both paths re-mark every live scene so the
@@ -27,11 +27,11 @@ from typing import TYPE_CHECKING, Self, final
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.domain.hub.replicator_ports import (
         ClientProvider,
         DisplayLifecycle,
     )
+    from punt_lux.domain.hub.scene_snapshot import SceneReader
     from punt_lux.domain.ids import SceneId
 
 logger = logging.getLogger(__name__)
@@ -134,26 +134,27 @@ class DirtySignal:
 class HubReplicator:
     """The single background writer to the display connection.
 
-    Composes the authoritative store, the client provider, the display
+    Composes the store's scene reader — its locked read side, so the worker
+    takes exactly the reads it needs — the client provider, the display
     lifecycle, and the dirty signal. ``mark_dirty`` / ``mark_cleared`` are the
     surface tools and click dispatch call; the worker thread owns every send.
     """
 
-    _store: HubDisplay
+    _reader: SceneReader
     _clients: ClientProvider
     _lifecycle: DisplayLifecycle
     _signal: DirtySignal
     _thread: threading.Thread | None
-    __slots__ = ("_clients", "_lifecycle", "_signal", "_store", "_thread")
+    __slots__ = ("_clients", "_lifecycle", "_reader", "_signal", "_thread")
 
     def __new__(
         cls,
-        store: HubDisplay,
+        reader: SceneReader,
         clients: ClientProvider,
         lifecycle: DisplayLifecycle,
     ) -> Self:
         self = super().__new__(cls)
-        self._store = store
+        self._reader = reader
         self._clients = clients
         self._lifecycle = lifecycle
         self._signal = DirtySignal()
@@ -227,15 +228,14 @@ class HubReplicator:
                 self._recover_dead()
 
     def _send_scene(self, scene_id: SceneId) -> None:
-        """Snapshot the scene under the read lock, then send the copy outside it.
+        """Send a copy of the scene the store took under its read lock.
 
-        The read lock is released before the send, so the store lock and the
-        client send lock are never held together.
+        The store returns a snapshot whose roots are already copied out, so the
+        send happens with no store lock held — the store lock and the client send
+        lock are never held together. A since-cleared scene snapshots empty and
+        pushes nothing, so a drained mark never repaints a blank.
         """
-        with self._store.read_lock():
-            roots = list(self._store.scene_roots(scene_id))
-            presentation = self._store.presentation_for(scene_id)
-        presentation.push(self._clients.get(), scene_id, roots)
+        self._reader.snapshot(scene_id).push(self._clients.get())
 
     def _recover_wedged(self) -> None:
         """A wedged display: kill it, start a fresh one, reconnect, re-mark all."""
@@ -251,4 +251,4 @@ class HubReplicator:
 
     def _remark_live_scenes(self) -> None:
         """Re-mark every live scene so a fresh, empty display is repainted."""
-        self._signal.add_all(self._store.scene_ids())
+        self._signal.add_all(self._reader.live_scene_ids())

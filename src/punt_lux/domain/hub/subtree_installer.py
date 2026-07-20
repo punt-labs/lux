@@ -42,7 +42,7 @@ class SubtreeInstaller:
     _owners: OwnerTracker
     _roots: RootRegistry
     _children: ChildIndex
-    _on_root_removed: Callable[[ConnectionId, SceneId, ElementId], None]
+    _on_root_removed: Callable[[SceneId, ElementId], None]
     __slots__ = ("_children", "_index", "_on_root_removed", "_owners", "_roots")
 
     def __new__(
@@ -51,7 +51,7 @@ class SubtreeInstaller:
         owners: OwnerTracker,
         roots: RootRegistry,
         children: ChildIndex,
-        on_root_removed: Callable[[ConnectionId, SceneId, ElementId], None],
+        on_root_removed: Callable[[SceneId, ElementId], None],
     ) -> Self:
         self = super().__new__(cls)
         self._index = index
@@ -130,17 +130,14 @@ class SubtreeInstaller:
     ) -> Callable[[str], None]:
         """Return the observer callback for a scene-root Element.
 
-        Fires on every property change; on ``"removed"`` it routes the removal
-        back through ``HubDisplay.apply`` so the index and the Element lifecycle
-        stay coupled.
+        Fires on every property change; on ``"removed"`` it reports the root to
+        the store, which owns the owner tracker and routes the removal back
+        through ``HubDisplay.apply`` so the index and the Element lifecycle stay
+        coupled.
         """
 
         def _observe(property_name: str) -> None:
-            if property_name != "removed":
-                return
-            owner = self._owners.get(scene_id, element_id)
-            if owner is None:
-                return
-            self._on_root_removed(owner, scene_id, element_id)
+            if property_name == "removed":
+                self._on_root_removed(scene_id, element_id)
 
         return _observe

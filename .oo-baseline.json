@@ -1143,6 +1143,19 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_lux/domain/hub/connection_dropper.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 2.67,
+    "max_complexity": 3.0,
+    "avg_complexity": 2.33,
+    "module_size": 67.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_lux/domain/hub/deferral_errors.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
@@ -1224,10 +1237,10 @@
   "src/punt_lux/domain/hub/hub_display.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.24,
+    "avg_params": 1.22,
     "max_complexity": 4.0,
-    "avg_complexity": 1.62,
-    "module_size": 306.0,
+    "avg_complexity": 1.44,
+    "module_size": 272.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
@@ -1351,6 +1364,19 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_lux/domain/hub/scene_snapshot.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 1.25,
+    "max_complexity": 3.0,
+    "avg_complexity": 2.0,
+    "module_size": 78.0,
+    "classes_per_module": 2.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_lux/domain/hub/scene_writer.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
@@ -1395,8 +1421,8 @@
     "encapsulation_ratio": 1.0,
     "avg_params": 3.17,
     "max_complexity": 4.0,
-    "avg_complexity": 2.33,
-    "module_size": 124.0,
+    "avg_complexity": 2.0,
+    "module_size": 121.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,

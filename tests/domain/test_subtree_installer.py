@@ -34,7 +34,7 @@ class _Store:
     roots: RootRegistry
     children: ChildIndex
     installer: SubtreeInstaller
-    removed: list[tuple[ConnectionId, SceneId, ElementId]]
+    removed: list[tuple[SceneId, ElementId]]
     __slots__ = ("children", "index", "installer", "owners", "removed", "roots")
 
     def __new__(cls) -> Self:
@@ -49,10 +49,8 @@ class _Store:
         )
         return self
 
-    def _record_removed(
-        self, owner: ConnectionId, scene_id: SceneId, element_id: ElementId
-    ) -> None:
-        self.removed.append((owner, scene_id, element_id))
+    def _record_removed(self, scene_id: SceneId, element_id: ElementId) -> None:
+        self.removed.append((scene_id, element_id))
 
 
 def test_install_root_lands_in_index_and_owners() -> None:
@@ -85,4 +83,4 @@ def test_abc_root_removal_routes_through_the_callback() -> None:
     store.installer.install(_SCENE, button, parent_id=None, owner=_OWNER)
     button.mark_removed()
 
-    assert store.removed == [(_OWNER, _SCENE, ElementId("go"))]
+    assert store.removed == [(_SCENE, ElementId("go"))]

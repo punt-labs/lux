@@ -55,7 +55,9 @@ class _FakeSender:
     _gate: threading.Event | None
     _lock: threading.Lock
     _sent: threading.Event
+    _entered: threading.Event
     __slots__ = (
+        "_entered",
         "_fail",
         "_gate",
         "_lock",
@@ -78,6 +80,7 @@ class _FakeSender:
         self._gate = None
         self._lock = threading.Lock()
         self._sent = threading.Event()
+        self._entered = threading.Event()
         return self
 
     def arm_failure(self, exc: OSError) -> None:
@@ -89,7 +92,17 @@ class _FakeSender:
     def wait_sent(self, timeout: float) -> bool:
         return self._sent.wait(timeout)
 
+    def wait_entered(self, timeout: float) -> bool:
+        """Block until a send has entered the guard — a race-free handshake.
+
+        Set the instant the worker reaches the send, before it parks on the
+        gate, so a test can act while the worker is provably inside the send
+        rather than after a hopeful sleep.
+        """
+        return self._entered.wait(timeout)
+
     def _guard(self) -> None:
+        self._entered.set()
         if self._gate is not None:
             gate, self._gate = self._gate, None
             gate.wait(timeout=5.0)
@@ -166,7 +179,7 @@ def _replicator(
     sender = _FakeSender()
     provider = _FakeProvider(sender)
     lifecycle = _FakeLifecycle()
-    return HubReplicator(store, provider, lifecycle), sender, provider, lifecycle
+    return HubReplicator(store.reader, provider, lifecycle), sender, provider, lifecycle
 
 
 def test_a_dirty_scene_is_sent_to_the_display() -> None:
@@ -276,26 +289,50 @@ def test_a_dead_peer_reconnects_without_reaping() -> None:
         repl.stop()
 
 
-def test_respawn_with_an_empty_store_repaints_nothing() -> None:
-    # K3: a cleared store has no live scenes, so recovery re-marks nothing and
-    # the fresh display stays empty.
+def test_a_since_emptied_scene_is_skipped_not_sent() -> None:
+    # 5b: a drained mark for a scene the store no longer holds is skipped. The
+    # clear already blanked the display; resending an empty framed show would
+    # re-open a blank frame. So the worker snapshots it as not-live and sends
+    # nothing — no show, no clear.
     store = HubDisplay()
     scene = _seed(store, "s1")
     store.replace_scene(_CONN, scene, ())  # empty the scene
-    repl, sender, provider, lifecycle = _replicator(store)
-    sender.arm_failure(BlockingIOError())
+    repl, sender, _provider, _lifecycle = _replicator(store)
     repl.start()
     try:
         repl.mark_dirty(scene)  # the now-empty scene
-        # The send raises, recovery runs, but no live scene is re-marked.
+        assert not sender.wait_sent(0.5)
+        assert sender.shows == []
+        assert sender.clears == 0
+    finally:
+        repl.stop()
+
+
+def test_recovery_of_an_emptied_store_repaints_nothing() -> None:
+    # K3: a live scene's send fails and triggers recovery; by the time recovery
+    # re-marks, the store has been emptied, so live_scene_ids is empty and the
+    # fresh display is repainted with nothing.
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    repl, sender, provider, lifecycle = _replicator(store)
+    gate = threading.Event()
+    sender.block_next(gate)  # park the worker in the send
+    sender.arm_failure(BlockingIOError())  # ...then fail when released
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert sender.wait_entered(2.0)  # the worker is provably inside the send
+        store.replace_scene(_CONN, scene, ())  # empty the store before recovery
+        gate.set()  # release the send → it raises → recovery runs
         for _ in range(100):
             if provider.drops:
                 break
             threading.Event().wait(0.01)
         assert provider.drops == 1
         assert lifecycle.calls == ["reap", "ensure"]
-        assert sender.shows == []
+        assert sender.shows == []  # nothing live to repaint
     finally:
+        gate.set()
         repl.stop()
 
 
