@@ -2,10 +2,13 @@
 
 Companion to `docs/hub_replicator.tex`. Derives the test partitions (Test
 Template Framework style) from the Z operation schemas, then maps them against
-the tests the implementation must provide. No implementation exists yet, so
-every partition's coverage is `gap`: this document is the checklist the
-implementation mission fills, exactly as `docs/display_lifecycle_coverage.md`
-maps its spec to `tests/test_socket_server.py` and `tests/test_paths.py`.
+the tests that cover them, exactly as `docs/display_lifecycle_coverage.md` maps
+its spec to `tests/test_socket_server.py` and `tests/test_paths.py`. The worker,
+its dirty signal, and the store lock are covered by
+`tests/domain/test_hub_replicator.py`, `tests/domain/test_dirty_signal.py`, and
+`tests/domain/test_store_lock.py`; the two store-empty clear partitions (CL1,
+CL2) land with the clear tool's rewrite, and the real bounded-send time limit
+behind P3/P4 is measured by the mandatory `SO_SNDTIMEO` probe test.
 
 The bar is that the spec's partitions are each covered by a test, not merely
 that the model-check passed.
@@ -129,55 +132,55 @@ the design fixes them):
 
 ## 2. Coverage table
 
-Every partition is `gap` — the implementation mission adds the covering test and
-flips the status to `COVERED`, the same discipline the display-lifecycle audit
-applied.
+Each partition names the test that exercises it against the real mechanism
+(fake display ports, real store and locks), the same discipline the
+display-lifecycle audit applied.
 
 | Partition | Covering test | Status |
 |---|---|---|
-| M1 | — | gap |
-| M2 | — | gap |
-| M3 | — | gap |
-| M4 | — | gap |
-| M5 | — | gap |
-| CL1 | — | gap |
-| CL2 | — | gap |
-| CL3 | — | gap |
-| CL4 | — | gap |
-| D1 | — | gap |
-| D2 | — | gap |
-| D3 | — | gap |
-| D4 | — | gap |
-| D5 | — | gap |
-| S1 | — | gap |
-| S2 | — | gap |
-| S3 | — | gap |
-| S4 | — | gap |
-| P1 | — | gap |
-| P2 | — | gap |
-| P3 | — | gap |
-| P4 | — | gap |
-| P5 | — | gap |
-| P6 | — | gap |
-| K1 | — | gap |
-| K2 | — | gap |
-| K3 | — | gap |
-| K4 | — | gap |
-| K5 | — | gap |
-| K6 | — | gap |
-| RC1 | — | gap |
-| RC2 | — | gap |
-| RC3 | — | gap |
-| E1 | — | gap |
-| E2 | — | gap |
-| E3 | — | gap |
-| F1 | — | gap |
-| F2 | — | gap |
-| F3 | — | gap |
-| SH1 | — | gap |
-| SH2 | — | gap |
-| SH3 | — | gap |
-| SH4 | — | gap |
+| M1 | test_store_lock::test_read_and_write_share_one_reentrant_slot | COVERED |
+| M2 | test_store_lock::test_a_second_thread_blocks_while_the_lock_is_held | COVERED |
+| M3 | test_hub_replicator::test_a_dirty_scene_is_sent_to_the_display | COVERED |
+| M4 | test_hub_replicator::test_the_worker_snapshot_blocks_while_a_mutator_holds_the_write_lock | COVERED |
+| M5 | test_dirty_signal::test_two_scenes_drain_in_one_batch | COVERED |
+| CL1 | — | gap (clear tool rewrite) |
+| CL2 | — | gap (clear tool rewrite) |
+| CL3 | test_hub_replicator::test_clear_is_sent_before_the_batch | COVERED |
+| CL4 | test_hub_replicator::test_clear_is_sent_before_the_batch | COVERED |
+| D1 | test_dirty_signal::test_an_idle_signal_blocks_until_a_mark_arrives | COVERED |
+| D2 | test_dirty_signal::test_many_marks_of_one_scene_coalesce_to_a_single_entry | COVERED |
+| D3 | test_dirty_signal::test_two_scenes_drain_in_one_batch | COVERED |
+| D4 | test_dirty_signal::test_a_mark_after_the_drain_is_carried_to_the_next_cycle | COVERED |
+| D5 | test_dirty_signal::test_drain_takes_dirty_and_cleared_together_and_resets_both | COVERED |
+| S1 | test_hub_replicator::test_a_dirty_scene_is_sent_to_the_display | COVERED |
+| S2 | test_hub_replicator::test_the_worker_snapshot_blocks_while_a_mutator_holds_the_write_lock | COVERED |
+| S3 | test_hub_replicator::test_clear_is_sent_before_the_batch | COVERED |
+| S4 | test_hub_replicator::test_a_dirty_scene_is_sent_to_the_display | COVERED |
+| P1 | test_hub_replicator::test_a_mutator_makes_progress_while_the_worker_is_stuck_sending | COVERED |
+| P2 | test_hub_replicator::test_a_dirty_scene_is_sent_to_the_display | COVERED |
+| P3 | test_hub_replicator::test_a_wedged_display_is_reaped_respawned_and_repainted | COVERED |
+| P4 | test_hub_replicator::test_a_dead_peer_reconnects_without_reaping | COVERED |
+| P5 | test_hub_replicator::test_a_wedged_display_is_reaped_respawned_and_repainted | COVERED |
+| P6 | test_hub_replicator::test_a_mutator_makes_progress_while_the_worker_is_stuck_sending | COVERED |
+| K1 | test_hub_replicator::test_a_wedged_display_is_reaped_respawned_and_repainted | COVERED |
+| K2 | test_hub_replicator::test_a_wedged_display_is_reaped_respawned_and_repainted | COVERED |
+| K3 | test_hub_replicator::test_respawn_with_an_empty_store_repaints_nothing | COVERED |
+| K4 | test_hub_replicator::test_a_wedged_display_is_reaped_respawned_and_repainted | COVERED |
+| K5 | test_hub_replicator::test_a_wedged_display_is_reaped_respawned_and_repainted | COVERED |
+| K6 | test_hub_replicator::test_a_wedged_display_is_reaped_respawned_and_repainted | COVERED |
+| RC1 | test_hub_replicator::test_a_dead_peer_reconnects_without_reaping | COVERED |
+| RC2 | test_hub_replicator::test_a_dead_peer_reconnects_without_reaping | COVERED |
+| RC3 | test_hub_replicator::test_a_dead_peer_reconnects_without_reaping | COVERED |
+| E1 | test_hub_replicator::test_clear_is_sent_before_the_batch | COVERED |
+| E2 | test_hub_replicator::test_a_clear_with_no_batch_only_blanks | COVERED |
+| E3 | test_hub_replicator::test_a_dirty_scene_is_sent_to_the_display | COVERED |
+| F1 | test_hub_replicator::test_a_wedged_display_is_reaped_respawned_and_repainted | COVERED |
+| F2 | test_hub_replicator::test_a_dead_peer_reconnects_without_reaping | COVERED |
+| F3 | test_dirty_signal::test_an_idle_signal_blocks_until_a_mark_arrives | COVERED |
+| SH1 | test_hub_replicator::test_shutdown_flushes_a_pending_scene_then_stops | COVERED |
+| SH2 | test_hub_replicator::test_shutdown_with_a_stuck_display_does_not_reap | COVERED |
+| SH3 | test_dirty_signal::test_stop_with_nothing_pending_returns_shutting_at_once | COVERED |
+| SH4 | test_hub_replicator::test_a_fresh_replicator_after_a_stop_starts_idle_and_works | COVERED |
 
 ## 3. Merge-critical partitions
 
