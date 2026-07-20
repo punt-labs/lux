@@ -1,35 +1,32 @@
 """Snapshot parity test — every recorded snapshot replays identically.
 
-This is the executable form of the characterization safety net introduced
-in lux-edvm (PR 0). Every JSON file in ``tests/characterization/snapshots/``
-is loaded as a :class:`Snapshot`, fed to :class:`ToolExerciser`, and the
-live response is compared to the recorded response.
+This is the executable form of the characterization safety net. Every JSON
+file in ``tests/characterization/snapshots/`` is loaded as a :class:`Snapshot`,
+fed to :class:`ToolExerciser`, and the live response is compared to the recorded
+response.
 
-When a migration PR (lux-b14i and onward) is shipping correctly, this
-test stays green. When a tool's wire-level output drifts — even by one
-byte — the test fails with a unified diff showing exactly what changed.
-``make snapshot-parity`` is the same assertion as a make target.
+When a tool's wire-level output drifts — even by one byte — the test fails with
+a unified diff showing exactly what changed. ``make snapshot-parity`` is the
+same assertion as a make target.
 
-Manual regression check (the "negative case" the mission asks for): pick
-any tool the corpus covers, deliberately break it by editing one
-character in ``src/punt_lux/tools/tools.py`` (e.g., change ``"ack:"`` to
-``"ACK:"`` in the ``show`` tool's success branch), then run::
+Manual regression check: pick any tool the corpus covers, deliberately break it
+by editing one character in ``src/punt_lux/tools/tools.py`` (e.g., change
+``"shown:"`` to ``"SHOWN:"`` in the ``show`` tool's success branch), then run::
 
     make snapshot-parity
 
 The target exits non-zero. The pytest output names every failing
 snapshot and embeds ``Snapshot.diff(observed)``::
 
-    AssertionError: snapshot drift in show-ack:
+    AssertionError: snapshot drift in show-shown:
       --- show (recorded)
       +++ show (observed)
       @@ -1 +1 @@
-      -ack:s1
-      +ACK:s1
+      -shown:s1
+      +SHOWN:s1
 
-Revert the production edit; the target goes green again. That diff
-format is the contract the migration PRs (lux-b14i and onward) are
-reviewed against.
+Revert the production edit; the target goes green again. That diff format is the
+contract every tool's characterization is reviewed against.
 """
 
 from __future__ import annotations

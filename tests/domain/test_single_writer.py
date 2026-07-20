@@ -9,33 +9,45 @@ the single-writer invariant cannot regress silently.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 _SRC = Path(__file__).resolve().parents[2] / "src" / "punt_lux"
 
-# The front-door modules an agent's call or a click flows through. None may
-# send to the display; each must go through the store and the replicator.
-_FRONT_DOOR_MODULES = (
-    "tools/tools.py",
-    "tools/subscribe_tools.py",
-    "domain/hub/clients.py",
-    "domain/hub/scene_writer.py",
-    "apps/beads.py",
+# The only modules allowed to reference the display send surface: the client that
+# defines it, the replicator's send path (replicator + the presentation it
+# drives), and the ``lux show`` CLI, which is a separate short-lived process that
+# renders directly as a display client, not a Hub-side mutation path. Every other
+# module — every MCP tool, every click dispatch, every Hub-hosted app — must go
+# through the store and the dirty signal, so the guard scans the whole package
+# and a new Hub-side sender cannot slip in through a module an enumerated list
+# would have forgotten.
+_SENDER_MODULES = frozenset(
+    {
+        "display_client.py",
+        "domain/hub/scene_presentation.py",
+        "domain/hub/replicator.py",
+        "show.py",
+    }
 )
 
-# The DisplayClient send surface — calling any of these is "writing to the
-# display". Only the replicator (via ScenePresentation.push and clear_async) may.
-_SEND_CALLS = (".show_async(", ".clear_async(", "client.show(", "client.clear(")
+# The DisplayClient send surface — a call to any of these is "writing to the
+# display". The word boundary on ``client`` keeps a dict ``.clear()`` (e.g.
+# ``_fd_to_client.clear()``) from matching the blocking ``client.clear()`` send.
+_SEND_CALL_RE = re.compile(r"\.(?:show_async|clear_async)\(|\bclient\.(?:show|clear)\(")
 
 
-def test_no_front_door_module_sends_to_the_display() -> None:
+def test_no_module_outside_the_sender_set_writes_to_the_display() -> None:
     offenders: list[str] = []
-    for module in _FRONT_DOOR_MODULES:
-        source = (_SRC / module).read_text(encoding="utf-8")
-        offenders.extend(f"{module}: {call}" for call in _SEND_CALLS if call in source)
+    for path in _SRC.rglob("*.py"):
+        rel = path.relative_to(_SRC).as_posix()
+        if rel in _SENDER_MODULES:
+            continue
+        source = path.read_text(encoding="utf-8")
+        offenders.extend(f"{rel}: {m.group()}" for m in _SEND_CALL_RE.finditer(source))
     assert offenders == [], (
-        "a front-door module sends to the display directly; only the replicator "
-        f"may write to the display connection: {offenders}"
+        "a module outside the sender set writes to the display directly; only the "
+        f"replicator's send path may write to the display connection: {offenders}"
     )
 
 

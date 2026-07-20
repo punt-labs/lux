@@ -47,6 +47,7 @@ from collections.abc import Callable, Generator, Mapping
 from typing import Any, ClassVar
 
 from punt_lux import tools as tools_pkg
+from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
@@ -61,6 +62,18 @@ __all__ = ["ToolCallError", "ToolExerciser"]
 
 class ToolCallError(RuntimeError):
     """An exerciser-detected failure: bad setup, unstubbed call, or non-str return."""
+
+
+class _StubReplicator:
+    """A no-op replicator so a tool's ``mark_dirty`` never touches the real one."""
+
+    __slots__ = ()
+
+    def mark_dirty(self, _scene_id: object) -> None:
+        """Swallow the mark — the exerciser only records the tool's response."""
+
+    def mark_cleared(self) -> None:
+        """Swallow the clear mark."""
 
 
 class _StubClient:
@@ -225,6 +238,12 @@ class ToolExerciser:
             raise ToolCallError(msg)
 
         stub_client = _StubClient(client_spec)
+        # Isolate the store and replicator per call: a mutation tool writes the
+        # ``HubDisplay`` singleton and marks the ``hub_replicator``, so without a
+        # fresh store each replay would see state the previous one left and mutate
+        # the production singletons. Binding both names the tools read (mirroring
+        # test_tools._bind_store) keeps every replay independent.
+        fresh_store = HubDisplay()
         # All tools resolve the DisplayClient through the Hub-side
         # ClientRegistry singleton in ``punt_lux.domain.hub``. Patching
         # ``client_registry.get`` substitutes the stub for every tool —
@@ -236,6 +255,9 @@ class ToolExerciser:
                 "punt_lux.domain.hub.clients.client_registry.get",
                 return_value=stub_client,
             ),
+            mock.patch("punt_lux.tools.tools.hub_display", fresh_store),
+            mock.patch("punt_lux.domain.hub.hub_display", fresh_store),
+            mock.patch("punt_lux.tools.tools.hub_replicator", _StubReplicator()),
         ]
         now = setup.get("time")
         if isinstance(now, int | float):
