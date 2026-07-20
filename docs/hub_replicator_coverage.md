@@ -7,8 +7,9 @@ its spec to `tests/test_socket_server.py` and `tests/test_paths.py`. The worker,
 its dirty signal, and the store lock are covered by
 `tests/domain/test_hub_replicator.py`, `tests/domain/test_dirty_signal.py`, and
 `tests/domain/test_store_lock.py`; the two store-empty clear partitions (CL1,
-CL2) land with the clear tool's rewrite, and the real bounded-send time limit
-behind P3/P4 is measured by the mandatory `SO_SNDTIMEO` probe test.
+CL2) are covered by the clear tool's tests in `tests/test_tools.py`, and the real
+bounded-send time limit behind P3/P4 is measured by the mandatory `SO_SNDTIMEO`
+probe test in `tests/test_send_timeout.py`.
 
 The bar is that the spec's partitions are each covered by a test, not merely
 that the model-check passed.
@@ -143,8 +144,8 @@ display-lifecycle audit applied.
 | M3 | test_hub_replicator::test_a_dirty_scene_is_sent_to_the_display | COVERED |
 | M4 | test_hub_replicator::test_the_worker_snapshot_blocks_while_a_mutator_holds_the_write_lock | COVERED |
 | M5 | test_dirty_signal::test_two_scenes_drain_in_one_batch | COVERED |
-| CL1 | — | gap (clear tool rewrite) |
-| CL2 | — | gap (clear tool rewrite) |
+| CL1 | test_tools::TestClearTool::test_clear_empties_hub_store_and_marks_cleared | COVERED |
+| CL2 | test_tools::TestClearIsDisplayIndependent::test_clear_empties_the_store_and_signals_a_blank | COVERED |
 | CL3 | test_hub_replicator::test_clear_is_sent_before_the_batch | COVERED |
 | CL4 | test_hub_replicator::test_clear_is_sent_before_the_batch | COVERED |
 | D1 | test_dirty_signal::test_an_idle_signal_blocks_until_a_mark_arrives | COVERED |
