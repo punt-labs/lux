@@ -13,7 +13,7 @@ from punt_lux.config import ConfigManager
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub_display
 from punt_lux.domain.hub.replicator_instance import hub_replicator
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.domain.hub.scene_presentation import SceneLayout, ScenePresentation
 from punt_lux.domain.hub.scene_writer import HubSceneWriter
 from punt_lux.domain.hub.write_result import WriteRejected
 from punt_lux.domain.ids import ConnectionId, SceneId
@@ -141,16 +141,10 @@ def show(
 
     Frame sizing (only with ``frame_id``):
       frame_size:  [width, height] in pixels — initial size hint (first use only).
-      frame_flags: ImGui window flags. Supported keys:
-        no_resize      — prevent user resizing
-        no_collapse    — hide the collapse button
-        auto_resize    — shrink-wrap to content each frame
-        no_title_bar   — hide the title bar
-        no_background  — transparent frame background
-        no_scrollbar   — disable scrollbars
-      frame_layout: How multiple scenes in the same frame are arranged.
-        "tab"   — one scene visible at a time via tab bar (default)
-        "stack" — all scenes stacked vertically with collapsing headers
+      frame_flags: ImGui window flag keys, each true/false — no_resize, no_collapse,
+        auto_resize, no_title_bar, no_background, no_scrollbar.
+      frame_layout: how multiple scenes share the frame — "tab" (one at a time via a
+        tab bar, default) or "stack" (stacked with collapsing headers).
 
     Writes the scene to the Hub and returns ``"shown:<scene_id>"`` at once — the
     replicator sends it in the background; "shown" means accepted, not drawn.
@@ -181,6 +175,13 @@ def show(
         case _:
             return f"error: frame_layout must be 'tab' or 'stack', got {frame_layout!r}"
 
+    layout_typed: SceneLayout
+    match layout:
+        case "single" | "rows" | "columns" | "grid":
+            layout_typed = layout
+        case _:
+            return f"error: layout must be single/rows/columns/grid, got {layout!r}"
+
     scene = SceneId(scene_id)
     hub_display.replace_scene(
         connection_id, scene, cast("Sequence[DomainElement]", typed_elements)
@@ -190,7 +191,7 @@ def show(
         ScenePresentation(
             frame_id=frame_id,
             title=title,
-            layout=layout,
+            layout=layout_typed,
             frame_title=frame_title,
             frame_size=size_tuple,
             frame_flags=frame_flags,

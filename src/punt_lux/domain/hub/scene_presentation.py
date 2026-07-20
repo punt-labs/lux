@@ -24,10 +24,13 @@ if TYPE_CHECKING:
     from punt_lux.domain.element import Element as WireElement
 
 __all__ = [
+    "SceneLayout",
     "ScenePresentation",
     "ScenePresentationRegistry",
     "ScenePusher",
 ]
+
+type SceneLayout = Literal["single", "rows", "columns", "grid"]
 
 
 @runtime_checkable
@@ -44,7 +47,7 @@ class ScenePusher(Protocol):
         elements: list[WireElement],
         *,
         title: str | None = ...,
-        layout: str = ...,
+        layout: SceneLayout = ...,
         frame_id: str | None = ...,
         frame_title: str | None = ...,
         frame_size: tuple[int, int] | None = ...,
@@ -65,7 +68,7 @@ class ScenePresentation:
 
     frame_id: str
     title: str | None = None
-    layout: str = "single"
+    layout: SceneLayout = "single"
     frame_title: str | None = None
     frame_size: tuple[int, int] | None = None
     frame_flags: Mapping[str, bool] | None = None
@@ -97,10 +100,10 @@ class ScenePresentation:
 class ScenePresentationRegistry:
     """``SceneId → ScenePresentation`` — where and how each scene was shown.
 
-    ``presentation_for`` and ``frame_for`` are total: an unrecorded scene falls
-    back to a presentation framed by its own id — the same default the ``show``
-    front door applies when no ``frame_id`` is given — so a resend of a
-    never-explicitly-framed scene lands exactly where it always did.
+    ``presentation_for`` is total: an unrecorded scene falls back to a
+    presentation framed by its own id — the same default the ``show`` front door
+    applies when no ``frame_id`` is given — so a resend of a never-explicitly-framed
+    scene lands exactly where it always did.
 
     The map tracks scene lifetime: ``record`` when a scene is shown, ``forget``
     when it is cleared or its owning connection drops — the same unwind its
@@ -125,15 +128,12 @@ class ScenePresentationRegistry:
             scene_id, ScenePresentation(frame_id=str(scene_id))
         )
 
-    def frame_for(self, scene_id: SceneId) -> str:
-        """Return the scene's recorded frame, or its own id when unrecorded."""
-        return self.presentation_for(scene_id).frame_id
-
     def forget(self, scene_id: SceneId) -> None:
         """Drop the scene's presentation. No-op if absent.
 
         Called when a scene is cleared or its owning connection drops, so a
         never-re-shown scene stops occupying the map. A later re-show
-        re-records; until then ``frame_for`` reverts to the scene's own id.
+        re-records; until then ``presentation_for`` reverts to a self-framed
+        default.
         """
         self._presentations.pop(scene_id, None)

@@ -62,27 +62,27 @@ def test_recorded_presentation_is_returned() -> None:
 def test_unrecorded_scene_falls_back_to_a_self_framed_default() -> None:
     reg = ScenePresentationRegistry()
     assert reg.presentation_for(SceneId("s1")) == ScenePresentation(frame_id="s1")
-    assert reg.frame_for(SceneId("s1")) == "s1"
+    assert reg.presentation_for(SceneId("s1")).frame_id == "s1"
 
 
 def test_record_overwrites_a_prior_presentation() -> None:
     reg = ScenePresentationRegistry()
     reg.record(SceneId("s1"), ScenePresentation(frame_id="frame-a"))
     reg.record(SceneId("s1"), ScenePresentation(frame_id="frame-b"))
-    assert reg.frame_for(SceneId("s1")) == "frame-b"
+    assert reg.presentation_for(SceneId("s1")).frame_id == "frame-b"
 
 
 def test_forget_reverts_to_the_scene_id_fallback() -> None:
     reg = ScenePresentationRegistry()
     reg.record(SceneId("s1"), ScenePresentation(frame_id="custom-frame"))
     reg.forget(SceneId("s1"))
-    assert reg.frame_for(SceneId("s1")) == "s1"
+    assert reg.presentation_for(SceneId("s1")).frame_id == "s1"
 
 
 def test_forget_is_idempotent_on_an_unrecorded_scene() -> None:
     reg = ScenePresentationRegistry()
     reg.forget(SceneId("never-shown"))  # no-op, must not raise
-    assert reg.frame_for(SceneId("never-shown")) == "never-shown"
+    assert reg.presentation_for(SceneId("never-shown")).frame_id == "never-shown"
 
 
 def test_push_resends_every_presentation_field() -> None:
