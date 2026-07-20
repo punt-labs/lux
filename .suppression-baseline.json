@@ -1,11 +1,11 @@
 {
-  "total": 119,
+  "total": 117,
   "by_category": {
-    "noqa": 37,
-    "type_ignore": 7,
+    "noqa": 36,
+    "type_ignore": 5,
     "pylint_disable": 2,
     "pyright_ignore": 11,
-    "per_file_ignores": 62
+    "per_file_ignores": 63
   },
   "by_file": {
     "src/punt_lux/__main__.py": {
@@ -18,9 +18,6 @@
     "src/punt_lux/apps/_beads_payload.py": {
       "noqa": 1,
       "type_ignore": 1
-    },
-    "src/punt_lux/display/element_renderer.py": {
-      "noqa": 1
     },
     "src/punt_lux/display/macos.py": {
       "type_ignore": 1,
@@ -43,10 +40,7 @@
     "src/punt_lux/domain/handlers/remote_dispatch.py": {
       "noqa": 1
     },
-    "src/punt_lux/domain/hub/clients.py": {
-      "type_ignore": 1
-    },
-    "src/punt_lux/domain/hub/hub_display.py": {
+    "src/punt_lux/domain/hub/subtree_remover.py": {
       "noqa": 1
     },
     "src/punt_lux/luxd.py": {
@@ -81,9 +75,8 @@
       "pyright_ignore": 1
     },
     "src/punt_lux/tools/tools.py": {
-      "noqa": 2,
-      "type_ignore": 1
+      "noqa": 2
     }
   },
-  "updated_at": "2026-07-05T18:34:06Z"
+  "updated_at": "2026-07-20T02:42:53Z"
 }
