@@ -51,13 +51,38 @@ class TestMcpWebsocketRoute:
             pass
         assert exc_info.value.code == 1008
 
+    def test_accepts_loopback_host(self):
+        """A loopback Host passes the SDK guard -- this is how mcp-proxy dials in."""
+        app = build_app()
+        client = TestClient(app)
+        _active_sessions.discard("loopback")
+        with client.websocket_connect(
+            "/mcp?session_key=loopback", headers={"Host": "127.0.0.1:8430"}
+        ):
+            assert "loopback" in _active_sessions
+        assert "loopback" not in _active_sessions
+
+    def test_rejects_foreign_host(self):
+        """A non-loopback Host is rejected by the SDK DNS-rebinding guard."""
+        app = build_app()
+        client = TestClient(app)
+        with (
+            pytest.raises(WebSocketDisconnect),
+            client.websocket_connect(
+                "/mcp?session_key=foreign", headers={"Host": "evil.example:9"}
+            ),
+        ):
+            pass
+
     def test_session_cleanup_after_disconnect(self):
         """Session key is removed from _active_sessions after disconnect."""
         app = build_app()
         client = TestClient(app)
         _active_sessions.discard("test-pid")
         try:
-            with client.websocket_connect("/mcp?session_key=test-pid"):
+            with client.websocket_connect(
+                "/mcp?session_key=test-pid", headers={"Host": "127.0.0.1:8430"}
+            ):
                 pass
         except Exception:  # noqa: BLE001, S110
             pass

@@ -7,15 +7,17 @@ Domain state lives in ``punt_lux.domain.hub``; this module bootstraps transport.
 
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import re
+import sys
+import uuid
 from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 from socket import socket
 from typing import TYPE_CHECKING
-from urllib.parse import urlparse
 
 import uvicorn
 from starlette.applications import Starlette
@@ -23,6 +25,8 @@ from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 from starlette.routing import Route, WebSocketRoute
+
+from punt_lux.transport_policy import LoopbackTransportPolicy
 
 if TYPE_CHECKING:
     from starlette.requests import Request
@@ -34,7 +38,7 @@ DEFAULT_HUB_PORT = 8430
 
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
 
-_ALLOWED_HOSTS = frozenset({"localhost", "127.0.0.1"})
+_TRANSPORT_POLICY = LoopbackTransportPolicy()
 
 _active_sessions: set[str] = set()
 
@@ -63,16 +67,11 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
     # Sanitize user-controlled value before logging (CWE-117).
     raw_key = websocket.query_params.get("session_key", "")
     if not raw_key:
-        import uuid
-
         raw_key = str(uuid.uuid4())[:8]
     session_key = _CONTROL_CHAR_RE.sub("", raw_key)[:64]
 
-    # Reject cross-site WebSocket hijacking (CSWSH): browsers always send an
-    # Origin on WebSocket upgrades, non-browser clients (mcp-proxy) do not.
-    # Allowlist localhost origins for Electron-based editors.
     origin = websocket.headers.get("Origin")
-    if origin is not None and urlparse(origin).hostname not in _ALLOWED_HOSTS:
+    if _TRANSPORT_POLICY.rejects_origin(origin):
         logger.warning("Rejected CSWSH: Origin=%s, session_key=%s", origin, session_key)
         await websocket.close(code=1008)
         return
@@ -82,7 +81,10 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
     _active_sessions.add(session_key)
     try:
         async with websocket_server(  # pyright: ignore[reportDeprecated]
-            websocket.scope, websocket.receive, websocket.send
+            websocket.scope,
+            websocket.receive,
+            websocket.send,
+            security_settings=_TRANSPORT_POLICY.security_settings(),
         ) as (read_stream, write_stream):
             from punt_lux.tools import run_mcp_session
 
@@ -234,13 +236,9 @@ _LOG_LEVELS: dict[str, int] = {
 
 def main() -> None:
     """Entry point for the luxd binary."""
-    import argparse
-
     raw_level = os.environ.get("LUX_LOG_LEVEL", "DEBUG").upper()
     log_level = _LOG_LEVELS.get(raw_level)
     if log_level is None:
-        import sys
-
         print(  # noqa: T201 — before basicConfig, logging unavailable
             f"WARNING: LUX_LOG_LEVEL={raw_level!r} is not valid, defaulting to DEBUG",
             file=sys.stderr,
