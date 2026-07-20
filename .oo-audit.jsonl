@@ -551,3 +551,9 @@
 {"ts":"2026-07-20T14:21:52Z","commit":"695e9cf","files_scored":256,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/luxd.py":{"module_size":[204.0,202.0]}}}
 {"ts":"2026-07-20T14:43:21Z","commit":"4f090f2","files_scored":257,"files_improved":2,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/luxd.py":{"max_complexity":[5.0,4.0],"avg_complexity":[2.11,2.0]},"src/punt_lux/transport_policy.py":{"method_ratio":[0.0,1.0],"encapsulation_ratio":[0.0,1.0],"avg_params":[0.0,0.67],"max_complexity":[0.0,5.0],"avg_complexity":[0.0,3.0],"module_size":[0.0,46.0],"classes_per_module":[0.0,1.0],"class_to_func_ratio":[0.0,1.0],"init_violations":[0.0,0.0],"public_attr_violations":[0.0,0.0],"future_annotations":[0.0,1.0]}}}
 {"ts":"2026-07-20T15:40:48Z","commit":"de89d47","files_scored":257,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/luxd.py":{"avg_params":[1.11,1.1],"module_size":[202.0,201.0]}}}
+{"ts":"2026-07-20T20:14:57Z","commit":"0c29148","files_scored":257,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
+{"ts":"2026-07-20T20:16:28Z","commit":"0c29148","files_scored":257,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-20T20:44:47Z","commit":"8ac4d61","files_scored":257,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-20T20:51:02Z","commit":"414deb9","files_scored":257,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-20T20:54:57Z","commit":"d187b2f","files_scored":257,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-20T21:42:08Z","commit":"a41a316","files_scored":257,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
