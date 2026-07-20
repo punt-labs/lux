@@ -69,18 +69,18 @@ def publish(topic: str, payload: dict[str, object] | None = None) -> str:
 
 
 @mcp.tool()
-def recv(timeout: float = 1.0) -> str:
-    """Block for the next business event delivered to the calling session.
+def recv() -> str:
+    """Take the next business event waiting for the calling session, or none.
 
-    Returns ``"event:<topic>:<json-payload>"`` for a published event the
-    session is subscribed to, or ``"none"`` if no event arrives within
-    ``timeout`` seconds. Events come from ``Hub.publish`` calls scoped
-    to this session (see ``subscribe`` / ``publish``); UI wire frames
+    Returns ``"event:<topic>:<json-payload>"`` for a published event the session
+    is subscribed to, or ``"none"`` when the inbox is empty. Never blocks — it
+    drains whatever is queued and returns; to wait, poll on your own schedule.
+    Events come from ``Hub.publish`` scoped to this session; UI wire frames
     (button clicks, slider drags) are not delivered here.
     """
     connection_id = _connection_id()
     ensure_writer(connection_id)
-    message = next_event(connection_id, timeout=timeout)
+    message = next_event(connection_id, timeout=0.0)
     if message is None:
         return "none"
     return f"event:{message.topic}:{json.dumps(dict(message.payload), sort_keys=True)}"

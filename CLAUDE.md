@@ -27,6 +27,19 @@ wins. The full linked index is in [Key Documents](#key-documents) below.
 @docs/README.md
 @docs/architecture/target/target.md
 
+These org-wide standards from the `punt-kit` sibling repo are the merged source
+of truth for how Punt Labs tools are built, `@`-imported so they load at session
+start. `architecture.md` is the engine-and-clients model that lux **is** — the
+Hub is the engine, the Display is a decomposition of that one engine, and the MCP
+tools, CLI, library, and REST are its thin client surfaces. `oo.md` is the
+object-oriented stance lux's Python answers to. `python.md` is the Python
+standard, including the mandatory OO ratchet lux already runs. These are
+cross-repo (external) imports, so the first load may ask for approval.
+
+@../punt-kit/standards/architecture.md
+@../punt-kit/standards/oo.md
+@../punt-kit/standards/python.md
+
 ## Read This First
 
 **This codebase is being rewritten toward a new architecture.** The repo
@@ -399,7 +412,7 @@ After all missions for the feature complete and each has passed its inner loop:
 1. **`make check`** on the full accumulated diff.
 2. **All applicable local review agents** on the complete diff (2–6 by scope — same table as Inner-loop step 6) — cross-mission issues only appear at this level.
 3. **Fix all findings** using the same documentation standard.
-4. **Human IDE review** of the full diff — the only human review in the process. Resolve all findings before proceeding.
+4. **Review is agent-only.** The local review agents (step 2) plus Copilot and Bugbot on the PR are the reviewers of record; there is no human review gate. The operator inspects code in the IDE, but that is separate and isolated to design discussions — it informs design direction and is never a PR step; nothing in the pipeline waits on it. The operator's in-pipeline role is requirements, design direction, and demo verification (step 5).
 5. **`make restart`** (builds, installs, restarts both luxd and display), then run the complete user-facing workflow end-to-end through its real entry point. Capture system state via the lux introspection APIs (`inspect_scene`, `list_recent_events`, `list_errors`, `screenshot`, etc.) and **ask the operator to confirm** the observed behavior matches the expected outcome written down before running. Verify the changed code was exercised — not just the surrounding scaffolding.
 6. **Re-run agents** until clean.
 7. **Open PR.** A PR opened before step 6 is clean is a procedural violation. The PR description includes the manual-verification playbook: commands run + introspection captures + operator-confirmation outcome.

@@ -41,30 +41,26 @@ class TestPing:
 
 
 class TestShow:
-    def test_ack(self) -> None:
+    def test_show_returns_shown(self) -> None:
         result = ToolExerciser.call(
             "show",
             {
                 "scene_id": "s1",
                 "elements": [{"kind": "text", "id": "t1", "content": "hi"}],
             },
-            {
-                "display_running": True,
-                "client": {"show": {"return": {"scene_id": "s1", "ts": 1000.0}}},
-            },
+            {"display_running": True},
         )
-        assert result == "ack:s1"
+        assert result == "shown:s1"
 
-    def test_timeout(self) -> None:
+    def test_show_needs_no_client_stub(self) -> None:
+        # show never contacts the display — it writes the Hub and returns — so a
+        # scenario that declares no client methods still records cleanly.
         result = ToolExerciser.call(
             "show",
-            {
-                "scene_id": "s1",
-                "elements": [{"kind": "text", "id": "t1", "content": "hi"}],
-            },
-            {"display_running": True, "client": {"show": {"return": None}}},
+            {"scene_id": "s2", "elements": []},
+            {"display_running": True, "client": {}},
         )
-        assert result == "timeout"
+        assert result == "shown:s2"
 
 
 class TestRaisesOnBadSetup:
@@ -87,33 +83,37 @@ class TestRaisesOnBadSetup:
             )
 
     def test_missing_stub_spec_raises(self) -> None:
-        # A scenario that forgets to declare client.show but calls show()
-        # would silently see None ("timeout") on the old contract. With
-        # F4 the stub raises so the missing declaration surfaces.
-        with pytest.raises(ToolCallError, match="stub 'show' called"):
+        # A scenario that forgets to declare client.query but calls a query tool
+        # would silently see None on the old contract. The stub raises instead so
+        # the missing declaration surfaces.
+        with pytest.raises(ToolCallError, match="stub 'query' called"):
             ToolExerciser.call(
-                "show",
-                {"scene_id": "s1", "elements": []},
+                "inspect_scene",
+                {"scene_id": "s1"},
                 {"display_running": True, "client": {}},
             )
 
 
 class TestPassthroughAllowlist:
-    def test_show_runs_without_declaring_setup_apps_side_effects(self) -> None:
-        # _setup_apps calls declare_menu_item and on_event on first
-        # _get_client(). Those two are in _PASSTHROUGH_METHODS so a
-        # scenario that only declares the methods its tool actually uses
-        # records cleanly — the constant-overhead side effects don't
-        # need a spec entry.
+    def test_query_tool_runs_without_declaring_setup_apps_side_effects(self) -> None:
+        # _setup_apps calls declare_menu_item and on_event on first _get_client().
+        # Those two are in _PASSTHROUGH_METHODS so a scenario that only declares
+        # the query its tool actually uses records cleanly — the constant-overhead
+        # side effects don't need a spec entry.
         result = ToolExerciser.call(
-            "show",
-            {"scene_id": "s1", "elements": []},
+            "inspect_scene",
+            {"scene_id": "s1"},
             {
                 "display_running": True,
-                "client": {"show": {"return": {"scene_id": "s1", "ts": 1000.0}}},
+                "client": {
+                    "query": {
+                        "method": "inspect_scene",
+                        "result": {"scene_id": "s1", "elements": []},
+                    }
+                },
             },
         )
-        assert result == "ack:s1"
+        assert '"scene_id": "s1"' in result
 
     def test_non_allowlisted_method_still_raises(self) -> None:
         # The allowlist is constrained — only declare_menu_item and

@@ -139,3 +139,18 @@ def test_replace_scene_removes_old_roots_and_installs_new() -> None:
 
     with pytest.raises(UnknownElementError):
         hub_display.resolve(_SCENE, ElementId("old"))
+
+
+def test_remove_root_of_an_already_dropped_element_is_a_no_op() -> None:
+    """A scene-root removal with no owner tears nothing down and does not raise.
+
+    The scene-root observer can fire after the owner was already dropped — during a
+    ``drop_connection`` cascade one root's teardown re-enters the root callback for
+    another. With no owner left there is nothing to remove, so the callback returns
+    quietly instead of raising on an absent element.
+    """
+    hub_display = HubDisplay()  # nothing installed → the element has no owner
+
+    hub_display._remove_root(_SCENE, _ELEMENT_ID)  # must not raise
+
+    assert hub_display.scene_roots(_SCENE) == []  # the no-op changed nothing

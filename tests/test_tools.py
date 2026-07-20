@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, patch
@@ -11,14 +10,12 @@ import pytest
 
 from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.element import Element as DomainElement
-from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.element_index import UnknownElementError
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
-    AckMessage,
     CheckboxElement,
     CollapsingHeaderElement,
     ColorPickerElement,
@@ -458,70 +455,91 @@ class TestSetThemeTool:
             "set_theme", {"theme": "imgui_colors_light"}
         )
 
+    @patch("punt_lux.domain.hub.clients.client_registry.drop")
+    @patch.object(DisplayPaths, "is_running", return_value=True)
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_set_theme_timeout_drops_the_dead_connection(
+        self, mock_get: MagicMock, _mock_running: MagicMock, mock_drop: MagicMock
+    ) -> None:
+        # A5: a wedged or dead display makes the bounded round-trip raise OSError.
+        # The tool reports "timeout" and drops the connection so the next set_*
+        # reconnects, instead of reusing the dead fd forever.
+        client = _mock_client()
+        client.query.side_effect = OSError("EPIPE")
+        mock_get.return_value = client
+
+        result = set_theme("imgui_colors_light")
+        assert result == "timeout"
+        mock_drop.assert_called_once()
+
 
 class TestShowTool:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_show_returns_ack(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        client.show.return_value = AckMessage(scene_id="s1", ts=time.time())
-        mock_get.return_value = client
+    def test_show_marks_the_scene_dirty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        store = HubDisplay()
+        client = _bind_store(monkeypatch, store)
 
         result = show("s1", [{"kind": "text", "id": "t1", "content": "Hi"}])
-        assert result == "ack:s1"
-        client.show.assert_called_once()
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_show_timeout(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        client.show.return_value = None
-        mock_get.return_value = client
+        assert result == "shown:s1"
+        assert client.replicator.dirtied == [SceneId("s1")]
+
+    def test_show_returns_shown_without_waiting_on_the_display(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        store = HubDisplay()
+        client = _bind_store(monkeypatch, store)
 
         result = show("s1", [{"kind": "text", "id": "t1", "content": "Hi"}])
-        assert result == "timeout"
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_show_installs_scene_in_hub_before_display_send(
-        self,
-        mock_get: MagicMock,
+        # The tool never contacts the display — it writes the Hub and returns.
+        assert result == "shown:s1"
+        client.show.assert_not_called()
+
+    def test_show_installs_scene_in_the_hub_store(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        client = _mock_client()
-        isolated_display = HubDisplay()
+        store = HubDisplay()
+        _bind_store(monkeypatch, store)
 
-        def _assert_hub_installed(*_args: object, **_kwargs: object) -> AckMessage:
-            installed = isolated_display.resolve(SceneId("s1"), ElementId("t1"))
-            assert installed.id == "t1"
-            return AckMessage(scene_id="s1", ts=time.time())
+        show("s1", [{"kind": "text", "id": "t1", "content": "Hi"}])
 
-        client.show.side_effect = _assert_hub_installed
-        mock_get.return_value = client
+        # The authoritative store carries the scene before any send happens.
+        assert store.resolve(SceneId("s1"), ElementId("t1")).id == "t1"
 
-        with patch("punt_lux.tools.tools.hub_display", isolated_display):
-            result = show("s1", [{"kind": "text", "id": "t1", "content": "Hi"}])
-
-        assert result == "ack:s1"
-
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_show_timeout_keeps_authoritative_hub_scene(
-        self,
-        mock_get: MagicMock,
+    def test_show_records_the_frame_for_the_scene(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        client = _mock_client()
-        client.show.return_value = None
-        mock_get.return_value = client
-        isolated_display = HubDisplay()
+        store = HubDisplay()
+        _bind_store(monkeypatch, store)
 
-        with patch("punt_lux.tools.tools.hub_display", isolated_display):
-            result = show("s1", [{"kind": "text", "id": "t1", "content": "Hi"}])
+        show(
+            "s1",
+            [{"kind": "text", "id": "t1", "content": "Hi"}],
+            frame_id="dash",
+        )
 
-        assert result == "timeout"
-        assert isolated_display.resolve(SceneId("s1"), ElementId("t1")).id == "t1"
+        # The recorded presentation is what the replicator resends the scene with.
+        assert store.presentation_for(SceneId("s1")).frame_id == "dash"
 
     @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_show_valid_table_renders(self, mock_get: MagicMock) -> None:
-        # Demonstration (a): a well-formed table validates clean and renders.
+    def test_show_rejects_an_unknown_layout(self, mock_get: MagicMock) -> None:
+        # An out-of-set layout is rejected at the wire boundary before anything is
+        # installed — the error names the allowed values and the client is never
+        # touched, so a typo cannot reach the store or the display.
         client = _mock_client()
-        client.show.return_value = AckMessage(scene_id="s1", ts=time.time())
         mock_get.return_value = client
+
+        result = show("s1", [], layout="diagonal")
+
+        assert result == (
+            "error: layout must be single/rows/columns/grid, got 'diagonal'"
+        )
+        client.show.assert_not_called()
+
+    def test_show_valid_table_renders(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Demonstration (a): a well-formed table validates clean and is accepted.
+        store = HubDisplay()
+        client = _bind_store(monkeypatch, store)
 
         result = show(
             "s1",
@@ -534,8 +552,8 @@ class TestShowTool:
                 },
             ],
         )
-        assert result == "ack:s1"
-        client.show.assert_called_once()
+        assert result == "shown:s1"
+        assert client.replicator.dirtied == [SceneId("s1")]
 
     @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_show_rejects_table_with_mismatched_row(self, mock_get: MagicMock) -> None:
@@ -758,30 +776,28 @@ class TestShowTool:
 
 
 class TestShowTableTool:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_show_table_minimal(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        client.show.return_value = AckMessage(scene_id="t1", ts=time.time())
-        mock_get.return_value = client
+    def test_show_table_minimal(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        store = HubDisplay()
+        _bind_store(monkeypatch, store)
 
         result = show_table(
             "t1",
             columns=["Name", "Score"],
             rows=[["Alice", 95], ["Bob", 87]],
         )
-        assert result == "ack:t1"
-        client.show.assert_called_once()
-        elements = client.show.call_args[0][1]
+        assert result == "shown:t1"
+        elements: list[object] = list(store.scene_roots(SceneId("t1")))
         assert len(elements) == 1
-        assert isinstance(elements[0], TableElement)
-        assert elements[0].columns == ["Name", "Score"]
-        assert elements[0].flags == ["borders", "row_bg"]
+        table = elements[0]
+        assert isinstance(table, TableElement)
+        assert table.columns == ["Name", "Score"]
+        assert table.flags == ["borders", "row_bg"]
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_show_table_with_filters_and_detail(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        client.show.return_value = AckMessage(scene_id="t2", ts=time.time())
-        mock_get.return_value = client
+    def test_show_table_with_filters_and_detail(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        store = HubDisplay()
+        _bind_store(monkeypatch, store)
 
         result = show_table(
             "t2",
@@ -798,37 +814,29 @@ class TestShowTableTool:
             },
             title="Issues",
         )
-        assert result == "ack:t2"
-        elements = client.show.call_args[0][1]
-        table = elements[0]
+        assert result == "shown:t2"
+        table: object = store.scene_roots(SceneId("t2"))[0]
         assert isinstance(table, TableElement)
         assert table.filters is not None
         assert len(table.filters) == 2
         assert table.detail is not None
         assert table.detail.fields == ["ID", "Status"]
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_show_table_custom_flags(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        client.show.return_value = AckMessage(scene_id="t3", ts=time.time())
-        mock_get.return_value = client
+    def test_show_table_custom_flags(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        store = HubDisplay()
+        _bind_store(monkeypatch, store)
 
-        show_table(
-            "t3",
-            columns=["A"],
-            rows=[["x"]],
-            flags=["borders", "resizable"],
-        )
-        elements = client.show.call_args[0][1]
-        assert elements[0].flags == ["borders", "resizable"]
+        show_table("t3", columns=["A"], rows=[["x"]], flags=["borders", "resizable"])
+
+        table: object = store.scene_roots(SceneId("t3"))[0]
+        assert isinstance(table, TableElement)
+        assert table.flags == ["borders", "resizable"]
 
 
 class TestShowDashboardTool:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_dashboard_metrics_only(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        client.show.return_value = AckMessage(scene_id="d1", ts=time.time())
-        mock_get.return_value = client
+    def test_dashboard_metrics_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        store = HubDisplay()
+        _bind_store(monkeypatch, store)
 
         result = show_dashboard(
             "d1",
@@ -837,18 +845,17 @@ class TestShowDashboardTool:
                 {"label": "Revenue", "value": "$5k"},
             ],
         )
-        assert result == "ack:d1"
-        elements = client.show.call_args[0][1]
+        assert result == "shown:d1"
+        elements: list[object] = list(store.scene_roots(SceneId("d1")))
         # metrics group only (no trailing separator for single section)
         assert len(elements) == 1
-        assert elements[0].kind == "group"
-        assert len(elements[0].children) == 2
+        group = elements[0]
+        assert isinstance(group, GroupElement)
+        assert len(group.children) == 2
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_dashboard_all_sections(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        client.show.return_value = AckMessage(scene_id="d2", ts=time.time())
-        mock_get.return_value = client
+    def test_dashboard_all_sections(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        store = HubDisplay()
+        _bind_store(monkeypatch, store)
 
         show_dashboard(
             "d2",
@@ -864,22 +871,20 @@ class TestShowDashboardTool:
             table_rows=[["test", "pass"]],
             title="Dashboard",
         )
-        elements = client.show.call_args[0][1]
-        kinds = [e.kind for e in elements]
+        kinds = [e.kind for e in store.scene_roots(SceneId("d2"))]
         assert "group" in kinds  # metrics
         assert "plot" in kinds  # chart
         assert "table" in kinds  # table
         assert kinds.count("separator") == 2
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_dashboard_empty(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        client.show.return_value = AckMessage(scene_id="d3", ts=time.time())
-        mock_get.return_value = client
+    def test_dashboard_empty(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        store = HubDisplay()
+        _bind_store(monkeypatch, store)
 
-        show_dashboard("d3")
-        elements = client.show.call_args[0][1]
-        assert elements == []
+        result = show_dashboard("d3")
+
+        assert result == "shown:d3"
+        assert store.scene_roots(SceneId("d3")) == []
 
 
 def _seed_store(
@@ -901,12 +906,33 @@ def _seed_store(
     return header
 
 
-def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock:
-    """Route both the applier and the re-push at ``store`` and stub the client.
+class _ReplicatorSpy:
+    """Records mark_dirty / mark_cleared — the tool's only contact with sends."""
 
-    ``update`` / ``clear`` read ``tools.tools.hub_display``; ``repush_scene`` and
-    the D21 dispatch read ``domain.hub.hub_display`` at call time. Binding both
-    to one isolated store keeps the singleton out of the test.
+    dirtied: list[SceneId]
+    cleared: int
+    __slots__ = ("cleared", "dirtied")
+
+    def __new__(cls) -> _ReplicatorSpy:
+        self = super().__new__(cls)
+        self.dirtied = []
+        self.cleared = 0
+        return self
+
+    def mark_dirty(self, scene_id: SceneId) -> None:
+        self.dirtied.append(scene_id)
+
+    def mark_cleared(self) -> None:
+        self.cleared += 1
+
+
+def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock:
+    """Route the store and replicator at test doubles and stub the client.
+
+    ``show`` / ``update`` / ``clear`` read ``tools.tools.hub_display`` and mark
+    the scene on ``tools.tools.hub_replicator``. Binding both to one isolated
+    store and a recording replicator keeps the singletons out of the test. The
+    spy is attached to the returned client as ``client.replicator``.
     """
     monkeypatch.setattr("punt_lux.tools.tools.hub_display", store)
     monkeypatch.setattr("punt_lux.domain.hub.hub_display", store)
@@ -914,6 +940,9 @@ def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock
     monkeypatch.setattr(
         "punt_lux.domain.hub.clients.client_registry.get", lambda: client
     )
+    spy = _ReplicatorSpy()
+    monkeypatch.setattr("punt_lux.tools.tools.hub_replicator", spy)
+    client.replicator = spy
     return client
 
 
@@ -1024,133 +1053,23 @@ def _seed_legacy_group_with_child(
 
 
 class TestUpdateTool:
-    def test_update_writes_hub_store_and_repushes(
+    def test_update_writes_hub_store_and_marks_dirty(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """An agent ``update`` mutates the authoritative store, then re-pushes."""
+        """An agent ``update`` mutates the authoritative store and marks it dirty."""
         store = HubDisplay()
         _seed_store(store, is_open=False)
         client = _bind_store(monkeypatch, store)
 
         result = update("s1", [{"id": "hdr", "set": {"open": True}}])
 
-        assert result == "ack:s1"
+        assert result == "shown:s1"
         # Authoritative store — NOT a display copy — carries the new value.
         header = store.resolve(SceneId("s1"), ElementId("hdr"))
         assert isinstance(header, CollapsingHeaderElement)
         assert header.open is True
-        # The re-push sent the whole scene rebuilt from the authoritative store.
-        client.show_async.assert_called_once()
-        pushed = client.show_async.call_args.kwargs["elements"]
-        assert pushed[0].open is True
-
-    def test_update_survives_interaction_repush(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The updated value persists across a subsequent D21 interaction re-push.
-
-        The bug reverted the agent's update on the next click because the Hub
-        rebuilt ``scene_roots`` from a store it never patched. With the fix the
-        store holds the new value, so the re-push carries it forward.
-        """
-        store = HubDisplay()
-        _seed_store(store, is_open=False)
-        client = _bind_store(monkeypatch, store)
-
-        update("s1", [{"id": "hdr", "set": {"open": True}}])
-        client.show_async.reset_mock()
-
-        # The exact replication a click triggers: rebuild the scene from the store.
-        ClientRegistry.repush_scene("s1")
-
-        pushed = client.show_async.call_args.kwargs["elements"]
-        assert pushed[0].open is True
-        root = store.scene_roots(SceneId("s1"))[0]
-        assert isinstance(root, CollapsingHeaderElement)
-        assert root.open is True
-
-    def test_repush_without_update_keeps_stored_value(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Negative control: a bare re-push reproduces the stored value unchanged.
-
-        This is NOT the fidelity guard for ``update`` — it never calls
-        ``update``, so re-breaking ``update`` leaves it green. It only pins the
-        store as the single source of truth for the re-push: absent any write,
-        the whole-scene resend carries exactly what the store holds. The real
-        fail-if-reverted guard is ``test_update_survives_interaction_repush``,
-        which drives ``update`` and asserts the value persists across a re-push.
-        """
-        store = HubDisplay()
-        _seed_store(store, is_open=False)
-        client = _bind_store(monkeypatch, store)
-
-        ClientRegistry.repush_scene("s1")
-
-        pushed = client.show_async.call_args.kwargs["elements"]
-        assert pushed[0].open is False
-        root = store.scene_roots(SceneId("s1"))[0]
-        assert isinstance(root, CollapsingHeaderElement)
-        assert root.open is False
-
-    def test_repush_preserves_recorded_frame(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """A scene shown in a differently-named frame re-pushes into that frame.
-
-        The bug hard-coded ``frame_id=scene_id``, so a scene shown with
-        ``frame_id='hello-frame'`` was hoisted into frame ``'s1'`` on every
-        re-push — a regression for framed / multi-scene layouts. The Hub now
-        remembers each scene's frame and the re-push carries it forward.
-        """
-        store = HubDisplay()
-        _seed_store(store)
-        store.record_frame(SceneId("s1"), "hello-frame")
-        client = _bind_store(monkeypatch, store)
-
-        ClientRegistry.repush_scene("s1")
-
-        assert client.show_async.call_args.kwargs["frame_id"] == "hello-frame"
-
-    def test_repush_unframed_scene_falls_back_to_scene_id(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Control: an unrecorded scene re-pushes into a frame named for itself.
-
-        The default ``show`` path frames a scene by its own id, so a scene the
-        registry never recorded must still land in ``scene_id`` — the fallback
-        keeps the common single-frame case behaving exactly as before.
-        """
-        store = HubDisplay()
-        _seed_store(store)
-        client = _bind_store(monkeypatch, store)
-
-        ClientRegistry.repush_scene("s1")
-
-        assert client.show_async.call_args.kwargs["frame_id"] == "s1"
-
-    def test_show_records_frame_carried_by_repush(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """End to end: ``show`` records the frame and a later re-push resends it.
-
-        Drives the real ``show`` front door with an explicit ``frame_id`` so the
-        record-on-show and lookup-on-repush halves are exercised together, not
-        just the store method in isolation.
-        """
-        store = HubDisplay()
-        client = _bind_store(monkeypatch, store)
-
-        show(
-            "hello-scene",
-            [{"kind": "text", "id": "t1", "content": "hi"}],
-            frame_id="hello-frame",
-        )
-        client.show_async.reset_mock()
-
-        ClientRegistry.repush_scene("hello-scene")
-
-        assert client.show_async.call_args.kwargs["frame_id"] == "hello-frame"
+        # The scene is marked dirty; the replicator resends it from the store.
+        assert client.replicator.dirtied == [SceneId("s1")]
 
     def test_update_remove_drops_element_from_hub_store(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1162,11 +1081,11 @@ class TestUpdateTool:
 
         result = update("s1", [{"id": "hdr", "remove": True}])
 
-        assert result == "ack:s1"
+        assert result == "shown:s1"
         assert store.scene_roots(SceneId("s1")) == []
         with pytest.raises(LookupError):
             store.resolve(SceneId("s1"), ElementId("hdr"))
-        client.show_async.assert_called_once()
+        assert client.replicator.dirtied == [SceneId("s1")]
 
     def test_update_rejects_patch_that_invalidates_element(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1319,12 +1238,12 @@ class TestUpdateTool:
             ],
         )
 
-        assert result == "ack:s1"
+        assert result == "shown:s1"
         header = store.resolve(SceneId("s1"), ElementId("hdr"))
         assert isinstance(header, CollapsingHeaderElement)
         assert header.open is True
         assert header.label == "Renamed"
-        client.show_async.assert_called_once()
+        assert client.replicator.dirtied == [SceneId("s1")]
 
     def test_update_duplicate_id_cumulative_invalid_is_rejected(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1409,30 +1328,26 @@ class TestUpdateTool:
         assert store.resolve(SceneId("s1"), ElementId("drop")).id == "drop"
         client.show_async.assert_not_called()
 
-    def test_update_retry_on_repush_does_not_remutate(
+    def test_update_mutates_once_and_marks_dirty_once(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """An OSError on the first re-push of a remove-batch retries only the push.
+        """The remove runs once and the scene is marked dirty once — no re-drive.
 
-        The authoritative removal runs once, outside the retryable region. When
-        the re-push's first ``show_async`` throws ``OSError``, ``with_reconnect``
-        retries only the idempotent push — it never re-drives the removal against
-        the now-deleted id, so the agent is told the truth (``ack``), not misled.
+        With mark-and-return there is no push-retry region that could re-drive
+        the mutation against an already-deleted id: update mutates the store and
+        signals the replicator exactly once, then returns.
         """
         store = HubDisplay()
         _seed_store(store)
         client = _bind_store(monkeypatch, store)
-        client.show_async.side_effect = [OSError("connection reset"), None]
 
         result = update("s1", [{"id": "hdr", "remove": True}])
 
-        assert result == "ack:s1"
-        # Removed exactly once; a re-driven mutation would have raised on the
-        # already-deleted id.
+        assert result == "shown:s1"
         assert store.scene_roots(SceneId("s1")) == []
         with pytest.raises(LookupError):
             store.resolve(SceneId("s1"), ElementId("hdr"))
-        assert client.show_async.call_count == 2
+        assert client.replicator.dirtied == [SceneId("s1")]
 
     def test_update_cross_connection_ownership_is_rejected(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1480,11 +1395,11 @@ class TestUpdateTool:
 
         result = update("s1", [{"id": "t1", "set": {"content": "updated"}}])
 
-        assert result == "ack:s1"
+        assert result == "shown:s1"
         child = store.resolve(SceneId("s1"), ElementId("t1"))
         assert isinstance(child, TextElement)
         assert child.content == "updated"
-        client.show_async.assert_called_once()
+        assert client.replicator.dirtied == [SceneId("s1")]
 
     def test_update_patches_legacy_root_via_replace(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1500,13 +1415,11 @@ class TestUpdateTool:
 
         result = update("s1", [{"id": "sl1", "set": {"label": "New"}}])
 
-        assert result == "ack:s1"
+        assert result == "shown:s1"
         spinner = store.resolve(SceneId("s1"), ElementId("sl1"))
         assert isinstance(spinner, SpinnerElement)
         assert spinner.label == "New"
-        client.show_async.assert_called_once()
-        pushed = client.show_async.call_args.kwargs["elements"]
-        assert pushed[0].label == "New"
+        assert client.replicator.dirtied == [SceneId("s1")]
 
     def test_update_legacy_composite_root_shares_children_by_reference(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1525,14 +1438,14 @@ class TestUpdateTool:
 
         result = update("s1", [{"id": "w1", "set": {"title": "New"}}])
 
-        assert result == "ack:s1"
+        assert result == "shown:s1"
         window = cast("WindowElement", store.resolve(SceneId("s1"), ElementId("w1")))
         assert window.title == "New"
         # The child object survives the root patch by reference — same identity,
         # still resolvable by its stable id.
         assert window.children[0] is child
         assert store.resolve(SceneId("s1"), ElementId("sl_child")) is child
-        client.show_async.assert_called_once()
+        assert client.replicator.dirtied == [SceneId("s1")]
 
     def test_update_nested_legacy_defers_to_show(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1723,14 +1636,14 @@ class TestUpdateTool:
             ],
         )
 
-        assert result == "ack:s1"
+        assert result == "shown:s1"
         patched_header = store.resolve(SceneId("s1"), ElementId("hdr"))
         assert isinstance(patched_header, CollapsingHeaderElement)
         assert patched_header.open is True
         patched_selectable = store.resolve(SceneId("s1"), ElementId("sl1"))
         assert isinstance(patched_selectable, SelectableElement)
         assert patched_selectable.selected is True
-        client.show_async.assert_called_once()
+        assert client.replicator.dirtied == [SceneId("s1")]
 
     def test_update_cross_connection_legacy_ownership_is_rejected(
         self, monkeypatch: pytest.MonkeyPatch
@@ -1868,11 +1781,10 @@ class TestUpdateTool:
 
 
 class TestClearTool:
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_clear_empties_hub_store_then_tells_display(
-        self, mock_running: MagicMock, monkeypatch: pytest.MonkeyPatch
+    def test_clear_empties_hub_store_and_marks_cleared(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Clear empties the caller's authoritative scenes, then clears the Display."""
+        """Clear empties the caller's authoritative scenes and signals a blank."""
         store = HubDisplay()
         _seed_store(store)
         client = _bind_store(monkeypatch, store)
@@ -1882,11 +1794,10 @@ class TestClearTool:
         assert result == "cleared"
         assert store.scene_roots(SceneId("s1")) == []
         assert store.elements_owned_by(ConnectionId("local")) == ()
-        client.clear.assert_called_once()
+        assert client.replicator.cleared == 1
 
-    @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_clear_leaves_other_connections_scenes(
-        self, mock_running: MagicMock, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """Clear empties only the caller's Hub scenes; another agent's survives."""
         store = HubDisplay()
@@ -1906,9 +1817,8 @@ class TestClearTool:
         # agent-b's scene is untouched by local's clear.
         assert store.resolve(SceneId("s-other"), ElementId("other")).id == "other"
 
-    @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_clear_empties_all_scenes_the_caller_owns(
-        self, mock_running: MagicMock, monkeypatch: pytest.MonkeyPatch
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A caller owning several scenes gets every one emptied."""
         store = HubDisplay()
@@ -1967,13 +1877,15 @@ class TestRecvTool:
             payload={"id": "save_btn"},
         )
 
-        result = recv(timeout=1.0)
+        result = recv()
         assert result == 'event:work.saved:{"id": "save_btn"}'
+        # recv drains without blocking: it takes whatever is queued now.
+        assert mock_next.call_args.kwargs["timeout"] == 0.0
 
     @patch("punt_lux.tools.subscribe_tools.ensure_writer", return_value=None)
     @patch("punt_lux.tools.subscribe_tools.next_event", return_value=None)
     def test_recv_none(self, _mock_next: MagicMock, _mock_writer: MagicMock) -> None:
-        result = recv(timeout=0.1)
+        result = recv()
         assert result == "none"
 
 
@@ -2061,54 +1973,54 @@ class TestDisplayModeRepoArg:
             display_mode()  # type: ignore[call-arg]
 
 
-class TestClearNoAutoSpawn:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=False)
-    def test_clear_returns_not_running_when_display_off(
-        self, mock_running: MagicMock, mock_get: MagicMock
-    ) -> None:
+class TestClearIsDisplayIndependent:
+    """Clear never checks or contacts the display — the store is the authority.
 
-        result = clear()
-        assert result == "not running"
-        mock_get.assert_not_called()
+    Emptying the store must not hinge on the display being up. Clear always
+    empties the caller's scenes, signals the replicator, and returns "cleared";
+    the replicator alone deals with the display in the background.
+    """
 
     @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=False)
-    def test_clear_empties_hub_store_even_when_display_off(
-        self,
-        mock_running: MagicMock,
-        mock_get: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+    def test_clear_never_probes_or_reaches_the_display(
+        self, mock_get: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Clear empties the authoritative Hub store even with the Display off.
-
-        The store is the authority; the Display is a replica. Emptying the store
-        must not depend on the Display being up, so a display-off clear still
-        removes every scene the caller owns while the display leg reports
-        "not running" and the client is never contacted.
-        """
         store = HubDisplay()
         _seed_store(store)
-        monkeypatch.setattr("punt_lux.tools.tools.hub_display", store)
+        _bind_store(monkeypatch, store)
 
         result = clear()
 
-        assert result == "not running"
-        assert store.scene_roots(SceneId("s1")) == []
-        assert store.elements_owned_by(ConnectionId("local")) == ()
+        assert result == "cleared"
+        # The tool thread never opens a connection to the display.
         mock_get.assert_not_called()
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_clear_calls_client_when_running(
-        self, mock_running: MagicMock, mock_get: MagicMock
+    def test_clear_empties_the_store_and_signals_a_blank(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        client = _mock_client()
-        mock_get.return_value = client
+        store = HubDisplay()
+        _seed_store(store)
+        client = _bind_store(monkeypatch, store)
 
         result = clear()
+
         assert result == "cleared"
-        client.clear.assert_called_once()
+        assert store.scene_roots(SceneId("s1")) == []
+        assert store.elements_owned_by(ConnectionId("local")) == ()
+        assert client.replicator.cleared == 1
+
+    @patch("punt_lux.domain.hub.clients.client_registry.get")
+    def test_clear_returns_cleared_even_with_an_empty_store(
+        self, mock_get: MagicMock, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # An empty store has nothing to clear, but the tool still returns cleared
+        # and never contacts the display.
+        _bind_store(monkeypatch, HubDisplay())
+
+        result = clear()
+
+        assert result == "cleared"
+        mock_get.assert_not_called()
 
 
 class TestPingNoAutoSpawn:

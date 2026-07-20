@@ -16,8 +16,6 @@ from ``Hub.publish`` calls scoped to this connection — queue as
 
 Usage::
 
-    from punt_lux.display_client import DisplayClient
-
     with DisplayClient() as client:
         client.show("s1", elements=[TextElement(id="t1", content="Hello")])
         event = client.poll_event(timeout=1.0)  # event.topic, event.payload
@@ -61,6 +59,7 @@ from punt_lux.protocol import (
 from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.elements import build_element_codec, container_dispatch
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
+from punt_lux.send_timeout import set_send_timeout
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
@@ -256,6 +255,7 @@ class DisplayClient:
             msg = f"Cannot connect to display at {path}: {exc}"
             raise RuntimeError(msg) from exc
 
+        set_send_timeout(sock)
         self._sock = sock
         self._socket_path = path
 
@@ -597,10 +597,6 @@ class DisplayClient:
         self._store_menu_item(item)
         self._send(RegisterMenuMessage(items=self._registered_menu_items))
 
-    def clear(self) -> None:
-        """Clear all content from the display."""
-        self._send(ClearMessage())
-
     def clear_async(self) -> None:
         """Clear all content from the display.  Safe from callbacks."""
         self._send(ClearMessage())
@@ -672,12 +668,11 @@ class DisplayClient:
         have been started — observer messages are push-only with no
         inline polling fallback.
 
-        Gates on ``_listener_thread is not None`` rather than ``is_alive()``
-        so a listener that started and has since exited still surfaces as
-        a ``TimeoutError`` (with a message naming the exit) instead of a
-        ``RuntimeError`` complaining the listener was never started. The
-        caller's contract is the same in both cases — the next event did
-        not arrive in time — and the exit reason belongs in the message.
+        Gates on ``_listener_thread is not None`` rather than ``is_alive()`` so a
+        listener that started and has since exited surfaces as a ``TimeoutError``
+        naming the exit, not a ``RuntimeError`` claiming it never started — the
+        caller's contract is the same either way, and the exit belongs in the
+        message.
         """
         self._require_connected()
         if self._listener_thread is None:

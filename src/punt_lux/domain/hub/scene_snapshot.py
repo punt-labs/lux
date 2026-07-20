@@ -1,0 +1,121 @@
+"""SceneReader and SceneSnapshot — the store's read side for the replicator.
+
+The replicator must never encode live store elements. A scene root can mutate in
+place — a continuous-edit widget applies a field patch, and an ``apply_patch``
+that fails clears and rebuilds the element's ``vars`` mid-rollback — so reading
+one while the wire encoder walks it tears the encode. ``SceneReader`` hands out a
+``SceneSnapshot`` instead: a deep copy of the roots taken under the store read
+lock, paired with the presentation to resend them with. The copy is independent
+of the store, so the replicator pushes it after the lock is released and the
+store lock and the client send lock are never held together.
+
+Deep-copying is faithful because it honours each element's own reduction: an ABC
+root's ``__reduce__`` drops the HubDisplay-bound observers and keeps its handlers,
+exactly as the Hub-to-Display wire does, and the copy stays the same type, so it
+serializes to the identical bytes the live element would have.
+"""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Self, final
+
+if TYPE_CHECKING:
+    from punt_lux.domain.element import Element as WireElement
+    from punt_lux.domain.hub.element_index import ElementIndex
+    from punt_lux.domain.hub.scene_presentation import (
+        ScenePresentation,
+        ScenePresentationRegistry,
+        ScenePusher,
+    )
+    from punt_lux.domain.hub.store_lock import StoreLock
+    from punt_lux.domain.ids import SceneId
+
+__all__ = ["SceneReader", "SceneSnapshot"]
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class SceneSnapshot:
+    """A scene copied out of the store, ready to resend without further reads.
+
+    Holds the deep-copied roots and the presentation. An empty scene is pushed
+    with no roots to blank its frame — that is how a scene a session left, or one
+    an update stripped to nothing, disappears — unless the cycle already blanked
+    the whole display with a clear, in which case the empty scene is skipped.
+    """
+
+    _scene_id: SceneId
+    _roots: tuple[WireElement, ...]
+    _presentation: ScenePresentation
+
+    @property
+    def is_empty(self) -> bool:
+        """Whether the scene had no roots — an emptied or departed scene."""
+        return not self._roots
+
+    def push(self, sender: ScenePusher, *, blank_empty: bool) -> None:
+        """Resend the copied scene; blank an empty scene's frame, or skip it.
+
+        A scene with roots is always sent. An empty scene is sent with no roots —
+        blanking its frame — unless ``blank_empty`` is false, meaning the cycle
+        already blanked the whole display with a clear.
+        """
+        if self._roots or blank_empty:
+            self._presentation.push(sender, self._scene_id, self._roots)
+
+
+@final
+class SceneReader:
+    """The store's replicator-facing side: locked snapshots, live ids, reclaim.
+
+    Composes the element index, the presentation registry, and the store lock.
+    ``snapshot`` and ``live_scene_ids`` hold the read lock only long enough to
+    copy a scene's state out; ``reclaim_if_rootless`` takes the write lock to
+    forget a blanked scene's presentation once it re-confirms the scene is still
+    rootless. Both disciplines live here, in the store, and never escape to the
+    replicator that calls them.
+    """
+
+    _index: ElementIndex
+    _frames: ScenePresentationRegistry
+    _lock: StoreLock
+    __slots__ = ("_frames", "_index", "_lock")
+
+    def __new__(
+        cls,
+        index: ElementIndex,
+        frames: ScenePresentationRegistry,
+        lock: StoreLock,
+    ) -> Self:
+        self = super().__new__(cls)
+        self._index = index
+        self._frames = frames
+        self._lock = lock
+        return self
+
+    def snapshot(self, scene_id: SceneId) -> SceneSnapshot:
+        """Copy a scene's roots and presentation out under the read lock."""
+        with self._lock.read():
+            roots = tuple(deepcopy(r) for r in self._index.scene_roots(scene_id))
+            presentation = self._frames.presentation_for(scene_id)
+        return SceneSnapshot(scene_id, roots, presentation)
+
+    def live_scene_ids(self) -> tuple[SceneId, ...]:
+        """Return every scene still holding a non-removed root, read under lock."""
+        with self._lock.read():
+            return tuple(s for s in self._index.scenes() if self._index.scene_roots(s))
+
+    def reclaim_if_rootless(self, scene_id: SceneId) -> None:
+        """Forget a blanked scene's presentation, but only if it is still rootless.
+
+        The replicator calls this after it blanks an emptied scene: the scene is
+        gone from the store, so its presentation is dead weight. The rootless
+        re-check under the write lock guards a re-show that landed during the send
+        window — that re-show installed roots and a fresh presentation, so the
+        scene is no longer rootless and its new presentation is kept, not dropped.
+        """
+        with self._lock.write():
+            if not self._index.scene_roots(scene_id):
+                self._frames.forget(scene_id)

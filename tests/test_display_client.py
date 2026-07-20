@@ -95,6 +95,44 @@ class TestConnect:
 
             shutil.rmtree(short_dir, ignore_errors=True)
 
+    def test_connect_bounds_the_socket_send_timeout(self, tmp_path: Path) -> None:
+        """connect() applies SO_SNDTIMEO to its socket via ``set_send_timeout``.
+
+        Guards the wiring behind the send-timeout fix: without this call a wedged
+        display could block a send forever. Deleting the call in ``connect``
+        makes this fail — the separate ``test_send_timeout`` proves the option,
+        this proves it is applied to the real connection.
+        """
+        import shutil
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        server_conn: socket.socket | None = None
+        ready_event = threading.Event()
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        try:
+            client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
+            with patch("punt_lux.display_client.set_send_timeout") as mock_set:
+                client.connect()
+            mock_set.assert_called_once()
+            (applied_to,) = mock_set.call_args.args
+            assert applied_to is client._sock  # its own connected fd, not any socket
+            client.close()
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            shutil.rmtree(short_dir, ignore_errors=True)
+
     def test_context_manager(self, tmp_path: Path) -> None:
         """DisplayClient works as a context manager."""
         import tempfile
@@ -263,7 +301,7 @@ class TestSendMessages:
             shutil.rmtree(short_dir, ignore_errors=True)
 
     def test_clear_sends_clear(self, tmp_path: Path) -> None:
-        """clear() sends a ClearMessage (no ack expected)."""
+        """clear_async() sends a ClearMessage (no ack expected)."""
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
@@ -286,7 +324,7 @@ class TestSendMessages:
             with DisplayClient(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                client.clear()
+                client.clear_async()
             # Join BEFORE closing server_conn — the server thread may
             # still be inside recv_message's finally block restoring
             # sock.settimeout() when the main thread closes the fd.

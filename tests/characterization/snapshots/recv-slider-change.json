@@ -1,10 +1,5 @@
 {
-  "inputs": [
-    [
-      "timeout",
-      1.0
-    ]
-  ],
+  "inputs": [],
   "response": "event:ui.slider.changed:{\"action\": \"changed\", \"element_id\": \"slider-temp\", \"value\": 42.5}",
   "setup": {
     "inbox_event": {

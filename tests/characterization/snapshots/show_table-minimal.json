@@ -19,7 +19,7 @@
       "tbl-min"
     ]
   ],
-  "response": "ack:tbl-min",
+  "response": "shown:tbl-min",
   "setup": {
     "client": {
       "show": {

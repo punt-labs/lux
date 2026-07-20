@@ -1,0 +1,22 @@
+{
+  "inputs": [
+    [
+      "elements",
+      []
+    ],
+    [
+      "layout",
+      "diagonal"
+    ],
+    [
+      "scene_id",
+      "s1"
+    ]
+  ],
+  "response": "error: layout must be single/rows/columns/grid, got 'diagonal'",
+  "setup": {
+    "client": {},
+    "display_running": true
+  },
+  "tool": "show"
+}

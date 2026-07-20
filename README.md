@@ -125,7 +125,7 @@ Agents interact with Lux through **27 MCP tools** exposed by `lux serve`:
 | `clear()` | Remove all content from the display |
 | **Communication** | |
 | `ping()` | Round-trip latency check |
-| `recv(timeout)` | Block for the next published app event for this session (pub/sub); returns `event:<topic>:<payload>` or `none`. UI interactions are handled Hub-side, not delivered here |
+| `recv()` | Take the next queued app event for this session (pub/sub) without blocking; returns `event:<topic>:<payload>` or `none` immediately. Poll on your own schedule. UI interactions are handled Hub-side, not delivered here |
 | `set_menu(menus)` | Add custom menus to the menu bar |
 | `register_tool(id, label)` | Register a World menu item routed only to the calling server via `recv()` |
 | `set_theme(theme)` | Switch display theme |
@@ -164,8 +164,9 @@ Agents interact with Lux through **27 MCP tools** exposed by `lux serve`:
 }}
 ```
 
-Returns `"ack:hello"`. A button click fires its handler on the Hub (the agent
-does not poll for it). To observe interactions, read the introspection log:
+Returns `"shown:hello"` immediately — the Hub has accepted the scene and its
+background replicator paints it; no tool call ever waits on the display. A
+button click fires its handler on the Hub (the agent does not poll for it). To observe interactions, read the introspection log:
 
 ```json
 {"tool": "list_recent_events", "input": {"count": 5}}

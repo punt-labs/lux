@@ -21,7 +21,7 @@
       "s1"
     ]
   ],
-  "response": "ack:s1",
+  "response": "shown:s1",
   "setup": {
     "client": {
       "show": {

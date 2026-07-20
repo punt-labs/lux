@@ -1,10 +1,5 @@
 {
-  "inputs": [
-    [
-      "timeout",
-      1.0
-    ]
-  ],
+  "inputs": [],
   "response": "event:ui.button.click:{\"action\": \"click\", \"element_id\": \"btn-submit\", \"value\": true}",
   "setup": {
     "inbox_event": {

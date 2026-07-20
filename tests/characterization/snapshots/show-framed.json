@@ -11,17 +11,20 @@
       ]
     ],
     [
+      "frame_id",
+      "dash"
+    ],
+    [
+      "frame_title",
+      "Dashboard"
+    ],
+    [
       "scene_id",
       "s1"
     ]
   ],
-  "response": "timeout",
+  "response": "shown:s1",
   "setup": {
-    "client": {
-      "show": {
-        "return": null
-      }
-    },
     "display_running": true
   },
   "tool": "show"

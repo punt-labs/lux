@@ -14,7 +14,7 @@
       "metrics"
     ]
   ],
-  "response": "ack:metrics",
+  "response": "shown:metrics",
   "setup": {
     "client": {
       "show": {

@@ -8,8 +8,7 @@ The write path above the seam is branch-free: it asks the store's ``WriteSeam``
 to realize each mutation uniformly through the ``FieldRealization`` contract — an
 ABC element (patched in place) or a legacy root (``replace`` + rebind) alike. A
 patch that would leave an element invalid, is not owned, names a forbidden or
-unknown field, or targets a legacy element nested below a legacy composite is
-rejected in full, store untouched.
+unknown field, or nests a legacy write is rejected in full, store untouched.
 """
 
 from __future__ import annotations
@@ -46,11 +45,7 @@ _log = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class SceneScope:
-    """The ``(connection, scene)`` pair every ``update`` mutation is scoped to.
-
-    Connection and scene always travel together — one value object, not a
-    repeated parameter pair.
-    """
+    """The ``(connection, scene)`` pair every ``update`` mutation is scoped to."""
 
     connection_id: ConnectionId
     scene_id: SceneId
@@ -84,44 +79,56 @@ class HubSceneWriter:
     ) -> WriteResult:
         """Parse and write ``patches`` to the store once, or reject the batch whole.
 
-        Stage a realization per field patch and guard every present removal,
-        check every rejection, and — only if all pass — commit the fields
-        atomically (a mid-commit raise rolls all back), then apply removals
-        post-commit, idempotent by design (see :meth:`_apply_removals`). Any
-        rejection leaves the store untouched; the whole path runs exactly once.
+        Stage a realization per field patch, guard every removal, check every
+        rejection, and — only if all pass — commit the fields atomically (a
+        mid-commit raise rolls all back), then apply removals post-commit
+        (idempotent, see :meth:`_apply_removals`). Any rejection leaves the store
+        untouched.
         """
         scope = SceneScope(connection_id, scene_id)
-        try:
-            batch = PatchBatch.from_wire(patches)
-            realizations = self._field_realizations(scope, batch)
-            self._guard_removals(scope, batch.removals)
-        except (
-            MalformedPatchError,
-            ImmutableFieldError,
-            NestedLegacyWriteError,
-            StructuralFieldWriteError,
-            HubOwnershipError,
-            UnknownElementError,
-            UnknownSceneError,
-        ) as exc:
-            return WriteRejected(str(exc))
-        for realization in realizations:
-            rejection = realization.rejection()
-            if rejection is not None:
-                return rejection
-        self._commit(realizations)
-        self._apply_removals(scope, batch.removals)
-        return WriteAccepted()
+        # One store-lock hold spans the whole batch so the replicator never
+        # snapshots it half-applied; reentrant, so nested writes re-enter freely.
+        with self._display.write_lock():
+            try:
+                batch = PatchBatch.from_wire(patches)
+                realizations = self._field_realizations(scope, batch)
+                self._guard_removals(scope, batch.removals)
+            except (
+                MalformedPatchError,
+                ImmutableFieldError,
+                NestedLegacyWriteError,
+                StructuralFieldWriteError,
+                HubOwnershipError,
+                UnknownElementError,
+                UnknownSceneError,
+            ) as exc:
+                return WriteRejected(str(exc))
+            for realization in realizations:
+                rejection = realization.rejection()
+                if rejection is not None:
+                    return rejection
+            self._commit(realizations)
+            self._apply_removals(scope, batch.removals)
+            return WriteAccepted()
 
     def clear(self, connection_id: ConnectionId) -> None:
         """Remove every scene the connection owns, keeping it registered.
 
         Replaces each owned scene with an empty root set through the ``show`` path,
-        so ownership and child indexes unwind as on a normal replace.
+        so ownership and child indexes unwind as on a normal replace. A scene left
+        empty by this replace has its presentation forgotten — the whole-display
+        blank that follows a clear needs no per-frame targeting, and nothing
+        repaints it without a re-show recording a fresh frame, so the frame map
+        stays bounded under a churning-id clear workload. A scene another connection
+        still holds a root in keeps its frame: that survivor's next re-push must
+        land in the frame it was shown in.
         """
-        owned = self._display.elements_owned_by(connection_id)
-        for scene_id in {scene_id for scene_id, _ in owned}:
-            self._display.replace_scene(connection_id, scene_id, ())
+        with self._display.write_lock():
+            owned = self._display.elements_owned_by(connection_id)
+            for scene_id in {scene_id for scene_id, _ in owned}:
+                self._display.replace_scene(connection_id, scene_id, ())
+                if not self._display.scene_roots(scene_id):
+                    self._display.forget_presentation(scene_id)
 
     def _field_realizations(
         self, scope: SceneScope, batch: PatchBatch
@@ -181,13 +188,11 @@ class HubSceneWriter:
         ``None`` so the ownership check returns without raising, and ``discard``
         no-ops on already-dropped storage.
 
-        Removing the last root empties the scene, so the scene is offered to
-        ``maybe_forget_frame`` on the same no-root-remaining criterion the clear
-        and disconnect paths use — a no-op while any root survives.
+        Removing the last root empties the scene; the scene's presentation is kept
+        so a later resend blanks it into the frame it was shown in.
         """
         for element_id in removals:
             self._display.apply(scope.connection_id, scope.removal(element_id))
-        self._display.maybe_forget_frame(scope.scene_id)
 
     def _require_owner(self, scope: SceneScope, element_id: ElementId) -> None:
         """Raise unless the scope's connection owns an installed ``element_id``.

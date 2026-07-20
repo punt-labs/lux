@@ -18,6 +18,7 @@ from punt_lux.domain.hub.hub_display import (
     HubDisplay,
     hub_display as default_hub_display,
 )
+from punt_lux.domain.hub.replicator_instance import hub_replicator
 from punt_lux.domain.ids import ConnectionId
 
 if TYPE_CHECKING:
@@ -43,6 +44,10 @@ def disconnect_connection(
     Defaults for ``hub_display`` and ``hub`` point at the production
     singletons; tests pass their own isolated instances.
     """
-    hub_display.drop_connection(connection_id)
+    touched = hub_display.drop_connection(connection_id)
+    # Repaint every scene the drop touched: the replicator blanks the ones it
+    # emptied into their own frames and repaints the ones a survivor still holds.
+    for scene_id in touched:
+        hub_replicator.mark_dirty(scene_id)
     hub.on_disconnect(connection_id)
     on_disconnect(connection_id)

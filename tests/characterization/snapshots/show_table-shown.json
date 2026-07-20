@@ -76,7 +76,7 @@
       "Issue Explorer"
     ]
   ],
-  "response": "ack:issues",
+  "response": "shown:issues",
   "setup": {
     "client": {
       "show": {

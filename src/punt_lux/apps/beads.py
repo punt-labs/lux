@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from punt_lux.apps._beads_payload import BeadsLoader, BeadsPayloadBuilder
 from punt_lux.display_client import agent_element_factory
 from punt_lux.protocol import Element, TextElement
-
-if TYPE_CHECKING:
-    from punt_lux.display_client import DisplayClient
 
 
 class BeadsBrowser:
@@ -21,18 +18,14 @@ class BeadsBrowser:
     ) -> tuple[list[dict[str, Any]], str | None]:
         """Fetch, default-fill, filter, and sort beads issues via ``bd``.
 
-        Returns ``(issues, error)``. On success, ``error`` is ``None`` and
-        ``issues`` holds the sorted issue list (possibly empty). On any
-        failure (timeout, non-zero exit, empty output, malformed JSON,
-        unexpected JSON shape), ``issues`` is ``[]`` and ``error`` is a
-        short human-readable reason.
+        Returns ``(issues, error)``: a sorted list and ``None`` on success, or
+        ``[]`` and a short reason on any failure.
         """
         issues, err = BeadsLoader().run(all_issues=all_issues)
         if err is not None:
             return [], err
 
-        # Three-pass stable sort: updated_at desc, then priority asc, then
-        # in_progress floats to top.
+        # Three-pass stable sort: updated_at desc, priority asc, in_progress top.
         issues.sort(key=lambda i: i.get("updated_at", ""), reverse=True)
         issues.sort(key=lambda i: i["priority"])
         issues.sort(key=lambda i: i["status"] != "in_progress")
@@ -46,13 +39,9 @@ class BeadsBrowser:
         self,
         result: tuple[list[dict[str, Any]], str | None],
     ) -> list[Element]:
-        """Build display elements for a beads load result.
+        """Build display elements for the ``(issues, error)`` tuple from :meth:`load`.
 
-        Accepts the ``(issues, error)`` tuple returned by :meth:`load`.
-        When ``error`` is set, returns a visible red error element instead
-        of the "No active issues." placeholder — surfaces bd failures
-        (timeout, non-zero exit, parse error) so the user sees the reason
-        instead of a misleading empty frame.
+        A set ``error`` yields a red error element, not the empty-frame placeholder.
         """
         issues, error = result
         if error is not None:
@@ -79,13 +68,29 @@ class BeadsBrowser:
         )
         return [table]
 
-    def render(self, client: DisplayClient) -> None:
-        """Send the beads issue board to the display via *client*."""
+    def render(self) -> None:
+        """Install the beads board into the Hub; the replicator resends it.
+
+        Imports are local to avoid a cycle with the Hub package.
+        """
+        from typing import cast
+
+        from punt_lux.domain.element import Element as DomainElement
+        from punt_lux.domain.hub import hub_display
+        from punt_lux.domain.hub.replicator_instance import hub_replicator
+        from punt_lux.domain.hub.scene_presentation import ScenePresentation
+        from punt_lux.domain.ids import ConnectionId, SceneId
+
         project = Path.cwd().name or "unknown"
-        frame_id = f"beads-{project}"
-        client.show_async(
-            f"beads-{project}",
-            elements=self.build_elements(self.load()),
-            frame_id=frame_id,
-            frame_title=f"Beads: {project}",
+        scene_id = SceneId(f"beads-{project}")
+        elements = cast("list[DomainElement]", self.build_elements(self.load()))
+        # One write region: the roots and their frame land together, so the
+        # replicator can never snapshot the new roots with a stale frame. show_scene
+        # registers the connection as part of the replace, so no separate call.
+        hub_display.show_scene(
+            ConnectionId("app-beads"),
+            scene_id,
+            elements,
+            ScenePresentation(frame_id=scene_id, frame_title=f"Beads: {project}"),
         )
+        hub_replicator.mark_dirty(scene_id)

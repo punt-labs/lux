@@ -9,6 +9,7 @@
   "mcpServers": {
     "lux": {
       "type": "stdio",
+      "timeout": 5000,
       "command": "sh",
       "args": [
         "-c",
