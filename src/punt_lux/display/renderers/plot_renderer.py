@@ -45,7 +45,15 @@ class PlotRenderer:
         # nested finally below is structural insurance for any other in-body
         # failure (a raising setup_axes or plot call).
         labels = self._series_labels(elem.series)
-        imgui.push_id(elem.id)
+        # An anonymous element (id == "") would push an empty scope, so two
+        # anonymous same-title plots would collide on one ImPlot plot id and
+        # flicker. Fall back to the element's object identity, which is stable
+        # across frames within one scene generation, so anonymous plots render
+        # collision-free. The tradeoff: on a whole-scene re-push the elements
+        # are rebuilt, the identity changes, and an anonymous plot loses its
+        # ImPlot view state (zoom, legend toggles) — accepted, since the
+        # alternative is the collision.
+        imgui.push_id(elem.id or f"anon-{id(elem)}")
         try:
             if implot.begin_plot(elem.title, ImVec2(elem.width, elem.height)):
                 try:

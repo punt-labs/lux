@@ -113,6 +113,33 @@ def test_render_scopes_plot_and_each_series_on_the_id_stack(
     assert labels == ["data", "data"]
 
 
+def test_render_scopes_anonymous_plots_with_distinct_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Two anonymous same-title plots push distinct scopes, not one empty id.
+
+    ``push_id("")`` would give sibling anonymous plots one shared scope, so
+    they would collide on a single ImPlot plot id. The object-identity fallback
+    keeps their pushed scopes distinct.
+    """
+    implot = MagicMock()
+    implot.begin_plot.return_value = True
+    imgui = MagicMock()
+    _patch(monkeypatch, implot, imgui)
+    first = PlotElement(id="", title="Chart", series=[{"x": [1], "y": [2]}])
+    second = PlotElement(id="", title="Chart", series=[{"x": [1], "y": [2]}])
+
+    renderer = PlotRenderer()
+    renderer.render(first)
+    renderer.render(second)
+
+    plot_scopes = [
+        call.args[0] for call in imgui.push_id.call_args_list if call.args[0] != 0
+    ]
+    assert plot_scopes[0] != plot_scopes[1]
+    assert "" not in plot_scopes
+
+
 def test_render_pops_plot_id_even_when_plot_not_begun(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
