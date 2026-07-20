@@ -539,3 +539,5 @@
 {"ts":"2026-07-20T04:24:36Z","commit":"13bde7c","files_scored":256,"files_improved":0,"files_regressed":1,"verdict":"fail","deltas":{}}
 {"ts":"2026-07-20T04:24:57Z","commit":"13bde7c","files_scored":256,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-07-20T04:25:35Z","commit":"13bde7c","files_scored":256,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-20T04:30:56Z","commit":"31b7d9a","files_scored":256,"files_improved":1,"files_regressed":1,"verdict":"fail","deltas":{"src/punt_lux/tools/tools.py":{"module_size":[673.0,672.0]}}}
+{"ts":"2026-07-20T04:33:30Z","commit":"31b7d9a","files_scored":256,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}

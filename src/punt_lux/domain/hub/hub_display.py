@@ -247,6 +247,22 @@ class HubDisplay:
                 )
             self.maybe_forget_frame(scene_id)
 
+    def show_scene(
+        self,
+        connection_id: ConnectionId,
+        scene_id: SceneId,
+        roots: Sequence[WireElement],
+        presentation: ScenePresentation,
+    ) -> None:
+        """Replace a scene's roots and record its presentation under one write lock.
+
+        Batching both writes means a concurrent snapshot never pairs the new roots
+        with the old presentation, or the reverse.
+        """
+        with self._lock.write():
+            self.replace_scene(connection_id, scene_id, roots)
+            self.record_presentation(scene_id, presentation)
+
     # -- apply -------------------------------------------------------------
 
     def apply(

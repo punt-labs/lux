@@ -183,11 +183,10 @@ def show(
             return f"error: layout must be single/rows/columns/grid, got {layout!r}"
 
     scene = SceneId(scene_id)
-    hub_display.replace_scene(
-        connection_id, scene, cast("Sequence[DomainElement]", typed_elements)
-    )
-    hub_display.record_presentation(
+    hub_display.show_scene(
+        connection_id,
         scene,
+        cast("Sequence[DomainElement]", typed_elements),
         ScenePresentation(
             frame_id=frame_id,
             title=title,
