@@ -115,17 +115,20 @@ class HubSceneWriter:
         """Remove every scene the connection owns, keeping it registered.
 
         Replaces each owned scene with an empty root set through the ``show`` path,
-        so ownership and child indexes unwind as on a normal replace, and forgets
-        each scene's presentation: the whole-display blank that follows a clear
-        needs no per-frame targeting, and nothing repaints the scene without a
-        re-show recording a fresh presentation, so the frame map stays bounded even
-        under a churning-id clear workload.
+        so ownership and child indexes unwind as on a normal replace. A scene left
+        empty by this replace has its presentation forgotten — the whole-display
+        blank that follows a clear needs no per-frame targeting, and nothing
+        repaints it without a re-show recording a fresh frame, so the frame map
+        stays bounded under a churning-id clear workload. A scene another connection
+        still holds a root in keeps its frame: that survivor's next re-push must
+        land in the frame it was shown in.
         """
         with self._display.write_lock():
             owned = self._display.elements_owned_by(connection_id)
             for scene_id in {scene_id for scene_id, _ in owned}:
                 self._display.replace_scene(connection_id, scene_id, ())
-                self._display.forget_presentation(scene_id)
+                if not self._display.scene_roots(scene_id):
+                    self._display.forget_presentation(scene_id)
 
     def _field_realizations(
         self, scope: SceneScope, batch: PatchBatch

@@ -72,9 +72,10 @@ class SceneReader:
 
     Composes the element index, the presentation registry, and the store lock.
     ``snapshot`` and ``live_scene_ids`` hold the read lock only long enough to
-    copy a scene's state out; ``reclaim`` takes the write lock to forget a
-    blanked scene's presentation. Both disciplines live here, in the store, and
-    never escape to the replicator that calls them.
+    copy a scene's state out; ``reclaim_if_rootless`` takes the write lock to
+    forget a blanked scene's presentation once it re-confirms the scene is still
+    rootless. Both disciplines live here, in the store, and never escape to the
+    replicator that calls them.
     """
 
     _index: ElementIndex
@@ -106,12 +107,15 @@ class SceneReader:
         with self._lock.read():
             return tuple(s for s in self._index.scenes() if self._index.scene_roots(s))
 
-    def reclaim(self, scene_id: SceneId) -> None:
-        """Forget a blanked scene's presentation under the write lock.
+    def reclaim_if_rootless(self, scene_id: SceneId) -> None:
+        """Forget a blanked scene's presentation, but only if it is still rootless.
 
         The replicator calls this after it blanks an emptied scene: the scene is
-        gone from the store, so its presentation is dead weight. A later re-show
-        records a fresh one.
+        gone from the store, so its presentation is dead weight. The rootless
+        re-check under the write lock guards a re-show that landed during the send
+        window — that re-show installed roots and a fresh presentation, so the
+        scene is no longer rootless and its new presentation is kept, not dropped.
         """
         with self._lock.write():
-            self._frames.forget(scene_id)
+            if not self._index.scene_roots(scene_id):
+                self._frames.forget(scene_id)

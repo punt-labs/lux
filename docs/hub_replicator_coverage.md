@@ -116,6 +116,7 @@ recovery semantics; each is covered against the real worker.
 |---|---|---|
 | RR1 | reap/ensure raises (an unspawnable display) or the send raises a non-socket error | the drained batch is restored (re-marked) and the worker backs off, so nothing is lost and the worker never spins |
 | RR2 | the display recovers on the retry after a transient respawn failure | the restored batch repaints once the display is back |
+| RR3 | a cycle whose send failed and recovery handled (connect-ok, send-refused) | still counts as a failure: the delay grows to throttle the retry, and a genuinely clean cycle resets it |
 
 ### Blank on empty — an emptied scene disappears from the display
 
@@ -129,6 +130,9 @@ the real worker.
 | BL3 | a connection drops | every scene it touched is returned and marked dirty, blanking the emptied ones and repainting the shared ones |
 | BL4 | the worker blanks an emptied scene | the scene's presentation is forgotten once the blank lands, so the frame map does not grow for the process lifetime |
 | BL5 | a whole-display clear empties the scenes | each cleared scene's presentation is forgotten at the source, so a churning-id clear workload does not grow the frame map |
+| BL6 | a re-show lands during the blank send | the reclaim re-checks rootless under the lock; the scene now has roots, so its new frame is kept, not clobbered |
+| BL7 | one scene blanks while another in the same cycle fails | the reclaim is deferred to a clean cycle, so the requeued scene's retry blanks into the recorded frame, never the default |
+| BL8 | one owner clears a scene another owner still holds a root in | the survivor's frame is kept; only a scene the clear leaves empty is forgotten |
 
 ### ApplyClear / ProcDone — ending the cycle
 
@@ -200,11 +204,15 @@ display-lifecycle audit applied.
 | RC4 | test_hub_replicator::test_a_dead_peer_recovery_re_marks_a_consumed_clear | COVERED |
 | RR1 | test_hub_replicator::test_a_recovery_failure_restores_the_batch_and_retries | COVERED |
 | RR2 | test_hub_replicator::test_a_recovery_failure_restores_the_batch_and_retries | COVERED |
+| RR3 | test_hub_replicator::test_a_recovered_cycle_backs_off_and_a_clean_cycle_resets | COVERED |
 | BL1 | test_hub_replicator::test_an_emptied_scene_is_blanked_into_its_frame | COVERED |
 | BL2 | test_hub_replicator::test_a_show_then_clear_ends_blank | COVERED |
 | BL3 | test_lifecycle::test_disconnect_marks_each_scene_the_drop_touched_dirty; test_hub_display_frames::test_drop_connection_returns_the_scenes_it_touched | COVERED |
 | BL4 | test_hub_replicator::test_blanking_an_emptied_scene_reclaims_its_presentation; test_hub_replicator::test_a_failed_blank_is_re_marked_then_retried_and_the_frame_reclaimed | COVERED |
 | BL5 | test_hub_display_frames::test_clear_forgets_each_scenes_frame | COVERED |
+| BL6 | test_hub_replicator::test_a_reshow_during_the_blank_send_keeps_its_new_presentation | COVERED |
+| BL7 | test_hub_replicator::test_a_requeued_blank_targets_the_recorded_frame | COVERED |
+| BL8 | test_hub_display_frames::test_clear_keeps_the_frame_of_a_scene_a_survivor_still_holds | COVERED |
 | E1 | test_hub_replicator::test_clear_is_sent_before_the_batch | COVERED |
 | E2 | test_hub_replicator::test_a_clear_with_no_batch_only_blanks | COVERED |
 | E3 | test_hub_replicator::test_a_dirty_scene_is_sent_to_the_display | COVERED |

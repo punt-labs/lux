@@ -91,6 +91,29 @@ def test_clear_forgets_each_scenes_frame() -> None:
     assert hub_display.presentation_for(_SCENE).frame_id == str(_SCENE)  # forgotten
 
 
+def test_clear_keeps_the_frame_of_a_scene_a_survivor_still_holds() -> None:
+    """A clear forgets only the scenes it leaves empty, not a multi-owner survivor.
+
+    The scene has roots from two connections. When one connection clears, its
+    replace empties only its own roots; the other connection's root remains, so the
+    scene is not empty and its frame is kept — that survivor's next re-push must
+    land in the frame it was shown in. The clear forgets a frame only for a scene it
+    actually emptied.
+    """
+    hub_display = _seed_framed_scene()  # _OWNER holds root "root", frame _FRAME
+    hub_display.register_client(_OTHER)
+    hub_display.apply(
+        _OTHER,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="other"), parent_id=None),
+    )
+
+    HubSceneWriter(hub_display).clear(_OWNER)
+
+    # _OWNER's root is gone, _OTHER's survives, so the scene keeps its frame.
+    assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"other"}
+    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+
+
 def test_frame_persists_after_connection_drop() -> None:
     """Dropping the owning connection keeps its scenes' frames for the blank."""
     hub_display = _seed_framed_scene()

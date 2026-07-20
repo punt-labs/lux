@@ -16,8 +16,12 @@ from typing import TYPE_CHECKING, Self
 
 import pytest
 
+from punt_lux.domain.hub.dirty_signal import DrainedBatch
 from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.hub.replicator import HubReplicator
+from punt_lux.domain.hub.replicator import (
+    _BASE_BACKOFF_SECONDS,
+    HubReplicator,
+)
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.protocol.elements.text import TextElement
@@ -54,6 +58,7 @@ class _FakeSender:
     clears: int
     timeline: list[str]
     _fail: OSError | None
+    _fail_scene: tuple[str, OSError] | None
     _gate: threading.Event | None
     _lock: threading.Lock
     _sent: threading.Event
@@ -61,6 +66,7 @@ class _FakeSender:
     __slots__ = (
         "_entered",
         "_fail",
+        "_fail_scene",
         "_gate",
         "_lock",
         "_sent",
@@ -79,6 +85,7 @@ class _FakeSender:
         self.clears = 0
         self.timeline = []
         self._fail = None
+        self._fail_scene = None
         self._gate = None
         self._lock = threading.Lock()
         self._sent = threading.Event()
@@ -87,6 +94,10 @@ class _FakeSender:
 
     def arm_failure(self, exc: OSError) -> None:
         self._fail = exc
+
+    def fail_on_scene(self, scene_id: str, exc: OSError) -> None:
+        """Raise once when a specific scene is sent, leaving other sends clean."""
+        self._fail_scene = (scene_id, exc)
 
     def block_next(self, gate: threading.Event) -> None:
         self._gate = gate
@@ -121,6 +132,10 @@ class _FakeSender:
         **_kwargs: object,
     ) -> None:
         self._guard()
+        if self._fail_scene is not None and self._fail_scene[0] == scene_id:
+            _, exc = self._fail_scene
+            self._fail_scene = None
+            raise exc
         with self._lock:
             self.shows.append(scene_id)
             self.frames.append(frame_id)
@@ -439,6 +454,100 @@ def test_a_failed_blank_is_re_marked_then_retried_and_the_frame_reclaimed() -> N
     finally:
         gate.set()
         repl.stop()
+
+
+def test_a_reshow_during_the_blank_send_keeps_its_new_presentation() -> None:
+    # A re-show that lands during the ~2s blank send installs roots and a fresh
+    # frame. The reclaim re-checks rootless under the write lock, so it sees the new
+    # roots and skips the forget — the new frame survives, not clobbered by a stale
+    # reclaim of the scene the worker thought it had emptied.
+    store = HubDisplay()
+    scene = SceneId("s1")
+    store.register_client(_CONN)
+    store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
+    store.record_presentation(scene, ScenePresentation(frame_id="old-frame"))
+    store.replace_scene(_CONN, scene, ())  # empty it, so the worker will blank it
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    gate = threading.Event()
+    sender.block_next(gate)  # park the worker inside the blank send
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert sender.wait_entered(2.0)  # the worker is inside the blank send
+        # A re-show lands mid-send: new roots and a new frame.
+        store.show_scene(
+            _CONN,
+            scene,
+            [TextElement(id="s1-root", content="y")],
+            ScenePresentation(frame_id="new-frame"),
+        )
+        gate.set()  # release → the clean cycle's reclaim re-checks rootless
+        assert sender.wait_sent(2.0)
+        # The reclaim runs just after the send; it must skip (the scene has roots),
+        # so the new frame holds across the settle window rather than reverting.
+        for _ in range(50):
+            threading.Event().wait(0.01)
+            assert store.presentation_for(scene).frame_id == "new-frame"
+    finally:
+        gate.set()
+        repl.stop()
+
+
+def test_a_requeued_blank_targets_the_recorded_frame() -> None:
+    # Two emptied scenes with distinct frames coalesce in one cycle. One blanks and
+    # the other's send fails as a dead peer; recovery re-marks both. Because reclaim
+    # is deferred to a clean cycle, the blanked scene's frame is not forgotten
+    # mid-cycle, so its retry blanks into the recorded frame — every blank of either
+    # scene targets its recorded frame, never the self-framed default.
+    store = HubDisplay()
+    a, b = SceneId("s1"), SceneId("s2")
+    store.register_client(_CONN)
+    for sid, frame in ((a, "frame-a"), (b, "frame-b")):
+        store.replace_scene(_CONN, sid, [TextElement(id=f"{sid}-root", content="x")])
+        store.record_presentation(sid, ScenePresentation(frame_id=frame))
+        store.replace_scene(_CONN, sid, ())  # empty it
+    repl, sender, provider, _lifecycle = _replicator(store)
+    sender.fail_on_scene("s2", OSError())  # scene B's blank fails once
+    repl.start()
+    try:
+        repl.mark_dirty(a)
+        repl.mark_dirty(b)
+        for _ in range(300):
+            if {"s1", "s2"} <= set(sender.shows):
+                break
+            threading.Event().wait(0.01)
+        assert provider.drops >= 1  # the dead peer reconnected
+        assert {"s1", "s2"} <= set(sender.shows)  # both scenes blanked
+        sent = list(zip(sender.shows, sender.frames, strict=False))
+        for scene_id, sent_frame in sent:
+            expected = "frame-a" if scene_id == "s1" else "frame-b"
+            assert sent_frame == expected  # recorded frame, never the default
+    finally:
+        repl.stop()
+
+
+def test_a_recovered_cycle_backs_off_and_a_clean_cycle_resets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A send failure that recovery handled still counts as a failure for the
+    # backoff: the delay grows, so a display that connects yet refuses every send is
+    # throttled rather than looped at the coalesce interval. A genuinely clean cycle
+    # resets the delay. Driving one cycle at a time with sleep stubbed keeps this
+    # deterministic and instant.
+    slept: list[float] = []
+    monkeypatch.setattr("punt_lux.domain.hub.replicator.time.sleep", slept.append)
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    batch = DrainedBatch(frozenset({scene}), cleared=False, shutting=False)
+
+    sender.arm_failure(OSError())  # the send fails; recovery reconnects
+    repl._run_cycle(batch)
+    assert slept == [_BASE_BACKOFF_SECONDS]  # a recovered cycle throttles
+    assert repl._backoff > _BASE_BACKOFF_SECONDS  # and grows the delay, not resets
+
+    repl._run_cycle(batch)  # a clean cycle now resets the delay
+    assert repl._backoff == _BASE_BACKOFF_SECONDS
 
 
 def test_recovery_of_an_emptied_store_repaints_nothing() -> None:

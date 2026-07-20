@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.domain.hub.dirty_signal import DirtySignal
@@ -46,6 +47,20 @@ _STOP_JOIN_TIMEOUT = 5.0
 # clean cycle, so a permanently absent display logs at a sane rate, not a firehose.
 _BASE_BACKOFF_SECONDS = 0.1
 _MAX_BACKOFF_SECONDS = 2.0
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class _CycleOutcome:
+    """The result of one push cycle: whether recovery ran, and the empties to reclaim.
+
+    ``recovered`` true means a send failed and was healed — the delay grows and no
+    reclaim runs. False means a clean send; ``emptied`` then names the scenes whose
+    frames the clean-cycle branch reclaims.
+    """
+
+    recovered: bool
+    emptied: tuple[SceneId, ...]
 
 
 @final
@@ -153,72 +168,97 @@ class HubReplicator:
                 return
 
     def _run_cycle(self, batch: DrainedBatch) -> None:
-        """Push the batch; on an unhandled failure restore it and back off.
+        """Push the batch; reclaim only on a genuinely clean cycle, else back off.
 
-        The worker's top-level guard: a recovery step that itself fails — an
-        unspawnable display, a refused reconnect — or a send raising anything other
-        than a socket error must not kill the worker or drop the drained work. A
-        shutdown flush is the last cycle, so its work is dropped by design and only
-        logged; any other failure puts the batch back and grows the delay — doubling
-        to the cap — so a persistently unspawnable display retries at a sane rate
-        rather than a firehose. A clean cycle resets the delay so a recovered
-        display responds promptly again.
+        Three outcomes. A send failed and recovery handled it (a healed display and
+        re-marked work) still counts as a failure, so the delay grows to throttle a
+        display that connects yet refuses every send. A recovery step itself failed
+        — an unspawnable display, a refused reconnect — or a non-socket error
+        escaped: the exception reaches this outer guard, which restores the batch
+        and backs off, unless this was the shutdown flush, whose work is dropped by
+        design and only logged. A genuinely clean cycle resets the delay and only
+        then reclaims the scenes it emptied — the reclaim is deferred to here so a
+        later scene's failure in the same cycle cannot strand an already-reclaimed
+        scene's frame.
         """
         try:
-            self._push_cycle(batch)
+            outcome = self._push_cycle(batch)
         except Exception:
             if batch.shutting:
                 logger.exception("replicator shutdown flush failed; dropping the batch")
                 return
             logger.exception("replicator cycle failed; retrying the batch")
             self._recovery.restore(batch)
-            time.sleep(self._backoff)
-            self._backoff = min(self._backoff * 2, _MAX_BACKOFF_SECONDS)
-        else:
-            self._backoff = _BASE_BACKOFF_SECONDS
+            self._back_off()
+            return
+        if outcome.recovered:
+            if not batch.shutting:
+                self._back_off()
+            return
+        self._backoff = _BASE_BACKOFF_SECONDS
+        self._reclaim_emptied(outcome.emptied)
 
-    def _push_cycle(self, batch: DrainedBatch) -> None:
-        """Blank first if cleared, then repaint each scene; recover on a failure.
+    def _push_cycle(self, batch: DrainedBatch) -> _CycleOutcome:
+        """Send the cycle; heal a bounded send failure, else report the clean result.
 
-        ``BlockingIOError`` (send timeout) is caught before ``OSError`` (dead
-        peer) because the former is a kind of the latter. ``recover`` reads the
-        batch's shutting flag itself, so a shutdown flush is best-effort — it
-        never reaps or reconnects — without the caller having to say so.
+        ``BlockingIOError`` (send timeout) is a wedged display, reaped and
+        respawned; ``OSError`` (dead peer) only reconnects. A recovery step that
+        itself fails — reap/ensure raising, a refused reconnect — propagates to the
+        caller's outer guard rather than being swallowed here.
         """
         try:
-            self._attempt(batch)
+            emptied = self._attempt(batch)
         except BlockingIOError:
             self._recovery.recover(batch, wedged=True)
+            return _CycleOutcome(recovered=True, emptied=())
         except OSError:
             self._recovery.recover(batch, wedged=False)
+            return _CycleOutcome(recovered=True, emptied=())
+        return _CycleOutcome(recovered=False, emptied=emptied)
 
-    def _attempt(self, batch: DrainedBatch) -> None:
-        """Send the cycle: blank first when cleared, then repaint each scene.
+    def _back_off(self) -> None:
+        """Sleep the current retry delay, then grow it toward the cap."""
+        time.sleep(self._backoff)
+        self._backoff = min(self._backoff * 2, _MAX_BACKOFF_SECONDS)
+
+    def _attempt(self, batch: DrainedBatch) -> tuple[SceneId, ...]:
+        """Send the cycle and return the scenes it found empty, for later reclaim.
 
         When the batch carried a clear, ``clear_async`` already blanked the whole
         display, so an empty scene in the batch is skipped rather than re-blanked;
-        otherwise an empty scene is pushed to blank its own frame.
+        otherwise an empty scene is pushed to blank its own frame. Either way an
+        empty scene is a reclaim candidate — its frame is dead once the display is
+        blank — so it is collected regardless of the clear.
         """
         if batch.cleared:
             self._clients.get().clear_async()
-        for scene in batch.scenes:
-            self._send_scene(scene, blank_empty=not batch.cleared)
+        # Each ``_send_scene`` sends and reports whether the scene was empty; the
+        # comprehension keeps the empties as reclaim candidates.
+        return tuple(
+            scene
+            for scene in batch.scenes
+            if self._send_scene(scene, blank_empty=not batch.cleared)
+        )
 
-    def _send_scene(self, scene_id: SceneId, *, blank_empty: bool) -> None:
-        """Send a copy of the scene the store took under its read lock.
+    def _send_scene(self, scene_id: SceneId, *, blank_empty: bool) -> bool:
+        """Send a copy of the scene; return whether it was empty (a reclaim candidate).
 
         The store returns a snapshot whose roots are already copied out, so the
         send happens with no store lock held — the store lock and the client send
         lock are never held together. An empty scene blanks its frame unless the
         cycle already blanked the whole display with a clear.
-
-        Once that blank lands, the scene's presentation is reclaimed: the scene is
-        gone from the store, and nothing repaints it without a re-show that records
-        a fresh presentation, so the entry is dead weight. The reclaim runs only
-        after a successful blank, so a failed send keeps the presentation for the
-        recovery re-mark to blank again.
         """
         snapshot = self._reader.snapshot(scene_id)
         snapshot.push(self._clients.get(), blank_empty=blank_empty)
-        if blank_empty and snapshot.is_empty:
-            self._reader.reclaim(scene_id)
+        return snapshot.is_empty
+
+    def _reclaim_emptied(self, scenes: tuple[SceneId, ...]) -> None:
+        """Forget each blanked scene's frame, re-checked still rootless under the lock.
+
+        Deferred to a clean cycle so a failed send never reclaims a scene whose
+        blank the recovery must retry. The rootless re-check keeps a re-show that
+        landed during the send window: that re-show installed roots and a fresh
+        frame, so the scene is no longer rootless and its new frame is kept.
+        """
+        for scene_id in scenes:
+            self._reader.reclaim_if_rootless(scene_id)
