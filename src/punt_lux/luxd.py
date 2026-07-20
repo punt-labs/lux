@@ -7,14 +7,17 @@ Domain state lives in ``punt_lux.domain.hub``; this module bootstraps transport.
 
 from __future__ import annotations
 
+import argparse
 import logging
 import os
 import re
+import sys
+import uuid
 from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from pathlib import Path
 from socket import socket
 from typing import TYPE_CHECKING
-from urllib.parse import urlparse
 
 import uvicorn
 from starlette.applications import Starlette
@@ -22,6 +25,8 @@ from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import JSONResponse
 from starlette.routing import Route, WebSocketRoute
+
+from punt_lux.transport_policy import LoopbackTransportPolicy
 
 if TYPE_CHECKING:
     from starlette.requests import Request
@@ -33,9 +38,17 @@ DEFAULT_HUB_PORT = 8430
 
 _CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
 
-_ALLOWED_HOSTS = frozenset({"localhost", "127.0.0.1"})
+_TRANSPORT_POLICY = LoopbackTransportPolicy()
 
 _active_sessions: set[str] = set()
+
+
+def _sanitize_for_log(value: str | None) -> str:
+    """Strip control characters and cap length before logging (CWE-117).
+
+    A missing header (``None``) logs as an empty string.
+    """
+    return _CONTROL_CHAR_RE.sub("", value or "")[:64]
 
 
 # ---------------------------------------------------------------------------
@@ -45,12 +58,7 @@ _active_sessions: set[str] = set()
 
 async def _health_route(request: Request) -> JSONResponse:  # noqa: ARG001
     """Return hub health status."""
-    return JSONResponse(
-        {
-            "status": "ok",
-            "sessions": len(_active_sessions),
-        }
-    )
+    return JSONResponse({"status": "ok", "sessions": len(_active_sessions)})
 
 
 async def _mcp_websocket_route(websocket: WebSocket) -> None:
@@ -58,22 +66,21 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
 
     Each connection gets its own isolated MCP session; auth is checked first.
     """
-    from mcp.server.websocket import websocket_server
+    # WebSocket is the deliberate luxd<->mcp-proxy transport leg, supported
+    # through mcp 1.x; a streamable-HTTP migration is tracked as future work.
+    from mcp.server.websocket import (
+        websocket_server,  # pyright: ignore[reportDeprecated]
+    )
 
-    # Sanitize user-controlled value before logging (CWE-117).
     raw_key = websocket.query_params.get("session_key", "")
     if not raw_key:
-        import uuid
-
         raw_key = str(uuid.uuid4())[:8]
-    session_key = _CONTROL_CHAR_RE.sub("", raw_key)[:64]
+    session_key = _sanitize_for_log(raw_key)
 
-    # Reject cross-site WebSocket hijacking (CSWSH): browsers always send an
-    # Origin on WebSocket upgrades, non-browser clients (mcp-proxy) do not.
-    # Allowlist localhost origins for Electron-based editors.
     origin = websocket.headers.get("Origin")
-    if origin is not None and urlparse(origin).hostname not in _ALLOWED_HOSTS:
-        logger.warning("Rejected CSWSH: Origin=%s, session_key=%s", origin, session_key)
+    if _TRANSPORT_POLICY.rejects_origin(origin):
+        safe = _sanitize_for_log(origin)
+        logger.warning("Rejected CSWSH: Origin=%s, session_key=%s", safe, session_key)
         await websocket.close(code=1008)
         return
 
@@ -81,8 +88,11 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
 
     _active_sessions.add(session_key)
     try:
-        async with websocket_server(
-            websocket.scope, websocket.receive, websocket.send
+        async with websocket_server(  # pyright: ignore[reportDeprecated]
+            websocket.scope,
+            websocket.receive,
+            websocket.send,
+            security_settings=_TRANSPORT_POLICY.security_settings(),
         ) as (read_stream, write_stream):
             from punt_lux.tools import run_mcp_session
 
@@ -142,8 +152,6 @@ def build_app(
 
 
 def _write_port_file(port_path: object, port: int) -> None:
-    from pathlib import Path
-
     p = Path(str(port_path))
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(str(port))
@@ -151,8 +159,6 @@ def _write_port_file(port_path: object, port: int) -> None:
 
 
 def _remove_port_file(port_path: object) -> None:
-    from pathlib import Path
-
     p = Path(str(port_path))
     try:
         p.unlink(missing_ok=True)
@@ -227,24 +233,14 @@ def serve(
     logger.info("luxd stopped")
 
 
-_LOG_LEVELS: dict[str, int] = {
-    "DEBUG": logging.DEBUG,
-    "INFO": logging.INFO,
-    "WARNING": logging.WARNING,
-    "ERROR": logging.ERROR,
-    "CRITICAL": logging.CRITICAL,
-}
+_LOG_LEVELS: dict[str, int] = logging.getLevelNamesMapping()
 
 
 def main() -> None:
     """Entry point for the luxd binary."""
-    import argparse
-
     raw_level = os.environ.get("LUX_LOG_LEVEL", "DEBUG").upper()
     log_level = _LOG_LEVELS.get(raw_level)
     if log_level is None:
-        import sys
-
         print(  # noqa: T201 — before basicConfig, logging unavailable
             f"WARNING: LUX_LOG_LEVEL={raw_level!r} is not valid, defaulting to DEBUG",
             file=sys.stderr,
