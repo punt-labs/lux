@@ -75,17 +75,16 @@ class TestMcpWebsocketRoute:
             pass
 
     def test_session_cleanup_after_disconnect(self):
-        """Session key is removed from _active_sessions after disconnect."""
+        """The session is counted while open, then removed after disconnect."""
         app = build_app()
         client = TestClient(app)
         _active_sessions.discard("test-pid")
-        try:
-            with client.websocket_connect(
-                "/mcp?session_key=test-pid", headers={"Host": "127.0.0.1:8430"}
-            ):
-                pass
-        except Exception:  # noqa: BLE001, S110
-            pass
+        with client.websocket_connect(
+            "/mcp?session_key=test-pid", headers={"Host": "127.0.0.1:8430"}
+        ):
+            # The handshake opened, so the session must be registered and counted;
+            # a failed handshake would raise here instead of reporting a session.
+            assert client.get("/health").json()["sessions"] >= 1
         assert "test-pid" not in _active_sessions
 
 
