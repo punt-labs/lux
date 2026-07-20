@@ -185,6 +185,20 @@
 
 ### Fixed
 
+- **MCP tools no longer block on the display; the 38-minute hang class is closed
+  by construction.** Every mutation tool (`show`, `show_table`, `show_dashboard`,
+  `update`, `clear`) now writes only to the Hub's authoritative store and returns
+  at once — `show*`/`update` return `"shown:<scene_id>"`, `clear` returns
+  `"cleared"`. A single background `HubReplicator` is the sole writer to the
+  display: it coalesces changes, sends them with a time-limited socket
+  (`SO_SNDTIMEO`), and alone reaps and respawns a wedged display or reconnects a
+  dead one. Because no send sits on the agent's path, a stuck display can never
+  again freeze an agent (previously a `clear` to a wedged display blocked ~38
+  minutes). `recv` loses its `timeout` and drains the inbox without blocking;
+  the `set_*` tools do a time-limited round-trip and return `"timeout"` rather
+  than hanging or killing the display; the `lux show beads` CLI checks
+  `DisplayPaths().is_running()` before it sends. The concurrency discipline is
+  ProB-verified (`docs/hub_replicator.tex`).
 - **lux MCP tool calls now fail fast on an unresponsive display** — the
   `mcpServers.lux` entry in `plugin.json` gains a per-server `timeout` of 5s.
   Without it, calls inherited the ~30-minute default MCP idle timeout, so a

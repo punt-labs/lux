@@ -3239,9 +3239,9 @@
   "src/punt_lux/tools/tools.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.34,
+    "avg_params": 1.33,
     "max_complexity": 9.0,
-    "avg_complexity": 2.69,
+    "avg_complexity": 2.67,
     "module_size": 673.0,
     "classes_per_module": 0.0,
     "class_to_func_ratio": 0.0,

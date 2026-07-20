@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import time
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
@@ -47,6 +47,18 @@ def _display_running() -> bool:
 def _client() -> DisplayClient:
     """Return the Hub's connected display client for a read-only round-trip."""
     return client_registry.get()
+
+
+def _bounded(call: Callable[[], str]) -> str:
+    """Run a ``set_*`` round-trip; return ``"timeout"`` if the send fails.
+
+    The send is ``SO_SNDTIMEO``-bounded, so a wedged display raises ``OSError``
+    within the limit and the tool reports ``"timeout"`` — never killing it.
+    """
+    try:
+        return call()
+    except OSError:
+        return "timeout"
 
 
 @mcp.tool()
@@ -433,14 +445,10 @@ def update(scene_id: str, patches: list[dict[str, Any]]) -> str:
 
 @mcp.tool()
 def set_menu(menus: list[dict[str, Any]]) -> str:
-    """Add custom menus to the Lux display menu bar.
+    """Add custom menus to the Lux display menu bar; clicks arrive via recv().
 
-    Each menu: {"label": "Tools", "items": [
-        {"label": "Run", "id": "run_btn"},
-        {"label": "---"},  # separator
-    ]}
-
-    Menu item clicks generate interaction events via recv().
+    Each menu: {"label": "Tools", "items": [{"label": "Run", "id": "run_btn"},
+    {"label": "---"}]}  — a ``"---"`` label is a separator.
     """
 
     def _call() -> str:
@@ -448,7 +456,7 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
         client.set_menu(menus)
         return "ok"
 
-    return client_registry.with_reconnect(_call)
+    return _bounded(_call)
 
 
 @mcp.tool()
@@ -458,13 +466,10 @@ def register_tool(
     shortcut: str | None = None,
     icon: str | None = None,
 ) -> str:
-    """Register a menu item in the Lux Tools menu.
+    """Register a menu item in the shared Lux Tools menu.
 
-    The item appears in the shared Tools menu alongside items from other
-    MCP servers. When the user clicks it, only this server receives the
-    callback via recv().
-
-    Items are automatically removed when the server disconnects.
+    Only this server receives the click via recv(). The item is removed
+    automatically when the server disconnects.
     """
     item: dict[str, Any] = {"label": label, "id": tool_id}
     if shortcut is not None:
@@ -480,7 +485,7 @@ def register_tool(
             _session_menus.setdefault(key, []).append(tool_id)
         return f"registered:{tool_id}"
 
-    return client_registry.with_reconnect(_call)
+    return _bounded(_call)
 
 
 @mcp.tool()
@@ -491,8 +496,6 @@ def set_theme(theme: str) -> str:
       imgui_colors_light, imgui_colors_dark, imgui_colors_classic,
       darcula, darcula_darker, material_flat, photoshop_style,
       grey_flat, cherry, light_rounded, microsoft_style, from_imgui_colors_dark
-
-    Example: set_theme("imgui_colors_light") for dashboards and data views.
     """
     if not _display_running():
         return "not running"
@@ -506,7 +509,7 @@ def set_theme(theme: str) -> str:
             return f"error: {response.error}"
         return f"theme:{response.result.get('theme', theme)}"
 
-    return client_registry.with_reconnect(_call)
+    return _bounded(_call)
 
 
 @mcp.tool()
@@ -516,13 +519,10 @@ def set_window_settings(
     decorated: bool | None = None,  # noqa: FBT001
     fps_idle: float | None = None,
 ) -> str:
-    """Modify display window settings. Only provided fields are changed.
+    """Modify display window settings. Only provided fields change.
 
-    Args:
-        opacity: Window opacity (0.1-1.0).
-        font_scale: Font size multiplier (0.5-3.0).
-        decorated: Show window title bar and borders.
-        fps_idle: Target FPS when idle (1-120).
+    Fields: opacity (0.1-1.0), font_scale (0.5-3.0), decorated (title bar/borders),
+    fps_idle (target idle FPS, 1-120).
     """
     params: dict[str, Any] = {}
     if opacity is not None:
@@ -547,7 +547,7 @@ def set_window_settings(
             return f"error: {response.error}"
         return json.dumps(response.result, indent=2)
 
-    return client_registry.with_reconnect(_call)
+    return _bounded(_call)
 
 
 @_query_tool(

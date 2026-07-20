@@ -1,9 +1,8 @@
 """luxd — the Lux daemon process entry point.
 
-Boots the WebSocket session hub: multiplexes MCP sessions onto a single
-display connection. Each WebSocket connection is one Claude Code session,
-identified by ``?session_key=<pid>``. Domain state lives in
-``punt_lux.domain.hub``; this module is the transport bootstrapper.
+Boots the WebSocket session hub: it multiplexes MCP sessions (one per Claude
+Code session, keyed by ``?session_key=<pid>``) onto a single display connection.
+Domain state lives in ``punt_lux.domain.hub``; this module bootstraps transport.
 """
 
 from __future__ import annotations
@@ -57,8 +56,7 @@ async def _health_route(request: Request) -> JSONResponse:  # noqa: ARG001
 async def _mcp_websocket_route(websocket: WebSocket) -> None:
     """MCP JSON-RPC over WebSocket for mcp-proxy.
 
-    Each connection gets its own MCP session with isolated state.
-    Auth is checked before the WebSocket is accepted.
+    Each connection gets its own isolated MCP session; auth is checked first.
     """
     from mcp.server.websocket import websocket_server
 
@@ -70,9 +68,9 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
         raw_key = str(uuid.uuid4())[:8]
     session_key = _CONTROL_CHAR_RE.sub("", raw_key)[:64]
 
-    # Reject cross-site WebSocket hijacking (CSWSH). Browsers always send
-    # an Origin header on WebSocket upgrades; non-browser clients (mcp-proxy)
-    # do not. Allowlist localhost origins for Electron-based editors.
+    # Reject cross-site WebSocket hijacking (CSWSH): browsers always send an
+    # Origin on WebSocket upgrades, non-browser clients (mcp-proxy) do not.
+    # Allowlist localhost origins for Electron-based editors.
     origin = websocket.headers.get("Origin")
     if origin is not None and urlparse(origin).hostname not in _ALLOWED_HOSTS:
         logger.warning("Rejected CSWSH: Origin=%s, session_key=%s", origin, session_key)
@@ -93,11 +91,9 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
         logger.exception("MCP WebSocket error: session_key=%s", session_key)
     finally:
         _active_sessions.discard(session_key)
-        # Connection close: cascade cleanup runs through the hub
-        # lifecycle module — drops the HubDisplay client registration,
-        # marks every owned root removed (the Element Observer cascade
-        # prunes the rest), purges the connection's topic scope, and
-        # unbinds its outbound writer.
+        # On close, cascade cleanup drops the HubDisplay registration, marks
+        # every owned root removed (the Observer cascade prunes the rest), purges
+        # the connection's topic scope, and unbinds its outbound writer.
         from punt_lux.domain.hub import disconnect_connection
         from punt_lux.domain.ids import ConnectionId
         from punt_lux.tools.inbox import drop_session
@@ -117,8 +113,7 @@ def build_app(
 ) -> Starlette:
     """Build the Starlette ASGI application.
 
-    Exposed as a factory so tests can construct the app without starting
-    uvicorn -- just wrap with ``starlette.testclient.TestClient``.
+    A factory so tests can construct the app without uvicorn, via ``TestClient``.
     """
     routes = [
         Route("/health", _health_route, methods=["GET"]),
@@ -184,9 +179,16 @@ def serve(
 
     @asynccontextmanager
     async def lifespan(_app: Starlette) -> AsyncGenerator[None]:
-        yield
-        _remove_port_file(port_path)
-        pid_path.unlink(missing_ok=True)
+        # The one background writer to the display starts and stops with luxd.
+        from punt_lux.domain.hub.replicator_instance import hub_replicator
+
+        hub_replicator.start()
+        try:
+            yield
+        finally:
+            hub_replicator.stop()
+            _remove_port_file(port_path)
+            pid_path.unlink(missing_ok=True)
 
     app = build_app(lifespan=lifespan)
 
@@ -200,8 +202,7 @@ def serve(
     )
     server = uvicorn.Server(config)
 
-    # Write the port file after bind so callers always see the actual port
-    # (important when port == 0 requests an OS-assigned ephemeral port).
+    # Write the port file after bind so callers see the real (maybe ephemeral) port.
     original_startup = server.startup
 
     async def _startup_with_port_file(

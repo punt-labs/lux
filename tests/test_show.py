@@ -372,6 +372,7 @@ class TestShowBeadsCLI:
                 "punt_lux.apps._beads_payload.subprocess.run",
                 return_value=_mock_bd_result([], returncode=1),
             ),
+            patch("punt_lux.paths.DisplayPaths.is_running", return_value=True),
             patch("punt_lux.display_client.DisplayClient", return_value=mock_client),
         ):
             result = runner.invoke(
@@ -411,6 +412,7 @@ class TestShowBeadsCLI:
                 "punt_lux.apps._beads_payload.subprocess.run",
                 return_value=_mock_bd_result(active),
             ),
+            patch("punt_lux.paths.DisplayPaths.is_running", return_value=True),
             patch("punt_lux.display_client.DisplayClient", return_value=mock_client),
         ):
             result = runner.invoke(
@@ -425,17 +427,13 @@ class TestShowBeadsCLI:
         scene_id = call_args[0][0]
         assert scene_id.startswith("beads-")  # project-scoped tab
 
-    def test_show_beads_timeout(
+    def test_show_beads_reports_display_down(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        """The CLI down-checks ``is_running()`` before sending, not by ack."""
         monkeypatch.chdir(tmp_path)
-
-        mock_client = MagicMock()
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
-        mock_client.show = MagicMock(return_value=None)
 
         sock = str(tmp_path / "test.sock")
         with (
@@ -443,7 +441,7 @@ class TestShowBeadsCLI:
                 "punt_lux.apps._beads_payload.subprocess.run",
                 return_value=_mock_bd_result(_ISSUES),
             ),
-            patch("punt_lux.display_client.DisplayClient", return_value=mock_client),
+            patch("punt_lux.paths.DisplayPaths.is_running", return_value=False),
         ):
             result = runner.invoke(
                 app,
@@ -451,7 +449,7 @@ class TestShowBeadsCLI:
             )
 
         assert result.exit_code == 1
-        assert "Timeout" in result.output
+        assert "not running" in result.output.lower()
 
     def test_show_no_args_shows_help(self) -> None:
         result = runner.invoke(app, ["show"])
