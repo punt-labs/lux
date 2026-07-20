@@ -40,6 +40,11 @@ class PlotRenderer:
 
     def render(self, elem: PlotElement) -> None:
         """Paint the plot frame, axes, and every series within it."""
+        # Reject a malformed element before opening any ImGui/ImPlot state, so
+        # the designed rejection never leaves the render stack half-open. The
+        # nested finally below is structural insurance for any other in-body
+        # failure (a raising setup_axes or plot call).
+        labels = self._series_labels(elem.series)
         imgui.push_id(elem.id)
         try:
             if implot.begin_plot(elem.title, ImVec2(elem.width, elem.height)):
@@ -47,24 +52,36 @@ class PlotRenderer:
                     if elem.x_label or elem.y_label:
                         implot.setup_axes(elem.x_label or "", elem.y_label or "")
                     for index, series in enumerate(elem.series):
-                        self._plot_series(series, index)
+                        self._plot_series(series, labels[index], index)
                 finally:
                     implot.end_plot()
         finally:
             imgui.pop_id()
 
     @staticmethod
-    def _plot_series(series: dict[str, Any], index: int) -> None:
+    def _series_labels(series: list[dict[str, Any]]) -> list[str]:
+        """Return each series' legend label, raising on the first non-str.
+
+        The series mapping is unvalidated ``Any``; a label that is ``None`` or a
+        number would render as "None"/"5", so the whole element is rejected
+        before any drawing begins.
+        """
+        labels: list[str] = []
+        for s in series:
+            label = s.get("label", "data")
+            if not isinstance(label, str):
+                msg = f"series label must be a str, got {type(label).__name__}"
+                raise TypeError(msg)
+            labels.append(label)
+        return labels
+
+    @staticmethod
+    def _plot_series(series: dict[str, Any], label: str, index: int) -> None:
         """Plot one series (line / scatter / bar) from its wire mapping."""
         x_data = np.array(series.get("x", []), dtype=np.float64)
         y_data = np.array(series.get("y", []), dtype=np.float64)
         if len(x_data) == 0 or len(y_data) == 0:
             return
-
-        label = series.get("label", "data")
-        if not isinstance(label, str):
-            msg = f"series label must be a str, got {type(label).__name__}"
-            raise TypeError(msg)
 
         s_type: str = series.get("type", "line")
         imgui.push_id(index)

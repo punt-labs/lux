@@ -133,14 +133,20 @@ def test_render_pops_plot_id_even_when_plot_not_begun(
     implot.end_plot.assert_not_called()
 
 
-def test_plot_series_rejects_non_str_label() -> None:
-    """A malformed wire label fails fast instead of reaching ImPlot as garbage."""
+def test_series_labels_default_and_reject() -> None:
+    """Missing labels default to "data"; a non-str label raises TypeError."""
+    assert PlotRenderer._series_labels([{"type": "line"}, {"label": "S"}]) == [
+        "data",
+        "S",
+    ]
     with pytest.raises(TypeError):
-        PlotRenderer._plot_series({"type": "line", "x": [1], "y": [2], "label": 5}, 0)
+        PlotRenderer._series_labels([{"label": 5}])
 
 
-def test_render_rejects_non_str_label(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A non-str label surfaces as TypeError through the real render path."""
+def test_render_rejects_non_str_label_before_opening_implot(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A malformed label is rejected before any ImGui/ImPlot state is opened."""
     implot = MagicMock()
     implot.begin_plot.return_value = True
     imgui = MagicMock()
@@ -153,25 +159,33 @@ def test_render_rejects_non_str_label(monkeypatch: pytest.MonkeyPatch) -> None:
     with pytest.raises(TypeError):
         PlotRenderer().render(plot)
 
+    implot.begin_plot.assert_not_called()
+    imgui.push_id.assert_not_called()
 
-def test_render_ends_plot_even_when_a_series_raises(
+
+def test_render_ends_plot_when_the_body_raises(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A raising series must not leave ImPlot's plot stack unbalanced."""
+    """An in-body failure still balances the plot and id stacks.
+
+    A valid label passes the up-front check and opens the plot; a raising
+    plot call must still reach end_plot and pop every pushed id.
+    """
     implot = MagicMock()
     implot.begin_plot.return_value = True
+    implot.plot_line.side_effect = RuntimeError("boom")
     imgui = MagicMock()
     _patch(monkeypatch, implot, imgui)
     plot = PlotElement(
         id="p",
-        series=[{"type": "line", "x": [1], "y": [2], "label": None}],
+        series=[{"type": "line", "x": [1], "y": [2], "label": "L"}],
     )
 
-    with pytest.raises(TypeError):
+    with pytest.raises(RuntimeError):
         PlotRenderer().render(plot)
 
     implot.end_plot.assert_called_once_with()
-    imgui.pop_id.assert_called_once_with()
+    assert imgui.pop_id.call_count == 2
 
 
 def test_render_skips_series_with_empty_data(monkeypatch: pytest.MonkeyPatch) -> None:
