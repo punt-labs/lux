@@ -11,6 +11,7 @@ it paints deterministically from the wire element.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Self, final
 
 import numpy as np
@@ -20,6 +21,33 @@ if TYPE_CHECKING:
     from punt_lux.protocol.elements.plot_element import PlotElement
 
 __all__ = ["PlotRenderer"]
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class SeriesLabel:
+    """The visible legend text and unique ImPlot item ID for one series.
+
+    ImPlot keys every item by its label string, so two series sharing a
+    label — including the label-less default "data" — land in one item
+    slot and fight over it. The per-plot series index disambiguates the
+    ID; "##" hides that suffix from the legend, so the text a viewer reads
+    is unchanged. ImPlot scopes items per plot, so the index alone is
+    unique within a plot — the element id need not be threaded in.
+    """
+
+    _text: str
+    _index: int
+
+    @property
+    def visible(self) -> str:
+        """Return the legend text a viewer sees (the part before "##")."""
+        return self._text.split("##", 1)[0]
+
+    @property
+    def item_id(self) -> str:
+        """Return the ImPlot item ID: the label with a hidden unique suffix."""
+        return f"{self._text}##{self._index}"
 
 
 @final
@@ -37,26 +65,26 @@ class PlotRenderer:
         if implot.begin_plot(plot_title, ImVec2(elem.width, elem.height)):
             if elem.x_label or elem.y_label:
                 implot.setup_axes(elem.x_label or "", elem.y_label or "")
-            for series in elem.series:
-                self._plot_series(series)
+            for index, series in enumerate(elem.series):
+                self._plot_series(series, index)
             implot.end_plot()
 
     @staticmethod
-    def _plot_series(series: dict[str, Any]) -> None:
+    def _plot_series(series: dict[str, Any], index: int) -> None:
         """Plot one series (line / scatter / bar) from its wire mapping."""
         x_data = np.array(series.get("x", []), dtype=np.float64)
         y_data = np.array(series.get("y", []), dtype=np.float64)
         if len(x_data) == 0 or len(y_data) == 0:
             return
 
-        label: str = series.get("label", "data")
+        item_id = SeriesLabel(series.get("label", "data"), index).item_id
         s_type: str = series.get("type", "line")
         if s_type == "line":
-            implot.plot_line(label, x_data, y_data)
+            implot.plot_line(item_id, x_data, y_data)
         elif s_type == "scatter":
-            implot.plot_scatter(label, x_data, y_data)
+            implot.plot_scatter(item_id, x_data, y_data)
         elif s_type == "bar":
             try:
-                implot.plot_bars(label, x_data, y_data, 0.67)
+                implot.plot_bars(item_id, x_data, y_data, 0.67)
             except TypeError:
-                implot.plot_bars(label, y_data, 0.67)
+                implot.plot_bars(item_id, y_data, 0.67)

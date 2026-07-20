@@ -185,6 +185,10 @@
 
 ### Fixed
 
+- **Plot series without labels no longer flicker or fight for one legend slot.**
+  Two series that share a label — including the label-less default "data" —
+  used to collide on a single ImPlot item; each series now gets a unique item
+  ID with the same visible legend text.
 - **MCP tools no longer block on the display; the 38-minute hang class is closed
   by construction.** Every mutation tool (`show`, `show_table`, `show_dashboard`,
   `update`, `clear`) now writes only to the Hub's authoritative store and returns
