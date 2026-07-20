@@ -23,12 +23,12 @@ the design fixes them):
 | `ReplaceBegin` / `ReplaceCommit` | a mutation under the store write lock: `HubDisplay.replace_scene` / `HubSceneWriter.apply`, then `replicator.mark_dirty` |
 | `ClearStore` | `HubSceneWriter.clear` + `replicator.mark_cleared` |
 | `Wake` / `Drain` | the worker's condition wait, the 16 ms coalesce, and the drain of the dirty set + cleared flag |
-| `Snap` | the worker's `with hub_display.read_lock(): roots = list(scene_roots(scene))` |
+| `Snap` | the store's `SceneReader.snapshot(scene)` — a deep copy of the roots taken under the read lock |
 | `SendBegin` / `SendOk` | the time-limited `show_async` send that succeeds |
 | `SendStuck` | the send raising `BlockingIOError` (send timeout, `SO_SNDTIMEO`) |
 | `SendDead` | the send raising `OSError` (`ECONNRESET`/`EPIPE`) |
 | `Reap` / `Ensure` | `DisplayPaths().reap()` then `DisplayPaths().ensure()` + `client.close()` |
-| `Remark` | `remark_all_dirty()` over `HubDisplay.scene_ids()` |
+| `Remark` | `HubReplicator._remark` over `HubDisplay.live_scene_ids()`, plus a re-marked clear |
 | `Reconn` | `client.close()` + reconnect on the dead-peer path |
 | `ApplyClear` | the worker pushing the clear (blank) for the cycle |
 | `ProcDone` | the worker returning to the condition wait |
@@ -105,6 +105,17 @@ the design fixes them):
 | RC1 | **`OSError` → close and reconnect, no kill** | connection re-established; nothing terminated |
 | RC2 | the in-flight scene on the dead-peer path | re-queued so nothing drained is dropped |
 | RC3 | `OSError` where the peer process is truly gone (fresh empty display) | **must re-mark every live scene, as the reap path does — else a lost update** (see spec §Verification) |
+| RC4 | `OSError` on a cleared cycle's send, then a same-display reconnect | the consumed clear is re-marked; the retry blanks then repaints, never leaving the old scene on screen |
+
+### Recovery resilience — the recovery step itself fails
+
+These partitions extend the spec pending the jms model extension for the amended
+recovery semantics; each is covered against the real worker.
+
+| # | Partition | Expected |
+|---|---|---|
+| RR1 | reap/ensure raises (an unspawnable display) or the send raises a non-socket error | the drained batch is restored (re-marked) and the worker backs off, so nothing is lost and the worker never spins |
+| RR2 | the display recovers on the retry after a transient respawn failure | the restored batch repaints once the display is back |
 
 ### ApplyClear / ProcDone — ending the cycle
 
@@ -139,22 +150,22 @@ display-lifecycle audit applied.
 
 | Partition | Covering test | Status |
 |---|---|---|
-| M1 | test_store_lock::test_read_and_write_share_one_reentrant_slot | COVERED |
+| M1 | test_hub_replicator::test_the_worker_snapshot_waits_for_a_mutation_to_commit | COVERED |
 | M2 | test_store_lock::test_a_second_thread_blocks_while_the_lock_is_held | COVERED |
 | M3 | test_hub_replicator::test_a_dirty_scene_is_sent_to_the_display | COVERED |
-| M4 | test_hub_replicator::test_the_worker_snapshot_blocks_while_a_mutator_holds_the_write_lock | COVERED |
+| M4 | test_hub_replicator::test_the_worker_snapshot_waits_for_a_mutation_to_commit | COVERED |
 | M5 | test_dirty_signal::test_two_scenes_drain_in_one_batch | COVERED |
 | CL1 | test_tools::TestClearTool::test_clear_empties_hub_store_and_marks_cleared | COVERED |
 | CL2 | test_tools::TestClearIsDisplayIndependent::test_clear_empties_the_store_and_signals_a_blank | COVERED |
 | CL3 | test_hub_replicator::test_clear_is_sent_before_the_batch | COVERED |
-| CL4 | test_hub_replicator::test_clear_is_sent_before_the_batch | COVERED |
+| CL4 | test_hub_replicator::test_a_show_then_clear_ends_blank | COVERED |
 | D1 | test_dirty_signal::test_an_idle_signal_blocks_until_a_mark_arrives | COVERED |
 | D2 | test_dirty_signal::test_many_marks_of_one_scene_coalesce_to_a_single_entry | COVERED |
 | D3 | test_dirty_signal::test_two_scenes_drain_in_one_batch | COVERED |
 | D4 | test_dirty_signal::test_a_mark_after_the_drain_is_carried_to_the_next_cycle | COVERED |
 | D5 | test_dirty_signal::test_drain_takes_dirty_and_cleared_together_and_resets_both | COVERED |
 | S1 | test_hub_replicator::test_a_dirty_scene_is_sent_to_the_display | COVERED |
-| S2 | test_hub_replicator::test_the_worker_snapshot_blocks_while_a_mutator_holds_the_write_lock | COVERED |
+| S2 | test_hub_replicator::test_the_worker_snapshot_waits_for_a_mutation_to_commit | COVERED |
 | S3 | test_hub_replicator::test_clear_is_sent_before_the_batch | COVERED |
 | S4 | test_hub_replicator::test_a_dirty_scene_is_sent_to_the_display | COVERED |
 | P1 | test_hub_replicator::test_a_mutator_makes_progress_while_the_worker_is_stuck_sending | COVERED |
@@ -165,13 +176,16 @@ display-lifecycle audit applied.
 | P6 | test_hub_replicator::test_a_mutator_makes_progress_while_the_worker_is_stuck_sending | COVERED |
 | K1 | test_hub_replicator::test_a_wedged_display_is_reaped_respawned_and_repainted | COVERED |
 | K2 | test_hub_replicator::test_a_wedged_display_is_reaped_respawned_and_repainted | COVERED |
-| K3 | test_hub_replicator::test_respawn_with_an_empty_store_repaints_nothing | COVERED |
+| K3 | test_hub_replicator::test_recovery_of_an_emptied_store_repaints_nothing | COVERED |
 | K4 | test_hub_replicator::test_a_wedged_display_is_reaped_respawned_and_repainted | COVERED |
-| K5 | test_hub_replicator::test_a_wedged_display_is_reaped_respawned_and_repainted | COVERED |
+| K5 | test_hub_replicator::test_a_mutation_during_recovery_is_repainted_after_respawn | COVERED |
 | K6 | test_hub_replicator::test_a_wedged_display_is_reaped_respawned_and_repainted | COVERED |
 | RC1 | test_hub_replicator::test_a_dead_peer_reconnects_without_reaping | COVERED |
 | RC2 | test_hub_replicator::test_a_dead_peer_reconnects_without_reaping | COVERED |
 | RC3 | test_hub_replicator::test_a_dead_peer_reconnects_without_reaping | COVERED |
+| RC4 | test_hub_replicator::test_a_dead_peer_recovery_re_marks_a_consumed_clear | COVERED |
+| RR1 | test_hub_replicator::test_a_recovery_failure_restores_the_batch_and_retries | COVERED |
+| RR2 | test_hub_replicator::test_a_recovery_failure_restores_the_batch_and_retries | COVERED |
 | E1 | test_hub_replicator::test_clear_is_sent_before_the_batch | COVERED |
 | E2 | test_hub_replicator::test_a_clear_with_no_batch_only_blanks | COVERED |
 | E3 | test_hub_replicator::test_a_dirty_scene_is_sent_to_the_display | COVERED |

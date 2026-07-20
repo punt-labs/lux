@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import threading
 
-from punt_lux.domain.hub.replicator import DirtySignal
+from punt_lux.domain.hub.dirty_signal import DirtySignal
 from punt_lux.domain.ids import SceneId
 
 _S1 = SceneId("s1")

@@ -155,21 +155,33 @@ class _FakeProvider:
 
 
 class _FakeLifecycle:
-    """Records reap/ensure calls and their order."""
+    """Records reap/ensure calls and their order; ``ensure`` can be armed to fail.
+
+    An armed ``ensure`` raises once and then clears, modelling a display that
+    cannot be respawned on the first try but recovers on a retry.
+    """
 
     calls: list[str]
-    __slots__ = ("calls",)
+    _ensure_fail: Exception | None
+    __slots__ = ("_ensure_fail", "calls")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self.calls = []
+        self._ensure_fail = None
         return self
+
+    def arm_ensure_failure(self, exc: Exception) -> None:
+        self._ensure_fail = exc
 
     def reap(self, timeout: float = 2.0) -> None:
         self.calls.append("reap")
 
     def ensure(self, timeout: float = 5.0) -> Path:
         self.calls.append("ensure")
+        if self._ensure_fail is not None:
+            exc, self._ensure_fail = self._ensure_fail, None
+            raise exc
         return Path("/tmp/lux-test.sock")
 
 
@@ -289,6 +301,54 @@ def test_a_dead_peer_reconnects_without_reaping() -> None:
         repl.stop()
 
 
+def test_a_recovery_failure_restores_the_batch_and_retries() -> None:
+    # A recovery step that itself fails — here ``ensure`` cannot respawn the
+    # display on the first try — must not drop the drained work. The worker puts
+    # the batch back, backs off, and the next cycle retries it once the display
+    # recovers, so nothing is lost when a respawn transiently fails.
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    repl, sender, _provider, lifecycle = _replicator(store)
+    sender.arm_failure(BlockingIOError())  # first send wedges → reap/ensure
+    lifecycle.arm_ensure_failure(RuntimeError("cannot spawn display"))
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        # The first cycle wedges and its respawn raises; the batch is restored
+        # and the retry, with a healed display, repaints the scene.
+        assert sender.wait_sent(3.0)
+        assert sender.shows == ["s1"]
+        assert lifecycle.calls == ["reap", "ensure"]  # ensure raised, not retried
+    finally:
+        repl.stop()
+
+
+def test_a_dead_peer_recovery_re_marks_a_consumed_clear() -> None:
+    # A clear coalesced with a show, where the clear's send hits a dead peer:
+    # the reconnect re-marks the consumed clear, so the display is blanked again
+    # on the retry. Without the re-mark, a same-display reconnect would leave the
+    # old scene on screen forever.
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    repl, sender, provider, _lifecycle = _replicator(store)
+    sender.arm_failure(OSError("EPIPE"))  # the clear's send finds a dead peer
+    repl.start()
+    try:
+        repl.mark_cleared()
+        repl.mark_dirty(scene)
+        assert sender.wait_sent(3.0)
+        # Give the retried cycle a moment to blank then repaint.
+        for _ in range(100):
+            if sender.shows:
+                break
+            threading.Event().wait(0.01)
+        assert provider.drops == 1
+        # The clear survived the dead-peer recovery: blank first, then repaint.
+        assert sender.timeline == ["clear", "show:s1"]
+    finally:
+        repl.stop()
+
+
 def test_a_since_emptied_scene_is_skipped_not_sent() -> None:
     # 5b: a drained mark for a scene the store no longer holds is skipped. The
     # clear already blanked the display; resending an empty framed show would
@@ -348,8 +408,8 @@ def test_a_mutator_makes_progress_while_the_worker_is_stuck_sending() -> None:
     repl.start()
     try:
         repl.mark_dirty(scene)
-        # Wait until the worker is parked inside the (gated) send.
-        threading.Event().wait(0.2)
+        # The worker is provably parked inside the gated send — no hopeful sleep.
+        assert sender.wait_entered(2.0)
 
         # A mutator runs to completion while the worker holds the send open.
         done = threading.Event()
@@ -368,35 +428,95 @@ def test_a_mutator_makes_progress_while_the_worker_is_stuck_sending() -> None:
         repl.stop()
 
 
-def test_the_worker_snapshot_blocks_while_a_mutator_holds_the_write_lock() -> None:
-    # S2: the torn read. While a mutator holds the store write lock, the worker's
-    # snapshot must not fire — the send waits until the write lock releases.
+def test_a_mutation_during_recovery_is_repainted_after_respawn() -> None:
+    # K5: a mutation lands while the worker is reaping and respawning a wedged
+    # display. The recovery re-marks every live scene, so the fresh display is
+    # repainted with the latest state — including the scene added mid-recovery.
     store = HubDisplay()
     scene = _seed(store, "s1")
+    other = SceneId("s2")
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    gate = threading.Event()
+    sender.block_next(gate)
+    sender.arm_failure(BlockingIOError())
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        assert sender.wait_entered(2.0)  # worker parked in the send to "s1"
+        # A new scene is installed while the worker is stuck; the send then
+        # fails and recovery re-marks every live scene, both of them.
+        store.register_client(_CONN)
+        store.replace_scene(_CONN, other, [TextElement(id="s2-root", content="y")])
+        gate.set()  # release → send raises → reap/ensure/re-mark
+        for _ in range(300):
+            if set(sender.shows) >= {"s1", "s2"}:
+                break
+            threading.Event().wait(0.01)
+        assert set(sender.shows) == {"s1", "s2"}
+    finally:
+        gate.set()
+        repl.stop()
+
+
+def test_the_worker_snapshot_waits_for_a_mutation_to_commit() -> None:
+    # S2: the torn read. A mutator holds the store write lock and replaces the
+    # scene with a new value; the worker's snapshot must not fire mid-mutation.
+    # It waits for the write lock to release, then copies the committed value —
+    # never a half-updated one. Asserting the pushed value equals the
+    # post-mutation value proves the snapshot saw the whole commit, not a tear.
+    store = HubDisplay()
+    scene = _seed(store, "s1", content="before")
     repl, sender, _provider, _lifecycle = _replicator(store)
     repl.start()
     try:
         with store.write_lock():
             repl.mark_dirty(scene)
-            # The worker woke and drained, but cannot snapshot under the held
-            # write lock, so nothing is sent yet.
+            # Replace the scene with a new value while the lock is held. The
+            # worker woke and drained but cannot snapshot, so nothing is sent.
+            store.replace_scene(
+                _CONN, scene, [TextElement(id="s1-root", content="after")]
+            )
             assert not sender.wait_sent(0.3)
-        # The write lock released; the worker snapshots and sends.
+        # The write lock released; the worker snapshots the committed value.
         assert sender.wait_sent(2.0)
-        assert sender.shows == ["s1"]
+        (pushed,) = sender.roots
+        assert [e.to_dict()["content"] for e in pushed] == ["after"]
     finally:
         repl.stop()
 
 
 def test_shutdown_flushes_a_pending_scene_then_stops() -> None:
     # SH1: a stop with pending work does one final bounded flush before stopping.
+    # Requesting the stop before the worker starts makes the first drain provably
+    # see shutting=True alongside the pending scene, so the single-cycle flush is
+    # deterministic rather than racing the 16 ms coalesce window.
     store = HubDisplay()
     scene = _seed(store, "s1")
     repl, sender, _provider, _lifecycle = _replicator(store)
     repl.mark_dirty(scene)
+    repl.stop()  # request the stop before the worker's first drain
     repl.start()
-    repl.stop()
+    repl.stop()  # join the now-finished worker
     assert sender.shows == ["s1"]
+
+
+def test_a_show_then_clear_ends_blank() -> None:
+    # CL4: a show and a clear coalesce before the drain. The clear emptied the
+    # store, so the cycle blanks the display and the now-empty scene is skipped —
+    # the display ends blank, consistent with the emptied store.
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    store.replace_scene(_CONN, scene, ())  # the clear emptied the scene
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    repl.start()
+    try:
+        repl.mark_dirty(scene)
+        repl.mark_cleared()
+        assert sender.wait_sent(2.0)
+        assert sender.timeline == ["clear"]  # blanked; the empty scene skipped
+        assert sender.shows == []
+    finally:
+        repl.stop()
 
 
 def test_a_clear_with_no_batch_only_blanks() -> None:
@@ -434,13 +554,24 @@ def test_a_fresh_replicator_after_a_stop_starts_idle_and_works() -> None:
 
 def test_shutdown_with_a_stuck_display_does_not_reap() -> None:
     # SH2: the final flush is best-effort — a stuck send fails within its limit
-    # and shutdown continues without reaping or respawning.
+    # and shutdown continues without reaping or respawning. The stop is requested
+    # before the worker starts, so the flush is deterministically the shutting
+    # cycle rather than racing the coalesce window.
     store = HubDisplay()
     scene = _seed(store, "s1")
     repl, sender, provider, lifecycle = _replicator(store)
     sender.arm_failure(BlockingIOError())
     repl.mark_dirty(scene)
+    repl.stop()  # request the stop before the worker's first drain
     repl.start()
-    repl.stop()
+    repl.stop()  # join the now-finished worker
     assert lifecycle.calls == []
     assert provider.drops == 0
+
+
+def test_stop_without_start_is_a_no_op() -> None:
+    # A replicator that was never started stops cleanly — there is no worker
+    # thread to join, and the stop must not raise.
+    store = HubDisplay()
+    repl, _sender, _provider, _lifecycle = _replicator(store)
+    repl.stop()
