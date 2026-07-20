@@ -3093,6 +3093,19 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_lux/send_timeout.py": {
+    "method_ratio": 0.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 1.0,
+    "max_complexity": 1.0,
+    "avg_complexity": 1.0,
+    "module_size": 24.0,
+    "classes_per_module": 0.0,
+    "class_to_func_ratio": 0.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_lux/service.py": {
     "method_ratio": 0.875,
     "encapsulation_ratio": 1.0,
