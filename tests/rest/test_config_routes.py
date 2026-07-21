@@ -78,3 +78,13 @@ def test_write_rejects_an_absent_repo_field_with_422() -> None:
     detail = resp.json()["detail"][0]
     assert detail["loc"][-1] == "repo"
     assert detail["type"] == "missing"
+
+
+def test_write_faults_with_502_on_config_io_failure(tmp_path: Path) -> None:
+    # The repo is a valid directory (passes the bind-time repo rule), but its
+    # .punt-labs is a file, so writing the config raises an OSError the store
+    # maps to a fault → 502. Previously this crashed the tool.
+    (tmp_path / ".punt-labs").write_text("not a directory")
+    client = make_client()
+    resp = client.put("/display-mode", json={"mode": "on", "repo": str(tmp_path)})
+    assert resp.status_code == 502

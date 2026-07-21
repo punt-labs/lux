@@ -22,13 +22,17 @@
   tree-composing conveniences stay MCP-only, where their callers are: a
   connection-less REST publish in one fixed scope can never deliver, so it is
   not exposed until the REST-session decision lands. See DES-055.
-- **`fault` operation error / HTTP 502** — a new `OpError` code for a backing
-  resource that failed a *valid* request, distinct from a caller error
-  (`rejected`/`invalid_request`) and a down display (`display_unavailable`). A
-  malformed display reply that a probe cannot narrow (a screenshot with no path,
-  a ping with no round-trip time, a frame ack for the wrong frame) now reports
-  `fault`, not `rejected`; `rejected` stays reserved for the engine refusing a
-  caller's write. REST maps `fault` to 502.
+- **`fault` operation error / HTTP 502** — a new `OpError` code for an
+  engine-side failure on a *valid* request, distinct from a caller error
+  (`rejected`/`invalid_request`) and a down display (`display_unavailable`). Any
+  malformed display reply the model cannot narrow — a screenshot with no path, a
+  ping with no round-trip time, a frame ack for the wrong or a missing frame, or
+  any theme/window/info/events/errors reply that fails validation — now reports
+  `fault`, not `rejected`. A config-file read or write that raises `OSError`
+  (the display-mode file is a directory, its parent is a file) is also a `fault`
+  rather than an uncaught crash: the config file is a backing resource, caught at
+  the `DisplayModeStore` boundary. `rejected` stays reserved for the engine
+  refusing a caller's write. REST maps `fault` to 502.
 - **Self-validating elements** — elements now check their own inputs. `show`
   decodes the element tree, then a hierarchy walk calls each element's
   `validate()` and collects *every* error across the tree (no fail-fast),

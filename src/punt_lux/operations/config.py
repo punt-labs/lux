@@ -1,18 +1,12 @@
-"""DisplayModeOperations — read and write a project's display-mode config.
-
-The mode lives in ``<repo>/.punt-labs/lux.md``. Turning it on eagerly connects
-to the display so the first render does not pay the connect cost. The client
-registry is given at construction so the eager connect is a real collaborator in
-a test without a running display.
-"""
+"""DisplayModeOperations — coordinate a project's display-mode config; the file's
+path and I/O belong to DisplayModeStore, so a config failure surfaces as a fault."""
 
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.config import ConfigManager
+from punt_lux.operations.display_mode_store import DisplayModeStore
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.config import DisplayModeRequest, DisplayModeState
 
@@ -41,8 +35,7 @@ class DisplayModeOperations:
         repo_error = DisplayModeRequest.check_repo(repo)
         if repo_error is not None:
             return repo_error
-        config = ConfigManager(config_path=Path(repo) / ".punt-labs" / "lux.md").read()
-        return DisplayModeState.from_config(config.display)
+        return DisplayModeStore(repo).read()
 
     def write_display_mode(
         self, request: DisplayModeRequest | OpError
@@ -50,9 +43,15 @@ class DisplayModeOperations:
         """Persist the mode; eagerly connect to the display when turning on."""
         if isinstance(request, OpError):
             return request
-        field = "y" if request.mode == "on" else "n"
-        config = ConfigManager(config_path=Path(request.repo) / ".punt-labs" / "lux.md")
-        config.write_field("display", field)
+        return self._apply(request)
+
+    def _apply(self, request: DisplayModeRequest) -> DisplayModeState | OpError:
+        """Write the field and eager-connect, surfacing a config I/O ``fault``."""
+        fault = DisplayModeStore(request.repo).write(
+            "y" if request.mode == "on" else "n"
+        )
+        if fault is not None:
+            return fault
         if request.mode == "on":
             self._eager_connect()
         return DisplayModeState(mode=request.mode)
