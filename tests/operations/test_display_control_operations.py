@@ -251,10 +251,12 @@ def test_set_frame_state_rejects_a_reply_missing_the_frame_id() -> None:
     assert result.code == "rejected"
 
 
-def test_set_frame_state_rejects_a_reply_acknowledging_a_different_frame() -> None:
+def test_set_frame_state_faults_on_a_reply_acknowledging_a_different_frame() -> None:
+    # The display acked a different frame than asked: the display did the wrong
+    # thing, so this is a backend fault, not the engine refusing a caller write.
     port = _FakePort(query=DisplayReplied({"frame_id": "other", "changed": {}}))
     ops = DisplayControlOperations(port)
     result = ops.set_frame_state("f1", FrameStatePatch.parse({"minimized": True}))
     assert isinstance(result, OpError)
-    assert result.code == "rejected"
+    assert result.code == "fault"
     assert "f1" in result.reason

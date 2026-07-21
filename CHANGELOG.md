@@ -4,6 +4,31 @@
 
 ### Added
 
+- **Typed REST surface on luxd** — a second thin client of the operations
+  facade, mounted beside the WebSocket MCP leg on luxd's one FastAPI app. Every
+  capability the facade exposes has a typed route (`PUT /scenes/{id}`,
+  `PATCH /scenes/{id}`, `DELETE /scenes`, `GET /scenes`, `GET /scenes/{id}`,
+  `GET /clients`, and the `/menus`, `/display`, `/display-mode`, `/events`, and
+  `/errors` routes). Each route binds a request model, calls one operation, and
+  maps the discriminated result to HTTP through one shared table —
+  `invalid_request` → 422, `not_found` → 404, `rejected` → 409, `fault` → 502,
+  `display_unavailable` → 503, `timeout` → 504 — so a route body is
+  parse-call-format only and a new operation inherits the mapping. The request
+  and response models are the operations layer's own; nothing is duplicated.
+  `/health` becomes a typed route returning `HubHealth`, a plain liveness probe
+  (process up + session count, not hub/replicator health). A route-parity guard
+  test fails if a facade operation gains no route, so REST cannot silently fall
+  behind the engine. Session-scoped pub-sub (publish/subscribe/receive) and the
+  tree-composing conveniences stay MCP-only, where their callers are: a
+  connection-less REST publish in one fixed scope can never deliver, so it is
+  not exposed until the REST-session decision lands. See DES-055.
+- **`fault` operation error / HTTP 502** — a new `OpError` code for a backing
+  resource that failed a *valid* request, distinct from a caller error
+  (`rejected`/`invalid_request`) and a down display (`display_unavailable`). A
+  malformed display reply that a probe cannot narrow (a screenshot with no path,
+  a ping with no round-trip time, a frame ack for the wrong frame) now reports
+  `fault`, not `rejected`; `rejected` stays reserved for the engine refusing a
+  caller's write. REST maps `fault` to 502.
 - **Self-validating elements** — elements now check their own inputs. `show`
   decodes the element tree, then a hierarchy walk calls each element's
   `validate()` and collects *every* error across the tree (no fail-fast),

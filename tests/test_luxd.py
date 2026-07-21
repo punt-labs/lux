@@ -110,7 +110,7 @@ class TestMcpWebsocketRoute:
 class TestBuildApp:
     def test_returns_starlette_app(self):
         app = build_app()
-        # Starlette apps have a router attribute
+        # FastAPI is a Starlette subclass, so the same attributes hold.
         assert hasattr(app, "router")
         assert hasattr(app, "routes")
 
@@ -119,3 +119,32 @@ class TestBuildApp:
         paths = [getattr(r, "path", None) for r in app.routes]
         assert "/health" in paths
         assert "/mcp" in paths
+
+
+class TestRestSurfaceMounted:
+    """The typed REST surface is live on the same app luxd serves.
+
+    These tests use ``build_app()``, which wires the surface over the process-wide
+    Hub singletons via ``RestSurface.for_hub()``. That is deliberate but only safe
+    for read-only routes like these — they observe shared state, they never mutate
+    it. A test that renders, clears, writes display mode, or otherwise mutates Hub
+    state must use the fake-backed ``tests/rest`` ``make_client`` path instead, so
+    it runs against a fresh HubDisplay and cannot bleed state across tests.
+    """
+
+    def test_health_returns_the_typed_body(self):
+        client = TestClient(build_app())
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+        assert isinstance(resp.json()["sessions"], int)
+
+    def test_a_rest_route_is_reachable(self):
+        # A real HTTP request against the assembled app reaches a REST route and
+        # gets a typed result — the surface is mounted, not merely importable.
+        client = TestClient(build_app())
+        resp = client.get("/scenes")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "scenes" in body
+        assert "frames" in body

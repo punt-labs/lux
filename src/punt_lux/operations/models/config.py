@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 from punt_lux.operations.models.common import OpError
 
@@ -20,15 +20,19 @@ class DisplayModeRequest(BaseModel):
     mode: Literal["on", "off"]
     repo: str  # absolute path to the caller's project
 
+    @field_validator("repo")
+    @classmethod
+    def _validate_repo(cls, value: str) -> str:
+        # REST binds this model directly, so the one repo rule must run here as
+        # well as in parse — a bad repo is then a bound-time 422, not a 500 in
+        # the config writer. check_repo is the shared rule the read path uses.
+        if (error := cls.check_repo(value)) is not None:
+            raise ValueError(error.reason)
+        return value
+
     @classmethod
     def parse(cls, mode: str, repo: str) -> DisplayModeRequest | OpError:
-        """Validate the ``y``/``n`` toggle and the repo, never raising.
-
-        The legacy MCP tools raised ``ValueError`` on bad input; that raise is now
-        the adapter's job — the operation layer only ever returns a discriminated
-        result, so a bad mode or repo becomes an ``invalid_request`` ``OpError``
-        the adapter reproduces as the legacy exception.
-        """
+        """Map the ``y``/``n`` toggle to a request, or an ``OpError``; never raises."""
         if mode == "y":
             resolved: Literal["on", "off"] = "on"
         elif mode == "n":
@@ -42,35 +46,28 @@ class DisplayModeRequest(BaseModel):
             return repo_error
         return cls(mode=resolved, repo=repo)
 
-    @staticmethod
-    def check_repo(repo: str) -> OpError | None:
-        """Return an ``OpError`` for a bad repo path, or ``None`` when it is valid.
+    @classmethod
+    def check_repo(cls, repo: str) -> OpError | None:
+        """Return an ``OpError`` for a bad repo, or ``None`` when it is a project.
 
-        The MCP server runs inside luxd, whose cwd is wherever launchd started it
-        — never the agent's project. Every caller must name its project with an
-        absolute path to an existing directory. ``None`` is the documented
-        "no error" contract shared by the read and write operations.
+        luxd's cwd is not the agent's project, so a caller must name its project
+        by absolute path to an existing directory; ``None`` is the "valid" answer.
         """
         if not repo:
-            return OpError(
-                code="invalid_request",
-                reason="repo is required and must be a non-empty string",
-            )
+            return cls._invalid("repo is required and must be a non-empty string")
         path = Path(repo)
         if not path.is_absolute():
-            return OpError(
-                code="invalid_request",
-                reason=f"repo must be an absolute path; got {repo!r}",
-            )
+            return cls._invalid(f"repo must be an absolute path; got {repo!r}")
         if not path.exists():
-            return OpError(
-                code="invalid_request", reason=f"repo path does not exist: {repo}"
-            )
+            return cls._invalid(f"repo path does not exist: {repo}")
         if not path.is_dir():
-            return OpError(
-                code="invalid_request", reason=f"repo must be a directory; got {repo}"
-            )
+            return cls._invalid(f"repo must be a directory; got {repo}")
         return None
+
+    @staticmethod
+    def _invalid(reason: str) -> OpError:
+        """Build the ``invalid_request`` this model reports for a malformed repo."""
+        return OpError(code="invalid_request", reason=reason)
 
 
 class DisplayModeState(BaseModel):

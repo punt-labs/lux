@@ -20,16 +20,13 @@ from socket import socket
 from typing import TYPE_CHECKING
 
 import uvicorn
-from starlette.applications import Starlette
-from starlette.middleware import Middleware
+from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import JSONResponse
-from starlette.routing import Route, WebSocketRoute
 
+from punt_lux.rest import HubHealth, RestSurface
 from punt_lux.transport_policy import LoopbackTransportPolicy
 
 if TYPE_CHECKING:
-    from starlette.requests import Request
     from starlette.websockets import WebSocket
 
 logger = logging.getLogger(__name__)
@@ -56,9 +53,9 @@ def _sanitize_for_log(value: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 
-async def _health_route(request: Request) -> JSONResponse:  # noqa: ARG001
-    """Return hub health status."""
-    return JSONResponse({"status": "ok", "sessions": len(_active_sessions)})
+async def _health_route() -> HubHealth:
+    """Report process liveness and the live MCP session count (not hub health)."""
+    return HubHealth(sessions=len(_active_sessions))
 
 
 async def _mcp_websocket_route(websocket: WebSocket) -> None:
@@ -119,31 +116,26 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
 
 def build_app(
     *,
-    lifespan: Callable[[Starlette], AbstractAsyncContextManager[None]] | None = None,
-) -> Starlette:
-    """Build the Starlette ASGI application.
+    lifespan: Callable[[FastAPI], AbstractAsyncContextManager[None]] | None = None,
+) -> FastAPI:
+    """Build the FastAPI application luxd serves.
 
     A factory so tests can construct the app without uvicorn, via ``TestClient``.
+    The typed REST surface mounts beside the WebSocket MCP leg on one app.
     """
-    routes = [
-        Route("/health", _health_route, methods=["GET"]),
-        WebSocketRoute("/mcp", _mcp_websocket_route),
-    ]
-
-    middleware = [
-        Middleware(
-            CORSMiddleware,
-            allow_origins=["http://localhost"],
-            allow_methods=["GET", "OPTIONS"],
-            allow_headers=["Content-Type"],
-        ),
-    ]
-
-    return Starlette(
-        routes=routes,
-        middleware=middleware,
-        lifespan=lifespan,
+    app = FastAPI(lifespan=lifespan)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost"],
+        allow_methods=["GET", "OPTIONS"],
+        allow_headers=["Content-Type"],
     )
+    app.add_api_route("/health", _health_route, methods=["GET"])
+    # A raw Starlette websocket route, not a FastAPI-analysed endpoint: the MCP
+    # leg is transport plumbing the SDK drives, unchanged by the REST surface.
+    app.router.add_websocket_route("/mcp", _mcp_websocket_route)
+    RestSurface.for_hub().mount(app)
+    return app
 
 
 # ---------------------------------------------------------------------------
@@ -184,7 +176,7 @@ def serve(
     port_path = hub_paths.port_path
 
     @asynccontextmanager
-    async def lifespan(_app: Starlette) -> AsyncGenerator[None]:
+    async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         # The one background writer to the display starts and stops with luxd.
         from punt_lux.domain.hub.replicator_instance import hub_replicator
 
