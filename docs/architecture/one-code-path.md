@@ -178,9 +178,11 @@ class OpError(BaseModel):
 ```
 
 The `code` is a closed set the caller can branch on; the `reason` is the human
-sentence for logs and messages. The MCP adapters format `OpError` back into the
-exact legacy strings so that agents see no behavior change, while REST and the
-command-line tool consume the typed form.
+sentence for logs and messages. For the string-return tools, the MCP adapters
+format `OpError` back into the exact legacy strings, so those tools' agents see
+no behavior change; the structured-output tools intentionally move to structured
+content instead (see the return-shape split under the query surface). REST and
+the command-line tool consume the typed form.
 
 ### Validation is the operation's job, not the adapter's
 
@@ -576,6 +578,8 @@ class RemovePatch(BaseModel):
     id: str
 
 # A patch sets fields on an element or removes it — never both, never neither.
+# Real update patches carry no kind field ({"id", "set"} or {"id", "remove":
+# true}); the boundary codec maps each wire shape to its typed variant.
 ScenePatch = Annotated[SetPatch | RemovePatch, Field(discriminator="kind")]
 
 class UpdateRequest(BaseModel):
