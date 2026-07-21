@@ -15,9 +15,11 @@ existing layout — the ownership move to the Hub is invisible to the user.
 
 State is guarded by one independent lock. The lock is never held across another
 lock or any I/O — tool threads mutate and read the registry, and the typed state
-is handed out by value — so it is deadlock-free by construction (a single mutex
-with no acquisition ordering). The registry is constructed at the composition
-root and injected; there is no module singleton.
+is handed out as deep copies — so it is deadlock-free by construction (a single
+mutex with no acquisition ordering). The class binds no singleton of its own: the
+one authoritative instance is built at module scope in ``replicator_instance.py``
+and injected at the tools composition root, and the replicator is the sole writer
+that pushes its state to the display.
 """
 
 from __future__ import annotations

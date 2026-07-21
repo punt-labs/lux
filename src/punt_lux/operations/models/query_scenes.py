@@ -16,7 +16,7 @@ class SceneSummary(BaseModel):
 
     scene_id: str
     element_count: int
-    frame_id: str | None  # None when the scene is not shown into a frame
+    frame_id: str  # total: an unframed scene defaults to a frame named by its id
     # Every distinct connection owning a root in the scene, first-appearance
     # order; empty when the scene is unowned. Plural because a scene can hold
     # roots from more than one session.
