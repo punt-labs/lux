@@ -2289,3 +2289,16 @@ class TestRegisterToolSessionTracking:
         finally:
             _cleanup_session("ws-99")
             _session_key.reset(token)
+
+    def test_empty_tool_id_returns_an_error_line_without_crashing(self) -> None:
+        # The never-raising adapter contract: an invalid tool_id yields an error
+        # string naming the field, not an uncaught ValidationError, and registers
+        # nothing.
+        token = _session_key.set("bad-id")
+        try:
+            result = register_tool(label="Nameless", tool_id="")
+            assert result.startswith("error:")
+            assert "tool_id" in result
+        finally:
+            _cleanup_session("bad-id")
+            _session_key.reset(token)

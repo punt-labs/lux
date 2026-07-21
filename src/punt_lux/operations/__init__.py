@@ -9,7 +9,6 @@ request and result models a surface needs to build and read a call.
 
 from __future__ import annotations
 
-from punt_lux.domain.hub.menu_models import MenuAction
 from punt_lux.operations.facade import Operations
 from punt_lux.operations.models import (
     Cleared,
@@ -41,6 +40,7 @@ from punt_lux.operations.models.query_inspection import (
     SceneInspection,
 )
 from punt_lux.operations.models.query_scenes import SceneList
+from punt_lux.operations.models.register_tool import RegisterToolRequest
 from punt_lux.operations.models.theme import SetThemeRequest, ThemeName, ThemeState
 from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
 from punt_lux.operations.ports import HubPorts
@@ -54,7 +54,6 @@ __all__ = [
     "DisplayModeState",
     "FrameStatePatch",
     "HubPorts",
-    "MenuAction",
     "MenuList",
     "MirrorNotRequested",
     "MirrorPresent",
@@ -68,6 +67,7 @@ __all__ = [
     "Received",
     "RecentErrors",
     "RecentEvents",
+    "RegisterToolRequest",
     "RenderDashboardRequest",
     "RenderRequest",
     "RenderTableRequest",

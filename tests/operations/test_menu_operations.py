@@ -16,7 +16,9 @@ from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.menus import MenuOperations
+from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
+from punt_lux.operations.models.register_tool import RegisterToolRequest
 from punt_lux.operations.scope import Scope
 
 
@@ -67,15 +69,37 @@ def test_register_menu_item_scopes_to_the_connection_and_pushes() -> None:
     marker = _MenuMarkerSpy()
     ops = MenuOperations(registry, marker)
 
-    ops.register_menu_item(
-        MenuAction(id="build", label="Build"),
+    result = ops.register_menu_item(
+        RegisterToolRequest(tool_id="build", label="Build"),
         scope=Scope(ConnectionId("c1")),
     )
 
     # The item lands in the registered (World-menu) items, not the agent bar.
+    assert isinstance(result, Ok)
     assert any(i.id == "build" for i in registry.registered_items())
     assert registry.menu_bar() == []
     assert marker.pushed == 1
+
+
+def test_register_menu_item_passes_a_parse_error_through_without_pushing() -> None:
+    # A never-raising parse: an empty tool_id is rejected as an OpError the
+    # adapter renders, and no push is flagged because nothing was registered.
+    registry = HubMenuRegistry()
+    marker = _MenuMarkerSpy()
+    ops = MenuOperations(registry, marker)
+
+    result = ops.register_menu_item(
+        RegisterToolRequest.parse(
+            tool_id="", label="Nameless", shortcut=None, icon=None
+        ),
+        scope=Scope(ConnectionId("c1")),
+    )
+
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert "tool_id" in result.reason
+    assert registry.registered_items() == []
+    assert marker.pushed == 0
 
 
 def test_list_menus_round_trips_the_separator_sentinel() -> None:
@@ -108,7 +132,7 @@ def test_drop_session_forgets_items_and_re_pushes_so_no_stale_menu_lingers() -> 
     marker = _MenuMarkerSpy()
     ops = MenuOperations(registry, marker)
     scope = Scope(ConnectionId("c1"))
-    ops.register_menu_item(MenuAction(id="x", label="X"), scope=scope)
+    ops.register_menu_item(RegisterToolRequest(tool_id="x", label="X"), scope=scope)
 
     ops.drop_session(scope)
 
@@ -125,8 +149,8 @@ def test_list_menus_reports_the_display_applications_composition() -> None:
     registry = HubMenuRegistry()
     ops = MenuOperations(registry, _MenuMarkerSpy())
     conn = Scope(ConnectionId("c1"))
-    ops.register_menu_item(MenuAction(id="z", label="Zebra"), scope=conn)
-    ops.register_menu_item(MenuAction(id="a", label="Apple"), scope=conn)
+    ops.register_menu_item(RegisterToolRequest(tool_id="z", label="Zebra"), scope=conn)
+    ops.register_menu_item(RegisterToolRequest(tool_id="a", label="Apple"), scope=conn)
 
     menus = ops.list_menus().menus
 

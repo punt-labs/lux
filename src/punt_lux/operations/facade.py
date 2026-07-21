@@ -23,7 +23,6 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.clients import ClientRegistry
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
-    from punt_lux.domain.hub.menu_models import MenuAction
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.operations.display_port import DisplayPort
     from punt_lux.operations.models import (
@@ -51,6 +50,7 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.query_events import RecentEvents
     from punt_lux.operations.models.query_inspection import SceneInspection
     from punt_lux.operations.models.query_scenes import SceneList
+    from punt_lux.operations.models.register_tool import RegisterToolRequest
     from punt_lux.operations.models.theme import SetThemeRequest, ThemeState
     from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
     from punt_lux.operations.ports import DirtyMarker, HubPorts
@@ -243,9 +243,11 @@ class Operations:
         """Replace the Hub-owned menu bar; the replicator pushes it."""
         return self._menus.set_menu(request)
 
-    def register_menu_item(self, action: MenuAction, *, scope: Scope) -> Ok:
+    def register_menu_item(
+        self, request: RegisterToolRequest | OpError, *, scope: Scope
+    ) -> Ok | OpError:
         """Register a tool item for the caller's session; the replicator pushes."""
-        return self._menus.register_menu_item(action, scope=scope)
+        return self._menus.register_menu_item(request, scope=scope)
 
     def list_menus(self) -> MenuList:
         """Return the Hub-authoritative menu bar."""

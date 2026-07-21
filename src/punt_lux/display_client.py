@@ -34,6 +34,7 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Self, cast
 
+from punt_lux.menu_item_registry import MenuItemRegistry
 from punt_lux.paths import DisplayPaths
 from punt_lux.polled_event import PolledEvent
 from punt_lux.protocol import (
@@ -157,8 +158,7 @@ class DisplayClient:
     _recv_timeout: float
     _sock: socket.socket | None
     _ready: ReadyMessage | None
-    _registered_menu_items: list[dict[str, Any]]
-    _declared_ids: set[str]
+    _menu_items: MenuItemRegistry
     _lock: threading.Lock
     _callbacks: dict[tuple[str, str], Callable[[RemoteEventHandlerInvocation], None]]
     _fallback_interaction_handler: Callable[[RemoteEventHandlerInvocation], None] | None
@@ -186,9 +186,8 @@ class DisplayClient:
         self._recv_timeout = recv_timeout
         self._sock = None
         self._ready = None
-        self._registered_menu_items = []
-        # Built-in ids that survive a Hub-pushed agent-item replace (beads browser).
-        self._declared_ids = set()
+        # Built-ins declared here survive a Hub-pushed agent-item replace (beads).
+        self._menu_items = MenuItemRegistry()
 
         # Push-based event handling state
         self._lock = threading.Lock()
@@ -292,8 +291,7 @@ class DisplayClient:
                 self.close()
                 err = f"ConnectMessage failed after handshake: {exc}"
                 raise RuntimeError(err) from exc
-        with self._lock:
-            items = list(self._registered_menu_items)
+        items = self._menu_items.snapshot()
         if items:
             try:
                 replay = RegisterMenuMessage(items=items)
@@ -570,55 +568,27 @@ class DisplayClient:
         """Set the display theme by name (e.g. 'imgui_colors_light')."""
         self._send(ThemeMessage(theme=theme))
 
-    def _store_menu_item(self, item: dict[str, Any]) -> None:
-        """Add or update an item in the local menu registry (no send).
-
-        The caller holds ``_lock``; this helper mutates the shared state directly.
-        """
-        stored = dict(item)
-        item_id = item.get("id")
-        if item_id is not None:
-            for idx, existing in enumerate(self._registered_menu_items):
-                if existing.get("id") == item_id:
-                    self._registered_menu_items[idx] = stored
-                    return
-            self._registered_menu_items.append(stored)
-        else:
-            self._registered_menu_items.append(stored)
-
     def declare_menu_item(self, item: dict[str, Any]) -> None:
         """Declare a built-in menu item without requiring a connection.
 
         The item is stored locally and sent to the display on the next
         ``connect()`` via ``_post_handshake``. Its id is remembered as a built-in
         so a later Hub-pushed agent-item replace does not clobber it. Safe to call
-        before ``connect()``. The menu-item state is guarded by ``_lock`` like the
-        client's other shared state.
+        before ``connect()``.
         """
-        with self._lock:
-            self._store_menu_item(item)
-            item_id = item.get("id")
-            if isinstance(item_id, str):
-                self._declared_ids.add(item_id)
+        self._menu_items.declare(item)
 
     def set_registered_items(self, items: list[dict[str, Any]]) -> None:
         """Replace the Hub-owned agent tool items, keeping declared built-ins.
 
-        The Hub is authoritative for the agent items; declared built-ins (the
-        beads browser) are kept so the replace never drops them, and the combined
-        set is replayed on reconnect via ``_post_handshake``. The state is mutated
-        under ``_lock`` and a snapshot is sent after the lock is released, since
-        ``_send`` takes the same lock.
+        The Hub is authoritative for the agent items; the registry keeps declared
+        built-ins, dedupes by id, and skips any item colliding with a built-in.
+        The snapshot is sent after the registry mutation so ``_send`` never nests
+        the registry's lock.
         """
-        with self._lock:
-            kept = [
-                i
-                for i in self._registered_menu_items
-                if i.get("id") in self._declared_ids
-            ]
-            self._registered_menu_items = kept + [dict(i) for i in items]
-            snapshot = list(self._registered_menu_items)
-        self._send(RegisterMenuMessage(items=snapshot))
+        self._send(
+            RegisterMenuMessage(items=self._menu_items.replace_agent_items(items))
+        )
 
     def clear_async(self) -> None:
         """Clear all content from the display.  Safe from callbacks."""

@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.menu_models import MenuAction, MenuEntry
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.operations.models.menu_results import SetMenuRequest
+    from punt_lux.operations.models.register_tool import RegisterToolRequest
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.operations.scope import Scope
 
@@ -54,9 +55,13 @@ class MenuOperations:
         self._push()
         return Ok()
 
-    def register_menu_item(self, action: MenuAction, *, scope: Scope) -> Ok:
-        """Register a tool item for the caller's session and push the menu state."""
-        self._registry.register_item(scope.connection_id, action)
+    def register_menu_item(
+        self, request: RegisterToolRequest | OpError, *, scope: Scope
+    ) -> Ok | OpError:
+        """Register a tool item for the caller's session, or pass the error on."""
+        if isinstance(request, OpError):
+            return request
+        self._registry.register_item(scope.connection_id, request.to_action())
         self._push()
         return Ok()
 

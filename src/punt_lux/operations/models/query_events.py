@@ -21,6 +21,7 @@ class InteractionEvent(BaseModel):
 
     element_id: str
     action: str  # open-ended interaction name (clicked, changed, ...)
+    event_kind: str | None = None  # None for kinds the display records without one
     value: object | None = None  # the new value for value-bearing widgets
     timestamp: float
 

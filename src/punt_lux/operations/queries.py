@@ -181,24 +181,31 @@ class QueryOperations:
     def _mirror(self, scene_id: str) -> MirrorState:
         """Proxy the display-side mirror check as a discriminated state.
 
-        The display answers per element under ``element_paths``; the scene-level
-        answer is that EVERY element is mirrored, since a partially-mirrored scene
-        is not present. A down display, a timeout, or a reply missing the paths is
-        ``unavailable`` with a reason — distinct from "not requested".
+        The display answers per element under ``element_paths``. The scene is
+        present only when those paths account for every element the Hub holds:
+        the mirrored-element count must equal the Hub store's element count. An
+        empty Hub scene is vacuously present, but a Hub holding elements whose
+        paths come back empty or short is truthfully NOT present — an empty
+        ``element_paths`` list is a well-formed reply that says "nothing
+        mirrored", not a missing one. A down display, a timeout, or a reply
+        without the paths key is ``unavailable`` with a reason — distinct from
+        "not requested".
         """
         payload = self._port.query("inspect_scene", {"scene_id": scene_id}).resolve()
         if isinstance(payload, OpError):
             return MirrorUnavailable(reason=payload.reason)
         paths = payload.get("element_paths")
         if not isinstance(paths, list):
-            return MirrorUnavailable(reason="display reply carried no element_paths")
+            return MirrorUnavailable(reason="display reply omitted element_paths")
         entries = cast("list[object]", paths)
-        present = all(
-            isinstance(entry, Mapping)
-            and bool(cast("Mapping[str, object]", entry).get("domain_mirror_present"))
+        mirrored = sum(
+            1
             for entry in entries
+            if isinstance(entry, Mapping)
+            and bool(cast("Mapping[str, object]", entry).get("domain_mirror_present"))
         )
-        return MirrorPresent(present=present)
+        hub_count = self._display.element_count(SceneId(scene_id))
+        return MirrorPresent(present=mirrored == hub_count)
 
 
 @final

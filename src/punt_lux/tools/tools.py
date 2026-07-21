@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from typing import Any, get_args
 
 from punt_lux.domain.hub import client_registry, hub, hub_display
@@ -16,13 +17,13 @@ from punt_lux.operations import (
     DisplayModeRequest,
     DisplayModeState,
     FrameStatePatch,
-    MenuAction,
     MenuList,
     Ok,
     Operations,
     OpError,
     RecentErrors,
     RecentEvents,
+    RegisterToolRequest,
     RenderDashboardRequest,
     RenderRequest,
     RenderTableRequest,
@@ -146,6 +147,11 @@ def _fault_line(err: OpError) -> str:
     if err.code == "timeout":
         return "timeout"
     return f"error: {err.reason}"
+
+
+def _fault_or[T](result: T | OpError, render: Callable[[T], str]) -> str:
+    """Render ``result`` with ``render``, or as its fault line when it is an error."""
+    return _fault_line(result) if isinstance(result, OpError) else render(result)
 
 
 @mcp.tool()
@@ -447,10 +453,7 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
     The menu bar is Hub-owned: this writes the Hub menu registry and the
     background replicator pushes the bar to the display.
     """
-    result = OPERATIONS.set_menu(SetMenuRequest.parse(menus))
-    if isinstance(result, OpError):
-        return _fault_line(result)
-    return "ok"
+    return _fault_or(OPERATIONS.set_menu(SetMenuRequest.parse(menus)), lambda _r: "ok")
 
 
 @mcp.tool()
@@ -465,11 +468,15 @@ def register_tool(
     Only this server receives the click via recv(). The item is scoped to this
     session in the Hub menu registry and removed when the session disconnects.
     """
-    OPERATIONS.register_menu_item(
-        MenuAction(id=tool_id, label=label, shortcut=shortcut, icon=icon),
-        scope=_scope(),
+    return _fault_or(
+        OPERATIONS.register_menu_item(
+            RegisterToolRequest.parse(
+                tool_id=tool_id, label=label, shortcut=shortcut, icon=icon
+            ),
+            scope=_scope(),
+        ),
+        lambda _r: f"registered:{tool_id}",
     )
-    return f"registered:{tool_id}"
 
 
 # One source for the theme names — description and accepted set cannot drift.
@@ -478,8 +485,7 @@ _SET_THEME_DESCRIPTION = "Set the Lux display theme. Valid names (snake_case): "
 )
 
 
-# The advertised bounds come from the WindowSettingsPatch ranges — one source,
-# so the description and the validation cannot drift.
+# Bounds come from the WindowSettingsPatch ranges — one source, no drift.
 _SET_WINDOW_DESCRIPTION = (
     "Modify display window settings. Only provided fields change. "
     f"Fields: opacity ({OPACITY_RANGE[0]}-{OPACITY_RANGE[1]}), "
@@ -544,10 +550,9 @@ def clear() -> str:
 @mcp.tool()
 def ping() -> str:
     """Ping the display server. Returns round-trip time, "timeout", or "not running"."""
-    result = OPERATIONS.ping(now=_now())
-    if isinstance(result, OpError):
-        return _fault_line(result)
-    return f"pong rtt={result.rtt_seconds:.3f}s"
+    return _fault_or(
+        OPERATIONS.ping(now=_now()), lambda r: f"pong rtt={r.rtt_seconds:.3f}s"
+    )
 
 
 @mcp.tool()
@@ -579,10 +584,7 @@ def screenshot() -> str:
     The agent can read this image to see exactly what is rendered.
     Returns "not running" if the display server is not available.
     """
-    result = OPERATIONS.screenshot()
-    if isinstance(result, OpError):
-        return _fault_line(result)
-    return str(result.path)
+    return _fault_or(OPERATIONS.screenshot(), lambda r: str(r.path))
 
 
 @mcp.tool()

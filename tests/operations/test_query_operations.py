@@ -142,6 +142,43 @@ def test_inspect_scene_mirror_not_present_when_one_element_is_missing() -> None:
     assert result.mirror == MirrorPresent(present=False)
 
 
+def test_inspect_scene_mirror_not_present_when_hub_has_elements_but_paths_empty() -> (
+    None
+):
+    # The vacuous-True bug: an empty element_paths list is a well-formed reply
+    # meaning "nothing mirrored". With the Hub holding two elements, the paths do
+    # not account for them, so the truthful scene-level answer is present=False,
+    # not a vacuous present=True from ``all([])``.
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")
+    reply = DisplayReplied({"scene_id": "s1", "element_paths": []})
+    ops = QueryOperations(store, Hub(), _StubPort(reply))
+
+    result = ops.inspect_scene("s1", want_mirror=True)
+
+    assert isinstance(result, SceneInspection)
+    assert result.mirror == MirrorPresent(present=False)
+
+
+def test_inspect_scene_mirror_not_present_when_paths_are_shorter_than_the_hub() -> None:
+    # The display reports one mirrored element while the Hub holds two; the paths
+    # do not account for every Hub element, so present=False.
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")
+    reply = DisplayReplied(
+        {
+            "scene_id": "s1",
+            "element_paths": [{"id": "g1", "domain_mirror_present": True}],
+        }
+    )
+    ops = QueryOperations(store, Hub(), _StubPort(reply))
+
+    result = ops.inspect_scene("s1", want_mirror=True)
+
+    assert isinstance(result, SceneInspection)
+    assert result.mirror == MirrorPresent(present=False)
+
+
 def test_inspect_scene_mirror_unavailable_when_the_display_is_down() -> None:
     # A requested check the display cannot answer is unavailable-with-reason,
     # never silently conflated with "not requested".
@@ -216,6 +253,9 @@ def test_list_recent_events_proxies_the_display() -> None:
     result = ops.list_recent_events(50)
     assert isinstance(result, RecentEvents)
     assert result.events[0].element_id == "btn-go"
+    # event_kind is carried through, not dropped — it names the event type the
+    # display recorded (button_clicked, value_changed, ...).
+    assert result.events[0].event_kind == "button_clicked"
     assert result.total_buffered == 1
 
 
