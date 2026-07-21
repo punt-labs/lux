@@ -74,7 +74,7 @@ class Menu(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     kind: Literal["menu"] = "menu"
-    label: str
+    label: str = Field(min_length=1)  # a label-less menu is not a real state
     items: list[MenuEntry]
 
     @classmethod
@@ -82,14 +82,19 @@ class Menu(BaseModel):
         """Build from one untyped menu, rejecting a malformed one by name.
 
         ``index`` names the menu's position for a field-located error; a menu
-        that is not a mapping, or that carries a malformed entry, is rejected
-        rather than silently dropped or coerced.
+        that is not a mapping, that carries a missing/empty/non-string label, or
+        that carries a malformed entry, is rejected rather than silently dropped
+        or coerced to a blank menu.
         """
         loc = f"menus.{index}"
         if not isinstance(raw, Mapping):
             msg = f"{loc}: expected a menu mapping, got {type(raw).__name__}"
             raise ValueError(msg)
         menu: Mapping[str, object] = cast("Mapping[str, object]", raw)
+        label = menu.get("label")
+        if not isinstance(label, str) or not label:
+            msg = f"{loc}.label: expected a non-empty string"
+            raise ValueError(msg)
         raw_items = menu.get("items", [])
         items_seq: Sequence[object] = (
             cast("Sequence[object]", raw_items)
@@ -97,7 +102,7 @@ class Menu(BaseModel):
             else []
         )
         return cls(
-            label=str(menu.get("label", "")),
+            label=label,
             items=[
                 cls._entry_from_wire(item, loc=f"{loc}.items.{i}")
                 for i, item in enumerate(items_seq)

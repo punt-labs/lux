@@ -227,9 +227,9 @@ class Operations:
         """List every live scene and frame from the authoritative store."""
         return self._queries.list_scenes()
 
-    def list_clients(self, *, now: float) -> ClientList:
+    def list_clients(self) -> ClientList:
         """List the Hub's sessions and their scopes."""
-        return self._queries.list_clients(now=now)
+        return self._queries.list_clients()
 
     def list_recent_events(self, count: int) -> RecentEvents | OpError:
         """Return the display's recent interactions, proxied."""

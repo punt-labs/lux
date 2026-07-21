@@ -3,8 +3,9 @@
 A connection becomes a client when the transport binds it via the inbox-init
 path; it is removed when the connection drops. This registry is the Hub's own
 session roster — the meaningful answer to "which clients are connected", now that
-the display has exactly one socket client (luxd). Each session records the wall
-clock at which it first registered, so ``list_clients`` can report its age.
+the display has exactly one socket client (luxd). Each session records a
+``time.monotonic`` reading at which it first registered, so ``list_clients`` can
+report an age that never jumps or goes negative when the wall clock is stepped.
 
 Distinct from ``ClientRegistry`` in ``clients.py``, which owns the
 ``DisplayClient`` and reconnect policy on the rendering process side.
@@ -46,11 +47,13 @@ class HubClientRegistry:
     def register(self, connection_id: ConnectionId) -> None:
         """Mark ``connection_id`` as a known client. Idempotent.
 
-        The first registration stamps the connect time; a later re-register keeps
-        it, so a session's reported age never resets under normal traffic.
+        The first registration stamps a ``time.monotonic`` reading; a later
+        re-register keeps it, so a session's reported age never resets under
+        normal traffic. Monotonic, not wall clock, so an NTP step cannot make the
+        age jump or go negative.
         """
         with self._lock:
-            self._connected_at.setdefault(connection_id, time.time())
+            self._connected_at.setdefault(connection_id, time.monotonic())
 
     def is_registered(self, connection_id: ConnectionId) -> bool:
         """Return whether ``connection_id`` is currently registered."""
@@ -63,6 +66,6 @@ class HubClientRegistry:
             self._connected_at.pop(connection_id, None)
 
     def sessions(self) -> Mapping[ConnectionId, float]:
-        """Return each registered connection paired with its connect time."""
+        """Return each registered connection paired with its monotonic stamp."""
         with self._lock:
             return dict(self._connected_at)

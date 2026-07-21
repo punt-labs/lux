@@ -11,6 +11,9 @@ from __future__ import annotations
 
 from typing import Self
 
+import pytest
+from pydantic import ValidationError
+
 from punt_lux.client_label import ClientLabel
 from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
@@ -62,6 +65,27 @@ def test_set_menu_writes_the_registry_and_pushes_via_the_replicator() -> None:
     # was marked — the replicator is the only writer.
     assert any(m.label == "File" for m in registry.menu_bar())
     assert marker.pushed == 1
+
+
+def test_set_menu_rejects_a_menu_with_a_missing_label() -> None:
+    # A menu with no label is rejected by name, not coerced to a blank bar entry.
+    result = SetMenuRequest.parse([{"items": [{"label": "Run", "id": "run"}]}])
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert "menus.0.label" in result.reason
+
+
+def test_set_menu_rejects_a_menu_with_an_empty_label() -> None:
+    result = SetMenuRequest.parse([{"label": "", "items": []}])
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert "menus.0.label" in result.reason
+
+
+def test_menu_rejects_direct_construction_with_a_blank_label() -> None:
+    # The model itself forbids a blank label; from_wire is not the only guard.
+    with pytest.raises(ValidationError):
+        Menu(label="", items=[])
 
 
 def test_register_menu_item_scopes_to_the_connection_and_pushes() -> None:

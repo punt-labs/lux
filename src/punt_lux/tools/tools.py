@@ -617,7 +617,7 @@ def list_clients() -> ClientList:
     After the Hub took over, the display has one socket client (luxd); the
     meaningful client list is the set of Hub sessions the Hub holds.
     """
-    return OPERATIONS.list_clients(now=_now())
+    return OPERATIONS.list_clients()
 
 
 @mcp.tool()

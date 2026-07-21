@@ -9,6 +9,7 @@ running display's own ring buffers, so they proxy over luxd's one connection.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Literal, Self, cast, final
 
@@ -112,8 +113,14 @@ class QueryOperations:
             frames=[acc.summary(fid) for fid, acc in frames.items()],
         )
 
-    def list_clients(self, *, now: float) -> ClientList:
-        """List the Hub's sessions — the meaningful client answer post-replicator."""
+    def list_clients(self) -> ClientList:
+        """List the Hub's sessions — the meaningful client answer post-replicator.
+
+        Ages read the same ``time.monotonic`` clock the sessions were stamped
+        with, so ``connected_seconds`` is never negative and never jumps when the
+        wall clock is stepped.
+        """
+        now = time.monotonic()
         clients = [
             HubClient(
                 connection_id=str(connection_id),

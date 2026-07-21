@@ -227,13 +227,16 @@ def test_list_clients_reads_the_hub_session_registry() -> None:
     hub.subscribe(ConnectionId("c1"), Topic("work.saved"))
     ops = QueryOperations(store, hub, _ForbiddenPort())
 
-    result = ops.list_clients(now=0.0)
+    result = ops.list_clients()
 
     assert isinstance(result, ClientList)
     client = next(c for c in result.clients if c.connection_id == "c1")
     assert client.subscribed_topics == ["work.saved"]
     assert client.owned_scenes == ["s1"]
-    assert client.connected_seconds <= 0.0
+    # Age is read from the same monotonic clock the session was stamped with, so
+    # it is a coherent, non-negative float — never negative from a wall-clock step.
+    assert isinstance(client.connected_seconds, float)
+    assert client.connected_seconds >= 0.0
 
 
 def test_list_recent_events_proxies_the_display() -> None:
