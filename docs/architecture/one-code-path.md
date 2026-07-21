@@ -170,9 +170,11 @@ class OpError(BaseModel):
     code: Literal[
         "display_unavailable",  # the display process is not running
         "timeout",              # a proxied round-trip exceeded its bound
-        "rejected",             # the Hub refused a malformed or invalid write
+        "rejected",             # the engine refused the caller's request
         "invalid_request",      # the request itself did not type-check
         "not_found",            # the named scene or resource does not exist
+        "fault",                # an engine-side failure: a malformed display
+                                #   reply, an unreadable config file
     ]
     reason: str
 ```
@@ -526,20 +528,31 @@ The routes follow the resource they act on.
 | `GET /display/ping` | `ping` | — | `Pong \| OpError` |
 | `GET /display-mode` | `read_display_mode` | `repo` query | `DisplayModeState \| OpError` |
 | `PUT /display-mode` | `write_display_mode` | `DisplayModeRequest` | `DisplayModeState \| OpError` |
-| `POST /topics/{topic}/publish` | `publish` | `PublishRequest` | `Published` |
+
+Pub-sub does not appear in the route table. An earlier draft routed
+`POST /topics/{topic}/publish`, but the implementation proved the route dead
+on arrival: pub-sub delivery is scoped to the publisher's own session, REST
+callers share one anonymous default scope with no subscribe route, so a REST
+publish could return 200 while being structurally unable to reach any
+subscriber, ever. The pub-sub surface stays MCP-only until the REST session
+decision (deferred above) gives a REST caller a real identity to subscribe
+and publish under.
 
 A route does one thing beyond binding and calling: it maps the discriminated
 result to an HTTP status through one shared table, so every route reports
 failures the same way. `kind="ok"` returns 200. An `OpError` maps by its `code`:
-`invalid_request` to 422, `not_found` to 404, `rejected` to 409,
-`display_unavailable` to 503, and `timeout` to 504. FastAPI's own body-binding
-produces the 422 for a malformed request before the operation runs, from the
-same request model; the operation's semantic `OpError` values produce the rest.
-The mapping is a table, not per-route logic, so a new operation inherits it for
-free.
+`invalid_request` to 422, `not_found` to 404, `rejected` to 409, `fault` to
+502, `display_unavailable` to 503, and `timeout` to 504. `rejected` is
+reserved for the engine refusing a caller's request (their fault); `fault` is
+the engine-side failure class — a malformed display reply, an unreadable
+config file — that is neither the caller's mistake nor a down display.
+FastAPI's own body-binding produces the 422 for a malformed request before
+the operation runs, from the same request model; the operation's semantic
+`OpError` values produce the rest. The mapping is a table, not per-route
+logic, so a new operation inherits it for free.
 
-The scene, display-mode, and publish request models make the currently untyped
-tool arguments precise.
+The scene and display-mode request models make the currently untyped tool
+arguments precise.
 
 ```python
 class FrameFlags(BaseModel):
