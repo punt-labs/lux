@@ -39,7 +39,7 @@ class FrameStateAck(BaseModel):
 
     Pins the real ``set_frame_state`` reply shape: the ``frame_id`` acted on and
     the ``changed`` map of fields the display actually flipped. A reply missing
-    either, or carrying the wrong types, is a ``rejected`` — never a fabricated
+    either, or carrying the wrong types, is a ``fault`` — never a fabricated
     success — so schema drift is caught instead of silently acknowledged.
     """
 
