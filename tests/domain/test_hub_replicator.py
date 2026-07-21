@@ -56,6 +56,7 @@ class _FakeSender:
     frames: list[str | None]
     roots: list[list[WireElement]]
     clears: int
+    menus: list[list[dict[str, object]]]
     timeline: list[str]
     _fail: OSError | None
     _fail_scene: tuple[str, OSError] | None
@@ -72,6 +73,7 @@ class _FakeSender:
         "_sent",
         "clears",
         "frames",
+        "menus",
         "roots",
         "shows",
         "timeline",
@@ -83,6 +85,7 @@ class _FakeSender:
         self.frames = []
         self.roots = []
         self.clears = 0
+        self.menus = []
         self.timeline = []
         self._fail = None
         self._fail_scene = None
@@ -148,6 +151,13 @@ class _FakeSender:
         with self._lock:
             self.clears += 1
             self.timeline.append("clear")
+        self._sent.set()
+
+    def set_menu(self, menus: list[dict[str, object]]) -> None:
+        self._guard()
+        with self._lock:
+            self.menus.append(list(menus))
+            self.timeline.append("menu")
         self._sent.set()
 
 
@@ -220,6 +230,35 @@ def test_a_dirty_scene_is_sent_to_the_display() -> None:
         repl.mark_dirty(scene)
         assert sender.wait_sent(2.0)
         assert sender.shows == ["s1"]
+    finally:
+        repl.stop()
+
+
+def test_a_menu_bar_is_pushed_to_the_display() -> None:
+    # A menu change is Hub-owned: the operation marks the bar and this one
+    # background writer sends it, the same mark-and-replicate path a scene takes.
+    store = HubDisplay()
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    repl.start()
+    try:
+        repl.mark_menus([{"label": "Tools", "items": []}])
+        assert sender.wait_sent(2.0)
+        assert sender.menus == [[{"label": "Tools", "items": []}]]
+    finally:
+        repl.stop()
+
+
+def test_a_dead_peer_recovery_re_marks_the_menu_bar() -> None:
+    # A respawned display must get the menu bar re-pushed, like the live scenes.
+    store = HubDisplay()
+    repl, sender, _provider, _lifecycle = _replicator(store)
+    sender.arm_failure(OSError("EPIPE"))
+    repl.start()
+    try:
+        repl.mark_menus([{"label": "File", "items": []}])
+        assert sender.wait_sent(2.0)
+        # The first send failed and was healed; the re-marked bar is sent again.
+        assert sender.menus == [[{"label": "File", "items": []}]]
     finally:
         repl.stop()
 

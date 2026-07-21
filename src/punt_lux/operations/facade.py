@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Self
 from punt_lux.operations.config import DisplayModeOperations
 from punt_lux.operations.conveniences import ConvenienceOperations
 from punt_lux.operations.display_control import DisplayControlOperations
+from punt_lux.operations.menus import MenuOperations
 from punt_lux.operations.pubsub import PubSubOperations
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scenes import SceneOperations
@@ -22,6 +23,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.clients import ClientRegistry
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.operations.display_port import DisplayPort
     from punt_lux.operations.models import (
         Cleared,
@@ -42,6 +44,8 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
     from punt_lux.operations.models.display_write import DisplayAck, FrameStatePatch
+    from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
+    from punt_lux.operations.models.menus import MenuAction
     from punt_lux.operations.models.query_clients import ClientList
     from punt_lux.operations.models.query_errors import RecentErrors
     from punt_lux.operations.models.query_events import RecentEvents
@@ -64,10 +68,12 @@ class Operations:
     _config: DisplayModeOperations
     _display: DisplayControlOperations
     _queries: QueryOperations
+    _menus: MenuOperations
     __slots__ = (
         "_config",
         "_conveniences",
         "_display",
+        "_menus",
         "_pubsub",
         "_queries",
         "_scenes",
@@ -82,6 +88,7 @@ class Operations:
         config: DisplayModeOperations,
         display: DisplayControlOperations,
         queries: QueryOperations,
+        menus: MenuOperations,
     ) -> Self:
         self = super().__new__(cls)
         self._scenes = scenes
@@ -90,6 +97,7 @@ class Operations:
         self._config = config
         self._display = display
         self._queries = queries
+        self._menus = menus
         return self
 
     @classmethod
@@ -100,6 +108,7 @@ class Operations:
         *,
         hub: Hub,
         client_registry: ClientRegistry,
+        menu_registry: HubMenuRegistry,
         ports: HubPorts,
         display_port: DisplayPort,
     ) -> Self:
@@ -112,6 +121,7 @@ class Operations:
             config=DisplayModeOperations(client_registry),
             display=DisplayControlOperations(display_port),
             queries=QueryOperations(display, hub, display_port),
+            menus=MenuOperations(menu_registry, replicator),
         )
 
     def render(
@@ -227,3 +237,15 @@ class Operations:
     def list_errors(self, count: int) -> RecentErrors | OpError:
         """Return the display's recent errors, proxied."""
         return self._queries.list_errors(count)
+
+    def set_menu(self, request: SetMenuRequest | OpError) -> Ok | OpError:
+        """Replace the Hub-owned menu bar; the replicator pushes it."""
+        return self._menus.set_menu(request)
+
+    def register_menu_item(self, action: MenuAction, *, scope: Scope) -> Ok:
+        """Register a tool item for the caller's session; the replicator pushes."""
+        return self._menus.register_menu_item(action, scope=scope)
+
+    def list_menus(self) -> MenuList:
+        """Return the Hub-authoritative menu bar."""
+        return self._menus.list_menus()

@@ -350,15 +350,15 @@ COMPOSITION_SCENARIOS: tuple[Scenario, ...] = (
             "client": {"show": {"return": {"scene_id": "empty", "ts": 1000.0}}},
         },
     ),
+    # set_menu and register_tool are Hub writes now: they store the menu bar in
+    # the Hub registry (the replicator pushes it) instead of reaching the
+    # display, so their setup declares no client stub. Their string return is
+    # unchanged and still pinned here.
     Scenario(
         name="register_tool-basic",
         tool="register_tool",
         inputs={"label": "Run", "tool_id": "run-btn"},
-        setup={
-            "display_running": True,
-            "client": {"register_menu_item": {}},
-            "session_key": "corpus-register-basic",
-        },
+        setup={"session_key": "corpus-register-basic"},
     ),
     Scenario(
         name="register_tool-with-shortcut-and-icon",
@@ -369,11 +369,7 @@ COMPOSITION_SCENARIOS: tuple[Scenario, ...] = (
             "shortcut": "Cmd+B",
             "icon": "hammer",
         },
-        setup={
-            "display_running": True,
-            "client": {"register_menu_item": {}},
-            "session_key": "corpus-register-shortcut",
-        },
+        setup={"session_key": "corpus-register-shortcut"},
     ),
     Scenario(
         name="set_menu-ok",
@@ -390,7 +386,7 @@ COMPOSITION_SCENARIOS: tuple[Scenario, ...] = (
                 }
             ]
         },
-        setup={"display_running": True, "client": {"set_menu": {}}},
+        setup={"session_key": "corpus-set-menu"},
     ),
 )
 
@@ -404,31 +400,10 @@ COMPOSITION_SCENARIOS: tuple[Scenario, ...] = (
 
 
 INTROSPECTION_SCENARIOS: tuple[Scenario, ...] = (
-    # inspect_scene, list_scenes, and list_clients now read Hub-authoritative
-    # state and return typed models, and list_recent_events / list_errors return
-    # typed models too, so all five leave the string-parity corpus. Their
+    # inspect_scene, list_scenes, list_clients, list_menus, list_recent_events,
+    # and list_errors now return typed models (Hub-authoritative reads, or the
+    # display facts proxied), so they leave the string-parity corpus. Their
     # behavior is pinned by the typed operation tests under tests/operations/.
-    Scenario(
-        name="list_menus-populated",
-        tool="list_menus",
-        inputs={},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "list_menus",
-                    "result": {
-                        "menus": [
-                            {
-                                "label": "Tools",
-                                "items": [{"label": "Run", "id": "run-btn"}],
-                            }
-                        ]
-                    },
-                }
-            },
-        },
-    ),
     # get_display_info, get_window_settings, and get_theme now return typed
     # models (their MCP output schema is derived from the model), so they leave
     # the string-parity corpus. Their behavior is pinned by the typed operation

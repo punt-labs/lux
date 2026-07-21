@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import json
 import time
-from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from punt_lux.domain.hub import client_registry, hub, hub_display
 from punt_lux.domain.hub.display_connection import HubDisplayConnection
+from punt_lux.domain.hub.menu_registry import hub_menu_registry
 from punt_lux.domain.hub.replicator_instance import hub_replicator
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import (
@@ -17,6 +17,8 @@ from punt_lux.operations import (
     DisplayModeRequest,
     DisplayModeState,
     FrameStatePatch,
+    MenuAction,
+    MenuList,
     Operations,
     OpError,
     RecentErrors,
@@ -28,6 +30,7 @@ from punt_lux.operations import (
     SceneList,
     SceneShown,
     Scope,
+    SetMenuRequest,
     SetThemeRequest,
     ThemeState,
     UpdateRequest,
@@ -36,17 +39,9 @@ from punt_lux.operations import (
 )
 from punt_lux.operations.ports import HubPorts
 from punt_lux.paths import DisplayPaths
-from punt_lux.tools.connection import _query_tool
 from punt_lux.tools.hub_factory import hub_element_factory
 from punt_lux.tools.inbox import ensure_writer, next_event
-from punt_lux.tools.server import (
-    _session_key,
-    _session_menus,
-    mcp,
-)
-
-if TYPE_CHECKING:
-    from punt_lux.display_client import DisplayClient
+from punt_lux.tools.server import _session_key, mcp
 
 
 def _hub_ports() -> HubPorts:
@@ -77,6 +72,7 @@ def _build_operations() -> Operations:
         hub_replicator,
         hub=hub,
         client_registry=client_registry,
+        menu_registry=hub_menu_registry,
         ports=_hub_ports(),
         display_port=_display_connection(),
     )
@@ -131,21 +127,6 @@ def _format_display_mode(result: DisplayModeState | OpError) -> str:
     if isinstance(result, OpError):
         raise ValueError(result.reason)
     return f"display:{result.mode}"
-
-
-def _client() -> DisplayClient:
-    """Return the Hub's connected display client for a read-only round-trip."""
-    return client_registry.get()
-
-
-def _bounded(call: Callable[[], str]) -> str:
-    """Run a ``set_*`` round-trip; drop the connection and report ``"timeout"``
-    if the bounded send raises ``OSError`` — never killing the display."""
-    try:
-        return call()
-    except OSError:
-        client_registry.drop()
-        return "timeout"
 
 
 def _fault_line(err: OpError) -> str:
@@ -457,14 +438,14 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
 
     Each menu: {"label": "Tools", "items": [{"label": "Run", "id": "run_btn"},
     {"label": "---"}]}  — a ``"---"`` label is a separator.
+
+    The menu bar is Hub-owned: this writes the Hub menu registry and the
+    background replicator pushes the bar to the display.
     """
-
-    def _call() -> str:
-        client = _client()
-        client.set_menu(menus)
-        return "ok"
-
-    return _bounded(_call)
+    result = OPERATIONS.set_menu(SetMenuRequest.parse(menus))
+    if isinstance(result, OpError):
+        return _fault_line(result)
+    return "ok"
 
 
 @mcp.tool()
@@ -476,24 +457,14 @@ def register_tool(
 ) -> str:
     """Register a menu item in the shared Lux Tools menu.
 
-    Only this server receives the click via recv(). The item is removed
-    automatically when the server disconnects.
+    Only this server receives the click via recv(). The item is scoped to this
+    session in the Hub menu registry and removed when the session disconnects.
     """
-    item: dict[str, Any] = {"label": label, "id": tool_id}
-    if shortcut is not None:
-        item["shortcut"] = shortcut
-    if icon is not None:
-        item["icon"] = icon
-
-    def _call() -> str:
-        client = _client()
-        client.register_menu_item(item)
-        with client_registry.lock:
-            key = _session_key.get()
-            _session_menus.setdefault(key, []).append(tool_id)
-        return f"registered:{tool_id}"
-
-    return _bounded(_call)
+    OPERATIONS.register_menu_item(
+        MenuAction(id=tool_id, label=label, shortcut=shortcut, icon=icon),
+        scope=_scope(),
+    )
+    return f"registered:{tool_id}"
 
 
 @mcp.tool()
@@ -649,13 +620,10 @@ def list_clients() -> ClientList:
     return OPERATIONS.list_clients(now=_now())
 
 
-@_query_tool(
-    "list_menus",
-    doc="List all registered menus and their items.",
-)
-def list_menus() -> dict[str, Any] | None:
-    """List all registered menus and their items."""
-    return None
+@mcp.tool()
+def list_menus() -> MenuList:
+    """List the Hub-owned menu bar and its items, read with no reach-around."""
+    return OPERATIONS.list_menus()
 
 
 @mcp.tool()

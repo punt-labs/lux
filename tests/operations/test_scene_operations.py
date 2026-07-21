@@ -26,6 +26,9 @@ class _Recorder:
     def mark_cleared(self) -> None:
         self.cleared += 1
 
+    def mark_menus(self, menus: object) -> None:
+        """Unused here — scene operations never mark the menu bar."""
+
 
 def _ops(store: HubDisplay, recorder: _Recorder) -> SceneOperations:
     return SceneOperations(store, recorder, hub_element_factory)

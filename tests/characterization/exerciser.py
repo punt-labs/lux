@@ -50,6 +50,7 @@ from punt_lux import tools as tools_pkg
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.display_connection import HubDisplayConnection
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import Operations
 from punt_lux.operations.ports import HubPorts
@@ -81,6 +82,9 @@ class _StubReplicator:
 
     def mark_cleared(self) -> None:
         """Swallow the clear mark."""
+
+    def mark_menus(self, menus: object) -> None:
+        """Swallow the menu-bar push mark."""
 
 
 class _StubClient:
@@ -303,6 +307,7 @@ class ToolExerciser:
             _StubReplicator(),
             hub=hub,
             client_registry=client_registry,
+            menu_registry=HubMenuRegistry(),
             ports=cls._hub_ports(setup),
             display_port=HubDisplayConnection(
                 is_running=lambda: DisplayPaths().is_running(),

@@ -25,14 +25,18 @@ __all__ = ["ClientProvider", "DisplayLifecycle", "DisplaySender"]
 
 @runtime_checkable
 class DisplaySender(ScenePusher, Protocol):
-    """A connection the replicator sends whole scenes and clears over.
+    """A connection the replicator sends whole scenes, clears, and menus over.
 
     Extends ``ScenePusher`` (``show_async``) with ``clear_async`` so the
-    replicator blanks the display before it repaints a coalesced batch.
+    replicator blanks the display before it repaints a coalesced batch, and with
+    ``set_menu`` so the replicator is the sole writer of the menu bar too.
     """
 
     def clear_async(self) -> None:
         """Blank the display without waiting for an acknowledgement."""
+
+    def set_menu(self, menus: list[dict[str, object]]) -> None:
+        """Replace the display's menu bar with the given wire menus."""
 
 
 @runtime_checkable

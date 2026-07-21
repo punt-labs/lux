@@ -1,10 +1,10 @@
 {
-  "total": 119,
+  "total": 118,
   "by_category": {
     "noqa": 36,
     "type_ignore": 5,
     "pylint_disable": 2,
-    "pyright_ignore": 13,
+    "pyright_ignore": 12,
     "per_file_ignores": 63
   },
   "by_file": {
@@ -72,12 +72,9 @@
     "src/punt_lux/socket_server.py": {
       "noqa": 2
     },
-    "src/punt_lux/tools/connection.py": {
-      "pyright_ignore": 1
-    },
     "src/punt_lux/tools/tools.py": {
       "noqa": 2
     }
   },
-  "updated_at": "2026-07-20T14:20:21Z"
+  "updated_at": "2026-07-21T15:06:39Z"
 }

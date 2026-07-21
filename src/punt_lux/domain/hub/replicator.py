@@ -29,6 +29,8 @@ from punt_lux.domain.hub.dirty_signal import DirtySignal
 from punt_lux.domain.hub.recovery import SendRecovery
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from punt_lux.domain.hub.dirty_signal import DrainedBatch
     from punt_lux.domain.hub.replicator_ports import ClientProvider, DisplayLifecycle
     from punt_lux.domain.hub.scene_snapshot import SceneReader
@@ -113,6 +115,15 @@ class HubReplicator:
     def mark_cleared(self) -> None:
         """Signal that the screen was cleared. Queue-only — never sends."""
         self._signal.mark_cleared()
+
+    def mark_menus(self, menus: Sequence[Mapping[str, object]]) -> None:
+        """Signal a new menu bar to push. Queue-only — the worker sends it.
+
+        The replicator is the sole writer to the display, so a menu change lands
+        the same way a scene change does: the operation writes the Hub registry
+        and hands the whole bar here; this worker alone sends it.
+        """
+        self._signal.mark_menus(menus)
 
     # -- lifecycle: starts with luxd, stops with luxd -----------------------
 
@@ -232,6 +243,8 @@ class HubReplicator:
         """
         if batch.cleared:
             self._clients.get().clear_async()
+        if batch.menus is not None:
+            self._clients.get().set_menu([dict(menu) for menu in batch.menus])
         # Each ``_send_scene`` sends and reports whether the scene was empty; the
         # comprehension keeps the empties as reclaim candidates.
         return tuple(

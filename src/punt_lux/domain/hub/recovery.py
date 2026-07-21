@@ -17,7 +17,7 @@ import logging
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch
+    from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch, MenuBar
     from punt_lux.domain.hub.replicator_ports import ClientProvider, DisplayLifecycle
     from punt_lux.domain.hub.scene_snapshot import SceneReader
     from punt_lux.domain.ids import SceneId
@@ -74,7 +74,7 @@ class SendRecovery:
 
     def restore(self, batch: DrainedBatch) -> None:
         """Put a failed batch back on the queue so the next cycle retries it."""
-        self._requeue(batch.scenes, cleared=batch.cleared)
+        self._requeue(batch.scenes, cleared=batch.cleared, menus=batch.menus)
 
     def _remark(self, batch: DrainedBatch) -> None:
         """Re-mark the live scenes, the batch's own scenes, and a consumed clear.
@@ -88,10 +88,22 @@ class SendRecovery:
         idempotent.
         """
         scenes = frozenset(self._reader.live_scene_ids()) | batch.scenes
-        self._requeue(scenes, cleared=batch.cleared)
+        self._requeue(scenes, cleared=batch.cleared, menus=batch.menus)
 
-    def _requeue(self, scenes: frozenset[SceneId], *, cleared: bool) -> None:
-        """Re-mark a set of scenes, and a consumed clear, back onto the signal."""
+    def _requeue(
+        self,
+        scenes: frozenset[SceneId],
+        *,
+        cleared: bool,
+        menus: MenuBar | None,
+    ) -> None:
+        """Re-mark scenes, a consumed clear, and the menu bar back onto the signal.
+
+        The menu bar is re-marked so a respawned display gets it re-pushed, the
+        same way the live scenes are re-marked to repaint a fresh display.
+        """
         if cleared:
             self._signal.mark_cleared()
+        if menus is not None:
+            self._signal.mark_menus(menus)
         self._signal.add_all(scenes)

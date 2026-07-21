@@ -28,6 +28,9 @@ class _Recorder:
     def mark_cleared(self) -> None:  # pragma: no cover - unused here
         pass
 
+    def mark_menus(self, menus: object) -> None:  # pragma: no cover - unused here
+        pass
+
 
 def _conveniences(store: HubDisplay) -> ConvenienceOperations:
     scenes = SceneOperations(store, _Recorder(), hub_element_factory)

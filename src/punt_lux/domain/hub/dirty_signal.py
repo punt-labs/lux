@@ -15,26 +15,32 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
+    from collections.abc import Iterable, Mapping, Sequence
 
     from punt_lux.domain.ids import SceneId
 
-__all__ = ["DirtySignal", "DrainedBatch"]
+__all__ = ["DirtySignal", "DrainedBatch", "MenuBar"]
+
+# The menu bar to push: a list of wire menu dicts. ``None`` in a batch means no
+# menu change is pending this cycle (PY-TS-14 wire boundary — the display's own
+# untyped menu payload, built by the operation from typed models).
+type MenuBar = tuple[Mapping[str, object], ...]
 
 
 @final
 @dataclass(frozen=True, slots=True)
 class DrainedBatch:
-    """One cycle's work: the coalesced scenes, whether a clear and a stop are due."""
+    """One cycle's work: coalesced scenes, a pending clear, menu bar, and stop."""
 
     scenes: frozenset[SceneId]
     cleared: bool
     shutting: bool
+    menus: MenuBar | None = None
 
     @property
     def has_work(self) -> bool:
         """Whether this cycle has anything to push."""
-        return bool(self.scenes) or self.cleared
+        return bool(self.scenes) or self.cleared or self.menus is not None
 
 
 @final
@@ -51,7 +57,8 @@ class DirtySignal:
     _dirty: set[SceneId]
     _cleared: bool
     _shutting: bool
-    __slots__ = ("_cleared", "_cond", "_dirty", "_shutting")
+    _menus: MenuBar | None
+    __slots__ = ("_cleared", "_cond", "_dirty", "_menus", "_shutting")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
@@ -59,6 +66,7 @@ class DirtySignal:
         self._dirty = set()
         self._cleared = False
         self._shutting = False
+        self._menus = None
         return self
 
     def mark_dirty(self, scene_id: SceneId) -> None:
@@ -71,6 +79,16 @@ class DirtySignal:
         """Record that the screen was cleared and wake the worker. No I/O."""
         with self._cond:
             self._cleared = True
+            self._cond.notify()
+
+    def mark_menus(self, menus: Sequence[Mapping[str, object]]) -> None:
+        """Record the latest menu bar to push and wake the worker. No I/O.
+
+        Coalesces like the cleared flag: only the newest menu bar survives a
+        burst, since a resend replaces the whole bar anyway.
+        """
+        with self._cond:
+            self._menus = tuple(menus)
             self._cond.notify()
 
     def add_all(self, scenes: Iterable[SceneId]) -> None:
@@ -103,16 +121,28 @@ class DirtySignal:
         both, so a mark that lands after the drain is carried to the next cycle.
         """
         with self._cond:
-            while not self._dirty and not self._cleared and not self._shutting:
+            while (
+                not self._dirty
+                and not self._cleared
+                and self._menus is None
+                and not self._shutting
+            ):
                 self._cond.wait()
-            if self._shutting and not self._dirty and not self._cleared:
+            if (
+                self._shutting
+                and not self._dirty
+                and not self._cleared
+                and self._menus is None
+            ):
                 return DrainedBatch(frozenset(), cleared=False, shutting=True)
             self._cond.wait(coalesce_seconds)
             batch = DrainedBatch(
                 frozenset(self._dirty),
                 cleared=self._cleared,
                 shutting=self._shutting,
+                menus=self._menus,
             )
             self._dirty.clear()
             self._cleared = False
+            self._menus = None
             return batch

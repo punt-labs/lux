@@ -15,6 +15,7 @@ from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.display_connection import HubDisplayConnection
 from punt_lux.domain.hub.element_index import UnknownElementError
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
 from punt_lux.operations import (
@@ -71,7 +72,6 @@ from punt_lux.tools.inbox import ensure_writer, next_event
 from punt_lux.tools.server import (
     _cleanup_session,
     _session_key,
-    _session_menus,
 )
 
 
@@ -438,15 +438,18 @@ def _bad_table(element_id: str = "bad") -> dict[str, object]:
 
 
 class TestSetMenuTool:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_set_menu_returns_ok(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        mock_get.return_value = client
+    def test_set_menu_writes_the_hub_registry(self) -> None:
+        # set_menu is a Hub write now: it stores the bar in the Hub menu
+        # registry (the replicator pushes it) instead of reaching the display.
+        from punt_lux.domain.hub.menu_registry import hub_menu_registry
 
         menus = [{"label": "Tools", "items": [{"label": "Run", "id": "run"}]}]
-        result = set_menu(menus)
-        assert result == "ok"
-        client.set_menu.assert_called_once_with(menus)
+        try:
+            result = set_menu(menus)
+            assert result == "ok"
+            assert any(m.get("label") == "Tools" for m in hub_menu_registry.menu_bar())
+        finally:
+            hub_menu_registry.set_menus([])
 
 
 class TestSetThemeTool:
@@ -938,6 +941,9 @@ class _ReplicatorSpy:
     def mark_cleared(self) -> None:
         self.cleared += 1
 
+    def mark_menus(self, menus: object) -> None:
+        """Swallow a menu-bar push mark; the spy only records scene signals."""
+
 
 def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock:
     """Route the operations at one isolated store and a recording replicator.
@@ -953,6 +959,7 @@ def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock
         spy,
         hub=hub,
         client_registry=client_registry,
+        menu_registry=HubMenuRegistry(),
         ports=HubPorts(
             element_factory=hub_element_factory,
             ensure_writer=ensure_writer,
@@ -986,6 +993,7 @@ def _bind_pubsub(
         _ReplicatorSpy(),
         hub=hub,
         client_registry=client_registry,
+        menu_registry=HubMenuRegistry(),
         ports=HubPorts(
             element_factory=hub_element_factory,
             ensure_writer=_no_writer,
@@ -2213,40 +2221,52 @@ class TestSessionKey:
         assert _session_key.get() == "local"
 
 
+def _bar_has_item(bar: list[dict[str, object]], item_id: str) -> bool:
+    """Whether the composed menu bar carries a tool item with ``item_id``."""
+    for menu in bar:
+        items = menu.get("items", [])
+        entries = items if isinstance(items, list) else []
+        if any(isinstance(e, dict) and e.get("id") == item_id for e in entries):
+            return True
+    return False
+
+
 class TestCleanupSession:
-    def test_removes_tracked_items(self) -> None:
-        _session_menus["sess-1"] = ["tool-a", "tool-b"]
+    def test_drops_the_sessions_menu_items(self) -> None:
+        from punt_lux.domain.hub.menu_registry import hub_menu_registry
+
+        conn = ConnectionId("sess-1")
+        hub_menu_registry.register_item(conn, {"label": "Run", "id": "cleanup-tool"})
         _cleanup_session("sess-1")
-        assert "sess-1" not in _session_menus
+        assert not _bar_has_item(hub_menu_registry.menu_bar(), "cleanup-tool")
 
     def test_noop_when_no_items(self) -> None:
-        _session_menus.pop("nonexistent", None)
-        _cleanup_session("nonexistent")
-        assert "nonexistent" not in _session_menus
+        _cleanup_session("nonexistent-session")  # must not raise
 
 
 class TestRegisterToolSessionTracking:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_tracks_in_session_menus(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        mock_get.return_value = client
+    def test_registers_the_item_in_the_hub_registry(self) -> None:
+        from punt_lux.domain.hub.menu_registry import hub_menu_registry
 
-        _session_menus.pop("local", None)
-        register_tool(label="Run", tool_id="run-btn")
-        assert "run-btn" in _session_menus.get("local", [])
-        # Cleanup
-        _session_menus.pop("local", None)
+        conn = ConnectionId("local")
+        hub_menu_registry.drop(conn)
+        try:
+            assert (
+                register_tool(label="Run", tool_id="track-run")
+                == "registered:track-run"
+            )
+            assert _bar_has_item(hub_menu_registry.menu_bar(), "track-run")
+        finally:
+            hub_menu_registry.drop(conn)
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_tracks_under_custom_session_key(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        mock_get.return_value = client
+    def test_registers_under_custom_session_key(self) -> None:
+        from punt_lux.domain.hub.menu_registry import hub_menu_registry
 
+        conn = ConnectionId("ws-99")
         token = _session_key.set("ws-99")
         try:
-            _session_menus.pop("ws-99", None)
-            register_tool(label="Build", tool_id="build-btn")
-            assert "build-btn" in _session_menus.get("ws-99", [])
+            register_tool(label="Build", tool_id="track-build")
+            assert _bar_has_item(hub_menu_registry.menu_bar(), "track-build")
         finally:
             _session_key.reset(token)
-            _session_menus.pop("ws-99", None)
+            hub_menu_registry.drop(conn)

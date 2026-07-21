@@ -57,6 +57,7 @@ STRUCTURED_TOOLS = frozenset(
         "list_scenes",
     }
 )
+# ``list_menus`` joined the structured set in the menu-ownership commit.
 
 
 def _snapshot_files() -> list[Path]:

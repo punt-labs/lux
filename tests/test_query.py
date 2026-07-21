@@ -478,13 +478,17 @@ class TestTier1ClientMenuTools:
             result = list_clients()
         assert isinstance(result, ClientList)
 
-    def test_list_menus_not_running(self) -> None:
+    def test_list_menus_reads_the_hub_not_the_display(self) -> None:
+        # list_menus now answers from the Hub menu registry, so a down display
+        # does not make it fail — it returns the (possibly empty) menu bar.
         from unittest.mock import patch
 
+        from punt_lux.operations import MenuList
         from punt_lux.tools import list_menus
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert list_menus() == "not running"
+            result = list_menus()
+        assert isinstance(result, MenuList)
 
 
 # ---------------------------------------------------------------------------
