@@ -185,6 +185,11 @@
 
 ### Fixed
 
+- **`get_display_info` no longer rejects its own valid payload (DES-055, PR B).**
+  The tool's MCP output schema is now derived from the `DisplayInfo` result model
+  rather than hand-maintained, so a schema built from the model cannot reject a
+  payload the model accepts — the drift that made the tool refuse a live display's
+  metadata is gone.
 - **Plot series without labels no longer flicker or fight for one legend slot.**
   Two series that share a label — including the label-less default "data" —
   used to collide on a single ImPlot item. Each series and each plot is now
@@ -269,6 +274,28 @@
   and format the result. This is an internal restructure: the tools' string
   contract is unchanged and pinned byte-identical by the characterization corpus,
   so agents see no behavior difference.
+- **Query, menu, and display-control surface on the one code path (DES-055, PR
+  B).** The read and control tools moved into the operations layer, removing the
+  tool→display reach-around. `inspect_scene`, `list_scenes`, and `list_clients`
+  now read Hub-authoritative state (`HubDisplay` and the Hub session registry)
+  instead of asking the display replica; menus become Hub-owned — `set_menu` and
+  `register_tool` write a Hub menu registry and the background replicator pushes
+  the bar to the display (the sole writer, no reach-around), and `list_menus` is
+  a Hub read; the remaining display facts (`list_recent_events`, `list_errors`,
+  `get_display_info`, `get_theme`, `set_theme`, `get_window_settings`,
+  `set_window_settings`, `set_frame_state`, `screenshot`, `ping`) reach the
+  display through one bounded Hub connection that returns an `OpError` instead of
+  hanging or raising. The structured-output tools (`get_display_info`,
+  `get_theme`, `get_window_settings`, `list_scenes`, `inspect_scene`,
+  `list_clients`, `list_menus`, `list_recent_events`, `list_errors`) now return
+  typed result models with the MCP output schema derived from the model; the
+  string-return tools keep their exact status lines, pinned byte-identical by the
+  characterization corpus. `list_clients` now answers with the Hub sessions and
+  their scopes — the meaningful client list now that the display has one socket
+  client (luxd).
+- **Hub-side session logic relocated out of `tools/`.** The connection-scoped
+  element decode (`hub_factory`) and the per-session inbox queues (`inbox`) moved
+  into `domain/hub`, where the rest of the Hub session machinery lives.
 - **`ValueChanged.value` widened to `bool | int | float | str`** (from
   `bool | str`) so a slider commit can carry its `float` (or `int` for the
   integer variant) alongside a checkbox `bool` and an input_text `str`. The

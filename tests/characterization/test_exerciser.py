@@ -24,6 +24,9 @@ class TestDisplayMode:
 
 class TestPing:
     def test_pong_with_rtt(self) -> None:
+        # The connection owns the rtt measurement; under the constant-monotonic
+        # stub t0 == t1, so the rtt is a deterministic 0.000s. The snapshot pins
+        # the "pong rtt=%.3fs" format, not a runtime-varying number.
         result = ToolExerciser.call(
             "ping",
             {},
@@ -33,7 +36,7 @@ class TestPing:
                 "client": {"ping": {"return": {"ts": 1000.0, "display_ts": 1000.005}}},
             },
         )
-        assert result == "pong rtt=0.042s"
+        assert result == "pong rtt=0.000s"
 
     def test_not_running(self) -> None:
         result = ToolExerciser.call("ping", {}, {"display_running": False})
@@ -88,8 +91,8 @@ class TestRaisesOnBadSetup:
         # the missing declaration surfaces.
         with pytest.raises(ToolCallError, match="stub 'query' called"):
             ToolExerciser.call(
-                "inspect_scene",
-                {"scene_id": "s1"},
+                "screenshot",
+                {},
                 {"display_running": True, "client": {}},
             )
 
@@ -101,19 +104,19 @@ class TestPassthroughAllowlist:
         # the query its tool actually uses records cleanly — the constant-overhead
         # side effects don't need a spec entry.
         result = ToolExerciser.call(
-            "inspect_scene",
-            {"scene_id": "s1"},
+            "screenshot",
+            {},
             {
                 "display_running": True,
                 "client": {
                     "query": {
-                        "method": "inspect_scene",
-                        "result": {"scene_id": "s1", "elements": []},
+                        "method": "screenshot",
+                        "result": {"path": "/tmp/lux-x.png"},
                     }
                 },
             },
         )
-        assert '"scene_id": "s1"' in result
+        assert result == "/tmp/lux-x.png"
 
     def test_non_allowlisted_method_still_raises(self) -> None:
         # The allowlist is constrained — only declare_menu_item and

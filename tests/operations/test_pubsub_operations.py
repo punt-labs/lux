@@ -7,11 +7,11 @@ from collections.abc import Iterator
 import pytest
 
 from punt_lux.domain.hub import hub
+from punt_lux.domain.hub.inbox import drop_session, ensure_writer, next_event
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import PublishRequest
 from punt_lux.operations.pubsub import PubSubOperations
 from punt_lux.operations.scope import Scope
-from punt_lux.tools.inbox import drop_session, ensure_writer, next_event
 
 
 def _ops() -> PubSubOperations:

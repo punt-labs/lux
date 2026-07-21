@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Self, cast
 
-from punt_lux.domain.hub import hub
+from punt_lux.domain.hub.hub import hub
 from punt_lux.domain.ids import Topic
 from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.elements import build_element_codec
@@ -40,7 +40,7 @@ class HubPublishSink:
     against that connection's scope. Satisfies the structural
     ``PublishSink`` Protocol without inheriting from it; the protocol
     lives in ``domain.handlers`` (inner layer) and this adapter lives
-    in ``tools`` (presentation/Hub adapter).
+    beside the Hub in ``domain.hub``.
     """
 
     __slots__ = ("_connection_id",)

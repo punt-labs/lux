@@ -57,7 +57,7 @@ from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from contextlib import AbstractContextManager
 
 __all__ = [
@@ -216,6 +216,31 @@ class HubDisplay:
     ) -> tuple[tuple[SceneId, ElementId], ...]:
         """Return every ``(scene, element)`` pair this connection installed."""
         return self._owners.keys_for(connection_id)
+
+    # -- authoritative reads (introspection) -------------------------------
+
+    def live_scene_ids(self) -> tuple[SceneId, ...]:
+        """Return every scene still holding a non-removed root, read under lock."""
+        return self._reader.live_scene_ids()
+
+    def element_count(self, scene_id: SceneId) -> int:
+        """Return the count of non-removed elements in a scene, read under lock."""
+        with self._lock.read():
+            return self._index.element_count(scene_id)
+
+    def scene_owners(self, scene_id: SceneId) -> tuple[ConnectionId, ...]:
+        """Return each scene's distinct root owners, first-appearance order.
+
+        Empty if unowned; filter(None) drops a root whose owner is unrecorded.
+        """
+        with self._lock.read():
+            roots = self._index.scene_root_items(scene_id)
+            owned = (self._owners.get(scene_id, key) for key, _ in roots)
+            return tuple(dict.fromkeys(filter(None, owned)))
+
+    def client_sessions(self) -> Mapping[ConnectionId, float]:
+        """Return each registered Hub session paired with its connect time."""
+        return self._clients.sessions()
 
     @trace
     def replace_scene(

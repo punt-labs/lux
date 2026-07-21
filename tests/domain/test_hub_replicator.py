@@ -18,6 +18,8 @@ import pytest
 
 from punt_lux.domain.hub.dirty_signal import DrainedBatch
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.menu_models import Menu, MenuAction
+from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.replicator import (
     _BASE_BACKOFF_SECONDS,
     HubReplicator,
@@ -56,6 +58,8 @@ class _FakeSender:
     frames: list[str | None]
     roots: list[list[WireElement]]
     clears: int
+    menus: list[list[dict[str, object]]]
+    registered_items: list[list[dict[str, object]]]
     timeline: list[str]
     _fail: OSError | None
     _fail_scene: tuple[str, OSError] | None
@@ -72,6 +76,8 @@ class _FakeSender:
         "_sent",
         "clears",
         "frames",
+        "menus",
+        "registered_items",
         "roots",
         "shows",
         "timeline",
@@ -83,6 +89,8 @@ class _FakeSender:
         self.frames = []
         self.roots = []
         self.clears = 0
+        self.menus = []
+        self.registered_items = []
         self.timeline = []
         self._fail = None
         self._fail_scene = None
@@ -150,6 +158,17 @@ class _FakeSender:
             self.timeline.append("clear")
         self._sent.set()
 
+    def set_menu(self, menus: list[dict[str, object]]) -> None:
+        self._guard()
+        with self._lock:
+            self.menus.append(list(menus))
+            self.timeline.append("menu")
+        self._sent.set()
+
+    def set_registered_items(self, items: list[dict[str, object]]) -> None:
+        with self._lock:
+            self.registered_items.append(list(items))
+
 
 class _FakeProvider:
     """Hands out one sender; ``drop`` heals it, modelling a reconnect."""
@@ -204,11 +223,14 @@ class _FakeLifecycle:
 
 def _replicator(
     store: HubDisplay,
+    menu_registry: HubMenuRegistry | None = None,
 ) -> tuple[HubReplicator, _FakeSender, _FakeProvider, _FakeLifecycle]:
     sender = _FakeSender()
     provider = _FakeProvider(sender)
     lifecycle = _FakeLifecycle()
-    return HubReplicator(store.reader, provider, lifecycle), sender, provider, lifecycle
+    registry = menu_registry if menu_registry is not None else HubMenuRegistry()
+    repl = HubReplicator(store.reader, registry, provider, lifecycle)
+    return repl, sender, provider, lifecycle
 
 
 def test_a_dirty_scene_is_sent_to_the_display() -> None:
@@ -220,6 +242,52 @@ def test_a_dirty_scene_is_sent_to_the_display() -> None:
         repl.mark_dirty(scene)
         assert sender.wait_sent(2.0)
         assert sender.shows == ["s1"]
+    finally:
+        repl.stop()
+
+
+def test_menu_state_is_pushed_from_a_fresh_registry_read() -> None:
+    # A menu change is Hub-owned and payload-less: the operation flags it, and this
+    # one background writer reads the registry fresh and sends both the agent bar
+    # (set_menu) and the World-menu items (set_registered_items).
+    store = HubDisplay()
+    registry = HubMenuRegistry()
+    registry.set_menus([Menu(label="File", items=[])])
+    registry.register_item(ConnectionId("c1"), MenuAction(id="run", label="Run"))
+    repl, sender, _provider, _lifecycle = _replicator(store, registry)
+    repl.start()
+    try:
+        repl.mark_menus()
+        assert sender.wait_sent(2.0)
+        assert sender.menus == [[{"label": "File", "items": []}]]
+        assert sender.registered_items == [[{"label": "Run", "id": "run"}]]
+    finally:
+        repl.stop()
+
+
+def test_a_menu_change_during_a_failed_send_wins_over_the_stale_state() -> None:
+    # The recovery-clobber regression, sequenced deterministically with the gate
+    # handshake: the first send is held until v2 has landed, then released to
+    # fail; recovery re-marks the flag and the next send re-reads the registry, so
+    # v2 ships. A drained v1 payload can never be re-pushed — there is no payload.
+    store = HubDisplay()
+    registry = HubMenuRegistry()
+    registry.set_menus([Menu(label="v1", items=[])])
+    repl, sender, _provider, _lifecycle = _replicator(store, registry)
+    gate = threading.Event()
+    sender.block_next(gate)  # the first send parks here
+    sender.arm_failure(OSError("EPIPE"))  # and fails once released
+    repl.start()
+    try:
+        repl.mark_menus()
+        assert sender.wait_entered(2.0)  # worker is provably inside the first send
+        registry.set_menus([Menu(label="v2", items=[])])  # v2 lands during the hold
+        gate.set()  # release -> the first send fails -> recovery re-marks the flag
+        assert sender.wait_sent(2.0)
+        # The re-read at the next send shipped v2; v1 was never recorded (the send
+        # raised before recording it).
+        assert [{"label": "v2", "items": []}] in sender.menus
+        assert [{"label": "v1", "items": []}] not in sender.menus
     finally:
         repl.stop()
 

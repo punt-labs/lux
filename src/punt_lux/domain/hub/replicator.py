@@ -30,7 +30,11 @@ from punt_lux.domain.hub.recovery import SendRecovery
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.dirty_signal import DrainedBatch
-    from punt_lux.domain.hub.replicator_ports import ClientProvider, DisplayLifecycle
+    from punt_lux.domain.hub.replicator_ports import (
+        ClientProvider,
+        DisplayLifecycle,
+        MenuReader,
+    )
     from punt_lux.domain.hub.scene_snapshot import SceneReader
     from punt_lux.domain.ids import SceneId
 
@@ -75,6 +79,7 @@ class HubReplicator:
     """
 
     _reader: SceneReader
+    _menu_reader: MenuReader
     _clients: ClientProvider
     _signal: DirtySignal
     _recovery: SendRecovery
@@ -83,6 +88,7 @@ class HubReplicator:
     __slots__ = (
         "_backoff",
         "_clients",
+        "_menu_reader",
         "_reader",
         "_recovery",
         "_signal",
@@ -92,11 +98,13 @@ class HubReplicator:
     def __new__(
         cls,
         reader: SceneReader,
+        menu_reader: MenuReader,
         clients: ClientProvider,
         lifecycle: DisplayLifecycle,
     ) -> Self:
         self = super().__new__(cls)
         self._reader = reader
+        self._menu_reader = menu_reader
         self._clients = clients
         self._signal = DirtySignal()
         self._recovery = SendRecovery(clients, lifecycle, self._signal, reader)
@@ -113,6 +121,15 @@ class HubReplicator:
     def mark_cleared(self) -> None:
         """Signal that the screen was cleared. Queue-only — never sends."""
         self._signal.mark_cleared()
+
+    def mark_menus(self) -> None:
+        """Signal that the menu registry changed. Queue-only — never sends.
+
+        Payload-less, like ``mark_cleared``: a menu change lands the same way a
+        scene change does — the operation writes the Hub registry and flags it
+        here, and this worker alone reads the registry fresh and sends it.
+        """
+        self._signal.mark_menus()
 
     # -- lifecycle: starts with luxd, stops with luxd -----------------------
 
@@ -232,6 +249,13 @@ class HubReplicator:
         """
         if batch.cleared:
             self._clients.get().clear_async()
+        if batch.menus_dirty:
+            # Read the registry fresh, so the newest menu state wins even if a
+            # change landed after this batch was drained.
+            state = self._menu_reader.wire_snapshot()
+            sender = self._clients.get()
+            sender.set_menu([dict(menu) for menu in state.bar])
+            sender.set_registered_items([dict(item) for item in state.items])
         # Each ``_send_scene`` sends and reports whether the scene was empty; the
         # comprehension keeps the empties as reclaim candidates.
         return tuple(

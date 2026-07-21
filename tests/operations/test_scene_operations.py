@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.operations import OpError, RenderRequest, SceneShown, UpdateRequest
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.scope import Scope
 from punt_lux.protocol import CollapsingHeaderElement
-from punt_lux.tools.hub_factory import hub_element_factory
 
 _LOCAL = Scope(ConnectionId("local"))
 
@@ -25,6 +25,9 @@ class _Recorder:
 
     def mark_cleared(self) -> None:
         self.cleared += 1
+
+    def mark_menus(self) -> None:
+        """Unused here — scene operations never mark the menu bar."""
 
 
 def _ops(store: HubDisplay, recorder: _Recorder) -> SceneOperations:

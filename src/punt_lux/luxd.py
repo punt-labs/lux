@@ -105,8 +105,8 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
         # every owned root removed (the Observer cascade prunes the rest), purges
         # the connection's topic scope, and unbinds its outbound writer.
         from punt_lux.domain.hub import disconnect_connection
+        from punt_lux.domain.hub.inbox import drop_session
         from punt_lux.domain.ids import ConnectionId
-        from punt_lux.tools.inbox import drop_session
 
         disconnect_connection(ConnectionId(session_key), drop_session)
         logger.info("MCP WebSocket disconnected: session_key=%s", session_key)

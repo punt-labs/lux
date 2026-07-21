@@ -2,57 +2,89 @@
 
 from __future__ import annotations
 
-import json
-import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import Any, get_args
 
 from punt_lux.domain.hub import client_registry, hub, hub_display
-from punt_lux.domain.hub.replicator_instance import hub_replicator
+from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.inbox import ensure_writer, next_event
+from punt_lux.domain.hub.replicator_instance import hub_menu_registry, hub_replicator
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import (
+    ClientList,
+    DisplayInfo,
     DisplayModeRequest,
     DisplayModeState,
+    FrameStatePatch,
+    MenuList,
+    Ok,
     Operations,
     OpError,
+    RecentErrors,
+    RecentEvents,
+    RegisterToolRequest,
     RenderDashboardRequest,
     RenderRequest,
     RenderTableRequest,
+    SceneInspection,
+    SceneList,
     SceneShown,
     Scope,
+    SetMenuRequest,
+    SetThemeRequest,
+    ThemeName,
+    ThemeState,
     UpdateRequest,
+    WindowSettings,
+    WindowSettingsPatch,
+)
+from punt_lux.operations.display_connection import HubDisplayConnection
+from punt_lux.operations.models.window import (
+    FONT_SCALE_RANGE,
+    FPS_IDLE_RANGE,
+    OPACITY_RANGE,
 )
 from punt_lux.operations.ports import HubPorts
 from punt_lux.paths import DisplayPaths
-from punt_lux.tools.connection import _query_tool
-from punt_lux.tools.hub_factory import hub_element_factory
-from punt_lux.tools.inbox import ensure_writer, next_event
-from punt_lux.tools.server import (
-    _session_key,
-    _session_menus,
-    mcp,
-)
+from punt_lux.tools.server import _session_key, mcp
 
-if TYPE_CHECKING:
-    from punt_lux.display_client import DisplayClient
 
-# The process-wide operations facade. This is the composition root: the
-# operations layer imports no process singletons at module scope, so the store,
-# replicator, hub, client registry, and the two Hub helpers it needs
-# (connection-scoped element decode and the session inbox) are all injected here
-# in the presentation layer. Nothing under ``operations/`` imports back into
-# ``tools/`` or binds the running process at import time.
-OPERATIONS = Operations.for_store(
-    hub_display,
-    hub_replicator,
-    hub=hub,
-    client_registry=client_registry,
-    ports=HubPorts(
+def _hub_ports() -> HubPorts:
+    """Bundle the Hub helpers (element decode, inbox) the operations compose."""
+    return HubPorts(
         element_factory=hub_element_factory,
         ensure_writer=ensure_writer,
         next_event=next_event,
-    ),
-)
+    )
+
+
+def _display_connection() -> HubDisplayConnection:
+    """Build luxd's one bounded connection to the display for proxied ops."""
+    return HubDisplayConnection(
+        is_running=lambda: DisplayPaths().is_running(),
+        clients=client_registry,
+    )
+
+
+def _build_operations() -> Operations:
+    """Compose the operations facade — the presentation-layer composition root.
+
+    Every collaborator is injected here; nothing under ``operations/`` binds a
+    process singleton or reaches back into ``tools/`` at import time.
+    """
+    return Operations.for_store(
+        hub_display,
+        hub_replicator,
+        hub=hub,
+        client_registry=client_registry,
+        menu_registry=hub_menu_registry,
+        ports=_hub_ports(),
+        display_port=_display_connection(),
+    )
+
+
+# The process-wide operations facade, built once at the composition root.
+OPERATIONS = _build_operations()
 
 
 def _connection_id() -> ConnectionId:
@@ -97,28 +129,23 @@ def _format_display_mode(result: DisplayModeState | OpError) -> str:
     return f"display:{result.mode}"
 
 
-def _display_running() -> bool:
-    """Whether a live display process owns the socket."""
-    return DisplayPaths().is_running()
+def _fault_line(err: OpError) -> str:
+    """Render a proxied operation's ``OpError`` as its legacy status line.
 
-
-def _client() -> DisplayClient:
-    """Return the Hub's connected display client for a read-only round-trip."""
-    return client_registry.get()
-
-
-def _bounded(call: Callable[[], str]) -> str:
-    """Run a ``set_*`` round-trip; return ``"timeout"`` if the send fails.
-
-    The ``SO_SNDTIMEO``-bounded send raises ``OSError`` within the limit; the tool
-    drops the dead connection so the next ``set_*`` reconnects, and reports
-    ``"timeout"`` — never killing the display.
+    A display that is not running reads ``"not running"`` and a bounded round-trip
+    that elapsed reads ``"timeout"``, matching the two short-circuits the display
+    tools returned before; every other cause reads ``"error: <reason>"``.
     """
-    try:
-        return call()
-    except OSError:
-        client_registry.drop()
+    if err.code == "display_unavailable":
+        return "not running"
+    if err.code == "timeout":
         return "timeout"
+    return f"error: {err.reason}"
+
+
+def _fault_or[T](result: T | OpError, render: Callable[[T], str]) -> str:
+    """Render ``result`` with ``render``, or as its fault line when it is an error."""
+    return _fault_line(result) if isinstance(result, OpError) else render(result)
 
 
 @mcp.tool()
@@ -416,14 +443,11 @@ def set_menu(menus: list[dict[str, Any]]) -> str:
 
     Each menu: {"label": "Tools", "items": [{"label": "Run", "id": "run_btn"},
     {"label": "---"}]}  — a ``"---"`` label is a separator.
+
+    The menu bar is Hub-owned: this writes the Hub menu registry and the
+    background replicator pushes the bar to the display.
     """
-
-    def _call() -> str:
-        client = _client()
-        client.set_menu(menus)
-        return "ok"
-
-    return _bounded(_call)
+    return _fault_or(OPERATIONS.set_menu(SetMenuRequest.parse(menus)), lambda _r: "ok")
 
 
 @mcp.tool()
@@ -435,104 +459,71 @@ def register_tool(
 ) -> str:
     """Register a menu item in the shared Lux Tools menu.
 
-    Only this server receives the click via recv(). The item is removed
-    automatically when the server disconnects.
+    Only this server receives the click via recv(). The item is scoped to this
+    session in the Hub menu registry and removed when the session disconnects.
     """
-    item: dict[str, Any] = {"label": label, "id": tool_id}
-    if shortcut is not None:
-        item["shortcut"] = shortcut
-    if icon is not None:
-        item["icon"] = icon
-
-    def _call() -> str:
-        client = _client()
-        client.register_menu_item(item)
-        with client_registry.lock:
-            key = _session_key.get()
-            _session_menus.setdefault(key, []).append(tool_id)
-        return f"registered:{tool_id}"
-
-    return _bounded(_call)
+    return _fault_or(
+        OPERATIONS.register_menu_item(
+            RegisterToolRequest.parse(
+                tool_id=tool_id, label=label, shortcut=shortcut, icon=icon
+            ),
+            scope=_scope(),
+        ),
+        lambda _r: f"registered:{tool_id}",
+    )
 
 
-@mcp.tool()
-def set_theme(theme: str) -> str:
-    """Set the Lux display theme.
-
-    Available themes (snake_case names):
-      imgui_colors_light, imgui_colors_dark, imgui_colors_classic,
-      darcula, darcula_darker, material_flat, photoshop_style,
-      grey_flat, cherry, light_rounded, microsoft_style, from_imgui_colors_dark
-    """
-    if not _display_running():
-        return "not running"
-
-    def _call() -> str:
-        client = _client()
-        response = client.query("set_theme", {"theme": theme})
-        if response is None:
-            return "timeout"
-        if response.error:
-            return f"error: {response.error}"
-        return f"theme:{response.result.get('theme', theme)}"
-
-    return _bounded(_call)
+# One source for the theme names — description and accepted set cannot drift.
+_SET_THEME_DESCRIPTION = "Set the Lux display theme. Valid names (snake_case): " + (
+    ", ".join(get_args(ThemeName))
+)
 
 
-@mcp.tool()
+# Bounds come from the WindowSettingsPatch ranges — one source, no drift.
+_SET_WINDOW_DESCRIPTION = (
+    "Modify display window settings. Only provided fields change. "
+    f"Fields: opacity ({OPACITY_RANGE[0]}-{OPACITY_RANGE[1]}), "
+    f"font_scale ({FONT_SCALE_RANGE[0]}-{FONT_SCALE_RANGE[1]}), "
+    "decorated (title bar/borders), "
+    f"fps_idle (target idle FPS, {FPS_IDLE_RANGE[0]}-{FPS_IDLE_RANGE[1]})."
+)
+
+
+@mcp.tool(description=_SET_THEME_DESCRIPTION)
+def set_theme(theme: str) -> ThemeState | OpError:
+    """Set the display theme; returns the new theme state or an error."""
+    return OPERATIONS.set_theme(SetThemeRequest.parse(theme))
+
+
+@mcp.tool(description=_SET_WINDOW_DESCRIPTION)
 def set_window_settings(
     opacity: float | None = None,
     font_scale: float | None = None,
     decorated: bool | None = None,  # noqa: FBT001
     fps_idle: float | None = None,
-) -> str:
-    """Modify display window settings. Only provided fields change.
-
-    Fields: opacity (0.1-1.0), font_scale (0.5-3.0), decorated (title bar/borders),
-    fps_idle (target idle FPS, 1-120).
-    """
-    params: dict[str, Any] = {}
-    if opacity is not None:
-        params["opacity"] = opacity
-    if font_scale is not None:
-        params["font_scale"] = font_scale
-    if decorated is not None:
-        params["decorated"] = decorated
-    if fps_idle is not None:
-        params["fps_idle"] = fps_idle
-    if not params:
-        return "error: no settings provided"
-    if not _display_running():
-        return "not running"
-
-    def _call() -> str:
-        client = _client()
-        response = client.query("set_window_settings", params)
-        if response is None:
-            return "timeout"
-        if response.error:
-            return f"error: {response.error}"
-        return json.dumps(response.result, indent=2)
-
-    return _bounded(_call)
+) -> WindowSettings | OpError:
+    """Change the provided window settings; returns the new settings or an error."""
+    return OPERATIONS.set_window_settings(
+        WindowSettingsPatch.parse(
+            {
+                "opacity": opacity,
+                "font_scale": font_scale,
+                "decorated": decorated,
+                "fps_idle": fps_idle,
+            }
+        )
+    )
 
 
-@_query_tool(
-    "set_frame_state",
-    doc="Modify a frame's state (minimize/expand).\n\n"
-    "Args:\n"
-    "    frame_id: Target frame identifier.\n"
-    "    minimized: True to minimize, False to expand.",
-)
+@mcp.tool()
 def set_frame_state(
     frame_id: str,
     minimized: bool | None = None,  # noqa: FBT001
-) -> dict[str, Any] | None:
-    """Modify a frame's state (minimize/expand)."""
-    params: dict[str, Any] = {"frame_id": frame_id}
-    if minimized is not None:
-        params["minimized"] = minimized
-    return params
+) -> Ok | OpError:
+    """Minimize or expand a frame (``minimized`` true to minimize)."""
+    return OPERATIONS.set_frame_state(
+        frame_id, FrameStatePatch.parse({"minimized": minimized})
+    )
 
 
 @mcp.tool()
@@ -553,65 +544,28 @@ def clear() -> str:
 @mcp.tool()
 def ping() -> str:
     """Ping the display server. Returns round-trip time, "timeout", or "not running"."""
-    if not _display_running():
-        return "not running"
-
-    def _call() -> str:
-        client = _client()
-        pong = client.ping()
-        if pong is None:
-            return "timeout"
-        if pong.ts is not None:
-            rtt = time.time() - pong.ts
-            return f"pong rtt={rtt:.3f}s"
-        return "pong"
-
-    return client_registry.with_reconnect(_call)
+    return _fault_or(OPERATIONS.ping(), lambda r: f"pong rtt={r.rtt_seconds:.3f}s")
 
 
 @mcp.tool()
-def inspect_scene(scene_id: str) -> str:
-    """Return the element tree for a scene as JSON.
+def inspect_scene(scene_id: str) -> SceneInspection | OpError:
+    """Return the element tree for a scene, read from the authoritative store.
 
-    Use this to debug rendering issues -- see exactly what elements
-    the display server has for a given scene_id. Returns "not running"
-    if the display server is not available.
+    Each element reports its render path ("abc" or "legacy") and its resolved
+    state including defaults, so you can verify what the Hub holds without
+    inspecting pixels. An unknown scene is a not_found error.
     """
-    if not _display_running():
-        return "not running"
-
-    def _call() -> str:
-        client = _client()
-        response = client.query("inspect_scene", {"scene_id": scene_id})
-        if response is None:
-            return "timeout"
-        if response.error:
-            return f"error: {response.error}"
-        return json.dumps(response.result, indent=2)
-
-    return client_registry.with_reconnect(_call)
+    return OPERATIONS.inspect_scene(scene_id)
 
 
 @mcp.tool()
-def list_scenes() -> str:
-    """List all active scenes and frames in the display.
+def list_scenes() -> SceneList:
+    """List all active scenes and frames from the authoritative store.
 
-    Returns JSON with scenes (scene_id, element_count, frame_id) and
-    frames (frame_id, title, scene_count). Use to understand what the
-    display is currently showing. Returns "not running" if the display
-    server is not available.
+    Returns the scenes (scene_id, element_count, frame_id, owners) and frames
+    (frame_id, title, scene_count, scene_ids, layout) the Hub is holding.
     """
-    if not _display_running():
-        return "not running"
-
-    def _call() -> str:
-        client = _client()
-        response = client.query("list_scenes")
-        if response is None:
-            return "timeout"
-        return json.dumps(response.result, indent=2)
-
-    return client_registry.with_reconnect(_call)
+    return OPERATIONS.list_scenes()
 
 
 @mcp.tool()
@@ -622,61 +576,46 @@ def screenshot() -> str:
     The agent can read this image to see exactly what is rendered.
     Returns "not running" if the display server is not available.
     """
-    if not _display_running():
-        return "not running"
-
-    def _call() -> str:
-        client = _client()
-        response = client.query("screenshot")
-        if response is None:
-            return "timeout"
-        if response.error:
-            return f"error: {response.error}"
-        return str(response.result.get("path", ""))
-
-    return client_registry.with_reconnect(_call)
+    return _fault_or(OPERATIONS.screenshot(), lambda r: str(r.path))
 
 
-@_query_tool(
-    "get_display_info",
-    doc="Return display server metadata: backend, resolution, FPS, PID, uptime.",
-)
-def get_display_info() -> dict[str, Any] | None:
-    """Return display server metadata."""
-    return None
+@mcp.tool()
+def get_display_info() -> DisplayInfo | OpError:
+    """Return display server metadata: backend, resolution, FPS, PID, uptime.
+
+    The result is a typed record; its MCP output schema is derived from that
+    record, so the display's own reply can never be rejected by a schema that
+    drifted from it.
+    """
+    return OPERATIONS.get_display_info()
 
 
-@_query_tool(
-    "get_window_settings",
-    doc="Return current window settings: font scale, idle FPS.",
-)
-def get_window_settings() -> dict[str, Any] | None:
-    """Return current window settings."""
-    return None
+@mcp.tool()
+def get_window_settings() -> WindowSettings | OpError:
+    """Return current window settings: opacity, font scale, decoration, idle FPS."""
+    return OPERATIONS.get_window_settings()
 
 
-@_query_tool("get_theme", doc="Return current theme and available themes.")
-def get_theme() -> dict[str, Any] | None:
+@mcp.tool()
+def get_theme() -> ThemeState | OpError:
     """Return current theme and available themes."""
-    return None
+    return OPERATIONS.get_theme()
 
 
-@_query_tool(
-    "list_clients",
-    doc="List all clients connected to the display server.",
-)
-def list_clients() -> dict[str, Any] | None:
-    """List all clients connected to the display server."""
-    return None
+@mcp.tool()
+def list_clients() -> ClientList:
+    """List the Hub's sessions — the connections and their scopes.
+
+    After the Hub took over, the display has one socket client (luxd); the
+    meaningful client list is the set of Hub sessions the Hub holds.
+    """
+    return OPERATIONS.list_clients()
 
 
-@_query_tool(
-    "list_menus",
-    doc="List all registered menus and their items.",
-)
-def list_menus() -> dict[str, Any] | None:
-    """List all registered menus and their items."""
-    return None
+@mcp.tool()
+def list_menus() -> MenuList:
+    """List the Hub-owned menu bar and its items, read with no reach-around."""
+    return OPERATIONS.list_menus()
 
 
 @mcp.tool()
@@ -703,23 +642,21 @@ def set_display_mode(mode: str, repo: str) -> str:
     )
 
 
-@_query_tool(
-    "list_recent_events",
-    doc="Return the last N interaction events from the display.\n\n"
-    "Events include button clicks, slider changes, combo selections,\n"
-    "and other user interactions. Default 50, max 200.",
-)
-def list_recent_events(count: int = 50) -> dict[str, Any] | None:
-    """Return the last N interaction events."""
-    return {"count": count}
+@mcp.tool()
+def list_recent_events(count: int = 50) -> RecentEvents | OpError:
+    """Return the last N interaction events from the display.
+
+    Events include button clicks, slider changes, combo selections, and other
+    user interactions. Default 50, max 200. Proxied over luxd's one connection.
+    """
+    return OPERATIONS.list_recent_events(count)
 
 
-@_query_tool(
-    "list_errors",
-    doc="Return the last N display-side errors and warnings.\n\n"
-    "Each entry includes timestamp, severity, message, and context.\n"
-    "Default 20, max 100.",
-)
-def list_errors(count: int = 20) -> dict[str, Any] | None:
-    """Return the last N display-side errors."""
-    return {"count": count}
+@mcp.tool()
+def list_errors(count: int = 20) -> RecentErrors | OpError:
+    """Return the last N display-side errors and warnings.
+
+    Each entry includes timestamp, severity, message, and context. Default 20,
+    max 100. Proxied over luxd's one connection.
+    """
+    return OPERATIONS.list_errors(count)

@@ -350,15 +350,15 @@ COMPOSITION_SCENARIOS: tuple[Scenario, ...] = (
             "client": {"show": {"return": {"scene_id": "empty", "ts": 1000.0}}},
         },
     ),
+    # set_menu and register_tool are Hub writes now: they store the menu bar in
+    # the Hub registry (the replicator pushes it) instead of reaching the
+    # display, so their setup declares no client stub. Their string return is
+    # unchanged and still pinned here.
     Scenario(
         name="register_tool-basic",
         tool="register_tool",
         inputs={"label": "Run", "tool_id": "run-btn"},
-        setup={
-            "display_running": True,
-            "client": {"register_menu_item": {}},
-            "session_key": "corpus-register-basic",
-        },
+        setup={"session_key": "corpus-register-basic"},
     ),
     Scenario(
         name="register_tool-with-shortcut-and-icon",
@@ -369,11 +369,7 @@ COMPOSITION_SCENARIOS: tuple[Scenario, ...] = (
             "shortcut": "Cmd+B",
             "icon": "hammer",
         },
-        setup={
-            "display_running": True,
-            "client": {"register_menu_item": {}},
-            "session_key": "corpus-register-shortcut",
-        },
+        setup={"session_key": "corpus-register-shortcut"},
     ),
     Scenario(
         name="set_menu-ok",
@@ -390,7 +386,7 @@ COMPOSITION_SCENARIOS: tuple[Scenario, ...] = (
                 }
             ]
         },
-        setup={"display_running": True, "client": {"set_menu": {}}},
+        setup={"session_key": "corpus-set-menu"},
     ),
 )
 
@@ -404,252 +400,14 @@ COMPOSITION_SCENARIOS: tuple[Scenario, ...] = (
 
 
 INTROSPECTION_SCENARIOS: tuple[Scenario, ...] = (
-    Scenario(
-        name="inspect_scene-found",
-        tool="inspect_scene",
-        inputs={"scene_id": "s1"},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "inspect_scene",
-                    "result": {
-                        "scene_id": "s1",
-                        "elements": [{"kind": "text", "id": "t1", "content": "hello"}],
-                    },
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="inspect_scene-not-found",
-        tool="inspect_scene",
-        inputs={"scene_id": "missing"},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "inspect_scene",
-                    "error": "Scene 'missing' not found",
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="inspect_scene-not-running",
-        tool="inspect_scene",
-        inputs={"scene_id": "s1"},
-        setup={"display_running": False},
-    ),
-    Scenario(
-        name="list_scenes-populated",
-        tool="list_scenes",
-        inputs={},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "list_scenes",
-                    "result": {
-                        "scenes": [
-                            {
-                                "scene_id": "s1",
-                                "element_count": 3,
-                                "frame_id": "f1",
-                                "owner_fd": 5,
-                            },
-                        ],
-                        "frames": [
-                            {
-                                "frame_id": "f1",
-                                "title": "Main",
-                                "scene_count": 1,
-                                "scene_ids": ["s1"],
-                            },
-                        ],
-                    },
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="list_scenes-empty",
-        tool="list_scenes",
-        inputs={},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "list_scenes",
-                    "result": {"scenes": [], "frames": []},
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="list_scenes-not-running",
-        tool="list_scenes",
-        inputs={},
-        setup={"display_running": False},
-    ),
-    Scenario(
-        name="list_clients-populated",
-        tool="list_clients",
-        inputs={},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "list_clients",
-                    "result": {
-                        "clients": [
-                            {"fd": 5, "name": "lux-mcp", "pid": 1234},
-                        ]
-                    },
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="list_menus-populated",
-        tool="list_menus",
-        inputs={},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "list_menus",
-                    "result": {
-                        "menus": [
-                            {
-                                "label": "Tools",
-                                "items": [{"label": "Run", "id": "run-btn"}],
-                            }
-                        ]
-                    },
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="list_recent_events-default-count",
-        tool="list_recent_events",
-        inputs={},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "list_recent_events",
-                    "result": {
-                        "events": [
-                            {
-                                "element_id": "btn-go",
-                                "action": "click",
-                                "ts": 1000.0,
-                                "value": True,
-                            }
-                        ]
-                    },
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="list_recent_events-explicit-count",
-        tool="list_recent_events",
-        inputs={"count": 5},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "list_recent_events",
-                    "result": {"events": []},
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="list_errors-default",
-        tool="list_errors",
-        inputs={},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "list_errors",
-                    "result": {
-                        "errors": [
-                            {
-                                "ts": 1000.0,
-                                "severity": "warning",
-                                "message": "texture cache full",
-                            }
-                        ]
-                    },
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="get_display_info-ok",
-        tool="get_display_info",
-        inputs={},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "get_display_info",
-                    "result": {
-                        "backend": "imgui",
-                        "resolution": [1920, 1080],
-                        "fps": 60.0,
-                        "pid": 5678,
-                        "uptime_s": 12.5,
-                    },
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="get_window_settings-ok",
-        tool="get_window_settings",
-        inputs={},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "get_window_settings",
-                    "result": {
-                        "opacity": 0.95,
-                        "font_scale": 1.25,
-                        "decorated": True,
-                        "fps_idle": 30.0,
-                    },
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="get_theme-ok",
-        tool="get_theme",
-        inputs={},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "get_theme",
-                    "result": {
-                        "theme": "imgui_colors_dark",
-                        "available": [
-                            "imgui_colors_light",
-                            "imgui_colors_dark",
-                            "darcula",
-                        ],
-                    },
-                }
-            },
-        },
-    ),
+    # inspect_scene, list_scenes, list_clients, list_menus, list_recent_events,
+    # and list_errors now return typed models (Hub-authoritative reads, or the
+    # display facts proxied), so they leave the string-parity corpus. Their
+    # behavior is pinned by the typed operation tests under tests/operations/.
+    # get_display_info, get_window_settings, and get_theme now return typed
+    # models (their MCP output schema is derived from the model), so they leave
+    # the string-parity corpus. Their behavior is pinned by the typed operation
+    # and adapter tests under tests/operations/.
     Scenario(
         name="ping-rtt",
         tool="ping",
@@ -708,84 +466,11 @@ INTROSPECTION_SCENARIOS: tuple[Scenario, ...] = (
 # ---------------------------------------------------------------------------
 
 
-CONTROL_SCENARIOS: tuple[Scenario, ...] = (
-    Scenario(
-        name="set_window_settings-ok",
-        tool="set_window_settings",
-        inputs={"opacity": 0.9, "font_scale": 1.25, "fps_idle": 30},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "set_window_settings",
-                    "result": {
-                        "opacity": 0.9,
-                        "font_scale": 1.25,
-                        "fps_idle": 30.0,
-                        "decorated": True,
-                    },
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="set_window_settings-no-params",
-        tool="set_window_settings",
-        inputs={},
-        setup={"display_running": True, "client": {}},
-    ),
-    Scenario(
-        name="set_window_settings-not-running",
-        tool="set_window_settings",
-        inputs={"opacity": 0.5},
-        setup={"display_running": False},
-    ),
-    Scenario(
-        name="set_frame_state-minimize",
-        tool="set_frame_state",
-        inputs={"frame_id": "f1", "minimized": True},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "set_frame_state",
-                    "result": {"frame_id": "f1", "minimized": True},
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="set_frame_state-expand",
-        tool="set_frame_state",
-        inputs={"frame_id": "f1", "minimized": False},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "set_frame_state",
-                    "result": {"frame_id": "f1", "minimized": False},
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="set_theme-ok",
-        tool="set_theme",
-        inputs={"theme": "darcula"},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {"method": "set_theme", "result": {"theme": "darcula"}}
-            },
-        },
-    ),
-    Scenario(
-        name="set_theme-not-running",
-        tool="set_theme",
-        inputs={"theme": "darcula"},
-        setup={"display_running": False},
-    ),
-)
+# ---------------------------------------------------------------------------
+# The display setters (set_theme, set_window_settings, set_frame_state) return
+# their write's own result model, not a status string, so they are proven by the
+# typed operation/adapter tests under tests/operations/ rather than pinned here.
+# ---------------------------------------------------------------------------
 
 
 # ---------------------------------------------------------------------------
@@ -869,7 +554,6 @@ SCENARIOS: tuple[Scenario, ...] = (
     LIFECYCLE_SCENARIOS
     + COMPOSITION_SCENARIOS
     + INTROSPECTION_SCENARIOS
-    + CONTROL_SCENARIOS
     + INTERACTION_SCENARIOS
     + PUBSUB_SCENARIOS
 )

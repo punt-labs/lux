@@ -15,8 +15,8 @@ from typing import TYPE_CHECKING, Self
 import pytest
 
 from punt_lux.domain.hub import client_registry, hub, hub_display
+from punt_lux.domain.hub.inbox import drop_session
 from punt_lux.domain.ids import ConnectionId
-from punt_lux.tools.inbox import drop_session
 
 from .agent import SimulatedAgent
 from .rig import InProcessLoop, SyncReplicator

@@ -123,7 +123,7 @@ class LoopInvariants:
     def assert_recv_surface_is_real(self) -> None:
         """I4 — the event arrived on the real inbox recv surface, not a sink.
 
-        Every delivered item is an ``ObserverMessage`` the ``tools.inbox``
+        Every delivered item is an ``ObserverMessage`` the ``domain.hub.inbox``
         ``recv`` / ``drain_inbox`` surface yields — never a test publish-sink.
         The non-empty check stands on its own so an empty inbox fails loud
         here rather than passing a vacuous ``all(...)``.

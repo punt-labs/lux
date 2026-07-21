@@ -14,9 +14,18 @@ from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.element_index import UnknownElementError
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.inbox import ensure_writer, next_event
+from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
-from punt_lux.operations import Operations
+from punt_lux.operations import (
+    Operations,
+    OpError,
+    SceneInspection,
+    SceneList,
+)
+from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.ports import HubPorts
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
@@ -60,12 +69,9 @@ from punt_lux.tools import (
     show_table,
     update,
 )
-from punt_lux.tools.hub_factory import hub_element_factory
-from punt_lux.tools.inbox import ensure_writer, next_event
 from punt_lux.tools.server import (
     _cleanup_session,
     _session_key,
-    _session_menus,
 )
 
 
@@ -432,32 +438,43 @@ def _bad_table(element_id: str = "bad") -> dict[str, object]:
 
 
 class TestSetMenuTool:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_set_menu_returns_ok(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        mock_get.return_value = client
+    def test_set_menu_writes_the_hub_registry(self) -> None:
+        # set_menu is a Hub write now: it stores the bar in the Hub menu
+        # registry (the replicator pushes it) instead of reaching the display.
+        # list_menus reads that same registry, so it confirms the write.
+        from punt_lux.tools import list_menus
 
         menus = [{"label": "Tools", "items": [{"label": "Run", "id": "run"}]}]
-        result = set_menu(menus)
-        assert result == "ok"
-        client.set_menu.assert_called_once_with(menus)
+        try:
+            result = set_menu(menus)
+            assert result == "ok"
+            assert any(m.label == "Tools" for m in list_menus().menus)
+        finally:
+            set_menu([])
 
 
 class TestSetThemeTool:
     @patch.object(DisplayPaths, "is_running", return_value=True)
     @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_set_theme_returns_theme_name(
+    def test_set_theme_returns_the_new_theme_state(
         self, mock_get: MagicMock, _mock_running: MagicMock
     ) -> None:
+        from punt_lux.operations import ThemeState
+
         client = _mock_client()
         mock_response = MagicMock()
         mock_response.error = None
-        mock_response.result = {"theme": "imgui_colors_light"}
+        # The display now replies with the full theme state (current + available).
+        mock_response.result = {
+            "current": "imgui_colors_light",
+            "available": ["imgui_colors_light", "darcula"],
+        }
         client.query.return_value = mock_response
         mock_get.return_value = client
 
         result = set_theme("imgui_colors_light")
-        assert result == "theme:imgui_colors_light"
+        assert isinstance(result, ThemeState)
+        assert result.theme == "imgui_colors_light"
         client.query.assert_called_once_with(
             "set_theme", {"theme": "imgui_colors_light"}
         )
@@ -468,15 +485,18 @@ class TestSetThemeTool:
     def test_set_theme_timeout_drops_the_dead_connection(
         self, mock_get: MagicMock, _mock_running: MagicMock, mock_drop: MagicMock
     ) -> None:
-        # A5: a wedged or dead display makes the bounded round-trip raise OSError.
-        # The tool reports "timeout" and drops the connection so the next set_*
-        # reconnects, instead of reusing the dead fd forever.
+        # A wedged or dead display makes the bounded round-trip raise OSError.
+        # The setter returns an OpError(timeout) and drops the connection so the
+        # next set_* reconnects, instead of reusing the dead fd forever.
+        from punt_lux.operations import OpError
+
         client = _mock_client()
         client.query.side_effect = OSError("EPIPE")
         mock_get.return_value = client
 
         result = set_theme("imgui_colors_light")
-        assert result == "timeout"
+        assert isinstance(result, OpError)
+        assert result.code == "timeout"
         mock_drop.assert_called_once()
 
 
@@ -932,6 +952,9 @@ class _ReplicatorSpy:
     def mark_cleared(self) -> None:
         self.cleared += 1
 
+    def mark_menus(self) -> None:
+        """Swallow the menu-dirty flag; the spy only records scene signals."""
+
 
 def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock:
     """Route the operations at one isolated store and a recording replicator.
@@ -947,10 +970,15 @@ def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock
         spy,
         hub=hub,
         client_registry=client_registry,
+        menu_registry=HubMenuRegistry(),
         ports=HubPorts(
             element_factory=hub_element_factory,
             ensure_writer=ensure_writer,
             next_event=next_event,
+        ),
+        display_port=HubDisplayConnection(
+            is_running=lambda: DisplayPaths().is_running(),
+            clients=client_registry,
         ),
     )
     monkeypatch.setattr("punt_lux.tools.tools.OPERATIONS", ops)
@@ -976,10 +1004,15 @@ def _bind_pubsub(
         _ReplicatorSpy(),
         hub=hub,
         client_registry=client_registry,
+        menu_registry=HubMenuRegistry(),
         ports=HubPorts(
             element_factory=hub_element_factory,
             ensure_writer=_no_writer,
             next_event=next_fn,
+        ),
+        display_port=HubDisplayConnection(
+            is_running=lambda: DisplayPaths().is_running(),
+            clients=client_registry,
         ),
     )
     monkeypatch.setattr("punt_lux.tools.subscribe_tools.OPERATIONS", ops)
@@ -1874,7 +1907,7 @@ class TestClearTool:
 
 
 class TestPingTool:
-    @patch("punt_lux.tools.tools.time")
+    @patch("punt_lux.operations.display_connection.time")
     @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_returns_rtt(
@@ -1884,9 +1917,10 @@ class TestPingTool:
         mock_time: MagicMock,
     ) -> None:
         client = _mock_client()
-        ts = 1000.0
-        mock_time.time.return_value = ts + 0.042
-        client.ping.return_value = PongMessage(ts=ts, display_ts=ts + 0.005)
+        # The connection reads monotonic before the send and after the pong; the
+        # difference is the rtt. A pong ts is still required as a validity signal.
+        mock_time.monotonic.side_effect = [1000.0, 1000.042]
+        client.ping.return_value = PongMessage(ts=1000.0, display_ts=1000.005)
         mock_get.return_value = client
 
         result = ping()
@@ -2066,7 +2100,7 @@ class TestPingNoAutoSpawn:
         assert result == "not running"
         mock_get.assert_not_called()
 
-    @patch("punt_lux.tools.tools.time")
+    @patch("punt_lux.operations.display_connection.time")
     @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_returns_rtt_when_running(
@@ -2076,9 +2110,8 @@ class TestPingNoAutoSpawn:
         mock_time: MagicMock,
     ) -> None:
         client = _mock_client()
-        ts = 1000.0
-        mock_time.time.return_value = ts + 0.042
-        client.ping.return_value = PongMessage(ts=ts, display_ts=ts + 0.005)
+        mock_time.monotonic.side_effect = [1000.0, 1000.042]
+        client.ping.return_value = PongMessage(ts=1000.0, display_ts=1000.005)
         mock_get.return_value = client
 
         result = ping()
@@ -2086,123 +2119,50 @@ class TestPingNoAutoSpawn:
 
 
 class TestInspectSceneTool:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=False)
-    def test_inspect_scene_not_running(
-        self, mock_running: MagicMock, mock_get: MagicMock
+    """inspect_scene reads the authoritative Hub store, not the display."""
+
+    def test_inspect_scene_returns_the_hub_tree(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        store = HubDisplay()
+        _seed_group_with_child(store, scene="s1", group_id="g1", child_id="t1")
+        _bind_store(monkeypatch, store)
 
         result = inspect_scene("s1")
-        assert result == "not running"
-        mock_get.assert_not_called()
+        assert isinstance(result, SceneInspection)
+        assert result.scene_id == "s1"
+        assert result.elements[0].id == "g1"
+        assert result.elements[0].children[0].id == "t1"
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_inspect_scene_returns_elements(
-        self, mock_running: MagicMock, mock_get: MagicMock
+    def test_inspect_scene_unknown_scene_is_not_found(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        client = _mock_client()
-        elements = [
-            {"kind": "text", "id": "t1", "content": "hello"},
-        ]
-        client.query.return_value = QueryResponse(
-            method="inspect_scene",
-            result={"scene_id": "s1", "elements": elements},
-        )
-        mock_get.return_value = client
-
-        result = inspect_scene("s1")
-        assert '"scene_id": "s1"' in result
-        assert '"content": "hello"' in result
-
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_inspect_scene_not_found(
-        self, mock_running: MagicMock, mock_get: MagicMock
-    ) -> None:
-        client = _mock_client()
-        client.query.return_value = QueryResponse(
-            method="inspect_scene",
-            error="Scene 'missing' not found",
-        )
-        mock_get.return_value = client
-
+        _bind_store(monkeypatch, HubDisplay())
         result = inspect_scene("missing")
-        assert result == "error: Scene 'missing' not found"
-
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_inspect_scene_timeout(
-        self, mock_running: MagicMock, mock_get: MagicMock
-    ) -> None:
-        client = _mock_client()
-        client.query.return_value = None
-        mock_get.return_value = client
-
-        result = inspect_scene("s1")
-        assert result == "timeout"
+        assert isinstance(result, OpError)
+        assert result.code == "not_found"
 
 
 class TestListScenesTool:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=False)
-    def test_list_scenes_not_running(
-        self, mock_running: MagicMock, mock_get: MagicMock
+    """list_scenes reads the authoritative Hub store, not the display."""
+
+    def test_list_scenes_returns_the_hub_scenes(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        store = HubDisplay()
+        _seed_group_with_child(store, scene="s1", group_id="g1", child_id="t1")
+        _bind_store(monkeypatch, store)
 
         result = list_scenes()
-        assert result == "not running"
-        mock_get.assert_not_called()
+        assert isinstance(result, SceneList)
+        assert any(s.scene_id == "s1" for s in result.scenes)
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_list_scenes_returns_data(
-        self, mock_running: MagicMock, mock_get: MagicMock
-    ) -> None:
-        client = _mock_client()
-        scenes = [
-            {"scene_id": "s1", "element_count": 3, "frame_id": "f1", "owner_fd": 5},
-        ]
-        frames = [
-            {"frame_id": "f1", "title": "Main", "scene_count": 1, "scene_ids": ["s1"]},
-        ]
-        client.query.return_value = QueryResponse(
-            method="list_scenes",
-            result={"scenes": scenes, "frames": frames},
-        )
-        mock_get.return_value = client
-
+    def test_list_scenes_empty_store(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _bind_store(monkeypatch, HubDisplay())
         result = list_scenes()
-        assert '"scene_id": "s1"' in result
-        assert '"frame_id": "f1"' in result
-
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_list_scenes_timeout(
-        self, mock_running: MagicMock, mock_get: MagicMock
-    ) -> None:
-        client = _mock_client()
-        client.query.return_value = None
-        mock_get.return_value = client
-
-        result = list_scenes()
-        assert result == "timeout"
-
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_list_scenes_empty(
-        self, mock_running: MagicMock, mock_get: MagicMock
-    ) -> None:
-        client = _mock_client()
-        client.query.return_value = QueryResponse(
-            method="list_scenes",
-            result={"scenes": [], "frames": []},
-        )
-        mock_get.return_value = client
-
-        result = list_scenes()
-        assert '"scenes": []' in result
-        assert '"frames": []' in result
+        assert isinstance(result, SceneList)
+        assert result.scenes == []
+        assert result.frames == []
 
 
 class TestScreenshotTool:
@@ -2272,40 +2232,73 @@ class TestSessionKey:
         assert _session_key.get() == "local"
 
 
+def _tools_menu_has(item_id: str) -> bool:
+    """Whether ``list_menus`` reports a registered tool item with ``item_id``.
+
+    Registered items surface under Applications → the client submenu of the
+    Hub-authoritative ``list_menus`` read — the structure the display renders.
+    """
+    from punt_lux.domain.hub.menu_models import Menu, MenuAction
+    from punt_lux.tools import list_menus
+
+    for menu in list_menus().menus:
+        if menu.label != "Applications":
+            continue
+        for submenu in menu.items:
+            if isinstance(submenu, Menu) and any(
+                isinstance(item, MenuAction) and item.id == item_id
+                for item in submenu.items
+            ):
+                return True
+    return False
+
+
 class TestCleanupSession:
-    def test_removes_tracked_items(self) -> None:
-        _session_menus["sess-1"] = ["tool-a", "tool-b"]
-        _cleanup_session("sess-1")
-        assert "sess-1" not in _session_menus
+    def test_drops_the_sessions_menu_items(self) -> None:
+        token = _session_key.set("sess-1")
+        try:
+            register_tool(label="Run", tool_id="cleanup-tool")
+            assert _tools_menu_has("cleanup-tool")
+            _cleanup_session("sess-1")
+            assert not _tools_menu_has("cleanup-tool")
+        finally:
+            _session_key.reset(token)
 
     def test_noop_when_no_items(self) -> None:
-        _session_menus.pop("nonexistent", None)
-        _cleanup_session("nonexistent")
-        assert "nonexistent" not in _session_menus
+        _cleanup_session("nonexistent-session")  # must not raise
 
 
 class TestRegisterToolSessionTracking:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_tracks_in_session_menus(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        mock_get.return_value = client
+    def test_registers_the_item_in_the_hub_registry(self) -> None:
+        token = _session_key.set("local")
+        try:
+            assert (
+                register_tool(label="Run", tool_id="track-run")
+                == "registered:track-run"
+            )
+            assert _tools_menu_has("track-run")
+        finally:
+            _cleanup_session("local")
+            _session_key.reset(token)
 
-        _session_menus.pop("local", None)
-        register_tool(label="Run", tool_id="run-btn")
-        assert "run-btn" in _session_menus.get("local", [])
-        # Cleanup
-        _session_menus.pop("local", None)
-
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_tracks_under_custom_session_key(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        mock_get.return_value = client
-
+    def test_registers_under_custom_session_key(self) -> None:
         token = _session_key.set("ws-99")
         try:
-            _session_menus.pop("ws-99", None)
-            register_tool(label="Build", tool_id="build-btn")
-            assert "build-btn" in _session_menus.get("ws-99", [])
+            register_tool(label="Build", tool_id="track-build")
+            assert _tools_menu_has("track-build")
         finally:
+            _cleanup_session("ws-99")
             _session_key.reset(token)
-            _session_menus.pop("ws-99", None)
+
+    def test_empty_tool_id_returns_an_error_line_without_crashing(self) -> None:
+        # The never-raising adapter contract: an invalid tool_id yields an error
+        # string naming the field, not an uncaught ValidationError, and registers
+        # nothing.
+        token = _session_key.set("bad-id")
+        try:
+            result = register_tool(label="Nameless", tool_id="")
+            assert result.startswith("error:")
+            assert "tool_id" in result
+        finally:
+            _cleanup_session("bad-id")
+            _session_key.reset(token)

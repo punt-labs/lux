@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING, ClassVar, Self, cast
 from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub import hub, hub_display
+from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer, next_event
 from punt_lux.domain.ids import ClientId, ConnectionId, ElementId, SceneId, Topic
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.domain.update import AddElement, SetProperty
@@ -37,8 +39,6 @@ from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.tab_bar import TabBarElement
-from punt_lux.tools.hub_factory import hub_element_factory
-from punt_lux.tools.inbox import drain_inbox, ensure_writer, next_event
 
 from .scenario import (
     COLOR_COMMIT_VALUE,

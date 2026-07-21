@@ -42,6 +42,17 @@ class OpError(BaseModel):
         """Build an ``invalid_request`` from a Pydantic failure, naming the field."""
         return cls(code="invalid_request", reason=cls.describe(exc.errors()[0]))
 
+    @classmethod
+    def from_reply(cls, exc: ValidationError) -> OpError:
+        """Build a ``rejected`` from a malformed display reply, naming the field.
+
+        A request that fails to type-check is the caller's mistake
+        (``invalid_request``); a reply that fails is the display returning
+        something the model does not recognize (``rejected``). Same rendering,
+        different code, so a caller can tell whose fault it was.
+        """
+        return cls(code="rejected", reason=cls.describe(exc.errors()[0]))
+
     @staticmethod
     def describe(err: ErrorDetails) -> str:
         """Render one Pydantic error as ``<loc>: <msg>`` so the field is named.

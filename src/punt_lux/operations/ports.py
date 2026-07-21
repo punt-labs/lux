@@ -33,13 +33,16 @@ type NextEvent = Callable[[ConnectionId, float], ObserverMessage | None]
 
 @runtime_checkable
 class DirtyMarker(Protocol):
-    """The two signals a scene mutation sends the background replicator."""
+    """The signals a Hub write sends the background replicator."""
 
     def mark_dirty(self, scene_id: SceneId) -> None:
         """Record a changed scene so the replicator resends it."""
 
     def mark_cleared(self) -> None:
         """Record that the whole display was blanked."""
+
+    def mark_menus(self) -> None:
+        """Flag that the menu registry changed so the replicator re-reads and pushes."""
 
 
 @dataclass(frozen=True, slots=True)

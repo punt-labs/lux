@@ -11,10 +11,6 @@
   ],
   "response": "registered:run-btn",
   "setup": {
-    "client": {
-      "register_menu_item": {}
-    },
-    "display_running": true,
     "session_key": "corpus-register-basic"
   },
   "tool": "register_tool"

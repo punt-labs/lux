@@ -40,6 +40,30 @@ from .snapshot import Snapshot
 
 SNAPSHOT_DIR = Path(__file__).parent / "snapshots"
 
+# The structured-output tools return typed models, not the status string the
+# corpus pins byte-for-byte. Their MCP output schema is derived from the result
+# model, and their behavior is proven by the typed operation and adapter tests
+# under tests/operations/, so they are not required to appear in this corpus.
+STRUCTURED_TOOLS = frozenset(
+    {
+        "get_display_info",
+        "get_theme",
+        "get_window_settings",
+        "inspect_scene",
+        "list_clients",
+        "list_errors",
+        "list_menus",
+        "list_recent_events",
+        "list_scenes",
+        "set_frame_state",
+        "set_theme",
+        "set_window_settings",
+    }
+)
+# ``list_menus`` joined the structured set in the menu-ownership commit; the
+# setters (``set_theme``, ``set_window_settings``, ``set_frame_state``) joined it
+# when they were changed to return their write's own result model.
+
 
 def _snapshot_files() -> list[Path]:
     return sorted(p for p in SNAPSHOT_DIR.glob("*.json"))
@@ -95,7 +119,11 @@ def test_every_tool_has_a_snapshot() -> None:
     from punt_lux import tools as tools_pkg
 
     non_tool_exports = {"mcp", "run_mcp_session"}
-    registered = {name for name in tools_pkg.__all__ if name not in non_tool_exports}
+    registered = {
+        name
+        for name in tools_pkg.__all__
+        if name not in non_tool_exports and name not in STRUCTURED_TOOLS
+    }
     covered = {Snapshot.from_file(p).tool for p in _snapshot_files()}
     missing = sorted(registered - covered)
     assert not missing, (

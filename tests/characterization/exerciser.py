@@ -49,8 +49,12 @@ from typing import Any, ClassVar
 from punt_lux import tools as tools_pkg
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.inbox import ensure_writer, next_event
+from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import Operations
+from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.ports import HubPorts
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
@@ -59,15 +63,19 @@ from punt_lux.protocol import (
     QueryResponse,
 )
 from punt_lux.protocol.messages.observer import ObserverMessage
-from punt_lux.tools.hub_factory import hub_element_factory
-from punt_lux.tools.inbox import ensure_writer, next_event
 from punt_lux.tools.server import _session_key
 
 __all__ = ["ToolCallError", "ToolExerciser"]
 
 
-class ToolCallError(RuntimeError):
-    """An exerciser-detected failure: bad setup, unstubbed call, or non-str return."""
+class ToolCallError(Exception):
+    """An exerciser-detected failure: bad setup, unstubbed call, or non-str return.
+
+    Deliberately not a ``RuntimeError``: the display connection folds a real
+    ``RuntimeError`` (a failed reconnect) into a typed ``display_unavailable``, so
+    a harness signal based on ``RuntimeError`` would be swallowed there instead of
+    surfacing the mis-declared stub. Basing it on ``Exception`` keeps it distinct.
+    """
 
 
 class _StubReplicator:
@@ -80,6 +88,9 @@ class _StubReplicator:
 
     def mark_cleared(self) -> None:
         """Swallow the clear mark."""
+
+    def mark_menus(self) -> None:
+        """Swallow the menu-dirty flag."""
 
 
 class _StubClient:
@@ -302,7 +313,12 @@ class ToolExerciser:
             _StubReplicator(),
             hub=hub,
             client_registry=client_registry,
+            menu_registry=HubMenuRegistry(),
             ports=cls._hub_ports(setup),
+            display_port=HubDisplayConnection(
+                is_running=lambda: DisplayPaths().is_running(),
+                clients=client_registry,
+            ),
         )
         # All tools resolve the DisplayClient through the Hub-side
         # ClientRegistry singleton in ``punt_lux.domain.hub``. Patching
@@ -320,7 +336,14 @@ class ToolExerciser:
         ]
         now = setup.get("time")
         if isinstance(now, int | float):
-            stubs.append(mock.patch("punt_lux.tools.tools.time", _StubTime(float(now))))
+            # The connection owns the ping measurement now; a constant monotonic
+            # stub makes t0 == t1, so the recorded rtt is a deterministic 0.000s
+            # and the snapshot pins the format, not a runtime-varying number.
+            stubs.append(
+                mock.patch(
+                    "punt_lux.operations.display_connection.time", _StubTime(float(now))
+                )
+            )
 
         session = setup.get("session_key")
         token = _session_key.set(str(session)) if session is not None else None
@@ -335,7 +358,12 @@ class ToolExerciser:
 
 
 class _StubTime:
-    """Replacement for the ``time`` module in tools.py — only ``.time()``."""
+    """A constant clock standing in for the ``time`` module in the connection.
+
+    ``monotonic`` returns the same value on every read, so the ping measurement
+    (``t1 - t0``) is a deterministic ``0.0`` under replay — the snapshot pins the
+    adapter's string format, not a runtime-varying number.
+    """
 
     _now: float
 
@@ -345,4 +373,7 @@ class _StubTime:
         return self
 
     def time(self) -> float:
+        return self._now
+
+    def monotonic(self) -> float:
         return self._now

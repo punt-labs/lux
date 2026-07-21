@@ -47,27 +47,21 @@ mcp = FastMCP(
 
 _session_key: ContextVar[str] = ContextVar("session_key", default="local")
 
-# Tracks menu items registered by each session for cleanup on disconnect.
-_session_menus: dict[str, list[str]] = {}
-
 
 def _cleanup_session(session_key: str) -> None:
-    """Clean up state when a session disconnects.
+    """Drop the session's Hub-owned menu items and re-push the menu state.
 
-    Best-effort: DisplayClient has no unregister_menu_item method, so
-    menu cleanup logs and skips.  The display server handles per-client
-    cleanup on disconnect anyway.
+    The Hub menu registry owns each session's registered tool items; dropping
+    them and re-pushing removes them from the display's World menu at once,
+    rather than leaving a stale item until the next unrelated menu write. Routed
+    through the operations facade (imported lazily to avoid an import cycle with
+    ``tools.py``), which is the sole owner of the menu registry.
     """
-    from punt_lux.domain.hub import client_registry
+    from punt_lux.domain.ids import ConnectionId
+    from punt_lux.operations.scope import Scope
+    from punt_lux.tools.tools import OPERATIONS
 
-    with client_registry.lock:
-        items = _session_menus.pop(session_key, [])
-    if items:
-        logger.debug(
-            "Session %s disconnected; %d menu items orphaned (display handles cleanup)",
-            session_key,
-            len(items),
-        )
+    OPERATIONS.drop_session(Scope(ConnectionId(session_key)))
 
 
 async def run_mcp_session(

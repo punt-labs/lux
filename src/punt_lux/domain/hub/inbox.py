@@ -11,7 +11,8 @@ from __future__ import annotations
 import queue
 import threading
 
-from punt_lux.domain.hub import hub, hub_display
+from punt_lux.domain.hub.hub import hub
+from punt_lux.domain.hub.hub_display import hub_display
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.protocol.messages.observer import ObserverMessage
 

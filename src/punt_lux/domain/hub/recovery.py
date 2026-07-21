@@ -74,7 +74,9 @@ class SendRecovery:
 
     def restore(self, batch: DrainedBatch) -> None:
         """Put a failed batch back on the queue so the next cycle retries it."""
-        self._requeue(batch.scenes, cleared=batch.cleared)
+        self._requeue(
+            batch.scenes, cleared=batch.cleared, menus_dirty=batch.menus_dirty
+        )
 
     def _remark(self, batch: DrainedBatch) -> None:
         """Re-mark the live scenes, the batch's own scenes, and a consumed clear.
@@ -88,10 +90,23 @@ class SendRecovery:
         idempotent.
         """
         scenes = frozenset(self._reader.live_scene_ids()) | batch.scenes
-        self._requeue(scenes, cleared=batch.cleared)
+        self._requeue(scenes, cleared=batch.cleared, menus_dirty=batch.menus_dirty)
 
-    def _requeue(self, scenes: frozenset[SceneId], *, cleared: bool) -> None:
-        """Re-mark a set of scenes, and a consumed clear, back onto the signal."""
+    def _requeue(
+        self,
+        scenes: frozenset[SceneId],
+        *,
+        cleared: bool,
+        menus_dirty: bool,
+    ) -> None:
+        """Re-mark scenes, a consumed clear, and the menu flag onto the signal.
+
+        The menu flag is re-marked so a respawned display gets the current menu
+        state re-pushed — read fresh from the registry at the next send, so a menu
+        change that landed during the failed send wins over what was drained.
+        """
         if cleared:
             self._signal.mark_cleared()
+        if menus_dirty:
+            self._signal.mark_menus()
         self._signal.add_all(scenes)

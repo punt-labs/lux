@@ -1,0 +1,45 @@
+"""SceneList — the Hub-authoritative view of every live scene and frame."""
+
+from __future__ import annotations
+
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict
+
+__all__ = ["FrameSummary", "SceneList", "SceneSummary"]
+
+
+class SceneSummary(BaseModel):
+    """One scene the Hub is holding: its size, frame, and owning connections."""
+
+    model_config = ConfigDict(frozen=True)
+
+    scene_id: str
+    element_count: int
+    frame_id: str  # total: an unframed scene defaults to a frame named by its id
+    # Every distinct connection owning a root in the scene, first-appearance
+    # order; empty when the scene is unowned. Plural because a scene can hold
+    # roots from more than one session.
+    owners: list[str]
+
+
+class FrameSummary(BaseModel):
+    """One frame and the scenes it presents."""
+
+    model_config = ConfigDict(frozen=True)
+
+    frame_id: str
+    title: str
+    scene_count: int
+    scene_ids: list[str]
+    layout: Literal["tab", "stack"]
+
+
+class SceneList(BaseModel):
+    """Every live scene and frame, read from the authoritative store."""
+
+    model_config = ConfigDict(frozen=True)
+
+    kind: Literal["ok"] = "ok"
+    scenes: list[SceneSummary]
+    frames: list[FrameSummary]

@@ -423,28 +423,39 @@ class TestTier1DisplayTools:
     """Test Tier 1 display-domain MCP tools."""
 
     def test_get_display_info_not_running(self) -> None:
+        # The structured getters return a discriminated OpError, not a status
+        # string; a display that is not running is a display_unavailable error.
         from unittest.mock import patch
 
+        from punt_lux.operations import OpError
         from punt_lux.tools import get_display_info
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert get_display_info() == "not running"
+            result = get_display_info()
+        assert isinstance(result, OpError)
+        assert result.code == "display_unavailable"
 
     def test_get_window_settings_not_running(self) -> None:
         from unittest.mock import patch
 
+        from punt_lux.operations import OpError
         from punt_lux.tools import get_window_settings
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert get_window_settings() == "not running"
+            result = get_window_settings()
+        assert isinstance(result, OpError)
+        assert result.code == "display_unavailable"
 
     def test_get_theme_not_running(self) -> None:
         from unittest.mock import patch
 
+        from punt_lux.operations import OpError
         from punt_lux.tools import get_theme
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert get_theme() == "not running"
+            result = get_theme()
+        assert isinstance(result, OpError)
+        assert result.code == "display_unavailable"
 
 
 # ---------------------------------------------------------------------------
@@ -455,21 +466,29 @@ class TestTier1DisplayTools:
 class TestTier1ClientMenuTools:
     """Test Tier 1 client and menu domain MCP tools."""
 
-    def test_list_clients_not_running(self) -> None:
+    def test_list_clients_reads_the_hub_not_the_display(self) -> None:
+        # list_clients now answers from the Hub session registry, so a down
+        # display does not make it fail — it returns the (possibly empty) list.
         from unittest.mock import patch
 
+        from punt_lux.operations import ClientList
         from punt_lux.tools import list_clients
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert list_clients() == "not running"
+            result = list_clients()
+        assert isinstance(result, ClientList)
 
-    def test_list_menus_not_running(self) -> None:
+    def test_list_menus_reads_the_hub_not_the_display(self) -> None:
+        # list_menus now answers from the Hub menu registry, so a down display
+        # does not make it fail — it returns the (possibly empty) menu bar.
         from unittest.mock import patch
 
+        from punt_lux.operations import MenuList
         from punt_lux.tools import list_menus
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert list_menus() == "not running"
+            result = list_menus()
+        assert isinstance(result, MenuList)
 
 
 # ---------------------------------------------------------------------------
@@ -481,20 +500,28 @@ class TestTier1EventErrorTools:
     """Test Tier 1 event and error introspection MCP tools."""
 
     def test_list_recent_events_not_running(self) -> None:
+        # Proxied over luxd's one connection: a down display is a
+        # display_unavailable OpError, not a status string.
         from unittest.mock import patch
 
+        from punt_lux.operations import OpError
         from punt_lux.tools import list_recent_events
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert list_recent_events() == "not running"
+            result = list_recent_events()
+        assert isinstance(result, OpError)
+        assert result.code == "display_unavailable"
 
     def test_list_errors_not_running(self) -> None:
         from unittest.mock import patch
 
+        from punt_lux.operations import OpError
         from punt_lux.tools import list_errors
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert list_errors() == "not running"
+            result = list_errors()
+        assert isinstance(result, OpError)
+        assert result.code == "display_unavailable"
 
 
 # ---------------------------------------------------------------------------
@@ -508,28 +535,44 @@ class TestTier3WriteTools:
     def test_set_window_settings_not_running(self) -> None:
         from unittest.mock import patch
 
+        from punt_lux.operations import OpError
         from punt_lux.tools import set_window_settings
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert set_window_settings(opacity=0.5) == "not running"
+            result = set_window_settings(opacity=0.5)
+        assert isinstance(result, OpError)
+        assert result.code == "display_unavailable"
 
     def test_set_window_settings_no_params(self) -> None:
+        from punt_lux.operations import OpError
         from punt_lux.tools import set_window_settings
 
-        assert set_window_settings() == "error: no settings provided"
+        result = set_window_settings()
+        assert isinstance(result, OpError)
+        assert result.code == "invalid_request"
+        assert result.reason == "no settings provided"
 
     def test_set_frame_state_not_running(self) -> None:
         from unittest.mock import patch
 
+        from punt_lux.operations import OpError
         from punt_lux.tools import set_frame_state
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert set_frame_state(frame_id="test") == "not running"
+            result = set_frame_state(frame_id="test", minimized=True)
+        assert isinstance(result, OpError)
+        assert result.code == "display_unavailable"
 
     def test_set_theme_not_running(self) -> None:
         from unittest.mock import patch
 
+        from punt_lux.operations import OpError
         from punt_lux.tools import set_theme
 
+        # A valid theme name reaches the display check; a down display is a
+        # display_unavailable error. (An unknown theme is an invalid_request,
+        # since the request validates the name against the known set.)
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert set_theme("dark") == "not running"
+            result = set_theme("imgui_colors_dark")
+        assert isinstance(result, OpError)
+        assert result.code == "display_unavailable"

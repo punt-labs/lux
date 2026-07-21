@@ -9,6 +9,7 @@ import time
 from collections.abc import Callable
 from typing import Any, Self
 
+from punt_lux.client_label import ClientLabel
 from punt_lux.protocol import RemoteEventHandlerInvocation
 
 logger = logging.getLogger(__name__)
@@ -508,13 +509,8 @@ class MenuManager:
 
     @staticmethod
     def _display_name(raw: str) -> str:
-        """Derive a display name from a client name.
-
-        Strips common suffixes like "-mcp" and title-cases the result.
-        ``"lux-mcp"`` -> ``"Lux"``, ``"vox-mcp"`` -> ``"Vox"``.
-        """
-        name = raw.removesuffix("-mcp")
-        return name.replace("-", " ").title()
+        """Derive a client's display name via the shared ``ClientLabel`` rule."""
+        return ClientLabel.of(raw)
 
     def sanitize_menu_items(
         self, fd: int, items: list[Any]
