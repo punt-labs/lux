@@ -1,18 +1,21 @@
 """MCP tool surface for Agent Subscribe / Publish.
 
-Four tools — ``subscribe``, ``unsubscribe``, ``publish``, ``recv`` — each
-scoped to the calling MCP session's ``ConnectionId``. Inbox queueing and
-the session's writer registration live in :mod:`punt_lux.tools.inbox`.
+Four tools — ``subscribe``, ``unsubscribe``, ``publish``, ``recv`` — each an
+adapter that parses its arguments, calls one operation on the Hub-owned pub-sub
+surface scoped to the calling session, and formats the result. The subscription
+scope, inbox, and fan-out live in the operations layer; the inbox helpers are
+re-exported here for tests that snapshot a session's queue.
 """
 
 from __future__ import annotations
 
 import json
 
-from punt_lux.domain.hub import hub
-from punt_lux.domain.ids import ConnectionId, Topic
-from punt_lux.tools.inbox import drain_inbox, ensure_writer, inbox_for, next_event
+from punt_lux.domain.ids import ConnectionId
+from punt_lux.operations import PublishRequest, Scope
+from punt_lux.tools.inbox import drain_inbox, inbox_for, next_event
 from punt_lux.tools.server import _session_key, mcp
+from punt_lux.tools.tools import OPERATIONS
 
 __all__ = [
     "drain_inbox",
@@ -25,9 +28,9 @@ __all__ = [
 ]
 
 
-def _connection_id() -> ConnectionId:
-    """Resolve the current MCP session's ConnectionId."""
-    return ConnectionId(_session_key.get())
+def _scope() -> Scope:
+    """Resolve the calling MCP session's operation scope."""
+    return Scope(ConnectionId(_session_key.get()))
 
 
 @mcp.tool()
@@ -38,20 +41,15 @@ def subscribe(topic: str) -> str:
     first subscribe (or publish) for a topic name in this session's
     scope declares it. Subscriptions never cross sessions.
     """
-    connection_id = _connection_id()
-    ensure_writer(connection_id)
-    hub.subscribe(connection_id, Topic(topic))
-    return f"subscribed:{topic}"
+    result = OPERATIONS.subscribe(topic, scope=_scope())
+    return f"subscribed:{result.topic}"
 
 
 @mcp.tool()
 def unsubscribe(topic: str) -> str:
     """Drop the calling session's subscription to ``topic``. No-op if absent."""
-    connection_id = _connection_id()
-    if not hub.has_writer(connection_id):
-        return f"unsubscribed:{topic}"
-    hub.unsubscribe(connection_id, Topic(topic))
-    return f"unsubscribed:{topic}"
+    result = OPERATIONS.unsubscribe(topic, scope=_scope())
+    return f"unsubscribed:{result.topic}"
 
 
 @mcp.tool()
@@ -62,10 +60,10 @@ def publish(topic: str, payload: dict[str, object] | None = None) -> str:
     that received the message. A publish with no subscribers returns
     ``"delivered:0"`` and is otherwise a no-op.
     """
-    connection_id = _connection_id()
-    ensure_writer(connection_id)
-    delivered = hub.publish(connection_id, Topic(topic), payload or {})
-    return f"delivered:{delivered}"
+    result = OPERATIONS.publish(
+        topic, PublishRequest(payload=payload or {}), scope=_scope()
+    )
+    return f"delivered:{result.delivered}"
 
 
 @mcp.tool()
@@ -78,9 +76,8 @@ def recv() -> str:
     Events come from ``Hub.publish`` scoped to this session; UI wire frames
     (button clicks, slider drags) are not delivered here.
     """
-    connection_id = _connection_id()
-    ensure_writer(connection_id)
-    message = next_event(connection_id, timeout=0.0)
-    if message is None:
+    result = OPERATIONS.receive(scope=_scope())
+    if result.event is None:
         return "none"
-    return f"event:{message.topic}:{json.dumps(dict(message.payload), sort_keys=True)}"
+    payload = json.dumps(result.event.payload, sort_keys=True)
+    return f"event:{result.event.topic}:{payload}"

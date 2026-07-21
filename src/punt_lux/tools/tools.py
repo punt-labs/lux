@@ -3,25 +3,29 @@
 from __future__ import annotations
 
 import json
-import logging
 import time
-from collections.abc import Callable, Sequence
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, cast
+from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
 
-from punt_lux.config import ConfigManager
-from punt_lux.domain.element import Element as DomainElement
-from punt_lux.domain.hub import client_registry, hub_display
-from punt_lux.domain.hub.replicator_instance import hub_replicator
-from punt_lux.domain.hub.scene_presentation import SceneLayout, ScenePresentation
-from punt_lux.domain.hub.scene_writer import HubSceneWriter
-from punt_lux.domain.hub.write_result import WriteRejected
-from punt_lux.domain.ids import ConnectionId, SceneId
-from punt_lux.domain.submission_gate import SubmissionGate
+from punt_lux.domain.hub import client_registry
+from punt_lux.domain.ids import ConnectionId
+from punt_lux.operations import (
+    DisplayModeRequest,
+    DisplayModeState,
+    Operations,
+    OpError,
+    RenderDashboardRequest,
+    RenderRequest,
+    RenderTableRequest,
+    SceneShown,
+    Scope,
+    UpdateRequest,
+)
+from punt_lux.operations.ports import HubPorts
 from punt_lux.paths import DisplayPaths
-from punt_lux.protocol import Element as WireElement
 from punt_lux.tools.connection import _query_tool
 from punt_lux.tools.hub_factory import hub_element_factory
+from punt_lux.tools.inbox import ensure_writer, next_event
 from punt_lux.tools.server import (
     _session_key,
     _session_menus,
@@ -31,12 +35,40 @@ from punt_lux.tools.server import (
 if TYPE_CHECKING:
     from punt_lux.display_client import DisplayClient
 
-logger = logging.getLogger(__name__)
+# The process-wide operations facade. This is where the composition crosses the
+# layer boundary: the operations layer stays pure engine core, and the two Hub
+# helpers it needs — connection-scoped element decode and the session inbox —
+# are injected here in the presentation layer, so nothing under ``operations/``
+# imports back up into ``tools/``.
+OPERATIONS = Operations.production(
+    HubPorts(
+        element_factory=hub_element_factory,
+        ensure_writer=ensure_writer,
+        next_event=next_event,
+    )
+)
 
 
 def _connection_id() -> ConnectionId:
     """Return the calling MCP session's ``ConnectionId``."""
     return ConnectionId(_session_key.get())
+
+
+def _scope() -> Scope:
+    """Resolve the calling MCP session's operation scope."""
+    return Scope(_connection_id())
+
+
+def _format_scene(result: SceneShown | OpError) -> str:
+    """Render a scene-mutation result as the tool's legacy status line."""
+    if isinstance(result, OpError):
+        return f"error: {result.reason}"
+    return f"shown:{result.scene_id}"
+
+
+def _format_display_mode(result: DisplayModeState) -> str:
+    """Render a display-mode result as ``display:on`` / ``display:off``."""
+    return f"display:{result.mode}"
 
 
 def _display_running() -> bool:
@@ -149,56 +181,22 @@ def show(
     Writes the scene to the Hub and returns ``"shown:<scene_id>"`` at once — the
     replicator sends it in the background; "shown" means accepted, not drawn.
     """
-    frame_id = scene_id if frame_id is None else frame_id
-    frame_title = (title or scene_id) if frame_title is None else frame_title
-
-    connection_id = _connection_id()
-    factory = hub_element_factory(connection_id)
-    typed_elements: list[WireElement] = [factory.element_from_dict(e) for e in elements]
-
-    # Reject a malformed submission before render: every element self-validates
-    # and no named id may repeat across the tree. An invalid tree never reaches
-    # the Hub/Display — the agent gets the reason, never a partial install.
-    rejection = SubmissionGate().first_rejection(SceneId(scene_id), typed_elements)
-    if rejection is not None:
-        return f"error: scene not rendered — {rejection}"
-
-    size_tuple: tuple[int, int] | None = None
-    if frame_size is not None:
-        if len(frame_size) != 2:
-            return "error: frame_size must be [width, height]"
-        size_tuple = (frame_size[0], frame_size[1])
-    frame_layout_typed: Literal["tab", "stack"] | None
-    match frame_layout:
-        case None | "tab" | "stack":
-            frame_layout_typed = frame_layout
-        case _:
-            return f"error: frame_layout must be 'tab' or 'stack', got {frame_layout!r}"
-
-    layout_typed: SceneLayout
-    match layout:
-        case "single" | "rows" | "columns" | "grid":
-            layout_typed = layout
-        case _:
-            return f"error: layout must be single/rows/columns/grid, got {layout!r}"
-
-    scene = SceneId(scene_id)
-    hub_display.show_scene(
-        connection_id,
-        scene,
-        cast("Sequence[DomainElement]", typed_elements),
-        ScenePresentation(
-            frame_id=frame_id,
-            title=title,
-            layout=layout_typed,
-            frame_title=frame_title,
-            frame_size=size_tuple,
-            frame_flags=frame_flags,
-            frame_layout=frame_layout_typed,
-        ),
+    request = RenderRequest.parse(
+        {
+            "scene_id": scene_id,
+            "elements": elements,
+            "title": title,
+            "layout": layout,
+            "frame": {
+                "frame_id": frame_id,
+                "frame_title": frame_title,
+                "size": frame_size,
+                "flags": frame_flags,
+                "layout": frame_layout,
+            },
+        }
     )
-    hub_replicator.mark_dirty(scene)
-    return f"shown:{scene_id}"
+    return _format_scene(OPERATIONS.render(request, scope=_scope()))
 
 
 @mcp.tool()
@@ -276,20 +274,20 @@ def show_table(
             title="Issue Explorer",
         )
     """
-    table: dict[str, Any] = {
-        "kind": "table",
-        "id": "table",
-        "columns": columns,
-        "rows": rows,
-        "flags": flags if flags is not None else ["borders", "row_bg"],
-    }
-    if filters is not None:
-        table["filters"] = filters
-    if detail is not None:
-        table["detail"] = detail
-    return show(
-        scene_id, [table], title=title, frame_id=frame_id, frame_title=frame_title
+    request = RenderTableRequest.parse(
+        {
+            "scene_id": scene_id,
+            "columns": columns,
+            "rows": rows,
+            "filters": filters,
+            "detail": detail,
+            "flags": flags,
+            "title": title,
+            "frame_id": frame_id,
+            "frame_title": frame_title,
+        }
     )
+    return _format_scene(OPERATIONS.render_table(request, scope=_scope()))
 
 
 @mcp.tool()
@@ -353,72 +351,19 @@ def show_dashboard(
             title="Test Results",
         )
     """
-    elements: list[dict[str, Any]] = []
-
-    sections: list[list[dict[str, Any]]] = []
-
-    if metrics:
-        cards = [
-            {
-                "kind": "group",
-                "id": f"metric-{i}",
-                "children": [
-                    {"kind": "text", "id": f"metric-label-{i}", "content": m["label"]},
-                    {
-                        "kind": "text",
-                        "id": f"metric-value-{i}",
-                        "content": m["value"],
-                        "style": "heading",
-                    },
-                ],
-            }
-            for i, m in enumerate(metrics)
-        ]
-        sections.append(
-            [
-                {
-                    "kind": "group",
-                    "id": "metrics-row",
-                    "layout": "columns",
-                    "children": cards,
-                }
-            ]
-        )
-
-    if charts:
-        chart_elements: list[dict[str, Any]] = []
-        for i, chart in enumerate(charts):
-            plot: dict[str, Any] = {**chart, "kind": "plot"}
-            if "id" not in plot:
-                plot["id"] = f"chart-{i}"
-            chart_elements.append(plot)
-        sections.append(chart_elements)
-
-    if table_columns is not None:
-        sections.append(
-            [
-                {
-                    "kind": "table",
-                    "id": "dashboard-table",
-                    "columns": table_columns,
-                    "rows": table_rows if table_rows is not None else [],
-                    "flags": ["borders", "row_bg"],
-                }
-            ]
-        )
-
-    for i, section in enumerate(sections):
-        elements.extend(section)
-        if i < len(sections) - 1:
-            elements.append({"kind": "separator"})
-
-    return show(
-        scene_id,
-        elements,
-        title=title,
-        frame_id=frame_id,
-        frame_title=frame_title,
+    request = RenderDashboardRequest.parse(
+        {
+            "scene_id": scene_id,
+            "metrics": metrics,
+            "charts": charts,
+            "table_columns": table_columns,
+            "table_rows": table_rows,
+            "title": title,
+            "frame_id": frame_id,
+            "frame_title": frame_title,
+        }
     )
+    return _format_scene(OPERATIONS.render_dashboard(request, scope=_scope()))
 
 
 @mcp.tool()
@@ -434,13 +379,9 @@ def update(scene_id: str, patches: list[dict[str, Any]]) -> str:
     unknown field, or a ``set`` that would break an element — mutates nothing and
     returns ``"error: scene not updated — <reason>"``.
     """
-    connection_id = _connection_id()
-    writer = HubSceneWriter(hub_display)
-    result = writer.apply(connection_id, SceneId(scene_id), patches)
-    if isinstance(result, WriteRejected):
-        return f"error: scene not updated — {result.reason}"
-    hub_replicator.mark_dirty(SceneId(scene_id))
-    return f"shown:{scene_id}"
+    return _format_scene(
+        OPERATIONS.update(scene_id, UpdateRequest.parse(patches), scope=_scope())
+    )
 
 
 @mcp.tool()
@@ -579,8 +520,7 @@ def clear() -> str:
     the caller's), honest for the single-connection slice; per-caller scoping is
     a separate change.
     """
-    HubSceneWriter(hub_display).clear(_connection_id())
-    hub_replicator.mark_cleared()
+    OPERATIONS.clear(scope=_scope())
     return "cleared"
 
 
@@ -713,27 +653,6 @@ def list_menus() -> dict[str, Any] | None:
     return None
 
 
-def _config_manager_for(repo: str) -> ConfigManager:
-    """Build a ConfigManager for the caller's project (lux-r929).
-
-    ``repo`` is required and must be an absolute path to an existing
-    directory. The MCP server runs inside luxd, whose cwd is wherever
-    launchd started it (typically ``$HOME``) — never the agent's
-    project. Every MCP caller of ``display_mode`` / ``set_display_mode``
-    must therefore say what project they mean.
-    """
-    if not repo:
-        raise ValueError("repo is required and must be a non-empty string")
-    path = Path(repo)
-    if not path.is_absolute():
-        raise ValueError(f"repo must be an absolute path; got {repo!r}")
-    if not path.exists():
-        raise ValueError(f"repo path does not exist: {repo}")
-    if not path.is_dir():
-        raise ValueError(f"repo must be a directory; got {repo}")
-    return ConfigManager(config_path=path / ".punt-labs" / "lux.md")
-
-
 @mcp.tool()
 def display_mode(repo: str) -> str:
     """Read the current display mode.
@@ -742,9 +661,7 @@ def display_mode(repo: str) -> str:
     absolute path of the caller's project; the config is read from
     ``<repo>/.punt-labs/lux.md`` (lux-r929).
     """
-    cfg = _config_manager_for(repo).read()
-    label = "on" if cfg.display == "y" else "off"
-    return f"display:{label}"
+    return _format_display_mode(OPERATIONS.read_display_mode(repo))
 
 
 @mcp.tool()
@@ -755,22 +672,9 @@ def set_display_mode(mode: str, repo: str) -> str:
     config is written to ``<repo>/.punt-labs/lux.md`` (lux-r929).
     When ``y``, eagerly connects to the display server.
     """
-    if mode not in ("y", "n"):
-        msg = f"Invalid mode '{mode}'. Use 'y' or 'n'."
-        raise ValueError(msg)
-
-    _config_manager_for(repo).write_field("display", mode)
-    if mode == "y":
-        try:
-            client_registry.get()
-        except (RuntimeError, OSError, ValueError, KeyError):
-            logger.warning(
-                "Eager connect on set_display_mode=y failed; "
-                "will retry on first tool call",
-                exc_info=True,
-            )
-    label = "on" if mode == "y" else "off"
-    return f"display:{label}"
+    return _format_display_mode(
+        OPERATIONS.write_display_mode(DisplayModeRequest.from_toggle(mode, repo))
+    )
 
 
 @_query_tool(

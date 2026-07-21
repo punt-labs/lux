@@ -48,6 +48,9 @@ from typing import Any, ClassVar
 
 from punt_lux import tools as tools_pkg
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.ids import ConnectionId
+from punt_lux.operations import Operations
+from punt_lux.operations.ports import HubPorts
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     AckMessage,
@@ -55,6 +58,8 @@ from punt_lux.protocol import (
     QueryResponse,
 )
 from punt_lux.protocol.messages.observer import ObserverMessage
+from punt_lux.tools.hub_factory import hub_element_factory
+from punt_lux.tools.inbox import ensure_writer, next_event
 from punt_lux.tools.server import _session_key
 
 __all__ = ["ToolCallError", "ToolExerciser"]
@@ -69,7 +74,7 @@ class _StubReplicator:
 
     __slots__ = ()
 
-    def mark_dirty(self, _scene_id: object) -> None:
+    def mark_dirty(self, scene_id: object) -> None:
         """Swallow the mark — the exerciser only records the tool's response."""
 
     def mark_cleared(self) -> None:
@@ -229,6 +234,52 @@ class ToolExerciser:
         return fn
 
     @classmethod
+    def _hub_ports(cls, setup: Mapping[str, object]) -> HubPorts:
+        """Build the Hub ports for a replay, stubbing the inbox for recv scenarios."""
+        inbox_event = setup.get("inbox_event")
+        inbox_empty = setup.get("inbox_empty")
+        if inbox_event is None and not inbox_empty:
+            return HubPorts(
+                element_factory=hub_element_factory,
+                ensure_writer=ensure_writer,
+                next_event=next_event,
+            )
+        message = cls._inbox_message(inbox_event) if inbox_event is not None else None
+
+        def _no_writer(_connection_id: ConnectionId) -> None:
+            return None
+
+        def _stub_next(
+            _connection_id: ConnectionId, _timeout: float
+        ) -> ObserverMessage | None:
+            return message
+
+        return HubPorts(
+            element_factory=hub_element_factory,
+            ensure_writer=_no_writer,
+            next_event=_stub_next,
+        )
+
+    @staticmethod
+    def _inbox_message(inbox_event: object) -> ObserverMessage:
+        """Build the queued event a recv scenario injects."""
+        if not isinstance(inbox_event, Mapping):
+            msg = (
+                f"setup.inbox_event must be a mapping; got {type(inbox_event).__name__}"
+            )
+            raise ToolCallError(msg)
+        payload_obj = inbox_event.get("payload", {})
+        if not isinstance(payload_obj, Mapping):
+            msg = (
+                "setup.inbox_event.payload must be a mapping; "
+                f"got {type(payload_obj).__name__}"
+            )
+            raise ToolCallError(msg)
+        return ObserverMessage(
+            topic=str(inbox_event["topic"]), payload=dict(payload_obj)
+        )
+
+    @classmethod
     @contextlib.contextmanager
     def _apply_setup(cls, setup: Mapping[str, object]) -> Generator[None]:
         running = bool(setup.get("display_running", False))
@@ -238,12 +289,16 @@ class ToolExerciser:
             raise ToolCallError(msg)
 
         stub_client = _StubClient(client_spec)
-        # Isolate the store and replicator per call: a mutation tool writes the
-        # ``HubDisplay`` singleton and marks the ``hub_replicator``, so without a
-        # fresh store each replay would see state the previous one left and mutate
-        # the production singletons. Binding both names the tools read (mirroring
-        # test_tools._bind_store) keeps every replay independent.
-        fresh_store = HubDisplay()
+        # Isolate the store and replicator per call: a mutation operation writes
+        # the ``HubDisplay`` and marks the replicator, so without a fresh store
+        # each replay would see state the previous one left and mutate the
+        # production singletons. The tools reach the operations through the
+        # ``OPERATIONS`` facade they import; substituting a facade bound to a
+        # fresh store keeps every replay independent while running the real
+        # operations against real collaborators (decode, submission gate, writer).
+        test_ops = Operations.for_store(
+            HubDisplay(), _StubReplicator(), cls._hub_ports(setup)
+        )
         # All tools resolve the DisplayClient through the Hub-side
         # ClientRegistry singleton in ``punt_lux.domain.hub``. Patching
         # ``client_registry.get`` substitutes the stub for every tool —
@@ -255,53 +310,12 @@ class ToolExerciser:
                 "punt_lux.domain.hub.clients.client_registry.get",
                 return_value=stub_client,
             ),
-            mock.patch("punt_lux.tools.tools.hub_display", fresh_store),
-            mock.patch("punt_lux.domain.hub.hub_display", fresh_store),
-            mock.patch("punt_lux.tools.tools.hub_replicator", _StubReplicator()),
+            mock.patch("punt_lux.tools.tools.OPERATIONS", test_ops),
+            mock.patch("punt_lux.tools.subscribe_tools.OPERATIONS", test_ops),
         ]
         now = setup.get("time")
         if isinstance(now, int | float):
             stubs.append(mock.patch("punt_lux.tools.tools.time", _StubTime(float(now))))
-
-        inbox_event = setup.get("inbox_event")
-        inbox_empty = setup.get("inbox_empty")
-        if inbox_event is not None or inbox_empty:
-            stubs.append(
-                mock.patch(
-                    "punt_lux.tools.subscribe_tools.ensure_writer",
-                    return_value=None,
-                )
-            )
-        if inbox_event is not None:
-            if not isinstance(inbox_event, Mapping):
-                msg = (
-                    "setup.inbox_event must be a mapping; "
-                    f"got {type(inbox_event).__name__}"
-                )
-                raise ToolCallError(msg)
-            payload_obj = inbox_event.get("payload", {})
-            if not isinstance(payload_obj, Mapping):
-                msg = (
-                    "setup.inbox_event.payload must be a mapping; "
-                    f"got {type(payload_obj).__name__}"
-                )
-                raise ToolCallError(msg)
-            stubs.append(
-                mock.patch(
-                    "punt_lux.tools.subscribe_tools.next_event",
-                    return_value=ObserverMessage(
-                        topic=str(inbox_event["topic"]),
-                        payload=dict(payload_obj),
-                    ),
-                )
-            )
-        elif inbox_empty:
-            stubs.append(
-                mock.patch(
-                    "punt_lux.tools.subscribe_tools.next_event",
-                    return_value=None,
-                )
-            )
 
         session = setup.get("session_key")
         token = _session_key.set(str(session)) if session is not None else None

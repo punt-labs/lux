@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 from unittest.mock import MagicMock, patch
@@ -14,6 +15,8 @@ from punt_lux.domain.hub.element_index import UnknownElementError
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
+from punt_lux.operations import Operations
+from punt_lux.operations.ports import HubPorts
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
     CheckboxElement,
@@ -38,6 +41,7 @@ from punt_lux.protocol import (
     TreeElement,
     WindowElement,
 )
+from punt_lux.protocol.messages.observer import ObserverMessage
 from punt_lux.tools import (
     clear,
     display_mode,
@@ -55,6 +59,8 @@ from punt_lux.tools import (
     show_table,
     update,
 )
+from punt_lux.tools.hub_factory import hub_element_factory
+from punt_lux.tools.inbox import ensure_writer, next_event
 from punt_lux.tools.server import (
     _cleanup_session,
     _session_key,
@@ -927,23 +933,51 @@ class _ReplicatorSpy:
 
 
 def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock:
-    """Route the store and replicator at test doubles and stub the client.
+    """Route the operations at one isolated store and a recording replicator.
 
-    ``show`` / ``update`` / ``clear`` read ``tools.tools.hub_display`` and mark
-    the scene on ``tools.tools.hub_replicator``. Binding both to one isolated
-    store and a recording replicator keeps the singletons out of the test. The
-    spy is attached to the returned client as ``client.replicator``.
+    ``show`` / ``update`` / ``clear`` reach the store through the ``OPERATIONS``
+    facade the tools import. Binding a facade over one isolated store and a
+    recording replicator keeps the singletons out of the test; the spy is
+    attached to the returned client as ``client.replicator``.
     """
-    monkeypatch.setattr("punt_lux.tools.tools.hub_display", store)
-    monkeypatch.setattr("punt_lux.domain.hub.hub_display", store)
+    spy = _ReplicatorSpy()
+    ops = Operations.for_store(
+        store,
+        spy,
+        HubPorts(
+            element_factory=hub_element_factory,
+            ensure_writer=ensure_writer,
+            next_event=next_event,
+        ),
+    )
+    monkeypatch.setattr("punt_lux.tools.tools.OPERATIONS", ops)
     client = _mock_client()
     monkeypatch.setattr(
         "punt_lux.domain.hub.clients.client_registry.get", lambda: client
     )
-    spy = _ReplicatorSpy()
-    monkeypatch.setattr("punt_lux.tools.tools.hub_replicator", spy)
     client.replicator = spy
     return client
+
+
+def _bind_pubsub(
+    monkeypatch: pytest.MonkeyPatch,
+    next_fn: Callable[[ConnectionId, float], ObserverMessage | None],
+) -> None:
+    """Route the pub-sub adapters at a facade whose inbox is ``next_fn``."""
+
+    def _no_writer(_connection_id: ConnectionId) -> None:
+        return None
+
+    ops = Operations.for_store(
+        HubDisplay(),
+        _ReplicatorSpy(),
+        HubPorts(
+            element_factory=hub_element_factory,
+            ensure_writer=_no_writer,
+            next_event=next_fn,
+        ),
+    )
+    monkeypatch.setattr("punt_lux.tools.subscribe_tools.OPERATIONS", ops)
 
 
 def _seed_group_with_child(
@@ -1865,28 +1899,21 @@ class TestPingTool:
 
 
 class TestRecvTool:
-    @patch("punt_lux.tools.subscribe_tools.ensure_writer", return_value=None)
-    @patch("punt_lux.tools.subscribe_tools.next_event")
-    def test_recv_business_event(
-        self, mock_next: MagicMock, _mock_writer: MagicMock
-    ) -> None:
-        from punt_lux.protocol.messages.observer import ObserverMessage
+    def test_recv_business_event(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        message = ObserverMessage(topic="work.saved", payload={"id": "save_btn"})
 
-        mock_next.return_value = ObserverMessage(
-            topic="work.saved",
-            payload={"id": "save_btn"},
-        )
+        def _queued(_connection_id: ConnectionId, _timeout: float) -> ObserverMessage:
+            return message
 
-        result = recv()
-        assert result == 'event:work.saved:{"id": "save_btn"}'
-        # recv drains without blocking: it takes whatever is queued now.
-        assert mock_next.call_args.kwargs["timeout"] == 0.0
+        _bind_pubsub(monkeypatch, _queued)
+        assert recv() == 'event:work.saved:{"id": "save_btn"}'
 
-    @patch("punt_lux.tools.subscribe_tools.ensure_writer", return_value=None)
-    @patch("punt_lux.tools.subscribe_tools.next_event", return_value=None)
-    def test_recv_none(self, _mock_next: MagicMock, _mock_writer: MagicMock) -> None:
-        result = recv()
-        assert result == "none"
+    def test_recv_none(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        def _empty(_connection_id: ConnectionId, _timeout: float) -> None:
+            return None
+
+        _bind_pubsub(monkeypatch, _empty)
+        assert recv() == "none"
 
 
 class TestDisplayModeTool:
