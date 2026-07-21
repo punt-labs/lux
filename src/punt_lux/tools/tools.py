@@ -8,11 +8,14 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from punt_lux.domain.hub import client_registry, hub, hub_display
+from punt_lux.domain.hub.display_connection import HubDisplayConnection
 from punt_lux.domain.hub.replicator_instance import hub_replicator
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import (
+    DisplayInfo,
     DisplayModeRequest,
     DisplayModeState,
+    FrameStatePatch,
     Operations,
     OpError,
     RenderDashboardRequest,
@@ -20,7 +23,11 @@ from punt_lux.operations import (
     RenderTableRequest,
     SceneShown,
     Scope,
+    SetThemeRequest,
+    ThemeState,
     UpdateRequest,
+    WindowSettings,
+    WindowSettingsPatch,
 )
 from punt_lux.operations.ports import HubPorts
 from punt_lux.paths import DisplayPaths
@@ -36,23 +43,47 @@ from punt_lux.tools.server import (
 if TYPE_CHECKING:
     from punt_lux.display_client import DisplayClient
 
-# The process-wide operations facade. This is the composition root: the
-# operations layer imports no process singletons at module scope, so the store,
-# replicator, hub, client registry, and the two Hub helpers it needs
-# (connection-scoped element decode and the session inbox) are all injected here
-# in the presentation layer. Nothing under ``operations/`` imports back into
-# ``tools/`` or binds the running process at import time.
-OPERATIONS = Operations.for_store(
-    hub_display,
-    hub_replicator,
-    hub=hub,
-    client_registry=client_registry,
-    ports=HubPorts(
+
+def _hub_ports() -> HubPorts:
+    """Bundle the Hub helpers (element decode, inbox) the operations compose."""
+    return HubPorts(
         element_factory=hub_element_factory,
         ensure_writer=ensure_writer,
         next_event=next_event,
-    ),
-)
+    )
+
+
+def _display_connection() -> HubDisplayConnection:
+    """Build luxd's one bounded connection to the display for proxied ops."""
+    return HubDisplayConnection(
+        is_running=lambda: DisplayPaths().is_running(),
+        clients=client_registry,
+    )
+
+
+def _build_operations() -> Operations:
+    """Compose the operations facade — the presentation-layer composition root.
+
+    Every collaborator is injected here; nothing under ``operations/`` binds a
+    process singleton or reaches back into ``tools/`` at import time.
+    """
+    return Operations.for_store(
+        hub_display,
+        hub_replicator,
+        hub=hub,
+        client_registry=client_registry,
+        ports=_hub_ports(),
+        display_port=_display_connection(),
+    )
+
+
+def _now() -> float:
+    """Return the wall clock — a seam the ping adapter reads for its round-trip."""
+    return time.time()
+
+
+# The process-wide operations facade, built once at the composition root.
+OPERATIONS = _build_operations()
 
 
 def _connection_id() -> ConnectionId:
@@ -108,17 +139,27 @@ def _client() -> DisplayClient:
 
 
 def _bounded(call: Callable[[], str]) -> str:
-    """Run a ``set_*`` round-trip; return ``"timeout"`` if the send fails.
-
-    The ``SO_SNDTIMEO``-bounded send raises ``OSError`` within the limit; the tool
-    drops the dead connection so the next ``set_*`` reconnects, and reports
-    ``"timeout"`` — never killing the display.
-    """
+    """Run a ``set_*`` round-trip; drop the connection and report ``"timeout"``
+    if the bounded send raises ``OSError`` — never killing the display."""
     try:
         return call()
     except OSError:
         client_registry.drop()
         return "timeout"
+
+
+def _fault_line(err: OpError) -> str:
+    """Render a proxied operation's ``OpError`` as its legacy status line.
+
+    A display that is not running reads ``"not running"`` and a bounded round-trip
+    that elapsed reads ``"timeout"``, matching the two short-circuits the display
+    tools returned before; every other cause reads ``"error: <reason>"``.
+    """
+    if err.code == "display_unavailable":
+        return "not running"
+    if err.code == "timeout":
+        return "timeout"
+    return f"error: {err.reason}"
 
 
 @mcp.tool()
@@ -464,19 +505,10 @@ def set_theme(theme: str) -> str:
       darcula, darcula_darker, material_flat, photoshop_style,
       grey_flat, cherry, light_rounded, microsoft_style, from_imgui_colors_dark
     """
-    if not _display_running():
-        return "not running"
-
-    def _call() -> str:
-        client = _client()
-        response = client.query("set_theme", {"theme": theme})
-        if response is None:
-            return "timeout"
-        if response.error:
-            return f"error: {response.error}"
-        return f"theme:{response.result.get('theme', theme)}"
-
-    return _bounded(_call)
+    result = OPERATIONS.set_theme(SetThemeRequest.parse(theme))
+    if isinstance(result, OpError):
+        return _fault_line(result)
+    return f"theme:{result.payload.get('theme', theme)}"
 
 
 @mcp.tool()
@@ -491,48 +523,38 @@ def set_window_settings(
     Fields: opacity (0.1-1.0), font_scale (0.5-3.0), decorated (title bar/borders),
     fps_idle (target idle FPS, 1-120).
     """
-    params: dict[str, Any] = {}
-    if opacity is not None:
-        params["opacity"] = opacity
-    if font_scale is not None:
-        params["font_scale"] = font_scale
-    if decorated is not None:
-        params["decorated"] = decorated
-    if fps_idle is not None:
-        params["fps_idle"] = fps_idle
-    if not params:
-        return "error: no settings provided"
-    if not _display_running():
-        return "not running"
-
-    def _call() -> str:
-        client = _client()
-        response = client.query("set_window_settings", params)
-        if response is None:
-            return "timeout"
-        if response.error:
-            return f"error: {response.error}"
-        return json.dumps(response.result, indent=2)
-
-    return _bounded(_call)
+    result = OPERATIONS.set_window_settings(
+        WindowSettingsPatch.parse(
+            {
+                "opacity": opacity,
+                "font_scale": font_scale,
+                "decorated": decorated,
+                "fps_idle": fps_idle,
+            }
+        )
+    )
+    if isinstance(result, OpError):
+        return _fault_line(result)
+    return json.dumps(result.payload, indent=2)
 
 
-@_query_tool(
-    "set_frame_state",
-    doc="Modify a frame's state (minimize/expand).\n\n"
-    "Args:\n"
-    "    frame_id: Target frame identifier.\n"
-    "    minimized: True to minimize, False to expand.",
-)
+@mcp.tool()
 def set_frame_state(
     frame_id: str,
     minimized: bool | None = None,  # noqa: FBT001
-) -> dict[str, Any] | None:
-    """Modify a frame's state (minimize/expand)."""
-    params: dict[str, Any] = {"frame_id": frame_id}
-    if minimized is not None:
-        params["minimized"] = minimized
-    return params
+) -> str:
+    """Modify a frame's state (minimize/expand).
+
+    Args:
+        frame_id: Target frame identifier.
+        minimized: True to minimize, False to expand.
+    """
+    result = OPERATIONS.set_frame_state(
+        frame_id, FrameStatePatch.parse({"minimized": minimized})
+    )
+    if isinstance(result, OpError):
+        return _fault_line(result)
+    return json.dumps(result.payload, indent=2)
 
 
 @mcp.tool()
@@ -553,20 +575,10 @@ def clear() -> str:
 @mcp.tool()
 def ping() -> str:
     """Ping the display server. Returns round-trip time, "timeout", or "not running"."""
-    if not _display_running():
-        return "not running"
-
-    def _call() -> str:
-        client = _client()
-        pong = client.ping()
-        if pong is None:
-            return "timeout"
-        if pong.ts is not None:
-            rtt = time.time() - pong.ts
-            return f"pong rtt={rtt:.3f}s"
-        return "pong"
-
-    return client_registry.with_reconnect(_call)
+    result = OPERATIONS.ping(now=_now())
+    if isinstance(result, OpError):
+        return _fault_line(result)
+    return f"pong rtt={result.rtt_seconds:.3f}s"
 
 
 @mcp.tool()
@@ -622,43 +634,33 @@ def screenshot() -> str:
     The agent can read this image to see exactly what is rendered.
     Returns "not running" if the display server is not available.
     """
-    if not _display_running():
-        return "not running"
-
-    def _call() -> str:
-        client = _client()
-        response = client.query("screenshot")
-        if response is None:
-            return "timeout"
-        if response.error:
-            return f"error: {response.error}"
-        return str(response.result.get("path", ""))
-
-    return client_registry.with_reconnect(_call)
+    result = OPERATIONS.screenshot()
+    if isinstance(result, OpError):
+        return _fault_line(result)
+    return str(result.path)
 
 
-@_query_tool(
-    "get_display_info",
-    doc="Return display server metadata: backend, resolution, FPS, PID, uptime.",
-)
-def get_display_info() -> dict[str, Any] | None:
-    """Return display server metadata."""
-    return None
+@mcp.tool()
+def get_display_info() -> DisplayInfo | OpError:
+    """Return display server metadata: backend, resolution, FPS, PID, uptime.
+
+    The result is a typed record; its MCP output schema is derived from that
+    record, so the display's own reply can never be rejected by a schema that
+    drifted from it.
+    """
+    return OPERATIONS.get_display_info()
 
 
-@_query_tool(
-    "get_window_settings",
-    doc="Return current window settings: font scale, idle FPS.",
-)
-def get_window_settings() -> dict[str, Any] | None:
-    """Return current window settings."""
-    return None
+@mcp.tool()
+def get_window_settings() -> WindowSettings | OpError:
+    """Return current window settings: opacity, font scale, decoration, idle FPS."""
+    return OPERATIONS.get_window_settings()
 
 
-@_query_tool("get_theme", doc="Return current theme and available themes.")
-def get_theme() -> dict[str, Any] | None:
+@mcp.tool()
+def get_theme() -> ThemeState | OpError:
     """Return current theme and available themes."""
-    return None
+    return OPERATIONS.get_theme()
 
 
 @_query_tool(

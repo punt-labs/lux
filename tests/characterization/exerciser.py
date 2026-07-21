@@ -48,6 +48,7 @@ from typing import Any, ClassVar
 
 from punt_lux import tools as tools_pkg
 from punt_lux.domain.hub import client_registry, hub
+from punt_lux.domain.hub.display_connection import HubDisplayConnection
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import Operations
@@ -303,6 +304,10 @@ class ToolExerciser:
             hub=hub,
             client_registry=client_registry,
             ports=cls._hub_ports(setup),
+            display_port=HubDisplayConnection(
+                is_running=lambda: DisplayPaths().is_running(),
+                clients=client_registry,
+            ),
         )
         # All tools resolve the DisplayClient through the Hub-side
         # ClientRegistry singleton in ``punt_lux.domain.hub``. Patching

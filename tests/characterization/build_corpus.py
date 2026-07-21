@@ -590,66 +590,10 @@ INTROSPECTION_SCENARIOS: tuple[Scenario, ...] = (
             },
         },
     ),
-    Scenario(
-        name="get_display_info-ok",
-        tool="get_display_info",
-        inputs={},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "get_display_info",
-                    "result": {
-                        "backend": "imgui",
-                        "resolution": [1920, 1080],
-                        "fps": 60.0,
-                        "pid": 5678,
-                        "uptime_s": 12.5,
-                    },
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="get_window_settings-ok",
-        tool="get_window_settings",
-        inputs={},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "get_window_settings",
-                    "result": {
-                        "opacity": 0.95,
-                        "font_scale": 1.25,
-                        "decorated": True,
-                        "fps_idle": 30.0,
-                    },
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="get_theme-ok",
-        tool="get_theme",
-        inputs={},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "get_theme",
-                    "result": {
-                        "theme": "imgui_colors_dark",
-                        "available": [
-                            "imgui_colors_light",
-                            "imgui_colors_dark",
-                            "darcula",
-                        ],
-                    },
-                }
-            },
-        },
-    ),
+    # get_display_info, get_window_settings, and get_theme now return typed
+    # models (their MCP output schema is derived from the model), so they leave
+    # the string-parity corpus. Their behavior is pinned by the typed operation
+    # and adapter tests under tests/operations/.
     Scenario(
         name="ping-rtt",
         tool="ping",
