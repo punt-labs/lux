@@ -36,7 +36,7 @@ from punt_lux.operations.models.query_errors import RecentErrors
 from punt_lux.operations.models.query_events import RecentEvents
 from punt_lux.operations.models.query_inspection import SceneInspection
 from punt_lux.operations.models.query_scenes import SceneList
-from punt_lux.operations.models.theme import SetThemeRequest, ThemeState
+from punt_lux.operations.models.theme import SetThemeRequest, ThemeName, ThemeState
 from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
 from punt_lux.operations.ports import HubPorts
 from punt_lux.operations.scope import Scope
@@ -72,6 +72,7 @@ __all__ = [
     "SetMenuRequest",
     "SetThemeRequest",
     "Subscribed",
+    "ThemeName",
     "ThemeState",
     "Unsubscribed",
     "UpdateRequest",

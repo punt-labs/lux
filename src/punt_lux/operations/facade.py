@@ -9,7 +9,7 @@ presentation layer, so nothing here binds the running process at import time.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self
+from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.operations.config import DisplayModeOperations
 from punt_lux.operations.conveniences import ConvenienceOperations
@@ -59,6 +59,7 @@ if TYPE_CHECKING:
 __all__ = ["Operations"]
 
 
+@final
 class Operations:
     """A single object exposing every capability, composed from concern classes."""
 

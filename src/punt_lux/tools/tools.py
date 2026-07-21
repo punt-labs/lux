@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time
-from typing import Any
+from typing import Any, get_args
 
 from punt_lux.domain.hub import client_registry, hub, hub_display
 from punt_lux.domain.hub.display_connection import HubDisplayConnection
@@ -34,6 +34,7 @@ from punt_lux.operations import (
     Scope,
     SetMenuRequest,
     SetThemeRequest,
+    ThemeName,
     ThemeState,
     UpdateRequest,
     WindowSettings,
@@ -467,15 +468,14 @@ def register_tool(
     return f"registered:{tool_id}"
 
 
-@mcp.tool()
-def set_theme(theme: str) -> str:
-    """Set the Lux display theme.
+# One source for the theme names — description and accepted set cannot drift.
+_SET_THEME_DESCRIPTION = "Set the Lux display theme. Valid names (snake_case): " + (
+    ", ".join(get_args(ThemeName))
+)
 
-    Available themes (snake_case names):
-      imgui_colors_light, imgui_colors_dark, imgui_colors_classic,
-      darcula, darcula_darker, material_flat, photoshop_style,
-      grey_flat, cherry, light_rounded, microsoft_style, from_imgui_colors_dark
-    """
+
+@mcp.tool(description=_SET_THEME_DESCRIPTION)
+def set_theme(theme: str) -> str:
     result = OPERATIONS.set_theme(SetThemeRequest.parse(theme))
     if isinstance(result, OpError):
         return _fault_line(result)
