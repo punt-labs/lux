@@ -438,11 +438,16 @@ always registers an action.
 
 ```python
 ThemeName = Literal[
-    "imgui_colors_light", "imgui_colors_dark", "imgui_colors_classic",
-    "darcula", "darcula_darker", "material_flat", "photoshop_style",
-    "grey_flat", "cherry", "light_rounded", "microsoft_style",
-    "from_imgui_colors_dark",
+    "imgui_colors_classic", "imgui_colors_dark", "imgui_colors_light",
+    "material_flat", "photoshop_style", "gray_variations",
+    "gray_variations_darker", "microsoft_style", "cherry", "darcula",
+    "darcula_darker", "light_rounded", "so_dark_accent_blue",
+    "so_dark_accent_yellow", "so_dark_accent_red", "black_is_black",
+    "white_is_white",
 ]
+# The seventeen names above are hello_imgui's real theme enumeration,
+# verified against the renderer. An earlier draft listed two themes that do
+# not exist and omitted seven that do.
 
 class ThemeState(BaseModel):
     kind: Literal["ok"] = "ok"
