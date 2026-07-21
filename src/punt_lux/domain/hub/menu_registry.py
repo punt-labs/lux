@@ -3,9 +3,9 @@
 Menus are UI the agent submits, and the Hub is the authority for submitted UI.
 This registry holds the authoritative menu state as typed models so
 ``list_menus`` reads it with no reach-around and the replicator pushes it like
-any scene. ``set_menus`` replaces the agent-defined bar; ``register_item`` adds a
-tool item scoped to the registering session, so a session's items can be dropped
-when it disconnects.
+any scene. ``set_menus`` replaces the agent-defined bar; ``register_item`` keys a
+tool item by id, last write winning across sessions so the registry never holds
+two items with one id, and the owning session's disconnect drops it.
 
 The two kinds of menu state stay distinct, matching the two the display renders:
 ``menu_bar`` is the agent menu bar (the display's ``MenuMessage`` bar), and
@@ -57,17 +57,42 @@ class HubMenuRegistry:
             self._menus = list(menus)
 
     def register_item(self, connection_id: ConnectionId, action: MenuAction) -> None:
-        """Add or replace a session's tool item, keyed by its id."""
+        """Register a tool item, keyed by id, last write winning across sessions.
+
+        The id belongs to whichever session wrote it last: registering an id any
+        session already holds moves it to the caller, so the registry keeps one
+        item per id and agrees with the display's own dedupe by construction —
+        ``registered_items`` and the push can no longer diverge from the screen.
+        The owning session's disconnect is what removes it (see ``drop``).
+        """
         with self._lock:
-            items = self._tool_items.setdefault(connection_id, [])
-            for index, existing in enumerate(items):
-                if existing.id == action.id:
-                    items[index] = action
-                    return
-            items.append(action)
+            self._discard_id(action.id)
+            self._tool_items.setdefault(connection_id, []).append(action)
+
+    def _discard_id(self, item_id: str) -> None:
+        """Remove ``item_id`` from whichever session holds it. Caller holds the lock.
+
+        The one-item-per-id invariant means at most one session matches; a session
+        left with no items is pruned so ``registered_items`` and ``drop`` stay tidy.
+        """
+        for connection_id in list(self._tool_items):
+            items = self._tool_items[connection_id]
+            remaining = [item for item in items if item.id != item_id]
+            if len(remaining) == len(items):
+                continue
+            if remaining:
+                self._tool_items[connection_id] = remaining
+            else:
+                del self._tool_items[connection_id]
+            return
 
     def drop(self, connection_id: ConnectionId) -> None:
-        """Forget a departed session's tool items. No-op if absent."""
+        """Forget a departed session's tool items. No-op if absent.
+
+        A session only holds the ids it wrote most recently, so a disconnect
+        removes exactly those — an id another session later claimed has already
+        moved away and is untouched.
+        """
         with self._lock:
             self._tool_items.pop(connection_id, None)
 
