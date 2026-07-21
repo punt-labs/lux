@@ -63,17 +63,25 @@ class SceneOperations:
         if isinstance(request, OpError):
             return request
         factory = self._element_factory(scope.connection_id)
-        elements: list[WireElement] = [
-            factory.element_from_dict(e) for e in request.elements
-        ]
+        # Wire-decode boundary: an undecodable element raises ``ValueError``; the
+        # operation never raises through its signature, so a decode failure
+        # becomes a rejection the adapter renders like any other.
+        try:
+            elements: list[WireElement] = [
+                factory.element_from_dict(e) for e in request.elements
+            ]
+        except ValueError as exc:
+            return OpError(code="rejected", reason=str(exc))
         rejection = SubmissionGate().first_rejection(
             SceneId(request.scene_id), elements
         )
         if rejection is not None:
-            return OpError(code="rejected", reason=f"scene not rendered — {rejection}")
+            return OpError(code="rejected", reason=rejection)
         self._display.show_scene(
             scope.connection_id,
             SceneId(request.scene_id),
+            # WireElement is structurally the domain Element the store installs;
+            # the cast bridges list invariance across that crossing (PY-TS-12).
             cast("Sequence[DomainElement]", elements),
             request.presentation(),
         )
@@ -85,17 +93,16 @@ class SceneOperations:
     ) -> SceneShown | OpError:
         """Apply a patch batch to the store, or return why it was rejected.
 
-        The writer is the single validation authority for patch shape and
-        ownership; a rejected batch leaves the store untouched.
+        The request's boundary codec already mapped the wire shapes to variants;
+        the writer keeps its ownership, field-legality, and structural rejections
+        and a rejected batch leaves the store untouched.
         """
         if isinstance(request, OpError):
             return request
         writer = HubSceneWriter(self._display)
-        result = writer.apply(scope.connection_id, SceneId(scene_id), request.patches)
+        result = writer.apply(scope.connection_id, SceneId(scene_id), request.to_wire())
         if isinstance(result, WriteRejected):
-            return OpError(
-                code="rejected", reason=f"scene not updated — {result.reason}"
-            )
+            return OpError(code="rejected", reason=result.reason)
         self._replicator.mark_dirty(SceneId(scene_id))
         return SceneShown(scene_id=scene_id)
 

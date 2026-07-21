@@ -2,17 +2,16 @@
 
 Each capability is one typed operation on a concern class. The :class:`Operations`
 facade composes those classes so one caller — an MCP adapter, a REST route, or a
-test — has one object to call. ``production`` wires the process singletons;
-``for_store`` binds a caller-supplied store so a test drives the real operations
-without the running process.
+test — has one object to call. The layer imports no process singletons at module
+scope: every collaborator (store, replicator, hub, client registry) is injected
+into ``for_store`` by the composition root in the presentation layer, so nothing
+here binds the running process at import time.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.domain.hub import client_registry, hub, hub_display
-from punt_lux.domain.hub.replicator_instance import hub_replicator
 from punt_lux.operations.config import DisplayModeOperations
 from punt_lux.operations.conveniences import ConvenienceOperations
 from punt_lux.operations.models import (
@@ -37,6 +36,8 @@ from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.scope import Scope
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.clients import ClientRegistry
+    from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.operations.scope import Scope as ScopeType
@@ -87,15 +88,16 @@ class Operations:
         return self
 
     @classmethod
-    def production(cls, ports: HubPorts) -> Self:
-        """Wire the operations against the process's Hub singletons."""
-        return cls.for_store(hub_display, hub_replicator, ports)
-
-    @classmethod
     def for_store(
-        cls, display: HubDisplay, replicator: DirtyMarker, ports: HubPorts
+        cls,
+        display: HubDisplay,
+        replicator: DirtyMarker,
+        *,
+        hub: Hub,
+        client_registry: ClientRegistry,
+        ports: HubPorts,
     ) -> Self:
-        """Wire scene operations against a given store; pub-sub and config stay live."""
+        """Wire every concern class from injected collaborators — no singletons."""
         scenes = SceneOperations(display, replicator, ports.element_factory)
         return cls(
             scenes=scenes,
@@ -150,10 +152,12 @@ class Operations:
         """Take the next business event for the caller's session."""
         return self._pubsub.receive(scope=scope)
 
-    def read_display_mode(self, repo: str) -> DisplayModeState:
+    def read_display_mode(self, repo: str) -> DisplayModeState | OpError:
         """Read a project's display mode."""
         return self._config.read_display_mode(repo)
 
-    def write_display_mode(self, request: DisplayModeRequest) -> DisplayModeState:
+    def write_display_mode(
+        self, request: DisplayModeRequest | OpError
+    ) -> DisplayModeState | OpError:
         """Write a project's display mode."""
         return self._config.write_display_mode(request)

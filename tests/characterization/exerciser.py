@@ -47,6 +47,7 @@ from collections.abc import Callable, Generator, Mapping
 from typing import Any, ClassVar
 
 from punt_lux import tools as tools_pkg
+from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import Operations
@@ -297,7 +298,11 @@ class ToolExerciser:
         # fresh store keeps every replay independent while running the real
         # operations against real collaborators (decode, submission gate, writer).
         test_ops = Operations.for_store(
-            HubDisplay(), _StubReplicator(), cls._hub_ports(setup)
+            HubDisplay(),
+            _StubReplicator(),
+            hub=hub,
+            client_registry=client_registry,
+            ports=cls._hub_ports(setup),
         )
         # All tools resolve the DisplayClient through the Hub-side
         # ClientRegistry singleton in ``punt_lux.domain.hub``. Patching

@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.config import ConfigManager
+from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.config import DisplayModeRequest, DisplayModeState
 
 if TYPE_CHECKING:
@@ -35,15 +36,23 @@ class DisplayModeOperations:
         self._client_registry = client_registry
         return self
 
-    def read_display_mode(self, repo: str) -> DisplayModeState:
-        """Return the mode ``<repo>/.punt-labs/lux.md`` currently records."""
-        config = self._config_manager_for(repo).read()
+    def read_display_mode(self, repo: str) -> DisplayModeState | OpError:
+        """Return the mode ``<repo>/.punt-labs/lux.md`` records, or an ``OpError``."""
+        repo_error = DisplayModeRequest.check_repo(repo)
+        if repo_error is not None:
+            return repo_error
+        config = ConfigManager(config_path=Path(repo) / ".punt-labs" / "lux.md").read()
         return DisplayModeState.from_config(config.display)
 
-    def write_display_mode(self, request: DisplayModeRequest) -> DisplayModeState:
+    def write_display_mode(
+        self, request: DisplayModeRequest | OpError
+    ) -> DisplayModeState | OpError:
         """Persist the mode; eagerly connect to the display when turning on."""
+        if isinstance(request, OpError):
+            return request
         field = "y" if request.mode == "on" else "n"
-        self._config_manager_for(request.repo).write_field("display", field)
+        config = ConfigManager(config_path=Path(request.repo) / ".punt-labs" / "lux.md")
+        config.write_field("display", field)
         if request.mode == "on":
             self._eager_connect()
         return DisplayModeState(mode=request.mode)
@@ -58,26 +67,3 @@ class DisplayModeOperations:
                 "will retry on first tool call",
                 exc_info=True,
             )
-
-    @staticmethod
-    def _config_manager_for(repo: str) -> ConfigManager:
-        """Build a ``ConfigManager`` for the caller's project, validating ``repo``.
-
-        The MCP server runs inside luxd, whose cwd is wherever launchd started it
-        — never the agent's project. Every caller must therefore say which
-        project it means with an absolute path to an existing directory.
-        """
-        if not repo:
-            msg = "repo is required and must be a non-empty string"
-            raise ValueError(msg)
-        path = Path(repo)
-        if not path.is_absolute():
-            msg = f"repo must be an absolute path; got {repo!r}"
-            raise ValueError(msg)
-        if not path.exists():
-            msg = f"repo path does not exist: {repo}"
-            raise ValueError(msg)
-        if not path.is_dir():
-            msg = f"repo must be a directory; got {repo}"
-            raise ValueError(msg)
-        return ConfigManager(config_path=path / ".punt-labs" / "lux.md")

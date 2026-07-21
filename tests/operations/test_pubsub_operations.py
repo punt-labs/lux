@@ -51,3 +51,16 @@ def test_publish_with_no_subscribers_delivers_zero(scope: Scope) -> None:
 def test_unsubscribe_without_a_writer_is_a_noop(scope: Scope) -> None:
     result = _ops().unsubscribe("ghost", scope=scope)
     assert result.topic == "ghost"
+
+
+def test_receive_drains_without_blocking(scope: Scope) -> None:
+    """recv passes timeout 0.0 so it takes what is queued now, never blocks."""
+    seen: list[float] = []
+
+    def _record(_connection_id: ConnectionId, timeout: float) -> None:
+        seen.append(timeout)
+        return
+
+    result = PubSubOperations(hub, ensure_writer, _record).receive(scope=scope)
+    assert result.event is None
+    assert seen == [0.0]

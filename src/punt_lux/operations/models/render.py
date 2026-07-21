@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.operations.models.common import OpError
@@ -16,7 +16,14 @@ __all__ = ["FrameFlags", "FrameSpec", "RenderRequest"]
 
 
 class FrameFlags(BaseModel):
-    """The ImGui window flags a scene's frame may carry."""
+    """The ImGui window flags a scene's frame may carry.
+
+    Unknown keys are ignored, not rejected: the string-return tools' contract is
+    "no behavior change" and the legacy path silently dropped unrecognised flag
+    keys, so this one model keeps ``extra="ignore"`` on purpose.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     no_resize: bool = False
     no_collapse: bool = False
@@ -29,6 +36,8 @@ class FrameFlags(BaseModel):
 class FrameSpec(BaseModel):
     """Where and how a scene is shown into its frame; every field defaults."""
 
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     frame_id: str | None = None  # None defaults to the scene id
     frame_title: str | None = None  # None defaults to the title, then the scene id
     size: tuple[int, int] | None = None  # None lets the display choose
@@ -38,6 +47,8 @@ class FrameSpec(BaseModel):
 
 class RenderRequest(BaseModel):
     """A whole scene to install: its id, its element tree, and its frame."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     scene_id: str
     # Wire element trees. dict-shaped because element kinds are open and each
@@ -58,7 +69,7 @@ class RenderRequest(BaseModel):
 
     @staticmethod
     def _reason_for(exc: ValidationError) -> str:
-        """Render the first validation failure as its legacy status message."""
+        """Render the first validation failure as its bare legacy message."""
         err = exc.errors()[0]
         loc = err["loc"]
         value = err.get("input")

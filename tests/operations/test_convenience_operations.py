@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
-from punt_lux.operations import RenderDashboardRequest, RenderTableRequest, SceneShown
+from punt_lux.operations import (
+    OpError,
+    RenderDashboardRequest,
+    RenderTableRequest,
+    SceneShown,
+)
 from punt_lux.operations.conveniences import ConvenienceOperations
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.scope import Scope
@@ -54,3 +59,13 @@ def test_render_dashboard_installs_metric_and_table_sections() -> None:
     assert isinstance(result, SceneShown)
     assert store.resolve(SceneId("dash"), ElementId("metrics-row")).kind == "group"
     assert store.resolve(SceneId("dash"), ElementId("dashboard-table")).kind == "table"
+
+
+def test_render_table_passes_an_op_error_straight_through() -> None:
+    error = OpError(code="invalid_request", reason="bad")
+    assert _conveniences(HubDisplay()).render_table(error, scope=_LOCAL) is error
+
+
+def test_render_dashboard_passes_an_op_error_straight_through() -> None:
+    error = OpError(code="invalid_request", reason="bad")
+    assert _conveniences(HubDisplay()).render_dashboard(error, scope=_LOCAL) is error

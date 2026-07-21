@@ -73,7 +73,19 @@ def test_render_rejects_a_duplicate_id_and_installs_nothing() -> None:
     result = _ops(store, recorder).render(request, scope=_LOCAL)
     assert isinstance(result, OpError)
     assert result.code == "rejected"
-    assert "scene not rendered" in result.reason
+    # The reason is bare — no "scene not rendered — " prefix; that is the adapter's.
+    assert "duplicate" in result.reason
+    assert recorder.dirtied == []
+
+
+def test_render_rejects_an_undecodable_element_without_raising() -> None:
+    store, recorder = HubDisplay(), _Recorder()
+    request = RenderRequest.parse(
+        {"scene_id": "s1", "elements": [{"kind": "text", "id": "t1"}]}
+    )
+    result = _ops(store, recorder).render(request, scope=_LOCAL)
+    assert isinstance(result, OpError)
+    assert result.code == "rejected"
     assert recorder.dirtied == []
 
 
@@ -96,7 +108,8 @@ def test_update_rejects_an_unknown_element_and_leaves_the_store_untouched() -> N
     result = _ops(store, recorder).update("s1", request, scope=_LOCAL)
     assert isinstance(result, OpError)
     assert result.code == "rejected"
-    assert "scene not updated" in result.reason
+    # The reason is bare — the writer names the element; the adapter adds the prefix.
+    assert "ghost" in result.reason
     assert recorder.dirtied == []
     assert store.resolve(SceneId("s1"), ElementId("hdr")).id == "hdr"
 

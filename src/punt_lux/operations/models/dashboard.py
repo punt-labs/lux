@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.render import FrameSpec, RenderRequest
@@ -12,7 +12,32 @@ from punt_lux.operations.models.render import FrameSpec, RenderRequest
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-__all__ = ["RenderDashboardRequest"]
+__all__ = ["Metric", "RenderDashboardRequest", "TableSection"]
+
+
+class Metric(BaseModel):
+    """One labelled metric card. Both fields are required — no half-card."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    label: str
+    value: str
+
+
+class TableSection(BaseModel):
+    """The dashboard's summary table. Columns are required; rows may be empty.
+
+    Modelling columns and rows together removes the rows-without-columns
+    half-state the two separate tool arguments could otherwise express.
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    columns: list[str]
+    # Table cells; open scalars validated by the table element codec
+    # (PY-TS-14 wire boundary). ``parse`` always supplies rows (empty when the
+    # tool omitted them), so the field is required rather than defaulted.
+    rows: list[list[object]]
 
 
 class RenderDashboardRequest(BaseModel):
@@ -23,20 +48,33 @@ class RenderDashboardRequest(BaseModel):
     configs are open wire shapes for the plot element codec (PY-TS-14 boundary).
     """
 
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
     scene_id: str
-    metrics: list[dict[str, str]] | None = None  # None omits the metric row
+    metrics: list[Metric] | None = None  # None omits the metric row
     charts: list[dict[str, object]] | None = None  # None omits the charts
-    table_columns: list[str] | None = None  # None omits the summary table
-    table_rows: list[list[object]] | None = None  # None means an empty table body
+    table: TableSection | None = None  # None omits the summary table
     title: str | None = None
     frame_id: str | None = None
     frame_title: str | None = None
 
     @classmethod
     def parse(cls, raw: Mapping[str, object]) -> RenderDashboardRequest | OpError:
-        """Validate raw arguments, or return an ``OpError`` instead of raising."""
+        """Validate raw arguments, or return an ``OpError`` instead of raising.
+
+        The tool passes ``table_columns`` / ``table_rows`` as two arguments; they
+        fold into one ``TableSection`` here so the half-state cannot survive.
+        """
+        data = dict(raw)
+        columns = data.pop("table_columns", None)
+        rows = data.pop("table_rows", None)
+        if columns is not None:
+            data["table"] = {
+                "columns": columns,
+                "rows": rows if rows is not None else [],
+            }
         try:
-            return cls.model_validate(raw)
+            return cls.model_validate(data)
         except ValidationError as exc:
             return OpError(code="invalid_request", reason=exc.errors()[0]["msg"])
 
@@ -62,25 +100,23 @@ class RenderDashboardRequest(BaseModel):
             sections.append(self._metric_section(self.metrics))
         if self.charts:
             sections.append(self._chart_section(self.charts))
-        if self.table_columns is not None:
-            sections.append(self._table_section(self.table_columns))
+        if self.table is not None:
+            sections.append(self._table_section(self.table))
         return sections
 
     @staticmethod
-    def _metric_section(
-        metrics: Sequence[Mapping[str, str]],
-    ) -> list[dict[str, object]]:
+    def _metric_section(metrics: Sequence[Metric]) -> list[dict[str, object]]:
         """Build one columns group of label/value metric cards."""
         cards = [
             {
                 "kind": "group",
                 "id": f"metric-{i}",
                 "children": [
-                    {"kind": "text", "id": f"metric-label-{i}", "content": m["label"]},
+                    {"kind": "text", "id": f"metric-label-{i}", "content": m.label},
                     {
                         "kind": "text",
                         "id": f"metric-value-{i}",
-                        "content": m["value"],
+                        "content": m.value,
                         "style": "heading",
                     },
                 ],
@@ -109,14 +145,15 @@ class RenderDashboardRequest(BaseModel):
             elements.append(plot)
         return elements
 
-    def _table_section(self, columns: Sequence[str]) -> list[dict[str, object]]:
-        """Build the summary table element from the dashboard's columns and rows."""
+    @staticmethod
+    def _table_section(table: TableSection) -> list[dict[str, object]]:
+        """Build the summary table element from the dashboard's table section."""
         return [
             {
                 "kind": "table",
                 "id": "dashboard-table",
-                "columns": list(columns),
-                "rows": self.table_rows if self.table_rows is not None else [],
+                "columns": list(table.columns),
+                "rows": [list(row) for row in table.rows],
                 "flags": ["borders", "row_bg"],
             }
         ]

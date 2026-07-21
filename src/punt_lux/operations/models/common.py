@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 __all__ = ["OpError", "OpErrorCode"]
 
@@ -22,9 +22,12 @@ class OpError(BaseModel):
     """A capability failed; ``code`` is machine-branchable, ``reason`` is prose.
 
     Tagged ``kind="error"`` so a discriminated result cannot be both a success
-    and a failure at once. String-return adapters render ``reason`` back into the
-    legacy status line; the typed surfaces branch on ``code``.
+    and a failure at once. ``reason`` carries the bare cause with no surface
+    wording — each adapter adds its own prefix (``"scene not rendered — "``,
+    ``"scene not updated — "``) when it renders the legacy status line.
     """
+
+    model_config = ConfigDict(frozen=True)
 
     kind: Literal["error"] = "error"
     code: OpErrorCode

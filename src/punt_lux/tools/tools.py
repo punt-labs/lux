@@ -7,7 +7,8 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from punt_lux.domain.hub import client_registry
+from punt_lux.domain.hub import client_registry, hub, hub_display
+from punt_lux.domain.hub.replicator_instance import hub_replicator
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import (
     DisplayModeRequest,
@@ -35,17 +36,22 @@ from punt_lux.tools.server import (
 if TYPE_CHECKING:
     from punt_lux.display_client import DisplayClient
 
-# The process-wide operations facade. This is where the composition crosses the
-# layer boundary: the operations layer stays pure engine core, and the two Hub
-# helpers it needs — connection-scoped element decode and the session inbox —
-# are injected here in the presentation layer, so nothing under ``operations/``
-# imports back up into ``tools/``.
-OPERATIONS = Operations.production(
-    HubPorts(
+# The process-wide operations facade. This is the composition root: the
+# operations layer imports no process singletons at module scope, so the store,
+# replicator, hub, client registry, and the two Hub helpers it needs
+# (connection-scoped element decode and the session inbox) are all injected here
+# in the presentation layer. Nothing under ``operations/`` imports back into
+# ``tools/`` or binds the running process at import time.
+OPERATIONS = Operations.for_store(
+    hub_display,
+    hub_replicator,
+    hub=hub,
+    client_registry=client_registry,
+    ports=HubPorts(
         element_factory=hub_element_factory,
         ensure_writer=ensure_writer,
         next_event=next_event,
-    )
+    ),
 )
 
 
@@ -59,15 +65,35 @@ def _scope() -> Scope:
     return Scope(_connection_id())
 
 
-def _format_scene(result: SceneShown | OpError) -> str:
-    """Render a scene-mutation result as the tool's legacy status line."""
-    if isinstance(result, OpError):
+def _format_render(result: SceneShown | OpError) -> str:
+    """Render a ``render``/``render_table``/``render_dashboard`` result.
+
+    A parse-level ``invalid_request`` carries the specific legacy message with no
+    prefix; every other rejection (submission gate, undecodable element) is a
+    ``"scene not rendered — "`` error.
+    """
+    if isinstance(result, SceneShown):
+        return f"shown:{result.scene_id}"
+    if result.code == "invalid_request":
         return f"error: {result.reason}"
-    return f"shown:{result.scene_id}"
+    return f"error: scene not rendered — {result.reason}"
 
 
-def _format_display_mode(result: DisplayModeState) -> str:
-    """Render a display-mode result as ``display:on`` / ``display:off``."""
+def _format_update(result: SceneShown | OpError) -> str:
+    """Render an ``update`` result as its legacy status line."""
+    if isinstance(result, SceneShown):
+        return f"shown:{result.scene_id}"
+    return f"error: scene not updated — {result.reason}"
+
+
+def _format_display_mode(result: DisplayModeState | OpError) -> str:
+    """Render a display-mode result, reproducing the legacy ValueError on error.
+
+    The operation never raises; the MCP tools historically raised ``ValueError``
+    for a bad mode or repo, so the adapter re-raises with the same message.
+    """
+    if isinstance(result, OpError):
+        raise ValueError(result.reason)
     return f"display:{result.mode}"
 
 
@@ -196,7 +222,7 @@ def show(
             },
         }
     )
-    return _format_scene(OPERATIONS.render(request, scope=_scope()))
+    return _format_render(OPERATIONS.render(request, scope=_scope()))
 
 
 @mcp.tool()
@@ -287,7 +313,7 @@ def show_table(
             "frame_title": frame_title,
         }
     )
-    return _format_scene(OPERATIONS.render_table(request, scope=_scope()))
+    return _format_render(OPERATIONS.render_table(request, scope=_scope()))
 
 
 @mcp.tool()
@@ -363,7 +389,7 @@ def show_dashboard(
             "frame_title": frame_title,
         }
     )
-    return _format_scene(OPERATIONS.render_dashboard(request, scope=_scope()))
+    return _format_render(OPERATIONS.render_dashboard(request, scope=_scope()))
 
 
 @mcp.tool()
@@ -379,7 +405,7 @@ def update(scene_id: str, patches: list[dict[str, Any]]) -> str:
     unknown field, or a ``set`` that would break an element — mutates nothing and
     returns ``"error: scene not updated — <reason>"``.
     """
-    return _format_scene(
+    return _format_update(
         OPERATIONS.update(scene_id, UpdateRequest.parse(patches), scope=_scope())
     )
 
@@ -673,7 +699,7 @@ def set_display_mode(mode: str, repo: str) -> str:
     When ``y``, eagerly connects to the display server.
     """
     return _format_display_mode(
-        OPERATIONS.write_display_mode(DisplayModeRequest.from_toggle(mode, repo))
+        OPERATIONS.write_display_mode(DisplayModeRequest.parse(mode, repo))
     )
 
 

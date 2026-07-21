@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.render import FrameSpec, RenderRequest
@@ -24,6 +24,8 @@ class RenderTableRequest(BaseModel):
     (PY-TS-14 wire boundary); this request composes them into one table element
     and delegates the actual install to ``render``.
     """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
 
     scene_id: str
     columns: list[str]
