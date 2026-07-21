@@ -88,6 +88,29 @@ def test_menu_rejects_direct_construction_with_a_blank_label() -> None:
         Menu(label="", items=[])
 
 
+def test_set_menu_rejects_a_menu_whose_items_is_not_a_list() -> None:
+    # A present-but-non-list items value is rejected by name, not coerced to [].
+    result = SetMenuRequest.parse([{"label": "File", "items": 123}])
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert "menus.0.items" in result.reason
+
+
+def test_set_menu_rejects_a_menu_whose_items_is_a_string() -> None:
+    # A string is a Sequence but never a menu item list — reject, do not iterate it.
+    result = SetMenuRequest.parse([{"label": "File", "items": "oops"}])
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert "menus.0.items" in result.reason
+
+
+def test_set_menu_accepts_a_menu_with_no_items_key() -> None:
+    # A missing items key is the one absence that defaults to an empty menu.
+    result = SetMenuRequest.parse([{"label": "File"}])
+    assert isinstance(result, SetMenuRequest)
+    assert result.menus[0].items == []
+
+
 def test_register_menu_item_scopes_to_the_connection_and_pushes() -> None:
     registry = HubMenuRegistry()
     marker = _MenuMarkerSpy()

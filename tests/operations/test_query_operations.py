@@ -179,6 +179,30 @@ def test_inspect_scene_mirror_not_present_when_paths_are_shorter_than_the_hub() 
     assert result.mirror == MirrorPresent(present=False)
 
 
+def test_inspect_scene_mirror_not_present_when_paths_carry_an_extra_entry() -> None:
+    # Both Hub elements mirrored, but the display reports a third, unmirrored
+    # entry: a bare truthy-count would pass (mirrored == hub_count == 2), so the
+    # extras guard (len(entries) == hub_count) is what makes this present=False.
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")  # g1 + t1 = two elements
+    reply = DisplayReplied(
+        {
+            "scene_id": "s1",
+            "element_paths": [
+                {"id": "g1", "domain_mirror_present": True},
+                {"id": "t1", "domain_mirror_present": True},
+                {"id": "ghost", "domain_mirror_present": False},
+            ],
+        }
+    )
+    ops = QueryOperations(store, Hub(), _StubPort(reply))
+
+    result = ops.inspect_scene("s1", want_mirror=True)
+
+    assert isinstance(result, SceneInspection)
+    assert result.mirror == MirrorPresent(present=False)
+
+
 def test_inspect_scene_mirror_unavailable_when_the_display_is_down() -> None:
     # A requested check the display cannot answer is unavailable-with-reason,
     # never silently conflated with "not requested".

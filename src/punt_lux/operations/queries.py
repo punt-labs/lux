@@ -189,14 +189,18 @@ class QueryOperations:
         """Proxy the display-side mirror check as a discriminated state.
 
         The display answers per element under ``element_paths``. The scene is
-        present only when those paths account for every element the Hub holds:
-        the mirrored-element count must equal the Hub store's element count. An
-        empty Hub scene is vacuously present, but a Hub holding elements whose
-        paths come back empty or short is truthfully NOT present — an empty
-        ``element_paths`` list is a well-formed reply that says "nothing
-        mirrored", not a missing one. A down display, a timeout, or a reply
-        without the paths key is ``unavailable`` with a reason — distinct from
-        "not requested".
+        present only when those paths account for *exactly* the Hub's elements:
+        every Hub element mirrored (``mirrored == hub_count``) AND no extra
+        entries beyond them (``len(entries) == hub_count``). The extras guard is
+        what stops two mirrored elements plus one unmirrored extra from passing a
+        bare count. The comparison is by count, not identity: ``element_paths``
+        ids are not a usable identity key here — anonymous elements all carry
+        ``""`` — so a set/multiset over them would not distinguish elements.
+
+        An empty Hub scene is vacuously present; a Hub holding elements whose
+        paths come back empty, short, or padded with extras is truthfully NOT
+        present. A down display, a timeout, or a reply without the paths key is
+        ``unavailable`` with a reason — distinct from "not requested".
         """
         payload = self._port.query("inspect_scene", {"scene_id": scene_id}).resolve()
         if isinstance(payload, OpError):
@@ -212,7 +216,8 @@ class QueryOperations:
             and bool(cast("Mapping[str, object]", entry).get("domain_mirror_present"))
         )
         hub_count = self._display.element_count(SceneId(scene_id))
-        return MirrorPresent(present=mirrored == hub_count)
+        present = mirrored == hub_count and len(entries) == hub_count
+        return MirrorPresent(present=present)
 
 
 @final

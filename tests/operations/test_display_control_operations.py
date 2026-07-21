@@ -225,7 +225,10 @@ def test_set_window_settings_returns_the_new_settings() -> None:
 
 
 def test_set_frame_state_returns_ok_and_rejects_empty_patch() -> None:
-    port = _FakePort(query=DisplayReplied({"frame_id": "f1", "changed": {}}))
+    # The live reply shape: the frame acted on plus the fields the display flipped.
+    port = _FakePort(
+        query=DisplayReplied({"frame_id": "f1", "changed": {"minimized": True}})
+    )
     ops = DisplayControlOperations(port)
     result = ops.set_frame_state("f1", FrameStatePatch.parse({"minimized": True}))
     assert isinstance(result, Ok)
@@ -235,3 +238,22 @@ def test_set_frame_state_returns_ok_and_rejects_empty_patch() -> None:
     assert isinstance(empty, OpError)
     assert empty.code == "invalid_request"
     assert empty.reason == "no frame state provided"
+
+
+def test_set_frame_state_rejects_a_reply_missing_the_frame_id() -> None:
+    # Schema drift must not fabricate success: a reply that does not acknowledge
+    # the frame is a rejected, not an Ok.
+    port = _FakePort(query=DisplayReplied({"changed": {"minimized": True}}))
+    ops = DisplayControlOperations(port)
+    result = ops.set_frame_state("f1", FrameStatePatch.parse({"minimized": True}))
+    assert isinstance(result, OpError)
+    assert result.code == "rejected"
+
+
+def test_set_frame_state_rejects_a_reply_acknowledging_a_different_frame() -> None:
+    port = _FakePort(query=DisplayReplied({"frame_id": "other", "changed": {}}))
+    ops = DisplayControlOperations(port)
+    result = ops.set_frame_state("f1", FrameStatePatch.parse({"minimized": True}))
+    assert isinstance(result, OpError)
+    assert result.code == "rejected"
+    assert "f1" in result.reason

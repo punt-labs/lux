@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong, Screenshot
-from punt_lux.operations.models.display_write import FrameStatePatch
+from punt_lux.operations.models.display_write import FrameStateAck, FrameStatePatch
 from punt_lux.operations.models.menu_results import Ok
 from punt_lux.operations.models.theme import SetThemeRequest, ThemeState
 from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
@@ -127,4 +127,10 @@ class DisplayControlOperations:
         ).resolve()
         if isinstance(payload, OpError):
             return payload
+        ack = FrameStateAck.from_reply(payload)
+        if isinstance(ack, OpError):
+            return ack
+        if ack.frame_id != frame_id:
+            reason = f"set_frame_state acknowledged {ack.frame_id!r}, not {frame_id!r}"
+            return OpError(code="rejected", reason=reason)
         return Ok()

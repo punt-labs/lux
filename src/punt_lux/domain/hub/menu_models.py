@@ -83,8 +83,9 @@ class Menu(BaseModel):
 
         ``index`` names the menu's position for a field-located error; a menu
         that is not a mapping, that carries a missing/empty/non-string label, or
-        that carries a malformed entry, is rejected rather than silently dropped
-        or coerced to a blank menu.
+        that carries a present-but-non-list ``items`` or a malformed entry, is
+        rejected rather than silently dropped or coerced to a blank menu. A
+        missing ``items`` key is the one absence that defaults to no entries.
         """
         loc = f"menus.{index}"
         if not isinstance(raw, Mapping):
@@ -96,11 +97,10 @@ class Menu(BaseModel):
             msg = f"{loc}.label: expected a non-empty string"
             raise ValueError(msg)
         raw_items = menu.get("items", [])
-        items_seq: Sequence[object] = (
-            cast("Sequence[object]", raw_items)
-            if isinstance(raw_items, Sequence) and not isinstance(raw_items, str)
-            else []
-        )
+        if isinstance(raw_items, str) or not isinstance(raw_items, Sequence):
+            msg = f"{loc}.items: expected a list, got {type(raw_items).__name__}"
+            raise ValueError(msg)
+        items_seq: Sequence[object] = cast("Sequence[object]", raw_items)
         return cls(
             label=label,
             items=[
