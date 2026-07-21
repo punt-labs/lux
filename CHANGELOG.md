@@ -374,7 +374,8 @@
   task access. The version is capped below 2.0 because that release removes the
   WebSocket server transport that luxd uses for the luxd-to-mcp-proxy leg.
 - **Bumped the `Pillow` floor in the `[display]` extra from `>=11.0.0` to
-  `>=12.3.0`** (locked at 12.3.0), closing 13 Dependabot advisories — 10 HIGH
+  `>=12.3.0`** (`uv.lock` currently resolves to 12.3.0; the requirement stays
+  a floor, not a pin), closing 13 Dependabot advisories — 10 HIGH
   and 3 medium. These cover heap out-of-bounds writes in `ImageCmsTransform`,
   `Image.paste`, and `RankFilter`; decompression-bomb bypasses in the BDF, PCF,
   FontFile, and GdImageFile font-loading paths; a PdfParser bomb DoS; a
