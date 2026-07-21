@@ -241,7 +241,7 @@ exactly the reach-around the design removes. After this change both read from
 `HubDisplay`. `inspect_scene` reports the element structure, each element's
 `render_path` (`"abc"` or `"legacy"`), and its `resolved_props`. The
 `domain_mirror_present` field described in the introspection API — whether the
-display-side mirror exists — is honestly a display fact, so it is an optional
+display-side mirror exists — is a display fact, so it is an optional
 add-on the operation proxies only when asked, and it is never read as Hub
 authority.
 
@@ -838,8 +838,8 @@ a clear message, so the bind and the policy can never disagree. Remote access
 needs authentication that is not in this unit's scope — the multi-machine future
 in target.md is real, but enabling an off-loopback bind without a bearer token
 and a bind-derived origin policy would be a security regression. So luxd fails
-fast and honestly: it binds loopback, and a non-loopback bind stops the process
-at startup with an explanation. When the multi-machine future is built, the
+fast, at startup, with an explanation: it binds loopback, and a non-loopback
+bind stops the process at startup. When the multi-machine future is built, the
 off-loopback bind arrives together with its authentication and an origin policy
 derived from the bind host.
 
