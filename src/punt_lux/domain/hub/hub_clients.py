@@ -12,6 +12,7 @@ Distinct from ``ClientRegistry`` in ``clients.py``, which owns the
 
 from __future__ import annotations
 
+import threading
 import time
 from typing import TYPE_CHECKING, Self, final
 
@@ -25,14 +26,21 @@ __all__ = ["HubClientRegistry"]
 
 @final
 class HubClientRegistry:
-    """The registered Hub sessions, keyed by ``ConnectionId`` to connect time."""
+    """The registered Hub sessions, keyed by ``ConnectionId`` to connect time.
+
+    Bind and unbind run on connection threads while ``list_clients`` reads on a
+    tool thread, so every access to the roster is serialized by ``_lock``. The
+    lock guards only the dict; nothing is called out to while it is held.
+    """
 
     _connected_at: dict[ConnectionId, float]
-    __slots__ = ("_connected_at",)
+    _lock: threading.Lock
+    __slots__ = ("_connected_at", "_lock")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._connected_at = {}
+        self._lock = threading.Lock()
         return self
 
     def register(self, connection_id: ConnectionId) -> None:
@@ -41,16 +49,20 @@ class HubClientRegistry:
         The first registration stamps the connect time; a later re-register keeps
         it, so a session's reported age never resets under normal traffic.
         """
-        self._connected_at.setdefault(connection_id, time.time())
+        with self._lock:
+            self._connected_at.setdefault(connection_id, time.time())
 
     def is_registered(self, connection_id: ConnectionId) -> bool:
         """Return whether ``connection_id`` is currently registered."""
-        return connection_id in self._connected_at
+        with self._lock:
+            return connection_id in self._connected_at
 
     def discard(self, connection_id: ConnectionId) -> None:
         """Drop the registration. No-op if absent."""
-        self._connected_at.pop(connection_id, None)
+        with self._lock:
+            self._connected_at.pop(connection_id, None)
 
     def sessions(self) -> Mapping[ConnectionId, float]:
         """Return each registered connection paired with its connect time."""
-        return dict(self._connected_at)
+        with self._lock:
+            return dict(self._connected_at)
