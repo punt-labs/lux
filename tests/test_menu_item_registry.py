@@ -42,6 +42,22 @@ def test_replace_agent_items_drops_the_previous_agent_set() -> None:
     assert [i["id"] for i in snapshot] == ["new"]
 
 
+def test_replace_agent_items_returns_items_the_caller_cannot_mutate() -> None:
+    reg = MenuItemRegistry()
+    returned = reg.replace_agent_items([{"id": "a", "label": "A"}])
+    returned[0]["label"] = "MUTATED"
+    # Mutating a returned item must not reach the registry's stored state.
+    assert reg.snapshot()[0]["label"] == "A"
+
+
+def test_snapshot_returns_items_the_caller_cannot_mutate() -> None:
+    reg = MenuItemRegistry()
+    reg.declare({"id": "beads", "label": "Beads"})
+    snap = reg.snapshot()
+    snap[0]["label"] = "MUTATED"
+    assert reg.snapshot()[0]["label"] == "Beads"
+
+
 def test_declare_dedupes_and_snapshot_copies() -> None:
     reg = MenuItemRegistry()
     reg.declare({"id": "beads", "label": "Beads"})

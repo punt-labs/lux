@@ -65,9 +65,9 @@ class MenuItemRegistry:
             for item in items:
                 if item.get("id") not in self._declared_ids:
                     self._store(item)
-            return list(self._items)
+            return [dict(item) for item in self._items]
 
     def snapshot(self) -> list[dict[str, Any]]:
         """Return a copy of the current items for replay to the display."""
         with self._lock:
-            return list(self._items)
+            return [dict(item) for item in self._items]
