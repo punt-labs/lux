@@ -23,9 +23,9 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_lux.domain.element_abc import Element as AbcElement
+from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
-from punt_lux.tools.hub_factory import hub_element_factory
 
 from .inspection_view import InspectionView
 from .invariants import LoopInvariants

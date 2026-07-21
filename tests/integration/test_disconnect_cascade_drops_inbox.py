@@ -11,12 +11,12 @@ from __future__ import annotations
 import contextlib
 import queue
 
+from punt_lux.domain.hub import inbox
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.lifecycle import disconnect_connection
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.protocol.messages.observer import ObserverMessage
-from punt_lux.tools import inbox
 
 
 def test_drop_session_releases_inbox_queue() -> None:

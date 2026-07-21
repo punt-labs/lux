@@ -1,4 +1,4 @@
-"""Unit tests for :mod:`punt_lux.tools.hub_factory`."""
+"""Unit tests for :mod:`punt_lux.domain.hub.hub_factory`."""
 
 from __future__ import annotations
 
@@ -6,10 +6,10 @@ from typing import TYPE_CHECKING
 
 from punt_lux.domain.handlers.decorators import PublishSink
 from punt_lux.domain.hub import hub
+from punt_lux.domain.hub.hub_factory import HubPublishSink, hub_element_factory
+from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer
 from punt_lux.domain.ids import ConnectionId, Topic
 from punt_lux.protocol.element_factory import JsonElementFactory
-from punt_lux.tools.hub_factory import HubPublishSink, hub_element_factory
-from punt_lux.tools.inbox import drain_inbox, ensure_writer
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

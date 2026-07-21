@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.operations import OpError, RenderRequest, SceneShown, UpdateRequest
 from punt_lux.operations.scenes import SceneOperations
 from punt_lux.operations.scope import Scope
 from punt_lux.protocol import CollapsingHeaderElement
-from punt_lux.tools.hub_factory import hub_element_factory
 
 _LOCAL = Scope(ConnectionId("local"))
 

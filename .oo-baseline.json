@@ -1273,6 +1273,32 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_lux/domain/hub/hub_factory.py": {
+    "method_ratio": 0.6,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 1.0,
+    "max_complexity": 1.0,
+    "avg_complexity": 1.0,
+    "module_size": 61.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 0.333,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
+  "src/punt_lux/domain/hub/inbox.py": {
+    "method_ratio": 0.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 1.17,
+    "max_complexity": 4.0,
+    "avg_complexity": 2.0,
+    "module_size": 77.0,
+    "classes_per_module": 0.0,
+    "class_to_func_ratio": 0.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_lux/domain/hub/lifecycle.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
@@ -3700,32 +3726,6 @@
     "module_size": 81.0,
     "classes_per_module": 0.0,
     "class_to_func_ratio": 1.0,
-    "init_violations": 0.0,
-    "public_attr_violations": 0.0,
-    "future_annotations": 1.0
-  },
-  "src/punt_lux/tools/hub_factory.py": {
-    "method_ratio": 0.6,
-    "encapsulation_ratio": 1.0,
-    "avg_params": 1.0,
-    "max_complexity": 1.0,
-    "avg_complexity": 1.0,
-    "module_size": 61.0,
-    "classes_per_module": 1.0,
-    "class_to_func_ratio": 0.333,
-    "init_violations": 0.0,
-    "public_attr_violations": 0.0,
-    "future_annotations": 1.0
-  },
-  "src/punt_lux/tools/inbox.py": {
-    "method_ratio": 0.0,
-    "encapsulation_ratio": 1.0,
-    "avg_params": 1.17,
-    "max_complexity": 4.0,
-    "avg_complexity": 2.0,
-    "module_size": 76.0,
-    "classes_per_module": 0.0,
-    "class_to_func_ratio": 0.0,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
     "future_annotations": 1.0

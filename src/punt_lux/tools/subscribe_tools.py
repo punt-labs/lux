@@ -11,9 +11,9 @@ from __future__ import annotations
 
 import json
 
+from punt_lux.domain.hub.inbox import drain_inbox, inbox_for, next_event
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import PublishRequest, Scope
-from punt_lux.tools.inbox import drain_inbox, inbox_for, next_event
 from punt_lux.tools.server import _session_key, mcp
 from punt_lux.tools.tools import OPERATIONS
 

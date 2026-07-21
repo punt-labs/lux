@@ -8,6 +8,8 @@ from typing import Any
 
 from punt_lux.domain.hub import client_registry, hub, hub_display
 from punt_lux.domain.hub.display_connection import HubDisplayConnection
+from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.inbox import ensure_writer, next_event
 from punt_lux.domain.hub.menu_registry import hub_menu_registry
 from punt_lux.domain.hub.replicator_instance import hub_replicator
 from punt_lux.domain.ids import ConnectionId
@@ -39,8 +41,6 @@ from punt_lux.operations import (
 )
 from punt_lux.operations.ports import HubPorts
 from punt_lux.paths import DisplayPaths
-from punt_lux.tools.hub_factory import hub_element_factory
-from punt_lux.tools.inbox import ensure_writer, next_event
 from punt_lux.tools.server import _session_key, mcp
 
 

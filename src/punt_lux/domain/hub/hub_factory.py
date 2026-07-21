@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Self, cast
 
-from punt_lux.domain.hub import hub
+from punt_lux.domain.hub.hub import hub
 from punt_lux.domain.ids import Topic
 from punt_lux.protocol.element_factory import JsonElementFactory
 from punt_lux.protocol.elements import build_element_codec

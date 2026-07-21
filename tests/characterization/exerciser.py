@@ -50,6 +50,8 @@ from punt_lux import tools as tools_pkg
 from punt_lux.domain.hub import client_registry, hub
 from punt_lux.domain.hub.display_connection import HubDisplayConnection
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.hub_factory import hub_element_factory
+from punt_lux.domain.hub.inbox import ensure_writer, next_event
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import Operations
@@ -61,8 +63,6 @@ from punt_lux.protocol import (
     QueryResponse,
 )
 from punt_lux.protocol.messages.observer import ObserverMessage
-from punt_lux.tools.hub_factory import hub_element_factory
-from punt_lux.tools.inbox import ensure_writer, next_event
 from punt_lux.tools.server import _session_key
 
 __all__ = ["ToolCallError", "ToolExerciser"]
