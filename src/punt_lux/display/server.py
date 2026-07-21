@@ -752,12 +752,12 @@ class DisplayServer:
         }
 
     def _query_get_window_settings(self, **_kwargs: Any) -> dict[str, Any]:
-        """Return the window's opacity, font scale, decoration, and idle rate."""
-        from imgui_bundle import hello_imgui, imgui
+        """Return opacity, the stored 0.5-3.0 font scale, decoration, and idle rate."""
+        from imgui_bundle import hello_imgui
 
         return {
             "opacity": self._opacity,
-            "font_scale": round(imgui.get_font_size(), 1),
+            "font_scale": self._font_scale,
             "decorated": self._decorated,
             "fps_idle": hello_imgui.get_runner_params().fps_idling.fps_idle,
         }

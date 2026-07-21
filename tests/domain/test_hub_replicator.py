@@ -18,6 +18,7 @@ import pytest
 
 from punt_lux.domain.hub.dirty_signal import DrainedBatch
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.replicator import (
     _BASE_BACKOFF_SECONDS,
@@ -25,7 +26,6 @@ from punt_lux.domain.hub.replicator import (
 )
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
-from punt_lux.operations.models.menus import Menu, MenuAction
 from punt_lux.protocol.elements.text import TextElement
 
 if TYPE_CHECKING:
@@ -266,21 +266,26 @@ def test_menu_state_is_pushed_from_a_fresh_registry_read() -> None:
 
 
 def test_a_menu_change_during_a_failed_send_wins_over_the_stale_state() -> None:
-    # The recovery-clobber regression: mark v1, the send fails, v2 lands in the
-    # registry during recovery, and the re-read at the next send must push v2 —
-    # never re-push a drained v1 payload (there is no payload to re-push).
+    # The recovery-clobber regression, sequenced deterministically with the gate
+    # handshake: the first send is held until v2 has landed, then released to
+    # fail; recovery re-marks the flag and the next send re-reads the registry, so
+    # v2 ships. A drained v1 payload can never be re-pushed — there is no payload.
     store = HubDisplay()
     registry = HubMenuRegistry()
     registry.set_menus([Menu(label="v1", items=[])])
     repl, sender, _provider, _lifecycle = _replicator(store, registry)
-    sender.arm_failure(OSError("EPIPE"))
+    gate = threading.Event()
+    sender.block_next(gate)  # the first send parks here
+    sender.arm_failure(OSError("EPIPE"))  # and fails once released
     repl.start()
     try:
         repl.mark_menus()
-        # The first send fails; while recovery re-marks the flag, v2 lands.
-        registry.set_menus([Menu(label="v2", items=[])])
+        assert sender.wait_entered(2.0)  # worker is provably inside the first send
+        registry.set_menus([Menu(label="v2", items=[])])  # v2 lands during the hold
+        gate.set()  # release -> the first send fails -> recovery re-marks the flag
         assert sender.wait_sent(2.0)
-        # The worker read the registry fresh at send time, so v2 is what shipped.
+        # The re-read at the next send shipped v2; v1 was never recorded (the send
+        # raised before recording it).
         assert [{"label": "v2", "items": []}] in sender.menus
         assert [{"label": "v1", "items": []}] not in sender.menus
     finally:

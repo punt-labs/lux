@@ -25,8 +25,7 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.replicator_ports import MenuState
-from punt_lux.operations.models.menus import Menu, MenuAction
+from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuState
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

@@ -62,8 +62,10 @@ class MirrorPresent(BaseModel):
     """The mirror check was answered: whether every element is mirrored.
 
     ``present`` is the whole-scene answer — true only when the display holds a
-    mirror for every element, since a partially-mirrored scene is not present.
-    Never read as Hub authority (introspection-api.md).
+    mirror for every element, since a partially-mirrored scene is not present. An
+    empty scene is vacuously present (no element is unmirrored) — an intentional
+    edge, since the absent-scene case is a ``not_found`` error returned before the
+    check runs. Never read as Hub authority (introspection-api.md).
     """
 
     model_config = ConfigDict(frozen=True)

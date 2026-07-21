@@ -13,13 +13,12 @@ logic is tested against fakes, not a live socket:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Protocol, final, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
+from punt_lux.domain.hub.menu_models import MenuState
 from punt_lux.domain.hub.scene_presentation import ScenePusher
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
     from pathlib import Path
 
 __all__ = [
@@ -29,20 +28,6 @@ __all__ = [
     "MenuReader",
     "MenuState",
 ]
-
-
-@final
-@dataclass(frozen=True, slots=True)
-class MenuState:
-    """The whole menu state to push: the agent bar and the World-menu tool items.
-
-    Both are wire payloads — the display's own untyped menu dicts, composed from
-    the registry's typed models at read time. The replicator resends the whole of
-    each, so the newest registry state always wins.
-    """
-
-    bar: tuple[Mapping[str, object], ...]
-    items: tuple[Mapping[str, object], ...]
 
 
 @runtime_checkable

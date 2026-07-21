@@ -23,6 +23,7 @@ if TYPE_CHECKING:
     from punt_lux.domain.hub.clients import ClientRegistry
     from punt_lux.domain.hub.hub import Hub
     from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.domain.hub.menu_models import MenuAction
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.operations.display_port import DisplayPort
     from punt_lux.operations.models import (
@@ -45,7 +46,6 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.display_probe import Pong, Screenshot
     from punt_lux.operations.models.display_write import FrameStatePatch
     from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
-    from punt_lux.operations.models.menus import MenuAction
     from punt_lux.operations.models.query_clients import ClientList
     from punt_lux.operations.models.query_errors import RecentErrors
     from punt_lux.operations.models.query_events import RecentEvents

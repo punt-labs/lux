@@ -9,6 +9,7 @@ request and result models a surface needs to build and read a call.
 
 from __future__ import annotations
 
+from punt_lux.domain.hub.menu_models import MenuAction
 from punt_lux.operations.facade import Operations
 from punt_lux.operations.models import (
     Cleared,
@@ -30,7 +31,6 @@ from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong, Screenshot
 from punt_lux.operations.models.display_write import FrameStatePatch
 from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
-from punt_lux.operations.models.menus import MenuAction
 from punt_lux.operations.models.query_clients import ClientList
 from punt_lux.operations.models.query_errors import RecentErrors
 from punt_lux.operations.models.query_events import RecentEvents

@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
+from punt_lux.domain.hub.menu_models import Menu
 from punt_lux.operations.models.common import OpError
-from punt_lux.operations.models.menus import Menu
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

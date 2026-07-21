@@ -11,14 +11,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
+from punt_lux.domain.hub.menu_models import Menu
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import MenuList, Ok
-from punt_lux.operations.models.menus import Menu
 
 if TYPE_CHECKING:
+    from punt_lux.domain.hub.menu_models import MenuAction
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.operations.models.menu_results import SetMenuRequest
-    from punt_lux.operations.models.menus import MenuAction
     from punt_lux.operations.ports import DirtyMarker
     from punt_lux.operations.scope import Scope
 
