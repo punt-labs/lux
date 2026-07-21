@@ -97,21 +97,37 @@ class HubMenuRegistry:
             self._tool_items.pop(connection_id, None)
 
     def menu_bar(self) -> list[Menu]:
-        """Return the agent-defined menu bar (the display's ``MenuMessage`` bar)."""
+        """Return a deep copy of the agent-defined menu bar (the display's bar).
+
+        ``frozen=True`` blocks field reassignment but not mutation of ``Menu.items``
+        (a list), so the stored models are deep-copied out — a caller cannot reach
+        back through a returned menu and mutate registry state after the lock.
+        """
         with self._lock:
-            return list(self._menus)
+            return [menu.model_copy(deep=True) for menu in self._menus]
 
     def registered_items(self) -> list[MenuAction]:
-        """Return every session's tool items, flattened for the World menu."""
+        """Return a deep copy of every session's tool items, flattened.
+
+        Copied for the same reason as ``menu_bar``: a read never hands out a
+        stored model a caller could mutate, so isolation is uniform across the
+        registry's read surface rather than a per-type judgement.
+        """
         with self._lock:
-            return [item for items in self._tool_items.values() for item in items]
+            return [
+                item.model_copy(deep=True)
+                for items in self._tool_items.values()
+                for item in items
+            ]
 
     def wire_snapshot(self) -> MenuState:
         """Return the whole menu state as wire payloads, composed under one lock.
 
         The replicator reads this fresh at send time, so the snapshot is the
         registry's state at that instant — the read-at-send discipline that makes
-        a stale menu push impossible (there is no payload to go stale).
+        a stale menu push impossible (there is no payload to go stale). ``to_wire``
+        builds new dicts and lists, so — unlike ``menu_bar``/``registered_items``
+        before their deep copies — this read never aliased a stored model.
         """
         with self._lock:
             return MenuState(

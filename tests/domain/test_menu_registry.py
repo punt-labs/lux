@@ -9,7 +9,7 @@ is what removes it.
 
 from __future__ import annotations
 
-from punt_lux.domain.hub.menu_models import MenuAction
+from punt_lux.domain.hub.menu_models import Menu, MenuAction
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId
 
@@ -66,3 +66,29 @@ def test_distinct_ids_from_two_sessions_both_survive() -> None:
     reg.register_item(_B, MenuAction(id="build", label="Build"))
 
     assert sorted(item.id for item in reg.registered_items()) == ["build", "run"]
+
+
+def test_menu_bar_returns_copies_the_caller_cannot_mutate() -> None:
+    reg = HubMenuRegistry()
+    reg.set_menus([Menu(label="File", items=[MenuAction(id="open", label="Open")])])
+
+    returned = reg.menu_bar()
+    # frozen=True does not freeze Menu.items (a list); appending to a returned
+    # menu's items must not reach the registry's stored bar.
+    returned[0].items.append(MenuAction(id="ghost", label="Ghost"))
+
+    stored_items = reg.menu_bar()[0].items
+    assert len(stored_items) == 1
+    first = stored_items[0]
+    assert isinstance(first, MenuAction)
+    assert first.id == "open"
+
+
+def test_registered_items_hands_out_copies_not_the_stored_models() -> None:
+    reg = HubMenuRegistry()
+    reg.register_item(_A, MenuAction(id="run", label="Run"))
+
+    # Each read returns a fresh copy, never the stored instance — MenuAction is
+    # frozen with scalar fields today, but the read is isolated regardless of
+    # what fields it grows, matching menu_bar.
+    assert reg.registered_items()[0] is not reg.registered_items()[0]
