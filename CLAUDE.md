@@ -26,6 +26,7 @@ wins. The full linked index is in [Key Documents](#key-documents) below.
 
 @docs/README.md
 @docs/architecture/target/target.md
+@docs/WORKFLOW.md
 
 These org-wide standards from the `punt-kit` sibling repo are the merged source
 of truth for how Punt Labs tools are built, `@`-imported so they load at session
@@ -377,49 +378,19 @@ Do not use `TaskCreate` for work that spans multiple sessions. Beads are the rec
 
 ## Development Loop
 
-Two nested loops govern all code changes. See `punt-kit/standards/pr-review.md` for the authoritative reference.
+The loops are specified once, in [`docs/WORKFLOW.md`](docs/WORKFLOW.md) —
+imported above, so always in context. It is the single source of truth for the
+three levels (backlog, PR, mission), the review-agent selection, the demo
+gate, and the merge gate. Do not restate loop rules here.
 
-### Inner loop — one mission
+Two lux-specific operational facts the loops rely on:
 
-Execute after every agent delegation that produces sizeable code changes. Do not start the next mission until this loop is complete — starting without local review is a procedural violation.
-
-1. **Read `Makefile` first** and identify the repo-defined gate chain before you start coding. In Lux, assume `make check` is mandatory unless the user explicitly scoped the work to docs-only changes.
-2. **Delegate** to the right ethos specialist (see pairing table above). Do not use bare `Agent()` for implementation work.
-3. **`make check`** — must pass before proceeding. Zero exceptions. This is the authoritative all-gates target for code changes.
-4. **`make restart`** — builds, installs, and restarts BOTH luxd AND the display. This is the ONLY correct way to pick up code changes. `launchctl kickstart` restarts luxd but leaves the display running stale code — the display is a separate process (PID visible in `make restart` output). `lux ensure-hub --restart` also only restarts luxd. Never use either for code iteration; always `make restart`.
-5. **`make test`** against the installed artifact — not from source. If no test covers the changed code, write one before marking this step complete.
-6. **Exercise via introspection + operator confirmation** — write expected output BEFORE running. Drive the feature through its real entry point (MCP tool, CLI command, button click in the lux window). Capture what the running system did via the introspection APIs (`inspect_scene`, `list_scenes`, `list_recent_events`, `list_errors`, `screenshot`, `list_menus`, `list_clients`, `get_display_info`). Compare actual to expected. **Ask the operator to confirm.** Cover one invalid input, one missing-dependency case, one boundary condition. Synthetic tests that exercise a dispatcher in-process do not substitute for running the feature. **Exception: docs-only changes (CLAUDE.md, ADRs, READMEs) have no entry point to run; markdownlint pass + read-through is the verification.**
-7. **Local review** — run the applicable agents, 2–6 by scope.
-
-   | Agent | When |
-   |---|---|
-   | `pr-review-toolkit:code-reviewer` | Always |
-   | `pr-review-toolkit:silent-failure-hunter` | Always |
-   | `pr-review-toolkit:type-design-analyzer` | New type, dataclass, or Protocol introduced |
-   | `pr-review-toolkit:comment-analyzer` | Significant documentation/comment changes |
-   | `pr-review-toolkit:pr-test-analyzer` | Changes that add or restructure tests |
-   | `pr-review-toolkit:code-simplifier` | After the others are clean — catches unused abstraction / dead code |
-
-   Trivial fix (≤1 file, no new types): 2. Single-feature change: 3–4. Cross-cutting refactor: 5–6.
-8. **Fix every finding.** To dismiss one: document (a) the exact finding, (b) the specific reason it does not apply, (c) the code reference. "Pre-existing", "by design", "intentional", and "expected" are not reasons.
-9. **Re-run agents.** Exit the fix loop on the first round that produces no findings on any selected agent.
-10. **Commit.**
-
-### Outer loop — one PR (one rollback-coherent unit)
-
-After all missions for the feature complete and each has passed its inner loop:
-
-1. **`make check`** on the full accumulated diff.
-2. **All applicable local review agents** on the complete diff (2–6 by scope — same table as Inner-loop step 6) — cross-mission issues only appear at this level.
-3. **Fix all findings** using the same documentation standard.
-4. **Review is agent-only.** The local review agents (step 2) plus Copilot and Bugbot on the PR are the reviewers of record; there is no human review gate. The operator inspects code in the IDE, but that is separate and isolated to design discussions — it informs design direction and is never a PR step; nothing in the pipeline waits on it. The operator's in-pipeline role is requirements, design direction, and demo verification (step 5).
-5. **`make restart`** (builds, installs, restarts both luxd and display), then run the complete user-facing workflow end-to-end through its real entry point. Capture system state via the lux introspection APIs (`inspect_scene`, `list_recent_events`, `list_errors`, `screenshot`, etc.) and **ask the operator to confirm** the observed behavior matches the expected outcome written down before running. Verify the changed code was exercised — not just the surrounding scaffolding.
-6. **Re-run agents** until clean.
-7. **Open PR.** A PR opened before step 6 is clean is a procedural violation. The PR description includes the manual-verification playbook: commands run + introspection captures + operator-confirmation outcome.
-
-### PR boundaries
-
-Split by **rollback granularity**, not size. Ask: if this broke production, what reverts together? That is one PR. "The diff is large" and "separate concern" are prohibited split reasons. Independent rollback capability and sequential dependency are valid.
+- **`make restart` is the only correct way to pick up code changes** — it
+  rebuilds, installs, and restarts BOTH luxd AND the display. `launchctl
+  kickstart` and `lux ensure-hub --restart` restart only luxd and leave the
+  display running stale code.
+- **Docs-only changes have no entry point to run**; markdownlint plus a
+  read-through is their verification at the demo gate.
 
 ## Release
 
