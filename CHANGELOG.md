@@ -373,6 +373,14 @@
   Host/Origin validation, HTTP session principal verification, and cross-client
   task access. The version is capped below 2.0 because that release removes the
   WebSocket server transport that luxd uses for the luxd-to-mcp-proxy leg.
+- **Bumped the `Pillow` floor in the `[display]` extra from `>=11.0.0` to
+  `>=12.3.0`** (locked at 12.3.0), closing 13 Dependabot advisories — 10 HIGH
+  and 3 medium. These cover heap out-of-bounds writes in `ImageCmsTransform`,
+  `Image.paste`, and `RankFilter`; decompression-bomb bypasses in the BDF, PCF,
+  FontFile, and GdImageFile font-loading paths; a PdfParser bomb DoS; a
+  JPEG2000 scratch-buffer DoS; an mmap out-of-bounds read in the McIdas reader;
+  a TGA RLE heap serialization flaw; WindowsViewer command injection; and an EPS
+  infinite loop. 12.3.0 is the first release that patches every one.
 
 ## [0.19.1] - 2026-07-04
 
