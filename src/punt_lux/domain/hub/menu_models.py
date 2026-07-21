@@ -37,7 +37,7 @@ class MenuAction(BaseModel):
 
     kind: Literal["action"] = "action"
     id: str = Field(min_length=1)  # an id-less action is not a real state
-    label: str
+    label: str = Field(min_length=1)  # a label-less action is not a real state
     shortcut: str | None = None  # None when the item has no accelerator
     icon: str | None = None  # None when the item has no icon
 
@@ -111,7 +111,14 @@ class Menu(BaseModel):
 
     @classmethod
     def _entry_from_wire(cls, item: object, *, loc: str) -> MenuEntry:
-        """Map one wire item to an action or the sentinel separator, or reject it."""
+        """Map one wire item to an action or the sentinel separator, or reject it.
+
+        Every field is validated, never coerced: an entry with an id is an
+        action whose id and label must both be non-empty strings and whose
+        optional shortcut/icon, when present, must be strings. A malformed field
+        is rejected by name (``{loc}.<field>``) rather than papered over with a
+        ``str()`` or a blank default.
+        """
         if not isinstance(item, Mapping):
             msg = f"{loc}: expected a menu item mapping, got {type(item).__name__}"
             raise ValueError(msg)
@@ -119,18 +126,40 @@ class Menu(BaseModel):
         raw_id = entry.get("id")
         if raw_id is not None:
             # An id makes this an action, whatever its label — even "---".
-            shortcut = entry.get("shortcut")
-            icon = entry.get("icon")
             return MenuAction(
-                id=str(raw_id),
-                label=str(entry.get("label", "")),
-                shortcut=None if shortcut is None else str(shortcut),
-                icon=None if icon is None else str(icon),
+                id=cls._require_str(raw_id, loc=f"{loc}.id"),
+                label=cls._require_str(entry.get("label"), loc=f"{loc}.label"),
+                shortcut=cls._optional_str(
+                    entry.get("shortcut"), loc=f"{loc}.shortcut"
+                ),
+                icon=cls._optional_str(entry.get("icon"), loc=f"{loc}.icon"),
             )
         if entry.get("label") == _SEPARATOR_SENTINEL:
             return MenuSeparator()
         msg = f"{loc}: an id-less entry must be the {_SEPARATOR_SENTINEL!r} separator"
         raise ValueError(msg)
+
+    @staticmethod
+    def _require_str(value: object, *, loc: str) -> str:
+        """Return ``value`` when it is a non-empty string, else reject it by name."""
+        if not isinstance(value, str) or not value:
+            msg = f"{loc}: expected a non-empty string"
+            raise ValueError(msg)
+        return value
+
+    @staticmethod
+    def _optional_str(value: object, *, loc: str) -> str | None:
+        """Return a present string or ``None`` when absent; reject a non-string.
+
+        ``None`` is the documented absence (no accelerator, no icon), not a
+        give-up: a present-but-non-string value is rejected by name.
+        """
+        if value is None:
+            return None
+        if not isinstance(value, str):
+            msg = f"{loc}: expected a string"
+            raise ValueError(msg)
+        return value
 
     def to_wire(self) -> dict[str, object]:
         """Render as the untyped menu payload the display consumes."""

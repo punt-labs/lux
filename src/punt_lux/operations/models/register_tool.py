@@ -22,7 +22,7 @@ class RegisterToolRequest(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     tool_id: str = Field(min_length=1)  # an id-less tool item is not a real state
-    label: str
+    label: str = Field(min_length=1)  # a label-less tool item is not a real state
     shortcut: str | None = None  # None when the item has no accelerator
     icon: str | None = None  # None when the item has no icon
 

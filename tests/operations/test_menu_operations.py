@@ -111,6 +111,42 @@ def test_set_menu_accepts_a_menu_with_no_items_key() -> None:
     assert result.menus[0].items == []
 
 
+def test_set_menu_rejects_an_action_item_with_a_missing_label() -> None:
+    # An id present but no label is a half-formed action, not a blank menu item.
+    result = SetMenuRequest.parse([{"label": "File", "items": [{"id": "run"}]}])
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert "menus.0.items.0.label" in result.reason
+
+
+def test_set_menu_rejects_an_action_item_with_a_non_string_label() -> None:
+    result = SetMenuRequest.parse(
+        [{"label": "File", "items": [{"id": "run", "label": 123}]}]
+    )
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert "menus.0.items.0.label" in result.reason
+
+
+def test_set_menu_rejects_an_action_item_with_a_non_string_id() -> None:
+    result = SetMenuRequest.parse(
+        [{"label": "File", "items": [{"id": 7, "label": "Run"}]}]
+    )
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert "menus.0.items.0.id" in result.reason
+
+
+def test_register_tool_request_rejects_an_empty_label() -> None:
+    # to_action must never build a blank-label MenuAction, so parse catches it.
+    result = RegisterToolRequest.parse(
+        tool_id="build", label="", shortcut=None, icon=None
+    )
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+    assert "label" in result.reason
+
+
 def test_register_menu_item_scopes_to_the_connection_and_pushes() -> None:
     registry = HubMenuRegistry()
     marker = _MenuMarkerSpy()
