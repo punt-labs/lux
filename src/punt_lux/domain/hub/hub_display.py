@@ -228,15 +228,15 @@ class HubDisplay:
         with self._lock.read():
             return self._index.element_count(scene_id)
 
-    def scene_owner(self, scene_id: SceneId) -> ConnectionId | None:
-        """Return the connection that owns the scene's first root, or None.
+    def scene_owners(self, scene_id: SceneId) -> tuple[ConnectionId, ...]:
+        """Return each scene's distinct root owners, first-appearance order.
 
-        A scene with no live root is unowned; its summary reports no owner.
+        Empty if unowned; filter(None) drops a root whose owner is unrecorded.
         """
         with self._lock.read():
-            for key, _elem in self._index.scene_root_items(scene_id):
-                return self._owners.get(scene_id, key)
-        return None
+            roots = self._index.scene_root_items(scene_id)
+            owned = (self._owners.get(scene_id, key) for key, _ in roots)
+            return tuple(dict.fromkeys(filter(None, owned)))
 
     def client_sessions(self) -> Mapping[ConnectionId, float]:
         """Return each registered Hub session paired with its connect time."""

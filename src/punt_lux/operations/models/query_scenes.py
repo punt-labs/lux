@@ -10,14 +10,17 @@ __all__ = ["FrameSummary", "SceneList", "SceneSummary"]
 
 
 class SceneSummary(BaseModel):
-    """One scene the Hub is holding: its size, frame, and owner."""
+    """One scene the Hub is holding: its size, frame, and owning connections."""
 
     model_config = ConfigDict(frozen=True)
 
     scene_id: str
     element_count: int
     frame_id: str | None  # None when the scene is not shown into a frame
-    owner: str | None  # the owning connection id, None if unowned
+    # Every distinct connection owning a root in the scene, first-appearance
+    # order; empty when the scene is unowned. Plural because a scene can hold
+    # roots from more than one session.
+    owners: list[str]
 
 
 class FrameSummary(BaseModel):

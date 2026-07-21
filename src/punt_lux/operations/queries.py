@@ -90,13 +90,12 @@ class QueryOperations:
         frames: dict[str, _FrameAccumulator] = {}
         for sid in self._display.live_scene_ids():
             presentation = self._display.presentation_for(sid)
-            owner = self._display.scene_owner(sid)
             scenes.append(
                 SceneSummary(
                     scene_id=str(sid),
                     element_count=self._display.element_count(sid),
                     frame_id=presentation.frame_id,
-                    owner=str(owner) if owner is not None else None,
+                    owners=[str(owner) for owner in self._display.scene_owners(sid)],
                 )
             )
             layout = presentation.frame_layout or "tab"

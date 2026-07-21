@@ -562,7 +562,7 @@ def inspect_scene(scene_id: str) -> SceneInspection | OpError:
 def list_scenes() -> SceneList:
     """List all active scenes and frames from the authoritative store.
 
-    Returns the scenes (scene_id, element_count, frame_id, owner) and frames
+    Returns the scenes (scene_id, element_count, frame_id, owners) and frames
     (frame_id, title, scene_count, scene_ids, layout) the Hub is holding.
     """
     return OPERATIONS.list_scenes()

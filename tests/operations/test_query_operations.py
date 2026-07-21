@@ -19,6 +19,7 @@ from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId, Topic
+from punt_lux.domain.update import AddElement
 from punt_lux.operations.display_reply import DisplayFault, DisplayReplied, DisplayReply
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.query_clients import ClientList
@@ -237,10 +238,33 @@ def test_list_scenes_reads_the_hub_without_touching_the_display() -> None:
     summary = next(s for s in result.scenes if s.scene_id == "s1")
     assert summary.element_count == 2  # the group and its text child
     assert summary.frame_id == "frame-a"
-    assert summary.owner == "c1"
+    assert summary.owners == ["c1"]  # a single-owner scene lists the one owner
     frame = next(f for f in result.frames if f.frame_id == "frame-a")
     assert frame.scene_ids == ["s1"]
     assert frame.layout == "tab"  # no explicit frame layout defaults to tab
+
+
+def test_list_scenes_lists_every_owning_connection_of_a_shared_scene() -> None:
+    # Two sessions each install a root into one scene; the summary names both, in
+    # first-appearance order — reporting only the first root's owner (the old
+    # singular field) could name the wrong session.
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")  # c1 owns root g1
+    second_root = agent_element_factory().element_from_dict(
+        {"kind": "text", "id": "t2", "content": "from c2"}
+    )
+    store.apply(
+        ConnectionId("c2"),
+        AddElement(
+            scene_id=SceneId("s1"),
+            parent_id=None,
+            element=cast("DomainElement", second_root),
+        ),
+    )
+    ops = QueryOperations(store, Hub(), _ForbiddenPort())
+
+    summary = next(s for s in ops.list_scenes().scenes if s.scene_id == "s1")
+    assert summary.owners == ["c1", "c2"]
 
 
 def test_list_clients_reads_the_hub_session_registry() -> None:
