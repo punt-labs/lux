@@ -9,15 +9,16 @@ presentation layer wires them in as :class:`HubPorts` so nothing in
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-if TYPE_CHECKING:
-    from collections.abc import Callable
+from punt_lux.domain.ids import ConnectionId
+from punt_lux.protocol.element_factory import JsonElementFactory
+from punt_lux.protocol.messages.observer import ObserverMessage
 
-    from punt_lux.domain.ids import ConnectionId, SceneId
-    from punt_lux.protocol.element_factory import JsonElementFactory
-    from punt_lux.protocol.messages.observer import ObserverMessage
+if TYPE_CHECKING:
+    from punt_lux.domain.ids import SceneId
 
 __all__ = ["DirtyMarker", "ElementFactoryFor", "EnsureWriter", "HubPorts", "NextEvent"]
 
