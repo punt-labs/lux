@@ -73,10 +73,16 @@ class RenderDashboardRequest(BaseModel):
                 "columns": columns,
                 "rows": rows if rows is not None else [],
             }
+        elif rows is not None:
+            # Rows without columns is the half-state this model exists to kill —
+            # it is a caller error, not a silently-dropped section.
+            return OpError(
+                code="invalid_request", reason="table_rows requires table_columns"
+            )
         try:
             return cls.model_validate(data)
         except ValidationError as exc:
-            return OpError(code="invalid_request", reason=exc.errors()[0]["msg"])
+            return OpError.from_validation(exc)
 
     def to_render_request(self) -> RenderRequest:
         """Compose every present section, separator-joined, into a render."""

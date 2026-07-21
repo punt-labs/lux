@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict
+
+if TYPE_CHECKING:
+    from pydantic import ValidationError
+    from pydantic_core import ErrorDetails
 
 __all__ = ["OpError", "OpErrorCode"]
 
@@ -32,3 +36,17 @@ class OpError(BaseModel):
     kind: Literal["error"] = "error"
     code: OpErrorCode
     reason: str
+
+    @classmethod
+    def from_validation(cls, exc: ValidationError) -> OpError:
+        """Build an ``invalid_request`` from a Pydantic failure, naming the field."""
+        return cls(code="invalid_request", reason=cls.describe(exc.errors()[0]))
+
+    @staticmethod
+    def describe(err: ErrorDetails) -> str:
+        """Render one Pydantic error as ``<loc>: <msg>`` so the field is named.
+
+        A root-level failure has an empty ``loc`` and reads as the bare message.
+        """
+        loc = ".".join(str(part) for part in err["loc"])
+        return f"{loc}: {err['msg']}" if loc else str(err["msg"])

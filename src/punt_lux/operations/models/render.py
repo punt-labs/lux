@@ -79,7 +79,7 @@ class RenderRequest(BaseModel):
             return f"frame_layout must be 'tab' or 'stack', got {value!r}"
         if loc[:2] == ("frame", "size"):
             return "frame_size must be [width, height]"
-        return err["msg"]
+        return OpError.describe(err)
 
     def presentation(self) -> ScenePresentation:
         """Build the frame presentation, resolving frame id and title defaults."""

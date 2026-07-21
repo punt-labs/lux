@@ -43,7 +43,7 @@ class RenderTableRequest(BaseModel):
         try:
             return cls.model_validate(raw)
         except ValidationError as exc:
-            return OpError(code="invalid_request", reason=exc.errors()[0]["msg"])
+            return OpError.from_validation(exc)
 
     def to_render_request(self) -> RenderRequest:
         """Compose the table element and wrap it in a whole-scene render."""

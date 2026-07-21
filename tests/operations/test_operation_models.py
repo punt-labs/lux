@@ -154,9 +154,16 @@ def test_render_table_parse_falls_back_on_missing_columns() -> None:
     assert result.reason
 
 
-def test_render_dashboard_parse_falls_back_on_a_bad_metric() -> None:
+def test_render_dashboard_parse_falls_back_and_names_the_missing_field() -> None:
     result = RenderDashboardRequest.parse(
         {"scene_id": "s", "metrics": [{"label": "x"}]}
     )
     assert isinstance(result, OpError)
-    assert result.reason
+    # The fallback carries the location path so the missing field is named.
+    assert result.reason == "metrics.0.value: Field required"
+
+
+def test_render_dashboard_parse_rejects_rows_without_columns() -> None:
+    result = RenderDashboardRequest.parse({"scene_id": "s", "table_rows": [["a"]]})
+    assert isinstance(result, OpError)
+    assert result.reason == "table_rows requires table_columns"
