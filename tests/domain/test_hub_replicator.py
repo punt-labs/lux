@@ -18,12 +18,14 @@ import pytest
 
 from punt_lux.domain.hub.dirty_signal import DrainedBatch
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.hub.replicator import (
     _BASE_BACKOFF_SECONDS,
     HubReplicator,
 )
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, SceneId
+from punt_lux.operations.models.menus import Menu, MenuAction
 from punt_lux.protocol.elements.text import TextElement
 
 if TYPE_CHECKING:
@@ -221,11 +223,14 @@ class _FakeLifecycle:
 
 def _replicator(
     store: HubDisplay,
+    menu_registry: HubMenuRegistry | None = None,
 ) -> tuple[HubReplicator, _FakeSender, _FakeProvider, _FakeLifecycle]:
     sender = _FakeSender()
     provider = _FakeProvider(sender)
     lifecycle = _FakeLifecycle()
-    return HubReplicator(store.reader, provider, lifecycle), sender, provider, lifecycle
+    registry = menu_registry if menu_registry is not None else HubMenuRegistry()
+    repl = HubReplicator(store.reader, registry, provider, lifecycle)
+    return repl, sender, provider, lifecycle
 
 
 def test_a_dirty_scene_is_sent_to_the_display() -> None:
@@ -241,18 +246,18 @@ def test_a_dirty_scene_is_sent_to_the_display() -> None:
         repl.stop()
 
 
-def test_menu_state_is_pushed_to_the_display() -> None:
-    # A menu change is Hub-owned: the operation marks the bar and tool items and
-    # this one background writer sends both — the agent bar via set_menu and the
-    # World-menu items via set_registered_items — the same mark-and-replicate path
-    # a scene takes.
+def test_menu_state_is_pushed_from_a_fresh_registry_read() -> None:
+    # A menu change is Hub-owned and payload-less: the operation flags it, and this
+    # one background writer reads the registry fresh and sends both the agent bar
+    # (set_menu) and the World-menu items (set_registered_items).
     store = HubDisplay()
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    registry = HubMenuRegistry()
+    registry.set_menus([Menu(label="File", items=[])])
+    registry.register_item(ConnectionId("c1"), MenuAction(id="run", label="Run"))
+    repl, sender, _provider, _lifecycle = _replicator(store, registry)
     repl.start()
     try:
-        repl.mark_menus(
-            [{"label": "File", "items": []}], [{"label": "Run", "id": "run"}]
-        )
+        repl.mark_menus()
         assert sender.wait_sent(2.0)
         assert sender.menus == [[{"label": "File", "items": []}]]
         assert sender.registered_items == [[{"label": "Run", "id": "run"}]]
@@ -260,17 +265,24 @@ def test_menu_state_is_pushed_to_the_display() -> None:
         repl.stop()
 
 
-def test_a_dead_peer_recovery_re_marks_the_menu_state() -> None:
-    # A respawned display must get the menu state re-pushed, like the live scenes.
+def test_a_menu_change_during_a_failed_send_wins_over_the_stale_state() -> None:
+    # The recovery-clobber regression: mark v1, the send fails, v2 lands in the
+    # registry during recovery, and the re-read at the next send must push v2 —
+    # never re-push a drained v1 payload (there is no payload to re-push).
     store = HubDisplay()
-    repl, sender, _provider, _lifecycle = _replicator(store)
+    registry = HubMenuRegistry()
+    registry.set_menus([Menu(label="v1", items=[])])
+    repl, sender, _provider, _lifecycle = _replicator(store, registry)
     sender.arm_failure(OSError("EPIPE"))
     repl.start()
     try:
-        repl.mark_menus([{"label": "File", "items": []}], [])
+        repl.mark_menus()
+        # The first send fails; while recovery re-marks the flag, v2 lands.
+        registry.set_menus([Menu(label="v2", items=[])])
         assert sender.wait_sent(2.0)
-        # The first send failed and was healed; the re-marked bar is sent again.
-        assert sender.menus == [[{"label": "File", "items": []}]]
+        # The worker read the registry fresh at send time, so v2 is what shipped.
+        assert [{"label": "v2", "items": []}] in sender.menus
+        assert [{"label": "v1", "items": []}] not in sender.menus
     finally:
         repl.stop()
 

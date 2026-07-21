@@ -40,7 +40,7 @@ class HubPublishSink:
     against that connection's scope. Satisfies the structural
     ``PublishSink`` Protocol without inheriting from it; the protocol
     lives in ``domain.handlers`` (inner layer) and this adapter lives
-    in ``tools`` (presentation/Hub adapter).
+    beside the Hub in ``domain.hub``.
     """
 
     __slots__ = ("_connection_id",)

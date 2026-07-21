@@ -17,7 +17,7 @@ import logging
 from typing import TYPE_CHECKING, Self, final
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch, MenuPush
+    from punt_lux.domain.hub.dirty_signal import DirtySignal, DrainedBatch
     from punt_lux.domain.hub.replicator_ports import ClientProvider, DisplayLifecycle
     from punt_lux.domain.hub.scene_snapshot import SceneReader
     from punt_lux.domain.ids import SceneId
@@ -74,7 +74,9 @@ class SendRecovery:
 
     def restore(self, batch: DrainedBatch) -> None:
         """Put a failed batch back on the queue so the next cycle retries it."""
-        self._requeue(batch.scenes, cleared=batch.cleared, menus=batch.menus)
+        self._requeue(
+            batch.scenes, cleared=batch.cleared, menus_dirty=batch.menus_dirty
+        )
 
     def _remark(self, batch: DrainedBatch) -> None:
         """Re-mark the live scenes, the batch's own scenes, and a consumed clear.
@@ -88,22 +90,23 @@ class SendRecovery:
         idempotent.
         """
         scenes = frozenset(self._reader.live_scene_ids()) | batch.scenes
-        self._requeue(scenes, cleared=batch.cleared, menus=batch.menus)
+        self._requeue(scenes, cleared=batch.cleared, menus_dirty=batch.menus_dirty)
 
     def _requeue(
         self,
         scenes: frozenset[SceneId],
         *,
         cleared: bool,
-        menus: MenuPush | None,
+        menus_dirty: bool,
     ) -> None:
-        """Re-mark scenes, a consumed clear, and the menu state onto the signal.
+        """Re-mark scenes, a consumed clear, and the menu flag onto the signal.
 
-        The menu state is re-marked so a respawned display gets it re-pushed, the
-        same way the live scenes are re-marked to repaint a fresh display.
+        The menu flag is re-marked so a respawned display gets the current menu
+        state re-pushed — read fresh from the registry at the next send, so a menu
+        change that landed during the failed send wins over what was drained.
         """
         if cleared:
             self._signal.mark_cleared()
-        if menus is not None:
-            self._signal.mark_menus(menus.bar, menus.items)
+        if menus_dirty:
+            self._signal.mark_menus()
         self._signal.add_all(scenes)

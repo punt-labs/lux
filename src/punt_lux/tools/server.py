@@ -49,15 +49,19 @@ _session_key: ContextVar[str] = ContextVar("session_key", default="local")
 
 
 def _cleanup_session(session_key: str) -> None:
-    """Drop the session's Hub-owned menu items when it disconnects.
+    """Drop the session's Hub-owned menu items and re-push the menu state.
 
     The Hub menu registry owns each session's registered tool items; dropping
-    them here removes them from the composed bar the replicator pushes next.
+    them and re-pushing removes them from the display's World menu at once,
+    rather than leaving a stale item until the next unrelated menu write. Routed
+    through the operations facade (imported lazily to avoid an import cycle with
+    ``tools.py``), which is the sole owner of the menu registry.
     """
-    from punt_lux.domain.hub.menu_registry import hub_menu_registry
     from punt_lux.domain.ids import ConnectionId
+    from punt_lux.operations.scope import Scope
+    from punt_lux.tools.tools import OPERATIONS
 
-    hub_menu_registry.drop(ConnectionId(session_key))
+    OPERATIONS.drop_session(Scope(ConnectionId(session_key)))
 
 
 async def run_mcp_session(

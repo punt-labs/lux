@@ -12,7 +12,6 @@ import pytest
 from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.element import Element as DomainElement
 from punt_lux.domain.hub import client_registry, hub
-from punt_lux.domain.hub.display_connection import HubDisplayConnection
 from punt_lux.domain.hub.element_index import UnknownElementError
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
@@ -26,6 +25,7 @@ from punt_lux.operations import (
     SceneInspection,
     SceneList,
 )
+from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.ports import HubPorts
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
@@ -441,32 +441,40 @@ class TestSetMenuTool:
     def test_set_menu_writes_the_hub_registry(self) -> None:
         # set_menu is a Hub write now: it stores the bar in the Hub menu
         # registry (the replicator pushes it) instead of reaching the display.
-        from punt_lux.domain.hub.menu_registry import hub_menu_registry
+        # list_menus reads that same registry, so it confirms the write.
+        from punt_lux.tools import list_menus
 
         menus = [{"label": "Tools", "items": [{"label": "Run", "id": "run"}]}]
         try:
             result = set_menu(menus)
             assert result == "ok"
-            assert any(m.get("label") == "Tools" for m in hub_menu_registry.menu_bar())
+            assert any(m.label == "Tools" for m in list_menus().menus)
         finally:
-            hub_menu_registry.set_menus([])
+            set_menu([])
 
 
 class TestSetThemeTool:
     @patch.object(DisplayPaths, "is_running", return_value=True)
     @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_set_theme_returns_theme_name(
+    def test_set_theme_returns_the_new_theme_state(
         self, mock_get: MagicMock, _mock_running: MagicMock
     ) -> None:
+        from punt_lux.operations import ThemeState
+
         client = _mock_client()
         mock_response = MagicMock()
         mock_response.error = None
-        mock_response.result = {"theme": "imgui_colors_light"}
+        # The display now replies with the full theme state (current + available).
+        mock_response.result = {
+            "current": "imgui_colors_light",
+            "available": ["imgui_colors_light", "darcula"],
+        }
         client.query.return_value = mock_response
         mock_get.return_value = client
 
         result = set_theme("imgui_colors_light")
-        assert result == "theme:imgui_colors_light"
+        assert isinstance(result, ThemeState)
+        assert result.theme == "imgui_colors_light"
         client.query.assert_called_once_with(
             "set_theme", {"theme": "imgui_colors_light"}
         )
@@ -477,15 +485,18 @@ class TestSetThemeTool:
     def test_set_theme_timeout_drops_the_dead_connection(
         self, mock_get: MagicMock, _mock_running: MagicMock, mock_drop: MagicMock
     ) -> None:
-        # A5: a wedged or dead display makes the bounded round-trip raise OSError.
-        # The tool reports "timeout" and drops the connection so the next set_*
-        # reconnects, instead of reusing the dead fd forever.
+        # A wedged or dead display makes the bounded round-trip raise OSError.
+        # The setter returns an OpError(timeout) and drops the connection so the
+        # next set_* reconnects, instead of reusing the dead fd forever.
+        from punt_lux.operations import OpError
+
         client = _mock_client()
         client.query.side_effect = OSError("EPIPE")
         mock_get.return_value = client
 
         result = set_theme("imgui_colors_light")
-        assert result == "timeout"
+        assert isinstance(result, OpError)
+        assert result.code == "timeout"
         mock_drop.assert_called_once()
 
 
@@ -941,8 +952,8 @@ class _ReplicatorSpy:
     def mark_cleared(self) -> None:
         self.cleared += 1
 
-    def mark_menus(self, bar: object, items: object) -> None:
-        """Swallow a menu push mark; the spy only records scene signals."""
+    def mark_menus(self) -> None:
+        """Swallow the menu-dirty flag; the spy only records scene signals."""
 
 
 def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock:
@@ -2221,21 +2232,34 @@ class TestSessionKey:
         assert _session_key.get() == "local"
 
 
-def _has_registered_item(items: list[dict[str, object]], item_id: str) -> bool:
-    """Whether the registry's flat tool-item list carries ``item_id``."""
-    return any(item.get("id") == item_id for item in items)
+def _tools_menu_has(item_id: str) -> bool:
+    """Whether ``list_menus`` reports a registered tool item with ``item_id``.
+
+    Registered tool items surface in the synthesized ``Tools`` menu of the
+    Hub-authoritative ``list_menus`` read — the same registry the tools write.
+    """
+    from punt_lux.operations import MenuAction
+    from punt_lux.tools import list_menus
+
+    for menu in list_menus().menus:
+        if menu.label == "Tools":
+            return any(
+                isinstance(item, MenuAction) and item.id == item_id
+                for item in menu.items
+            )
+    return False
 
 
 class TestCleanupSession:
     def test_drops_the_sessions_menu_items(self) -> None:
-        from punt_lux.domain.hub.menu_registry import hub_menu_registry
-
-        conn = ConnectionId("sess-1")
-        hub_menu_registry.register_item(conn, {"label": "Run", "id": "cleanup-tool"})
-        _cleanup_session("sess-1")
-        assert not _has_registered_item(
-            hub_menu_registry.registered_items(), "cleanup-tool"
-        )
+        token = _session_key.set("sess-1")
+        try:
+            register_tool(label="Run", tool_id="cleanup-tool")
+            assert _tools_menu_has("cleanup-tool")
+            _cleanup_session("sess-1")
+            assert not _tools_menu_has("cleanup-tool")
+        finally:
+            _session_key.reset(token)
 
     def test_noop_when_no_items(self) -> None:
         _cleanup_session("nonexistent-session")  # must not raise
@@ -2243,31 +2267,22 @@ class TestCleanupSession:
 
 class TestRegisterToolSessionTracking:
     def test_registers_the_item_in_the_hub_registry(self) -> None:
-        from punt_lux.domain.hub.menu_registry import hub_menu_registry
-
-        conn = ConnectionId("local")
-        hub_menu_registry.drop(conn)
+        token = _session_key.set("local")
         try:
             assert (
                 register_tool(label="Run", tool_id="track-run")
                 == "registered:track-run"
             )
-            assert _has_registered_item(
-                hub_menu_registry.registered_items(), "track-run"
-            )
+            assert _tools_menu_has("track-run")
         finally:
-            hub_menu_registry.drop(conn)
+            _cleanup_session("local")
+            _session_key.reset(token)
 
     def test_registers_under_custom_session_key(self) -> None:
-        from punt_lux.domain.hub.menu_registry import hub_menu_registry
-
-        conn = ConnectionId("ws-99")
         token = _session_key.set("ws-99")
         try:
             register_tool(label="Build", tool_id="track-build")
-            assert _has_registered_item(
-                hub_menu_registry.registered_items(), "track-build"
-            )
+            assert _tools_menu_has("track-build")
         finally:
+            _cleanup_session("ws-99")
             _session_key.reset(token)
-            hub_menu_registry.drop(conn)

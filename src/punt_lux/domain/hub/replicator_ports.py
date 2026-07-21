@@ -13,14 +13,50 @@ logic is tested against fakes, not a live socket:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol, final, runtime_checkable
 
 from punt_lux.domain.hub.scene_presentation import ScenePusher
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from pathlib import Path
 
-__all__ = ["ClientProvider", "DisplayLifecycle", "DisplaySender"]
+__all__ = [
+    "ClientProvider",
+    "DisplayLifecycle",
+    "DisplaySender",
+    "MenuReader",
+    "MenuState",
+]
+
+
+@final
+@dataclass(frozen=True, slots=True)
+class MenuState:
+    """The whole menu state to push: the agent bar and the World-menu tool items.
+
+    Both are wire payloads — the display's own untyped menu dicts, composed from
+    the registry's typed models at read time. The replicator resends the whole of
+    each, so the newest registry state always wins.
+    """
+
+    bar: tuple[Mapping[str, object], ...]
+    items: tuple[Mapping[str, object], ...]
+
+
+@runtime_checkable
+class MenuReader(Protocol):
+    """The registry's read side for the replicator — a consistent wire snapshot.
+
+    The worker reads this fresh at send time, so whatever the registry holds when
+    the send runs is what the display receives; a stale payload can never be
+    resent because there is no payload to go stale.
+    """
+
+    def wire_snapshot(self) -> MenuState:
+        """Return the current menu state as wire payloads, read atomically."""
+        ...
 
 
 @runtime_checkable

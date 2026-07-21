@@ -2,15 +2,19 @@
 
 Menus are UI the agent submits, and submitted UI is what the Hub owns. A menu
 entry is an action or a separator, never a half-formed action: the discriminated
-:data:`MenuEntry` makes each shape explicit. The ``"---"`` separator sentinel
-lives only at the wire boundary — ``Menu.from_wire`` maps it to a
-:class:`MenuSeparator`, and ``to_wire`` maps back — so the typed model never
-carries a magic label.
+:data:`MenuEntry` makes each shape explicit, and ``MenuAction`` requires a
+non-empty id so an id-less action cannot exist.
+
+An entry is discriminated on the *presence of an id*, not its label: an entry
+with an id is an action (even one labelled ``"---"``, which round-trips as an
+action), and the id-less ``"---"`` sentinel is the only separator. Any other
+id-less entry is malformed and rejected with a named-field error rather than
+silently coerced into a separator.
 """
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Annotated, Literal, cast
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,7 +31,7 @@ class MenuAction(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     kind: Literal["action"] = "action"
-    id: str
+    id: str = Field(min_length=1)  # an id-less action is not a real state
     label: str
     shortcut: str | None = None  # None when the item has no accelerator
     icon: str | None = None  # None when the item has no icon
@@ -67,33 +71,54 @@ class Menu(BaseModel):
     items: list[MenuEntry]
 
     @classmethod
-    def from_wire(cls, raw: Mapping[str, object]) -> Menu:
-        """Build from the untyped menu payload, mapping the separator sentinel."""
-        raw_items = raw.get("items", [])
-        items_seq: list[object] = (
-            cast("list[object]", raw_items) if isinstance(raw_items, list) else []
+    def from_wire(cls, raw: object, *, index: int) -> Menu:
+        """Build from one untyped menu, rejecting a malformed one by name.
+
+        ``index`` names the menu's position for a field-located error; a menu
+        that is not a mapping, or that carries a malformed entry, is rejected
+        rather than silently dropped or coerced.
+        """
+        loc = f"menus.{index}"
+        if not isinstance(raw, Mapping):
+            msg = f"{loc}: expected a menu mapping, got {type(raw).__name__}"
+            raise ValueError(msg)
+        menu: Mapping[str, object] = cast("Mapping[str, object]", raw)
+        raw_items = menu.get("items", [])
+        items_seq: Sequence[object] = (
+            cast("Sequence[object]", raw_items)
+            if isinstance(raw_items, Sequence) and not isinstance(raw_items, str)
+            else []
         )
         return cls(
-            label=str(raw.get("label", "")),
-            items=[cls._entry_from_wire(item) for item in items_seq],
+            label=str(menu.get("label", "")),
+            items=[
+                cls._entry_from_wire(item, loc=f"{loc}.items.{i}")
+                for i, item in enumerate(items_seq)
+            ],
         )
 
     @classmethod
-    def _entry_from_wire(cls, item: object) -> MenuEntry:
-        """Map one wire item to an action or a separator."""
+    def _entry_from_wire(cls, item: object, *, loc: str) -> MenuEntry:
+        """Map one wire item to an action or the sentinel separator, or reject it."""
         if not isinstance(item, Mapping):
-            return MenuSeparator()
+            msg = f"{loc}: expected a menu item mapping, got {type(item).__name__}"
+            raise ValueError(msg)
         entry: Mapping[str, object] = cast("Mapping[str, object]", item)
+        raw_id = entry.get("id")
+        if raw_id is not None:
+            # An id makes this an action, whatever its label — even "---".
+            shortcut = entry.get("shortcut")
+            icon = entry.get("icon")
+            return MenuAction(
+                id=str(raw_id),
+                label=str(entry.get("label", "")),
+                shortcut=None if shortcut is None else str(shortcut),
+                icon=None if icon is None else str(icon),
+            )
         if entry.get("label") == _SEPARATOR_SENTINEL:
             return MenuSeparator()
-        shortcut = entry.get("shortcut")
-        icon = entry.get("icon")
-        return MenuAction(
-            id=str(entry.get("id", "")),
-            label=str(entry.get("label", "")),
-            shortcut=None if shortcut is None else str(shortcut),
-            icon=None if icon is None else str(icon),
-        )
+        msg = f"{loc}: an id-less entry must be the {_SEPARATOR_SENTINEL!r} separator"
+        raise ValueError(msg)
 
     def to_wire(self) -> dict[str, object]:
         """Render as the untyped menu payload the display consumes."""

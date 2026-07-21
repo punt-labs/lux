@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import time
 from typing import Any, get_args
 
 from punt_lux.domain.hub import client_registry, hub, hub_display
-from punt_lux.domain.hub.display_connection import HubDisplayConnection
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, next_event
-from punt_lux.domain.hub.menu_registry import hub_menu_registry
-from punt_lux.domain.hub.replicator_instance import hub_replicator
+from punt_lux.domain.hub.replicator_instance import hub_menu_registry, hub_replicator
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import (
     ClientList,
@@ -21,6 +18,7 @@ from punt_lux.operations import (
     FrameStatePatch,
     MenuAction,
     MenuList,
+    Ok,
     Operations,
     OpError,
     RecentErrors,
@@ -39,6 +37,12 @@ from punt_lux.operations import (
     UpdateRequest,
     WindowSettings,
     WindowSettingsPatch,
+)
+from punt_lux.operations.display_connection import HubDisplayConnection
+from punt_lux.operations.models.window import (
+    FONT_SCALE_RANGE,
+    FPS_IDLE_RANGE,
+    OPACITY_RANGE,
 )
 from punt_lux.operations.ports import HubPorts
 from punt_lux.paths import DisplayPaths
@@ -474,27 +478,32 @@ _SET_THEME_DESCRIPTION = "Set the Lux display theme. Valid names (snake_case): "
 )
 
 
+# The advertised bounds come from the WindowSettingsPatch ranges — one source,
+# so the description and the validation cannot drift.
+_SET_WINDOW_DESCRIPTION = (
+    "Modify display window settings. Only provided fields change. "
+    f"Fields: opacity ({OPACITY_RANGE[0]}-{OPACITY_RANGE[1]}), "
+    f"font_scale ({FONT_SCALE_RANGE[0]}-{FONT_SCALE_RANGE[1]}), "
+    "decorated (title bar/borders), "
+    f"fps_idle (target idle FPS, {FPS_IDLE_RANGE[0]}-{FPS_IDLE_RANGE[1]})."
+)
+
+
 @mcp.tool(description=_SET_THEME_DESCRIPTION)
-def set_theme(theme: str) -> str:
-    result = OPERATIONS.set_theme(SetThemeRequest.parse(theme))
-    if isinstance(result, OpError):
-        return _fault_line(result)
-    return f"theme:{result.payload.get('theme', theme)}"
+def set_theme(theme: str) -> ThemeState | OpError:
+    """Set the display theme; returns the new theme state or an error."""
+    return OPERATIONS.set_theme(SetThemeRequest.parse(theme))
 
 
-@mcp.tool()
+@mcp.tool(description=_SET_WINDOW_DESCRIPTION)
 def set_window_settings(
     opacity: float | None = None,
     font_scale: float | None = None,
     decorated: bool | None = None,  # noqa: FBT001
     fps_idle: float | None = None,
-) -> str:
-    """Modify display window settings. Only provided fields change.
-
-    Fields: opacity (0.1-1.0), font_scale (0.5-3.0), decorated (title bar/borders),
-    fps_idle (target idle FPS, 1-120).
-    """
-    result = OPERATIONS.set_window_settings(
+) -> WindowSettings | OpError:
+    """Change the provided window settings; returns the new settings or an error."""
+    return OPERATIONS.set_window_settings(
         WindowSettingsPatch.parse(
             {
                 "opacity": opacity,
@@ -504,28 +513,17 @@ def set_window_settings(
             }
         )
     )
-    if isinstance(result, OpError):
-        return _fault_line(result)
-    return json.dumps(result.payload, indent=2)
 
 
 @mcp.tool()
 def set_frame_state(
     frame_id: str,
     minimized: bool | None = None,  # noqa: FBT001
-) -> str:
-    """Modify a frame's state (minimize/expand).
-
-    Args:
-        frame_id: Target frame identifier.
-        minimized: True to minimize, False to expand.
-    """
-    result = OPERATIONS.set_frame_state(
+) -> Ok | OpError:
+    """Minimize or expand a frame (``minimized`` true to minimize)."""
+    return OPERATIONS.set_frame_state(
         frame_id, FrameStatePatch.parse({"minimized": minimized})
     )
-    if isinstance(result, OpError):
-        return _fault_line(result)
-    return json.dumps(result.payload, indent=2)
 
 
 @mcp.tool()

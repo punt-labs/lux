@@ -43,7 +43,7 @@ if TYPE_CHECKING:
     )
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
-    from punt_lux.operations.models.display_write import DisplayAck, FrameStatePatch
+    from punt_lux.operations.models.display_write import FrameStatePatch
     from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
     from punt_lux.operations.models.menus import MenuAction
     from punt_lux.operations.models.query_clients import ClientList
@@ -201,19 +201,19 @@ class Operations:
         """Round-trip a ping and return the elapsed time."""
         return self._display.ping(now=now)
 
-    def set_theme(self, request: SetThemeRequest | OpError) -> DisplayAck | OpError:
-        """Switch the display theme."""
+    def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
+        """Switch the display theme and return the new theme state."""
         return self._display.set_theme(request)
 
     def set_window_settings(
         self, patch: WindowSettingsPatch | OpError
-    ) -> DisplayAck | OpError:
-        """Change the provided window settings."""
+    ) -> WindowSettings | OpError:
+        """Change the provided window settings and return the new settings."""
         return self._display.set_window_settings(patch)
 
     def set_frame_state(
         self, frame_id: str, patch: FrameStatePatch | OpError
-    ) -> DisplayAck | OpError:
+    ) -> Ok | OpError:
         """Change a frame's minimize state."""
         return self._display.set_frame_state(frame_id, patch)
 
@@ -250,3 +250,7 @@ class Operations:
     def list_menus(self) -> MenuList:
         """Return the Hub-authoritative menu bar."""
         return self._menus.list_menus()
+
+    def drop_session(self, scope: Scope) -> None:
+        """Forget a departed session's tool items and re-push the menu state."""
+        self._menus.drop_session(scope)

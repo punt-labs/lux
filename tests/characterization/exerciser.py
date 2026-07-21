@@ -48,13 +48,13 @@ from typing import Any, ClassVar
 
 from punt_lux import tools as tools_pkg
 from punt_lux.domain.hub import client_registry, hub
-from punt_lux.domain.hub.display_connection import HubDisplayConnection
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, next_event
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import Operations
+from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.ports import HubPorts
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
@@ -68,8 +68,14 @@ from punt_lux.tools.server import _session_key
 __all__ = ["ToolCallError", "ToolExerciser"]
 
 
-class ToolCallError(RuntimeError):
-    """An exerciser-detected failure: bad setup, unstubbed call, or non-str return."""
+class ToolCallError(Exception):
+    """An exerciser-detected failure: bad setup, unstubbed call, or non-str return.
+
+    Deliberately not a ``RuntimeError``: the display connection folds a real
+    ``RuntimeError`` (a failed reconnect) into a typed ``display_unavailable``, so
+    a harness signal based on ``RuntimeError`` would be swallowed there instead of
+    surfacing the mis-declared stub. Basing it on ``Exception`` keeps it distinct.
+    """
 
 
 class _StubReplicator:
@@ -83,8 +89,8 @@ class _StubReplicator:
     def mark_cleared(self) -> None:
         """Swallow the clear mark."""
 
-    def mark_menus(self, bar: object, items: object) -> None:
-        """Swallow the menu push mark."""
+    def mark_menus(self) -> None:
+        """Swallow the menu-dirty flag."""
 
 
 class _StubClient:

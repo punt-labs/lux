@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from punt_lux.operations.models.common import OpError
 
@@ -39,5 +39,5 @@ class RecentErrors(BaseModel):
         """Build from the display's ``list_errors`` reply, or reject it."""
         try:
             return cls.model_validate(payload)
-        except ValueError as exc:
-            return OpError(code="rejected", reason=str(exc))
+        except ValidationError as exc:
+            return OpError.from_reply(exc)

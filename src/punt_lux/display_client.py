@@ -292,9 +292,11 @@ class DisplayClient:
                 self.close()
                 err = f"ConnectMessage failed after handshake: {exc}"
                 raise RuntimeError(err) from exc
-        if self._registered_menu_items:
+        with self._lock:
+            items = list(self._registered_menu_items)
+        if items:
             try:
-                replay = RegisterMenuMessage(items=self._registered_menu_items)
+                replay = RegisterMenuMessage(items=items)
                 send_message(sock, replay)
             except OSError as exc:
                 self.close()
@@ -569,7 +571,10 @@ class DisplayClient:
         self._send(ThemeMessage(theme=theme))
 
     def _store_menu_item(self, item: dict[str, Any]) -> None:
-        """Add or update an item in the local menu registry (no send)."""
+        """Add or update an item in the local menu registry (no send).
+
+        The caller holds ``_lock``; this helper mutates the shared state directly.
+        """
         stored = dict(item)
         item_id = item.get("id")
         if item_id is not None:
@@ -587,25 +592,33 @@ class DisplayClient:
         The item is stored locally and sent to the display on the next
         ``connect()`` via ``_post_handshake``. Its id is remembered as a built-in
         so a later Hub-pushed agent-item replace does not clobber it. Safe to call
-        before ``connect()``.
+        before ``connect()``. The menu-item state is guarded by ``_lock`` like the
+        client's other shared state.
         """
-        self._store_menu_item(item)
-        item_id = item.get("id")
-        if isinstance(item_id, str):
-            self._declared_ids.add(item_id)
+        with self._lock:
+            self._store_menu_item(item)
+            item_id = item.get("id")
+            if isinstance(item_id, str):
+                self._declared_ids.add(item_id)
 
     def set_registered_items(self, items: list[dict[str, Any]]) -> None:
         """Replace the Hub-owned agent tool items, keeping declared built-ins.
 
         The Hub is authoritative for the agent items; declared built-ins (the
         beads browser) are kept so the replace never drops them, and the combined
-        set is replayed on reconnect via ``_post_handshake``.
+        set is replayed on reconnect via ``_post_handshake``. The state is mutated
+        under ``_lock`` and a snapshot is sent after the lock is released, since
+        ``_send`` takes the same lock.
         """
-        kept = [
-            i for i in self._registered_menu_items if i.get("id") in self._declared_ids
-        ]
-        self._registered_menu_items = kept + [dict(i) for i in items]
-        self._send(RegisterMenuMessage(items=self._registered_menu_items))
+        with self._lock:
+            kept = [
+                i
+                for i in self._registered_menu_items
+                if i.get("id") in self._declared_ids
+            ]
+            self._registered_menu_items = kept + [dict(i) for i in items]
+            snapshot = list(self._registered_menu_items)
+        self._send(RegisterMenuMessage(items=snapshot))
 
     def clear_async(self) -> None:
         """Clear all content from the display.  Safe from callbacks."""

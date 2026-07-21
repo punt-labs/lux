@@ -9,7 +9,7 @@ presentation layer wires them in as :class:`HubPorts` so nothing in
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
@@ -41,12 +41,8 @@ class DirtyMarker(Protocol):
     def mark_cleared(self) -> None:
         """Record that the whole display was blanked."""
 
-    def mark_menus(
-        self,
-        bar: Sequence[Mapping[str, object]],
-        items: Sequence[Mapping[str, object]],
-    ) -> None:
-        """Record new menu state (bar + tool items) so the replicator pushes it."""
+    def mark_menus(self) -> None:
+        """Flag that the menu registry changed so the replicator re-reads and pushes."""
 
 
 @dataclass(frozen=True, slots=True)

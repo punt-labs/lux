@@ -22,7 +22,8 @@ from punt_lux.operations.display_reply import (
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong, Screenshot
-from punt_lux.operations.models.display_write import DisplayAck, FrameStatePatch
+from punt_lux.operations.models.display_write import FrameStatePatch
+from punt_lux.operations.models.menu_results import Ok
 from punt_lux.operations.models.theme import SetThemeRequest, ThemeState
 from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
 
@@ -165,17 +166,31 @@ def test_ping_returns_elapsed_time() -> None:
     assert result.rtt_seconds == 0.05
 
 
-def test_set_theme_proxies_valid_theme_and_rejects_unknown() -> None:
-    port = _FakePort(query=DisplayReplied({"theme": "darcula"}))
+def test_set_theme_returns_the_new_theme_state_and_rejects_unknown() -> None:
+    # The display replies with the new theme state (current + available); the
+    # setter narrows it into a ThemeState, never a fabricated success.
+    reply = {"current": "darcula", "available": ["imgui_colors_light", "darcula"]}
+    port = _FakePort(query=DisplayReplied(reply))
     ops = DisplayControlOperations(port)
-    ack = ops.set_theme(SetThemeRequest.parse("darcula"))
-    assert isinstance(ack, DisplayAck)
+    state = ops.set_theme(SetThemeRequest.parse("darcula"))
+    assert isinstance(state, ThemeState)
+    assert state.theme == "darcula"
     assert port.last_method == "set_theme"
     assert port.last_params == {"theme": "darcula"}
 
     rejected = ops.set_theme(SetThemeRequest.parse("no_such_theme"))
     assert isinstance(rejected, OpError)
     assert rejected.code == "invalid_request"
+
+
+def test_set_theme_rejects_a_malformed_reply_instead_of_fabricating_success() -> None:
+    # A reply the ThemeState model does not recognize is an OpError(rejected),
+    # never a success carrying the requested value.
+    port = _FakePort(query=DisplayReplied({"current": "not_a_theme", "available": []}))
+    ops = DisplayControlOperations(port)
+    result = ops.set_theme(SetThemeRequest.parse("darcula"))
+    assert isinstance(result, OpError)
+    assert result.code == "rejected"
 
 
 def test_set_window_settings_rejects_empty_patch() -> None:
@@ -186,17 +201,37 @@ def test_set_window_settings_rejects_empty_patch() -> None:
     assert result.reason == "no settings provided"
 
 
-def test_set_window_settings_sends_only_provided_fields() -> None:
-    port = _FakePort(query=DisplayReplied({"changed": {"opacity": 0.5}}))
+def test_set_window_settings_rejects_out_of_range_opacity() -> None:
+    # The patch validates against the documented bounds before any round-trip.
+    ops = DisplayControlOperations(_FakePort())
+    result = ops.set_window_settings(WindowSettingsPatch.parse({"opacity": 5.0}))
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+
+
+def test_set_window_settings_returns_the_new_settings() -> None:
+    reply = {
+        "opacity": 0.5,
+        "font_scale": 1.0,
+        "decorated": True,
+        "fps_idle": 10.0,
+    }
+    port = _FakePort(query=DisplayReplied(reply))
     ops = DisplayControlOperations(port)
-    ack = ops.set_window_settings(WindowSettingsPatch.parse({"opacity": 0.5}))
-    assert isinstance(ack, DisplayAck)
+    result = ops.set_window_settings(WindowSettingsPatch.parse({"opacity": 0.5}))
+    assert isinstance(result, WindowSettings)
+    assert result.opacity == 0.5
     assert port.last_params == {"opacity": 0.5}
 
 
-def test_set_frame_state_proxies_the_minimize_flag() -> None:
-    port = _FakePort(query=DisplayReplied({"frame_id": "f1", "minimized": True}))
+def test_set_frame_state_returns_ok_and_rejects_empty_patch() -> None:
+    port = _FakePort(query=DisplayReplied({"frame_id": "f1", "changed": {}}))
     ops = DisplayControlOperations(port)
-    ack = ops.set_frame_state("f1", FrameStatePatch.parse({"minimized": True}))
-    assert isinstance(ack, DisplayAck)
+    result = ops.set_frame_state("f1", FrameStatePatch.parse({"minimized": True}))
+    assert isinstance(result, Ok)
     assert port.last_params == {"frame_id": "f1", "minimized": True}
+
+    empty = ops.set_frame_state("f1", FrameStatePatch.parse({}))
+    assert isinstance(empty, OpError)
+    assert empty.code == "invalid_request"
+    assert empty.reason == "no frame state provided"

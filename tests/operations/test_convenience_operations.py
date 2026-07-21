@@ -28,7 +28,7 @@ class _Recorder:
     def mark_cleared(self) -> None:  # pragma: no cover - unused here
         pass
 
-    def mark_menus(self, bar: object, items: object) -> None:  # pragma: no cover
+    def mark_menus(self) -> None:  # pragma: no cover - unused here
         pass
 
 

@@ -67,7 +67,7 @@ class ThemeState(BaseModel):
                 }
             )
         except ValidationError as exc:
-            return OpError(code="rejected", reason=OpError.describe(exc.errors()[0]))
+            return OpError.from_reply(exc)
 
 
 class SetThemeRequest(BaseModel):

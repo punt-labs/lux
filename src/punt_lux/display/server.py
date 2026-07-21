@@ -792,37 +792,26 @@ class DisplayServer:
     # -- Tier 3 write handlers ------------------------------------------------
 
     def _query_set_window_settings(self, **kwargs: Any) -> dict[str, Any]:
-        """Modify window settings. Only provided fields are changed."""
-        changed: dict[str, Any] = {}
-
+        """Apply the provided window settings and return the full new settings."""
         if "opacity" in kwargs:
-            val = float(kwargs["opacity"])
-            val = max(0.1, min(1.0, val))
+            val = max(0.1, min(1.0, float(kwargs["opacity"])))
             self._opacity = val
             self._glfw_window().set_opacity(opacity=val)
-            changed["opacity"] = val
 
         if "font_scale" in kwargs:
-            val = float(kwargs["font_scale"])
-            val = max(0.5, min(3.0, round(val, 1)))
-            self._font_scale = val
-            changed["font_scale"] = val
+            self._font_scale = max(0.5, min(3.0, round(float(kwargs["font_scale"]), 1)))
 
         if "decorated" in kwargs:
-            decorated = bool(kwargs["decorated"])
-            self._decorated = decorated
-            self._glfw_window().set_decorated(decorated=decorated)
-            changed["decorated"] = decorated
+            self._decorated = bool(kwargs["decorated"])
+            self._glfw_window().set_decorated(decorated=self._decorated)
 
         if "fps_idle" in kwargs:
             from imgui_bundle import hello_imgui
 
-            fps = float(kwargs["fps_idle"])
-            fps = max(1.0, min(120.0, fps))
+            fps = max(1.0, min(120.0, float(kwargs["fps_idle"])))
             hello_imgui.get_runner_params().fps_idling.fps_idle = fps
-            changed["fps_idle"] = fps
 
-        return {"changed": changed}
+        return self._query_get_window_settings()
 
     def _query_set_frame_state(
         self, frame_id: str = "", **kwargs: Any
@@ -847,12 +836,12 @@ class DisplayServer:
         return {"frame_id": frame_id, "changed": changed}
 
     def _query_set_theme(self, theme: str = "", **_kwargs: Any) -> dict[str, Any]:
-        """Set the display theme via query path."""
+        """Apply the display theme and return the new theme state."""
         if not theme:
             msg = "theme name is required"
             raise ValueError(msg)
         self._apply_theme(theme)
-        return {"theme": self._current_theme}
+        return self._query_get_theme()
 
     def client_name(self, fd: int) -> str | None:
         """Return the display name for a connected client, or ``None``."""

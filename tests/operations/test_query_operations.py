@@ -22,8 +22,14 @@ from punt_lux.domain.ids import ConnectionId, SceneId, Topic
 from punt_lux.operations.display_reply import DisplayFault, DisplayReplied, DisplayReply
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.query_clients import ClientList
+from punt_lux.operations.models.query_errors import RecentErrors
 from punt_lux.operations.models.query_events import RecentEvents
-from punt_lux.operations.models.query_inspection import SceneInspection
+from punt_lux.operations.models.query_inspection import (
+    MirrorNotRequested,
+    MirrorPresent,
+    MirrorUnavailable,
+    SceneInspection,
+)
 from punt_lux.operations.models.query_scenes import SceneList
 from punt_lux.operations.queries import QueryOperations
 
@@ -90,8 +96,66 @@ def test_inspect_scene_reads_the_hub_without_touching_the_display() -> None:
     assert root.id == "g1"
     assert root.render_path in ("abc", "legacy")
     assert root.children[0].id == "t1"
-    # The mirror check was not requested, so it is not proxied and stays None.
-    assert result.domain_mirror_present is None
+    # The mirror check was not requested, so it is not proxied — a distinct state
+    # from "requested but unavailable".
+    assert isinstance(result.mirror, MirrorNotRequested)
+
+
+def test_inspect_scene_mirror_present_when_every_element_is_mirrored() -> None:
+    # want_mirror=True proxies the display's per-element reply; the scene-level
+    # answer is present only when every element carries the mirror flag.
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")
+    reply = DisplayReplied(
+        {
+            "scene_id": "s1",
+            "element_paths": [
+                {"id": "g1", "domain_mirror_present": True},
+                {"id": "t1", "domain_mirror_present": True},
+            ],
+        }
+    )
+    ops = QueryOperations(store, Hub(), _StubPort(reply))
+
+    result = ops.inspect_scene("s1", want_mirror=True)
+
+    assert isinstance(result, SceneInspection)
+    assert result.mirror == MirrorPresent(present=True)
+
+
+def test_inspect_scene_mirror_not_present_when_one_element_is_missing() -> None:
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")
+    reply = DisplayReplied(
+        {
+            "element_paths": [
+                {"id": "g1", "domain_mirror_present": True},
+                {"id": "t1", "domain_mirror_present": False},
+            ]
+        }
+    )
+    ops = QueryOperations(store, Hub(), _StubPort(reply))
+
+    result = ops.inspect_scene("s1", want_mirror=True)
+
+    assert isinstance(result, SceneInspection)
+    assert result.mirror == MirrorPresent(present=False)
+
+
+def test_inspect_scene_mirror_unavailable_when_the_display_is_down() -> None:
+    # A requested check the display cannot answer is unavailable-with-reason,
+    # never silently conflated with "not requested".
+    store = HubDisplay()
+    _seed_scene(store, scene="s1", connection="c1")
+    ops = QueryOperations(
+        store, Hub(), _StubPort(DisplayFault(code="display_unavailable"))
+    )
+
+    result = ops.inspect_scene("s1", want_mirror=True)
+
+    assert isinstance(result, SceneInspection)
+    assert isinstance(result.mirror, MirrorUnavailable)
+    assert result.mirror.reason
 
 
 def test_inspect_scene_unknown_scene_is_not_found() -> None:
@@ -152,6 +216,29 @@ def test_list_recent_events_proxies_the_display() -> None:
     result = ops.list_recent_events(50)
     assert isinstance(result, RecentEvents)
     assert result.events[0].element_id == "btn-go"
+    assert result.total_buffered == 1
+
+
+def test_list_errors_accepts_the_live_display_payload() -> None:
+    # Guards the same drift the get_display_info fix guards: the display's real
+    # error shape must validate against the model, or every call silently
+    # degrades to OpError(rejected) with no failing test.
+    payload = {
+        "errors": [
+            {
+                "timestamp": 1000.0,
+                "severity": "error",
+                "message": "boom",
+                "context": "query:screenshot",
+            }
+        ],
+        "total_buffered": 1,
+    }
+    ops = QueryOperations(HubDisplay(), Hub(), _StubPort(DisplayReplied(payload)))
+    result = ops.list_errors(20)
+    assert isinstance(result, RecentErrors)
+    assert result.errors[0].severity == "error"
+    assert result.errors[0].message == "boom"
     assert result.total_buffered == 1
 
 

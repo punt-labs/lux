@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -46,15 +45,15 @@ class SetMenuRequest(BaseModel):
         """Build from the untyped menu list, or return an ``OpError``.
 
         The wire form is a list of menu dicts carrying the ``"---"`` separator
-        sentinel; each is mapped through ``Menu.from_wire``, so a malformed entry
-        becomes a validation error rather than a raise past the adapter.
+        sentinel; every entry is mapped through ``Menu.from_wire`` — a malformed
+        one (not a mapping, or an id-less non-separator entry) becomes a named
+        ``invalid_request`` rather than being silently dropped or raising past
+        the adapter.
         """
         try:
-            menus = [
-                Menu.from_wire(cast("Mapping[str, object]", m))
-                for m in raw
-                if isinstance(m, Mapping)
-            ]
+            menus = [Menu.from_wire(m, index=i) for i, m in enumerate(raw)]
             return cls(menus=menus)
         except ValidationError as exc:
             return OpError.from_validation(exc)
+        except ValueError as exc:
+            return OpError(code="invalid_request", reason=str(exc))

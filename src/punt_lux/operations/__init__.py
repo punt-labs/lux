@@ -28,13 +28,18 @@ from punt_lux.operations.models import (
 )
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong, Screenshot
-from punt_lux.operations.models.display_write import DisplayAck, FrameStatePatch
+from punt_lux.operations.models.display_write import FrameStatePatch
 from punt_lux.operations.models.menu_results import MenuList, Ok, SetMenuRequest
 from punt_lux.operations.models.menus import MenuAction
 from punt_lux.operations.models.query_clients import ClientList
 from punt_lux.operations.models.query_errors import RecentErrors
 from punt_lux.operations.models.query_events import RecentEvents
-from punt_lux.operations.models.query_inspection import SceneInspection
+from punt_lux.operations.models.query_inspection import (
+    MirrorNotRequested,
+    MirrorPresent,
+    MirrorUnavailable,
+    SceneInspection,
+)
 from punt_lux.operations.models.query_scenes import SceneList
 from punt_lux.operations.models.theme import SetThemeRequest, ThemeName, ThemeState
 from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
@@ -44,7 +49,6 @@ from punt_lux.operations.scope import Scope
 __all__ = [
     "Cleared",
     "ClientList",
-    "DisplayAck",
     "DisplayInfo",
     "DisplayModeRequest",
     "DisplayModeState",
@@ -52,6 +56,9 @@ __all__ = [
     "HubPorts",
     "MenuAction",
     "MenuList",
+    "MirrorNotRequested",
+    "MirrorPresent",
+    "MirrorUnavailable",
     "Ok",
     "OpError",
     "Operations",

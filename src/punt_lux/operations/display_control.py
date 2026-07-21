@@ -7,11 +7,12 @@ reach the running display over luxd's one connection through the injected
 is one code path; the reach-around that is gone is a tool or a command-line tool
 talking to the display directly.
 
-Two return shapes live here. The getters (``get_display_info``, ``get_theme``,
-``get_window_settings``) answer with a typed result whose fields are the record,
-and screenshot and ping answer with their own typed results. The setters
-(``set_theme``, ``set_window_settings``, ``set_frame_state``) succeed with a
-:class:`DisplayAck` the adapter formats back to the exact legacy status line.
+Every operation answers with a typed result. The getters (``get_display_info``,
+``get_theme``, ``get_window_settings``), the probes (``screenshot``, ``ping``),
+and the setters (``set_theme`` → :class:`ThemeState`, ``set_window_settings`` →
+:class:`WindowSettings`, ``set_frame_state`` → :class:`Ok`) all narrow the
+display's reply into their result type; a reply the type does not recognize is
+an ``OpError(rejected)``, never a fabricated success.
 """
 
 from __future__ import annotations
@@ -21,13 +22,12 @@ from typing import TYPE_CHECKING, Self, final
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong, Screenshot
-from punt_lux.operations.models.display_write import DisplayAck, FrameStatePatch
+from punt_lux.operations.models.display_write import FrameStatePatch
+from punt_lux.operations.models.menu_results import Ok
 from punt_lux.operations.models.theme import SetThemeRequest, ThemeState
 from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from punt_lux.operations.display_port import DisplayPort
 
 __all__ = ["DisplayControlOperations"]
@@ -88,41 +88,43 @@ class DisplayControlOperations:
             return OpError(code="rejected", reason="ping reply carried no rtt")
         return Pong(rtt_seconds=float(rtt))
 
-    # -- setters: DisplayAck the adapter formats to a legacy string --------
+    # -- setters: narrow the reply into the write's own result type --------
 
-    def set_theme(self, request: SetThemeRequest | OpError) -> DisplayAck | OpError:
-        """Switch the display theme, or pass the parse error through."""
+    def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
+        """Switch the display theme and return the new theme state."""
         if isinstance(request, OpError):
             return request
-        return self._write("set_theme", {"theme": request.theme})
+        payload = self._port.query("set_theme", {"theme": request.theme}).resolve()
+        if isinstance(payload, OpError):
+            return payload
+        return ThemeState.from_payload(payload)
 
     def set_window_settings(
         self, patch: WindowSettingsPatch | OpError
-    ) -> DisplayAck | OpError:
-        """Change the provided window settings, or pass the parse error through."""
+    ) -> WindowSettings | OpError:
+        """Change the provided window settings and return the new settings."""
         if isinstance(patch, OpError):
             return patch
         provided = patch.provided()
         if not provided:
             return OpError(code="invalid_request", reason="no settings provided")
-        return self._write("set_window_settings", provided)
+        payload = self._port.query("set_window_settings", provided).resolve()
+        if isinstance(payload, OpError):
+            return payload
+        return WindowSettings.from_payload(payload)
 
     def set_frame_state(
         self, frame_id: str, patch: FrameStatePatch | OpError
-    ) -> DisplayAck | OpError:
-        """Change a frame's minimize state, or pass the parse error through."""
+    ) -> Ok | OpError:
+        """Change a frame's minimize state; an empty change is a caller mistake."""
         if isinstance(patch, OpError):
             return patch
-        params: dict[str, object] = {"frame_id": frame_id}
-        if patch.minimized is not None:
-            params["minimized"] = patch.minimized
-        return self._write("set_frame_state", params)
-
-    # -- shared proxy plumbing ---------------------------------------------
-
-    def _write(self, method: str, params: Mapping[str, object]) -> DisplayAck | OpError:
-        """Proxy a display write and wrap its reply as a formattable ack."""
-        payload = self._port.query(method, params).resolve()
+        provided = patch.provided()
+        if not provided:
+            return OpError(code="invalid_request", reason="no frame state provided")
+        payload = self._port.query(
+            "set_frame_state", {"frame_id": frame_id, **provided}
+        ).resolve()
         if isinstance(payload, OpError):
             return payload
-        return DisplayAck(payload=dict(payload))
+        return Ok()

@@ -535,31 +535,44 @@ class TestTier3WriteTools:
     def test_set_window_settings_not_running(self) -> None:
         from unittest.mock import patch
 
+        from punt_lux.operations import OpError
         from punt_lux.tools import set_window_settings
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert set_window_settings(opacity=0.5) == "not running"
+            result = set_window_settings(opacity=0.5)
+        assert isinstance(result, OpError)
+        assert result.code == "display_unavailable"
 
     def test_set_window_settings_no_params(self) -> None:
+        from punt_lux.operations import OpError
         from punt_lux.tools import set_window_settings
 
-        assert set_window_settings() == "error: no settings provided"
+        result = set_window_settings()
+        assert isinstance(result, OpError)
+        assert result.code == "invalid_request"
+        assert result.reason == "no settings provided"
 
     def test_set_frame_state_not_running(self) -> None:
         from unittest.mock import patch
 
+        from punt_lux.operations import OpError
         from punt_lux.tools import set_frame_state
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert set_frame_state(frame_id="test") == "not running"
+            result = set_frame_state(frame_id="test", minimized=True)
+        assert isinstance(result, OpError)
+        assert result.code == "display_unavailable"
 
     def test_set_theme_not_running(self) -> None:
         from unittest.mock import patch
 
+        from punt_lux.operations import OpError
         from punt_lux.tools import set_theme
 
-        # A valid theme name reaches the display check; a down display reads
-        # "not running". (An unknown theme is now a validation error instead,
+        # A valid theme name reaches the display check; a down display is a
+        # display_unavailable error. (An unknown theme is an invalid_request,
         # since the request validates the name against the known set.)
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert set_theme("imgui_colors_dark") == "not running"
+            result = set_theme("imgui_colors_dark")
+        assert isinstance(result, OpError)
+        assert result.code == "display_unavailable"
