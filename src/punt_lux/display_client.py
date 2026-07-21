@@ -158,6 +158,7 @@ class DisplayClient:
     _sock: socket.socket | None
     _ready: ReadyMessage | None
     _registered_menu_items: list[dict[str, Any]]
+    _declared_ids: set[str]
     _lock: threading.Lock
     _callbacks: dict[tuple[str, str], Callable[[RemoteEventHandlerInvocation], None]]
     _fallback_interaction_handler: Callable[[RemoteEventHandlerInvocation], None] | None
@@ -186,6 +187,8 @@ class DisplayClient:
         self._sock = None
         self._ready = None
         self._registered_menu_items = []
+        # Built-in ids that survive a Hub-pushed agent-item replace (beads browser).
+        self._declared_ids = set()
 
         # Push-based event handling state
         self._lock = threading.Lock()
@@ -579,22 +582,29 @@ class DisplayClient:
             self._registered_menu_items.append(stored)
 
     def declare_menu_item(self, item: dict[str, Any]) -> None:
-        """Declare a menu item without requiring a connection.
+        """Declare a built-in menu item without requiring a connection.
 
-        The item is stored locally and sent to the display on the
-        next ``connect()`` via ``_post_handshake``.  Safe to call
+        The item is stored locally and sent to the display on the next
+        ``connect()`` via ``_post_handshake``. Its id is remembered as a built-in
+        so a later Hub-pushed agent-item replace does not clobber it. Safe to call
         before ``connect()``.
         """
         self._store_menu_item(item)
+        item_id = item.get("id")
+        if isinstance(item_id, str):
+            self._declared_ids.add(item_id)
 
-    def register_menu_item(self, item: dict[str, Any]) -> None:
-        """Register a menu item in the display's Applications menu.
+    def set_registered_items(self, items: list[dict[str, Any]]) -> None:
+        """Replace the Hub-owned agent tool items, keeping declared built-ins.
 
-        Items accumulate and are sent as a single ``RegisterMenuMessage``.
-        On reconnect, all registered items are automatically replayed.
-        Requires an active connection.
+        The Hub is authoritative for the agent items; declared built-ins (the
+        beads browser) are kept so the replace never drops them, and the combined
+        set is replayed on reconnect via ``_post_handshake``.
         """
-        self._store_menu_item(item)
+        kept = [
+            i for i in self._registered_menu_items if i.get("id") in self._declared_ids
+        ]
+        self._registered_menu_items = kept + [dict(i) for i in items]
         self._send(RegisterMenuMessage(items=self._registered_menu_items))
 
     def clear_async(self) -> None:

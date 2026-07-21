@@ -44,17 +44,30 @@ class MenuOperations:
         if isinstance(request, OpError):
             return request
         self._registry.set_menus([menu.to_wire() for menu in request.menus])
-        self._replicator.mark_menus(self._registry.menu_bar())
+        self._push()
         return Ok()
 
     def register_menu_item(self, action: MenuAction, *, scope: Scope) -> Ok:
-        """Register a tool item for the caller's session and push the bar."""
+        """Register a tool item for the caller's session and push the menu state."""
         self._registry.register_item(scope.connection_id, action.to_wire())
-        self._replicator.mark_menus(self._registry.menu_bar())
+        self._push()
         return Ok()
 
     def list_menus(self) -> MenuList:
-        """Return the Hub-authoritative menu bar with no reach-around."""
-        return MenuList(
-            menus=[Menu.from_wire(menu) for menu in self._registry.menu_bar()]
+        """Return the whole Hub-authoritative menu state with no reach-around.
+
+        Reports the agent menu bar plus, when any tool items are registered, a
+        synthesized ``Tools`` menu gathering them — the same items the display
+        shows in its World menu — so one read inventories everything the Hub owns.
+        """
+        menus = [Menu.from_wire(menu) for menu in self._registry.menu_bar()]
+        items = self._registry.registered_items()
+        if items:
+            menus.append(Menu.from_wire({"label": "Tools", "items": items}))
+        return MenuList(menus=menus)
+
+    def _push(self) -> None:
+        """Hand the whole menu state to the replicator — the sole display writer."""
+        self._replicator.mark_menus(
+            self._registry.menu_bar(), self._registry.registered_items()
         )

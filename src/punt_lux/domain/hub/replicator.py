@@ -116,14 +116,18 @@ class HubReplicator:
         """Signal that the screen was cleared. Queue-only — never sends."""
         self._signal.mark_cleared()
 
-    def mark_menus(self, menus: Sequence[Mapping[str, object]]) -> None:
-        """Signal a new menu bar to push. Queue-only — the worker sends it.
+    def mark_menus(
+        self,
+        bar: Sequence[Mapping[str, object]],
+        items: Sequence[Mapping[str, object]],
+    ) -> None:
+        """Signal new menu state to push. Queue-only — the worker sends it.
 
         The replicator is the sole writer to the display, so a menu change lands
         the same way a scene change does: the operation writes the Hub registry
-        and hands the whole bar here; this worker alone sends it.
+        and hands the whole bar and item set here; this worker alone sends them.
         """
-        self._signal.mark_menus(menus)
+        self._signal.mark_menus(bar, items)
 
     # -- lifecycle: starts with luxd, stops with luxd -----------------------
 
@@ -244,7 +248,9 @@ class HubReplicator:
         if batch.cleared:
             self._clients.get().clear_async()
         if batch.menus is not None:
-            self._clients.get().set_menu([dict(menu) for menu in batch.menus])
+            sender = self._clients.get()
+            sender.set_menu([dict(menu) for menu in batch.menus.bar])
+            sender.set_registered_items([dict(item) for item in batch.menus.items])
         # Each ``_send_scene`` sends and reports whether the scene was empty; the
         # comprehension keeps the empties as reclaim candidates.
         return tuple(

@@ -21,13 +21,13 @@ from punt_lux.operations.scope import Scope
 
 
 class _MenuMarkerSpy:
-    """A DirtyMarker recording the menu bars pushed — and nothing else touched."""
+    """A DirtyMarker recording the menu pushes — and nothing else touched."""
 
-    _menus: list[Sequence[Mapping[str, object]]]
+    _pushes: list[tuple[Sequence[Mapping[str, object]], Sequence[Mapping[str, object]]]]
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._menus = []
+        self._pushes = []
         return self
 
     def mark_dirty(self, scene_id: SceneId) -> None:
@@ -36,12 +36,18 @@ class _MenuMarkerSpy:
     def mark_cleared(self) -> None:
         raise AssertionError("a menu write must not mark a clear")
 
-    def mark_menus(self, menus: Sequence[Mapping[str, object]]) -> None:
-        self._menus.append(menus)
+    def mark_menus(
+        self,
+        bar: Sequence[Mapping[str, object]],
+        items: Sequence[Mapping[str, object]],
+    ) -> None:
+        self._pushes.append((bar, items))
 
     @property
-    def pushed(self) -> list[Sequence[Mapping[str, object]]]:
-        return self._menus
+    def pushed(
+        self,
+    ) -> list[tuple[Sequence[Mapping[str, object]], Sequence[Mapping[str, object]]]]:
+        return self._pushes
 
 
 def test_set_menu_writes_the_registry_and_pushes_via_the_replicator() -> None:
@@ -50,14 +56,14 @@ def test_set_menu_writes_the_registry_and_pushes_via_the_replicator() -> None:
     ops = MenuOperations(registry, marker)
 
     request = SetMenuRequest.parse(
-        [{"label": "Tools", "items": [{"label": "Run", "id": "run"}]}]
+        [{"label": "File", "items": [{"label": "Run", "id": "run"}]}]
     )
     result = ops.set_menu(request)
 
     assert isinstance(result, Ok)
-    # The bar landed in the registry, and exactly one push was marked — the
-    # replicator is the only writer.
-    assert any(m.get("label") == "Tools" for m in registry.menu_bar())
+    # The agent bar landed in the registry, and exactly one push was marked —
+    # the replicator is the only writer.
+    assert any(m.get("label") == "File" for m in registry.menu_bar())
     assert len(marker.pushed) == 1
 
 
@@ -71,11 +77,9 @@ def test_register_menu_item_scopes_to_the_connection_and_pushes() -> None:
         scope=Scope(ConnectionId("c1")),
     )
 
-    bar = registry.menu_bar()
-    tools = next(m for m in bar if m.get("label") == "Tools")
-    items = tools["items"]
-    assert isinstance(items, list)
-    assert any(i.get("id") == "build" for i in items)
+    # The item lands in the registered (World-menu) items, not the agent bar.
+    assert any(i.get("id") == "build" for i in registry.registered_items())
+    assert registry.menu_bar() == []
     assert len(marker.pushed) == 1
 
 
@@ -108,5 +112,5 @@ def test_a_dropped_connection_loses_its_items() -> None:
         MenuAction(id="x", label="X"), scope=Scope(ConnectionId("c1"))
     )
     registry.drop(ConnectionId("c1"))
-    # With the only session's items gone, the composed bar has no Tools menu.
-    assert not any(m.get("label") == "Tools" for m in registry.menu_bar())
+    # With the only session's items gone, no registered items remain.
+    assert registry.registered_items() == []

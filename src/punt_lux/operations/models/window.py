@@ -13,13 +13,6 @@ if TYPE_CHECKING:
 
 __all__ = ["WindowSettings", "WindowSettingsPatch"]
 
-# The display's own initial window state, used to fill a settings field the
-# display's ``get_window_settings`` reply omits (it reports only ``font_scale``
-# and ``fps_idle``). Reporting the display default for the unreported fields
-# keeps the result total; a display that reports every field overrides these.
-_DEFAULT_OPACITY = 1.0
-_DEFAULT_DECORATED = True
-
 
 class WindowSettings(BaseModel):
     """The window's opacity, font scale, decoration, and idle frame rate."""
@@ -36,17 +29,11 @@ class WindowSettings(BaseModel):
     def from_payload(cls, payload: Mapping[str, object]) -> WindowSettings | OpError:
         """Build from the display's ``get_window_settings`` reply, or reject it.
 
-        The reply is trusted for the fields it carries; opacity and decoration
-        fall back to the display's own defaults when the reply omits them.
+        The display owns and reports every field; a reply missing one is
+        malformed and rejected loudly rather than papered over.
         """
-        merged = {
-            "opacity": payload.get("opacity", _DEFAULT_OPACITY),
-            "font_scale": payload.get("font_scale"),
-            "decorated": payload.get("decorated", _DEFAULT_DECORATED),
-            "fps_idle": payload.get("fps_idle"),
-        }
         try:
-            return cls.model_validate(merged)
+            return cls.model_validate(payload)
         except ValidationError as exc:
             return OpError(code="rejected", reason=OpError.describe(exc.errors()[0]))
 

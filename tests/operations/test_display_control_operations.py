@@ -100,34 +100,44 @@ def test_get_display_info_maps_timeout_to_op_error() -> None:
     assert result.code == "timeout"
 
 
-def test_get_theme_normalizes_qualified_enum_names() -> None:
-    # The display enumerates available themes as qualified enum strings; the
-    # operation normalizes them to bare names and drops any it does not know.
+def test_get_theme_passes_the_bare_theme_names_through() -> None:
+    # The display answers with bare theme names (its own enum names); the
+    # operation validates them against the ThemeName set as-is.
     payload = {
         "current": "darcula",
-        "available": [
-            "ImGuiTheme_.imgui_colors_light",
-            "ImGuiTheme_.darcula",
-            "ImGuiTheme_.some_unknown_theme",
-        ],
+        "available": ["imgui_colors_light", "darcula", "gray_variations"],
     }
     ops = DisplayControlOperations(_FakePort(query=DisplayReplied(payload)))
     result = ops.get_theme()
     assert isinstance(result, ThemeState)
     assert result.theme == "darcula"
-    assert result.available == ["imgui_colors_light", "darcula"]
+    assert result.available == ["imgui_colors_light", "darcula", "gray_variations"]
 
 
-def test_get_window_settings_fills_omitted_fields_with_display_defaults() -> None:
-    # The display's getter reports only font_scale and fps_idle; opacity and
-    # decorated fall back to the display's own initial state.
-    payload = {"font_scale": 1.25, "fps_idle": 30.0}
+def test_get_theme_rejects_an_unknown_theme_name() -> None:
+    # An unrecognized theme name fails loudly rather than being silently dropped.
+    payload = {"current": "not_a_theme", "available": []}
+    ops = DisplayControlOperations(_FakePort(query=DisplayReplied(payload)))
+    result = ops.get_theme()
+    assert isinstance(result, OpError)
+    assert result.code == "rejected"
+
+
+def test_get_window_settings_reads_all_four_fields() -> None:
+    # The display owns and reports opacity, font_scale, decorated, and fps_idle.
+    payload = {
+        "opacity": 0.9,
+        "font_scale": 1.25,
+        "decorated": False,
+        "fps_idle": 30.0,
+    }
     ops = DisplayControlOperations(_FakePort(query=DisplayReplied(payload)))
     result = ops.get_window_settings()
     assert isinstance(result, WindowSettings)
+    assert result.opacity == 0.9
     assert result.font_scale == 1.25
-    assert result.opacity == 1.0
-    assert result.decorated is True
+    assert result.decorated is False
+    assert result.fps_idle == 30.0
 
 
 def test_screenshot_returns_path_then_maps_error() -> None:

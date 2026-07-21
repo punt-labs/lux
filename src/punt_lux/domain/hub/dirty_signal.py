@@ -19,23 +19,34 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.ids import SceneId
 
-__all__ = ["DirtySignal", "DrainedBatch", "MenuBar"]
+__all__ = ["DirtySignal", "DrainedBatch", "MenuPush"]
 
-# The menu bar to push: a list of wire menu dicts. ``None`` in a batch means no
-# menu change is pending this cycle (PY-TS-14 wire boundary — the display's own
-# untyped menu payload, built by the operation from typed models).
-type MenuBar = tuple[Mapping[str, object], ...]
+
+@final
+@dataclass(frozen=True, slots=True)
+class MenuPush:
+    """The whole menu state to resend: the agent menu bar and the tool items.
+
+    The ``bar`` is the agent-defined menu bar (rendered from ``MenuMessage``); the
+    ``items`` are the registered tool items (rendered in the World menu from
+    ``RegisterMenuMessage``). Both are wire dicts — the display's own untyped menu
+    payloads, built by the operation from typed models (PY-TS-14 wire boundary).
+    A resend replaces the whole of each, so only the newest push survives a burst.
+    """
+
+    bar: tuple[Mapping[str, object], ...]
+    items: tuple[Mapping[str, object], ...]
 
 
 @final
 @dataclass(frozen=True, slots=True)
 class DrainedBatch:
-    """One cycle's work: coalesced scenes, a pending clear, menu bar, and stop."""
+    """One cycle's work: coalesced scenes, a pending clear, a menu push, and stop."""
 
     scenes: frozenset[SceneId]
     cleared: bool
     shutting: bool
-    menus: MenuBar | None = None
+    menus: MenuPush | None = None
 
     @property
     def has_work(self) -> bool:
@@ -57,7 +68,7 @@ class DirtySignal:
     _dirty: set[SceneId]
     _cleared: bool
     _shutting: bool
-    _menus: MenuBar | None
+    _menus: MenuPush | None
     __slots__ = ("_cleared", "_cond", "_dirty", "_menus", "_shutting")
 
     def __new__(cls) -> Self:
@@ -81,14 +92,18 @@ class DirtySignal:
             self._cleared = True
             self._cond.notify()
 
-    def mark_menus(self, menus: Sequence[Mapping[str, object]]) -> None:
-        """Record the latest menu bar to push and wake the worker. No I/O.
+    def mark_menus(
+        self,
+        bar: Sequence[Mapping[str, object]],
+        items: Sequence[Mapping[str, object]],
+    ) -> None:
+        """Record the latest menu state to push and wake the worker. No I/O.
 
-        Coalesces like the cleared flag: only the newest menu bar survives a
-        burst, since a resend replaces the whole bar anyway.
+        Coalesces like the cleared flag: only the newest menu state survives a
+        burst, since a resend replaces the whole bar and item set anyway.
         """
         with self._cond:
-            self._menus = tuple(menus)
+            self._menus = MenuPush(bar=tuple(bar), items=tuple(items))
             self._cond.notify()
 
     def add_all(self, scenes: Iterable[SceneId]) -> None:

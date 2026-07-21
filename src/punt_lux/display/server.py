@@ -746,27 +746,27 @@ class DisplayServer:
             "pid": os.getpid(),
             "uptime_seconds": round(time.time() - self._start_time, 1),
             "protocol_version": "1.0",
-            # The four migrated ABC kinds stay in the legacy dispatch tables
-            # during the fork's mixed period (they paint via the per-kind
-            # renderer when nested in a legacy container), so the count is
-            # honest without a separate factory addend.
+            # Migrated ABC kinds still paint via the legacy dispatch tables during
+            # the fork, so the count needs no separate factory addend.
             "element_kinds": self._element_renderer.element_kind_count,
         }
 
     def _query_get_window_settings(self, **_kwargs: Any) -> dict[str, Any]:
-        """Return current window settings."""
+        """Return the window's opacity, font scale, decoration, and idle rate."""
         from imgui_bundle import hello_imgui, imgui
 
         return {
+            "opacity": self._opacity,
             "font_scale": round(imgui.get_font_size(), 1),
+            "decorated": self._decorated,
             "fps_idle": hello_imgui.get_runner_params().fps_idling.fps_idle,
         }
 
     def _query_get_theme(self, **_kwargs: Any) -> dict[str, Any]:
-        """Return current theme and available themes."""
+        """Return the current theme and the switchable themes as bare names."""
         return {
             "current": self._current_theme,
-            "available": [str(t) for t in self._themes],
+            "available": [t.name for t in self._themes if t.name != "count"],
         }
 
     @trace

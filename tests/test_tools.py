@@ -941,8 +941,8 @@ class _ReplicatorSpy:
     def mark_cleared(self) -> None:
         self.cleared += 1
 
-    def mark_menus(self, menus: object) -> None:
-        """Swallow a menu-bar push mark; the spy only records scene signals."""
+    def mark_menus(self, bar: object, items: object) -> None:
+        """Swallow a menu push mark; the spy only records scene signals."""
 
 
 def _bind_store(monkeypatch: pytest.MonkeyPatch, store: HubDisplay) -> MagicMock:
@@ -2221,14 +2221,9 @@ class TestSessionKey:
         assert _session_key.get() == "local"
 
 
-def _bar_has_item(bar: list[dict[str, object]], item_id: str) -> bool:
-    """Whether the composed menu bar carries a tool item with ``item_id``."""
-    for menu in bar:
-        items = menu.get("items", [])
-        entries = items if isinstance(items, list) else []
-        if any(isinstance(e, dict) and e.get("id") == item_id for e in entries):
-            return True
-    return False
+def _has_registered_item(items: list[dict[str, object]], item_id: str) -> bool:
+    """Whether the registry's flat tool-item list carries ``item_id``."""
+    return any(item.get("id") == item_id for item in items)
 
 
 class TestCleanupSession:
@@ -2238,7 +2233,9 @@ class TestCleanupSession:
         conn = ConnectionId("sess-1")
         hub_menu_registry.register_item(conn, {"label": "Run", "id": "cleanup-tool"})
         _cleanup_session("sess-1")
-        assert not _bar_has_item(hub_menu_registry.menu_bar(), "cleanup-tool")
+        assert not _has_registered_item(
+            hub_menu_registry.registered_items(), "cleanup-tool"
+        )
 
     def test_noop_when_no_items(self) -> None:
         _cleanup_session("nonexistent-session")  # must not raise
@@ -2255,7 +2252,9 @@ class TestRegisterToolSessionTracking:
                 register_tool(label="Run", tool_id="track-run")
                 == "registered:track-run"
             )
-            assert _bar_has_item(hub_menu_registry.menu_bar(), "track-run")
+            assert _has_registered_item(
+                hub_menu_registry.registered_items(), "track-run"
+            )
         finally:
             hub_menu_registry.drop(conn)
 
@@ -2266,7 +2265,9 @@ class TestRegisterToolSessionTracking:
         token = _session_key.set("ws-99")
         try:
             register_tool(label="Build", tool_id="track-build")
-            assert _bar_has_item(hub_menu_registry.menu_bar(), "track-build")
+            assert _has_registered_item(
+                hub_menu_registry.registered_items(), "track-build"
+            )
         finally:
             _session_key.reset(token)
             hub_menu_registry.drop(conn)

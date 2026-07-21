@@ -641,8 +641,8 @@ class TestAutoSpawn:
 
 
 class TestRegisterMenuItem:
-    def test_register_sends_accumulated_items(self, tmp_path: Path) -> None:
-        """register_menu_item() sends a RegisterMenuMessage with all items."""
+    def test_set_registered_items_sends_the_whole_set(self, tmp_path: Path) -> None:
+        """set_registered_items() sends one RegisterMenuMessage with the set."""
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
@@ -655,11 +655,9 @@ class TestRegisterMenuItem:
             nonlocal server_conn
             server_conn = _mini_display(sock_path, ready_event)
             assert server_conn is not None
-            # Read two RegisterMenuMessages (one per register_menu_item call)
-            for _ in range(2):
-                msg = recv_message(server_conn, timeout=5)
-                assert isinstance(msg, RegisterMenuMessage)
-                received.append(msg)
+            msg = recv_message(server_conn, timeout=5)
+            assert isinstance(msg, RegisterMenuMessage)
+            received.append(msg)
 
         t = threading.Thread(target=serve, daemon=True)
         t.start()
@@ -669,16 +667,12 @@ class TestRegisterMenuItem:
             with DisplayClient(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                client.register_menu_item({"id": "a", "label": "A"})
-                client.register_menu_item({"id": "b", "label": "B"})
+                client.set_registered_items(
+                    [{"id": "a", "label": "A"}, {"id": "b", "label": "B"}]
+                )
             t.join(timeout=5)
-            assert len(received) == 2
-            # First call: just item A
-            assert len(received[0].items) == 1
-            assert received[0].items[0]["id"] == "a"
-            # Second call: items A and B accumulated
-            assert len(received[1].items) == 2
-            assert received[1].items[1]["id"] == "b"
+            assert len(received) == 1
+            assert [i["id"] for i in received[0].items] == ["a", "b"]
         finally:
             if server_conn:
                 server_conn.close()
@@ -687,8 +681,10 @@ class TestRegisterMenuItem:
 
             shutil.rmtree(short_dir, ignore_errors=True)
 
-    def test_register_deduplicates_by_id(self, tmp_path: Path) -> None:
-        """Registering an item with the same ID replaces the existing one."""
+    def test_set_registered_items_replaces_and_keeps_builtins(
+        self, tmp_path: Path
+    ) -> None:
+        """A set replaces the agent items but preserves declared built-ins."""
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
@@ -714,13 +710,13 @@ class TestRegisterMenuItem:
             with DisplayClient(
                 sock_path, auto_spawn=False, connect_timeout=2.0
             ) as client:
-                client.register_menu_item({"id": "x", "label": "Old"})
-                client.register_menu_item({"id": "x", "label": "New"})
+                client.declare_menu_item({"id": "beads", "label": "Beads"})
+                client.set_registered_items([{"id": "x", "label": "Old"}])
+                client.set_registered_items([{"id": "y", "label": "New"}])
             t.join(timeout=5)
-            # Second message should have 1 item (deduped), with updated label
+            # The second set replaced "x" with "y"; the declared built-in stays.
             assert len(received) == 2
-            assert len(received[1].items) == 1
-            assert received[1].items[0]["label"] == "New"
+            assert [i["id"] for i in received[1].items] == ["beads", "y"]
         finally:
             if server_conn:
                 server_conn.close()
@@ -730,7 +726,7 @@ class TestRegisterMenuItem:
             shutil.rmtree(short_dir, ignore_errors=True)
 
     def test_reconnect_replays_registered_items(self, tmp_path: Path) -> None:
-        """connect() replays accumulated items after ReadyMessage handshake."""
+        """connect() replays the registered items after ReadyMessage handshake."""
         import tempfile
 
         short_dir = tempfile.mkdtemp(prefix="lux-")
@@ -758,7 +754,7 @@ class TestRegisterMenuItem:
             # First connection: register an item
             client = DisplayClient(sock_path, auto_spawn=False, connect_timeout=2.0)
             client.connect()
-            client.register_menu_item({"id": "t1", "label": "Tool 1"})
+            client.set_registered_items([{"id": "t1", "label": "Tool 1"}])
             msg = recv_message(conns[0], timeout=5)
             assert isinstance(msg, RegisterMenuMessage)
 
@@ -1272,7 +1268,7 @@ class TestBackgroundListener:
             client.connect()
             client.start_listener()
             # Register the menu item (triggers the flow)
-            client.register_menu_item({"id": "hello-world", "label": "Hello"})
+            client.set_registered_items([{"id": "hello-world", "label": "Hello"}])
             # Wait for the full pipeline to complete
             assert callback_fired.wait(timeout=3.0), "Callback never fired"
             t.join(timeout=3)

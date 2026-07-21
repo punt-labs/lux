@@ -29,14 +29,19 @@ class DisplaySender(ScenePusher, Protocol):
 
     Extends ``ScenePusher`` (``show_async``) with ``clear_async`` so the
     replicator blanks the display before it repaints a coalesced batch, and with
-    ``set_menu`` so the replicator is the sole writer of the menu bar too.
+    the two menu writes so the replicator is the sole writer of the menu state:
+    ``set_menu`` for the agent menu bar and ``set_registered_items`` for the
+    World-menu tool items.
     """
 
     def clear_async(self) -> None:
         """Blank the display without waiting for an acknowledgement."""
 
     def set_menu(self, menus: list[dict[str, object]]) -> None:
-        """Replace the display's menu bar with the given wire menus."""
+        """Replace the display's agent menu bar with the given wire menus."""
+
+    def set_registered_items(self, items: list[dict[str, object]]) -> None:
+        """Replace the display's registered World-menu tool items."""
 
 
 @runtime_checkable

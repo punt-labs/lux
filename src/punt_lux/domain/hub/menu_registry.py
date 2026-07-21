@@ -2,11 +2,15 @@
 
 Menus are UI the agent submits, and the Hub is the authority for submitted UI.
 This registry holds the authoritative menu state so ``list_menus`` reads it with
-no reach-around and the replicator pushes it like any scene. ``set_menu``
+no reach-around and the replicator pushes it like any scene. ``set_menus``
 replaces the agent-defined bar; ``register_item`` adds a tool item scoped to the
 registering session, so a session's items can be dropped when it disconnects.
-``menu_bar`` composes the full wire payload the replicator sends: the agent bar
-plus a Tools menu gathering every registered item.
+
+The two kinds of menu state stay distinct, matching the two the display renders:
+``menu_bar`` is the agent menu bar (the display's ``MenuMessage`` bar), and
+``registered_items`` is the flat set of tool items (the display's World-menu
+``RegisterMenuMessage`` items). Keeping them separate preserves the display's
+existing layout — the ownership move to the Hub is invisible to the user.
 
 State is guarded by one independent lock. The lock is never held across another
 lock or any I/O — tool threads mutate and read the registry, and the composed
@@ -25,9 +29,6 @@ if TYPE_CHECKING:
     from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["HubMenuRegistry", "hub_menu_registry"]
-
-# The label of the Hub-composed menu that gathers registered tool items.
-_TOOLS_MENU_LABEL = "Tools"
 
 
 @final
@@ -70,13 +71,14 @@ class HubMenuRegistry:
             self._tool_items.pop(connection_id, None)
 
     def menu_bar(self) -> list[dict[str, object]]:
-        """Compose the full wire menu bar: the agent menus plus a Tools menu."""
+        """Return the agent-defined menu bar (the display's ``MenuMessage`` bar)."""
         with self._lock:
-            bar = [dict(menu) for menu in self._menus]
-            items = [dict(item) for lst in self._tool_items.values() for item in lst]
-        if items:
-            bar.append({"label": _TOOLS_MENU_LABEL, "items": items})
-        return bar
+            return [dict(menu) for menu in self._menus]
+
+    def registered_items(self) -> list[dict[str, object]]:
+        """Return every session's tool items, flattened for the World menu."""
+        with self._lock:
+            return [dict(item) for lst in self._tool_items.values() for item in lst]
 
 
 # Module-level singleton — the production menu registry. Tests construct their

@@ -1,8 +1,13 @@
-"""Theme name, the current-theme result, and the set-theme request."""
+"""Theme name, the current-theme result, and the set-theme request.
+
+``ThemeName`` is the exact set of themes the display's renderer (hello_imgui)
+enumerates — the display handler answers with the bare enum name of each, so the
+model and the display agree by construction and neither drifts from the other.
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, cast, get_args
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, ValidationError
 
@@ -13,22 +18,28 @@ if TYPE_CHECKING:
 
 __all__ = ["SetThemeRequest", "ThemeName", "ThemeState"]
 
+# The display renderer's real theme enumeration (hello_imgui.ImGuiTheme_), minus
+# the trailing "count" sentinel. The get_theme handler returns these bare names,
+# so this Literal is the display's own set, not a hand-kept parallel list.
 ThemeName = Literal[
-    "imgui_colors_light",
-    "imgui_colors_dark",
     "imgui_colors_classic",
-    "darcula",
-    "darcula_darker",
+    "imgui_colors_dark",
+    "imgui_colors_light",
     "material_flat",
     "photoshop_style",
-    "grey_flat",
-    "cherry",
-    "light_rounded",
+    "gray_variations",
+    "gray_variations_darker",
     "microsoft_style",
-    "from_imgui_colors_dark",
+    "cherry",
+    "darcula",
+    "darcula_darker",
+    "light_rounded",
+    "so_dark_accent_blue",
+    "so_dark_accent_yellow",
+    "so_dark_accent_red",
+    "black_is_black",
+    "white_is_white",
 ]
-
-_KNOWN_THEMES: frozenset[str] = frozenset(get_args(ThemeName))
 
 
 class ThemeState(BaseModel):
@@ -42,30 +53,21 @@ class ThemeState(BaseModel):
 
     @classmethod
     def from_payload(cls, payload: Mapping[str, object]) -> ThemeState | OpError:
-        """Build from the display's ``get_theme`` reply.
+        """Build from the display's ``get_theme`` reply, or reject a malformed one.
 
-        The reply names the current theme and enumerates the available ones. The
-        available list is normalized to bare theme names — the display enumerates
-        them as qualified enum strings — and narrowed to the known set, so an
-        entry the type does not recognize is dropped rather than rejecting the
-        whole reply.
+        The reply names the current theme and enumerates the available ones, both
+        as bare theme names; a name the type does not recognize fails validation
+        loudly rather than being silently dropped.
         """
-        current = cls._bare_name(payload.get("theme", payload.get("current")))
-        if current not in _KNOWN_THEMES:
-            return OpError(code="rejected", reason=f"unknown theme: {current!r}")
-        raw = payload.get("available", [])
-        entries = cast("list[object]", raw) if isinstance(raw, list) else []
-        available = [
-            name
-            for entry in entries
-            if (name := cls._bare_name(entry)) in _KNOWN_THEMES
-        ]
-        return cls.model_validate({"theme": current, "available": available})
-
-    @staticmethod
-    def _bare_name(value: object) -> str:
-        """Return the trailing segment of a possibly-qualified enum string."""
-        return str(value).rsplit(".", maxsplit=1)[-1]
+        try:
+            return cls.model_validate(
+                {
+                    "theme": payload.get("current"),
+                    "available": payload.get("available", []),
+                }
+            )
+        except ValidationError as exc:
+            return OpError(code="rejected", reason=OpError.describe(exc.errors()[0]))
 
 
 class SetThemeRequest(BaseModel):

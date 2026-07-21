@@ -83,8 +83,8 @@ class _StubReplicator:
     def mark_cleared(self) -> None:
         """Swallow the clear mark."""
 
-    def mark_menus(self, menus: object) -> None:
-        """Swallow the menu-bar push mark."""
+    def mark_menus(self, bar: object, items: object) -> None:
+        """Swallow the menu push mark."""
 
 
 class _StubClient:
