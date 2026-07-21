@@ -15,6 +15,7 @@ from punt_lux.operations.config import DisplayModeOperations
 from punt_lux.operations.conveniences import ConvenienceOperations
 from punt_lux.operations.display_control import DisplayControlOperations
 from punt_lux.operations.pubsub import PubSubOperations
+from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scenes import SceneOperations
 
 if TYPE_CHECKING:
@@ -41,6 +42,11 @@ if TYPE_CHECKING:
     from punt_lux.operations.models.display_info import DisplayInfo
     from punt_lux.operations.models.display_probe import Pong, Screenshot
     from punt_lux.operations.models.display_write import DisplayAck, FrameStatePatch
+    from punt_lux.operations.models.query_clients import ClientList
+    from punt_lux.operations.models.query_errors import RecentErrors
+    from punt_lux.operations.models.query_events import RecentEvents
+    from punt_lux.operations.models.query_inspection import SceneInspection
+    from punt_lux.operations.models.query_scenes import SceneList
     from punt_lux.operations.models.theme import SetThemeRequest, ThemeState
     from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
     from punt_lux.operations.ports import DirtyMarker, HubPorts
@@ -57,7 +63,15 @@ class Operations:
     _pubsub: PubSubOperations
     _config: DisplayModeOperations
     _display: DisplayControlOperations
-    __slots__ = ("_config", "_conveniences", "_display", "_pubsub", "_scenes")
+    _queries: QueryOperations
+    __slots__ = (
+        "_config",
+        "_conveniences",
+        "_display",
+        "_pubsub",
+        "_queries",
+        "_scenes",
+    )
 
     def __new__(
         cls,
@@ -67,6 +81,7 @@ class Operations:
         pubsub: PubSubOperations,
         config: DisplayModeOperations,
         display: DisplayControlOperations,
+        queries: QueryOperations,
     ) -> Self:
         self = super().__new__(cls)
         self._scenes = scenes
@@ -74,6 +89,7 @@ class Operations:
         self._pubsub = pubsub
         self._config = config
         self._display = display
+        self._queries = queries
         return self
 
     @classmethod
@@ -95,6 +111,7 @@ class Operations:
             pubsub=PubSubOperations(hub, ports.ensure_writer, ports.next_event),
             config=DisplayModeOperations(client_registry),
             display=DisplayControlOperations(display_port),
+            queries=QueryOperations(display, hub, display_port),
         )
 
     def render(
@@ -188,3 +205,25 @@ class Operations:
     ) -> DisplayAck | OpError:
         """Change a frame's minimize state."""
         return self._display.set_frame_state(frame_id, patch)
+
+    def inspect_scene(
+        self, scene_id: str, *, want_mirror: bool = False
+    ) -> SceneInspection | OpError:
+        """Return a scene's element tree from the authoritative store."""
+        return self._queries.inspect_scene(scene_id, want_mirror=want_mirror)
+
+    def list_scenes(self) -> SceneList:
+        """List every live scene and frame from the authoritative store."""
+        return self._queries.list_scenes()
+
+    def list_clients(self, *, now: float) -> ClientList:
+        """List the Hub's sessions and their scopes."""
+        return self._queries.list_clients(now=now)
+
+    def list_recent_events(self, count: int) -> RecentEvents | OpError:
+        """Return the display's recent interactions, proxied."""
+        return self._queries.list_recent_events(count)
+
+    def list_errors(self, count: int) -> RecentErrors | OpError:
+        """Return the display's recent errors, proxied."""
+        return self._queries.list_errors(count)

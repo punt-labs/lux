@@ -170,6 +170,13 @@ class ElementIndex:
         """Return every root-bearing scene key, live or since-emptied."""
         return tuple(self._roots_by_scene)
 
+    def element_count(self, scene_id: SceneId) -> int:
+        """Return the number of non-removed elements (roots and children) held."""
+        scene = self._by_scene.get(scene_id)
+        if scene is None:
+            return 0
+        return sum(1 for elem in scene.values() if not self._is_removed(elem))
+
     def discard(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Remove an indexed element. No-op if absent.
 

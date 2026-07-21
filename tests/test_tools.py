@@ -17,7 +17,12 @@ from punt_lux.domain.hub.element_index import UnknownElementError
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
-from punt_lux.operations import Operations
+from punt_lux.operations import (
+    Operations,
+    OpError,
+    SceneInspection,
+    SceneList,
+)
 from punt_lux.operations.ports import HubPorts
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
@@ -2095,123 +2100,50 @@ class TestPingNoAutoSpawn:
 
 
 class TestInspectSceneTool:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=False)
-    def test_inspect_scene_not_running(
-        self, mock_running: MagicMock, mock_get: MagicMock
+    """inspect_scene reads the authoritative Hub store, not the display."""
+
+    def test_inspect_scene_returns_the_hub_tree(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        store = HubDisplay()
+        _seed_group_with_child(store, scene="s1", group_id="g1", child_id="t1")
+        _bind_store(monkeypatch, store)
 
         result = inspect_scene("s1")
-        assert result == "not running"
-        mock_get.assert_not_called()
+        assert isinstance(result, SceneInspection)
+        assert result.scene_id == "s1"
+        assert result.elements[0].id == "g1"
+        assert result.elements[0].children[0].id == "t1"
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_inspect_scene_returns_elements(
-        self, mock_running: MagicMock, mock_get: MagicMock
+    def test_inspect_scene_unknown_scene_is_not_found(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        client = _mock_client()
-        elements = [
-            {"kind": "text", "id": "t1", "content": "hello"},
-        ]
-        client.query.return_value = QueryResponse(
-            method="inspect_scene",
-            result={"scene_id": "s1", "elements": elements},
-        )
-        mock_get.return_value = client
-
-        result = inspect_scene("s1")
-        assert '"scene_id": "s1"' in result
-        assert '"content": "hello"' in result
-
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_inspect_scene_not_found(
-        self, mock_running: MagicMock, mock_get: MagicMock
-    ) -> None:
-        client = _mock_client()
-        client.query.return_value = QueryResponse(
-            method="inspect_scene",
-            error="Scene 'missing' not found",
-        )
-        mock_get.return_value = client
-
+        _bind_store(monkeypatch, HubDisplay())
         result = inspect_scene("missing")
-        assert result == "error: Scene 'missing' not found"
-
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_inspect_scene_timeout(
-        self, mock_running: MagicMock, mock_get: MagicMock
-    ) -> None:
-        client = _mock_client()
-        client.query.return_value = None
-        mock_get.return_value = client
-
-        result = inspect_scene("s1")
-        assert result == "timeout"
+        assert isinstance(result, OpError)
+        assert result.code == "not_found"
 
 
 class TestListScenesTool:
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=False)
-    def test_list_scenes_not_running(
-        self, mock_running: MagicMock, mock_get: MagicMock
+    """list_scenes reads the authoritative Hub store, not the display."""
+
+    def test_list_scenes_returns_the_hub_scenes(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        store = HubDisplay()
+        _seed_group_with_child(store, scene="s1", group_id="g1", child_id="t1")
+        _bind_store(monkeypatch, store)
 
         result = list_scenes()
-        assert result == "not running"
-        mock_get.assert_not_called()
+        assert isinstance(result, SceneList)
+        assert any(s.scene_id == "s1" for s in result.scenes)
 
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_list_scenes_returns_data(
-        self, mock_running: MagicMock, mock_get: MagicMock
-    ) -> None:
-        client = _mock_client()
-        scenes = [
-            {"scene_id": "s1", "element_count": 3, "frame_id": "f1", "owner_fd": 5},
-        ]
-        frames = [
-            {"frame_id": "f1", "title": "Main", "scene_count": 1, "scene_ids": ["s1"]},
-        ]
-        client.query.return_value = QueryResponse(
-            method="list_scenes",
-            result={"scenes": scenes, "frames": frames},
-        )
-        mock_get.return_value = client
-
+    def test_list_scenes_empty_store(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _bind_store(monkeypatch, HubDisplay())
         result = list_scenes()
-        assert '"scene_id": "s1"' in result
-        assert '"frame_id": "f1"' in result
-
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_list_scenes_timeout(
-        self, mock_running: MagicMock, mock_get: MagicMock
-    ) -> None:
-        client = _mock_client()
-        client.query.return_value = None
-        mock_get.return_value = client
-
-        result = list_scenes()
-        assert result == "timeout"
-
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_list_scenes_empty(
-        self, mock_running: MagicMock, mock_get: MagicMock
-    ) -> None:
-        client = _mock_client()
-        client.query.return_value = QueryResponse(
-            method="list_scenes",
-            result={"scenes": [], "frames": []},
-        )
-        mock_get.return_value = client
-
-        result = list_scenes()
-        assert '"scenes": []' in result
-        assert '"frames": []' in result
+        assert isinstance(result, SceneList)
+        assert result.scenes == []
+        assert result.frames == []
 
 
 class TestScreenshotTool:

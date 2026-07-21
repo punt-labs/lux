@@ -12,15 +12,20 @@ from punt_lux.domain.hub.display_connection import HubDisplayConnection
 from punt_lux.domain.hub.replicator_instance import hub_replicator
 from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import (
+    ClientList,
     DisplayInfo,
     DisplayModeRequest,
     DisplayModeState,
     FrameStatePatch,
     Operations,
     OpError,
+    RecentErrors,
+    RecentEvents,
     RenderDashboardRequest,
     RenderRequest,
     RenderTableRequest,
+    SceneInspection,
+    SceneList,
     SceneShown,
     Scope,
     SetThemeRequest,
@@ -126,11 +131,6 @@ def _format_display_mode(result: DisplayModeState | OpError) -> str:
     if isinstance(result, OpError):
         raise ValueError(result.reason)
     return f"display:{result.mode}"
-
-
-def _display_running() -> bool:
-    """Whether a live display process owns the socket."""
-    return DisplayPaths().is_running()
 
 
 def _client() -> DisplayClient:
@@ -582,48 +582,24 @@ def ping() -> str:
 
 
 @mcp.tool()
-def inspect_scene(scene_id: str) -> str:
-    """Return the element tree for a scene as JSON.
+def inspect_scene(scene_id: str) -> SceneInspection | OpError:
+    """Return the element tree for a scene, read from the authoritative store.
 
-    Use this to debug rendering issues -- see exactly what elements
-    the display server has for a given scene_id. Returns "not running"
-    if the display server is not available.
+    Each element reports its render path ("abc" or "legacy") and its resolved
+    state including defaults, so you can verify what the Hub holds without
+    inspecting pixels. An unknown scene is a not_found error.
     """
-    if not _display_running():
-        return "not running"
-
-    def _call() -> str:
-        client = _client()
-        response = client.query("inspect_scene", {"scene_id": scene_id})
-        if response is None:
-            return "timeout"
-        if response.error:
-            return f"error: {response.error}"
-        return json.dumps(response.result, indent=2)
-
-    return client_registry.with_reconnect(_call)
+    return OPERATIONS.inspect_scene(scene_id)
 
 
 @mcp.tool()
-def list_scenes() -> str:
-    """List all active scenes and frames in the display.
+def list_scenes() -> SceneList:
+    """List all active scenes and frames from the authoritative store.
 
-    Returns JSON with scenes (scene_id, element_count, frame_id) and
-    frames (frame_id, title, scene_count). Use to understand what the
-    display is currently showing. Returns "not running" if the display
-    server is not available.
+    Returns the scenes (scene_id, element_count, frame_id, owner) and frames
+    (frame_id, title, scene_count, scene_ids, layout) the Hub is holding.
     """
-    if not _display_running():
-        return "not running"
-
-    def _call() -> str:
-        client = _client()
-        response = client.query("list_scenes")
-        if response is None:
-            return "timeout"
-        return json.dumps(response.result, indent=2)
-
-    return client_registry.with_reconnect(_call)
+    return OPERATIONS.list_scenes()
 
 
 @mcp.tool()
@@ -663,13 +639,14 @@ def get_theme() -> ThemeState | OpError:
     return OPERATIONS.get_theme()
 
 
-@_query_tool(
-    "list_clients",
-    doc="List all clients connected to the display server.",
-)
-def list_clients() -> dict[str, Any] | None:
-    """List all clients connected to the display server."""
-    return None
+@mcp.tool()
+def list_clients() -> ClientList:
+    """List the Hub's sessions — the connections and their scopes.
+
+    After the Hub took over, the display has one socket client (luxd); the
+    meaningful client list is the set of Hub sessions the Hub holds.
+    """
+    return OPERATIONS.list_clients(now=_now())
 
 
 @_query_tool(
@@ -705,23 +682,21 @@ def set_display_mode(mode: str, repo: str) -> str:
     )
 
 
-@_query_tool(
-    "list_recent_events",
-    doc="Return the last N interaction events from the display.\n\n"
-    "Events include button clicks, slider changes, combo selections,\n"
-    "and other user interactions. Default 50, max 200.",
-)
-def list_recent_events(count: int = 50) -> dict[str, Any] | None:
-    """Return the last N interaction events."""
-    return {"count": count}
+@mcp.tool()
+def list_recent_events(count: int = 50) -> RecentEvents | OpError:
+    """Return the last N interaction events from the display.
+
+    Events include button clicks, slider changes, combo selections, and other
+    user interactions. Default 50, max 200. Proxied over luxd's one connection.
+    """
+    return OPERATIONS.list_recent_events(count)
 
 
-@_query_tool(
-    "list_errors",
-    doc="Return the last N display-side errors and warnings.\n\n"
-    "Each entry includes timestamp, severity, message, and context.\n"
-    "Default 20, max 100.",
-)
-def list_errors(count: int = 20) -> dict[str, Any] | None:
-    """Return the last N display-side errors."""
-    return {"count": count}
+@mcp.tool()
+def list_errors(count: int = 20) -> RecentErrors | OpError:
+    """Return the last N display-side errors and warnings.
+
+    Each entry includes timestamp, severity, message, and context. Default 20,
+    max 100. Proxied over luxd's one connection.
+    """
+    return OPERATIONS.list_errors(count)

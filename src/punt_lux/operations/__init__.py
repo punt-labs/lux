@@ -29,6 +29,11 @@ from punt_lux.operations.models import (
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong, Screenshot
 from punt_lux.operations.models.display_write import DisplayAck, FrameStatePatch
+from punt_lux.operations.models.query_clients import ClientList
+from punt_lux.operations.models.query_errors import RecentErrors
+from punt_lux.operations.models.query_events import RecentEvents
+from punt_lux.operations.models.query_inspection import SceneInspection
+from punt_lux.operations.models.query_scenes import SceneList
 from punt_lux.operations.models.theme import SetThemeRequest, ThemeState
 from punt_lux.operations.models.window import WindowSettings, WindowSettingsPatch
 from punt_lux.operations.ports import HubPorts
@@ -36,6 +41,7 @@ from punt_lux.operations.scope import Scope
 
 __all__ = [
     "Cleared",
+    "ClientList",
     "DisplayAck",
     "DisplayInfo",
     "DisplayModeRequest",
@@ -48,9 +54,13 @@ __all__ = [
     "PublishRequest",
     "Published",
     "Received",
+    "RecentErrors",
+    "RecentEvents",
     "RenderDashboardRequest",
     "RenderRequest",
     "RenderTableRequest",
+    "SceneInspection",
+    "SceneList",
     "SceneShown",
     "Scope",
     "Screenshot",

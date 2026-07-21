@@ -16,13 +16,8 @@ and screenshot and ping answer with their own typed results. The setters
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Self, final
+from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.operations.display_reply import (
-    DisplayErrored,
-    DisplayFault,
-    DisplayReplied,
-)
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.display_info import DisplayInfo
 from punt_lux.operations.models.display_probe import Pong, Screenshot
@@ -34,7 +29,6 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from punt_lux.operations.display_port import DisplayPort
-    from punt_lux.operations.display_reply import DisplayReply
 
 __all__ = ["DisplayControlOperations"]
 
@@ -46,13 +40,6 @@ class DisplayControlOperations:
     _port: DisplayPort
     __slots__ = ("_port",)
 
-    # A fault code maps straight onto the matching OpError code; the reason is
-    # the human sentence a log or a formatted status line carries.
-    _FAULT_REASON: ClassVar[dict[str, str]] = {
-        "display_unavailable": "display is not running",
-        "timeout": "display did not respond in time",
-    }
-
     def __new__(cls, port: DisplayPort) -> Self:
         self = super().__new__(cls)
         self._port = port
@@ -62,28 +49,28 @@ class DisplayControlOperations:
 
     def get_display_info(self) -> DisplayInfo | OpError:
         """Return the display's backend, geometry, frame rate, and identity."""
-        payload = self._payload(self._port.query("get_display_info", {}))
+        payload = self._port.query("get_display_info", {}).resolve()
         if isinstance(payload, OpError):
             return payload
         return DisplayInfo.from_payload(payload)
 
     def get_theme(self) -> ThemeState | OpError:
         """Return the active theme and the themes available to switch to."""
-        payload = self._payload(self._port.query("get_theme", {}))
+        payload = self._port.query("get_theme", {}).resolve()
         if isinstance(payload, OpError):
             return payload
         return ThemeState.from_payload(payload)
 
     def get_window_settings(self) -> WindowSettings | OpError:
         """Return the window's opacity, font scale, decoration, and idle rate."""
-        payload = self._payload(self._port.query("get_window_settings", {}))
+        payload = self._port.query("get_window_settings", {}).resolve()
         if isinstance(payload, OpError):
             return payload
         return WindowSettings.from_payload(payload)
 
     def screenshot(self) -> Screenshot | OpError:
         """Capture the display framebuffer and return the image path."""
-        payload = self._payload(self._port.query("screenshot", {}))
+        payload = self._port.query("screenshot", {}).resolve()
         if isinstance(payload, OpError):
             return payload
         path = payload.get("path")
@@ -93,7 +80,7 @@ class DisplayControlOperations:
 
     def ping(self, *, now: float) -> Pong | OpError:
         """Round-trip a ping and return the elapsed time."""
-        payload = self._payload(self._port.ping(now=now))
+        payload = self._port.ping(now=now).resolve()
         if isinstance(payload, OpError):
             return payload
         rtt = payload.get("rtt_seconds")
@@ -135,17 +122,7 @@ class DisplayControlOperations:
 
     def _write(self, method: str, params: Mapping[str, object]) -> DisplayAck | OpError:
         """Proxy a display write and wrap its reply as a formattable ack."""
-        payload = self._payload(self._port.query(method, params))
+        payload = self._port.query(method, params).resolve()
         if isinstance(payload, OpError):
             return payload
         return DisplayAck(payload=dict(payload))
-
-    def _payload(self, reply: DisplayReply) -> Mapping[str, object] | OpError:
-        """Collapse a display reply to its payload or the mapped ``OpError``."""
-        match reply:
-            case DisplayReplied(payload=payload):
-                return payload
-            case DisplayErrored(message=message):
-                return OpError(code="rejected", reason=message)
-            case DisplayFault(code=code):
-                return OpError(code=code, reason=self._FAULT_REASON[code])

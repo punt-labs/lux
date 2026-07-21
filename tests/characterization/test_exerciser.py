@@ -88,8 +88,8 @@ class TestRaisesOnBadSetup:
         # the missing declaration surfaces.
         with pytest.raises(ToolCallError, match="stub 'query' called"):
             ToolExerciser.call(
-                "inspect_scene",
-                {"scene_id": "s1"},
+                "screenshot",
+                {},
                 {"display_running": True, "client": {}},
             )
 
@@ -101,19 +101,19 @@ class TestPassthroughAllowlist:
         # the query its tool actually uses records cleanly — the constant-overhead
         # side effects don't need a spec entry.
         result = ToolExerciser.call(
-            "inspect_scene",
-            {"scene_id": "s1"},
+            "screenshot",
+            {},
             {
                 "display_running": True,
                 "client": {
                     "query": {
-                        "method": "inspect_scene",
-                        "result": {"scene_id": "s1", "elements": []},
+                        "method": "screenshot",
+                        "result": {"path": "/tmp/lux-x.png"},
                     }
                 },
             },
         )
-        assert '"scene_id": "s1"' in result
+        assert result == "/tmp/lux-x.png"
 
     def test_non_allowlisted_method_still_raises(self) -> None:
         # The allowlist is constrained — only declare_menu_item and

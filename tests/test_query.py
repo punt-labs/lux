@@ -466,13 +466,17 @@ class TestTier1DisplayTools:
 class TestTier1ClientMenuTools:
     """Test Tier 1 client and menu domain MCP tools."""
 
-    def test_list_clients_not_running(self) -> None:
+    def test_list_clients_reads_the_hub_not_the_display(self) -> None:
+        # list_clients now answers from the Hub session registry, so a down
+        # display does not make it fail — it returns the (possibly empty) list.
         from unittest.mock import patch
 
+        from punt_lux.operations import ClientList
         from punt_lux.tools import list_clients
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert list_clients() == "not running"
+            result = list_clients()
+        assert isinstance(result, ClientList)
 
     def test_list_menus_not_running(self) -> None:
         from unittest.mock import patch
@@ -492,20 +496,28 @@ class TestTier1EventErrorTools:
     """Test Tier 1 event and error introspection MCP tools."""
 
     def test_list_recent_events_not_running(self) -> None:
+        # Proxied over luxd's one connection: a down display is a
+        # display_unavailable OpError, not a status string.
         from unittest.mock import patch
 
+        from punt_lux.operations import OpError
         from punt_lux.tools import list_recent_events
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert list_recent_events() == "not running"
+            result = list_recent_events()
+        assert isinstance(result, OpError)
+        assert result.code == "display_unavailable"
 
     def test_list_errors_not_running(self) -> None:
         from unittest.mock import patch
 
+        from punt_lux.operations import OpError
         from punt_lux.tools import list_errors
 
         with patch.object(DisplayPaths, "is_running", return_value=False):
-            assert list_errors() == "not running"
+            result = list_errors()
+        assert isinstance(result, OpError)
+        assert result.code == "display_unavailable"
 
 
 # ---------------------------------------------------------------------------
