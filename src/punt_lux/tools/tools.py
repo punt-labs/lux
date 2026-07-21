@@ -659,7 +659,7 @@ def display_mode(repo: str) -> str:
 
     Returns "display:on" or "display:off". ``repo`` must be the
     absolute path of the caller's project; the config is read from
-    ``<repo>/.punt-labs/lux.md`` (lux-r929).
+    ``<repo>/.punt-labs/lux.md``.
     """
     return _format_display_mode(OPERATIONS.read_display_mode(repo))
 
@@ -669,7 +669,7 @@ def set_display_mode(mode: str, repo: str) -> str:
     """Set the display mode to "y" (on) or "n" (off).
 
     ``repo`` must be the absolute path of the caller's project; the
-    config is written to ``<repo>/.punt-labs/lux.md`` (lux-r929).
+    config is written to ``<repo>/.punt-labs/lux.md``.
     When ``y``, eagerly connects to the display server.
     """
     return _format_display_mode(
