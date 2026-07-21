@@ -24,6 +24,9 @@ class TestDisplayMode:
 
 class TestPing:
     def test_pong_with_rtt(self) -> None:
+        # The connection owns the rtt measurement; under the constant-monotonic
+        # stub t0 == t1, so the rtt is a deterministic 0.000s. The snapshot pins
+        # the "pong rtt=%.3fs" format, not a runtime-varying number.
         result = ToolExerciser.call(
             "ping",
             {},
@@ -33,7 +36,7 @@ class TestPing:
                 "client": {"ping": {"return": {"ts": 1000.0, "display_ts": 1000.005}}},
             },
         )
-        assert result == "pong rtt=0.042s"
+        assert result == "pong rtt=0.000s"
 
     def test_not_running(self) -> None:
         result = ToolExerciser.call("ping", {}, {"display_running": False})

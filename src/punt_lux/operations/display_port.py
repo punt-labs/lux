@@ -28,6 +28,6 @@ class DisplayPort(Protocol):
         """Proxy a query to the display and return its bounded reply."""
         ...
 
-    def ping(self, *, now: float) -> DisplayReply:
-        """Round-trip a ping; a reply payload carries ``rtt_seconds``."""
+    def ping(self) -> DisplayReply:
+        """Round-trip a ping; a reply payload carries the measured ``rtt_seconds``."""
         ...

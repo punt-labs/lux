@@ -197,9 +197,9 @@ class Operations:
         """Capture the display framebuffer and return the image path."""
         return self._display.screenshot()
 
-    def ping(self, *, now: float) -> Pong | OpError:
+    def ping(self) -> Pong | OpError:
         """Round-trip a ping and return the elapsed time."""
-        return self._display.ping(now=now)
+        return self._display.ping()
 
     def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
         """Switch the display theme and return the new theme state."""

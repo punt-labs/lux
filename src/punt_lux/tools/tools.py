@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 from typing import Any, get_args
 
@@ -82,11 +81,6 @@ def _build_operations() -> Operations:
         ports=_hub_ports(),
         display_port=_display_connection(),
     )
-
-
-def _now() -> float:
-    """Return the wall clock — a seam the ping adapter reads for its round-trip."""
-    return time.time()
 
 
 # The process-wide operations facade, built once at the composition root.
@@ -550,9 +544,7 @@ def clear() -> str:
 @mcp.tool()
 def ping() -> str:
     """Ping the display server. Returns round-trip time, "timeout", or "not running"."""
-    return _fault_or(
-        OPERATIONS.ping(now=_now()), lambda r: f"pong rtt={r.rtt_seconds:.3f}s"
-    )
+    return _fault_or(OPERATIONS.ping(), lambda r: f"pong rtt={r.rtt_seconds:.3f}s")
 
 
 @mcp.tool()

@@ -1,6 +1,6 @@
 {
   "inputs": [],
-  "response": "pong rtt=0.042s",
+  "response": "pong rtt=0.000s",
   "setup": {
     "client": {
       "ping": {

@@ -78,9 +78,9 @@ class DisplayControlOperations:
             return OpError(code="rejected", reason="screenshot reply carried no path")
         return Screenshot(path=path)
 
-    def ping(self, *, now: float) -> Pong | OpError:
-        """Round-trip a ping and return the elapsed time."""
-        payload = self._port.ping(now=now).resolve()
+    def ping(self) -> Pong | OpError:
+        """Round-trip a ping and return the connection-measured elapsed time."""
+        payload = self._port.ping().resolve()
         if isinstance(payload, OpError):
             return payload
         rtt = payload.get("rtt_seconds")

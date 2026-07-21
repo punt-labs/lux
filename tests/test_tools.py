@@ -1907,7 +1907,7 @@ class TestClearTool:
 
 
 class TestPingTool:
-    @patch("punt_lux.tools.tools.time")
+    @patch("punt_lux.operations.display_connection.time")
     @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_returns_rtt(
@@ -1917,9 +1917,10 @@ class TestPingTool:
         mock_time: MagicMock,
     ) -> None:
         client = _mock_client()
-        ts = 1000.0
-        mock_time.time.return_value = ts + 0.042
-        client.ping.return_value = PongMessage(ts=ts, display_ts=ts + 0.005)
+        # The connection reads monotonic before the send and after the pong; the
+        # difference is the rtt. A pong ts is still required as a validity signal.
+        mock_time.monotonic.side_effect = [1000.0, 1000.042]
+        client.ping.return_value = PongMessage(ts=1000.0, display_ts=1000.005)
         mock_get.return_value = client
 
         result = ping()
@@ -2099,7 +2100,7 @@ class TestPingNoAutoSpawn:
         assert result == "not running"
         mock_get.assert_not_called()
 
-    @patch("punt_lux.tools.tools.time")
+    @patch("punt_lux.operations.display_connection.time")
     @patch("punt_lux.domain.hub.clients.client_registry.get")
     @patch.object(DisplayPaths, "is_running", return_value=True)
     def test_ping_returns_rtt_when_running(
@@ -2109,9 +2110,8 @@ class TestPingNoAutoSpawn:
         mock_time: MagicMock,
     ) -> None:
         client = _mock_client()
-        ts = 1000.0
-        mock_time.time.return_value = ts + 0.042
-        client.ping.return_value = PongMessage(ts=ts, display_ts=ts + 0.005)
+        mock_time.monotonic.side_effect = [1000.0, 1000.042]
+        client.ping.return_value = PongMessage(ts=1000.0, display_ts=1000.005)
         mock_get.return_value = client
 
         result = ping()

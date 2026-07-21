@@ -63,7 +63,7 @@ class _FakePort:
         self._last_params = params
         return self._query_reply
 
-    def ping(self, *, now: float) -> DisplayReply:
+    def ping(self) -> DisplayReply:
         return self._ping_reply
 
     @property
@@ -159,9 +159,10 @@ def test_screenshot_returns_path_then_maps_error() -> None:
 
 
 def test_ping_returns_elapsed_time() -> None:
+    # The port measures rtt; this operation narrows the reply into a Pong.
     port = _FakePort(ping=DisplayReplied({"rtt_seconds": 0.05}))
     ops = DisplayControlOperations(port)
-    result = ops.ping(now=1000.0)
+    result = ops.ping()
     assert isinstance(result, Pong)
     assert result.rtt_seconds == 0.05
 

@@ -336,7 +336,14 @@ class ToolExerciser:
         ]
         now = setup.get("time")
         if isinstance(now, int | float):
-            stubs.append(mock.patch("punt_lux.tools.tools.time", _StubTime(float(now))))
+            # The connection owns the ping measurement now; a constant monotonic
+            # stub makes t0 == t1, so the recorded rtt is a deterministic 0.000s
+            # and the snapshot pins the format, not a runtime-varying number.
+            stubs.append(
+                mock.patch(
+                    "punt_lux.operations.display_connection.time", _StubTime(float(now))
+                )
+            )
 
         session = setup.get("session_key")
         token = _session_key.set(str(session)) if session is not None else None
@@ -351,7 +358,12 @@ class ToolExerciser:
 
 
 class _StubTime:
-    """Replacement for the ``time`` module in tools.py — only ``.time()``."""
+    """A constant clock standing in for the ``time`` module in the connection.
+
+    ``monotonic`` returns the same value on every read, so the ping measurement
+    (``t1 - t0``) is a deterministic ``0.0`` under replay — the snapshot pins the
+    adapter's string format, not a runtime-varying number.
+    """
 
     _now: float
 
@@ -361,4 +373,7 @@ class _StubTime:
         return self
 
     def time(self) -> float:
+        return self._now
+
+    def monotonic(self) -> float:
         return self._now

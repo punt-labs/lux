@@ -45,7 +45,7 @@ class _ForbiddenPort:
         msg = f"Hub read reached around to the display: query({method!r})"
         raise AssertionError(msg)
 
-    def ping(self, *, now: float) -> DisplayReply:
+    def ping(self) -> DisplayReply:
         raise AssertionError("Hub read reached around to the display: ping()")
 
 
@@ -62,7 +62,7 @@ class _StubPort:
     def query(self, method: str, params: Mapping[str, object]) -> DisplayReply:
         return self._reply
 
-    def ping(self, *, now: float) -> DisplayReply:
+    def ping(self) -> DisplayReply:
         return self._reply
 
 

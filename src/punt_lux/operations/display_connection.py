@@ -15,6 +15,7 @@ socket or an exception.
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.operations.display_reply import (
@@ -74,10 +75,18 @@ class HubDisplayConnection:
             return DisplayErrored(message=response.error)
         return DisplayReplied(payload=response.result)
 
-    def ping(self, *, now: float) -> DisplayReply:
-        """Round-trip a ping; a reply carries the elapsed ``rtt_seconds``."""
+    def ping(self) -> DisplayReply:
+        """Round-trip a ping and return the measured ``rtt_seconds``.
+
+        The connection owns the whole measurement: one monotonic clock, read
+        immediately before the send and immediately after the pong arrives, so
+        the elapsed time is the real round trip and can never be negative. The
+        pong's echoed ``ts`` no longer participates in the timing — it is kept
+        only as a validity signal (a pong without it is a defective reply).
+        """
         if not self._is_running():
             return DisplayFault(code="display_unavailable")
+        started = time.monotonic()
         try:
             pong = self._clients.get().ping()
         except OSError:
@@ -86,10 +95,11 @@ class HubDisplayConnection:
         except RuntimeError:
             self._clients.drop()
             return DisplayFault(code="display_unavailable")
+        elapsed = time.monotonic() - started
         if pong is None:
             return DisplayFault(code="timeout")
         if pong.ts is None:
             # A pong must echo the ts we sent; one without it is a defective reply,
             # not a zero-latency success — surface it as an error, never 0.0s.
             return DisplayErrored(message="pong carried no timestamp")
-        return DisplayReplied(payload={"rtt_seconds": now - pong.ts})
+        return DisplayReplied(payload={"rtt_seconds": elapsed})

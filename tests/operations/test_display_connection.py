@@ -8,6 +8,7 @@ pong, and the clean paths.
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.operations.display_connection import HubDisplayConnection
@@ -54,11 +55,16 @@ class _Pong:
 
 
 class _Client:
-    """A display client whose query/ping return a preset value or raise."""
+    """A display client whose query/ping return a preset value or raise.
+
+    ``ping_delay`` sleeps before the pong returns so a test can prove the
+    connection's own clock brackets the round trip.
+    """
 
     _query_reply: object
     _ping_reply: object
     _raise: Exception | None
+    _ping_delay: float
 
     def __new__(
         cls,
@@ -66,11 +72,13 @@ class _Client:
         query: object = None,
         ping: object = None,
         error: Exception | None = None,
+        ping_delay: float = 0.0,
     ) -> Self:
         self = super().__new__(cls)
         self._query_reply = query
         self._ping_reply = ping
         self._raise = error
+        self._ping_delay = ping_delay
         return self
 
     def query(self, method: str, params: dict[str, object]) -> object:
@@ -81,6 +89,8 @@ class _Client:
     def ping(self) -> object:
         if self._raise is not None:
             raise self._raise
+        if self._ping_delay:
+            time.sleep(self._ping_delay)
         return self._ping_reply
 
 
@@ -163,22 +173,29 @@ def test_query_returns_the_payload_on_success() -> None:
     assert reply.payload == {"current": "darcula"}
 
 
-def test_ping_returns_the_elapsed_time() -> None:
-    reply = _conn(_Registry(_Client(ping=_Pong(ts=999.95)))).ping(now=1000.0)
+def test_ping_measures_the_round_trip_and_is_never_negative() -> None:
+    # The connection owns the clock: a client that takes ``delay`` to answer
+    # yields an rtt of at least ``delay``. This is a lower bound — machine load
+    # can only make the real elapsed larger — so it never flakes, and it can
+    # never be negative the way the pre-trip-now subtraction could.
+    delay = 0.02
+    reply = _conn(_Registry(_Client(ping=_Pong(ts=999.95), ping_delay=delay))).ping()
     assert isinstance(reply, DisplayReplied)
-    assert reply.payload["rtt_seconds"] == 1000.0 - 999.95
+    rtt = reply.payload["rtt_seconds"]
+    assert isinstance(rtt, float)
+    assert rtt >= delay
 
 
 def test_ping_without_a_timestamp_is_an_error_not_a_zero_rtt() -> None:
     # A pong missing its ts must not read as a perfect 0.0s round-trip.
-    reply = _conn(_Registry(_Client(ping=_Pong(ts=None)))).ping(now=1000.0)
+    reply = _conn(_Registry(_Client(ping=_Pong(ts=None)))).ping()
     assert isinstance(reply, DisplayErrored)
     assert reply.message == "pong carried no timestamp"
 
 
 def test_ping_maps_a_failed_reconnect_to_unavailable() -> None:
     registry = _Registry(_Client(), connect_error=RuntimeError("Cannot connect"))
-    reply = _conn(registry).ping(now=1000.0)
+    reply = _conn(registry).ping()
     assert isinstance(reply, DisplayFault)
     assert reply.code == "display_unavailable"
     assert registry.drops == 1
