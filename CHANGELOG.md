@@ -257,6 +257,18 @@
 
 ### Changed
 
+- **Operations layer — the single home of front-of-house logic (DES-055, PR A).**
+  `render`, `update`, `clear`, the four pub-sub operations (`subscribe`,
+  `unsubscribe`, `publish`, `receive`), and the two display-mode operations moved
+  out of the MCP tool bodies into a new `operations/` package of typed concern
+  classes. Each operation takes a Pydantic request and returns a discriminated
+  result — its own success type or a shared `OpError` — instead of a magic
+  string. The `show`, `show_table`, `show_dashboard`, `update`, `clear`,
+  `display_mode`, `set_display_mode`, `subscribe`, `unsubscribe`, `publish`, and
+  `recv` MCP tools became thin adapters that parse arguments, call one operation,
+  and format the result. This is an internal restructure: the tools' string
+  contract is unchanged and pinned byte-identical by the characterization corpus,
+  so agents see no behavior difference.
 - **`ValueChanged.value` widened to `bool | int | float | str`** (from
   `bool | str`) so a slider commit can carry its `float` (or `int` for the
   integer variant) alongside a checkbox `bool` and an input_text `str`. The

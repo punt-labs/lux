@@ -5041,3 +5041,64 @@ artifact, still 4× under the 4.0 threshold, on a file that shed 107 lines.)
 `element_renderer.py`, `imgui/factory.py`, `tooltip_painter.py`; DES-051 (the
 same duplicate-table lesson, one layer up), DES-042 (transitional rendering,
 strengthened here), DES-041 (fork-don't-mix); bead `lux-m4r8`.
+
+## DES-055: One Code Path — Typed Hub Operations, a REST Front Door, Thin Adapters
+
+**Status:** accepted.
+
+**Context.** lux's engine core became Hub-authoritative: `HubDisplay` owns UI
+state and one replicator is the sole display writer. The front of house did not
+follow. Three separate code paths did the same work. The MCP tools held the
+logic in a 795-line `tools.py`. `lux show beads` wrote the display socket
+directly, bypassing the Hub. The introspection tools queried the display instead
+of the Hub. This violated the architecture standard's four invariants at the
+surface layer: logic was duplicated per surface, the surfaces were not thin
+clients, a capability had more than one code path, and client state was read
+from the wrong authority.
+
+**Decision.** Every capability becomes one typed operation in a new
+`operations/` layer, the single home of front-of-house logic. Each operation
+takes a typed request and returns a discriminated result — the operation's
+success type or a shared `OpError` — replacing the magic-string returns. A typed
+FastAPI REST API on luxd's existing uvicorn app is the front door for the
+command-line tool and every non-MCP caller. The MCP tools become adapters that
+parse arguments, call one operation, and format the result; they hold no logic.
+`lux show beads` calls the REST API instead of the display socket. Introspection
+reads Hub-authoritative state: `inspect_scene` and `list_scenes` read
+`HubDisplay`, `list_clients` reads the Hub session registry, and the menu
+registry moves to the Hub. Display-process facts — theme, window, framebuffer,
+diagnostic buffers — are reached through Hub operations that proxy to the display
+over luxd's own connection, so the display socket becomes Hub-internal plumbing.
+The `get_display_info` schema defect is fixed by making the typed model the
+single schema. In the same unit, luxd's MCP leg moves off the deprecated
+WebSocket transport onto streamable HTTP mounted beside the REST routes, and
+Claude Code connects to luxd directly so mcp-proxy leaves lux's path; luxd
+refuses a non-loopback bind at startup.
+
+**Rejected: keep the WebSocket transport with a lux-owned adapter layer.** This
+would add the operations layer and the REST surface but leave the MCP leg on the
+deprecated `websocket_server`, keeping the `mcp<2` pin and mcp-proxy in the
+path. It defers the transport debt without removing it, and it keeps two
+transports (WebSocket for MCP, HTTP for REST) on one app when one transport
+serves both. Rejected because the pin blocks every future MCP SDK upgrade and
+the second transport is avoidable.
+
+**Rejected: per-surface logic — let each surface keep its own implementation.**
+This is the status quo generalized: the REST surface would reimplement what the
+tools do rather than share an operation. It fails the one-engine and
+one-code-path invariants directly, doubles the maintenance surface, and lets the
+surfaces drift. Rejected because it is the exact problem this ADR removes.
+
+**Rejected: move all display-owned state to Hub ownership.** Making the Hub own
+the theme, window settings, framebuffer, and the display's diagnostic ring
+buffers would force the display to replicate renderer-internal state upward for
+no caller benefit, and the Hub cannot be the authority for a GPU backend string
+or a live frame rate. Proxying those reads over luxd's one connection keeps a
+single code path through the Hub without a meaningless ownership move. Menu
+state is the deliberate exception, because menus are agent-submitted UI.
+
+**Consequences.** One code path per capability, verified by the same operation
+running under three surfaces. The MCP string contract is preserved by the
+adapters, so agents see no change. The `mcp<2` pin is lifted. The command-line
+tool and introspection stop reaching around the Hub. The multi-machine future
+stays open but unbuilt: luxd is loopback-only until authentication is added.
