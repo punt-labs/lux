@@ -63,15 +63,17 @@ class MenuSeparator(BaseModel):
         return {"label": _SEPARATOR_SENTINEL}
 
 
-# A menu entry is an action or a separator, discriminated on ``kind``.
-MenuEntry = Annotated[MenuAction | MenuSeparator, Field(discriminator="kind")]
-
-
 class Menu(BaseModel):
-    """A labelled menu and the entries under it."""
+    """A labelled menu and the entries under it.
+
+    A menu may itself appear as an entry of another menu — the display nests a
+    per-client submenu under its Applications menu — so :data:`MenuEntry` includes
+    ``Menu``.
+    """
 
     model_config = ConfigDict(frozen=True)
 
+    kind: Literal["menu"] = "menu"
     label: str
     items: list[MenuEntry]
 
@@ -128,6 +130,14 @@ class Menu(BaseModel):
     def to_wire(self) -> dict[str, object]:
         """Render as the untyped menu payload the display consumes."""
         return {"label": self.label, "items": [entry.to_wire() for entry in self.items]}
+
+
+# A menu entry is an action, a separator, or a nested submenu, discriminated on
+# ``kind``. Defined after ``Menu`` because it includes it; ``Menu.model_rebuild``
+# resolves the forward reference in ``Menu.items``.
+MenuEntry = Annotated[MenuAction | MenuSeparator | Menu, Field(discriminator="kind")]
+
+Menu.model_rebuild()
 
 
 @final

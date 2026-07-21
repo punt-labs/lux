@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from typing import Self
 
-from punt_lux.domain.hub.menu_models import MenuAction, MenuSeparator
+from punt_lux.client_label import ClientLabel
+from punt_lux.domain.hub.menu_models import Menu, MenuAction, MenuSeparator
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations.menus import MenuOperations
@@ -115,6 +116,27 @@ def test_drop_session_forgets_items_and_re_pushes_so_no_stale_menu_lingers() -> 
     # so the worker's next fresh read of the registry finds no items to send.
     assert registry.registered_items() == []
     assert marker.pushed == 2
+
+
+def test_list_menus_reports_the_display_applications_composition() -> None:
+    # The read must match the screen: registered items render under Applications
+    # → the client's submenu (luxd's label), items sorted by label — not an
+    # invented "Tools" group.
+    registry = HubMenuRegistry()
+    ops = MenuOperations(registry, _MenuMarkerSpy())
+    conn = Scope(ConnectionId("c1"))
+    ops.register_menu_item(MenuAction(id="z", label="Zebra"), scope=conn)
+    ops.register_menu_item(MenuAction(id="a", label="Apple"), scope=conn)
+
+    menus = ops.list_menus().menus
+
+    apps = next(m for m in menus if m.label == "Applications")
+    submenu = apps.items[0]
+    assert isinstance(submenu, Menu)
+    assert submenu.label == ClientLabel.of(ClientLabel.LUX)  # "Lux"
+    # Items are sorted by label, matching the display's own ordering.
+    labels = [i.label for i in submenu.items if isinstance(i, MenuAction)]
+    assert labels == ["Apple", "Zebra"]
 
 
 def test_list_menus_keeps_an_action_labelled_like_the_separator() -> None:

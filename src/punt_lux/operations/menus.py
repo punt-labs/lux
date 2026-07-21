@@ -9,14 +9,15 @@ mark-and-replicate path a scene change takes, with no second writer.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Self, cast, final
 
+from punt_lux.client_label import ClientLabel
 from punt_lux.domain.hub.menu_models import Menu
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.menu_results import MenuList, Ok
 
 if TYPE_CHECKING:
-    from punt_lux.domain.hub.menu_models import MenuAction
+    from punt_lux.domain.hub.menu_models import MenuAction, MenuEntry
     from punt_lux.domain.hub.menu_registry import HubMenuRegistry
     from punt_lux.operations.models.menu_results import SetMenuRequest
     from punt_lux.operations.ports import DirtyMarker
@@ -24,8 +25,11 @@ if TYPE_CHECKING:
 
 __all__ = ["MenuOperations"]
 
-# The synthesized menu that gathers the registered tool items for ``list_menus``.
-_TOOLS_MENU_LABEL = "Tools"
+# The display groups every registered item under Applications → the registering
+# client's submenu. luxd is the one display connection, so all items render under
+# its label; list_menus reports that same structure so the read matches the screen.
+_APPLICATIONS_LABEL = "Applications"
+_LUX_SUBMENU_LABEL = ClientLabel.of(ClientLabel.LUX)
 
 
 @final
@@ -69,15 +73,30 @@ class MenuOperations:
     def list_menus(self) -> MenuList:
         """Return the whole Hub-authoritative menu state with no reach-around.
 
-        Reports the agent menu bar plus, when any tool items are registered, a
-        synthesized ``Tools`` menu gathering them — the same items the display
-        shows in its World menu — so one read inventories everything the Hub owns.
+        Reports the agent menu bar plus, when any tool items are registered, the
+        Applications menu composed exactly as the display renders it: a per-client
+        submenu (luxd's label) holding the items sorted by label. One read
+        inventories everything the Hub owns, matching what is on screen.
         """
         menus = list(self._registry.menu_bar())
         items = self._registry.registered_items()
         if items:
-            menus.append(Menu(label=_TOOLS_MENU_LABEL, items=list(items)))
+            menus.append(self._applications_menu(items))
         return MenuList(menus=menus)
+
+    @staticmethod
+    def _applications_menu(items: list[MenuAction]) -> Menu:
+        """Compose the Applications menu the display renders for the tool items.
+
+        The display groups items by their registering socket client under
+        Applications and sorts each submenu's items by label; luxd is that one
+        client, so its submenu gathers them all.
+        """
+        ordered = cast(
+            "list[MenuEntry]", sorted(items, key=lambda action: action.label)
+        )
+        submenu: list[MenuEntry] = [Menu(label=_LUX_SUBMENU_LABEL, items=ordered)]
+        return Menu(label=_APPLICATIONS_LABEL, items=submenu)
 
     def _push(self) -> None:
         """Flag the menu change for the replicator — the sole display writer.

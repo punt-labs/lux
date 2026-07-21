@@ -2235,18 +2235,21 @@ class TestSessionKey:
 def _tools_menu_has(item_id: str) -> bool:
     """Whether ``list_menus`` reports a registered tool item with ``item_id``.
 
-    Registered tool items surface in the synthesized ``Tools`` menu of the
-    Hub-authoritative ``list_menus`` read — the same registry the tools write.
+    Registered items surface under Applications → the client submenu of the
+    Hub-authoritative ``list_menus`` read — the structure the display renders.
     """
-    from punt_lux.operations import MenuAction
+    from punt_lux.domain.hub.menu_models import Menu, MenuAction
     from punt_lux.tools import list_menus
 
     for menu in list_menus().menus:
-        if menu.label == "Tools":
-            return any(
+        if menu.label != "Applications":
+            continue
+        for submenu in menu.items:
+            if isinstance(submenu, Menu) and any(
                 isinstance(item, MenuAction) and item.id == item_id
-                for item in menu.items
-            )
+                for item in submenu.items
+            ):
+                return True
     return False
 
 
