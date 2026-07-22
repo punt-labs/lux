@@ -176,15 +176,30 @@ def test_a_blank_detail_falls_back_to_the_body(body: bytes) -> None:
     assert result.reason == body.decode()
 
 
-def test_a_malformed_2xx_body_is_a_fault_not_a_traceback() -> None:
+def test_a_malformed_2xx_body_is_a_fault_naming_a_body_snippet() -> None:
     # A 200 whose body is not the expected model — a stale ephemeral port
     # answered by a foreign server — must not raise past the client. It becomes
-    # a fault, defended the same way the error path is.
+    # a fault whose reason names a short body preview so the wrong server on the
+    # old port is recognizable rather than guessed at.
     transport = CannedTransport(HttpResponse(status=200, body=b'{"wrong":"shape"}'))
     result = _client_over(transport).render(_render_request())
     assert isinstance(result, OpError)
     assert result.code == "fault"
     assert "unexpected" in result.reason
+    assert '{"wrong":"shape"}' in result.reason  # the snippet appears
+
+
+def test_a_malformed_2xx_reason_truncates_a_huge_body() -> None:
+    # The preview is bounded so a huge (or binary) body cannot bloat the reason:
+    # it stays a single truncated line, not the whole payload.
+    body = b'{"junk":"' + b"A" * 5000 + b'"}'
+    transport = CannedTransport(HttpResponse(status=200, body=body))
+    result = _client_over(transport).render(_render_request())
+    assert isinstance(result, OpError)
+    assert result.code == "fault"
+    assert "AAAA" in result.reason  # a recognizable slice of the body survives
+    assert "…" in result.reason  # ... but it is truncated with a marker
+    assert len(result.reason) < 200  # bounded, not the full 5 KB
 
 
 def test_transport_failure_propagates_as_hub_unavailable() -> None:

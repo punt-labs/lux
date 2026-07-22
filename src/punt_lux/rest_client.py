@@ -44,6 +44,10 @@ _CODE_BY_STATUS: dict[int, OpErrorCode] = {
     504: "timeout",
 }
 
+# A malformed-2xx fault names a short body preview so a stale/foreign server on
+# the old port is recognizable; bounded so a binary or huge body stays safe.
+_SNIPPET_LIMIT = 120
+
 
 @final
 class LuxRestClient:
@@ -96,15 +100,33 @@ class LuxRestClient:
             except ValidationError:
                 # A 2xx whose body is not the model we expect is not success — a
                 # stale ephemeral port answered by a foreign server makes this
-                # real. Defend it like the error path, not with a traceback.
+                # real. Defend it like the error path, not with a traceback, and
+                # name a short body preview so the wrong server is recognizable.
+                snippet = self._body_snippet(response.body)
+                tail = f": {snippet}" if snippet else ""
                 return OpError(
                     code="fault",
-                    reason=f"luxd returned an unexpected {response.status} body",
+                    reason=f"luxd returned an unexpected {response.status} body{tail}",
                 )
         return OpError(
             code=_CODE_BY_STATUS.get(response.status, "fault"),
             reason=self._detail_of(response.status, response.body),
         )
+
+    @staticmethod
+    def _body_snippet(body: bytes) -> str:
+        """A one-line, printable, bounded preview of a raw body.
+
+        The ``errors="replace"`` decode never raises on binary bytes, non-printable
+        characters collapse to spaces, whitespace runs fold to one, and the result
+        is truncated so a huge body cannot bloat the reason.
+        """
+        text = body.decode(errors="replace")
+        printable = "".join(c if c.isprintable() else " " for c in text)
+        oneline = " ".join(printable.split())
+        if len(oneline) <= _SNIPPET_LIMIT:
+            return oneline
+        return oneline[:_SNIPPET_LIMIT] + "…"
 
     @staticmethod
     def _detail_of(status: int, body: bytes) -> str:
