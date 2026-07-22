@@ -70,6 +70,15 @@ def test_write_rejects_a_nonexistent_absolute_repo_with_422() -> None:
     assert "does not exist" in detail["msg"]
 
 
+def test_write_rejects_an_embedded_nul_repo_with_422() -> None:
+    # A NUL byte in the path must be a bound-time 422, never a 500 from an
+    # unhandled ValueError deep in the filesystem check.
+    client = make_client()
+    resp = client.put("/display-mode", json={"mode": "on", "repo": "/tmp/lux\x00p"})
+    assert resp.status_code == 422
+    assert resp.json()["detail"][0]["loc"][-1] == "repo"
+
+
 def test_write_rejects_an_absent_repo_field_with_422() -> None:
     # Omitting repo entirely is FastAPI's own "field required" binding rejection.
     client = make_client()

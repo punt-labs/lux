@@ -137,7 +137,7 @@ class TestReservedRestIdentity:
         and luxd rejects a session that would collide with it, so the two sides
         can never drift apart.
         """
-        assert DEFAULT_SCOPE.connection_id is RESERVED_REST_CONNECTION
+        assert DEFAULT_SCOPE.connection_id == RESERVED_REST_CONNECTION
 
 
 class TestBuildApp:
