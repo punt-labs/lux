@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, ValidationError, field_validator
 
 from punt_lux.operations.models.common import OpError
 
@@ -23,9 +23,8 @@ class DisplayModeRequest(BaseModel):
     @field_validator("repo")
     @classmethod
     def _validate_repo(cls, value: str) -> str:
-        # REST binds this model directly, so the one repo rule must run here as
-        # well as in parse — a bad repo is then a bound-time 422, not a 500 in
-        # the config writer. check_repo is the shared rule the read path uses.
+        # Both entry points construct this model, so the repo rule lives here as
+        # the single enforcement point: a bad repo is a 422, never a 500 downstream.
         if (error := cls.check_repo(value)) is not None:
             raise ValueError(error.reason)
         return value
@@ -38,13 +37,13 @@ class DisplayModeRequest(BaseModel):
         elif mode == "n":
             resolved = "off"
         else:
-            return OpError(
-                code="invalid_request", reason=f"Invalid mode '{mode}'. Use 'y' or 'n'."
-            )
-        repo_error = cls.check_repo(repo)
-        if repo_error is not None:
-            return repo_error
-        return cls(mode=resolved, repo=repo)
+            return cls._invalid(f"Invalid mode '{mode}'. Use 'y' or 'n'.")
+        # Construction runs the repo rule via the field_validator; parse does not
+        # pre-check it, so the filesystem is stat-ed once through one code path.
+        try:
+            return cls(mode=resolved, repo=repo)
+        except ValidationError as exc:
+            return OpError.from_validation(exc)
 
     @classmethod
     def check_repo(cls, repo: str) -> OpError | None:
@@ -66,7 +65,7 @@ class DisplayModeRequest(BaseModel):
 
     @staticmethod
     def _invalid(reason: str) -> OpError:
-        """Build the ``invalid_request`` this model reports for a malformed repo."""
+        """Build the ``invalid_request`` this model reports for a bad field."""
         return OpError(code="invalid_request", reason=reason)
 
 

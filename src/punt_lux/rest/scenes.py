@@ -10,11 +10,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self, final
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from punt_lux.operations import (
     Cleared,
     ClientList,
+    OpError,
     RenderRequest,
     SceneInspection,
     SceneList,
@@ -75,17 +76,16 @@ class SceneRoutes:
     def render(self, scene_id: str, request: RenderRequest) -> SceneShown:
         """Install a whole scene; the path names it and the body must agree.
 
-        The path ``scene_id`` is the resource identifier, authoritative like the
-        PATCH and GET siblings. ``RenderRequest`` carries its own ``scene_id``
-        (its MCP-shared shape), so a body that names a different scene than the
-        path is a contradiction the route rejects rather than silently letting the
-        body win.
+        The path ``scene_id`` is authoritative like the PATCH and GET siblings.
+        ``RenderRequest`` carries its own ``scene_id`` (its MCP-shared shape), so a
+        body naming a different scene is a contradiction the route rejects rather
+        than letting the body win.
         """
         if request.scene_id != scene_id:
-            detail = (
+            reason = (
                 f"body scene_id {request.scene_id!r} must match the path {scene_id!r}"
             )
-            raise HTTPException(status_code=422, detail=detail)
+            return self._errors.respond(OpError(code="invalid_request", reason=reason))
         return self._errors.respond(self._ops.render(request, scope=self._scope))
 
     def update(self, scene_id: str, request: UpdateRequest) -> SceneShown:
