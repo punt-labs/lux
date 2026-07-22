@@ -72,10 +72,11 @@ Six properties must hold across every interleaving:
     batch.
   \item[I5 --- one display.] The worker never spawns a fresh display while
     one is still alive; a respawn follows a kill.
-  \item[I6 --- menu-delivery durability.] A menu change that has been
-    marked is either delivered to the display by the worker's own send or
-    stays marked; a failed cycle never drops it.  When the system comes to
-    rest, no marked menu change is left undelivered.
+  \item[I6 --- menu durability.] When the system comes to rest with the
+    display up, the display shows the current menu.  A menu change, or a
+    respawn that blanks the agent bar, is repainted before the system can
+    rest --- the two display-replacing heals re-mark the menu
+    unconditionally, so a scene-only respawn still restores the bar.
 \end{description}
 
 \paragraph{Recovery and blanking.}
@@ -255,12 +256,15 @@ it drains.  \texttt{batchMenus} is the menu flag \emph{that} drained batch
 carried --- snapshotted from \texttt{menusDirty} at the drain and kept for the
 whole cycle, exactly as \texttt{batchCleared} carries the clear --- so a
 recovery re-mark can see that the failed batch owed a menu push.
-\texttt{menuShown} records whether the worker has delivered the current menu
-registry to the display since the last menu change: \texttt{set} once a menu
-push has succeeded, \texttt{clear} once a change is marked and not yet
-delivered.  It is a statement about the worker's \emph{delivery obligation},
-not about a menu payload, because the menu is payload-less and read fresh at
-send time; it is the variable I6 is stated over.
+\texttt{menuShown} records whether the display is currently showing the menu
+of the latest registry: \texttt{set} once a menu push has succeeded,
+\texttt{clear} once a change is marked and not yet delivered \emph{or} once a
+respawn has brought up a fresh display that lost the agent bar.  It carries no
+menu payload --- the menu is payload-less and read fresh at send time --- so it
+records only whether a delivery is owed; it is the variable I6 is stated over.
+\texttt{MarkMenus} clears it (a change is owed) and \texttt{Ensure} clears it (a
+fresh display shows no bar); \texttt{MenuSendOk} sets it (the current registry
+is now on screen).
 
 \texttt{snapScene}/%
 \texttt{snapVal} are the one scene the worker has copied out under the read
@@ -278,19 +282,22 @@ writer) is sound because there is exactly one reader thread in this design
 a single reader the only exclusion that can ever fire is reader-versus-%
 writer, which a single slot captures.
 
-\texttt{menuShown} is modelled at the level of the worker's delivery, not at
-the level of the display process's live menu content, and the two differ in
-one honest way.  For scenes, the model resets \texttt{displayed} to empty on a
-respawn (\texttt{Ensure}) and proves the content property I4 --- so it must
-track what the fresh display shows.  For menus it proves the weaker delivery
-property I6 --- ``a marked change is eventually pushed or stays marked'' ---
-so it tracks whether a push is owed (\texttt{menusDirty}) and whether the last
-owed push landed (\texttt{menuShown}).  The re-establishment of a menu on a
-freshly respawned display over the client handshake is a separate subsystem,
-outside this replicator's dirty-signal discipline, exactly as the client-side
-replay of scenes is outside it; the model therefore leaves \texttt{menuShown}
-unchanged across \texttt{Ensure} and \texttt{Reconn} and holds the worker to
-its own obligation: never drop a marked menu change.
+\texttt{menuShown} tracks the display's live menu the way \texttt{displayed}
+tracks its scenes, and the two respawn the same way.  A reap-and-respawn brings
+up a fresh process, so the model resets \texttt{displayed} to empty in
+\texttt{Ensure}; the fresh process equally shows no agent bar, so \texttt{Ensure}
+resets \texttt{menuShown} to \texttt{clear} as well.  The client handshake
+re-establishes only the World-menu items, never the agent bar, so the bar's
+recovery is the replicator's own job --- and it does it by re-marking the menu
+unconditionally on every display-replacing heal, which is why I6 can be the
+content property ``at rest the display shows the current menu'' rather than a
+weaker delivery-only claim.  A dead-peer reconnect (\texttt{Reconn}) is
+modelled as the surviving process that kept its rendered state --- it leaves
+\texttt{displayed} and \texttt{menuShown} unchanged --- so its unconditional
+re-mark is a harmless idempotent re-push.  It is exactly this obligation, and
+the \texttt{Ensure} reset that exercises it, that lets the model reproduce the
+scene-only-respawn defect the unconditional re-mark closes
+(Section~\ref{sec:fidelity}).
 
 % ============================================================
 \section{Initialization}
@@ -972,8 +979,8 @@ A stuck display still answers new connections, so it must be killed before
 a fresh one is started.  \texttt{Reap} terminates the wedged process;
 \texttt{Ensure} starts a fresh, empty one; \texttt{Remark} re-marks the work
 so the display is repainted from the store's current state, re-marks the
-clear if the failed batch carried one, and re-marks the menu flag if the
-failed batch carried one.  \texttt{Ensure} is enabled only from
+clear if the failed batch carried one, and re-marks the menu
+\emph{unconditionally}.  \texttt{Ensure} is enabled only from
 \texttt{ddead}: a fresh display is never spawned while one is alive, which is
 I5.
 
@@ -1000,15 +1007,26 @@ blank-then-repaint is idempotent.  The re-mark is expressed against
 into whatever the live flag already holds, so a fresh clear that arrived
 mid-cycle is never lost.
 
-The menu re-mark is the fourth part, and it is the guarantor of I6.  A menu
-send that failed left \texttt{menuShown = clear}, and the drained menu flag is
-in \texttt{batchMenus}; re-marking it against \texttt{batchMenus} re-arms the
-live \texttt{menusDirty} so the next cycle re-reads the registry fresh and
-re-delivers.  \texttt{SendRecovery.\_requeue} does exactly this: it calls
-\texttt{mark\_menus} when the batch's \texttt{menus\_dirty} was set.  Dropping
-this re-mark is the fidelity variant of Section~\ref{sec:fidelity}, under
-which a menu change whose send failed is neither delivered nor re-marked ---
-an I6 violation.
+The menu re-mark is the fourth part, and it is the guarantor of I6.  Both
+display-replacing heals re-mark the menu \emph{unconditionally} --- not keyed
+on \texttt{batchMenus} --- because a respawn brings up a fresh process with no
+agent menu bar, and the client handshake replays only the World-menu items,
+never the agent bar (\texttt{set\_menu}).  So the menu the display shows after
+a respawn is stale regardless of what this failed batch carried: the model
+records that by resetting \texttt{menuShown} to \texttt{clear} in
+\texttt{Ensure}, and the unconditional re-mark re-arms \texttt{menusDirty} so
+the next cycle re-reads the registry fresh and re-delivers the current bar (or
+a harmless blank if none is set).  \texttt{SendRecovery.\_remark} does exactly
+this: it calls \texttt{\_requeue} with \texttt{menus\_dirty=True}.  This is
+strictly stronger than a \texttt{batchMenus}-keyed re-mark, and it is what
+repaints the agent bar after a reap or reconnect triggered by a scene-only
+failure --- the case a conditional re-mark drops.  Only \texttt{CycleFail},
+which does not replace the display, stays conditional: it re-marks the menu
+just when the batch carried one (\texttt{SendRecovery.restore}), because a
+display left in place still shows whatever menu it already had.  Reverting the
+two display-replacing heals to a conditional re-mark is the fidelity variant of
+Section~\ref{sec:fidelity}, under which a scene-only respawn leaves the agent
+bar undelivered --- an I6 violation.
 
 \begin{schema}{Reap}
   \Delta Repl
@@ -1053,7 +1071,7 @@ an I6 violation.
   batchCleared' = batchCleared \\
   menusDirty' = menusDirty \\
   batchMenus' = batchMenus \\
-  menuShown' = menuShown \\
+  menuShown' = clear \\
   storeLockMut' = storeLockMut \\
   mutScene' = mutScene \\
   readLock' = readLock \\
@@ -1068,8 +1086,7 @@ an I6 violation.
   dirty' = (dirty \cup drained) \cup \{ s : SCENE | store~s = vlive \} \\
   (batchCleared = set \implies cleared' = set) \\
   (batchCleared = clear \implies cleared' = cleared) \\
-  (batchMenus = set \implies menusDirty' = set) \\
-  (batchMenus = clear \implies menusDirty' = menusDirty) \\
+  menusDirty' = set \\
   batch' = \emptyset \\
   drained' = \emptyset \\
   wphase' = wproc \\
@@ -1097,7 +1114,11 @@ before the drop.  \texttt{Reconn} therefore leaves \texttt{displayed}
 unchanged --- the worst case, stale content and all --- rather than pretending
 a fresh blank display.  There is no process to kill, so it reconnects and
 re-marks in one step: \texttt{drained} $\cup$ the live scenes, plus the clear
-and the menu flag the batch carried.  I4 holds \emph{because of} that re-mark,
+the batch carried and the menu unconditionally.  Because \texttt{Reconn} models
+a surviving process that kept its rendered state, it leaves \texttt{menuShown}
+unchanged --- the reconnected display still shows the menu it had --- and the
+unconditional re-mark is then a harmless idempotent re-push.  I4 holds
+\emph{because of} that re-mark,
 not because of any reset: every scene the failed cycle touched, and every live
 scene, is re-queued, so the stale display cannot stay wrong once the queue
 drains.
@@ -1118,8 +1139,7 @@ failed send; Section~\ref{sec:fidelity} removes it and reproduces the linger.
   dirty' = (dirty \cup drained) \cup \{ s : SCENE | store~s = vlive \} \\
   (batchCleared = set \implies cleared' = set) \\
   (batchCleared = clear \implies cleared' = cleared) \\
-  (batchMenus = set \implies menusDirty' = set) \\
-  (batchMenus = clear \implies menusDirty' = menusDirty) \\
+  menusDirty' = set \\
   batch' = \emptyset \\
   drained' = \emptyset \\
   snapScene' = \emptyset \\
@@ -1463,28 +1483,32 @@ A fresh display is spawned only after the old one is killed:
 \texttt{Reap} is the only step that reaches \texttt{ddead} on the recovery
 path.  So the worker never holds two live displays.
 
-\paragraph{Invariant 6 --- menu-delivery durability.}
-Whenever the system is at rest with the display up, no marked menu change is
-left undelivered:
+\paragraph{Invariant 6 --- menu durability.}
+Whenever the system is at rest with the display up, the display shows the
+current menu:
 \[
   Quiescent \implies menuShown = set.
 \]
-\texttt{menuShown} goes \texttt{clear} only at \texttt{MarkMenus}, which also
-sets \texttt{menusDirty}; it goes \texttt{set} only at \texttt{MenuSendOk}, a
-successful push.  A \texttt{Quiescent} state requires \texttt{menusDirty =
-clear}, and the only way \texttt{menusDirty} returns to \texttt{clear} after a
-mark is \texttt{Drain}, which carries the change into \texttt{batchMenus}.
-That drained change is then either delivered --- \texttt{SendMenusBegin} then
-\texttt{MenuSendOk}, which sets \texttt{menuShown = set} --- or its send fails,
-and every failure path re-marks \texttt{menusDirty} against
-\texttt{batchMenus} (\texttt{Remark}, \texttt{Reconn}, \texttt{CycleFail}),
-which re-arms the live flag and so denies \texttt{Quiescent} until a later
-cycle re-delivers.  Hence a rest state with the display up cannot be reached
-with \texttt{menuShown = clear}: the marked change was pushed, or it is still
-marked and the system is not at rest.  This is the delivery obligation of the
-replicator alone; that a freshly respawned display also re-obtains its
-registered items over the client handshake is a separate mechanism the model
-does not rely on.
+\texttt{menuShown} goes \texttt{clear} at \texttt{MarkMenus} (a change is owed)
+and at \texttt{Ensure} (a respawn brought up a display with no agent bar); it
+goes \texttt{set} only at \texttt{MenuSendOk}, a successful push.  A
+\texttt{Quiescent} state requires \texttt{menusDirty = clear}.  Each way
+\texttt{menuShown} is cleared re-arms \texttt{menusDirty}: \texttt{MarkMenus}
+sets it directly, and \texttt{Ensure} is always followed by \texttt{Remark},
+which now re-marks the menu \emph{unconditionally}.  \texttt{menusDirty}
+returns to \texttt{clear} only through \texttt{Drain}, which carries the change
+into \texttt{batchMenus}; that drained change is then either delivered
+(\texttt{SendMenusBegin} then \texttt{MenuSendOk}, setting \texttt{menuShown =
+set}) or its send fails, and every failure path re-arms \texttt{menusDirty} ---
+\texttt{Remark} and \texttt{Reconn} unconditionally, \texttt{CycleFail} against
+\texttt{batchMenus} (sound because \texttt{CycleFail} does not replace the
+display, so the menu it already showed is still correct).  Hence a rest state
+with the display up cannot be reached with \texttt{menuShown = clear}: the menu
+was pushed, or it is still owed and the system is not at rest.  The
+unconditional heal re-mark is what makes this hold after a scene-only respawn,
+where the fresh display lost its agent bar though the failed batch carried no
+menu change; a re-mark keyed on \texttt{batchMenus} would leave the bar blank
+(Section~\ref{sec:fidelity}).
 
 % ============================================================
 \section{Verification}
@@ -1708,48 +1732,52 @@ returns \emph{found} --- the trace above.  That difference is the evidence
 that the model detects the defect reviewers found in the live-only recovery,
 which \texttt{SendRecovery.\_remark}'s union of \texttt{batch.scenes} closes.
 
-\paragraph{The dropped menu change.}
-The third buggy variant removes the menu re-mark from the recovery.
-Concretely, drop the two lines
+\paragraph{The blanked agent bar after a scene-only respawn.}
+The third buggy variant weakens the menu re-mark on the two display-replacing
+heals from unconditional back to \texttt{batchMenus}-keyed.  Concretely, in
+\texttt{Remark} and \texttt{Reconn} replace \texttt{menusDirty$'$ = set} with
+the conditional pair
 \texttt{(batchMenus = set $\implies$ menusDirty$'$ = set)} and
-\texttt{(batchMenus = clear $\implies$ menusDirty$'$ = menusDirty)} from
-\texttt{Remark}, \texttt{Reconn}, and \texttt{CycleFail}, replacing them with
-an unconditional \texttt{menusDirty$'$ = menusDirty} --- the recovery that
-re-queues scenes and the clear but forgets the menu.  A menu change whose send
-failed is then neither delivered nor re-marked:
+\texttt{(batchMenus = clear $\implies$ menusDirty$'$ = menusDirty)} --- the
+pre-fix recovery that re-pushed the menu only when the failed batch itself
+carried a menu change.  The defect it reintroduces is the one the shipped fix
+closes: a reap-and-respawn triggered by a \emph{scene-only} failure brings up a
+fresh display with no agent bar, and nothing re-pushes it.
 
 \begin{enumerate}
-  \item \texttt{MarkMenus}: \texttt{menusDirty = set}, \texttt{menuShown =
-    clear} --- a menu change is owed.
-  \item \texttt{Drain}: \texttt{batchMenus = set}, \texttt{menusDirty = clear}.
-  \item \texttt{SkipBlank}; \texttt{SendMenusBegin}: the worker takes the
-    client lock to push the menu, reaching \texttt{wmsend}.
-  \item The display is wedged (\texttt{DisplayWedge} beforehand), so
-    \texttt{MenuSendStuck} fires: \texttt{wreap}, \texttt{menuShown} still
-    \texttt{clear}.
-  \item \texttt{Reap}; \texttt{Ensure}; \texttt{Remark} --- but, live-only, it
-    does not re-mark \texttt{menusDirty}.  \texttt{batchMenus} is consumed.
-  \item No scenes remain, so \texttt{ProcDone} returns the worker to
-    \texttt{widle}.
+  \item Start from a delivered menu: \texttt{menuShown = set}.
+  \item \texttt{ReplaceBegin}/\texttt{ReplaceCommit}~$s$: \texttt{store~$s$ =
+    vlive}, $s$ marked dirty.  No menu change --- \texttt{menusDirty = clear}.
+  \item \texttt{Wake}; \texttt{Drain}: \texttt{batch = \{s\}},
+    \texttt{batchMenus = clear}.
+  \item \texttt{DisplayWedge}; \texttt{SkipBlank}; \texttt{MenuSkip}
+    (\texttt{batchMenus = clear}); \texttt{Snap}; \texttt{SendBegin};
+    \texttt{SendStuck} $\to$ \texttt{wreap}.
+  \item \texttt{Reap}; \texttt{Ensure} --- fresh display, \texttt{menuShown =
+    clear}.
+  \item \texttt{Remark}, conditional: \texttt{batchMenus = clear}, so
+    \texttt{menusDirty} stays \texttt{clear}.  The scene $s$ is re-marked and
+    repainted, but the agent bar is not.
   \item At rest: \texttt{menusDirty = clear}, \texttt{menuShown = clear} ---
-    a \texttt{Quiescent} state with a menu change that was marked, never
-    delivered, and no longer marked.  I6 is violated.
+    a \texttt{Quiescent} state whose display shows no agent bar though the
+    registry holds one.  I6 is violated.
 \end{enumerate}
 
 The property that separates the two designs is I6 itself:
 \begin{verbatim}
-  # must be NOT found for the correct spec, FOUND for the no-remark variant
+  # must be NOT found for the correct spec, FOUND for the conditional variant
   probcli <spec>.tex -model_check -nodead \
     -goal "wphase = widle & dirty = {} & cleared = clear &
            menusDirty = clear & storeLockMut = {} & shutting = clear &
            display = dup & menuShown = clear" \
     -p DEFAULT_SETSIZE 2
 \end{verbatim}
-With the menu re-mark intact, a failed menu send re-arms \texttt{menusDirty},
+With the unconditional heal re-mark, every respawn re-arms \texttt{menusDirty},
 so the system cannot rest until a later cycle re-reads the registry and
-re-delivers; the goal returns \emph{not found}.  With it removed the goal
-returns \emph{found} --- the trace above.  That difference is the evidence
-that the model detects a dropped menu change, which
-\texttt{SendRecovery.\_requeue}'s call to \texttt{mark\_menus} closes.
+re-delivers the bar; the goal returns \emph{not found}.  Weakened to
+\texttt{batchMenus}-keyed, the goal returns \emph{found} --- the trace above.
+That difference is the evidence that the model detects the blanked-bar defect,
+which \texttt{SendRecovery.\_remark}'s unconditional \texttt{menus\_dirty=True}
+closes.
 
 \end{document}

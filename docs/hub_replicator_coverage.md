@@ -9,9 +9,13 @@ its dirty signal, and the store lock are covered by
 `tests/domain/test_store_lock.py`; the two store-empty clear partitions (CL1,
 CL2) are covered by the clear tool's tests in `tests/test_tools.py`, and the real
 bounded-send time limit behind P3/P4 is measured by the mandatory `SO_SNDTIMEO`
-probe test in `tests/test_send_timeout.py`. The menu leg (MN1–MN11) is exercised
-against a fake `MenuReader` and a real `HubMenuRegistry` by the two menu tests in
-`tests/domain/test_hub_replicator.py`.
+probe test in `tests/test_send_timeout.py`. The menu leg (MN1–MN12) is exercised
+against a fake sender and a real `HubMenuRegistry`: the signal-level partitions
+(MN1–MN3, MN5) by `tests/domain/test_dirty_signal.py`, the send and
+failure-recovery partitions (MN4, MN6–MN11) by
+`tests/domain/test_hub_replicator.py`, and the recovery-level menu re-mark,
+including the scene-only-respawn headline (MN12), by both
+`tests/domain/test_hub_replicator.py` and `tests/domain/test_recovery.py`.
 
 The bar is that the spec's partitions are each covered by a test, not merely
 that the model-check passed.
@@ -141,6 +145,7 @@ it, and the worker reads the registry fresh at send time.
 | MN9 | **a menu change lands while a failed send is in flight** | **the re-mark plus the fresh re-read ship the newest; a drained (stale) menu is never re-sent (payload-less)** |
 | MN10 | a generic (non-socket) error strikes the menu send | `CycleFail` restores the menu flag and backs off; nothing dropped |
 | MN11 | **at rest after any menu cycle** | **the display shows the current menu (I6): a marked change was delivered, or it is still marked and the system is not at rest** |
+| MN12 | **a scene-only failure triggers a reap or reconnect** | **the display-replacing heals re-mark the menu unconditionally, so the fresh display's blanked agent bar is re-pushed from a fresh registry read even though the failed batch carried no menu change** |
 
 ### Recovery resilience — the recovery step itself fails
 
@@ -259,29 +264,35 @@ display-lifecycle audit applied.
 | SH3 | test_dirty_signal::test_stop_with_nothing_pending_returns_shutting_at_once | COVERED |
 | SH4 | test_hub_replicator::test_a_fresh_replicator_after_a_stop_starts_idle_and_works | COVERED |
 | SH5 | test_hub_replicator::test_a_stop_before_start_makes_start_raise; test_hub_replicator::test_restarting_a_stopped_replicator_raises | COVERED |
-| MN1 | — | **UNCOVERED** — model-proven (`Drain` coalesces `menusDirty` to one flag); no signal-level menu coalesce test in test_dirty_signal |
-| MN2 | — | **UNCOVERED** — model-proven (`Drain` snapshots `menusDirty` into `batchMenus` and resets); no signal-level menu drain test |
-| MN3 | — | **UNCOVERED** — model-proven (`Wake` fires on `menusDirty` alone); no menu-only wake test |
+| MN1 | test_dirty_signal::test_many_menu_marks_coalesce_to_a_single_flag | COVERED |
+| MN2 | test_dirty_signal::test_drain_takes_menus_alongside_dirty_and_cleared_and_resets | COVERED |
+| MN3 | test_dirty_signal::test_an_idle_signal_wakes_on_a_menu_mark_alone | COVERED |
 | MN4 | test_hub_replicator::test_menu_state_is_pushed_from_a_fresh_registry_read | COVERED |
-| MN5 | — | **UNCOVERED** — no test asserts a non-menu batch leaves the menu untouched |
+| MN5 | test_dirty_signal::test_a_batch_without_a_menu_mark_carries_no_menu_flag | COVERED |
 | MN6 | test_hub_replicator::test_menu_state_is_pushed_from_a_fresh_registry_read | COVERED |
 | MN7 | test_hub_replicator::test_a_menu_change_during_a_failed_send_wins_over_the_stale_state | COVERED |
-| MN8 | — | **UNCOVERED** — model-proven (the `wremark & batchMenus = set` witness); the race test exercises `OSError`/reconnect only, never the wedged `BlockingIOError`/reap path |
+| MN8 | test_hub_replicator::test_a_wedged_menu_send_is_reaped_and_the_bar_re_delivered | COVERED |
 | MN9 | test_hub_replicator::test_a_menu_change_during_a_failed_send_wins_over_the_stale_state | COVERED |
-| MN10 | — | **UNCOVERED** — model-proven (the I6 fidelity trace is a `CycleFail` at `wmsend`); no menu-specific generic-failure test |
+| MN10 | test_hub_replicator::test_a_generic_menu_send_error_restores_the_flag_and_retries | COVERED |
 | MN11 | test_hub_replicator::test_a_menu_change_during_a_failed_send_wins_over_the_stale_state | COVERED (I6 exercised for the dead-peer path; proven exhaustively by model-check) |
+| MN12 | test_hub_replicator::test_a_scene_only_reap_re_pushes_the_agent_bar; test_recovery::test_recovery_re_marks_the_menu_even_for_a_scene_only_batch | COVERED |
 
 The race test named above (`test_a_menu_change_during_a_failed_send_wins_over_the_stale_state`)
 is the exact interleaving MN9 requires: mark v1, hold and provably enter the
 first send, land v2 during the hold, release so the send fails (`OSError`),
 recovery re-marks the flag, and the next send re-reads the registry — v2 ships
 and v1 was never recorded. It is the payload-less design's proof against the
-recovery-clobber regression. It covers MN7 and MN9 on the dead-peer path; the
-wedged/reap counterpart (MN8) and the generic-failure counterpart (MN10) are
-proven by the model but have no unit test against the real worker, and the
-signal-level menu drain/coalesce/wake (MN1–MN3) and the empty-menu skip (MN5)
-are likewise model-only. These are the gaps a follow-up test PR should fill;
-they are named here rather than papered over.
+recovery-clobber regression, and it covers MN7 and MN9 on the dead-peer path.
+The gaps this audit once named are now closed against the real worker: the
+wedged/reap menu counterpart (MN8) by
+`test_a_wedged_menu_send_is_reaped_and_the_bar_re_delivered`, the generic-failure
+counterpart (MN10) by `test_a_generic_menu_send_error_restores_the_flag_and_retries`,
+the signal-level menu coalesce/drain/wake (MN1–MN3) and the empty-menu skip (MN5)
+by the four menu tests in `test_dirty_signal.py`, and the scene-only-respawn
+headline (MN12) by `test_a_scene_only_reap_re_pushes_the_agent_bar` plus
+`test_recovery::test_recovery_re_marks_the_menu_even_for_a_scene_only_batch`. Only
+MN11's full-state guarantee rests on the model-check, with its dead-peer path also
+exercised directly.
 
 ## 3. Merge-critical partitions
 
@@ -319,11 +330,18 @@ must not ship without.
   re-mark if the display comes back empty.
 - **MN7 / MN9 — the menu re-mark and newest-wins (I6).** A menu change whose
   send fails must be re-marked, or it is delivered once and then lost when the
-  cycle heals. The spec's fidelity variant (spec §Fidelity, "the dropped menu
-  change") drops the `batchMenus`-keyed re-mark from `Remark`/`Reconn`/`CycleFail`
-  and reaches a rest state with a marked-but-undelivered menu in seven steps ---
-  I6 violated. `SendRecovery._requeue`'s call to `mark_menus` closes it. The
-  newest-wins half is the payload-less design: the worker re-reads the registry
-  fresh at each send, so a stale drained menu can never be re-pushed over a newer
-  one. The implementation must never carry a drained menu payload across a
-  recovery.
+  cycle heals. The newest-wins half is the payload-less design: the worker
+  re-reads the registry fresh at each send, so a stale drained menu can never be
+  re-pushed over a newer one. The implementation must never carry a drained menu
+  payload across a recovery.
+- **MN12 — the unconditional heal re-mark (I6).** A reap or reconnect brings up a
+  display with no agent bar, and the client handshake replays only the World-menu
+  items, never `set_menu`, so the two display-replacing heals (`Remark`, `Reconn`)
+  must re-mark the menu *unconditionally* — not keyed on `batchMenus`. The spec's
+  third fidelity variant (spec §Fidelity, "the blanked agent bar after a
+  scene-only respawn") weakens those two heals back to the `batchMenus`-keyed
+  re-mark and reaches a `Quiescent` state with `menuShown = clear` — the bar
+  blank though the registry holds one, I6 violated. `SendRecovery._remark`'s
+  `menus_dirty=True` closes it. `CycleFail` stays conditional (via
+  `SendRecovery.restore`), because it does not replace the display, so the menu
+  it already showed is still correct.
