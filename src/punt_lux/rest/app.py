@@ -20,7 +20,6 @@ from punt_lux.domain.hub import client_registry, hub, hub_display
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, next_event
 from punt_lux.domain.hub.replicator_instance import hub_menu_registry, hub_replicator
-from punt_lux.domain.ids import ConnectionId
 from punt_lux.operations import HubPorts, Operations, Scope
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.paths import DisplayPaths
@@ -29,6 +28,7 @@ from punt_lux.rest.display import DisplayRoutes
 from punt_lux.rest.menus import MenuRoutes
 from punt_lux.rest.scenes import SceneRoutes
 from punt_lux.rest.status import HttpErrorMap
+from punt_lux.session_key import RESERVED_REST_CONNECTION
 
 if TYPE_CHECKING:
     from fastapi import APIRouter, FastAPI
@@ -38,7 +38,7 @@ __all__ = ["DEFAULT_SCOPE", "HubHealth", "RestSurface"]
 # A connection-less REST request lands in one default Hub scope for this unit.
 # Per-caller scoping arrives with the multi-user future, when a REST call carries
 # an explicit session identity.
-DEFAULT_SCOPE = Scope(ConnectionId("rest"))
+DEFAULT_SCOPE = Scope(RESERVED_REST_CONNECTION)
 
 
 class HubHealth(BaseModel):

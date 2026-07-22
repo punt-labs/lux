@@ -12,6 +12,8 @@ from punt_lux.luxd import (
     _sanitize_for_log,
     build_app,
 )
+from punt_lux.rest.app import DEFAULT_SCOPE
+from punt_lux.session_key import RESERVED_REST_CONNECTION
 
 
 class TestSanitizeForLog:
@@ -80,6 +82,26 @@ class TestMcpWebsocketRoute:
             assert "loopback" in _active_sessions
         assert "loopback" not in _active_sessions
 
+    def test_rejects_reserved_rest_session_key(self):
+        """A session_key colliding with the REST scope id is refused (code 1008).
+
+        Otherwise the session would share REST-owned scene/menu state and its
+        disconnect cascade would destroy REST-created state.
+        """
+        app = build_app()
+        client = TestClient(app)
+        _active_sessions.discard(RESERVED_REST_CONNECTION)
+        with (
+            pytest.raises(WebSocketDisconnect) as exc_info,
+            client.websocket_connect(
+                f"/mcp?session_key={RESERVED_REST_CONNECTION}",
+                headers={"Host": f"127.0.0.1:{DEFAULT_HUB_PORT}"},
+            ),
+        ):
+            pass
+        assert exc_info.value.code == 1008
+        assert RESERVED_REST_CONNECTION not in _active_sessions
+
     def test_rejects_foreign_host(self):
         """A non-loopback Host is rejected by the SDK DNS-rebinding guard."""
         app = build_app()
@@ -105,6 +127,17 @@ class TestMcpWebsocketRoute:
             # a failed handshake would raise here instead of reporting a session.
             assert client.get("/health").json()["sessions"] >= 1
         assert "test-pid" not in _active_sessions
+
+
+class TestReservedRestIdentity:
+    def test_rest_scope_is_the_reserved_connection(self):
+        """The REST scope and luxd's refusal read one constant, not two strings.
+
+        The reserved identity lives in one place; the REST surface scopes to it
+        and luxd rejects a session that would collide with it, so the two sides
+        can never drift apart.
+        """
+        assert DEFAULT_SCOPE.connection_id is RESERVED_REST_CONNECTION
 
 
 class TestBuildApp:

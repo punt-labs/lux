@@ -12,7 +12,6 @@ import logging
 import os
 import re
 import sys
-import uuid
 from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
@@ -24,6 +23,7 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
 from punt_lux.rest import HubHealth, RestSurface
+from punt_lux.session_key import SessionKey
 from punt_lux.transport_policy import LoopbackTransportPolicy
 
 if TYPE_CHECKING:
@@ -69,21 +69,23 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
         websocket_server,  # pyright: ignore[reportDeprecated]
     )
 
-    raw_key = websocket.query_params.get("session_key", "")
-    if not raw_key:
-        raw_key = str(uuid.uuid4())[:8]
-    session_key = _sanitize_for_log(raw_key)
+    session = SessionKey.from_request(websocket.query_params.get("session_key", ""))
+    key = session.value
+    if session.is_reserved:
+        logger.warning("Rejected reserved session_key=%s", key)
+        await websocket.close(code=1008)
+        return
 
     origin = websocket.headers.get("Origin")
     if _TRANSPORT_POLICY.rejects_origin(origin):
         safe = _sanitize_for_log(origin)
-        logger.warning("Rejected CSWSH: Origin=%s, session_key=%s", safe, session_key)
+        logger.warning("Rejected CSWSH: Origin=%s, session_key=%s", safe, key)
         await websocket.close(code=1008)
         return
 
-    logger.info("MCP WebSocket connected: session_key=%s", session_key)
+    logger.info("MCP WebSocket connected: session_key=%s", key)
 
-    _active_sessions.add(session_key)
+    _active_sessions.add(key)
     try:
         async with websocket_server(  # pyright: ignore[reportDeprecated]
             websocket.scope,
@@ -93,20 +95,19 @@ async def _mcp_websocket_route(websocket: WebSocket) -> None:
         ) as (read_stream, write_stream):
             from punt_lux.tools import run_mcp_session
 
-            await run_mcp_session(read_stream, write_stream, session_key=session_key)
+            await run_mcp_session(read_stream, write_stream, session_key=key)
     except Exception:
-        logger.exception("MCP WebSocket error: session_key=%s", session_key)
+        logger.exception("MCP WebSocket error: session_key=%s", key)
     finally:
-        _active_sessions.discard(session_key)
+        _active_sessions.discard(key)
         # On close, cascade cleanup drops the HubDisplay registration, marks
         # every owned root removed (the Observer cascade prunes the rest), purges
         # the connection's topic scope, and unbinds its outbound writer.
         from punt_lux.domain.hub import disconnect_connection
         from punt_lux.domain.hub.inbox import drop_session
-        from punt_lux.domain.ids import ConnectionId
 
-        disconnect_connection(ConnectionId(session_key), drop_session)
-        logger.info("MCP WebSocket disconnected: session_key=%s", session_key)
+        disconnect_connection(session.connection_id, drop_session)
+        logger.info("MCP WebSocket disconnected: session_key=%s", session.value)
 
 
 # ---------------------------------------------------------------------------
@@ -143,20 +144,18 @@ def build_app(
 # ---------------------------------------------------------------------------
 
 
-def _write_port_file(port_path: object, port: int) -> None:
-    p = Path(str(port_path))
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(str(port))
-    logger.info("Wrote port file: %s (port %d)", p, port)
+def _write_port_file(port_path: Path, port: int) -> None:
+    port_path.parent.mkdir(parents=True, exist_ok=True)
+    port_path.write_text(str(port))
+    logger.info("Wrote port file: %s (port %d)", port_path, port)
 
 
-def _remove_port_file(port_path: object) -> None:
-    p = Path(str(port_path))
+def _remove_port_file(port_path: Path) -> None:
     try:
-        p.unlink(missing_ok=True)
-        logger.info("Removed port file: %s", p)
+        port_path.unlink(missing_ok=True)
+        logger.info("Removed port file: %s", port_path)
     except OSError:
-        logger.warning("Could not remove port file: %s", p)
+        logger.warning("Could not remove port file: %s", port_path)
 
 
 # ---------------------------------------------------------------------------
