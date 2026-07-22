@@ -207,7 +207,7 @@ def ping(
     http_timeout = display_wait + _PING_HTTP_MARGIN_SECONDS
 
     try:
-        result = LuxRestClient.connect(timeout=http_timeout).ping(display_wait)
+        result = LuxRestClient.connect(timeout=http_timeout).ping(timeout)
     except HubUnavailableError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None

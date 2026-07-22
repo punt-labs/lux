@@ -92,6 +92,16 @@ def test_ping_returns_the_typed_pong() -> None:
     assert transport.path == "/display/ping?timeout=2.5"
 
 
+def test_ping_without_a_wait_omits_the_timeout_param() -> None:
+    # No wait -> no query param, so the route falls to luxd's standing budget.
+    transport = CannedTransport(
+        HttpResponse(status=200, body=b'{"kind":"ok","rtt_seconds":0.02}')
+    )
+    result = _client_over(transport).ping(None)
+    assert result == Pong(rtt_seconds=0.02)
+    assert transport.path == "/display/ping"
+
+
 @pytest.mark.parametrize(
     ("status", "code"),
     [

@@ -76,14 +76,14 @@ class LuxRestClient:
         segment = quote(request.scene_id, safe="")
         return self._send("PUT", f"/scenes/{segment}", request, SceneShown)
 
-    def ping(self, wait: float) -> Pong | OpError:
-        """Round-trip a display ping through ``GET /display/ping?timeout=<wait>``.
+    def ping(self, wait: float | None = None) -> Pong | OpError:
+        """Round-trip a display ping through ``GET /display/ping``.
 
-        ``wait`` is the display-leg budget luxd applies to the ping; the caller
-        sizes its own HTTP timeout above it so the transport never trips first.
+        A given ``wait`` rides through as the ``timeout`` query param (the
+        display-leg budget); ``None`` omits it so luxd uses its standing budget.
         """
-        query = urlencode({"timeout": wait})
-        return self._send("GET", f"/display/ping?{query}", None, Pong)
+        suffix = f"?{urlencode({'timeout': wait})}" if wait is not None else ""
+        return self._send("GET", f"/display/ping{suffix}", None, Pong)
 
     def _send[T: BaseModel](
         self, method: str, path: str, body: BaseModel | None, ok: type[T]

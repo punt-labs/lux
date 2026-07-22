@@ -73,7 +73,7 @@ class _PingClient:
         self._result = result
         self.forwarded_wait: float | None = None
 
-    def ping(self, wait: float) -> object:
+    def ping(self, wait: float | None = None) -> object:
         self.forwarded_wait = wait
         return self._result
 
@@ -134,10 +134,10 @@ class TestPing:
         assert result.exit_code != 0
         assert "0.1" in result.stderr  # typer's range message names the minimum
 
-    def test_ping_http_bound_sits_a_margin_above_the_display_leg(self) -> None:
-        # With no --timeout the display leg is luxd's default budget; the HTTP
-        # bound sits a fixed margin above it, so the transport never trips first
-        # and the wait forwarded to the display leg is that same default.
+    def test_ping_omitted_forwards_none_and_still_bounds_http(self) -> None:
+        # With no --timeout the wait forwarded to the client is None — so the
+        # route omits the param and luxd uses its standing budget — yet the HTTP
+        # bound still sits a fixed margin above that budget so it never trips first.
         from punt_lux.__main__ import _PING_HTTP_MARGIN_SECONDS
         from punt_lux.display_client import DEFAULT_RECV_TIMEOUT
         from punt_lux.operations import Pong
@@ -155,7 +155,7 @@ class TestPing:
         assert result.exit_code == 0
         client = captured["client"]
         assert isinstance(client, _PingClient)
-        assert client.forwarded_wait == DEFAULT_RECV_TIMEOUT
+        assert client.forwarded_wait is None
         assert captured["http"] == DEFAULT_RECV_TIMEOUT + _PING_HTTP_MARGIN_SECONDS
 
     def test_ping_forwards_a_small_user_timeout_and_reports_timeout(self) -> None:
