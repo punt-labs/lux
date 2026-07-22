@@ -47,7 +47,8 @@ class _ForbiddenPort:
         raise AssertionError(msg)
 
     def ping(self, wait: float | None) -> DisplayReply:
-        raise AssertionError("Hub read reached around to the display: ping()")
+        msg = f"Hub read reached around to the display: ping({wait!r})"
+        raise AssertionError(msg)
 
 
 class _StubPort:
