@@ -49,6 +49,7 @@ docs/*.synctex.gz
 
 # Punt Labs toolchain ignores
 .punt-labs/quarry/captures/*.md
+.punt-labs/local/
 *.ini
 uv.toml
 
