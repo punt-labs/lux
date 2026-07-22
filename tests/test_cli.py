@@ -122,6 +122,18 @@ class TestPing:
         assert result.exit_code == 1
         assert line in result.stderr
 
+    def test_ping_rejects_an_out_of_range_timeout_before_any_http(self) -> None:
+        # The bounded option makes typer reject a bad --timeout with its own
+        # range message before any HTTP — not the misleading generic "timeout"
+        # line an out-of-range value used to produce via a server 422.
+        def _boom(*, timeout: float) -> object:
+            raise AssertionError("HTTP must not run for an out-of-range timeout")
+
+        with patch("punt_lux.rest_client.LuxRestClient.connect", side_effect=_boom):
+            result = runner.invoke(app, ["ping", "--timeout", "0.05"])
+        assert result.exit_code != 0
+        assert "0.1" in result.stderr  # typer's range message names the minimum
+
     def test_ping_http_bound_sits_a_margin_above_the_display_leg(self) -> None:
         # With no --timeout the display leg is luxd's default budget; the HTTP
         # bound sits a fixed margin above it, so the transport never trips first

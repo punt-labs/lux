@@ -187,16 +187,16 @@ _PING_HTTP_MARGIN_SECONDS = 2.0  # HTTP bound sits a margin above the display le
 
 @app.command()
 def ping(
-    # None derives the wait from luxd's display budget (see below).
+    # None derives the wait from the display budget; bounds match the route so
+    # an out-of-range value is a clear typer error (clamp defaults off), not HTTP.
     timeout: float | None = typer.Option(
-        None, "--timeout", "-t", help="Seconds to wait for the display ping."
+        None, "--timeout", "-t", min=0.1, max=30, help="Seconds to wait for the ping."
     ),
 ) -> None:
     """Ping the display through luxd and print round-trip time.
 
-    Reaches the display over luxd's REST API, not the display socket. ``--timeout``
-    is the real display-leg budget; the HTTP round-trip sits a margin above it, so
-    a slow display reports "timeout" after that wait, never "luxd is not running".
+    ``--timeout`` (0.1-30s) is the real display-leg budget over luxd's REST API;
+    the HTTP round-trip sits a margin above it, so a slow display reports "timeout".
     """
     from punt_lux.display_client import DEFAULT_RECV_TIMEOUT
     from punt_lux.operations import OpError

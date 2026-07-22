@@ -595,7 +595,8 @@ class DisplayClient:
     def ping(self, timeout: float | None = None) -> PongMessage | None:
         """Send a ping and wait for the pong within ``timeout`` (else recv budget)."""
         self._send(PingMessage(ts=time.time()))
-        deadline = time.monotonic() + (timeout or self._recv_timeout)
+        budget = timeout if timeout is not None else self._recv_timeout
+        deadline = time.monotonic() + budget
         if self.listener_active:
             remaining = deadline - time.monotonic()
             try:
@@ -612,10 +613,9 @@ class DisplayClient:
                 return None
             if isinstance(received, PongMessage):
                 return received
-            # Non-pong frames arriving without an active listener have
-            # no consumer to route them — the polling interfaces
-            # (poll_event, _recv_ack, query) each block on their own
-            # typed queue and are not fed by inline ping reads.
+            # Non-pong frames without an active listener have no consumer:
+            # poll_event, _recv_ack, and query each block on their own typed
+            # queue and are not fed by inline ping reads.
             logger.debug("ping: dropping interleaved %s frame", type(received).__name__)
 
     def query(
