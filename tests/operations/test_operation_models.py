@@ -94,6 +94,14 @@ def test_display_mode_parse_rejects_a_relative_repo_without_raising() -> None:
     assert "absolute path" in result.reason
 
 
+def test_display_mode_parse_reports_an_embedded_nul_repo_without_raising() -> None:
+    # A NUL byte is a classic path-injection value; parse must report it as an
+    # invalid_request, never let a ValueError escape the never-raises contract.
+    result = DisplayModeRequest.parse("y", "/tmp/lux\x00project")
+    assert isinstance(result, OpError)
+    assert result.code == "invalid_request"
+
+
 def test_op_error_is_a_discriminated_error() -> None:
     error = OpError(code="timeout", reason="slow")
     assert error.kind == "error"

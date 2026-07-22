@@ -75,7 +75,7 @@ class DisplayControlOperations:
             return payload
         path = payload.get("path")
         if not isinstance(path, str):
-            return OpError(code="rejected", reason="screenshot reply carried no path")
+            return OpError(code="fault", reason="screenshot reply carried no path")
         return Screenshot(path=path)
 
     def ping(self) -> Pong | OpError:
@@ -85,7 +85,7 @@ class DisplayControlOperations:
             return payload
         rtt = payload.get("rtt_seconds")
         if not isinstance(rtt, int | float):
-            return OpError(code="rejected", reason="ping reply carried no rtt")
+            return OpError(code="fault", reason="ping reply carried no rtt")
         return Pong(rtt_seconds=float(rtt))
 
     # -- setters: narrow the reply into the write's own result type --------
@@ -132,5 +132,5 @@ class DisplayControlOperations:
             return ack
         if ack.frame_id != frame_id:
             reason = f"set_frame_state acknowledged {ack.frame_id!r}, not {frame_id!r}"
-            return OpError(code="rejected", reason=reason)
+            return OpError(code="fault", reason=reason)
         return Ok()

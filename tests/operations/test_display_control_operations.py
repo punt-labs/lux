@@ -115,13 +115,14 @@ def test_get_theme_passes_the_bare_theme_names_through() -> None:
     assert result.available == ["imgui_colors_light", "darcula", "gray_variations"]
 
 
-def test_get_theme_rejects_an_unknown_theme_name() -> None:
-    # An unrecognized theme name fails loudly rather than being silently dropped.
+def test_get_theme_faults_on_an_unknown_theme_name() -> None:
+    # A reply the model cannot narrow is a malformed display reply — an
+    # engine-side fault, not a caller error — and fails loudly, not silently.
     payload = {"current": "not_a_theme", "available": []}
     ops = DisplayControlOperations(_FakePort(query=DisplayReplied(payload)))
     result = ops.get_theme()
     assert isinstance(result, OpError)
-    assert result.code == "rejected"
+    assert result.code == "fault"
 
 
 def test_get_window_settings_reads_all_four_fields() -> None:
@@ -184,14 +185,14 @@ def test_set_theme_returns_the_new_theme_state_and_rejects_unknown() -> None:
     assert rejected.code == "invalid_request"
 
 
-def test_set_theme_rejects_a_malformed_reply_instead_of_fabricating_success() -> None:
-    # A reply the ThemeState model does not recognize is an OpError(rejected),
-    # never a success carrying the requested value.
+def test_set_theme_faults_on_a_malformed_reply_instead_of_fabricating_success() -> None:
+    # A reply the ThemeState model does not recognize is an OpError(fault) — a
+    # malformed display reply — never a success carrying the requested value.
     port = _FakePort(query=DisplayReplied({"current": "not_a_theme", "available": []}))
     ops = DisplayControlOperations(port)
     result = ops.set_theme(SetThemeRequest.parse("darcula"))
     assert isinstance(result, OpError)
-    assert result.code == "rejected"
+    assert result.code == "fault"
 
 
 def test_set_window_settings_rejects_empty_patch() -> None:
@@ -241,20 +242,23 @@ def test_set_frame_state_returns_ok_and_rejects_empty_patch() -> None:
     assert empty.reason == "no frame state provided"
 
 
-def test_set_frame_state_rejects_a_reply_missing_the_frame_id() -> None:
+def test_set_frame_state_faults_on_a_reply_missing_the_frame_id() -> None:
     # Schema drift must not fabricate success: a reply that does not acknowledge
-    # the frame is a rejected, not an Ok.
+    # the frame is a malformed display reply (fault), not an Ok. Both this and the
+    # wrong-frame_id case below are faults, so the two ack failures are unified.
     port = _FakePort(query=DisplayReplied({"changed": {"minimized": True}}))
     ops = DisplayControlOperations(port)
     result = ops.set_frame_state("f1", FrameStatePatch.parse({"minimized": True}))
     assert isinstance(result, OpError)
-    assert result.code == "rejected"
+    assert result.code == "fault"
 
 
-def test_set_frame_state_rejects_a_reply_acknowledging_a_different_frame() -> None:
+def test_set_frame_state_faults_on_a_reply_acknowledging_a_different_frame() -> None:
+    # The display acked a different frame than asked: the display did the wrong
+    # thing, so this is a backend fault, not the engine refusing a caller write.
     port = _FakePort(query=DisplayReplied({"frame_id": "other", "changed": {}}))
     ops = DisplayControlOperations(port)
     result = ops.set_frame_state("f1", FrameStatePatch.parse({"minimized": True}))
     assert isinstance(result, OpError)
-    assert result.code == "rejected"
+    assert result.code == "fault"
     assert "f1" in result.reason

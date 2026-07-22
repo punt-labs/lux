@@ -16,19 +16,19 @@ __all__ = ["OpError", "OpErrorCode"]
 OpErrorCode = Literal[
     "display_unavailable",  # the display process is not running
     "timeout",  # a proxied round-trip exceeded its bound
-    "rejected",  # the Hub refused a malformed or invalid write
+    "rejected",  # the engine refused the caller's request
     "invalid_request",  # the request itself did not type-check
     "not_found",  # the named scene or resource does not exist
+    "fault",  # an engine-side failure: a malformed display reply, unreadable config
 ]
 
 
 class OpError(BaseModel):
     """A capability failed; ``code`` is machine-branchable, ``reason`` is prose.
 
-    Tagged ``kind="error"`` so a discriminated result cannot be both a success
-    and a failure at once. ``reason`` carries the bare cause with no surface
-    wording — each adapter adds its own prefix (``"scene not rendered — "``,
-    ``"scene not updated — "``) when it renders the legacy status line.
+    Tagged ``kind="error"`` so a discriminated result cannot be both a success and
+    a failure at once. ``reason`` carries the bare cause with no surface wording;
+    each adapter adds its own prefix when it renders a legacy status line.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -44,14 +44,14 @@ class OpError(BaseModel):
 
     @classmethod
     def from_reply(cls, exc: ValidationError) -> OpError:
-        """Build a ``rejected`` from a malformed display reply, naming the field.
+        """Build a ``fault`` from a malformed display reply, naming the field.
 
         A request that fails to type-check is the caller's mistake
-        (``invalid_request``); a reply that fails is the display returning
-        something the model does not recognize (``rejected``). Same rendering,
-        different code, so a caller can tell whose fault it was.
+        (``invalid_request``); a reply that fails narrowing is an engine-side
+        ``fault`` — the display returned what the model cannot recognize. Same
+        rendering, different code, so a caller can tell whose fault it was.
         """
-        return cls(code="rejected", reason=cls.describe(exc.errors()[0]))
+        return cls(code="fault", reason=cls.describe(exc.errors()[0]))
 
     @staticmethod
     def describe(err: ErrorDetails) -> str:

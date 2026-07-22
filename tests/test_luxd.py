@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from fastapi import FastAPI
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -12,6 +13,8 @@ from punt_lux.luxd import (
     _sanitize_for_log,
     build_app,
 )
+from punt_lux.rest.app import DEFAULT_SCOPE
+from punt_lux.session_key import RESERVED_REST_CONNECTION
 
 
 class TestSanitizeForLog:
@@ -80,6 +83,26 @@ class TestMcpWebsocketRoute:
             assert "loopback" in _active_sessions
         assert "loopback" not in _active_sessions
 
+    def test_rejects_reserved_rest_session_key(self):
+        """A session_key colliding with the REST scope id is refused (code 1008).
+
+        Otherwise the session would share REST-owned scene/menu state and its
+        disconnect cascade would destroy REST-created state.
+        """
+        app = build_app()
+        client = TestClient(app)
+        _active_sessions.discard(RESERVED_REST_CONNECTION)
+        with (
+            pytest.raises(WebSocketDisconnect) as exc_info,
+            client.websocket_connect(
+                f"/mcp?session_key={RESERVED_REST_CONNECTION}",
+                headers={"Host": f"127.0.0.1:{DEFAULT_HUB_PORT}"},
+            ),
+        ):
+            pass
+        assert exc_info.value.code == 1008
+        assert RESERVED_REST_CONNECTION not in _active_sessions
+
     def test_rejects_foreign_host(self):
         """A non-loopback Host is rejected by the SDK DNS-rebinding guard."""
         app = build_app()
@@ -107,15 +130,52 @@ class TestMcpWebsocketRoute:
         assert "test-pid" not in _active_sessions
 
 
+class TestReservedRestIdentity:
+    def test_rest_scope_is_the_reserved_connection(self):
+        """The REST scope and luxd's refusal read one constant, not two strings.
+
+        The reserved identity lives in one place; the REST surface scopes to it
+        and luxd rejects a session that would collide with it, so the two sides
+        can never drift apart.
+        """
+        assert DEFAULT_SCOPE.connection_id == RESERVED_REST_CONNECTION
+
+
 class TestBuildApp:
-    def test_returns_starlette_app(self):
-        app = build_app()
-        # Starlette apps have a router attribute
-        assert hasattr(app, "router")
-        assert hasattr(app, "routes")
+    def test_returns_fastapi_app(self):
+        assert isinstance(build_app(), FastAPI)
 
     def test_has_health_and_mcp_routes(self):
         app = build_app()
         paths = [getattr(r, "path", None) for r in app.routes]
         assert "/health" in paths
         assert "/mcp" in paths
+
+
+class TestRestSurfaceMounted:
+    """The typed REST surface is live on the same app luxd serves.
+
+    These tests use ``build_app()``, which wires the surface over the process-wide
+    Hub singletons via ``RestSurface.for_hub()``. That is deliberate but only safe
+    for read-only routes like these — they observe shared state, they never mutate
+    it. A test that renders, clears, writes display mode, or otherwise mutates Hub
+    state must use the fake-backed ``tests/rest`` ``make_client`` path instead, so
+    it runs against a fresh HubDisplay and cannot bleed state across tests.
+    """
+
+    def test_health_returns_the_typed_body(self):
+        client = TestClient(build_app())
+        resp = client.get("/health")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "ok"
+        assert isinstance(resp.json()["sessions"], int)
+
+    def test_a_rest_route_is_reachable(self):
+        # A real HTTP request against the assembled app reaches a REST route and
+        # gets a typed result — the surface is mounted, not merely importable.
+        client = TestClient(build_app())
+        resp = client.get("/scenes")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "scenes" in body
+        assert "frames" in body
