@@ -53,7 +53,7 @@ concurrency as a finite state machine over a small fixed set of scenes and
 mutator threads, so that ProB can enumerate every interleaving and either
 confirm the invariants or produce the exact offending trace.
 
-Five properties must hold across every interleaving:
+Six properties must hold across every interleaving:
 
 \begin{description}
   \item[I1 --- single writer.] Only the worker ever writes to the display
@@ -72,6 +72,10 @@ Five properties must hold across every interleaving:
     batch.
   \item[I5 --- one display.] The worker never spawns a fresh display while
     one is still alive; a respawn follows a kill.
+  \item[I6 --- menu-delivery durability.] A menu change that has been
+    marked is either delivered to the display by the worker's own send or
+    stays marked; a failed cycle never drops it.  When the system comes to
+    rest, no marked menu change is left undelivered.
 \end{description}
 
 \paragraph{Recovery and blanking.}
@@ -83,16 +87,30 @@ fail: an unspawnable display or a refused reconnect raises before the work is
 re-marked, and any other error inside the cycle escapes the two socket
 handlers.  That third, generic failure must not drop the drained work: the
 worker re-marks it --- every scene the cycle drained \emph{and} the clear it
-carried --- and backs off.  The two socket heals re-mark more: the whole
-drained batch, together with every scene the store still holds live, together
-with the carried clear.  The drained scenes matter because a batch can drain
-a scene whose only job is to be blanked, and a reconnect can land on the same
-still-running display that keeps its stale copy, so a lost blank must be
-re-queued or the departed scene lingers forever; blank-then-repaint is
-idempotent.  Finally, a drained scene whose store copy is empty is pushed as a
-blank into its own recorded frame, so an emptied or departed scene vanishes
---- unless the batch already carried a clear, which blanked the whole display,
-in which case the empty scene is skipped rather than blanked twice.
+carried \emph{and} the menu flag it carried --- and backs off.  The two socket
+heals re-mark more: the whole drained batch, together with every scene the
+store still holds live, together with the carried clear and the carried menu
+flag.  The drained scenes matter because a batch can drain a scene whose only
+job is to be blanked, and a reconnect can land on the same still-running
+display that keeps its stale copy, so a lost blank must be re-queued or the
+departed scene lingers forever; blank-then-repaint is idempotent.  Finally, a
+drained scene whose store copy is empty is pushed as a blank into its own
+recorded frame, so an emptied or departed scene vanishes --- unless the batch
+already carried a clear, which blanked the whole display, in which case the
+empty scene is skipped rather than blanked twice.
+
+\paragraph{The menu leg.}
+Alongside the scenes and the clear, the worker also pushes the agent menu
+bar and the registered World-menu items.  A menu change is a payload-less
+flag, like the clear: a mutator sets it, and the worker reads the menu
+registry \emph{fresh} at send time, pushing whatever the registry holds
+then.  Reading fresh is the whole point of the payload-less design --- a
+menu change that lands while an earlier send is failing is never overwritten
+by a stale re-mark, because there is no payload to go stale; the newest
+registry state always wins.  The menu push is one send with the same time
+limit and the same two socket failures as a scene send, so a wedged or dead
+display on the menu push heals exactly as it does on a scene push, and the
+carried menu flag is re-marked so the healed display is repainted.
 
 % ============================================================
 \section{Basic Types}
@@ -146,13 +164,13 @@ raises a plain \texttt{OSError} (\texttt{ECONNRESET}/\texttt{EPIPE}).
 \end{zed}
 
 Two-valued markers for the worker's read lock and client lock, and for the
-cleared and shutting signals, respectively.  A dedicated free type is used
-rather than a built-in boolean so the spec is self-contained for
+cleared, shutting, and menu signals, respectively.  A dedicated free type is
+used rather than a built-in boolean so the spec is self-contained for
 \texttt{fuzz}.
 
 \begin{zed}
   WPHASE ::= \\
-  \quad~ widle | wdrain | wblank | wproc | wsnap | wsend | \\
+  \quad~ widle | wdrain | wblank | wmenu | wproc | wsnap | wsend | wmsend | \\
   \quad~ wreap | wensure | wremark | wreconn | \\
   \quad~ wflush | wstopped
 \end{zed}
@@ -160,9 +178,11 @@ rather than a built-in boolean so the spec is self-contained for
 The worker's own program counter.  \texttt{widle}: waiting on the
 condition.  \texttt{wdrain}: woken, about to take the whole changed-scene
 set.  \texttt{wblank}: batch drained, about to blank the display if the
-batch carried a clear.  \texttt{wproc}: iterating the drained batch.
-\texttt{wsnap}: holding the store read lock, copying one scene's roots.
-\texttt{wsend}: holding the client lock, sending that copy.
+batch carried a clear.  \texttt{wmenu}: display blanked (or not), about to
+push the menu registry if the batch carried a menu change.  \texttt{wproc}:
+iterating the drained batch.  \texttt{wsnap}: holding the store read lock,
+copying one scene's roots.  \texttt{wsend}: holding the client lock, sending
+that copy.  \texttt{wmsend}: holding the client lock, sending the menu push.
 \texttt{wreap}/\texttt{wensure}/\texttt{wremark}: the reap-respawn-remark
 recovery after a send timeout.  \texttt{wreconn}: the reconnect recovery
 after a dead peer.  \texttt{wflush}/\texttt{wstopped}: the final bounded
@@ -189,6 +209,9 @@ violating state stays reachable and ProB can find it.
   drained : \power SCENE \\
   cleared : FLAG \\
   batchCleared : FLAG \\
+  menusDirty : FLAG \\
+  batchMenus : FLAG \\
+  menuShown : FLAG \\
   snapScene : \power SCENE \\
   snapVal : VAL \\
   storeLockMut : \power MUTATOR \\
@@ -224,7 +247,22 @@ and keeps \texttt{batchCleared} for the whole cycle, so both the empty-scene
 skip and a recovery re-mark can still see that the batch was a clearing one.
 Modelling the two separately is what makes the recovery re-mark of a
 consumed clear expressible; a single flag, reset when the blank is pushed,
-would have forgotten by the time a send failed.  \texttt{snapScene}/%
+would have forgotten by the time a send failed.
+
+\texttt{menusDirty} is the live menu-change flag beside \texttt{cleared}: a
+mutator sets it when the menu registry changes, and the worker resets it when
+it drains.  \texttt{batchMenus} is the menu flag \emph{that} drained batch
+carried --- snapshotted from \texttt{menusDirty} at the drain and kept for the
+whole cycle, exactly as \texttt{batchCleared} carries the clear --- so a
+recovery re-mark can see that the failed batch owed a menu push.
+\texttt{menuShown} records whether the worker has delivered the current menu
+registry to the display since the last menu change: \texttt{set} once a menu
+push has succeeded, \texttt{clear} once a change is marked and not yet
+delivered.  It is a statement about the worker's \emph{delivery obligation},
+not about a menu payload, because the menu is payload-less and read fresh at
+send time; it is the variable I6 is stated over.
+
+\texttt{snapScene}/%
 \texttt{snapVal} are the one scene the worker has copied out under the read
 lock and the value it copied.  \texttt{storeLockMut} names the mutator
 holding the store write lock (empty or one), and \texttt{mutScene} the scene
@@ -240,6 +278,20 @@ writer) is sound because there is exactly one reader thread in this design
 a single reader the only exclusion that can ever fire is reader-versus-%
 writer, which a single slot captures.
 
+\texttt{menuShown} is modelled at the level of the worker's delivery, not at
+the level of the display process's live menu content, and the two differ in
+one honest way.  For scenes, the model resets \texttt{displayed} to empty on a
+respawn (\texttt{Ensure}) and proves the content property I4 --- so it must
+track what the fresh display shows.  For menus it proves the weaker delivery
+property I6 --- ``a marked change is eventually pushed or stays marked'' ---
+so it tracks whether a push is owed (\texttt{menusDirty}) and whether the last
+owed push landed (\texttt{menuShown}).  The re-establishment of a menu on a
+freshly respawned display over the client handshake is a separate subsystem,
+outside this replicator's dirty-signal discipline, exactly as the client-side
+replay of scenes is outside it; the model therefore leaves \texttt{menuShown}
+unchanged across \texttt{Ensure} and \texttt{Reconn} and holds the worker to
+its own obligation: never drop a marked menu change.
+
 % ============================================================
 \section{Initialization}
 % ============================================================
@@ -254,6 +306,9 @@ writer, which a single slot captures.
   drained' = \emptyset \\
   cleared' = clear \\
   batchCleared' = clear \\
+  menusDirty' = clear \\
+  batchMenus' = clear \\
+  menuShown' = set \\
   snapScene' = \emptyset \\
   snapVal' = vempty \\
   storeLockMut' = \emptyset \\
@@ -265,8 +320,9 @@ writer, which a single slot captures.
   wphase' = widle
 \end{schema}
 
-A single initial state: empty store, empty display, nothing dirty, no
-locks held, the worker idle, the display up.
+A single initial state: empty store, empty display, nothing dirty, no menu
+change owed and the menu delivered, no locks held, the worker idle, the
+display up.
 
 % ============================================================
 \section{Mutator Operations}
@@ -301,6 +357,9 @@ buggy variant of Section~\ref{sec:fidelity}.
   drained' = drained \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   readLock' = readLock \\
@@ -324,6 +383,9 @@ buggy variant of Section~\ref{sec:fidelity}.
   drained' = drained \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   readLock' = readLock \\
@@ -353,6 +415,9 @@ worker.
   drained' = drained \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   storeLockMut' = storeLockMut \\
@@ -380,6 +445,45 @@ step, since the torn-read race is already exhibited by \texttt{replace}:
   batch' = batch \\
   drained' = drained \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  display' = display \\
+  shutting' = shutting \\
+  wphase' = wphase
+\end{schema}
+
+The \texttt{set\_menu} / \texttt{set\_registered\_items} tools change the
+Hub's menu registry and flag the change, exactly as \texttt{clear} sets the
+cleared flag.  \texttt{MarkMenus} sets the live menu flag and records that the
+display is now behind the registry (\texttt{menuShown' = clear}).  Like the
+real \texttt{mark\_menus}, it is queue-only: it touches no store, takes no
+lock, and is guarded only by \texttt{menusDirty = clear} --- coalescing, since
+a second change while one is already pending is a no-op.  It never mentions
+\texttt{clientLock}, \texttt{display}, or \texttt{wphase}, so no state of the
+display can disable it; the menu-set path is as free of display I/O as the
+store mutators are (I2).
+
+\begin{schema}{MarkMenus}
+  \Delta Repl
+\where
+  menusDirty = clear \\
+  menusDirty' = set \\
+  menuShown' = clear \\
+  store' = store \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  drained' = drained \\
+  cleared' = cleared \\
+  batchCleared' = batchCleared \\
+  batchMenus' = batchMenus \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   storeLockMut' = storeLockMut \\
@@ -395,20 +499,20 @@ step, since the torn-read race is already exhibited by \texttt{replace}:
 \section{The Worker Loop}
 % ============================================================
 
-The worker waits on the condition, wakes when something is dirty or the
-screen was cleared, drains the whole set, and pushes each scene by copying
-its current roots under the read lock and sending the copy outside the
-lock.  Coalescing needs no extra mechanism: many marks of one scene add it
-to the set once, and the worker reads that scene's current store value when
-it snapshots, so the display receives the newest value, never a
-half-finished one.
+The worker waits on the condition, wakes when something is dirty, the
+screen was cleared, or the menu registry changed, drains the whole set, and
+pushes each scene by copying its current roots under the read lock and
+sending the copy outside the lock.  Coalescing needs no extra mechanism:
+many marks of one scene add it to the set once, and the worker reads that
+scene's current store value when it snapshots, so the display receives the
+newest value, never a half-finished one.
 
 \begin{schema}{Wake}
   \Delta Repl
 \where
   wphase = widle \\
   shutting = clear \\
-  (dirty \neq \emptyset \lor cleared = set) \\
+  (dirty \neq \emptyset \lor cleared = set \lor menusDirty = set) \\
   wphase' = wdrain \\
   store' = store \\
   displayed' = displayed \\
@@ -417,6 +521,9 @@ half-finished one.
   drained' = drained \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   storeLockMut' = storeLockMut \\
@@ -428,10 +535,11 @@ half-finished one.
 \end{schema}
 
 \texttt{Drain} takes the whole changed-scene set at once, snapshots the
-cleared flag into \texttt{batchCleared} for the duration of the cycle, and
-resets the live \texttt{cleared} flag --- exactly as \texttt{wait\_and\_drain}
-builds an immutable \texttt{DrainedBatch} and clears the signal.  A clear
-that arrives after this point re-sets the live flag for the next cycle.
+cleared flag into \texttt{batchCleared} and the menu flag into
+\texttt{batchMenus} for the duration of the cycle, and resets both live flags
+--- exactly as \texttt{wait\_and\_drain} builds an immutable
+\texttt{DrainedBatch} and clears the signal.  A clear or a menu change that
+arrives after this point re-sets its live flag for the next cycle.
 
 \begin{schema}{Drain}
   \Delta Repl
@@ -442,6 +550,9 @@ that arrives after this point re-sets the live flag for the next cycle.
   dirty' = \emptyset \\
   batchCleared' = cleared \\
   cleared' = clear \\
+  batchMenus' = menusDirty \\
+  menusDirty' = clear \\
+  menuShown' = menuShown \\
   wphase' = wblank \\
   store' = store \\
   displayed' = displayed \\
@@ -456,11 +567,11 @@ that arrives after this point re-sets the live flag for the next cycle.
 \end{schema}
 
 At \texttt{wblank} the worker blanks the display first if the batch carried
-a clear, and only then turns to the scenes.  \texttt{ApplyClear} pushes the
-blank; \texttt{SkipBlank} is the no-clear case that goes straight to the
-scenes.  \texttt{batchCleared} is \emph{not} consumed here: it survives the
-blank so that the per-scene empty skip and any recovery re-mark can still see
-that this was a clearing batch.
+a clear, and only then turns to the menu and the scenes.  \texttt{ApplyClear}
+pushes the blank; \texttt{SkipBlank} is the no-clear case.  Both advance to
+\texttt{wmenu}.  \texttt{batchCleared} is \emph{not} consumed here: it survives
+the blank so that the per-scene empty skip and any recovery re-mark can still
+see that this was a clearing batch.
 
 \begin{schema}{ApplyClear}
   \Delta Repl
@@ -468,13 +579,16 @@ that this was a clearing batch.
   wphase = wblank \\
   batchCleared = set \\
   displayed' = (\lambda s : SCENE @ vempty) \\
-  wphase' = wproc \\
+  wphase' = wmenu \\
   store' = store \\
   dirty' = dirty \\
   batch' = batch \\
   drained' = drained \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   storeLockMut' = storeLockMut \\
@@ -490,6 +604,67 @@ that this was a clearing batch.
 \where
   wphase = wblank \\
   batchCleared = clear \\
+  wphase' = wmenu \\
+  store' = store \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  drained' = drained \\
+  cleared' = cleared \\
+  batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  clientLock' = clientLock \\
+  display' = display \\
+  shutting' = shutting
+\end{schema}
+
+At \texttt{wmenu} the worker pushes the menu registry if the batch carried a
+menu change, and otherwise skips straight to the scenes.  The push is one
+send, so it takes the client lock and goes to \texttt{wmsend}; the store read
+lock is not held, so I3 is trivially preserved on this leg.  Reading the
+registry is instantaneous and does not appear in the state, because the menu
+is payload-less: whatever the registry holds when \texttt{MenuSendOk} fires is
+what the display receives, which is why a stale re-mark can never lose a
+newer change.
+
+\begin{schema}{SendMenusBegin}
+  \Delta Repl
+\where
+  wphase = wmenu \\
+  batchMenus = set \\
+  clientLock' = held \\
+  wphase' = wmsend \\
+  store' = store \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  drained' = drained \\
+  cleared' = cleared \\
+  batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  display' = display \\
+  shutting' = shutting
+\end{schema}
+
+\begin{schema}{MenuSkip}
+  \Delta Repl
+\where
+  wphase = wmenu \\
+  batchMenus = clear \\
   wphase' = wproc \\
   store' = store \\
   displayed' = displayed \\
@@ -498,12 +673,101 @@ that this was a clearing batch.
   drained' = drained \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   storeLockMut' = storeLockMut \\
   mutScene' = mutScene \\
   readLock' = readLock \\
   clientLock' = clientLock \\
+  display' = display \\
+  shutting' = shutting
+\end{schema}
+
+The menu send has the same three outcomes as a scene send, keyed on the
+display process.  On success the display now shows the current registry, so
+the delivery obligation is met (\texttt{menuShown' = set}) and the worker
+turns to the scenes.  A wedged display sends the worker to the reap path; a
+dead peer to the reconnect path.  In both failures \texttt{menuShown} stays
+\texttt{clear}, so the obligation is still owed until a recovery re-marks it
+and a later cycle re-delivers.
+
+\begin{schema}{MenuSendOk}
+  \Delta Repl
+\where
+  wphase = wmsend \\
+  display = dup \\
+  clientLock' = free \\
+  menuShown' = set \\
+  wphase' = wproc \\
+  store' = store \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  drained' = drained \\
+  cleared' = cleared \\
+  batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  display' = display \\
+  shutting' = shutting
+\end{schema}
+
+\begin{schema}{MenuSendStuck}
+  \Delta Repl
+\where
+  wphase = wmsend \\
+  display = dstuck \\
+  clientLock' = free \\
+  wphase' = wreap \\
+  store' = store \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  drained' = drained \\
+  cleared' = cleared \\
+  batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
+  display' = display \\
+  shutting' = shutting
+\end{schema}
+
+\begin{schema}{MenuSendDead}
+  \Delta Repl
+\where
+  wphase = wmsend \\
+  display = ddead \\
+  clientLock' = free \\
+  wphase' = wreconn \\
+  store' = store \\
+  displayed' = displayed \\
+  dirty' = dirty \\
+  batch' = batch \\
+  drained' = drained \\
+  cleared' = cleared \\
+  batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
+  snapScene' = snapScene \\
+  snapVal' = snapVal \\
+  storeLockMut' = storeLockMut \\
+  mutScene' = mutScene \\
+  readLock' = readLock \\
   display' = display \\
   shutting' = shutting
 \end{schema}
@@ -532,6 +796,9 @@ so \texttt{Snap} carries no cleared guard of its own.
   drained' = drained \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   storeLockMut' = storeLockMut \\
   mutScene' = mutScene \\
   clientLock' = clientLock \\
@@ -562,6 +829,9 @@ not send.
   drained' = drained \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   storeLockMut' = storeLockMut \\
@@ -592,6 +862,9 @@ already set that scene to \texttt{vempty}.
   dirty' = dirty \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   storeLockMut' = storeLockMut \\
   mutScene' = mutScene \\
   clientLock' = clientLock \\
@@ -621,6 +894,9 @@ its own frame.
   dirty' = dirty \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   storeLockMut' = storeLockMut \\
   mutScene' = mutScene \\
   readLock' = readLock \\
@@ -647,6 +923,9 @@ the respawn re-marks every live scene, which re-covers the scene in flight.
   drained' = drained \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   storeLockMut' = storeLockMut \\
@@ -673,6 +952,9 @@ closes the dead descriptor and reconnects.
   drained' = drained \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   storeLockMut' = storeLockMut \\
@@ -689,8 +971,9 @@ closes the dead descriptor and reconnects.
 A stuck display still answers new connections, so it must be killed before
 a fresh one is started.  \texttt{Reap} terminates the wedged process;
 \texttt{Ensure} starts a fresh, empty one; \texttt{Remark} re-marks the work
-so the display is repainted from the store's current state, and re-marks the
-clear if the failed batch carried one.  \texttt{Ensure} is enabled only from
+so the display is repainted from the store's current state, re-marks the
+clear if the failed batch carried one, and re-marks the menu flag if the
+failed batch carried one.  \texttt{Ensure} is enabled only from
 \texttt{ddead}: a fresh display is never spawned while one is alive, which is
 I5.
 
@@ -717,6 +1000,16 @@ blank-then-repaint is idempotent.  The re-mark is expressed against
 into whatever the live flag already holds, so a fresh clear that arrived
 mid-cycle is never lost.
 
+The menu re-mark is the fourth part, and it is the guarantor of I6.  A menu
+send that failed left \texttt{menuShown = clear}, and the drained menu flag is
+in \texttt{batchMenus}; re-marking it against \texttt{batchMenus} re-arms the
+live \texttt{menusDirty} so the next cycle re-reads the registry fresh and
+re-delivers.  \texttt{SendRecovery.\_requeue} does exactly this: it calls
+\texttt{mark\_menus} when the batch's \texttt{menus\_dirty} was set.  Dropping
+this re-mark is the fidelity variant of Section~\ref{sec:fidelity}, under
+which a menu change whose send failed is neither delivered nor re-marked ---
+an I6 violation.
+
 \begin{schema}{Reap}
   \Delta Repl
 \where
@@ -730,6 +1023,9 @@ mid-cycle is never lost.
   drained' = drained \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   storeLockMut' = storeLockMut \\
@@ -755,6 +1051,9 @@ mid-cycle is never lost.
   drained' = drained \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   storeLockMut' = storeLockMut \\
   mutScene' = mutScene \\
   readLock' = readLock \\
@@ -769,12 +1068,16 @@ mid-cycle is never lost.
   dirty' = (dirty \cup drained) \cup \{ s : SCENE | store~s = vlive \} \\
   (batchCleared = set \implies cleared' = set) \\
   (batchCleared = clear \implies cleared' = cleared) \\
+  (batchMenus = set \implies menusDirty' = set) \\
+  (batchMenus = clear \implies menusDirty' = menusDirty) \\
   batch' = \emptyset \\
   drained' = \emptyset \\
   wphase' = wproc \\
   store' = store \\
   displayed' = displayed \\
   batchCleared' = batchCleared \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   storeLockMut' = storeLockMut \\
@@ -794,9 +1097,10 @@ before the drop.  \texttt{Reconn} therefore leaves \texttt{displayed}
 unchanged --- the worst case, stale content and all --- rather than pretending
 a fresh blank display.  There is no process to kill, so it reconnects and
 re-marks in one step: \texttt{drained} $\cup$ the live scenes, plus the clear
-the batch carried.  I4 holds \emph{because of} that re-mark, not because of
-any reset: every scene the failed cycle touched, and every live scene, is
-re-queued, so the stale display cannot stay wrong once the queue drains.
+and the menu flag the batch carried.  I4 holds \emph{because of} that re-mark,
+not because of any reset: every scene the failed cycle touched, and every live
+scene, is re-queued, so the stale display cannot stay wrong once the queue
+drains.
 
 Modelling the reconnect this way is what makes the \texttt{drained} half of
 the re-mark load-bearing.  Under a reset-to-empty reconnect a fresh display
@@ -814,6 +1118,8 @@ failed send; Section~\ref{sec:fidelity} removes it and reproduces the linger.
   dirty' = (dirty \cup drained) \cup \{ s : SCENE | store~s = vlive \} \\
   (batchCleared = set \implies cleared' = set) \\
   (batchCleared = clear \implies cleared' = cleared) \\
+  (batchMenus = set \implies menusDirty' = set) \\
+  (batchMenus = clear \implies menusDirty' = menusDirty) \\
   batch' = \emptyset \\
   drained' = \emptyset \\
   snapScene' = \emptyset \\
@@ -821,6 +1127,8 @@ failed send; Section~\ref{sec:fidelity} removes it and reproduces the linger.
   wphase' = wproc \\
   store' = store \\
   batchCleared' = batchCleared \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   storeLockMut' = storeLockMut \\
   mutScene' = mutScene \\
   readLock' = readLock \\
@@ -831,16 +1139,16 @@ failed send; Section~\ref{sec:fidelity} removes it and reproduces the linger.
 \texttt{CycleFail} is the generic failure outcome: any error inside the
 cycle other than the two socket outcomes --- a display that will not spawn,
 a reconnect that is refused, or any exception the two socket handlers do not
-catch.  It can strike while the worker is sending (\texttt{wsend}) or
-mid-heal (\texttt{wreap}, \texttt{wensure}, \texttt{wreconn}).  The drained
-work must not be lost, so the worker re-marks it --- \texttt{drained}, plus
-the clear the batch carried --- releases whatever locks it held, and returns
-to \texttt{widle} to back off and retry.  Restoring \texttt{drained} rather
-than the unsent remainder \texttt{batch} is what saves an already-sent scene:
-if the batch carried a clear, the re-marked clear will blank the whole
-display next cycle, so every scene the batch drained --- including those
-already sent --- must be repainted, or a painted scene would be blanked and
-never redrawn.
+catch.  It can strike while the worker is sending a scene (\texttt{wsend}) or
+the menu (\texttt{wmsend}) or mid-heal (\texttt{wreap}, \texttt{wensure},
+\texttt{wreconn}).  The drained work must not be lost, so the worker re-marks
+it --- \texttt{drained}, plus the clear and the menu flag the batch carried
+--- releases whatever locks it held, and returns to \texttt{widle} to back off
+and retry.  Restoring \texttt{drained} rather than the unsent remainder
+\texttt{batch} is what saves an already-sent scene: if the batch carried a
+clear, the re-marked clear will blank the whole display next cycle, so every
+scene the batch drained --- including those already sent --- must be
+repainted, or a painted scene would be blanked and never redrawn.
 
 Unlike \texttt{Remark} and \texttt{Reconn}, \texttt{CycleFail} does \emph{not}
 union the live scenes: it re-marks \texttt{drained} alone.  This matches
@@ -855,13 +1163,17 @@ the display is reset (\texttt{Remark}) or reconnected onto stale content
 \begin{schema}{CycleFail}
   \Delta Repl
 \where
-  wphase \in \{ wsend, wreap, wensure, wreconn \} \\
+  wphase \in \{ wsend, wmsend, wreap, wensure, wreconn \} \\
   dirty' = dirty \cup drained \\
   (batchCleared = set \implies cleared' = set) \\
   (batchCleared = clear \implies cleared' = cleared) \\
+  (batchMenus = set \implies menusDirty' = set) \\
+  (batchMenus = clear \implies menusDirty' = menusDirty) \\
   batch' = \emptyset \\
   drained' = \emptyset \\
   batchCleared' = clear \\
+  batchMenus' = clear \\
+  menuShown' = menuShown \\
   snapScene' = \emptyset \\
   snapVal' = vempty \\
   readLock' = free \\
@@ -894,12 +1206,12 @@ worker's 16\,ms coalescing window painted the new scene and then blanked it
 (Section~\ref{sec:verify}).  The clear-first order is convergent for both
 \texttt{show}-then-\texttt{clear} and \texttt{clear}-then-\texttt{show}, and
 the shipped \texttt{\_attempt} implements it: \texttt{clear\_async} first,
-then the per-scene repaint.  The clear's own send is modelled as an
-immediate blank; its send has the same time limit and the same failure
-outcomes as a scene send, which the send operations already cover.
+then the menu push, then the per-scene repaint.  The clear's own send is
+modelled as an immediate blank; its send has the same time limit and the same
+failure outcomes as a scene send, which the send operations already cover.
 
 When the batch is empty --- every scene sent or skipped --- the worker
-drops the batch's carried clear and goes idle.
+drops the batch's carried clear and menu flag and goes idle.
 
 \begin{schema}{ProcDone}
   \Delta Repl
@@ -907,6 +1219,8 @@ drops the batch's carried clear and goes idle.
   wphase = wproc \\
   batch = \emptyset \\
   batchCleared' = clear \\
+  batchMenus' = clear \\
+  menuShown' = menuShown \\
   wphase' = widle \\
   store' = store \\
   displayed' = displayed \\
@@ -914,6 +1228,7 @@ drops the batch's carried clear and goes idle.
   batch' = batch \\
   drained' = \emptyset \\
   cleared' = cleared \\
+  menusDirty' = menusDirty \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   storeLockMut' = storeLockMut \\
@@ -939,6 +1254,9 @@ wedge it or kill it.  These are the events the worker's next send detects.
   drained' = drained \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   storeLockMut' = storeLockMut \\
@@ -961,6 +1279,9 @@ wedge it or kill it.  These are the events the worker's next send detects.
   drained' = drained \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   storeLockMut' = storeLockMut \\
@@ -990,6 +1311,9 @@ this deliberate terminal stop.
   drained' = drained \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   storeLockMut' = storeLockMut \\
@@ -1013,6 +1337,9 @@ this deliberate terminal stop.
   drained' = drained \\
   cleared' = cleared \\
   batchCleared' = batchCleared \\
+  menusDirty' = menusDirty \\
+  batchMenus' = batchMenus \\
+  menuShown' = menuShown \\
   snapScene' = snapScene \\
   snapVal' = snapVal \\
   storeLockMut' = storeLockMut \\
@@ -1034,6 +1361,9 @@ this deliberate terminal stop.
   drained' = \emptyset \\
   cleared' = clear \\
   batchCleared' = clear \\
+  menusDirty' = clear \\
+  batchMenus' = clear \\
+  menuShown' = set \\
   snapScene' = \emptyset \\
   snapVal' = vempty \\
   storeLockMut' = \emptyset \\
@@ -1050,28 +1380,29 @@ this deliberate terminal stop.
 \label{sec:inv}
 % ============================================================
 
-Five properties must hold across all reachable states.  None is placed in
+Six properties must hold across all reachable states.  None is placed in
 the \texttt{Repl} schema: a predicate placed there would be enforced as a
 guard on every successor, silently disabling any operation that would break
 it and thereby masking the very defect this model exists to catch.
 
 \paragraph{Invariant 1 --- single writer.}
 Only the worker ever holds the client send lock, and it holds it only while
-sending:
+sending --- a scene at \texttt{wsend} or the menu at \texttt{wmsend}:
 \[
-  clientLock = held \implies wphase = wsend.
+  clientLock = held \implies wphase \in \{ wsend, wmsend \}.
 \]
 No mutator operation mentions \texttt{clientLock} in its effect, so no
 mutator can ever hold it.  The design removes the two second-writer paths
 the current code has --- the inline resend in the click dispatch and the
-beads app's direct render --- so that the worker's \texttt{wsend} is the
-only place a send happens.
+beads app's direct render --- so that the worker's \texttt{wsend} and
+\texttt{wmsend} are the only places a send happens.
 
 \paragraph{Invariant 2 --- agent-path liveness.}
 No mutator operation is guarded by \texttt{clientLock}, \texttt{display}, or
 \texttt{wphase}: \texttt{ReplaceBegin}, \texttt{ReplaceCommit},
-\texttt{EmptyScene}, and \texttt{ClearStore} depend only on the store write
-lock being free.  So no state of the display or of the worker's send can
+\texttt{EmptyScene}, \texttt{ClearStore}, and \texttt{MarkMenus} depend only on
+the store write lock being free (and \texttt{MarkMenus} only on
+\texttt{menusDirty}).  So no state of the display or of the worker's send can
 disable a mutator.  A mutator's begin does also require \texttt{readLock =
 free}, the ordinary reader-writer exclusion of the store lock; but the worker
 holds that read lock only across \texttt{Snap}'s in-memory copy and releases
@@ -1088,14 +1419,16 @@ No thread holds the store lock and the client send lock at once:
 \]
 The worker takes the read lock in \texttt{Snap}, releases it in
 \texttt{SendBegin} \emph{before} taking the client lock, and no mutator
-ever takes the client lock.  The two locks are therefore always acquired in
-one order and never held together, so no cyclic wait can form.
+ever takes the client lock.  The menu send takes the client lock at
+\texttt{wmsend} while holding no read lock, so it cannot form a cycle
+either.  The two locks are therefore always acquired in one order and never
+held together, so no cyclic wait can form.
 
 \paragraph{Invariant 4 --- no lost update.}
 Whenever the system is at rest with the display up, the display shows the
 store's latest value for every scene.  ``At rest'' means the worker is
-idle, nothing is dirty or cleared, no mutator holds the write lock, and no
-shutdown is in progress:
+idle, nothing is dirty, cleared, or menu-marked, no mutator holds the write
+lock, and no shutdown is in progress:
 \[
   Quiescent \implies (\forall s : SCENE @ displayed~s = store~s),
 \]
@@ -1103,8 +1436,8 @@ where
 \begin{eqnarray*}
   Quiescent & \defs & wphase = widle \land dirty = \emptyset \land
     cleared = clear \\
-  & & {} \land storeLockMut = \emptyset \land shutting = clear \land
-    display = dup.
+  & & {} \land menusDirty = clear \land storeLockMut = \emptyset \land
+    shutting = clear \land display = dup.
 \end{eqnarray*}
 Every recovery re-marks at least \texttt{drained} plus the carried clear, so
 the system cannot come to rest until that work has been pushed, which restores
@@ -1130,6 +1463,29 @@ A fresh display is spawned only after the old one is killed:
 \texttt{Reap} is the only step that reaches \texttt{ddead} on the recovery
 path.  So the worker never holds two live displays.
 
+\paragraph{Invariant 6 --- menu-delivery durability.}
+Whenever the system is at rest with the display up, no marked menu change is
+left undelivered:
+\[
+  Quiescent \implies menuShown = set.
+\]
+\texttt{menuShown} goes \texttt{clear} only at \texttt{MarkMenus}, which also
+sets \texttt{menusDirty}; it goes \texttt{set} only at \texttt{MenuSendOk}, a
+successful push.  A \texttt{Quiescent} state requires \texttt{menusDirty =
+clear}, and the only way \texttt{menusDirty} returns to \texttt{clear} after a
+mark is \texttt{Drain}, which carries the change into \texttt{batchMenus}.
+That drained change is then either delivered --- \texttt{SendMenusBegin} then
+\texttt{MenuSendOk}, which sets \texttt{menuShown = set} --- or its send fails,
+and every failure path re-marks \texttt{menusDirty} against
+\texttt{batchMenus} (\texttt{Remark}, \texttt{Reconn}, \texttt{CycleFail}),
+which re-arms the live flag and so denies \texttt{Quiescent} until a later
+cycle re-delivers.  Hence a rest state with the display up cannot be reached
+with \texttt{menuShown = clear}: the marked change was pushed, or it is still
+marked and the system is not at rest.  This is the delivery obligation of the
+replicator alone; that a freshly respawned display also re-obtains its
+registered items over the client handshake is a separate mechanism the model
+does not rely on.
+
 % ============================================================
 \section{Verification}
 \label{sec:verify}
@@ -1140,7 +1496,7 @@ Type-checking is a \texttt{fuzz} pass:
   fuzz docs/hub_replicator.tex
 \end{verbatim}
 
-I3, I4, and I5 are state properties, checked by asking ProB whether their
+I3, I4, I5, and I6 are state properties, checked by asking ProB whether their
 negation is \emph{reachable}.  A goal reported \emph{not found} means the
 invariant holds on every reachable state:
 \begin{verbatim}
@@ -1152,7 +1508,8 @@ invariant holds on every reachable state:
   # Invariant 4 (must report: goal NOT found)
   probcli docs/hub_replicator.tex -model_check -nodead \
     -goal "wphase = widle & dirty = {} & cleared = clear &
-           storeLockMut = {} & shutting = clear & display = dup &
+           menusDirty = clear & storeLockMut = {} & shutting = clear &
+           display = dup &
            card({s | s : SCENE & displayed(s) /= store(s)}) > 0" \
     -p DEFAULT_SETSIZE 2
 
@@ -1160,14 +1517,21 @@ invariant holds on every reachable state:
   probcli docs/hub_replicator.tex -model_check -nodead \
     -goal "wphase = wensure & display /= ddead" \
     -p DEFAULT_SETSIZE 2
+
+  # Invariant 6 (must report: goal NOT found)
+  probcli docs/hub_replicator.tex -model_check -nodead \
+    -goal "wphase = widle & dirty = {} & cleared = clear &
+           menusDirty = clear & storeLockMut = {} & shutting = clear &
+           display = dup & menuShown = clear" \
+    -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
 I1 is corroborated by a reachability goal that must be \emph{not found} ---
-no state holds the client lock outside a send:
+no state holds the client lock outside a scene or menu send:
 \begin{verbatim}
   # Invariant 1 (must report: goal NOT found)
   probcli docs/hub_replicator.tex -model_check -nodead \
-    -goal "clientLock = held & wphase /= wsend" \
+    -goal "clientLock = held & wphase /= wsend & wphase /= wmsend" \
     -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
@@ -1189,9 +1553,9 @@ model live, so any deadlock reported would be a genuine lock deadlock:
   probcli docs/hub_replicator.tex -model_check -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
-The three recovery-and-blanking behaviours added here must be reachable, or
-I4 would hold only because the machinery is dead.  Each of these witnesses
-must be \emph{found}:
+The recovery-and-blanking behaviours and the menu leg must be reachable, or
+their invariants would hold only because the machinery is dead.  Each of these
+witnesses must be \emph{found}:
 \begin{verbatim}
   # Generic cycle failure is reachable and restores its batch
   probcli docs/hub_replicator.tex -model_check -nodead \
@@ -1210,6 +1574,14 @@ must be \emph{found}:
   probcli docs/hub_replicator.tex -model_check -nodead \
     -goal "wphase = wsend & snapVal = vempty & batchCleared = clear" \
     -p DEFAULT_SETSIZE 2
+
+  # The menu send is reachable (the menu leg is live)
+  probcli docs/hub_replicator.tex -model_check -nodead \
+    -goal "wphase = wmsend & batchMenus = set" -p DEFAULT_SETSIZE 2
+
+  # A menu-carrying batch reaches recovery (the menu re-mark is live)
+  probcli docs/hub_replicator.tex -model_check -nodead \
+    -goal "wphase = wremark & batchMenus = set" -p DEFAULT_SETSIZE 2
 \end{verbatim}
 
 \paragraph{Finding --- clear ordering.}
@@ -1263,7 +1635,7 @@ now closed in both the code (\texttt{SendRecovery.\_remark} unions
 % ============================================================
 
 A model that cannot reproduce the known defects proves nothing.  This
-specification guards two, and removing either fix makes the corresponding
+specification guards three, and removing any one fix makes the corresponding
 defect reachable.
 
 \paragraph{The store race.}
@@ -1325,7 +1697,8 @@ The property that separates the two designs is I4 itself:
   # must be NOT found for the correct spec, FOUND for the live-only variant
   probcli <spec>.tex -model_check -nodead \
     -goal "wphase = widle & dirty = {} & cleared = clear &
-           storeLockMut = {} & shutting = clear & display = dup &
+           menusDirty = clear & storeLockMut = {} & shutting = clear &
+           display = dup &
            card({s | s : SCENE & displayed(s) /= store(s)}) > 0" \
     -p DEFAULT_SETSIZE 2
 \end{verbatim}
@@ -1334,5 +1707,49 @@ reblanked, so the goal returns \emph{not found}.  With it removed the goal
 returns \emph{found} --- the trace above.  That difference is the evidence
 that the model detects the defect reviewers found in the live-only recovery,
 which \texttt{SendRecovery.\_remark}'s union of \texttt{batch.scenes} closes.
+
+\paragraph{The dropped menu change.}
+The third buggy variant removes the menu re-mark from the recovery.
+Concretely, drop the two lines
+\texttt{(batchMenus = set $\implies$ menusDirty$'$ = set)} and
+\texttt{(batchMenus = clear $\implies$ menusDirty$'$ = menusDirty)} from
+\texttt{Remark}, \texttt{Reconn}, and \texttt{CycleFail}, replacing them with
+an unconditional \texttt{menusDirty$'$ = menusDirty} --- the recovery that
+re-queues scenes and the clear but forgets the menu.  A menu change whose send
+failed is then neither delivered nor re-marked:
+
+\begin{enumerate}
+  \item \texttt{MarkMenus}: \texttt{menusDirty = set}, \texttt{menuShown =
+    clear} --- a menu change is owed.
+  \item \texttt{Drain}: \texttt{batchMenus = set}, \texttt{menusDirty = clear}.
+  \item \texttt{SkipBlank}; \texttt{SendMenusBegin}: the worker takes the
+    client lock to push the menu, reaching \texttt{wmsend}.
+  \item The display is wedged (\texttt{DisplayWedge} beforehand), so
+    \texttt{MenuSendStuck} fires: \texttt{wreap}, \texttt{menuShown} still
+    \texttt{clear}.
+  \item \texttt{Reap}; \texttt{Ensure}; \texttt{Remark} --- but, live-only, it
+    does not re-mark \texttt{menusDirty}.  \texttt{batchMenus} is consumed.
+  \item No scenes remain, so \texttt{ProcDone} returns the worker to
+    \texttt{widle}.
+  \item At rest: \texttt{menusDirty = clear}, \texttt{menuShown = clear} ---
+    a \texttt{Quiescent} state with a menu change that was marked, never
+    delivered, and no longer marked.  I6 is violated.
+\end{enumerate}
+
+The property that separates the two designs is I6 itself:
+\begin{verbatim}
+  # must be NOT found for the correct spec, FOUND for the no-remark variant
+  probcli <spec>.tex -model_check -nodead \
+    -goal "wphase = widle & dirty = {} & cleared = clear &
+           menusDirty = clear & storeLockMut = {} & shutting = clear &
+           display = dup & menuShown = clear" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+With the menu re-mark intact, a failed menu send re-arms \texttt{menusDirty},
+so the system cannot rest until a later cycle re-reads the registry and
+re-delivers; the goal returns \emph{not found}.  With it removed the goal
+returns \emph{found} --- the trace above.  That difference is the evidence
+that the model detects a dropped menu change, which
+\texttt{SendRecovery.\_requeue}'s call to \texttt{mark\_menus} closes.
 
 \end{document}
