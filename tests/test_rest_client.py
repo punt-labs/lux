@@ -135,6 +135,17 @@ def test_a_dict_error_body_without_detail_preserves_its_content() -> None:
     assert result.reason == '{"error":"boom"}'
 
 
+def test_a_non_utf8_error_body_maps_cleanly_without_raising() -> None:
+    # Raw non-UTF-8 bytes must not escape the error path as a UnicodeDecodeError.
+    # The reason parses the errors="replace" decode, so a bad-bytes body maps to
+    # a fault whose reason survives (replacement chars), never a traceback.
+    transport = CannedTransport(HttpResponse(status=502, body=b"\xff\xfe boom"))
+    result = _client_over(transport).render(_render_request())
+    assert isinstance(result, OpError)
+    assert result.code == "fault"
+    assert result.reason == b"\xff\xfe boom".decode(errors="replace")
+
+
 def test_an_empty_error_body_falls_back_to_the_status_line() -> None:
     transport = CannedTransport(HttpResponse(status=503, body=b""))
     result = _client_over(transport).render(_render_request())

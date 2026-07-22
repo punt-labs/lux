@@ -117,22 +117,22 @@ class LuxRestClient:
         text = body.decode(errors="replace")
         if not text.strip():
             return f"HTTP {status}"
-        reason = LuxRestClient._reason_in(body, text)
+        reason = LuxRestClient._reason_in(text)
         return reason if reason.strip() else text
 
     @staticmethod
-    def _reason_in(body: bytes, text: str) -> str:
+    def _reason_in(text: str) -> str:
         """Pull the human reason from a JSON error body, or the body itself.
 
-        The body is a JSON wire value, so it decodes to ``object`` and is
-        narrowed here (PY-TS-14 wire boundary): a semantic ``OpError`` sends a
-        bare ``detail`` string; FastAPI's own binding rejection sends a list of
-        ``{loc, msg, type}`` items whose ``msg`` fields are joined. Anything else
-        — a dict with no ``detail`` key, a bare JSON value, non-JSON bytes —
-        yields the decoded body so its content survives.
+        ``text`` is the already-decoded body (``errors="replace"``), so parsing
+        it never raises on non-UTF-8 bytes (decoding those raw would escape as an
+        unhandled ``UnicodeDecodeError``). It is a JSON wire value narrowed here
+        (PY-TS-14): a semantic ``OpError`` sends a bare ``detail`` string; a
+        FastAPI binding rejection sends ``{loc, msg, type}`` items whose ``msg``
+        fields are joined. Anything else yields the text so its content survives.
         """
         try:
-            parsed: object = json.loads(body)
+            parsed: object = json.loads(text)
         except json.JSONDecodeError:
             return text
         if not isinstance(parsed, dict):

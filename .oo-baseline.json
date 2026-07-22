@@ -3694,7 +3694,7 @@
   "src/punt_lux/rest_client.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 1.62,
+    "avg_params": 1.5,
     "max_complexity": 5.0,
     "avg_complexity": 2.12,
     "module_size": 131.0,
