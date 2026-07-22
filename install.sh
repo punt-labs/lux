@@ -20,7 +20,7 @@ MARKETPLACE_NAME="punt-labs"
 PLUGIN_NAME="lux"
 PACKAGE="punt-lux"
 EXTRAS="display"
-VERSION="0.19.1"
+VERSION="0.20.0"
 BINARY="lux"
 
 # --- Step 1: Prerequisites ---
