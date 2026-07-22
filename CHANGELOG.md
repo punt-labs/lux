@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.20.0] - 2026-07-22
+
 ### Added
 
 - **Typed REST surface on luxd** — a second thin client of the operations
