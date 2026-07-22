@@ -53,9 +53,7 @@ hook_app = typer.Typer(hidden=True)
 app.add_typer(hook_app, name="hook")
 app.add_typer(show_app, name="show")
 
-# ---------------------------------------------------------------------------
 # Symbols for doctor output
-# ---------------------------------------------------------------------------
 
 _OK = "\u2713"  # ✓
 _FAIL = "\u2717"  # ✗
@@ -68,9 +66,7 @@ class _CheckFn(Protocol):
     def __call__(self, symbol: str, message: str, *, required: bool = True) -> None: ...
 
 
-# ---------------------------------------------------------------------------
 # Product commands
-# ---------------------------------------------------------------------------
 
 
 @app.command()
@@ -153,9 +149,7 @@ def disable() -> None:
     print("Lux display disabled.")
 
 
-# ---------------------------------------------------------------------------
 # Hook dispatcher (internal)
-# ---------------------------------------------------------------------------
 
 
 @hook_app.command("session-start")
@@ -177,9 +171,7 @@ def cc_post_bash() -> None:
     handle_post_bash(data)
 
 
-# ---------------------------------------------------------------------------
 # Admin commands
-# ---------------------------------------------------------------------------
 
 
 @app.command()
@@ -190,21 +182,32 @@ def version() -> None:
     print(f"lux {__version__}")
 
 
+_PING_HTTP_MARGIN_SECONDS = 2.0  # HTTP bound sits above luxd's display budget
+
+
 @app.command()
 def ping(
-    timeout: float = typer.Option(2.0, "--timeout", "-t", help="Timeout in seconds"),
+    # None derives the wait from luxd's display budget (see below).
+    timeout: float | None = typer.Option(
+        None, "--timeout", "-t", help="Seconds to wait for the display ping."
+    ),
 ) -> None:
     """Ping the display through luxd and print round-trip time.
 
-    Reaches the display over luxd's REST API, not the display socket: luxd being
-    down is one actionable line; a down or slow display reads as before.
+    Reaches the display over luxd's REST API, not the display socket. The HTTP
+    round-trip is held strictly above luxd's Hub-side display budget, so a slow
+    or hung display reports "timeout", never "luxd is not running".
     """
+    from punt_lux.display_client import DEFAULT_RECV_TIMEOUT
     from punt_lux.operations import OpError
     from punt_lux.rest_client import LuxRestClient
     from punt_lux.rest_transport import HubUnavailableError
 
+    display_wait = timeout if timeout is not None else DEFAULT_RECV_TIMEOUT
+    http_timeout = max(display_wait, DEFAULT_RECV_TIMEOUT) + _PING_HTTP_MARGIN_SECONDS
+
     try:
-        result = LuxRestClient.connect(timeout=timeout).ping()
+        result = LuxRestClient.connect(timeout=http_timeout).ping()
     except HubUnavailableError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None

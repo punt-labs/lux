@@ -477,7 +477,7 @@ class TestShowBeadsCLI:
             result = runner.invoke(app, ["show", "beads"])
 
         assert result.exit_code == 1
-        assert "Beads board not shown: duplicate element id 'table'" in result.output
+        assert "Beads board not shown: duplicate element id 'table'" in result.stderr
 
     def test_show_beads_reports_luxd_down(
         self,
@@ -500,8 +500,8 @@ class TestShowBeadsCLI:
             result = runner.invoke(app, ["show", "beads"])
 
         assert result.exit_code == 1
-        assert "luxd is not running" in result.output
-        assert "lux hub-install" in result.output
+        assert "luxd is not running" in result.stderr
+        assert "lux hub-install" in result.stderr
 
     def test_show_beads_reports_render_time_unreachability(
         self,
@@ -528,7 +528,7 @@ class TestShowBeadsCLI:
             result = runner.invoke(app, ["show", "beads"])
 
         assert result.exit_code == 1
-        assert "luxd is not reachable" in result.output
+        assert "luxd is not reachable" in result.stderr
         # The error was caught and turned into a clean exit, not re-raised.
         assert not isinstance(result.exception, HubUnavailableError)
 

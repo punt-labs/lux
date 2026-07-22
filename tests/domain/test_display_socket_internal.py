@@ -26,18 +26,22 @@ _ALLOWED = frozenset({"display_client.py", "domain/hub/clients.py"})
 
 # Three ways a module reaches the socket client, each with its own pattern.
 # IMPORT covers every spelling that brings the name or its module into scope:
-# ``from ...display_client import DisplayClient``, the whole-module
-# ``import ...display_client`` (aliased or not), and ``from punt_lux import
-# display_client``. CONSTRUCT matches the call on any receiver, so
-# ``dc.DisplayClient(`` is caught. REFERENCE matches attribute access to the
-# class without a call — subclassing ``display_client.DisplayClient`` or naming
-# it in an annotation — which neither of the others would see. Docstrings write
-# ``DisplayClient`` in backticks or as ``DisplayClient.method`` (dot *after*),
-# so no pattern matches prose — only real use.
+# the absolute ``from punt_lux.display_client import DisplayClient`` and its
+# relative twin ``from .display_client import DisplayClient as DC`` (any depth of
+# leading dots, any alias), the whole-module ``import punt_lux.display_client``
+# (aliased or not), and the package forms ``from punt_lux import display_client``
+# and ``from . import display_client``. CONSTRUCT matches the call on any
+# receiver, so ``dc.DisplayClient(`` is caught. REFERENCE matches attribute
+# access to the class without a call — subclassing ``display_client.DisplayClient``
+# or naming it in an annotation — which neither of the others would see.
+# Docstrings write ``DisplayClient`` in backticks or as ``DisplayClient.method``
+# (dot *after*), so no pattern matches prose — only real use.
 _IMPORT_RE = re.compile(
     r"^\s*(?:from punt_lux\.display_client import [^\n]*\bDisplayClient\b"
+    r"|from \.+[\w.]*\bdisplay_client\b import [^\n]*\bDisplayClient\b"
     r"|import punt_lux\.display_client\b"
-    r"|from punt_lux import [^\n]*\bdisplay_client\b)",
+    r"|from punt_lux import [^\n]*\bdisplay_client\b"
+    r"|from \.+ import [^\n]*\bdisplay_client\b)",
     re.MULTILINE,
 )
 _CONSTRUCT_RE = re.compile(r"\bDisplayClient\s*\(")
@@ -84,11 +88,17 @@ def test_the_guard_patterns_fire_on_offending_forms() -> None:
     # Prove the regexes catch every real reach-around shape, so a green scan
     # means "no offender", not "the pattern never matches anything".
     from_import = "from punt_lux.display_client import DisplayClient\n"
+    relative_alias = "from .display_client import DisplayClient as DC\n\nDC(sock)\n"
+    relative_deep = "from ...display_client import DisplayClient\n"
+    relative_package = "from . import display_client\n"
     aliased_module = "import punt_lux.display_client as dc\n\ndc.DisplayClient(sock)\n"
     package_import = "from punt_lux import display_client\n"
     subclass = "class Fake(display_client.DisplayClient):\n    pass\n"
     bare_construct = "with DisplayClient(sock) as c:\n    ...\n"
     assert _IMPORT_RE.search(from_import)
+    assert _IMPORT_RE.search(relative_alias)  # relative import (aliased) caught
+    assert _IMPORT_RE.search(relative_deep)  # multi-dot relative import caught
+    assert _IMPORT_RE.search(relative_package)  # relative from-package import caught
     assert _IMPORT_RE.search(aliased_module)  # whole-module import caught
     assert _IMPORT_RE.search(package_import)  # from-package module import caught
     assert _CONSTRUCT_RE.search(aliased_module)  # dotted construction caught

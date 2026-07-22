@@ -92,7 +92,7 @@ class TestPing:
         ):
             result = runner.invoke(app, ["ping"])
         assert result.exit_code == 0
-        assert "pong rtt=0.012s" in result.output
+        assert "pong rtt=0.012s" in result.stdout
 
     @pytest.mark.parametrize(
         ("code", "line"),
@@ -114,6 +114,41 @@ class TestPing:
             result = runner.invoke(app, ["ping"])
         assert result.exit_code == 1
         assert line in result.stderr
+
+    def test_ping_http_timeout_outlasts_the_display_budget(self) -> None:
+        # The HTTP round-trip must strictly exceed luxd's Hub-side display budget,
+        # or a slow display trips the HTTP bound first and the failure misreads as
+        # "luxd is not running" when luxd is fine and the display is the problem.
+        from punt_lux.display_client import DEFAULT_RECV_TIMEOUT
+        from punt_lux.operations import Pong
+
+        captured: dict[str, float] = {}
+
+        def _capture(*, timeout: float) -> _PingClient:
+            captured["timeout"] = timeout
+            return _PingClient(Pong(rtt_seconds=0.001))
+
+        with patch("punt_lux.rest_client.LuxRestClient.connect", side_effect=_capture):
+            result = runner.invoke(app, ["ping"])
+        assert result.exit_code == 0
+        assert captured["timeout"] > DEFAULT_RECV_TIMEOUT
+
+    def test_ping_floors_a_small_user_timeout_above_the_budget(self) -> None:
+        # A user asking for 1s — below the display budget — must not reintroduce
+        # the inversion: the HTTP bound is still held above the budget.
+        from punt_lux.display_client import DEFAULT_RECV_TIMEOUT
+        from punt_lux.operations import Pong
+
+        captured: dict[str, float] = {}
+
+        def _capture(*, timeout: float) -> _PingClient:
+            captured["timeout"] = timeout
+            return _PingClient(Pong(rtt_seconds=0.001))
+
+        with patch("punt_lux.rest_client.LuxRestClient.connect", side_effect=_capture):
+            result = runner.invoke(app, ["ping", "--timeout", "1"])
+        assert result.exit_code == 0
+        assert captured["timeout"] > DEFAULT_RECV_TIMEOUT
 
 
 class TestDisplay:
