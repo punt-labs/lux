@@ -20,7 +20,7 @@ import http.client
 import json
 from typing import TYPE_CHECKING, Self, cast, final
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from punt_lux.hub_paths import HubPaths
 from punt_lux.operations import OpError, Pong, RenderRequest, SceneShown
@@ -117,34 +117,49 @@ class LuxRestClient:
         payload = body.model_dump_json().encode() if body is not None else None
         response = self._transport.request(method, path, payload)
         if 200 <= response.status < 300:
-            return ok.model_validate_json(response.body)
+            try:
+                return ok.model_validate_json(response.body)
+            except ValidationError:
+                # A 2xx whose body is not the model we expect is not success — a
+                # stale ephemeral port answered by a foreign server makes this
+                # real. Defend it like the error path, not with a traceback.
+                return OpError(
+                    code="fault",
+                    reason=f"luxd returned an unexpected {response.status} body",
+                )
         return OpError(
             code=_CODE_BY_STATUS.get(response.status, "fault"),
-            reason=self._detail_of(response.body),
+            reason=self._detail_of(response.status, response.body),
         )
 
     @staticmethod
-    def _detail_of(body: bytes) -> str:
-        """Read FastAPI's ``detail`` from an error body, string or located-list.
+    def _detail_of(status: int, body: bytes) -> str:
+        """Render an error body's human reason, never losing its content.
 
         The body is a JSON wire value, so it decodes to ``object`` and is
         narrowed here (PY-TS-14 wire boundary): a semantic ``OpError`` sends a
         bare ``detail`` string; FastAPI's own binding rejection sends a list of
-        ``{loc, msg, type}`` items whose ``msg`` fields are joined.
+        ``{loc, msg, type}`` items whose ``msg`` fields are joined. Anything else
+        — a dict with no ``detail`` key, a bare JSON value, non-JSON bytes —
+        falls back to the decoded body so its content survives; an empty body
+        falls back to the status line so the message is never blank or ``None``.
         """
+        text = body.decode(errors="replace")
+        if not text.strip():
+            return f"HTTP {status}"
         try:
             parsed: object = json.loads(body)
         except json.JSONDecodeError:
-            return body.decode(errors="replace")
+            return text
         if not isinstance(parsed, dict):
-            return str(parsed)
+            return text
         detail: object = cast("dict[str, object]", parsed).get("detail")
         if isinstance(detail, str):
             return detail
         if isinstance(detail, list):
             items = cast("list[object]", detail)
             return "; ".join(LuxRestClient._item_message(item) for item in items)
-        return str(detail)
+        return text
 
     @staticmethod
     def _item_message(item: object) -> str:
