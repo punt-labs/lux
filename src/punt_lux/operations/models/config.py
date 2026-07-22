@@ -23,8 +23,7 @@ class DisplayModeRequest(BaseModel):
     @field_validator("repo")
     @classmethod
     def _validate_repo(cls, value: str) -> str:
-        # Both entry points construct this model, so the repo rule lives here as
-        # the single enforcement point: a bad repo is a 422, never a 500 downstream.
+        # Both construction paths run this, the single repo-rule enforcement point.
         if (error := cls.check_repo(value)) is not None:
             raise ValueError(error.reason)
         return value
@@ -38,8 +37,6 @@ class DisplayModeRequest(BaseModel):
             resolved = "off"
         else:
             return cls._invalid(f"Invalid mode '{mode}'. Use 'y' or 'n'.")
-        # Construction runs the repo rule via the field_validator; parse does not
-        # pre-check it, so the filesystem is stat-ed once through one code path.
         try:
             return cls(mode=resolved, repo=repo)
         except ValidationError as exc:
@@ -47,20 +44,23 @@ class DisplayModeRequest(BaseModel):
 
     @classmethod
     def check_repo(cls, repo: str) -> OpError | None:
-        """Return an ``OpError`` for a bad repo, or ``None`` when it is a project.
-
-        luxd's cwd is not the agent's project, so a caller must name its project
-        by absolute path to an existing directory; ``None`` is the "valid" answer.
-        """
+        """Return an ``OpError`` for a bad repo, else ``None`` — never raises."""
         if not repo:
             return cls._invalid("repo is required and must be a non-empty string")
-        path = Path(repo)
+        try:
+            return cls._check_path(Path(repo))
+        except ValueError:
+            return cls._invalid(f"repo must be a valid path; got {repo!r}")
+
+    @classmethod
+    def _check_path(cls, path: Path) -> OpError | None:
+        """Return an ``OpError`` unless ``path`` is an existing project directory."""
         if not path.is_absolute():
-            return cls._invalid(f"repo must be an absolute path; got {repo!r}")
+            return cls._invalid(f"repo must be an absolute path; got {str(path)!r}")
         if not path.exists():
-            return cls._invalid(f"repo path does not exist: {repo}")
+            return cls._invalid(f"repo path does not exist: {path}")
         if not path.is_dir():
-            return cls._invalid(f"repo must be a directory; got {repo}")
+            return cls._invalid(f"repo must be a directory; got {path}")
         return None
 
     @staticmethod
