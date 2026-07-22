@@ -6,7 +6,7 @@
 
 - **Typed REST surface on luxd** — a second thin client of the operations
   facade, mounted beside the WebSocket MCP leg on luxd's one FastAPI app. Every
-  capability the facade exposes has a typed route (`PUT /scenes/{id}`,
+  routable capability gets a typed route (`PUT /scenes/{id}`,
   `PATCH /scenes/{id}`, `DELETE /scenes`, `GET /scenes`, `GET /scenes/{id}`,
   `GET /clients`, and the `/menus`, `/display`, `/display-mode`, `/events`, and
   `/errors` routes). Each route binds a request model, calls one operation, and
