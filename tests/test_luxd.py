@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from fastapi import FastAPI
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
@@ -141,11 +142,8 @@ class TestReservedRestIdentity:
 
 
 class TestBuildApp:
-    def test_returns_starlette_app(self):
-        app = build_app()
-        # FastAPI is a Starlette subclass, so the same attributes hold.
-        assert hasattr(app, "router")
-        assert hasattr(app, "routes")
+    def test_returns_fastapi_app(self):
+        assert isinstance(build_app(), FastAPI)
 
     def test_has_health_and_mcp_routes(self):
         app = build_app()

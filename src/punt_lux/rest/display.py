@@ -9,9 +9,9 @@ request, calls one operation, and maps the result.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Annotated, Self, final
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from punt_lux.operations import (
     DisplayInfo,
@@ -33,6 +33,12 @@ if TYPE_CHECKING:
 
 __all__ = ["DisplayRoutes"]
 
+# Caps mirror query_dispatcher.py's ring buffers (deque maxlen 200 / 100): a
+# negative count would slice a surprising subset and a larger one can never
+# return more, so both are a bind-time 422.
+_EventCount = Annotated[int, Query(ge=0, le=200)]
+_ErrorCount = Annotated[int, Query(ge=0, le=100)]
+
 
 @final
 class DisplayRoutes:
@@ -47,47 +53,25 @@ class DisplayRoutes:
         self = super().__new__(cls)
         self._ops = ops
         self._errors = errors
+        # Route names default to each endpoint's own name, which is what the
+        # explicit names here always were — so they are omitted.
         router = APIRouter(tags=["display"])
+        router.add_api_route("/display", self.get_display_info, methods=["GET"])
+        router.add_api_route("/display/theme", self.get_theme, methods=["GET"])
+        router.add_api_route("/display/theme", self.set_theme, methods=["PUT"])
         router.add_api_route(
-            "/display", self.get_display_info, methods=["GET"], name="get_display_info"
+            "/display/window", self.get_window_settings, methods=["GET"]
         )
         router.add_api_route(
-            "/display/theme", self.get_theme, methods=["GET"], name="get_theme"
+            "/display/window", self.set_window_settings, methods=["PATCH"]
         )
         router.add_api_route(
-            "/display/theme", self.set_theme, methods=["PUT"], name="set_theme"
+            "/display/frames/{frame_id}", self.set_frame_state, methods=["PATCH"]
         )
-        router.add_api_route(
-            "/display/window",
-            self.get_window_settings,
-            methods=["GET"],
-            name="get_window_settings",
-        )
-        router.add_api_route(
-            "/display/window",
-            self.set_window_settings,
-            methods=["PATCH"],
-            name="set_window_settings",
-        )
-        router.add_api_route(
-            "/display/frames/{frame_id}",
-            self.set_frame_state,
-            methods=["PATCH"],
-            name="set_frame_state",
-        )
-        router.add_api_route(
-            "/display/screenshot", self.screenshot, methods=["GET"], name="screenshot"
-        )
-        router.add_api_route("/display/ping", self.ping, methods=["GET"], name="ping")
-        router.add_api_route(
-            "/events",
-            self.list_recent_events,
-            methods=["GET"],
-            name="list_recent_events",
-        )
-        router.add_api_route(
-            "/errors", self.list_errors, methods=["GET"], name="list_errors"
-        )
+        router.add_api_route("/display/screenshot", self.screenshot, methods=["GET"])
+        router.add_api_route("/display/ping", self.ping, methods=["GET"])
+        router.add_api_route("/events", self.list_recent_events, methods=["GET"])
+        router.add_api_route("/errors", self.list_errors, methods=["GET"])
         self._router = router
         return self
 
@@ -128,10 +112,10 @@ class DisplayRoutes:
         """Round-trip a ping and return the elapsed time."""
         return self._errors.respond(self._ops.ping())
 
-    def list_recent_events(self, count: int = 50) -> RecentEvents:
+    def list_recent_events(self, count: _EventCount = 50) -> RecentEvents:
         """Return the display's recent interactions, proxied."""
         return self._errors.respond(self._ops.list_recent_events(count))
 
-    def list_errors(self, count: int = 20) -> RecentErrors:
+    def list_errors(self, count: _ErrorCount = 20) -> RecentErrors:
         """Return the display's recent errors, proxied."""
         return self._errors.respond(self._ops.list_errors(count))

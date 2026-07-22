@@ -168,3 +168,20 @@ def test_list_errors() -> None:
     resp = client.get("/errors")
     assert resp.status_code == 200
     assert resp.json()["errors"][0]["message"] == "boom"
+
+
+def test_list_recent_events_rejects_a_negative_count_with_422() -> None:
+    # A negative count would slice a surprising subset in the dispatcher; the
+    # bound rejects it at bind time before any proxy runs (ForbiddenPort default).
+    resp = make_client().get("/events?count=-1")
+    assert resp.status_code == 422
+
+
+def test_list_recent_events_rejects_a_count_over_the_cap_with_422() -> None:
+    resp = make_client().get("/events?count=201")
+    assert resp.status_code == 422
+
+
+def test_list_errors_rejects_a_negative_count_with_422() -> None:
+    resp = make_client().get("/errors?count=-1")
+    assert resp.status_code == 422
