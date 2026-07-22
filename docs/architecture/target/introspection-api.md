@@ -120,11 +120,13 @@ Introspection does not change the authoritative model:
 
 ## Implementation Note
 
-The generic query mechanism is shipped, not aspirational. A `QueryDispatcher`
-routes `QueryRequest` by method string and carries six built-in read-only
-handlers — `inspect_scene`, `list_scenes`, `list_clients`, `list_menus`,
-`list_recent_events`, `list_errors` — with control handlers such as
-`get_display_info`, `get_theme`, `set_window_settings`, `set_frame_state`, and
-`set_theme` registered by the display where they touch ImGui state. That
-routing is implementation detail. The architectural point that outlives it: Lux
-must expose a stable inspection surface for verification.
+The generic query mechanism is shipped, not aspirational. The tool and REST
+query path resolves against `HubDisplay` through `QueryOperations`
+(`operations/queries.py`). Scenes, clients, and menus are answered
+Hub-authoritatively there — the Hub owns that state and reads it back directly.
+Display facts — recent events, errors, display info, theme, window settings,
+screenshot, and ping — are proxied over luxd's single bounded connection to the
+display, where a display-side `QueryDispatcher` still serves the render-side
+handlers that touch ImGui state. That routing is implementation detail. The
+architectural point that outlives it: Lux must expose a stable inspection
+surface for verification.
