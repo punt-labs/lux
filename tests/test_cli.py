@@ -60,6 +60,55 @@ class TestStatus:
         assert "not running" in result.output
 
 
+class _PingClient:
+    """A LuxRestClient stand-in returning one preset ping result."""
+
+    def __init__(self, result: object) -> None:
+        self._result = result
+
+    def ping(self) -> object:
+        return self._result
+
+
+class TestPing:
+    def test_ping_reports_luxd_down(self) -> None:
+        from punt_lux.rest_transport import HubUnavailableError
+
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.connect",
+            side_effect=HubUnavailableError(
+                "luxd is not running. Run 'lux hub-install'."
+            ),
+        ):
+            result = runner.invoke(app, ["ping"])
+        assert result.exit_code == 1
+        assert "not running" in result.output.lower()
+
+    def test_ping_reports_round_trip(self) -> None:
+        from punt_lux.operations import Pong
+
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.connect",
+            return_value=_PingClient(Pong(rtt_seconds=0.012)),
+        ):
+            result = runner.invoke(app, ["ping"])
+        assert result.exit_code == 0
+        assert "pong rtt=0.012s" in result.output
+
+    def test_ping_reports_display_down(self) -> None:
+        from punt_lux.operations import OpError
+
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.connect",
+            return_value=_PingClient(
+                OpError(code="display_unavailable", reason="display not running")
+            ),
+        ):
+            result = runner.invoke(app, ["ping"])
+        assert result.exit_code == 1
+        assert "Display not running" in result.output
+
+
 class TestDisplay:
     def test_display_calls_server(self) -> None:
         """display command constructs DisplayServer and calls run()."""

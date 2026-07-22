@@ -231,8 +231,8 @@ All elements with an `id` support an optional `tooltip` field (string shown on h
 | `lux doctor` | Check installation health (Python, fonts, plugin) |
 | `lux install` | Install the Claude Code plugin via the marketplace |
 | `lux uninstall` | Uninstall the Claude Code plugin |
-| `lux show beads` | Display the beads issue board (no LLM needed) |
-| `lux ping` | Ping the display server; print round-trip time |
+| `lux show beads` | Display the beads issue board via luxd's REST API (no LLM needed) |
+| `lux ping` | Ping the display through luxd; print round-trip time |
 | `lux hub-install` | Register the `luxd` session hub as a launchd/systemd service |
 | `lux hub-uninstall` | Remove the `luxd` service |
 | `lux ensure-hub` | Ensure `luxd` is running (`--restart` to restart) |

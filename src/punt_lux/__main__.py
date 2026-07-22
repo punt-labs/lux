@@ -192,39 +192,29 @@ def version() -> None:
 
 @app.command()
 def ping(
-    socket: str | None = typer.Option(None, "--socket", "-s", help="Socket path"),
     timeout: float = typer.Option(2.0, "--timeout", "-t", help="Timeout in seconds"),
 ) -> None:
-    """Ping the display server and print round-trip time."""
-    import time
-    from pathlib import Path
+    """Ping the display through luxd and print round-trip time.
 
-    from punt_lux.paths import DisplayPaths
-
-    dp = DisplayPaths(Path(socket) if socket else None)
-    path = dp.socket_path
-    if not dp.is_running():
-        print("Display not running")
-        raise typer.Exit(code=1)
-
-    from punt_lux.display_client import DisplayClient
+    Reaches the display over luxd's REST API, not the display socket: luxd being
+    down is one actionable line; a down or slow display reads as before.
+    """
+    from punt_lux.operations import OpError
+    from punt_lux.rest_client import LuxRestClient
+    from punt_lux.rest_transport import HubUnavailableError
 
     try:
-        with DisplayClient(
-            str(path), name="ping", recv_timeout=timeout, auto_spawn=False
-        ) as client:
-            t0 = time.monotonic()
-            pong = client.ping()
-            rtt = time.monotonic() - t0
-    except (OSError, TimeoutError, RuntimeError):
-        print("timeout")
+        result = LuxRestClient.connect(timeout=timeout).ping()
+    except HubUnavailableError as exc:
+        print(exc)
         raise typer.Exit(code=1) from None
 
-    if pong is None:
-        print("timeout")
+    if isinstance(result, OpError):
+        down = result.code == "display_unavailable"
+        print("Display not running" if down else "timeout")
         raise typer.Exit(code=1)
 
-    print(f"pong rtt={rtt:.3f}s")
+    print(f"pong rtt={result.rtt_seconds:.3f}s")
 
 
 @app.command()
