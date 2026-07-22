@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
 
 from punt_lux.__main__ import app
@@ -72,17 +73,14 @@ class _PingClient:
 
 class TestPing:
     def test_ping_reports_luxd_down(self) -> None:
-        from punt_lux.rest_transport import HubUnavailableError
-
-        with patch(
-            "punt_lux.rest_client.LuxRestClient.connect",
-            side_effect=HubUnavailableError(
-                "luxd is not running. Run 'lux hub-install'."
-            ),
-        ):
+        # Drive the real LuxRestClient.connect with no port file, so the CLI
+        # surfaces the production message — including the actionable hint —
+        # rather than a string the test supplied.
+        with patch("punt_lux.hub_paths.HubPaths.read_port", return_value=None):
             result = runner.invoke(app, ["ping"])
         assert result.exit_code == 1
-        assert "not running" in result.output.lower()
+        assert "luxd is not running" in result.output
+        assert "lux hub-install" in result.output
 
     def test_ping_reports_round_trip(self) -> None:
         from punt_lux.operations import Pong
@@ -95,18 +93,26 @@ class TestPing:
         assert result.exit_code == 0
         assert "pong rtt=0.012s" in result.output
 
-    def test_ping_reports_display_down(self) -> None:
+    @pytest.mark.parametrize(
+        ("code", "line"),
+        [
+            ("display_unavailable", "Display not running"),
+            ("timeout", "timeout"),
+            ("fault", "timeout"),
+        ],
+    )
+    def test_ping_maps_op_error_to_a_status_line(self, code: str, line: str) -> None:
+        # A down display reads "Display not running"; every other reachable-luxd
+        # failure (timeout, fault) reads "timeout". Both exit 1.
         from punt_lux.operations import OpError
 
         with patch(
             "punt_lux.rest_client.LuxRestClient.connect",
-            return_value=_PingClient(
-                OpError(code="display_unavailable", reason="display not running")
-            ),
+            return_value=_PingClient(OpError(code=code, reason="x")),  # type: ignore[arg-type]  # code is a parametrized OpErrorCode literal
         ):
             result = runner.invoke(app, ["ping"])
         assert result.exit_code == 1
-        assert "Display not running" in result.output
+        assert line in result.output
 
 
 class TestDisplay:

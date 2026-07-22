@@ -53,15 +53,17 @@ claude plugin install lux@punt-labs
 </details>
 
 <details>
-<summary>Lightweight install (library use only)</summary>
+<summary>Lightweight install (CLI and protocol types, no renderer)</summary>
 
-If you only need `DisplayClient` to send scenes from Python (no display server):
+If you only need the `lux` CLI and the JSON protocol element types --- enough to
+drive a running luxd over its REST API and to build element trees in Python
+--- install the base package:
 
 ```bash
 uv add punt-lux
 ```
 
-This pulls ~2 MB of lightweight deps. The 66 MB display stack (imgui-bundle, numpy, Pillow, PyOpenGL) is only needed for `lux display` and is available via `punt-lux[display]`.
+This pulls ~2 MB of lightweight deps. The 66 MB display stack (imgui-bundle, numpy, Pillow, PyOpenGL) is only needed to run the renderer (`lux display`) and is available via `punt-lux[display]`.
 
 </details>
 
@@ -108,7 +110,7 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 - **Frame auto-focus** --- frames automatically focus (brought to front) when they receive a scene update
 - **Persistent tabs** --- each `show()` call opens a dismissable tab; same `scene_id` replaces content in-place. Users can close individual tabs
 - **Themes** --- 11 themes via `set_theme`: `imgui_colors_dark`, `imgui_colors_light`, `imgui_colors_classic`, `darcula`, `darcula_darker`, `material_flat`, `photoshop_style`, `grey_flat`, `cherry`, `light_rounded`, `microsoft_style`
-- **Auto-spawn** --- `DisplayClient` starts the display server on first connection if it isn't running
+- **Auto-spawn** --- the Hub (luxd) starts the display renderer on first use if it isn't already running
 - **Unix socket IPC** --- length-prefixed JSON frames, no HTTP overhead, no threads
 
 ## MCP Tools

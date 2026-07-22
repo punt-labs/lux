@@ -15,9 +15,10 @@ if TYPE_CHECKING:
 
 from punt_lux.__main__ import app
 from punt_lux.apps.beads import BeadsBrowser
-from punt_lux.operations import RenderRequest, SceneShown
+from punt_lux.operations import OpError, RenderRequest, SceneShown
+from punt_lux.operations.models.render import FrameSpec
 from punt_lux.protocol import TextElement
-from punt_lux.rest_transport import HubUnavailableError
+from punt_lux.show import BeadsBoard
 
 runner = CliRunner()
 
@@ -366,6 +367,38 @@ class _RecordingClient:
         return SceneShown(scene_id=request.scene_id)
 
 
+class _RejectingClient:
+    """A LuxRestClient stand-in whose render is refused by the Hub."""
+
+    def __init__(self, reason: str) -> None:
+        self._reason = reason
+
+    def render(self, request: RenderRequest) -> OpError:
+        return OpError(code="rejected", reason=self._reason)
+
+
+class TestBeadsBoard:
+    def test_request_carries_the_frame_envelope(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The render envelope must name the scene, title, and frame after the
+        # project directory, so the board lands in its own project-scoped tab.
+        monkeypatch.chdir(tmp_path)
+        project = tmp_path.name
+        active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
+        with patch(
+            "punt_lux.apps._beads_payload.subprocess.run",
+            return_value=_mock_bd_result(active),
+        ):
+            request, note = BeadsBoard().request(all_issues=False)
+        assert request.scene_id == f"beads-{project}"
+        assert request.title == f"Beads: {project}"
+        assert request.frame == FrameSpec(
+            frame_id=f"beads-{project}", frame_title=f"Beads: {project}"
+        )
+        assert note == "2 issues"
+
+
 class TestShowBeadsCLI:
     def test_bd_failure_surfaces_error(
         self,
@@ -414,29 +447,49 @@ class TestShowBeadsCLI:
         assert client.request is not None
         assert client.request.scene_id.startswith("beads-")  # project-scoped tab
 
+    def test_show_beads_reports_a_render_rejection(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A reachable luxd that refuses the render surfaces the reason, exit 1."""
+        monkeypatch.chdir(tmp_path)
+        client = _RejectingClient("duplicate element id 'table'")
+        with (
+            patch(
+                "punt_lux.apps._beads_payload.subprocess.run",
+                return_value=_mock_bd_result(_ISSUES),
+            ),
+            patch("punt_lux.show.LuxRestClient.connect", return_value=client),
+        ):
+            result = runner.invoke(app, ["show", "beads"])
+
+        assert result.exit_code == 1
+        assert "Beads board not shown: duplicate element id 'table'" in result.output
+
     def test_show_beads_reports_luxd_down(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """luxd unreachable is one actionable line and a non-zero exit."""
+        """luxd unreachable is one actionable line and a non-zero exit.
+
+        The real ``LuxRestClient.connect`` runs with no port file, so the CLI
+        surfaces the production message — hint included — not a test string.
+        """
         monkeypatch.chdir(tmp_path)
         with (
             patch(
                 "punt_lux.apps._beads_payload.subprocess.run",
                 return_value=_mock_bd_result(_ISSUES),
             ),
-            patch(
-                "punt_lux.show.LuxRestClient.connect",
-                side_effect=HubUnavailableError(
-                    "luxd is not running. Run 'lux hub-install'."
-                ),
-            ),
+            patch("punt_lux.hub_paths.HubPaths.read_port", return_value=None),
         ):
             result = runner.invoke(app, ["show", "beads"])
 
         assert result.exit_code == 1
-        assert "not running" in result.output.lower()
+        assert "luxd is not running" in result.output
+        assert "lux hub-install" in result.output
 
     def test_show_no_args_shows_help(self) -> None:
         result = runner.invoke(app, ["show"])
