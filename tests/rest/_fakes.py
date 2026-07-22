@@ -52,8 +52,8 @@ class ForbiddenPort:
     def query(self, method: str, params: Mapping[str, object]) -> DisplayReply:
         raise AssertionError(f"unexpected display proxy: query({method!r})")
 
-    def ping(self) -> DisplayReply:
-        raise AssertionError("unexpected display proxy: ping()")
+    def ping(self, wait: float | None) -> DisplayReply:
+        raise AssertionError(f"unexpected display proxy: ping({wait!r})")
 
 
 class ForbiddenInbox:
@@ -75,15 +75,17 @@ class ForbiddenInbox:
 
 
 class StubPort:
-    """A DisplayPort returning one preset reply for every proxied call."""
+    """A DisplayPort returning one preset reply and recording the ping wait."""
 
     def __init__(self, reply: DisplayReply) -> None:
         self._reply = reply
+        self.ping_wait: float | None = None
 
     def query(self, method: str, params: Mapping[str, object]) -> DisplayReply:
         return self._reply
 
-    def ping(self) -> DisplayReply:
+    def ping(self, wait: float | None) -> DisplayReply:
+        self.ping_wait = wait
         return self._reply
 
 

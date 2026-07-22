@@ -595,3 +595,4 @@
 {"ts":"2026-07-22T15:03:20Z","commit":"094f282","files_scored":307,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/rest_client.py":{"avg_params":[1.67,1.5],"max_complexity":[7.0,5.0],"avg_complexity":[2.22,2.12],"module_size":[145.0,127.0],"classes_per_module":[2.0,1.0]}}}
 {"ts":"2026-07-22T16:08:32Z","commit":"4f464b2","files_scored":307,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/display_client.py":{"module_size":[636.0,635.0]}}}
 {"ts":"2026-07-22T16:31:33Z","commit":"0a7eb91","files_scored":307,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/show.py":{"module_size":[62.0,61.0]}}}
+{"ts":"2026-07-22T17:15:37Z","commit":"b8d819c","files_scored":307,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}

@@ -62,12 +62,19 @@ class TestStatus:
 
 
 class _PingClient:
-    """A LuxRestClient stand-in returning one preset ping result."""
+    """A LuxRestClient stand-in returning one preset ping result.
+
+    Records the display-leg wait the CLI forwards, so a test can prove the
+    ``--timeout`` value rides through as the ping budget rather than only
+    sizing the HTTP transport.
+    """
 
     def __init__(self, result: object) -> None:
         self._result = result
+        self.forwarded_wait: float | None = None
 
-    def ping(self) -> object:
+    def ping(self, wait: float) -> object:
+        self.forwarded_wait = wait
         return self._result
 
 
@@ -115,40 +122,56 @@ class TestPing:
         assert result.exit_code == 1
         assert line in result.stderr
 
-    def test_ping_http_timeout_outlasts_the_display_budget(self) -> None:
-        # The HTTP round-trip must strictly exceed luxd's Hub-side display budget,
-        # or a slow display trips the HTTP bound first and the failure misreads as
-        # "luxd is not running" when luxd is fine and the display is the problem.
+    def test_ping_http_bound_sits_a_margin_above_the_display_leg(self) -> None:
+        # With no --timeout the display leg is luxd's default budget; the HTTP
+        # bound sits a fixed margin above it, so the transport never trips first
+        # and the wait forwarded to the display leg is that same default.
+        from punt_lux.__main__ import _PING_HTTP_MARGIN_SECONDS
         from punt_lux.display_client import DEFAULT_RECV_TIMEOUT
         from punt_lux.operations import Pong
 
-        captured: dict[str, float] = {}
+        captured: dict[str, object] = {}
 
         def _capture(*, timeout: float) -> _PingClient:
-            captured["timeout"] = timeout
-            return _PingClient(Pong(rtt_seconds=0.001))
+            client = _PingClient(Pong(rtt_seconds=0.001))
+            captured["http"] = timeout
+            captured["client"] = client
+            return client
 
         with patch("punt_lux.rest_client.LuxRestClient.connect", side_effect=_capture):
             result = runner.invoke(app, ["ping"])
         assert result.exit_code == 0
-        assert captured["timeout"] > DEFAULT_RECV_TIMEOUT
+        client = captured["client"]
+        assert isinstance(client, _PingClient)
+        assert client.forwarded_wait == DEFAULT_RECV_TIMEOUT
+        assert captured["http"] == DEFAULT_RECV_TIMEOUT + _PING_HTTP_MARGIN_SECONDS
 
-    def test_ping_floors_a_small_user_timeout_above_the_budget(self) -> None:
-        # A user asking for 1s — below the display budget — must not reintroduce
-        # the inversion: the HTTP bound is still held above the budget.
-        from punt_lux.display_client import DEFAULT_RECV_TIMEOUT
-        from punt_lux.operations import Pong
+    def test_ping_forwards_a_small_user_timeout_and_reports_timeout(self) -> None:
+        # The finding: --timeout 1 used to still wait ~5s because the value only
+        # sized the HTTP transport. Now 1s is the real display-leg budget; the
+        # HTTP bound stays a margin above it (the layers cannot invert), a slow
+        # display reads "timeout" — not "luxd is not running" — and the wait
+        # forwarded to the display leg is genuinely 1s.
+        from punt_lux.__main__ import _PING_HTTP_MARGIN_SECONDS
+        from punt_lux.operations import OpError
 
-        captured: dict[str, float] = {}
+        captured: dict[str, object] = {}
 
         def _capture(*, timeout: float) -> _PingClient:
-            captured["timeout"] = timeout
-            return _PingClient(Pong(rtt_seconds=0.001))
+            client = _PingClient(OpError(code="timeout", reason="slow display"))
+            captured["http"] = timeout
+            captured["client"] = client
+            return client
 
         with patch("punt_lux.rest_client.LuxRestClient.connect", side_effect=_capture):
             result = runner.invoke(app, ["ping", "--timeout", "1"])
-        assert result.exit_code == 0
-        assert captured["timeout"] > DEFAULT_RECV_TIMEOUT
+        assert result.exit_code == 1
+        assert "timeout" in result.stderr
+        assert "not running" not in result.stderr
+        client = captured["client"]
+        assert isinstance(client, _PingClient)
+        assert client.forwarded_wait == 1.0
+        assert captured["http"] == 1.0 + _PING_HTTP_MARGIN_SECONDS
 
 
 class TestDisplay:

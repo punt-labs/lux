@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 from typing import TYPE_CHECKING, Self, cast, final
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from pydantic import BaseModel, ValidationError
 
@@ -76,9 +76,14 @@ class LuxRestClient:
         segment = quote(request.scene_id, safe="")
         return self._send("PUT", f"/scenes/{segment}", request, SceneShown)
 
-    def ping(self) -> Pong | OpError:
-        """Round-trip a display ping through ``GET /display/ping``."""
-        return self._send("GET", "/display/ping", None, Pong)
+    def ping(self, wait: float) -> Pong | OpError:
+        """Round-trip a display ping through ``GET /display/ping?timeout=<wait>``.
+
+        ``wait`` is the display-leg budget luxd applies to the ping; the caller
+        sizes its own HTTP timeout above it so the transport never trips first.
+        """
+        query = urlencode({"timeout": wait})
+        return self._send("GET", f"/display/ping?{query}", None, Pong)
 
     def _send[T: BaseModel](
         self, method: str, path: str, body: BaseModel | None, ok: type[T]

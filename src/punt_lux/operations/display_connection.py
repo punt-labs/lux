@@ -75,8 +75,11 @@ class HubDisplayConnection:
             return DisplayErrored(message=response.error)
         return DisplayReplied(payload=response.result)
 
-    def ping(self) -> DisplayReply:
-        """Round-trip a ping and return the measured ``rtt_seconds``.
+    def ping(self, wait: float | None) -> DisplayReply:
+        """Round-trip a ping bounded by ``wait`` seconds; return the rtt.
+
+        ``wait`` of ``None`` uses the client's standing recv budget (the
+        documented absence contract, threaded to ``DisplayClient.ping``).
 
         The connection owns the whole measurement: one monotonic clock, read
         immediately before the send and immediately after the pong arrives, so
@@ -88,7 +91,7 @@ class HubDisplayConnection:
             return DisplayFault(code="display_unavailable")
         started = time.monotonic()
         try:
-            pong = self._clients.get().ping()
+            pong = self._clients.get().ping(timeout=wait)
         except OSError:
             self._clients.drop()
             return DisplayFault(code="timeout")

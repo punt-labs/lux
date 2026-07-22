@@ -133,10 +133,32 @@ def test_screenshot_without_a_path_is_502() -> None:
 
 
 def test_ping() -> None:
-    client = make_client(display_port=StubPort(DisplayReplied({"rtt_seconds": 0.01})))
-    resp = client.get("/display/ping")
+    # No timeout given: the wait is the absence contract — None threads through.
+    port = StubPort(DisplayReplied({"rtt_seconds": 0.01}))
+    resp = make_client(display_port=port).get("/display/ping")
     assert resp.status_code == 200
     assert resp.json()["rtt_seconds"] == 0.01
+    assert port.ping_wait is None
+
+
+def test_ping_forwards_a_bounded_timeout_to_the_port() -> None:
+    # A valid timeout binds and reaches the port as the display-leg wait.
+    port = StubPort(DisplayReplied({"rtt_seconds": 0.01}))
+    resp = make_client(display_port=port).get("/display/ping?timeout=2")
+    assert resp.status_code == 200
+    assert port.ping_wait == 2.0
+
+
+def test_ping_rejects_a_timeout_below_the_floor_with_422() -> None:
+    # A sub-100ms probe is unmeasurable; the bound rejects it before any proxy.
+    resp = make_client().get("/display/ping?timeout=0.05")
+    assert resp.status_code == 422
+
+
+def test_ping_rejects_a_timeout_above_the_cap_with_422() -> None:
+    # A 30s+ wait would hang the round-trip; the bound rejects it at bind time.
+    resp = make_client().get("/display/ping?timeout=31")
+    assert resp.status_code == 422
 
 
 def test_ping_without_an_rtt_is_502() -> None:

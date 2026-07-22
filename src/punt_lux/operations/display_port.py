@@ -28,6 +28,11 @@ class DisplayPort(Protocol):
         """Proxy a query to the display and return its bounded reply."""
         ...
 
-    def ping(self) -> DisplayReply:
-        """Round-trip a ping; a reply payload carries the measured ``rtt_seconds``."""
+    # wait is float | None: None means "use the connection's standing recv
+    # budget" — the documented absence contract, not a failure sentinel.
+    def ping(self, wait: float | None) -> DisplayReply:
+        """Round-trip a ping bounded by ``wait`` seconds (``None`` = default budget).
+
+        A reply payload carries the measured ``rtt_seconds``.
+        """
         ...

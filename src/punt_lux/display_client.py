@@ -592,10 +592,10 @@ class DisplayClient:
         """Clear all content from the display.  Safe from callbacks."""
         self._send(ClearMessage())
 
-    def ping(self) -> PongMessage | None:
-        """Send a ping and wait for the pong response."""
+    def ping(self, timeout: float | None = None) -> PongMessage | None:
+        """Send a ping and wait for the pong within ``timeout`` (else recv budget)."""
         self._send(PingMessage(ts=time.time()))
-        deadline = time.monotonic() + self._recv_timeout
+        deadline = time.monotonic() + (timeout or self._recv_timeout)
         if self.listener_active:
             remaining = deadline - time.monotonic()
             try:

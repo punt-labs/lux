@@ -182,7 +182,7 @@ def version() -> None:
     print(f"lux {__version__}")
 
 
-_PING_HTTP_MARGIN_SECONDS = 2.0  # HTTP bound sits above luxd's display budget
+_PING_HTTP_MARGIN_SECONDS = 2.0  # HTTP bound sits a margin above the display leg
 
 
 @app.command()
@@ -194,9 +194,9 @@ def ping(
 ) -> None:
     """Ping the display through luxd and print round-trip time.
 
-    Reaches the display over luxd's REST API, not the display socket. The HTTP
-    round-trip is held strictly above luxd's Hub-side display budget, so a slow
-    or hung display reports "timeout", never "luxd is not running".
+    Reaches the display over luxd's REST API, not the display socket. ``--timeout``
+    is the real display-leg budget; the HTTP round-trip sits a margin above it, so
+    a slow display reports "timeout" after that wait, never "luxd is not running".
     """
     from punt_lux.display_client import DEFAULT_RECV_TIMEOUT
     from punt_lux.operations import OpError
@@ -204,10 +204,10 @@ def ping(
     from punt_lux.rest_transport import HubUnavailableError
 
     display_wait = timeout if timeout is not None else DEFAULT_RECV_TIMEOUT
-    http_timeout = max(display_wait, DEFAULT_RECV_TIMEOUT) + _PING_HTTP_MARGIN_SECONDS
+    http_timeout = display_wait + _PING_HTTP_MARGIN_SECONDS
 
     try:
-        result = LuxRestClient.connect(timeout=http_timeout).ping()
+        result = LuxRestClient.connect(timeout=http_timeout).ping(display_wait)
     except HubUnavailableError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None

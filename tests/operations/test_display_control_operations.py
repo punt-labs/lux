@@ -47,6 +47,7 @@ class _FakePort:
     _ping_reply: DisplayReply
     _last_method: str
     _last_params: Mapping[str, object]
+    _last_wait: float | None
 
     def __new__(
         cls, *, query: DisplayReply | None = None, ping: DisplayReply | None = None
@@ -56,6 +57,7 @@ class _FakePort:
         self._ping_reply = ping if ping is not None else DisplayReplied(payload={})
         self._last_method = ""
         self._last_params = {}
+        self._last_wait = None
         return self
 
     def query(self, method: str, params: Mapping[str, object]) -> DisplayReply:
@@ -63,7 +65,8 @@ class _FakePort:
         self._last_params = params
         return self._query_reply
 
-    def ping(self) -> DisplayReply:
+    def ping(self, wait: float | None) -> DisplayReply:
+        self._last_wait = wait
         return self._ping_reply
 
     @property
@@ -73,6 +76,10 @@ class _FakePort:
     @property
     def last_params(self) -> Mapping[str, object]:
         return self._last_params
+
+    @property
+    def last_wait(self) -> float | None:
+        return self._last_wait
 
 
 def test_get_display_info_accepts_the_live_display_payload() -> None:
@@ -166,6 +173,16 @@ def test_ping_returns_elapsed_time() -> None:
     result = ops.ping()
     assert isinstance(result, Pong)
     assert result.rtt_seconds == 0.05
+    # The default wait is the absence contract — None threads to the port.
+    assert port.last_wait is None
+
+
+def test_ping_forwards_the_wait_to_the_port() -> None:
+    # A bounded wait is not swallowed: it reaches the port as the display-leg
+    # budget, so the REST timeout query param genuinely shortens the wait.
+    port = _FakePort(ping=DisplayReplied({"rtt_seconds": 0.02}))
+    DisplayControlOperations(port).ping(1.5)
+    assert port.last_wait == 1.5
 
 
 def test_set_theme_returns_the_new_theme_state_and_rejects_unknown() -> None:

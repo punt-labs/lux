@@ -84,10 +84,12 @@ def test_ping_returns_the_typed_pong() -> None:
     transport = CannedTransport(
         HttpResponse(status=200, body=b'{"kind":"ok","rtt_seconds":0.01}')
     )
-    result = _client_over(transport).ping()
+    result = _client_over(transport).ping(2.5)
     assert result == Pong(rtt_seconds=0.01)
     assert transport.method == "GET"
     assert transport.body is None
+    # The display-leg budget rides through as the timeout query param.
+    assert transport.path == "/display/ping?timeout=2.5"
 
 
 @pytest.mark.parametrize(
@@ -167,7 +169,7 @@ def test_a_malformed_2xx_body_is_a_fault_not_a_traceback() -> None:
 def test_transport_failure_propagates_as_hub_unavailable() -> None:
     transport = CannedTransport(HubUnavailableError("luxd is not reachable"))
     with pytest.raises(HubUnavailableError, match="not reachable"):
-        _client_over(transport).ping()
+        _client_over(transport).ping(5.0)
 
 
 # --- end to end against the real REST surface --------------------------------
