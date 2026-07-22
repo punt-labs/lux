@@ -41,12 +41,15 @@ _SEND_CALL_RE = re.compile(r"\.show_async\(|\.clear_async\(|\.show\(")
 
 def test_no_module_outside_the_sender_set_writes_to_the_display() -> None:
     offenders: list[str] = []
+    scanned = 0
     for path in _SRC.rglob("*.py"):
+        scanned += 1
         rel = path.relative_to(_SRC).as_posix()
         if rel in _SENDER_MODULES:
             continue
         source = path.read_text(encoding="utf-8")
         offenders.extend(f"{rel}: {m.group()}" for m in _SEND_CALL_RE.finditer(source))
+    assert scanned > 0, "guard scanned no files — the source glob is broken"
     assert offenders == [], (
         "a module outside the sender set writes to the display directly; only the "
         f"replicator's send path may write to the display connection: {offenders}"
