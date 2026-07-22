@@ -44,8 +44,8 @@ class SessionKey:
 
     @classmethod
     def from_request(cls, raw: str) -> Self:
-        """Resolve a query-param value, defaulting a blank to a random handle."""
-        return cls(raw or str(uuid.uuid4())[:8])
+        """Resolve a query value; a blank-after-sanitize value gets a handle."""
+        return cls(cls(raw).value or str(uuid.uuid4())[:8])
 
     @property
     def value(self) -> str:

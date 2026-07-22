@@ -30,6 +30,24 @@ class TestFromRequest:
     def test_present_value_is_sanitized(self):
         assert SessionKey.from_request("pid\x001234").value == "pid1234"
 
+    def test_control_chars_only_gets_a_random_handle(self):
+        """A non-empty value that sanitizes to "" must still get a handle.
+
+        Otherwise every control-chars-only key collapses onto the empty
+        identity instead of the promised distinct random handle.
+        """
+        key = SessionKey.from_request("\x01\x02\x03")
+        assert key.value != ""
+        assert len(key.value) == 8
+
+    def test_sanitizes_to_reserved_still_collides(self):
+        """The handle default never masks a value that sanitizes to the
+        reserved id — ``rest`` with a trailing NUL is still refused."""
+        assert SessionKey.from_request("rest\x00").is_reserved
+
+    def test_sanitizes_to_empty_is_not_reserved(self):
+        assert not SessionKey.from_request("\x01\x02").is_reserved
+
 
 class TestConnectionId:
     def test_connection_id_is_the_sanitized_value(self):
