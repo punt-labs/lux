@@ -16,20 +16,21 @@ from the HTTP status the shared REST error table produced.
 
 from __future__ import annotations
 
-import http.client
 import json
 from typing import TYPE_CHECKING, Self, cast, final
+from urllib.parse import quote
 
 from pydantic import BaseModel, ValidationError
 
 from punt_lux.hub_paths import HubPaths
 from punt_lux.operations import OpError, Pong, RenderRequest, SceneShown
-from punt_lux.rest_transport import HttpResponse, HttpTransport, HubUnavailableError
+from punt_lux.rest_loopback import LoopbackTransport
+from punt_lux.rest_transport import HttpTransport, HubUnavailableError
 
 if TYPE_CHECKING:
     from punt_lux.operations.models.common import OpErrorCode
 
-__all__ = ["LoopbackTransport", "LuxRestClient"]
+__all__ = ["LuxRestClient"]
 
 # The inverse of the REST error table (rest/status.py maps code -> status): the
 # client observes the same wire contract from the other end. The statuses are
@@ -42,43 +43,6 @@ _CODE_BY_STATUS: dict[int, OpErrorCode] = {
     503: "display_unavailable",
     504: "timeout",
 }
-
-
-@final
-class LoopbackTransport:
-    """The production transport: one loopback HTTP round-trip with one timeout.
-
-    A non-2xx reply from a reachable luxd is a result, not a failure — the status
-    and body come back as an :class:`HttpResponse`; only an unreachable or stalled
-    luxd raises :class:`HubUnavailableError`. There is no retry — the budget for a
-    loopback call is milliseconds, and a stall means luxd is down, not busy.
-    """
-
-    _port: int
-    _timeout: float
-    __slots__ = ("_port", "_timeout")
-
-    def __new__(cls, port: int, timeout: float) -> Self:
-        self = super().__new__(cls)
-        self._port = port
-        self._timeout = timeout
-        return self
-
-    def request(self, method: str, path: str, body: bytes | None) -> HttpResponse:
-        conn = http.client.HTTPConnection(
-            "127.0.0.1", self._port, timeout=self._timeout
-        )
-        headers = {"Content-Type": "application/json"} if body is not None else {}
-        try:
-            conn.request(method, path, body=body, headers=headers)
-            response = conn.getresponse()
-            return HttpResponse(status=response.status, body=response.read())
-        except (OSError, http.client.HTTPException) as exc:
-            raise HubUnavailableError(
-                f"luxd is not reachable on port {self._port} — {exc}"
-            ) from exc
-        finally:
-            conn.close()
 
 
 @final
@@ -104,8 +68,13 @@ class LuxRestClient:
         return cls(LoopbackTransport(port, timeout))
 
     def render(self, request: RenderRequest) -> SceneShown | OpError:
-        """Install a whole scene through ``PUT /scenes/{scene_id}``."""
-        return self._send("PUT", f"/scenes/{request.scene_id}", request, SceneShown)
+        """Install a whole scene through ``PUT /scenes/{scene_id}``.
+
+        The scene id is a path segment, so it is percent-encoded: a cwd-derived
+        id bearing spaces or reserved characters must not break the request-target.
+        """
+        segment = quote(request.scene_id, safe="")
+        return self._send("PUT", f"/scenes/{segment}", request, SceneShown)
 
     def ping(self) -> Pong | OpError:
         """Round-trip a display ping through ``GET /display/ping``."""
@@ -134,19 +103,29 @@ class LuxRestClient:
 
     @staticmethod
     def _detail_of(status: int, body: bytes) -> str:
-        """Render an error body's human reason, never losing its content.
+        """Render an error body's human reason, never blank or ``None``.
+
+        An empty body falls back to the status line; a blank reason (empty
+        detail string, empty detail list) falls back to the decoded body. Since
+        the decoded body is non-blank here, the message always carries content.
+        """
+        text = body.decode(errors="replace")
+        if not text.strip():
+            return f"HTTP {status}"
+        reason = LuxRestClient._reason_in(body, text)
+        return reason if reason.strip() else text
+
+    @staticmethod
+    def _reason_in(body: bytes, text: str) -> str:
+        """Pull the human reason from a JSON error body, or the body itself.
 
         The body is a JSON wire value, so it decodes to ``object`` and is
         narrowed here (PY-TS-14 wire boundary): a semantic ``OpError`` sends a
         bare ``detail`` string; FastAPI's own binding rejection sends a list of
         ``{loc, msg, type}`` items whose ``msg`` fields are joined. Anything else
         — a dict with no ``detail`` key, a bare JSON value, non-JSON bytes —
-        falls back to the decoded body so its content survives; an empty body
-        falls back to the status line so the message is never blank or ``None``.
+        yields the decoded body so its content survives.
         """
-        text = body.decode(errors="replace")
-        if not text.strip():
-            return f"HTTP {status}"
         try:
             parsed: object = json.loads(body)
         except json.JSONDecodeError:
@@ -158,7 +137,7 @@ class LuxRestClient:
             return detail
         if isinstance(detail, list):
             items = cast("list[object]", detail)
-            return "; ".join(LuxRestClient._item_message(item) for item in items)
+            return "; ".join(map(LuxRestClient._item_message, items))
         return text
 
     @staticmethod

@@ -79,8 +79,9 @@ class TestPing:
         with patch("punt_lux.hub_paths.HubPaths.read_port", return_value=None):
             result = runner.invoke(app, ["ping"])
         assert result.exit_code == 1
-        assert "luxd is not running" in result.output
-        assert "lux hub-install" in result.output
+        # Failure lines go to stderr per CLI convention; stdout stays clean.
+        assert "luxd is not running" in result.stderr
+        assert "lux hub-install" in result.stderr
 
     def test_ping_reports_round_trip(self) -> None:
         from punt_lux.operations import Pong
@@ -112,7 +113,7 @@ class TestPing:
         ):
             result = runner.invoke(app, ["ping"])
         assert result.exit_code == 1
-        assert line in result.output
+        assert line in result.stderr
 
 
 class TestDisplay:

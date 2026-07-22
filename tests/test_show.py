@@ -18,6 +18,7 @@ from punt_lux.apps.beads import BeadsBrowser
 from punt_lux.operations import OpError, RenderRequest, SceneShown
 from punt_lux.operations.models.render import FrameSpec
 from punt_lux.protocol import TextElement
+from punt_lux.rest_transport import HubUnavailableError
 from punt_lux.show import BeadsBoard
 
 runner = CliRunner()
@@ -377,6 +378,17 @@ class _RejectingClient:
         return OpError(code="rejected", reason=self._reason)
 
 
+class _UnreachableClient:
+    """A LuxRestClient stand-in whose render finds luxd gone mid-call.
+
+    ``connect`` only reads the port file; the socket work happens in ``render``,
+    so an unreachable luxd raises there, not at connect time.
+    """
+
+    def render(self, request: RenderRequest) -> SceneShown:
+        raise HubUnavailableError("luxd is not reachable on port 5001 — refused")
+
+
 class TestBeadsBoard:
     def test_request_carries_the_frame_envelope(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -490,6 +502,35 @@ class TestShowBeadsCLI:
         assert result.exit_code == 1
         assert "luxd is not running" in result.output
         assert "lux hub-install" in result.output
+
+    def test_show_beads_reports_render_time_unreachability(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """luxd vanishing between connect and render is one line, exit 1, no trace.
+
+        The guard must wrap the render call, not just connect — a stale port,
+        refused connection, or stall surfaces from render, and it must reach the
+        user as the actionable one-liner, never an escaped traceback.
+        """
+        monkeypatch.chdir(tmp_path)
+        with (
+            patch(
+                "punt_lux.apps._beads_payload.subprocess.run",
+                return_value=_mock_bd_result(_ISSUES),
+            ),
+            patch(
+                "punt_lux.show.LuxRestClient.connect",
+                return_value=_UnreachableClient(),
+            ),
+        ):
+            result = runner.invoke(app, ["show", "beads"])
+
+        assert result.exit_code == 1
+        assert "luxd is not reachable" in result.output
+        # The error was caught and turned into a clean exit, not re-raised.
+        assert not isinstance(result.exception, HubUnavailableError)
 
     def test_show_no_args_shows_help(self) -> None:
         result = runner.invoke(app, ["show"])

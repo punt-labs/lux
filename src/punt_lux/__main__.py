@@ -206,15 +206,15 @@ def ping(
     try:
         result = LuxRestClient.connect(timeout=timeout).ping()
     except HubUnavailableError as exc:
-        print(exc)
+        typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None
 
     if isinstance(result, OpError):
         down = result.code == "display_unavailable"
-        print("Display not running" if down else "timeout")
+        typer.echo("Display not running" if down else "timeout", err=True)
         raise typer.Exit(code=1)
 
-    print(f"pong rtt={result.rtt_seconds:.3f}s")
+    typer.echo(f"pong rtt={result.rtt_seconds:.3f}s")
 
 
 @app.command()

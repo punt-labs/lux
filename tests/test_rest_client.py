@@ -9,16 +9,13 @@ route tests use.
 
 from __future__ import annotations
 
-import socket
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import TYPE_CHECKING
 
 import pytest
 
 from punt_lux.hub_paths import HubPaths
 from punt_lux.operations import OpError, Pong, RenderRequest, SceneShown
-from punt_lux.rest_client import LoopbackTransport, LuxRestClient
+from punt_lux.rest_client import LuxRestClient
 from punt_lux.rest_transport import HttpResponse, HubUnavailableError
 
 from .rest._fakes import make_client
@@ -144,6 +141,18 @@ def test_an_empty_error_body_falls_back_to_the_status_line() -> None:
     assert result.reason == "HTTP 503"
 
 
+@pytest.mark.parametrize("body", [b'{"detail":""}', b'{"detail":[]}'])
+def test_a_blank_detail_falls_back_to_the_body(body: bytes) -> None:
+    # An empty detail string or empty detail list must not leave the reason
+    # blank ("Beads board not shown:"); the decoded body is the fallback so the
+    # message always carries content.
+    transport = CannedTransport(HttpResponse(status=502, body=body))
+    result = _client_over(transport).render(_render_request())
+    assert isinstance(result, OpError)
+    assert result.reason.strip()
+    assert result.reason == body.decode()
+
+
 def test_a_malformed_2xx_body_is_a_fault_not_a_traceback() -> None:
     # A 200 whose body is not the expected model — a stale ephemeral port
     # answered by a foreign server — must not raise past the client. It becomes
@@ -168,6 +177,15 @@ def test_render_installs_a_scene_over_the_real_surface() -> None:
     client = _client_over(SurfaceTransport(make_client()))
     result = client.render(_render_request("alpha"))
     assert result == SceneShown(scene_id="alpha")
+
+
+def test_render_round_trips_a_space_bearing_scene_id() -> None:
+    # A cwd-derived scene id can carry spaces or reserved characters; the client
+    # percent-encodes the path segment and the real surface decodes it back, so
+    # the id survives the request-target intact.
+    client = _client_over(SurfaceTransport(make_client()))
+    result = client.render(_render_request("beads-my project"))
+    assert result == SceneShown(scene_id="beads-my project")
 
 
 def test_render_reports_a_duplicate_id_as_a_rejected_error() -> None:
@@ -197,57 +215,3 @@ def test_connect_raises_the_actionable_message_when_no_port_file(
     assert message == (
         "luxd is not running. Run 'lux hub-install' to register the service."
     )
-
-
-# --- the production loopback transport ---------------------------------------
-
-
-def _unused_loopback_port() -> int:
-    """Bind :0, read the assigned port, release it — likely still free."""
-    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    probe.bind(("127.0.0.1", 0))
-    port = int(probe.getsockname()[1])
-    probe.close()
-    return port
-
-
-def test_loopback_transport_wraps_a_refused_connection() -> None:
-    # A closed port refuses the connection; the transport reports luxd
-    # unreachable rather than leaking the OSError.
-    transport = LoopbackTransport(_unused_loopback_port(), timeout=1.0)
-    with pytest.raises(HubUnavailableError, match="not reachable"):
-        transport.request("GET", "/display/ping", None)
-
-
-def test_loopback_transport_sends_json_and_reads_the_reply() -> None:
-    captured: dict[str, object] = {}
-
-    class _Handler(BaseHTTPRequestHandler):
-        def do_PUT(self) -> None:
-            length = int(self.headers.get("Content-Length", "0"))
-            captured["path"] = self.path
-            captured["content_type"] = self.headers.get("Content-Type")
-            captured["body"] = self.rfile.read(length)
-            self.send_response(200)
-            self.end_headers()
-            self.wfile.write(b'{"kind":"ok","scene_id":"s1"}')
-
-        def log_message(self, format: str, *args: object) -> None:
-            """Silence the default stderr access log."""
-
-    server = HTTPServer(("127.0.0.1", 0), _Handler)
-    worker = threading.Thread(target=server.handle_request)
-    worker.start()
-    try:
-        transport = LoopbackTransport(server.server_address[1], timeout=2.0)
-        response = transport.request("PUT", "/scenes/s1", b'{"scene_id":"s1"}')
-    finally:
-        worker.join(timeout=2.0)
-        server.server_close()
-    # The reply was read back, and the connection carried a JSON content-type and
-    # the exact path. The request returned (the finally-close ran) without leak.
-    assert response.status == 200
-    assert response.body == b'{"kind":"ok","scene_id":"s1"}'
-    assert captured["path"] == "/scenes/s1"
-    assert captured["content_type"] == "application/json"
-    assert captured["body"] == b'{"scene_id":"s1"}'

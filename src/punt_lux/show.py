@@ -67,11 +67,10 @@ def beads(
     """Display the beads issue board in the Lux window."""
     request, note = BeadsBoard().request(all_issues=all_issues)
     try:
-        client = LuxRestClient.connect()
+        result = LuxRestClient.connect().render(request)
     except HubUnavailableError as exc:
         typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None
-    result = client.render(request)
     if isinstance(result, OpError):
         typer.echo(f"Beads board not shown: {result.reason}", err=True)
         raise typer.Exit(code=1)
