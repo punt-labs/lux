@@ -2,9 +2,9 @@
 
 When a send to the display fails, the worker hands the failure here. A wedged
 display (send timeout, ``BlockingIOError``) is killed and respawned; a dead peer
-(``OSError``) is only dropped so the next send reconnects. Either way every live
-scene is re-marked so a fresh display is repainted, and a consumed clear is
-re-marked so a same-display reconnect does not leave the old scene on screen.
+(``OSError``) is only dropped so the next send reconnects. Either way the heal
+re-marks every live scene, a consumed clear, and the menu, so a display that came
+back blank is fully repainted — scenes, the old clear, and the agent bar alike.
 
 If the heal itself cannot complete — an unspawnable display, a refused reconnect
 — the worker instead restores the exact batch and backs off. ``restore`` is that
@@ -57,11 +57,10 @@ class SendRecovery:
     def recover(self, batch: DrainedBatch, *, wedged: bool) -> None:
         """Heal the display and re-mark the work so nothing is lost.
 
-        A wedged display is killed and respawned; a dead peer is only dropped so
-        the next send reconnects. A shutdown flush — the batch's shutting flag —
-        is best-effort: it logs and leaves the display as-is rather than reaping or
-        reconnecting, since the process is going away. Reading the flag from the
-        batch here makes that policy unbypassable by the caller.
+        A shutdown flush — the batch's shutting flag — is best-effort: it logs and
+        leaves the display as-is rather than reaping or reconnecting, since the
+        process is going away. Reading the flag from the batch here makes that
+        policy unbypassable by the caller.
         """
         if batch.shutting:
             logger.warning("replicator shutdown flush failed; display left as-is")
@@ -79,18 +78,19 @@ class SendRecovery:
         )
 
     def _remark(self, batch: DrainedBatch) -> None:
-        """Re-mark the live scenes, the batch's own scenes, and a consumed clear.
+        """Re-mark the live scenes, the batch's own scenes, a clear, and the menu.
 
-        The batch's own scenes join the live ones because a scene the batch
-        emptied has no roots — it is not in ``live_scene_ids`` — so without this
-        its blank push would be lost on a reconnect and stale content would linger
-        in that frame. The clear is re-marked because a reconnect to the same
-        display leaves the old scenes on screen; without blanking again a
-        cleared-but-rendered scene would linger forever. Blank-then-repaint is
-        idempotent.
+        An emptied scene the batch drained has no roots, so it is absent from
+        ``live_scene_ids``; re-marking the batch's scenes keeps its lost blank
+        queued. The clear is re-marked so a same-display reconnect blanks again
+        rather than leaving the old scene up (blank-then-repaint is idempotent).
+        The menu is re-marked unconditionally because a respawn or a reconnect onto
+        a new process comes back with no agent bar, and the handshake replays only
+        the World-menu items, never ``set_menu``; the fresh registry read at send
+        time supplies the current bar, or a harmless blank if none is set.
         """
         scenes = frozenset(self._reader.live_scene_ids()) | batch.scenes
-        self._requeue(scenes, cleared=batch.cleared, menus_dirty=batch.menus_dirty)
+        self._requeue(scenes, cleared=batch.cleared, menus_dirty=True)
 
     def _requeue(
         self,
@@ -101,9 +101,9 @@ class SendRecovery:
     ) -> None:
         """Re-mark scenes, a consumed clear, and the menu flag onto the signal.
 
-        The menu flag is re-marked so a respawned display gets the current menu
-        state re-pushed — read fresh from the registry at the next send, so a menu
-        change that landed during the failed send wins over what was drained.
+        When set, the menu flag makes the worker read the registry fresh at the
+        next send, so a change during the failed send wins. The heal path always
+        sets it; restore only when the batch itself carried one.
         """
         if cleared:
             self._signal.mark_cleared()
