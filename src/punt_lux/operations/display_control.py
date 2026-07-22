@@ -78,9 +78,13 @@ class DisplayControlOperations:
             return OpError(code="fault", reason="screenshot reply carried no path")
         return Screenshot(path=path)
 
-    def ping(self) -> Pong | OpError:
-        """Round-trip a ping and return the connection-measured elapsed time."""
-        payload = self._port.ping().resolve()
+    def ping(self, wait: float | None = None) -> Pong | OpError:
+        """Round-trip a ping bounded by ``wait`` seconds; return the elapsed time.
+
+        ``wait`` of ``None`` (the default) uses the connection's standing budget,
+        so an MCP caller keeps its unchanged behavior.
+        """
+        payload = self._port.ping(wait).resolve()
         if isinstance(payload, OpError):
             return payload
         rtt = payload.get("rtt_seconds")

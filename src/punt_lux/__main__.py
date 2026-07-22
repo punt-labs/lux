@@ -53,9 +53,7 @@ hook_app = typer.Typer(hidden=True)
 app.add_typer(hook_app, name="hook")
 app.add_typer(show_app, name="show")
 
-# ---------------------------------------------------------------------------
 # Symbols for doctor output
-# ---------------------------------------------------------------------------
 
 _OK = "\u2713"  # ✓
 _FAIL = "\u2717"  # ✗
@@ -68,9 +66,7 @@ class _CheckFn(Protocol):
     def __call__(self, symbol: str, message: str, *, required: bool = True) -> None: ...
 
 
-# ---------------------------------------------------------------------------
 # Product commands
-# ---------------------------------------------------------------------------
 
 
 @app.command()
@@ -153,9 +149,7 @@ def disable() -> None:
     print("Lux display disabled.")
 
 
-# ---------------------------------------------------------------------------
 # Hook dispatcher (internal)
-# ---------------------------------------------------------------------------
 
 
 @hook_app.command("session-start")
@@ -177,9 +171,7 @@ def cc_post_bash() -> None:
     handle_post_bash(data)
 
 
-# ---------------------------------------------------------------------------
 # Admin commands
-# ---------------------------------------------------------------------------
 
 
 @app.command()
@@ -190,41 +182,42 @@ def version() -> None:
     print(f"lux {__version__}")
 
 
+_PING_HTTP_MARGIN_SECONDS = 2.0  # HTTP bound sits a margin above the display leg
+
+
 @app.command()
 def ping(
-    socket: str | None = typer.Option(None, "--socket", "-s", help="Socket path"),
-    timeout: float = typer.Option(2.0, "--timeout", "-t", help="Timeout in seconds"),
+    # None derives the wait from the display budget; bounds match the route so
+    # an out-of-range value is a clear typer error (clamp defaults off), not HTTP.
+    timeout: float | None = typer.Option(
+        None, "--timeout", "-t", min=0.1, max=30, help="Seconds to wait for the ping."
+    ),
 ) -> None:
-    """Ping the display server and print round-trip time."""
-    import time
-    from pathlib import Path
+    """Ping the display through luxd and print round-trip time.
 
-    from punt_lux.paths import DisplayPaths
+    ``--timeout`` (0.1-30s) is the real display-leg budget over luxd's REST API;
+    the HTTP round-trip sits a margin above it, so a slow display reports "timeout".
+    """
+    from punt_lux.display_client import DEFAULT_RECV_TIMEOUT
+    from punt_lux.operations import OpError
+    from punt_lux.rest_client import LuxRestClient
+    from punt_lux.rest_transport import HubUnavailableError
 
-    dp = DisplayPaths(Path(socket) if socket else None)
-    path = dp.socket_path
-    if not dp.is_running():
-        print("Display not running")
-        raise typer.Exit(code=1)
-
-    from punt_lux.display_client import DisplayClient
+    display_wait = timeout if timeout is not None else DEFAULT_RECV_TIMEOUT
+    http_timeout = display_wait + _PING_HTTP_MARGIN_SECONDS
 
     try:
-        with DisplayClient(
-            str(path), name="ping", recv_timeout=timeout, auto_spawn=False
-        ) as client:
-            t0 = time.monotonic()
-            pong = client.ping()
-            rtt = time.monotonic() - t0
-    except (OSError, TimeoutError, RuntimeError):
-        print("timeout")
+        result = LuxRestClient.connect(timeout=http_timeout).ping(timeout)
+    except HubUnavailableError as exc:
+        typer.echo(str(exc), err=True)
         raise typer.Exit(code=1) from None
 
-    if pong is None:
-        print("timeout")
+    if isinstance(result, OpError):
+        down = result.code == "display_unavailable"
+        typer.echo("Display not running" if down else "timeout", err=True)
         raise typer.Exit(code=1)
 
-    print(f"pong rtt={rtt:.3f}s")
+    typer.echo(f"pong rtt={result.rtt_seconds:.3f}s")
 
 
 @app.command()

@@ -61,7 +61,7 @@ class _FakeSender:
     menus: list[list[dict[str, object]]]
     registered_items: list[list[dict[str, object]]]
     timeline: list[str]
-    _fail: OSError | None
+    _fail: Exception | None
     _fail_scene: tuple[str, OSError] | None
     _gate: threading.Event | None
     _lock: threading.Lock
@@ -100,7 +100,12 @@ class _FakeSender:
         self._entered = threading.Event()
         return self
 
-    def arm_failure(self, exc: OSError) -> None:
+    def arm_failure(self, exc: Exception) -> None:
+        """Raise ``exc`` on the next send, then clear it so the retry succeeds.
+
+        Widened to any ``Exception`` so a non-socket error (a generic cycle
+        failure) can be armed alongside the two socket errors the recovery heals.
+        """
         self._fail = exc
 
     def fail_on_scene(self, scene_id: str, exc: OSError) -> None:
@@ -292,6 +297,86 @@ def test_a_menu_change_during_a_failed_send_wins_over_the_stale_state() -> None:
         repl.stop()
 
 
+def test_a_scene_only_reap_re_pushes_the_agent_bar() -> None:
+    # The headline regression: a reap caused by a scene-only failure must still
+    # restore the agent menu bar on the fresh display. The failing batch carried no
+    # menu change, and the client handshake replays only the registered World-menu
+    # items — never the bar (set_menu) — so the recovery re-marks the menu
+    # unconditionally and the respawned display gets the bar re-pushed from a fresh
+    # registry read. Without the unconditional re-mark the bar is silently lost
+    # until some unrelated menu write.
+    store = HubDisplay()
+    scene = _seed(store, "s1")
+    registry = HubMenuRegistry()
+    registry.set_menus([Menu(label="File", items=[])])
+    repl, sender, provider, lifecycle = _replicator(store, registry)
+    sender.arm_failure(BlockingIOError())  # the scene send wedges → reap/respawn
+    repl.start()
+    try:
+        repl.mark_dirty(scene)  # scene-only batch: no menu change marked
+        assert sender.wait_sent(3.0)
+        for _ in range(200):
+            if sender.menus:
+                break
+            threading.Event().wait(0.01)
+        assert lifecycle.calls == ["reap", "ensure"]
+        assert provider.drops == 1
+        assert sender.shows == ["s1"]  # the scene repainted
+        assert sender.menus == [[{"label": "File", "items": []}]]  # bar restored
+    finally:
+        repl.stop()
+
+
+def test_a_wedged_menu_send_is_reaped_and_the_bar_re_delivered() -> None:
+    # MN8: the menu push itself raises BlockingIOError — a wedged display on the
+    # menu leg. The worker reaps and respawns, re-marks the menu, and re-delivers
+    # the bar to the fresh display. This is the wedged/reap counterpart to the
+    # dead-peer menu recovery the race test already covers.
+    store = HubDisplay()
+    registry = HubMenuRegistry()
+    registry.set_menus([Menu(label="File", items=[])])
+    repl, sender, provider, lifecycle = _replicator(store, registry)
+    sender.arm_failure(BlockingIOError())  # set_menu is the first guarded send
+    repl.start()
+    try:
+        repl.mark_menus()  # menu-only batch
+        assert sender.wait_sent(3.0)
+        for _ in range(200):
+            if sender.menus:
+                break
+            threading.Event().wait(0.01)
+        assert lifecycle.calls == ["reap", "ensure"]
+        assert provider.drops == 1
+        assert sender.menus == [[{"label": "File", "items": []}]]  # re-delivered
+    finally:
+        repl.stop()
+
+
+def test_a_generic_menu_send_error_restores_the_flag_and_retries() -> None:
+    # MN10: a non-socket error at the menu send escapes the two socket handlers and
+    # reaches the cycle's outer guard, which restores the batch — menu flag and all
+    # — and backs off. The retry re-reads the registry and re-delivers the bar;
+    # nothing is dropped, and neither reap nor reconnect runs for a generic failure.
+    store = HubDisplay()
+    registry = HubMenuRegistry()
+    registry.set_menus([Menu(label="File", items=[])])
+    repl, sender, provider, lifecycle = _replicator(store, registry)
+    sender.arm_failure(RuntimeError("boom"))  # a non-socket error at set_menu
+    repl.start()
+    try:
+        repl.mark_menus()
+        assert sender.wait_sent(3.0)
+        for _ in range(200):
+            if sender.menus:
+                break
+            threading.Event().wait(0.01)
+        assert sender.menus == [[{"label": "File", "items": []}]]  # re-delivered
+        assert lifecycle.calls == []  # generic failure never reaps
+        assert provider.drops == 0  # nor reconnects
+    finally:
+        repl.stop()
+
+
 def test_the_resend_carries_the_recorded_frame() -> None:
     # A scene shown into a differently-named frame is resent into that frame,
     # never hoisted into a frame named for itself.
@@ -428,8 +513,10 @@ def test_a_dead_peer_recovery_re_marks_a_consumed_clear() -> None:
                 break
             threading.Event().wait(0.01)
         assert provider.drops == 1
-        # The clear survived the dead-peer recovery: blank first, then repaint.
-        assert sender.timeline == ["clear", "show:s1"]
+        # The clear survived the dead-peer recovery: blank first, then repaint. The
+        # "menu" between them is the heal path's unconditional menu re-mark — the
+        # empty registry pushes a harmless blank bar on the way back.
+        assert sender.timeline == ["clear", "menu", "show:s1"]
     finally:
         repl.stop()
 

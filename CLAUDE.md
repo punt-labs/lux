@@ -138,8 +138,8 @@ This separation means: protocol bugs break agents. Rendering bugs break the disp
 ### Three-tier distributed architecture
 
 - **`lux-display`** — ImGui renderer. Receives element objects from the Hub, wraps handlers with `remote_dispatch`, renders every frame. Native dependencies (`imgui-bundle`, `numpy`, `Pillow`) live here behind the `[display]` optional extra.
-- **`luxd`** — Session hub. Decodes wire elements, stores authoritative state in HubDisplay, pushes element copies to the display, receives and dispatches remote handler invocations from display clicks.
-- **`mcp-proxy`** — Transport bridge. Claude Code stdio ↔ luxd WebSocket. See `../mcp-proxy/`.
+- **`luxd`** — Session hub. Fronts everything through the typed `Operations` facade (`operations/`); stores authoritative state in HubDisplay (scenes, menus, sessions); serves MCP (WebSocket) and REST (FastAPI, same port) as thin adapter surfaces; pushes replicas to the display via the HubReplicator; receives and dispatches remote handler invocations from display clicks. The CLI is a third thin client over REST (`LuxRestClient`).
+- **`mcp-proxy`** — Transport bridge. Claude Code stdio ↔ luxd WebSocket. See `../mcp-proxy/`. (PR E of epic lux-7gcz replaces this leg with streamable HTTP.)
 
 This is the rewrite target, documented in
 `docs/architecture/target/target.md`,
@@ -165,9 +165,12 @@ path with remote handler wrapping and Hub-side re-dispatch.
 | `protocol/messages/*.py` | Wire message types across modules: lifecycle, scene, menu, introspect, `observer` (Agent Subscribe), `remote_invocation` (D21 `RemoteEventHandlerInvocation`), registry |
 | `protocol/elements/codec.py` | `ElementCodec` registry — per-kind dispatch table |
 | `scene/manager.py` | `SceneManager` — scene state, frame composition |
-| `tools/server.py` | FastMCP server — `show`, `update`, `clear`, `show_table`, `show_dashboard`, etc. |
-| `tools/tools.py` | Individual MCP tool definitions |
-| `display_client.py` | `DisplayClient` — Unix socket client for clients → display |
+| `operations/` | The engine core: the `Operations` facade and its concern classes (scenes, queries, menus, display control, config, pub-sub) with typed request/result models — every surface calls these |
+| `rest/` | Typed FastAPI surface on luxd (`RestSurface`, five concern routers, one `OpError`→HTTP table) |
+| `rest_client.py` | `LuxRestClient` — the CLI's typed HTTP client of luxd |
+| `tools/server.py` | FastMCP instance and per-session lifecycle |
+| `tools/tools.py` | MCP tool definitions — zero-logic adapters over the `Operations` facade |
+| `display_client.py` | `DisplayClient` — the Hub's (luxd's) sole Unix-socket client to the display; constructed only in `domain/hub/clients.py`, guard-enforced |
 | `apps/beads.py` | `BeadsBrowser` — beads issue browser app |
 
 25 element kinds covering ImGui's core primitives. Primary consumers: beads issue browser (`show_table()`), dashboards (`show_dashboard()`), custom rendering (`draw` element).
@@ -223,7 +226,7 @@ Default Python — procedural functions operating on dataclasses, `| None` every
 
 **Protocol codec functions** — every `protocol/elements/*.py` and `protocol/messages/*.py` module still uses module-level `_<kind>_to_dict` / `_<kind>_from_dict` functions instead of methods on the dataclasses. Phase A (PRs #169, #170, #172) split the file but DID NOT fix the procedural codec pattern — same OO debt now spread across 11 family modules instead of 2. The draw-command surface (PR #176) is the one corner that fixed it. When you touch any of those files, fix the codec while you're there; do not file a follow-up bead.
 
-**MCP tool boilerplate** — 27 MCP tools across `tools/tools.py` (23) and `tools/subscribe_tools.py` (4) (registered via `tools/server.py` and exposed by `tools/connection.py`) with identical boilerplate. This signals a missing abstraction. Extract the pattern into a decorator or registry — see `docs/architecture/target/introspection-api.md` for the target verification/control surface.
+**MCP tool boilerplate — resolved.** The missing abstraction this paragraph used to flag now exists: every tool in `tools/tools.py` (23) and `tools/subscribe_tools.py` (4) is a grep-provable parse-call-format adapter over the `Operations` facade, and the REST routes are the same adapters over HTTP. New capabilities are added as operations; the surfaces inherit them.
 
 **OO ratchet:** `make check-oo` (part of `make check`) compares current OO scores against `.oo-baseline.json`. It passes only if no metric regressed on touched files and at least one metric improved. It fails if any metric got worse or nothing improved.
 

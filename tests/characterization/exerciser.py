@@ -140,7 +140,7 @@ class _StubClient:
         self._require_spec("clear")
         return
 
-    def ping(self) -> PongMessage | None:
+    def ping(self, timeout: float | None = None) -> PongMessage | None:
         cfg = self._require_spec("ping")
         ret = cfg.get("return")
         if ret is None:

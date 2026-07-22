@@ -197,9 +197,12 @@ class Operations:
         """Capture the display framebuffer and return the image path."""
         return self._display.screenshot()
 
-    def ping(self) -> Pong | OpError:
-        """Round-trip a ping and return the elapsed time."""
-        return self._display.ping()
+    def ping(self, wait: float | None = None) -> Pong | OpError:
+        """Round-trip a ping bounded by ``wait`` seconds; return the elapsed time.
+
+        ``wait`` of ``None`` (the default) uses the standing display budget.
+        """
+        return self._display.ping(wait)
 
     def set_theme(self, request: SetThemeRequest | OpError) -> ThemeState | OpError:
         """Switch the display theme and return the new theme state."""

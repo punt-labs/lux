@@ -6,7 +6,7 @@ import json
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from typer.testing import CliRunner
 
@@ -15,7 +15,11 @@ if TYPE_CHECKING:
 
 from punt_lux.__main__ import app
 from punt_lux.apps.beads import BeadsBrowser
+from punt_lux.operations import OpError, RenderRequest, SceneShown
+from punt_lux.operations.models.render import FrameSpec
 from punt_lux.protocol import TextElement
+from punt_lux.rest_transport import HubUnavailableError
+from punt_lux.show import BeadsBoard
 
 runner = CliRunner()
 
@@ -353,6 +357,61 @@ class TestBuildBeadsElements:
 # ---------------------------------------------------------------------------
 
 
+class _RecordingClient:
+    """A LuxRestClient stand-in that records the request and reports success."""
+
+    def __init__(self) -> None:
+        self.request: RenderRequest | None = None
+
+    def render(self, request: RenderRequest) -> SceneShown:
+        self.request = request
+        return SceneShown(scene_id=request.scene_id)
+
+
+class _RejectingClient:
+    """A LuxRestClient stand-in whose render is refused by the Hub."""
+
+    def __init__(self, reason: str) -> None:
+        self._reason = reason
+
+    def render(self, request: RenderRequest) -> OpError:
+        return OpError(code="rejected", reason=self._reason)
+
+
+class _UnreachableClient:
+    """A LuxRestClient stand-in whose render finds luxd gone mid-call.
+
+    ``connect`` only reads the port file; the socket work happens in ``render``,
+    so an unreachable luxd raises there, not at connect time.
+    """
+
+    def render(self, request: RenderRequest) -> SceneShown:
+        raise HubUnavailableError("luxd is not reachable on port 5001 — refused")
+
+
+class TestBeadsBoard:
+    def test_request_carries_the_frame_envelope(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # The render envelope names the scene and frame after the project, under
+        # the CLI's own "beads-cli-" namespace so it never collides with the Hub
+        # menu's "beads-{project}" board (a distinct owner). The title is shared.
+        monkeypatch.chdir(tmp_path)
+        project = tmp_path.name
+        active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
+        with patch(
+            "punt_lux.apps._beads_payload.subprocess.run",
+            return_value=_mock_bd_result(active),
+        ):
+            request, note = BeadsBoard().request(all_issues=False)
+        assert request.scene_id == f"beads-cli-{project}"
+        assert request.title == f"Beads: {project}"
+        assert request.frame == FrameSpec(
+            frame_id=f"beads-cli-{project}", frame_title=f"Beads: {project}"
+        )
+        assert note == "2 issues"
+
+
 class TestShowBeadsCLI:
     def test_bd_failure_surfaces_error(
         self,
@@ -360,96 +419,120 @@ class TestShowBeadsCLI:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.chdir(tmp_path)
-
-        mock_client = MagicMock()
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
-        mock_client.show_async = MagicMock(return_value=None)
-
-        sock = str(tmp_path / "test.sock")
+        client = _RecordingClient()
         with (
             patch(
                 "punt_lux.apps._beads_payload.subprocess.run",
                 return_value=_mock_bd_result([], returncode=1),
             ),
-            patch("punt_lux.paths.DisplayPaths.is_running", return_value=True),
-            patch("punt_lux.display_client.DisplayClient", return_value=mock_client),
+            patch("punt_lux.show.LuxRestClient.connect", return_value=client),
         ):
-            result = runner.invoke(
-                app,
-                ["show", "beads", "--socket", sock],
-            )
+            result = runner.invoke(app, ["show", "beads"])
 
         # When bd fails, the CLI reports the error rather than misleading "0 issues".
-        # The display still receives a frame with a visible error element.
+        # luxd still receives a scene carrying a visible error element.
         assert result.exit_code == 0
         assert "bd error" in result.output
-        # Verify the scene has the error element, not "No active issues".
-        sent_elements = (
-            mock_client.show_async.call_args.kwargs.get("elements")
-            or mock_client.show_async.call_args.args[1]
-        )
-        ids = [getattr(e, "id", None) for e in sent_elements]
+        assert client.request is not None
+        ids = [e.get("id") for e in client.request.elements]
         assert "bd-error" in ids, f"expected bd-error element, got: {ids}"
 
-    def test_show_beads_sends_to_display(
+    def test_show_beads_sends_to_luxd(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         monkeypatch.chdir(tmp_path)
-
-        mock_client = MagicMock()
-        mock_client.__enter__ = MagicMock(return_value=mock_client)
-        mock_client.__exit__ = MagicMock(return_value=False)
-        mock_client.show_async = MagicMock(return_value=None)
-
+        client = _RecordingClient()
         # bd does server-side filtering; mock returns only active issues
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
-        sock = str(tmp_path / "test.sock")
         with (
             patch(
                 "punt_lux.apps._beads_payload.subprocess.run",
                 return_value=_mock_bd_result(active),
             ),
-            patch("punt_lux.paths.DisplayPaths.is_running", return_value=True),
-            patch("punt_lux.display_client.DisplayClient", return_value=mock_client),
+            patch("punt_lux.show.LuxRestClient.connect", return_value=client),
         ):
-            result = runner.invoke(
-                app,
-                ["show", "beads", "--socket", sock],
-            )
+            result = runner.invoke(app, ["show", "beads"])
 
         assert result.exit_code == 0
         assert "2 issues" in result.output
-        mock_client.show_async.assert_called_once()
-        call_args = mock_client.show_async.call_args
-        scene_id = call_args[0][0]
-        assert scene_id.startswith("beads-")  # project-scoped tab
+        assert client.request is not None
+        # CLI-namespaced, project-scoped tab — distinct from the Hub menu board.
+        assert client.request.scene_id.startswith("beads-cli-")
 
-    def test_show_beads_reports_display_down(
+    def test_show_beads_reports_a_render_rejection(
         self,
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """The CLI down-checks ``is_running()`` before sending, not by ack."""
+        """A reachable luxd that refuses the render surfaces the reason, exit 1."""
         monkeypatch.chdir(tmp_path)
-
-        sock = str(tmp_path / "test.sock")
+        client = _RejectingClient("duplicate element id 'table'")
         with (
             patch(
                 "punt_lux.apps._beads_payload.subprocess.run",
                 return_value=_mock_bd_result(_ISSUES),
             ),
-            patch("punt_lux.paths.DisplayPaths.is_running", return_value=False),
+            patch("punt_lux.show.LuxRestClient.connect", return_value=client),
         ):
-            result = runner.invoke(
-                app,
-                ["show", "beads", "--socket", sock],
-            )
+            result = runner.invoke(app, ["show", "beads"])
 
         assert result.exit_code == 1
-        assert "not running" in result.output.lower()
+        assert "Beads board not shown: duplicate element id 'table'" in result.stderr
+
+    def test_show_beads_reports_luxd_down(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """luxd unreachable is one actionable line and a non-zero exit.
+
+        The real ``LuxRestClient.connect`` runs with no port file, so the CLI
+        surfaces the production message — hint included — not a test string.
+        """
+        monkeypatch.chdir(tmp_path)
+        with (
+            patch(
+                "punt_lux.apps._beads_payload.subprocess.run",
+                return_value=_mock_bd_result(_ISSUES),
+            ),
+            patch("punt_lux.hub_paths.HubPaths.read_port", return_value=None),
+        ):
+            result = runner.invoke(app, ["show", "beads"])
+
+        assert result.exit_code == 1
+        assert "luxd is not running" in result.stderr
+        assert "lux hub-install" in result.stderr
+
+    def test_show_beads_reports_render_time_unreachability(
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """luxd vanishing between connect and render is one line, exit 1, no trace.
+
+        The guard must wrap the render call, not just connect — a stale port,
+        refused connection, or stall surfaces from render, and it must reach the
+        user as the actionable one-liner, never an escaped traceback.
+        """
+        monkeypatch.chdir(tmp_path)
+        with (
+            patch(
+                "punt_lux.apps._beads_payload.subprocess.run",
+                return_value=_mock_bd_result(_ISSUES),
+            ),
+            patch(
+                "punt_lux.show.LuxRestClient.connect",
+                return_value=_UnreachableClient(),
+            ),
+        ):
+            result = runner.invoke(app, ["show", "beads"])
+
+        assert result.exit_code == 1
+        assert "luxd is not reachable" in result.stderr
+        # The error was caught and turned into a clean exit, not re-raised.
+        assert not isinstance(result.exception, HubUnavailableError)
 
     def test_show_no_args_shows_help(self) -> None:
         result = runner.invoke(app, ["show"])

@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import patch
 
+import pytest
 from typer.testing import CliRunner
 
 from punt_lux.__main__ import app
@@ -58,6 +59,131 @@ class TestStatus:
             result = runner.invoke(app, ["status"])
         assert result.exit_code == 1
         assert "not running" in result.output
+
+
+class _PingClient:
+    """A LuxRestClient stand-in returning one preset ping result.
+
+    Records the display-leg wait the CLI forwards, so a test can prove the
+    ``--timeout`` value rides through as the ping budget rather than only
+    sizing the HTTP transport.
+    """
+
+    def __init__(self, result: object) -> None:
+        self._result = result
+        self.forwarded_wait: float | None = None
+
+    def ping(self, wait: float | None = None) -> object:
+        self.forwarded_wait = wait
+        return self._result
+
+
+class TestPing:
+    def test_ping_reports_luxd_down(self) -> None:
+        # Drive the real LuxRestClient.connect with no port file, so the CLI
+        # surfaces the production message — including the actionable hint —
+        # rather than a string the test supplied.
+        with patch("punt_lux.hub_paths.HubPaths.read_port", return_value=None):
+            result = runner.invoke(app, ["ping"])
+        assert result.exit_code == 1
+        # Failure lines go to stderr per CLI convention; stdout stays clean.
+        assert "luxd is not running" in result.stderr
+        assert "lux hub-install" in result.stderr
+
+    def test_ping_reports_round_trip(self) -> None:
+        from punt_lux.operations import Pong
+
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.connect",
+            return_value=_PingClient(Pong(rtt_seconds=0.012)),
+        ):
+            result = runner.invoke(app, ["ping"])
+        assert result.exit_code == 0
+        assert "pong rtt=0.012s" in result.stdout
+
+    @pytest.mark.parametrize(
+        ("code", "line"),
+        [
+            ("display_unavailable", "Display not running"),
+            ("timeout", "timeout"),
+            ("fault", "timeout"),
+        ],
+    )
+    def test_ping_maps_op_error_to_a_status_line(self, code: str, line: str) -> None:
+        # A down display reads "Display not running"; every other reachable-luxd
+        # failure (timeout, fault) reads "timeout". Both exit 1.
+        from punt_lux.operations import OpError
+
+        with patch(
+            "punt_lux.rest_client.LuxRestClient.connect",
+            return_value=_PingClient(OpError(code=code, reason="x")),  # type: ignore[arg-type]  # code is a parametrized OpErrorCode literal
+        ):
+            result = runner.invoke(app, ["ping"])
+        assert result.exit_code == 1
+        assert line in result.stderr
+
+    def test_ping_rejects_an_out_of_range_timeout_before_any_http(self) -> None:
+        # The bounded option makes typer reject a bad --timeout with its own
+        # range message before any HTTP — not the misleading generic "timeout"
+        # line an out-of-range value used to produce via a server 422.
+        def _boom(*, timeout: float) -> object:
+            raise AssertionError("HTTP must not run for an out-of-range timeout")
+
+        with patch("punt_lux.rest_client.LuxRestClient.connect", side_effect=_boom):
+            result = runner.invoke(app, ["ping", "--timeout", "0.05"])
+        assert result.exit_code != 0
+        assert "0.1" in result.stderr  # typer's range message names the minimum
+
+    def test_ping_omitted_forwards_none_and_still_bounds_http(self) -> None:
+        # With no --timeout the wait forwarded to the client is None — so the
+        # route omits the param and luxd uses its standing budget — yet the HTTP
+        # bound still sits a fixed margin above that budget so it never trips first.
+        from punt_lux.__main__ import _PING_HTTP_MARGIN_SECONDS
+        from punt_lux.display_client import DEFAULT_RECV_TIMEOUT
+        from punt_lux.operations import Pong
+
+        captured: dict[str, object] = {}
+
+        def _capture(*, timeout: float) -> _PingClient:
+            client = _PingClient(Pong(rtt_seconds=0.001))
+            captured["http"] = timeout
+            captured["client"] = client
+            return client
+
+        with patch("punt_lux.rest_client.LuxRestClient.connect", side_effect=_capture):
+            result = runner.invoke(app, ["ping"])
+        assert result.exit_code == 0
+        client = captured["client"]
+        assert isinstance(client, _PingClient)
+        assert client.forwarded_wait is None
+        assert captured["http"] == DEFAULT_RECV_TIMEOUT + _PING_HTTP_MARGIN_SECONDS
+
+    def test_ping_forwards_a_small_user_timeout_and_reports_timeout(self) -> None:
+        # The finding: --timeout 1 used to still wait ~5s because the value only
+        # sized the HTTP transport. Now 1s is the real display-leg budget; the
+        # HTTP bound stays a margin above it (the layers cannot invert), a slow
+        # display reads "timeout" — not "luxd is not running" — and the wait
+        # forwarded to the display leg is genuinely 1s.
+        from punt_lux.__main__ import _PING_HTTP_MARGIN_SECONDS
+        from punt_lux.operations import OpError
+
+        captured: dict[str, object] = {}
+
+        def _capture(*, timeout: float) -> _PingClient:
+            client = _PingClient(OpError(code="timeout", reason="slow display"))
+            captured["http"] = timeout
+            captured["client"] = client
+            return client
+
+        with patch("punt_lux.rest_client.LuxRestClient.connect", side_effect=_capture):
+            result = runner.invoke(app, ["ping", "--timeout", "1"])
+        assert result.exit_code == 1
+        assert "timeout" in result.stderr
+        assert "not running" not in result.stderr
+        client = captured["client"]
+        assert isinstance(client, _PingClient)
+        assert client.forwarded_wait == 1.0
+        assert captured["http"] == 1.0 + _PING_HTTP_MARGIN_SECONDS
 
 
 class TestDisplay:

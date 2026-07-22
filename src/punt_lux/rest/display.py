@@ -39,6 +39,11 @@ __all__ = ["DisplayRoutes"]
 _EventCount = Annotated[int, Query(ge=0, le=200)]
 _ErrorCount = Annotated[int, Query(ge=0, le=100)]
 
+# The display-ping wait: bounded so a caller cannot ask for a sub-100ms probe
+# (unmeasurable) or a 30s+ hang. None (omitted) uses the standing display
+# budget — the documented absence contract, threaded to DisplayClient.ping.
+_PingTimeout = Annotated[float | None, Query(ge=0.1, le=30.0)]
+
 
 @final
 class DisplayRoutes:
@@ -108,9 +113,13 @@ class DisplayRoutes:
         """Capture the display framebuffer and return the image path."""
         return self._errors.respond(self._ops.screenshot())
 
-    def ping(self) -> Pong:
-        """Round-trip a ping and return the elapsed time."""
-        return self._errors.respond(self._ops.ping())
+    def ping(self, timeout: _PingTimeout = None) -> Pong:
+        """Round-trip a ping and return the elapsed time.
+
+        ``timeout`` bounds the display-ping wait; omitted uses the standing
+        display budget.
+        """
+        return self._errors.respond(self._ops.ping(timeout))
 
     def list_recent_events(self, count: _EventCount = 50) -> RecentEvents:
         """Return the display's recent interactions, proxied."""

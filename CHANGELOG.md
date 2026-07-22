@@ -2,6 +2,28 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **The command-line tool is the third thin client of the engine.**
+  `lux show beads` and `lux ping` now reach luxd over its typed REST API through
+  a small `LuxRestClient`, instead of opening the display's Unix socket. The CLI
+  no longer constructs a `DisplayClient`, so the display socket has become
+  Hub-internal plumbing with exactly one client — luxd. A guard test names the
+  allowed set (the client module and luxd's connection registry) and fails on
+  any new direct consumer. `lux show beads` builds the same beads scene as
+  before and `PUT`s it to `/scenes/{id}`; `lux ping` calls `GET /display/ping`.
+  When luxd is not running, both fail with one actionable line
+  (`luxd is not running. Run 'lux hub-install' to register the service.`) and a
+  non-zero exit, rather than a traceback. See DES-055.
+
+### Removed
+
+- **`--socket` on `lux show beads` and `lux ping`.** The CLI addresses luxd by
+  its port (read from the hub port file), not the display socket path, so the
+  `--socket`/`-s` option on these two commands is gone; `lux ping` keeps
+  `--timeout`. `punt_lux.DisplayClient` and the `LuxClient` alias are no longer
+  exported from the package root — the display client is Hub-internal.
+
 ## [0.20.0] - 2026-07-22
 
 ### Added

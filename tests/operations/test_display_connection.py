@@ -65,6 +65,7 @@ class _Client:
     _ping_reply: object
     _raise: Exception | None
     _ping_delay: float
+    ping_timeout: float | None
 
     def __new__(
         cls,
@@ -79,6 +80,7 @@ class _Client:
         self._ping_reply = ping
         self._raise = error
         self._ping_delay = ping_delay
+        self.ping_timeout = None
         return self
 
     def query(self, method: str, params: dict[str, object]) -> object:
@@ -86,7 +88,8 @@ class _Client:
             raise self._raise
         return self._query_reply
 
-    def ping(self) -> object:
+    def ping(self, timeout: float | None = None) -> object:
+        self.ping_timeout = timeout
         if self._raise is not None:
             raise self._raise
         if self._ping_delay:
@@ -179,23 +182,32 @@ def test_ping_measures_the_round_trip_and_is_never_negative() -> None:
     # can only make the real elapsed larger — so it never flakes, and it can
     # never be negative the way the pre-trip-now subtraction could.
     delay = 0.02
-    reply = _conn(_Registry(_Client(ping=_Pong(ts=999.95), ping_delay=delay))).ping()
+    conn = _conn(_Registry(_Client(ping=_Pong(ts=999.95), ping_delay=delay)))
+    reply = conn.ping(None)
     assert isinstance(reply, DisplayReplied)
     rtt = reply.payload["rtt_seconds"]
     assert isinstance(rtt, float)
     assert rtt >= delay
 
 
+def test_ping_forwards_the_wait_as_the_clients_recv_budget() -> None:
+    # The wait is not swallowed at the boundary: it becomes the per-call recv
+    # budget on the display client, so --timeout genuinely shortens the wait.
+    client = _Client(ping=_Pong(ts=999.95))
+    _conn(_Registry(client)).ping(1.5)
+    assert client.ping_timeout == 1.5
+
+
 def test_ping_without_a_timestamp_is_an_error_not_a_zero_rtt() -> None:
     # A pong missing its ts must not read as a perfect 0.0s round-trip.
-    reply = _conn(_Registry(_Client(ping=_Pong(ts=None)))).ping()
+    reply = _conn(_Registry(_Client(ping=_Pong(ts=None)))).ping(None)
     assert isinstance(reply, DisplayErrored)
     assert reply.message == "pong carried no timestamp"
 
 
 def test_ping_maps_a_failed_reconnect_to_unavailable() -> None:
     registry = _Registry(_Client(), connect_error=RuntimeError("Cannot connect"))
-    reply = _conn(registry).ping()
+    reply = _conn(registry).ping(None)
     assert isinstance(reply, DisplayFault)
     assert reply.code == "display_unavailable"
     assert registry.drops == 1

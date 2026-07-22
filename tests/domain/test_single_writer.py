@@ -15,19 +15,17 @@ from pathlib import Path
 _SRC = Path(__file__).resolve().parents[2] / "src" / "punt_lux"
 
 # The only modules allowed to reference the display send surface: the client that
-# defines it, the replicator's send path (replicator + the presentation it
-# drives), and the ``lux show`` CLI, which is a separate short-lived process that
-# renders directly as a display client, not a Hub-side mutation path. Every other
-# module — every MCP tool, every click dispatch, every Hub-hosted app — must go
-# through the store and the dirty signal, so the guard scans the whole package
-# and a new Hub-side sender cannot slip in through a module an enumerated list
-# would have forgotten.
+# defines it and the replicator's send path (replicator + the presentation it
+# drives). Every other module — every MCP tool, every click dispatch, every
+# Hub-hosted app, and now the ``lux show`` CLI, which reaches luxd over REST
+# rather than the display socket — must go through the store and the dirty
+# signal, so the guard scans the whole package and a new Hub-side sender cannot
+# slip in through a module an enumerated list would have forgotten.
 _SENDER_MODULES = frozenset(
     {
         "display_client.py",
         "domain/hub/scene_presentation.py",
         "domain/hub/replicator.py",
-        "show.py",
     }
 )
 
@@ -43,12 +41,15 @@ _SEND_CALL_RE = re.compile(r"\.show_async\(|\.clear_async\(|\.show\(")
 
 def test_no_module_outside_the_sender_set_writes_to_the_display() -> None:
     offenders: list[str] = []
+    scanned = 0
     for path in _SRC.rglob("*.py"):
+        scanned += 1
         rel = path.relative_to(_SRC).as_posix()
         if rel in _SENDER_MODULES:
             continue
         source = path.read_text(encoding="utf-8")
         offenders.extend(f"{rel}: {m.group()}" for m in _SEND_CALL_RE.finditer(source))
+    assert scanned > 0, "guard scanned no files — the source glob is broken"
     assert offenders == [], (
         "a module outside the sender set writes to the display directly; only the "
         f"replicator's send path may write to the display connection: {offenders}"

@@ -371,6 +371,53 @@ class TestSendMessages:
 
             shutil.rmtree(short_dir, ignore_errors=True)
 
+    def test_ping_zero_timeout_is_honored_not_the_recv_budget(
+        self, tmp_path: Path
+    ) -> None:
+        """ping(0.0) must use a zero budget, not fall back to recv_timeout.
+
+        A zero wait means the deadline is already past, so the inline read is
+        never attempted. The earlier ``timeout or self._recv_timeout`` form
+        treated 0.0 as falsy and waited the full ~5s default instead.
+        """
+        import tempfile
+
+        short_dir = tempfile.mkdtemp(prefix="lux-")
+        sock_path = Path(short_dir) / "d.sock"
+        ready_event = threading.Event()
+        server_conn: socket.socket | None = None
+
+        def serve() -> None:
+            nonlocal server_conn
+            server_conn = _mini_display(sock_path, ready_event)
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        assert ready_event.wait(timeout=5), "server thread failed to signal ready"
+
+        reads: list[float | None] = []
+
+        def _record(_sock: object, timeout: float | None = None) -> None:
+            reads.append(timeout)
+
+        try:
+            with (
+                DisplayClient(
+                    sock_path, auto_spawn=False, connect_timeout=2.0
+                ) as client,
+                patch("punt_lux.display_client.recv_message", _record),
+            ):
+                pong = client.ping(timeout=0.0)
+            assert pong is None
+            assert reads == []  # a non-zero fallback budget would read here
+        finally:
+            if server_conn:
+                server_conn.close()
+            t.join(timeout=2)
+            import shutil
+
+            shutil.rmtree(short_dir, ignore_errors=True)
+
 
 # ---------------------------------------------------------------------------
 # Receiving events

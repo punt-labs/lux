@@ -13,12 +13,6 @@ responses route to dedicated queues consumed by :meth:`show`, :meth:`ping`,
 and :meth:`query`.  Inbound :class:`ObserverMessage` frames — fan-outs
 from ``Hub.publish`` calls scoped to this connection — queue as
 :class:`PolledEvent` records for :meth:`poll_event`.
-
-Usage::
-
-    with DisplayClient() as client:
-        client.show("s1", elements=[TextElement(id="t1", content="Hello")])
-        event = client.poll_event(timeout=1.0)  # event.topic, event.payload
 """
 
 from __future__ import annotations
@@ -67,6 +61,10 @@ if TYPE_CHECKING:
     from punt_lux.protocol import Element, Message
 
 logger = logging.getLogger(__name__)
+
+# The Hub-side budget for one display round-trip (ping / recv). A CLI reaching
+# the display through luxd must keep its transport timeout above this.
+DEFAULT_RECV_TIMEOUT = 5.0
 
 
 class NoOpAgentSideSink:
@@ -176,7 +174,7 @@ class DisplayClient:
         name: str | None = None,
         auto_spawn: bool = True,
         connect_timeout: float = 5.0,
-        recv_timeout: float = 5.0,
+        recv_timeout: float = DEFAULT_RECV_TIMEOUT,
     ) -> Self:
         self = super().__new__(cls)
         self._socket_path = Path(socket_path) if socket_path else None
@@ -594,10 +592,11 @@ class DisplayClient:
         """Clear all content from the display.  Safe from callbacks."""
         self._send(ClearMessage())
 
-    def ping(self) -> PongMessage | None:
-        """Send a ping and wait for the pong response."""
+    def ping(self, timeout: float | None = None) -> PongMessage | None:
+        """Send a ping and wait for the pong within ``timeout`` (else recv budget)."""
         self._send(PingMessage(ts=time.time()))
-        deadline = time.monotonic() + self._recv_timeout
+        budget = timeout if timeout is not None else self._recv_timeout
+        deadline = time.monotonic() + budget
         if self.listener_active:
             remaining = deadline - time.monotonic()
             try:
@@ -614,10 +613,9 @@ class DisplayClient:
                 return None
             if isinstance(received, PongMessage):
                 return received
-            # Non-pong frames arriving without an active listener have
-            # no consumer to route them — the polling interfaces
-            # (poll_event, _recv_ack, query) each block on their own
-            # typed queue and are not fed by inline ping reads.
+            # Non-pong frames without an active listener have no consumer:
+            # poll_event, _recv_ack, and query each block on their own typed
+            # queue and are not fed by inline ping reads.
             logger.debug("ping: dropping interleaved %s frame", type(received).__name__)
 
     def query(

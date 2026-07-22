@@ -3,8 +3,11 @@
 Unit-tests the recovery policy directly against fakes, complementing the
 worker-level partitions in ``test_hub_replicator``: a wedged display is reaped
 and respawned (K1/K2), a dead peer only reconnects (RC1), a consumed clear is
-re-marked (RC4), a best-effort shutdown flush heals nothing (SH2), and a failed
-batch is restored intact (RR1).
+re-marked (RC4), a best-effort shutdown flush heals nothing (SH2), a failed batch
+is restored intact (RR1), and the menu is re-marked unconditionally on the heal
+path — the agent bar's analog of the always-re-mark of live scenes — so a display
+that came back blank gets the bar re-pushed even when the failed batch carried no
+menu change, while ``restore`` re-marks the menu only when the batch itself did.
 """
 
 from __future__ import annotations
@@ -65,17 +68,22 @@ class _FakeSignal:
     """Records the re-marks a recovery makes."""
 
     cleared_marks: int
+    menu_marks: int
     added: list[SceneId]
-    __slots__ = ("added", "cleared_marks")
+    __slots__ = ("added", "cleared_marks", "menu_marks")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self.cleared_marks = 0
+        self.menu_marks = 0
         self.added = []
         return self
 
     def mark_cleared(self) -> None:
         self.cleared_marks += 1
+
+    def mark_menus(self) -> None:
+        self.menu_marks += 1
 
     def add_all(self, scenes: Iterable[SceneId]) -> None:
         self.added.extend(scenes)
@@ -116,6 +124,9 @@ _SCENE = SceneId("s1")
 _BATCH = DrainedBatch(frozenset({_SCENE}), cleared=False, shutting=False)
 _CLEARED_BATCH = DrainedBatch(frozenset({_SCENE}), cleared=True, shutting=False)
 _SHUTTING_BATCH = DrainedBatch(frozenset({_SCENE}), cleared=False, shutting=True)
+_MENU_BATCH = DrainedBatch(
+    frozenset({_SCENE}), cleared=False, shutting=False, menus_dirty=True
+)
 
 
 def test_a_wedged_display_is_reaped_then_respawned_then_remarked() -> None:
@@ -141,6 +152,18 @@ def test_recovery_of_a_cleared_batch_re_marks_the_clear() -> None:
     assert signal.added == [_SCENE]
 
 
+def test_recovery_re_marks_the_menu_even_for_a_scene_only_batch() -> None:
+    # The headline fix at the recovery unit: a scene-only failure (the batch carried
+    # no menu change) still re-marks the menu, so a display that came back blank gets
+    # the agent bar re-pushed. This mirrors the always-re-mark of live scenes; the
+    # worker's fresh registry read at send time supplies the current bar (or a
+    # harmless blank if none is set).
+    recovery, _provider, _lifecycle, signal = _recovery((_SCENE,))
+    recovery.recover(_BATCH, wedged=True)  # batch has no menu flag set
+    assert signal.menu_marks == 1  # the menu is re-marked anyway
+    assert signal.added == [_SCENE]
+
+
 def test_a_shutdown_flush_heals_nothing() -> None:
     # SH2: a send that fails during the shutting cycle is best-effort — the batch
     # carries shutting, so recover leaves the display as-is: no reap, no drop, no
@@ -158,3 +181,16 @@ def test_restore_re_queues_the_exact_batch() -> None:
     recovery.restore(_CLEARED_BATCH)
     assert signal.cleared_marks == 1
     assert signal.added == [_SCENE]  # the batch's own scenes, not live_scene_ids
+
+
+def test_restore_re_queues_the_menu_flag_the_batch_carried() -> None:
+    # restore is the generic-failure path: it does not replace the display, so it
+    # re-queues exactly what the batch carried — the menu flag only when the batch
+    # itself set it, unlike the heal path which always re-marks the menu.
+    recovery, _provider, _lifecycle, signal = _recovery(())
+    recovery.restore(_MENU_BATCH)
+    assert signal.menu_marks == 1  # the batch carried a menu change
+
+    recovery, _provider, _lifecycle, signal = _recovery(())
+    recovery.restore(_BATCH)  # no menu flag on this batch
+    assert signal.menu_marks == 0  # restore does not manufacture one
