@@ -393,8 +393,9 @@ class TestBeadsBoard:
     def test_request_carries_the_frame_envelope(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # The render envelope must name the scene, title, and frame after the
-        # project directory, so the board lands in its own project-scoped tab.
+        # The render envelope names the scene and frame after the project, under
+        # the CLI's own "beads-cli-" namespace so it never collides with the Hub
+        # menu's "beads-{project}" board (a distinct owner). The title is shared.
         monkeypatch.chdir(tmp_path)
         project = tmp_path.name
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
@@ -403,10 +404,10 @@ class TestBeadsBoard:
             return_value=_mock_bd_result(active),
         ):
             request, note = BeadsBoard().request(all_issues=False)
-        assert request.scene_id == f"beads-{project}"
+        assert request.scene_id == f"beads-cli-{project}"
         assert request.title == f"Beads: {project}"
         assert request.frame == FrameSpec(
-            frame_id=f"beads-{project}", frame_title=f"Beads: {project}"
+            frame_id=f"beads-cli-{project}", frame_title=f"Beads: {project}"
         )
         assert note == "2 issues"
 
@@ -457,7 +458,8 @@ class TestShowBeadsCLI:
         assert result.exit_code == 0
         assert "2 issues" in result.output
         assert client.request is not None
-        assert client.request.scene_id.startswith("beads-")  # project-scoped tab
+        # CLI-namespaced, project-scoped tab — distinct from the Hub menu board.
+        assert client.request.scene_id.startswith("beads-cli-")
 
     def test_show_beads_reports_a_render_rejection(
         self,

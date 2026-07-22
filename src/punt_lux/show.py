@@ -49,13 +49,12 @@ class BeadsBoard:
         elements = self._browser.build_elements((issues, load_error))
         project = Path.cwd().name or "unknown"
         note = f"bd error: {load_error}" if load_error else f"{len(issues)} issues"
+        scene_id = f"beads-cli-{project}"  # own owner namespace vs the Hub menu board
         request = RenderRequest(
-            scene_id=f"beads-{project}",
+            scene_id=scene_id,
             elements=[e.to_dict() for e in elements],
             title=f"Beads: {project}",
-            frame=FrameSpec(
-                frame_id=f"beads-{project}", frame_title=f"Beads: {project}"
-            ),
+            frame=FrameSpec(frame_id=scene_id, frame_title=f"Beads: {project}"),
         )
         return request, note
 
