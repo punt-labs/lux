@@ -18,11 +18,11 @@ from punt_lux.domain.hub.clients import ClientRegistry
 from punt_lux.domain.hub.hub import Hub
 from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
-from punt_lux.domain.hub.inbox import ensure_writer, next_event
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
 from punt_lux.domain.ids import ConnectionId, SceneId
 from punt_lux.operations import HubPorts, Operations, Scope
 from punt_lux.operations.display_reply import DisplayReply
+from punt_lux.protocol.messages.observer import ObserverMessage
 from punt_lux.rest import RestSurface
 
 _TEST_SCOPE = Scope(ConnectionId("rest-test"))
@@ -56,6 +56,24 @@ class ForbiddenPort:
         raise AssertionError("unexpected display proxy: ping()")
 
 
+class ForbiddenInbox:
+    """Inbox port helpers that fail the test if pub-sub is ever reached.
+
+    REST exposes no pub-sub routes, so ``ensure_writer``/``next_event`` must
+    never fire through these fakes. Wiring the process-singleton inbox here
+    would smuggle global state into an otherwise-isolated fixture; failing loud
+    surfaces an unexpected call instead (the ForbiddenPort philosophy).
+    """
+
+    def ensure_writer(self, connection_id: ConnectionId) -> None:
+        raise AssertionError(f"unexpected pub-sub: ensure_writer({connection_id!r})")
+
+    def next_event(
+        self, connection_id: ConnectionId, timeout: float
+    ) -> ObserverMessage | None:
+        raise AssertionError(f"unexpected pub-sub: next_event({connection_id!r})")
+
+
 class StubPort:
     """A DisplayPort returning one preset reply for every proxied call."""
 
@@ -71,6 +89,7 @@ class StubPort:
 
 def make_facade(*, display_port: object) -> Operations:
     """Build the real facade over fresh domain objects and the given port."""
+    inbox = ForbiddenInbox()
     return Operations.for_store(
         HubDisplay(),
         Recorder(),
@@ -79,8 +98,8 @@ def make_facade(*, display_port: object) -> Operations:
         menu_registry=HubMenuRegistry(),
         ports=HubPorts(
             element_factory=hub_element_factory,
-            ensure_writer=ensure_writer,
-            next_event=next_event,
+            ensure_writer=inbox.ensure_writer,
+            next_event=inbox.next_event,
         ),
         display_port=display_port,  # type: ignore[arg-type]  # DisplayPort protocol; fakes satisfy it structurally
     )
