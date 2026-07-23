@@ -3,7 +3,7 @@
 The ``mcp`` FastMCP instance is the tool registry; ``_session_key`` carries the
 calling session's identity so each tool resolves its Hub scope. luxd's transport
 leg (:mod:`punt_lux.mcp_transport`) sets ``_session_key`` per session before the
-session's task is spawned; the stdio ``lux serve`` path leaves it at the default.
+session's task is spawned; absent that binding it stays at the default.
 """
 
 from __future__ import annotations

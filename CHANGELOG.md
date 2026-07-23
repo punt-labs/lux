@@ -59,6 +59,12 @@
   `--socket`/`-s` option on these two commands is gone; `lux ping` keeps
   `--timeout`. `punt_lux.DisplayClient` and the `LuxClient` alias are no longer
   exported from the package root — the display client is Hub-internal.
+- **`mcp-proxy` leaves lux's path entirely.** With the plugin on direct HTTP,
+  the `lux serve` (stdio MCP) and `lux setup-proxy` commands and the
+  `punt_lux.remote` module (the `mcp-proxy` TOML config writer) are removed, and
+  `install.sh` no longer installs or configures `mcp-proxy` — the installer's
+  job is luxd, the marketplace, and the plugin. A Hub-bypassing in-process stdio
+  server contradicts the single-engine model; luxd is the one front door.
 
 ### Fixed
 

@@ -115,7 +115,7 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 
 ## MCP Tools
 
-Agents interact with Lux through **27 MCP tools** exposed by `lux serve`:
+Agents interact with Lux through **27 MCP tools** that `luxd` serves over its streamable-HTTP `/mcp` endpoint:
 
 | Tool | What it does |
 |------|-------------|
@@ -226,7 +226,6 @@ All elements with an `id` support an optional `tooltip` field (string shown on h
 | Command | What it does |
 |---------|-------------|
 | `lux display` | Start the display server (ImGui window) |
-| `lux serve` | Start the MCP server (stdio transport) |
 | `lux enable` | Enable visual output for this project |
 | `lux disable` | Disable visual output for this project |
 | `lux status` | Check if the display server is running |
@@ -239,7 +238,6 @@ All elements with an `id` support an optional `tooltip` field (string shown on h
 | `lux hub-uninstall` | Remove the `luxd` service |
 | `lux ensure-hub` | Ensure `luxd` is running (`--restart` to restart) |
 | `lux hub-status` | Report `luxd` service status |
-| `lux setup-proxy` | Write the `mcp-proxy` config for the hub (streamable-HTTP URL) |
 | `lux version` | Print version |
 
 ## Architecture
