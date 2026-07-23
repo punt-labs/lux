@@ -1,7 +1,8 @@
 """luxd — the Lux daemon process entry point.
 
-Boots the WebSocket session hub: it multiplexes MCP sessions (one per Claude
-Code session, keyed by ``?session_key=<pid>``) onto a single display connection.
+Boots the session hub: it serves MCP over streamable HTTP at ``/mcp`` beside the
+typed REST API on one FastAPI app and uvicorn port, multiplexing MCP sessions
+(one per client, keyed by ``?session_key=``) onto a single display connection.
 Domain state lives in ``punt_lux.domain.hub``; this module bootstraps transport.
 """
 
@@ -10,104 +11,23 @@ from __future__ import annotations
 import argparse
 import logging
 import os
-import re
 import sys
 from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 from socket import socket
-from typing import TYPE_CHECKING
 
 import uvicorn
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
+from punt_lux.mcp_transport import McpHttpTransport
 from punt_lux.rest import HubHealth, RestSurface
-from punt_lux.session_key import SessionKey
 from punt_lux.transport_policy import LoopbackTransportPolicy
-
-if TYPE_CHECKING:
-    from starlette.websockets import WebSocket
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_HUB_PORT = 8430
-
-_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
-
-_TRANSPORT_POLICY = LoopbackTransportPolicy()
-
-_active_sessions: set[str] = set()
-
-
-def _sanitize_for_log(value: str | None) -> str:
-    """Strip control characters and cap length before logging (CWE-117).
-
-    A missing header (``None``) logs as an empty string.
-    """
-    return _CONTROL_CHAR_RE.sub("", value or "")[:64]
-
-
-# ---------------------------------------------------------------------------
-# Route handlers
-# ---------------------------------------------------------------------------
-
-
-async def _health_route() -> HubHealth:
-    """Report process liveness and the live MCP session count (not hub health)."""
-    return HubHealth(sessions=len(_active_sessions))
-
-
-async def _mcp_websocket_route(websocket: WebSocket) -> None:
-    """MCP JSON-RPC over WebSocket for mcp-proxy.
-
-    Each connection gets its own isolated MCP session; auth is checked first.
-    """
-    # WebSocket is the deliberate luxd<->mcp-proxy transport leg, supported
-    # through mcp 1.x; a streamable-HTTP migration is tracked as future work.
-    from mcp.server.websocket import (
-        websocket_server,  # pyright: ignore[reportDeprecated]
-    )
-
-    session = SessionKey.from_request(websocket.query_params.get("session_key", ""))
-    key = session.value
-    if session.is_reserved:
-        logger.warning("Rejected reserved session_key=%s", key)
-        await websocket.close(code=1008)
-        return
-
-    origin = websocket.headers.get("Origin")
-    if _TRANSPORT_POLICY.rejects_origin(origin):
-        safe = _sanitize_for_log(origin)
-        logger.warning("Rejected CSWSH: Origin=%s, session_key=%s", safe, key)
-        await websocket.close(code=1008)
-        return
-
-    logger.info("MCP WebSocket connected: session_key=%s", key)
-
-    _active_sessions.add(key)
-    try:
-        async with websocket_server(  # pyright: ignore[reportDeprecated]
-            websocket.scope,
-            websocket.receive,
-            websocket.send,
-            security_settings=_TRANSPORT_POLICY.security_settings(),
-        ) as (read_stream, write_stream):
-            from punt_lux.tools import run_mcp_session
-
-            await run_mcp_session(read_stream, write_stream, session_key=key)
-    except Exception:
-        logger.exception("MCP WebSocket error: session_key=%s", key)
-    finally:
-        _active_sessions.discard(key)
-        # On close, cascade cleanup drops the HubDisplay registration, marks
-        # every owned root removed (the Observer cascade prunes the rest), purges
-        # the connection's topic scope, and unbinds its outbound writer.
-        from punt_lux.domain.hub import disconnect_connection
-        from punt_lux.domain.hub.inbox import drop_session
-
-        disconnect_connection(session.connection_id, drop_session)
-        logger.info("MCP WebSocket disconnected: session_key=%s", session.value)
 
 
 # ---------------------------------------------------------------------------
@@ -122,19 +42,36 @@ def build_app(
     """Build the FastAPI application luxd serves.
 
     A factory so tests can construct the app without uvicorn, via ``TestClient``.
-    The typed REST surface mounts beside the WebSocket MCP leg on one app.
+    The streamable-HTTP MCP leg mounts beside the typed REST surface on one app;
+    the MCP session manager's task group is started by the transport's lifespan,
+    which wraps any ``lifespan`` the caller passes (the hub replicator, the port
+    file).
     """
-    app = FastAPI(lifespan=lifespan)
+    transport = McpHttpTransport()
+
+    @asynccontextmanager
+    async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
+        async with transport.lifespan():
+            if lifespan is None:
+                yield
+            else:
+                async with lifespan(app):
+                    yield
+
+    app = FastAPI(lifespan=_lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["http://localhost"],
         allow_methods=["GET", "OPTIONS"],
         allow_headers=["Content-Type"],
     )
+
+    async def _health_route() -> HubHealth:
+        """Report process liveness and the live MCP session count."""
+        return HubHealth(sessions=transport.session_count)
+
     app.add_api_route("/health", _health_route, methods=["GET"])
-    # A raw Starlette websocket route, not a FastAPI-analysed endpoint: the MCP
-    # leg is transport plumbing the SDK drives, unchanged by the REST surface.
-    app.router.add_websocket_route("/mcp", _mcp_websocket_route)
+    transport.mount(app)
     RestSurface.for_hub().mount(app)
     return app
 
@@ -167,7 +104,21 @@ def serve(
     host: str = "127.0.0.1",
     port: int = DEFAULT_HUB_PORT,
 ) -> None:
-    """Start the luxd hub. Blocks until shutdown."""
+    """Start the luxd hub. Blocks until shutdown.
+
+    A non-loopback ``host`` is refused before any bind: luxd is loopback-only
+    until authentication and a bind-derived origin policy exist, so it fails
+    fast with one line rather than binding a wider interface than its transport
+    guards trust.
+    """
+    if not LoopbackTransportPolicy().allows_bind_host(host):
+        print(  # noqa: T201 — startup refusal must reach the operator's console
+            f"luxd refuses to bind non-loopback host {host!r}: it is loopback-only "
+            "until authentication lands. Bind 127.0.0.1 or localhost.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
     from punt_lux.hub_paths import HubPaths
 
     hub_paths = HubPaths()

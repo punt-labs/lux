@@ -118,7 +118,7 @@ def test_every_tool_has_a_snapshot() -> None:
     """
     from punt_lux import tools as tools_pkg
 
-    non_tool_exports = {"mcp", "run_mcp_session"}
+    non_tool_exports = {"mcp"}
     registered = {
         name
         for name in tools_pkg.__all__

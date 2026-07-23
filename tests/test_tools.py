@@ -24,6 +24,7 @@ from punt_lux.operations import (
     OpError,
     SceneInspection,
     SceneList,
+    Scope,
 )
 from punt_lux.operations.display_connection import HubDisplayConnection
 from punt_lux.operations.ports import HubPorts
@@ -69,10 +70,17 @@ from punt_lux.tools import (
     show_table,
     update,
 )
-from punt_lux.tools.server import (
-    _cleanup_session,
-    _session_key,
-)
+from punt_lux.tools.server import _session_key
+from punt_lux.tools.tools import OPERATIONS
+
+
+def _end_session(key: str) -> None:
+    """Drop a session's Hub-owned menu items — session-end menu cleanup.
+
+    The transport leg runs this in ``SessionScopedServer`` on disconnect; the
+    tests drive the same operation directly to prove the menu-drop behavior.
+    """
+    OPERATIONS.drop_session(Scope(ConnectionId(key)))
 
 
 class TestElementFromDict:
@@ -2259,13 +2267,13 @@ class TestCleanupSession:
         try:
             register_tool(label="Run", tool_id="cleanup-tool")
             assert _tools_menu_has("cleanup-tool")
-            _cleanup_session("sess-1")
+            _end_session("sess-1")
             assert not _tools_menu_has("cleanup-tool")
         finally:
             _session_key.reset(token)
 
     def test_noop_when_no_items(self) -> None:
-        _cleanup_session("nonexistent-session")  # must not raise
+        _end_session("nonexistent-session")  # must not raise
 
 
 class TestRegisterToolSessionTracking:
@@ -2278,7 +2286,7 @@ class TestRegisterToolSessionTracking:
             )
             assert _tools_menu_has("track-run")
         finally:
-            _cleanup_session("local")
+            _end_session("local")
             _session_key.reset(token)
 
     def test_registers_under_custom_session_key(self) -> None:
@@ -2287,7 +2295,7 @@ class TestRegisterToolSessionTracking:
             register_tool(label="Build", tool_id="track-build")
             assert _tools_menu_has("track-build")
         finally:
-            _cleanup_session("ws-99")
+            _end_session("ws-99")
             _session_key.reset(token)
 
     def test_empty_tool_id_returns_an_error_line_without_crashing(self) -> None:
@@ -2300,5 +2308,5 @@ class TestRegisterToolSessionTracking:
             assert result.startswith("error:")
             assert "tool_id" in result
         finally:
-            _cleanup_session("bad-id")
+            _end_session("bad-id")
             _session_key.reset(token)

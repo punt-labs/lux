@@ -1,19 +1,17 @@
-"""Lux MCP server instance, lifespan, and session management."""
+"""Lux MCP server instance and per-session identity.
+
+The ``mcp`` FastMCP instance is the tool registry; ``_session_key`` carries the
+calling session's identity so each tool resolves its Hub scope. luxd's transport
+leg (:mod:`punt_lux.mcp_transport`) sets ``_session_key`` per session before the
+session's task is spawned; the stdio ``lux serve`` path leaves it at the default.
+"""
 
 from __future__ import annotations
 
 import logging
-from contextvars import ContextVar
-from typing import TYPE_CHECKING
+from contextvars import ContextVar, Token
 
 from fastmcp import FastMCP
-
-if TYPE_CHECKING:
-    from anyio.streams.memory import (
-        MemoryObjectReceiveStream,
-        MemoryObjectSendStream,
-    )
-    from mcp.shared.message import SessionMessage
 
 logger = logging.getLogger(__name__)
 
@@ -43,56 +41,25 @@ mcp = FastMCP(
     ),
 )
 
-# -- Per-session state for hub mode ----------------------------------------
-
+# Per-session identity for hub mode; the stdio path leaves it at "local".
 _session_key: ContextVar[str] = ContextVar("session_key", default="local")
 
 
-def _cleanup_session(session_key: str) -> None:
-    """Drop the session's Hub-owned menu items and re-push the menu state.
+def bind_session(session_key: str) -> Token[str]:
+    """Bind the calling context to an MCP session identity; return the reset token.
 
-    The Hub menu registry owns each session's registered tool items; dropping
-    them and re-pushing removes them from the display's World menu at once,
-    rather than leaving a stale item until the next unrelated menu write. Routed
-    through the operations facade (imported lazily to avoid an import cycle with
-    ``tools.py``), which is the sole owner of the menu registry.
+    luxd's transport leg binds a session before the SDK spawns its task, so the
+    copied task context carries the identity to every tool and the cleanup
+    cascade. The returned token releases the binding via :func:`unbind_session`.
     """
-    from punt_lux.domain.ids import ConnectionId
-    from punt_lux.operations.scope import Scope
-    from punt_lux.tools.tools import OPERATIONS
-
-    OPERATIONS.drop_session(Scope(ConnectionId(session_key)))
+    return _session_key.set(session_key)
 
 
-async def run_mcp_session(
-    read_stream: MemoryObjectReceiveStream[SessionMessage | Exception],
-    write_stream: MemoryObjectSendStream[SessionMessage],
-    session_key: str = "local",
-) -> None:
-    """Run an MCP session on the given read/write streams.
+def unbind_session(token: Token[str]) -> None:
+    """Release a session binding created by :func:`bind_session`."""
+    _session_key.reset(token)
 
-    Called by ``luxd.py`` for each WebSocket connection.
-    Sets ``_session_key`` ContextVar for per-session state isolation.
-    """
-    token = _session_key.set(session_key)
-    try:
-        # FastMCP private API — verify on fastmcp upgrades.
-        # _lifespan_manager() must be entered before server.run() so FastMCP
-        # session initialization runs.
-        server = getattr(mcp, "_mcp_server", None)
-        lifespan_mgr = getattr(mcp, "_lifespan_manager", None)
-        if server is None or lifespan_mgr is None:
-            msg = (
-                "FastMCP._mcp_server or _lifespan_manager not found. "
-                "This private API may have changed; check fastmcp version."
-            )
-            raise RuntimeError(msg)
-        async with lifespan_mgr():
-            await server.run(
-                read_stream,
-                write_stream,
-                server.create_initialization_options(),
-            )
-    finally:
-        _session_key.reset(token)
-        _cleanup_session(session_key)
+
+def current_session() -> str:
+    """The MCP session identity bound to the calling context."""
+    return _session_key.get()

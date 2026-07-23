@@ -16,10 +16,7 @@ Hub scoped to the calling session. Run via stdio transport::
 
 from __future__ import annotations
 
-from punt_lux.tools.server import (
-    mcp,
-    run_mcp_session,
-)
+from punt_lux.tools.server import mcp
 
 from punt_lux.tools.tools import (
     clear,
@@ -73,7 +70,6 @@ __all__ = [
     "publish",
     "recv",
     "register_tool",
-    "run_mcp_session",
     "screenshot",
     "set_display_mode",
     "set_frame_state",

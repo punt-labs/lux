@@ -539,9 +539,9 @@ def hub_status() -> None:
 @app.command("setup-proxy")
 def setup_proxy(
     url: str = typer.Option(
-        "ws://127.0.0.1:8430/mcp",
+        "http://127.0.0.1:8430/mcp",
         "--url",
-        help="WebSocket URL for luxd",
+        help="Streamable-HTTP URL for luxd",
     ),
 ) -> None:
     """Write mcp-proxy config for luxd."""

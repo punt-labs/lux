@@ -21,11 +21,12 @@ dependencies = [
     "typer>=0.15.0,<1",
     "rich>=15,<16",
     "fastmcp>=3.0.0,<4",
-    # Direct floor past three HIGH advisories (WebSocket Host/Origin validation,
-    # HTTP session principal verification, cross-client task access). Capped
-    # below 2.0 because the SDK deletes the WebSocket server transport there,
-    # which luxd relies on for the luxd<->mcp-proxy leg.
-    "mcp>=1.28.1,<2",
+    # luxd imports the SDK's streamable-HTTP session manager and transport
+    # security settings directly. Floor past three HIGH advisories (Host/Origin
+    # validation, HTTP session principal verification, cross-client task access);
+    # no WS-server ceiling any more, so the cap is just the next-next major
+    # (fastmcp governs the effective upper bound).
+    "mcp>=1.28.1,<3",
     "pydantic>=2.0.0,<3",
     "starlette>=1.3.1,<2",
     "fastapi>=0.115.0,<1",
@@ -122,7 +123,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tools/*" = ["T20", "S603", "S607", "C901", "PERF403"]
-"tests/*" = ["S101", "S105", "S106", "S108", "S603", "T20", "SLF001", "ARG", "FBT", "PLC0415", "A002"]
+# S104 (bind-all "0.0.0.0"): test data proving luxd's startup guard refuses a
+# non-loopback bind; no test actually binds it.
+"tests/*" = ["S101", "S104", "S105", "S106", "S108", "S603", "T20", "SLF001", "ARG", "FBT", "PLC0415", "A002"]
 "demos/*" = ["T20", "S311", "C901"]
 "scripts/*" = ["T20", "S108", "S603", "S607", "PLC0415"]
 "src/punt_lux/__main__.py" = ["T20", "FBT", "PLC0415"]

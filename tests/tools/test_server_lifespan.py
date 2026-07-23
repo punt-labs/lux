@@ -11,7 +11,10 @@ import anyio
 from mcp.shared.message import SessionMessage
 
 import punt_lux.tools.server as server_module
-from punt_lux.tools import run_mcp_session, set_display_mode
+from punt_lux.mcp_session import SessionRegistry, SessionScopedServer
+from punt_lux.mcp_transport import _fastmcp_lifespan, _fastmcp_server
+from punt_lux.tools import set_display_mode
+from punt_lux.tools.server import _session_key
 
 if TYPE_CHECKING:
     import pytest
@@ -20,11 +23,12 @@ if TYPE_CHECKING:
 def _run_session_to_completion() -> None:
     """Drive a real MCP session with its read stream already closed.
 
-    ``run_mcp_session`` is the per-connection entry point luxd calls. Passing a
-    receive stream whose send end is closed makes ``server.run`` return at once,
-    so the whole startup path runs — ContextVar set, private-API guards, lifespan
-    enter and exit — without a live client. A config read anywhere in that path,
-    not just inside the lifespan, is therefore caught.
+    ``SessionScopedServer.run`` is what luxd's transport hands the SDK session
+    manager per session. Passing a receive stream whose send end is closed makes
+    the wrapped ``server.run`` return at once, so the whole startup path runs —
+    the session identity, the FastMCP lifespan enter/exit, and the disconnect
+    cascade — without a live client. A config read anywhere in that path, not
+    just inside the lifespan, is therefore caught.
     """
 
     async def _run() -> None:
@@ -33,8 +37,18 @@ def _run_session_to_completion() -> None:
         ](0)
         send_write, _recv_write = anyio.create_memory_object_stream[SessionMessage](0)
         await send_read.aclose()
-        with anyio.fail_after(5):
-            await run_mcp_session(recv_read, send_write, session_key="test")
+        scoped = SessionScopedServer(_fastmcp_server(), SessionRegistry())
+        token = _session_key.set("test")
+        try:
+            with anyio.fail_after(5):
+                async with _fastmcp_lifespan()():
+                    await scoped.run(
+                        recv_read,
+                        send_write,
+                        scoped.create_initialization_options(),
+                    )
+        finally:
+            _session_key.reset(token)
 
     anyio.run(_run)
 
