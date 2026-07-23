@@ -15,14 +15,12 @@ is spawned, so the copied task context carries the right identity.
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub import disconnect_connection
-from punt_lux.domain.hub.inbox import drop_session
 from punt_lux.domain.ids import ConnectionId
-from punt_lux.operations import Scope
+from punt_lux.session_cleanup import SessionCleanup
 from punt_lux.tools.server import current_session
-from punt_lux.tools.tools import OPERATIONS
 
 if TYPE_CHECKING:
     from anyio.streams.memory import (
@@ -40,28 +38,35 @@ __all__ = ["SessionRegistry", "SessionScopedServer"]
 
 @final
 class SessionRegistry:
-    """The live set of MCP session keys, for the health probe's session count."""
+    """The live MCP sessions, counted per instance for the health probe.
 
-    _active: set[str]
+    Keyed by session key but summed by instance: two sessions under one key
+    count as two, and the first to disconnect leaves the peer counted (a set
+    would drop the peer). Cleanup keys on the ``ConnectionId``, not this count.
+    """
+
+    _active: Counter[str]
     __slots__ = ("_active",)
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._active = set()
+        self._active = Counter()
         return self
 
     def add(self, key: str) -> None:
-        """Record a session as live."""
-        self._active.add(key)
+        """Record one live session under ``key``."""
+        self._active[key] += 1
 
     def discard(self, key: str) -> None:
-        """Forget a session; idempotent."""
-        self._active.discard(key)
+        """Drop one live session under ``key``; idempotent."""
+        self._active[key] -= 1
+        # Unary plus keeps only positive counts — drops a drained/absent key.
+        self._active = +self._active
 
     @property
     def count(self) -> int:
         """How many MCP sessions are live right now."""
-        return len(self._active)
+        return self._active.total()
 
 
 @final
@@ -112,9 +117,5 @@ class SessionScopedServer:
             )
         finally:
             self._registry.discard(key)
-            # Two independent, idempotent cleanups: drop the session's menu items
-            # (re-pushed to the display via the replicator) and cascade the
-            # connection disconnect (scenes, subscriptions, writer, inbox).
-            OPERATIONS.drop_session(Scope(connection_id))
-            disconnect_connection(connection_id, drop_session)
+            SessionCleanup(connection_id).run(key)
             logger.info("MCP session disconnected: session_key=%s", key)

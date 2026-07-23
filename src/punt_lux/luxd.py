@@ -42,21 +42,22 @@ def build_app(
     """Build the FastAPI application luxd serves.
 
     A factory so tests can construct the app without uvicorn, via ``TestClient``.
-    The streamable-HTTP MCP leg mounts beside the typed REST surface on one app;
-    the MCP session manager's task group is started by the transport's lifespan,
-    which wraps any ``lifespan`` the caller passes (the hub replicator, the port
-    file).
+    The streamable-HTTP MCP leg mounts beside the typed REST surface on one app.
+
+    The caller's lifespan (replicator, port file) is the outer scope on purpose:
+    the inner transport scope unwinds first on shutdown, so a session's cleanup
+    cascade still reaches the display through the caller's still-live replicator.
     """
     transport = McpHttpTransport()
 
     @asynccontextmanager
     async def _lifespan(app: FastAPI) -> AsyncGenerator[None]:
-        async with transport.lifespan():
-            if lifespan is None:
+        if lifespan is None:
+            async with transport.lifespan():
                 yield
-            else:
-                async with lifespan(app):
-                    yield
+        else:
+            async with lifespan(app), transport.lifespan():
+                yield
 
     app = FastAPI(lifespan=_lifespan)
     app.add_middleware(
