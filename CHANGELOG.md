@@ -23,8 +23,7 @@
   corpus stays green without regeneration). The loopback trust policy migrates
   onto the SDK transport's Host (421) and Origin (403) validation. luxd now
   refuses a non-loopback `--host` at startup with one clear line rather than
-  binding a wider interface than its guards trust. `lux setup-proxy` writes a
-  streamable-HTTP URL. See DES-055.
+  binding a wider interface than its guards trust. See DES-055.
 
 - **The plugin connects to luxd directly over HTTP.** `.claude-plugin/plugin.json`'s
   `mcpServers.lux` block is now `{"type": "http", "url": "http://127.0.0.1:8430/mcp"}`
