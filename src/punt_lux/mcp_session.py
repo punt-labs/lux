@@ -3,9 +3,12 @@
 The mcp SDK's session manager drives each MCP session's message loop by calling
 ``run`` once per session on the server object it was handed. luxd hands it a
 :class:`SessionScopedServer` instead of the bare server so each session runs the
-Hub connect/cleanup cascade: it registers on entry and, on exit, drops its menu
-items, cascades the connection disconnect (scenes, subscriptions, writer,
-inbox), and deregisters.
+Hub connect/cleanup cascade: it registers on entry and always deregisters on
+exit. Two sessions may share one ``session_key`` and therefore one Hub
+connection scope; the teardown that drops the key's menu items and cascades the
+connection disconnect (scenes, subscriptions, writer, inbox) runs only when the
+last same-key session leaves, so one session's exit never wipes a live peer's
+state.
 
 The session's :class:`ConnectionId` is read from the current-session accessor,
 which the transport route binds from ``?session_key=`` before the session's task
@@ -42,7 +45,9 @@ class SessionRegistry:
 
     Keyed by session key but summed by instance: two sessions under one key
     count as two, and the first to disconnect leaves the peer counted (a set
-    would drop the peer). Cleanup keys on the ``ConnectionId``, not this count.
+    would drop the peer). Cleanup keys on the ``ConnectionId``, so :meth:`discard`
+    reports whether its call drained the key — the last session out is the one
+    that may tear the shared scope down.
     """
 
     _active: Counter[str]
@@ -57,11 +62,18 @@ class SessionRegistry:
         """Record one live session under ``key``."""
         self._active[key] += 1
 
-    def discard(self, key: str) -> None:
-        """Drop one live session under ``key``; idempotent."""
+    def discard(self, key: str) -> bool:
+        """Drop one live session under ``key``; report whether the key is drained.
+
+        Returns ``True`` when no live session remains under ``key`` (the last
+        same-key session left, so its shared scope may now be torn down) and
+        ``False`` while a peer is still counted. Idempotent: discarding an absent
+        or already-drained key is a no-op that reports ``True``.
+        """
         self._active[key] -= 1
         # Unary plus keeps only positive counts — drops a drained/absent key.
         self._active = +self._active
+        return key not in self._active
 
     @property
     def count(self) -> int:
@@ -75,8 +87,10 @@ class SessionScopedServer:
 
     One instance wraps the process-wide MCP server; the session manager calls
     :meth:`run` once per session, each in its own task, so the per-session
-    accounting and cleanup are re-entrant and keyed by the session's own
-    ``_session_key`` context value.
+    accounting is re-entrant and keyed by the session's own ``_session_key``
+    context value. Sessions sharing a key share one Hub connection scope, so
+    :meth:`run` deregisters every session on exit but only runs the Hub cleanup
+    cascade when the registry reports the last same-key session has left.
     """
 
     _inner: MCPServer[object, object]
@@ -116,6 +130,6 @@ class SessionScopedServer:
                 stateless=stateless,
             )
         finally:
-            self._registry.discard(key)
-            SessionCleanup(connection_id).run(key)
+            if self._registry.discard(key):
+                SessionCleanup(connection_id).run(key)
             logger.info("MCP session disconnected: session_key=%s", key)
