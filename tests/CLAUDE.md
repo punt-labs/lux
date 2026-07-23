@@ -275,8 +275,7 @@ the migration PRs are reviewed against.
 inputs=..., setup=...)` to the relevant category in `build_corpus.py`,
 then `make snapshot-record` and `make snapshot-parity`. Coverage is
 audited by checking that every name in `punt_lux.tools.__all__` (minus
-`mcp` and `run_mcp_session`) has at least one snapshot whose `tool` field
-matches.
+`mcp`) has at least one snapshot whose `tool` field matches.
 
 ## Visual testing
 
