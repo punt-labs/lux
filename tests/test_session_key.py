@@ -24,6 +24,13 @@ class TestFromRequest:
         key = SessionKey.from_request("")
         assert len(key.value) == 8
 
+    def test_blank_handles_are_distinct_per_request(self):
+        """Each missing-key request gets its own handle, so an omitted key
+        can never bind onto an existing session's scope."""
+        first = SessionKey.from_request("")
+        second = SessionKey.from_request("")
+        assert first.value != second.value
+
     def test_present_value_is_kept(self):
         assert SessionKey.from_request("pid-1234").value == "pid-1234"
 
