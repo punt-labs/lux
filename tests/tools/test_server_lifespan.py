@@ -14,7 +14,7 @@ import punt_lux.tools.server as server_module
 from punt_lux.mcp_session import SessionRegistry, SessionScopedServer
 from punt_lux.mcp_transport import McpHttpTransport
 from punt_lux.tools import set_display_mode
-from punt_lux.tools.server import _session_key
+from punt_lux.tools.server import bind_session, unbind_session
 
 if TYPE_CHECKING:
     import pytest
@@ -40,7 +40,7 @@ def _run_session_to_completion() -> None:
         scoped = SessionScopedServer(
             McpHttpTransport._fastmcp_server(), SessionRegistry()
         )
-        token = _session_key.set("test")
+        token = bind_session("test")
         try:
             with anyio.fail_after(5):
                 async with McpHttpTransport._fastmcp_lifespan()():
@@ -50,7 +50,7 @@ def _run_session_to_completion() -> None:
                         scoped.create_initialization_options(),
                     )
         finally:
-            _session_key.reset(token)
+            unbind_session(token)
 
     anyio.run(_run)
 
