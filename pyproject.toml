@@ -123,9 +123,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tools/*" = ["T20", "S603", "S607", "C901", "PERF403"]
-# S104 (bind-all "0.0.0.0"): test data proving luxd's startup guard refuses a
-# non-loopback bind; no test actually binds it.
-"tests/*" = ["S101", "S104", "S105", "S106", "S108", "S603", "T20", "SLF001", "ARG", "FBT", "PLC0415", "A002"]
+"tests/*" = ["S101", "S105", "S106", "S108", "S603", "T20", "SLF001", "ARG", "FBT", "PLC0415", "A002"]
 "demos/*" = ["T20", "S311", "C901"]
 "scripts/*" = ["T20", "S108", "S603", "S607", "PLC0415"]
 "src/punt_lux/__main__.py" = ["T20", "FBT", "PLC0415"]

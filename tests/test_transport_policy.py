@@ -11,11 +11,11 @@ class TestAllowsBindHost:
         assert policy.allows_bind_host("127.0.0.1") is True
         assert policy.allows_bind_host("localhost") is True
 
-    def test_wildcard_bind_is_refused(self):
-        """0.0.0.0 binds every interface -- the off-loopback case luxd refuses."""
-        assert LoopbackTransportPolicy().allows_bind_host("0.0.0.0") is False
+    def test_off_loopback_bind_is_refused(self):
+        """A routable interface is the off-loopback case luxd refuses at startup."""
+        assert LoopbackTransportPolicy().allows_bind_host("192.0.2.1") is False
 
-    def test_foreign_host_is_refused(self):
+    def test_another_foreign_host_is_refused(self):
         assert LoopbackTransportPolicy().allows_bind_host("192.168.1.10") is False
 
     def test_custom_hostnames_replace_the_default_allowlist(self):

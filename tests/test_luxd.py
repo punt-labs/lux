@@ -78,7 +78,7 @@ class TestStartupBindGuard:
     def test_refuses_non_loopback_host_at_startup(self):
         """serve() refuses an off-loopback bind before it ever binds a socket."""
         with pytest.raises(SystemExit) as exc:
-            serve(host="0.0.0.0")
+            serve(host="192.0.2.1")
         assert exc.value.code == 2
 
 
