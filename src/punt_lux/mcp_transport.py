@@ -1,13 +1,10 @@
-"""luxd's MCP leg: streamable HTTP mounted beside the REST routes.
+"""luxd's MCP leg: streamable HTTP mounted at ``/mcp`` beside the REST routes.
 
-luxd serves MCP over the mcp SDK's streamable-HTTP transport on the same FastAPI
-app and uvicorn port as the typed REST API, at ``/mcp``. This module owns that
-leg: it builds the SDK session manager over a :class:`SessionScopedServer` (so
-each session runs the Hub cleanup cascade), wires the loopback policy's security
-settings onto the transport (Host/Origin validation), exposes the lifespan the
-parent app must enter so the session manager's task group is live, and mounts
-the ``/mcp`` route whose endpoint resolves the session identity and refuses the
-reserved REST key.
+It builds the SDK session manager over a :class:`SessionScopedServer` (so each
+session runs the Hub cleanup cascade), wires the loopback policy's Host/Origin
+security settings onto the transport, exposes the lifespan the parent app must
+enter to start the session manager's task group, and mounts the ``/mcp`` route
+whose endpoint resolves the session identity and refuses the reserved REST key.
 """
 
 from __future__ import annotations
@@ -40,24 +37,6 @@ logger = logging.getLogger(__name__)
 __all__ = ["McpHttpTransport"]
 
 MCP_PATH = "/mcp"
-
-
-def _fastmcp_server() -> MCPServer[object, object]:
-    """Resolve FastMCP's low-level MCP server (private API; guard on upgrades)."""
-    server = getattr(mcp, "_mcp_server", None)
-    if server is None:
-        msg = "FastMCP._mcp_server not found; this private API may have changed."
-        raise RuntimeError(msg)
-    return cast("MCPServer[object, object]", server)
-
-
-def _fastmcp_lifespan() -> Callable[[], AbstractAsyncContextManager[object]]:
-    """Resolve FastMCP's lifespan manager (private API; guard on upgrades)."""
-    manager = getattr(mcp, "_lifespan_manager", None)
-    if manager is None:
-        msg = "FastMCP._lifespan_manager not found; this private API may have changed."
-        raise RuntimeError(msg)
-    return cast("Callable[[], AbstractAsyncContextManager[object]]", manager)
 
 
 @final
@@ -111,13 +90,31 @@ class McpHttpTransport:
         self = super().__new__(cls)
         policy = policy or LoopbackTransportPolicy()
         self._registry = SessionRegistry()
-        scoped = SessionScopedServer(_fastmcp_server(), self._registry)
+        scoped = SessionScopedServer(cls._fastmcp_server(), self._registry)
         self._manager = StreamableHTTPSessionManager(
             app=cast("MCPServer[object, object]", scoped),
             security_settings=policy.security_settings(),
         )
         self._endpoint = McpAsgiApp(self._manager)
         return self
+
+    @staticmethod
+    def _fastmcp_server() -> MCPServer[object, object]:
+        """Resolve FastMCP's low-level MCP server (private API; guard on upgrades)."""
+        server = getattr(mcp, "_mcp_server", None)
+        if server is None:
+            msg = "FastMCP._mcp_server not found; this private API may have changed."
+            raise RuntimeError(msg)
+        return cast("MCPServer[object, object]", server)
+
+    @staticmethod
+    def _fastmcp_lifespan() -> Callable[[], AbstractAsyncContextManager[object]]:
+        """Resolve FastMCP's lifespan manager (private API; guard on upgrades)."""
+        manager = getattr(mcp, "_lifespan_manager", None)
+        if manager is None:
+            msg = "FastMCP._lifespan_manager not found; private API may have changed."
+            raise RuntimeError(msg)
+        return cast("Callable[[], AbstractAsyncContextManager[object]]", manager)
 
     @property
     def session_count(self) -> int:
@@ -131,7 +128,7 @@ class McpHttpTransport:
         The parent app must run inside this, or the SDK's session manager raises
         because its task group was never initialized.
         """
-        async with _fastmcp_lifespan()(), self._manager.run():
+        async with self._fastmcp_lifespan()(), self._manager.run():
             yield
 
     def mount(self, app: FastAPI) -> None:

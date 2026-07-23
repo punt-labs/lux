@@ -12,7 +12,7 @@ from mcp.shared.message import SessionMessage
 
 import punt_lux.tools.server as server_module
 from punt_lux.mcp_session import SessionRegistry, SessionScopedServer
-from punt_lux.mcp_transport import _fastmcp_lifespan, _fastmcp_server
+from punt_lux.mcp_transport import McpHttpTransport
 from punt_lux.tools import set_display_mode
 from punt_lux.tools.server import _session_key
 
@@ -37,11 +37,13 @@ def _run_session_to_completion() -> None:
         ](0)
         send_write, _recv_write = anyio.create_memory_object_stream[SessionMessage](0)
         await send_read.aclose()
-        scoped = SessionScopedServer(_fastmcp_server(), SessionRegistry())
+        scoped = SessionScopedServer(
+            McpHttpTransport._fastmcp_server(), SessionRegistry()
+        )
         token = _session_key.set("test")
         try:
             with anyio.fail_after(5):
-                async with _fastmcp_lifespan()():
+                async with McpHttpTransport._fastmcp_lifespan()():
                     await scoped.run(
                         recv_read,
                         send_write,

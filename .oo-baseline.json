@@ -1794,14 +1794,14 @@
     "future_annotations": 1.0
   },
   "src/punt_lux/mcp_transport.py": {
-    "method_ratio": 0.75,
+    "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.75,
     "max_complexity": 2.0,
     "avg_complexity": 1.5,
-    "module_size": 113.0,
+    "module_size": 112.0,
     "classes_per_module": 2.0,
-    "class_to_func_ratio": 0.5,
+    "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
