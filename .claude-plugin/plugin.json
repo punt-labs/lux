@@ -8,13 +8,9 @@
   },
   "mcpServers": {
     "lux": {
-      "type": "stdio",
-      "timeout": 5000,
-      "command": "sh",
-      "args": [
-        "-c",
-        "if command -v mcp-proxy >/dev/null 2>&1 && [ -f \"${HOME}/.punt-labs/mcp-proxy/lux.toml\" ] && grep -q '^\\[lux\\]' \"${HOME}/.punt-labs/mcp-proxy/lux.toml\"; then exec mcp-proxy --config lux; else exec lux serve; fi"
-      ]
+      "type": "http",
+      "url": "http://127.0.0.1:8430/mcp",
+      "timeout": 60000
     }
   }
 }

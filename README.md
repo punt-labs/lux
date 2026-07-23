@@ -272,6 +272,8 @@ The Hub is the single source of truth for element state, ownership, and handler 
 }
 ```
 
+The bundled plugin ships exactly this HTTP config in its `mcpServers` block — no `mcp-proxy` bridge and no `lux serve` stdio fallback. The installer registers `luxd` as a launchd service pinned to `--port 8430`, so the static URL is correct on installed systems; if you run `luxd` on a non-default port, read the real one from the port file (`~/.punt-labs/lux/hub.port`, i.e. `HubPaths().read_port()`) and set the URL to match.
+
 A copy-paste example is in [`.claude-plugin/mcp-http.example.json`](.claude-plugin/mcp-http.example.json). Start `luxd` first (`lux hub-install` and start the service, or run `luxd` in a terminal), then verify the direct connection end to end:
 
 ```bash

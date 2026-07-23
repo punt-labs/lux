@@ -26,6 +26,15 @@
   binding a wider interface than its guards trust. `lux setup-proxy` writes a
   streamable-HTTP URL. See DES-055.
 
+- **The plugin connects to luxd directly over HTTP.** `.claude-plugin/plugin.json`'s
+  `mcpServers.lux` block is now `{"type": "http", "url": "http://127.0.0.1:8430/mcp"}`
+  — the `mcp-proxy` stdio bridge and its `lux serve` fallback are gone. The
+  installer pins `luxd` to `--port 8430` in the launchd plist, so the static URL
+  is correct for installed systems; on a non-default port, read it from the port
+  file (`~/.punt-labs/lux/hub.port`). This completes the WebSocket-to-HTTP swap
+  on the install path: a plugin shipped before this could not reach the
+  WebSocket-less luxd. See DES-055.
+
 - **The command-line tool is the third thin client of the engine.**
   `lux show beads` and `lux ping` now reach luxd over its typed REST API through
   a small `LuxRestClient`, instead of opening the display's Unix socket. The CLI
@@ -50,6 +59,24 @@
   `--socket`/`-s` option on these two commands is gone; `lux ping` keeps
   `--timeout`. `punt_lux.DisplayClient` and the `LuxClient` alias are no longer
   exported from the package root — the display client is Hub-internal.
+
+### Fixed
+
+- **A vanished MCP client no longer strands its session.** luxd hands the SDK
+  session manager a `session_idle_timeout` (1800s), so a client that dies
+  without a clean disconnect is reaped and its Hub-side state (scenes, menus,
+  subscriptions, inbox) released, instead of living until restart.
+- **Session teardown is isolated.** Each cleanup leg (menu drop, disconnect
+  cascade) runs independently and logs any failure against the session key, so
+  one failing leg cannot starve the other or surface as an unattributed SDK
+  "session crashed".
+- **The live session count reflects instances, not unique keys.** Two sessions
+  admitted under the same key count as two, and the first to disconnect leaves
+  the peer counted (previously a same-key disconnect could drop a still-live
+  peer from the count).
+- **Shutdown drains sessions before stopping the writer.** The caller lifespan
+  (the display replicator) is the outer scope, so each session's cleanup cascade
+  runs while the replicator carrying its display effects is still alive.
 
 ## [0.20.0] - 2026-07-22
 
