@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.21.0] - 2026-07-22
+
 ### Added
 
 - **Direct HTTP MCP connection to luxd, no mcp-proxy in the path.** With luxd on
