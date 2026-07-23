@@ -67,9 +67,9 @@ class McpAsgiApp:
     A ``?session_key=`` value becomes the session's :class:`ConnectionId`; a value
     colliding with the reserved REST scope is refused with 403, because sharing it
     would cross scene, menu, and topic ownership and the session's disconnect
-    cascade would destroy REST-created state. The identity is set on the
-    ``_session_key`` ContextVar before the manager spawns the session's task, so
-    the copied task context carries it to the tools and the cleanup cascade.
+    cascade would destroy REST-created state. The identity is bound to the
+    calling context before the manager spawns the session's task, so the copied
+    task context carries it to the tools and the cleanup cascade.
     """
 
     _manager: StreamableHTTPSessionManager

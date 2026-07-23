@@ -2,13 +2,13 @@
 
 The mcp SDK's session manager drives each MCP session's message loop by calling
 ``run`` once per session on the server object it was handed. luxd hands it a
-:class:`SessionScopedServer` instead of the bare server so the Hub
-connect/cleanup cascade the WebSocket leg ran in ``run_mcp_session`` still runs:
-each session registers on entry and, on exit, drops its menu items, cascades the
-connection disconnect (scenes, subscriptions, writer, inbox), and deregisters.
+:class:`SessionScopedServer` instead of the bare server so each session runs the
+Hub connect/cleanup cascade: it registers on entry and, on exit, drops its menu
+items, cascades the connection disconnect (scenes, subscriptions, writer,
+inbox), and deregisters.
 
-The session's :class:`ConnectionId` is read from the ``_session_key`` ContextVar,
-which the transport route sets from ``?session_key=`` before the session's task
+The session's :class:`ConnectionId` is read from the current-session accessor,
+which the transport route binds from ``?session_key=`` before the session's task
 is spawned, so the copied task context carries the right identity.
 """
 
@@ -112,9 +112,9 @@ class SessionScopedServer:
             )
         finally:
             self._registry.discard(key)
-            # Menu items first (drop + re-push), then the connection cascade
-            # (scenes, subscriptions, writer, inbox) — the same order and reach
-            # the WebSocket leg's two cleanup steps had.
+            # Two independent, idempotent cleanups: drop the session's menu items
+            # (re-pushed to the display via the replicator) and cascade the
+            # connection disconnect (scenes, subscriptions, writer, inbox).
             OPERATIONS.drop_session(Scope(connection_id))
             disconnect_connection(connection_id, drop_session)
             logger.info("MCP session disconnected: session_key=%s", key)
