@@ -1,0 +1,9 @@
+{
+  "_comment": "Direct HTTP MCP config for connecting Claude Code to a running luxd with no mcp-proxy in the path. Point Claude Code's MCP config (project .mcp.json or the plugin's mcpServers block) at luxd's streamable-HTTP endpoint. luxd must be running (lux hub-install, or luxd in a terminal). Verify with scripts/direct_connection_probe.py.",
+  "mcpServers": {
+    "lux": {
+      "type": "http",
+      "url": "http://127.0.0.1:8430/mcp"
+    }
+  }
+}

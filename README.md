@@ -239,7 +239,7 @@ All elements with an `id` support an optional `tooltip` field (string shown on h
 | `lux hub-uninstall` | Remove the `luxd` service |
 | `lux ensure-hub` | Ensure `luxd` is running (`--restart` to restart) |
 | `lux hub-status` | Report `luxd` service status |
-| `lux setup-proxy` | Write the `mcp-proxy` config for the hub |
+| `lux setup-proxy` | Write the `mcp-proxy` config for the hub (streamable-HTTP URL) |
 | `lux version` | Print version |
 
 ## Architecture
@@ -259,6 +259,26 @@ Window on screen
 ```
 
 The Hub is the single source of truth for element state, ownership, and handler dispatch. The Display is a rendering replica: it paints the current scene and forwards interactions back to the Hub, which runs the real handler and re-pushes updated state. MCP is one entry point, not the only one.
+
+### Connecting Claude Code directly over HTTP
+
+`luxd` serves MCP over streamable HTTP at `http://127.0.0.1:8430/mcp`, on the same loopback port as its REST API. Claude Code can connect to that endpoint natively through its HTTP MCP configuration, with no `mcp-proxy` bridge in the path. Point Claude Code's MCP config (a project `.mcp.json` or the plugin's `mcpServers` block) at the endpoint:
+
+```json
+{
+  "mcpServers": {
+    "lux": { "type": "http", "url": "http://127.0.0.1:8430/mcp" }
+  }
+}
+```
+
+A copy-paste example is in [`.claude-plugin/mcp-http.example.json`](.claude-plugin/mcp-http.example.json). Start `luxd` first (`lux hub-install` and start the service, or run `luxd` in a terminal), then verify the direct connection end to end:
+
+```bash
+uv run python scripts/direct_connection_probe.py
+```
+
+The probe initializes a session, lists the tool surface, and calls a read-only tool. `luxd` binds loopback only and refuses a non-loopback `--host` at startup; remote access awaits authentication.
 
 ## Documentation
 

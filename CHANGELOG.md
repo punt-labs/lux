@@ -2,7 +2,29 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Direct HTTP MCP connection to luxd, no mcp-proxy in the path.** With luxd on
+  streamable HTTP, Claude Code can connect natively at
+  `http://127.0.0.1:8430/mcp` through its HTTP MCP configuration. A copy-paste
+  config is in `.claude-plugin/mcp-http.example.json`, and
+  `scripts/direct_connection_probe.py` drives a real session end to end
+  (initialize, list tools, call a tool) as runnable proof. See DES-055.
+
 ### Changed
+
+- **luxd's MCP leg moved from WebSocket to streamable HTTP.** luxd now serves
+  MCP over the mcp SDK's streamable-HTTP transport, mounted beside the REST
+  routes on the same FastAPI app and loopback port at `/mcp`. Every MCP session
+  capability is preserved — per-session identity (including the reserved-REST
+  refusal, now a 403), the register/cleanup lifecycle (menu drop plus the
+  disconnect cascade of scenes, subscriptions, writer, and inbox), pub-sub
+  `recv` delivery, and the byte-identical tool surface (the characterization
+  corpus stays green without regeneration). The loopback trust policy migrates
+  onto the SDK transport's Host (421) and Origin (403) validation. luxd now
+  refuses a non-loopback `--host` at startup with one clear line rather than
+  binding a wider interface than its guards trust. `lux setup-proxy` writes a
+  streamable-HTTP URL. See DES-055.
 
 - **The command-line tool is the third thin client of the engine.**
   `lux show beads` and `lux ping` now reach luxd over its typed REST API through
@@ -18,6 +40,11 @@
 
 ### Removed
 
+- **The deprecated WebSocket MCP transport.** luxd's `/mcp` WebSocket route, its
+  `mcp.server.websocket.websocket_server` import, and the two `reportDeprecated`
+  suppressions that import required are gone — no dual transport. With the WS
+  server dependency removed, the `mcp<2` cap lifts to `<3` (the `>=1.28.1`
+  security floor stays; FastMCP governs the effective upper bound).
 - **`--socket` on `lux show beads` and `lux ping`.** The CLI addresses luxd by
   its port (read from the hub port file), not the display socket path, so the
   `--socket`/`-s` option on these two commands is gone; `lux ping` keeps
