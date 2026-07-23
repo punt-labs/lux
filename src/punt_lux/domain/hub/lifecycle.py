@@ -1,7 +1,7 @@
 """Connection-lifecycle cleanup — single entry point for disconnect.
 
-The transport layer (``luxd``) calls ``disconnect_connection`` when a
-WebSocket session ends. The function drops the client's HubDisplay
+The transport layer (``luxd``) calls ``disconnect_connection`` when an
+MCP session ends. The function drops the client's HubDisplay
 registration, marks every owned root removed (the Element Observer
 cascade prunes the rest of the tree), tears down the per-connection
 subscription scope and writer binding, and finally invokes the caller's

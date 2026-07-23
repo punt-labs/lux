@@ -1,0 +1,9 @@
+{
+  "_comment": "Direct HTTP MCP config for connecting Claude Code to a running luxd with no mcp-proxy in the path. Point Claude Code's MCP config (project .mcp.json or the plugin's mcpServers block) at luxd's streamable-HTTP endpoint. luxd must be running (lux hub-install, or luxd in a terminal). The url below hard-codes the default port 8430; luxd may bind a different (ephemeral) port, so read the actual port from the hub.port file (HubPaths().read_port(), i.e. ~/.punt-labs/lux/hub.port) and update the url to match. scripts/direct_connection_probe.py resolves the port that way and verifies the endpoint end to end.",
+  "mcpServers": {
+    "lux": {
+      "type": "http",
+      "url": "http://127.0.0.1:8430/mcp"
+    }
+  }
+}

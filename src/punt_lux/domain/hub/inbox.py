@@ -91,7 +91,7 @@ def drop_session(connection_id: ConnectionId) -> None:
     """Release the session's inbox queue. Idempotent.
 
     Called from the connection-disconnect cascade so the queue is not
-    leaked when the WebSocket closes. Subsequent ``inbox_for`` calls for
+    leaked when the MCP session closes. Subsequent ``inbox_for`` calls for
     the same id create a fresh queue.
     """
     with _inboxes_lock:

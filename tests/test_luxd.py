@@ -1,38 +1,27 @@
-"""Tests for punt_lux.luxd -- WebSocket session hub process entry point."""
+"""Tests for punt_lux.luxd -- the streamable-HTTP session hub entry point."""
 
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+from typing import TYPE_CHECKING
+
+import anyio
 import pytest
 from fastapi import FastAPI
 from starlette.testclient import TestClient
-from starlette.websockets import WebSocketDisconnect
 
-from punt_lux.luxd import (
-    DEFAULT_HUB_PORT,
-    _active_sessions,
-    _sanitize_for_log,
-    build_app,
-)
+from punt_lux.luxd import build_app, serve
+from punt_lux.mcp_transport import McpHttpTransport
 from punt_lux.rest.app import DEFAULT_SCOPE
 from punt_lux.session_key import RESERVED_REST_CONNECTION
 
-
-class TestSanitizeForLog:
-    def test_strips_control_characters(self):
-        """Control characters (log-injection vectors) are removed before logging."""
-        assert _sanitize_for_log("evil\r\nINJECTED\x00tail") == "evilINJECTEDtail"
-
-    def test_none_logs_as_empty_string(self):
-        assert _sanitize_for_log(None) == ""
-
-    def test_caps_length(self):
-        assert len(_sanitize_for_log("x" * 200)) == 64
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 
 class TestHealthRoute:
-    def test_returns_ok(self):
-        app = build_app()
-        client = TestClient(app)
+    def test_returns_ok_with_zero_sessions(self):
+        client = TestClient(build_app())
         resp = client.get("/health")
         assert resp.status_code == 200
         data = resp.json()
@@ -40,94 +29,75 @@ class TestHealthRoute:
         assert data["sessions"] == 0
         assert "display" not in data
 
-    def test_session_count_reflects_active(self):
-        """Verify the health endpoint reports _active_sessions count."""
-        app = build_app()
-        client = TestClient(app)
 
-        _active_sessions.add("test-session-1")
-        _active_sessions.add("test-session-2")
-        try:
-            resp = client.get("/health")
-            data = resp.json()
-            assert data["sessions"] == 2
-        finally:
-            _active_sessions.discard("test-session-1")
-            _active_sessions.discard("test-session-2")
-
-
-class TestMcpWebsocketRoute:
-    def test_rejects_browser_origin(self):
-        """WebSocket with Origin header should be rejected (CSWSH protection)."""
-        app = build_app()
-        client = TestClient(app)
-        with (
-            pytest.raises(WebSocketDisconnect) as exc_info,
-            client.websocket_connect(
-                "/mcp?session_key=test",
-                headers={"Origin": "http://evil.com"},
-            ),
-        ):
-            pass
-        assert exc_info.value.code == 1008
-
-    def test_accepts_loopback_host(self):
-        """A loopback Host passes the SDK guard -- this is how mcp-proxy dials in."""
-        app = build_app()
-        client = TestClient(app)
-        _active_sessions.discard("loopback")
-        with client.websocket_connect(
-            "/mcp?session_key=loopback",
-            headers={"Host": f"127.0.0.1:{DEFAULT_HUB_PORT}"},
-        ):
-            assert "loopback" in _active_sessions
-        assert "loopback" not in _active_sessions
-
+class TestMcpRoute:
     def test_rejects_reserved_rest_session_key(self):
-        """A session_key colliding with the REST scope id is refused (code 1008).
+        """A session_key colliding with the REST scope id is refused (403).
 
         Otherwise the session would share REST-owned scene/menu state and its
-        disconnect cascade would destroy REST-created state.
+        disconnect cascade would destroy REST-created state. The refusal precedes
+        the transport's own Host/Origin guard, so it holds for any Host.
         """
-        app = build_app()
-        client = TestClient(app)
-        _active_sessions.discard(RESERVED_REST_CONNECTION)
-        with (
-            pytest.raises(WebSocketDisconnect) as exc_info,
-            client.websocket_connect(
+        with TestClient(build_app()) as client:
+            resp = client.post(
                 f"/mcp?session_key={RESERVED_REST_CONNECTION}",
-                headers={"Host": f"127.0.0.1:{DEFAULT_HUB_PORT}"},
-            ),
-        ):
-            pass
-        assert exc_info.value.code == 1008
-        assert RESERVED_REST_CONNECTION not in _active_sessions
+                headers={"content-type": "application/json"},
+                json={"jsonrpc": "2.0", "id": 1, "method": "initialize"},
+            )
+        assert resp.status_code == 403
 
     def test_rejects_foreign_host(self):
-        """A non-loopback Host is rejected by the SDK DNS-rebinding guard."""
-        app = build_app()
-        client = TestClient(app)
-        with (
-            pytest.raises(WebSocketDisconnect),
-            client.websocket_connect(
-                "/mcp?session_key=foreign", headers={"Host": "evil.example:9"}
-            ),
-        ):
-            pass
+        """A non-loopback Host is rejected by the SDK DNS-rebinding guard (421)."""
+        with TestClient(build_app()) as client:
+            resp = client.post(
+                "/mcp?session_key=foreign",
+                headers={
+                    "content-type": "application/json",
+                    "host": "evil.example:9",
+                },
+                json={"jsonrpc": "2.0", "id": 1, "method": "initialize"},
+            )
+        assert resp.status_code == 421
 
-    def test_session_cleanup_after_disconnect(self):
-        """The session is counted while open, then removed after disconnect."""
-        app = build_app()
-        client = TestClient(app)
-        _active_sessions.discard("test-pid")
-        with client.websocket_connect(
-            "/mcp?session_key=test-pid",
-            headers={"Host": f"127.0.0.1:{DEFAULT_HUB_PORT}"},
-        ):
-            # The handshake opened, so the session must be registered and counted;
-            # a failed handshake would raise here instead of reporting a session.
-            assert client.get("/health").json()["sessions"] >= 1
-        assert "test-pid" not in _active_sessions
+    def test_accepts_loopback_host(self):
+        """A loopback Host passes the DNS-rebinding guard — the positive case.
+
+        The negative (foreign Host -> 421) is meaningless without proving the
+        guard admits the host luxd actually binds. A loopback Host is not
+        rejected as a rebinding attempt; the request reaches the MCP layer.
+        """
+        with TestClient(build_app()) as client:
+            resp = client.post(
+                "/mcp?session_key=loopback",
+                headers={
+                    "content-type": "application/json",
+                    "accept": "application/json, text/event-stream",
+                    "host": "127.0.0.1:8430",
+                },
+                json={"jsonrpc": "2.0", "id": 1, "method": "initialize"},
+            )
+        assert resp.status_code != 421
+        assert resp.status_code != 403
+
+    def test_rejects_cross_site_origin(self):
+        """A loopback Host with a foreign Origin is refused (CSWSH guard, 403).
+
+        The Host guard passing is not enough: a browser page on another origin
+        can send a loopback Host, so the SDK also validates Origin against the
+        loopback allowlist and refuses a cross-site Origin.
+        """
+        with TestClient(build_app()) as client:
+            resp = client.post(
+                "/mcp?session_key=xsite",
+                headers={
+                    "content-type": "application/json",
+                    "accept": "application/json, text/event-stream",
+                    "host": "127.0.0.1:8430",
+                    "origin": "http://evil.com",
+                },
+                json={"jsonrpc": "2.0", "id": 1, "method": "initialize"},
+            )
+        assert resp.status_code == 403
 
 
 class TestReservedRestIdentity:
@@ -135,7 +105,7 @@ class TestReservedRestIdentity:
         """The REST scope and luxd's refusal read one constant, not two strings.
 
         The reserved identity lives in one place; the REST surface scopes to it
-        and luxd rejects a session that would collide with it, so the two sides
+        and luxd refuses a session that would collide with it, so the two sides
         can never drift apart.
         """
         assert DEFAULT_SCOPE.connection_id == RESERVED_REST_CONNECTION
@@ -150,6 +120,57 @@ class TestBuildApp:
         paths = [getattr(r, "path", None) for r in app.routes]
         assert "/health" in paths
         assert "/mcp" in paths
+
+
+class TestLifespanOrdering:
+    def test_caller_lifespan_wraps_transport_lifespan(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The caller lifespan is outermost, so on shutdown the transport
+        (session drain + cleanup) unwinds before the caller's writer stops —
+        otherwise cleanup's display effects would land on a dead replicator."""
+        order: list[str] = []
+
+        @asynccontextmanager
+        async def _transport_lifespan(self: McpHttpTransport) -> AsyncGenerator[None]:
+            order.append("transport-enter")
+            try:
+                yield
+            finally:
+                order.append("transport-exit")
+
+        monkeypatch.setattr(McpHttpTransport, "lifespan", _transport_lifespan)
+
+        @asynccontextmanager
+        async def _caller(app: FastAPI) -> AsyncGenerator[None]:
+            order.append("caller-enter")
+            try:
+                yield
+            finally:
+                order.append("caller-exit")
+
+        app = build_app(lifespan=_caller)
+
+        async def _cycle() -> None:
+            async with app.router.lifespan_context(app):
+                pass
+
+        anyio.run(_cycle)
+
+        assert order == [
+            "caller-enter",
+            "transport-enter",
+            "transport-exit",
+            "caller-exit",
+        ]
+
+
+class TestStartupBindGuard:
+    def test_refuses_non_loopback_host_at_startup(self):
+        """serve() refuses an off-loopback bind before it ever binds a socket."""
+        with pytest.raises(SystemExit) as exc:
+            serve(host="192.0.2.1")
+        assert exc.value.code == 2
 
 
 class TestRestSurfaceMounted:

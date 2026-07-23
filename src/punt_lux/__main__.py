@@ -124,14 +124,6 @@ def display(
 
 
 @app.command()
-def serve() -> None:
-    """Start the Lux MCP server (stdio transport)."""
-    from punt_lux.tools import mcp
-
-    mcp.run(transport="stdio")
-
-
-@app.command()
 def enable() -> None:
     """Enable visual output for this project."""
     from punt_lux.config import ConfigManager
@@ -534,22 +526,6 @@ def hub_status() -> None:
         print(f"  sessions: {sessions}")
     except Exception as exc:  # noqa: BLE001
         print(f"luxd running (pid {pid}, port {port}) but health check failed: {exc}")
-
-
-@app.command("setup-proxy")
-def setup_proxy(
-    url: str = typer.Option(
-        "ws://127.0.0.1:8430/mcp",
-        "--url",
-        help="WebSocket URL for luxd",
-    ),
-) -> None:
-    """Write mcp-proxy config for luxd."""
-    from punt_lux.remote import ProxyConfigFile
-
-    cfg = ProxyConfigFile()
-    cfg.write(url)
-    print(f"Wrote {cfg.path}")
 
 
 @app.command()

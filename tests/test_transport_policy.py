@@ -1,28 +1,27 @@
-"""Tests for punt_lux.transport_policy -- luxd WebSocket loopback trust policy."""
+"""Tests for punt_lux.transport_policy -- luxd loopback trust policy."""
 
 from __future__ import annotations
 
 from punt_lux.transport_policy import LoopbackTransportPolicy
 
 
-class TestRejectsOrigin:
-    def test_absent_origin_is_allowed(self):
-        """mcp-proxy and other non-browser clients send no Origin."""
-        assert LoopbackTransportPolicy().rejects_origin(None) is False
-
-    def test_loopback_origins_are_allowed(self):
+class TestAllowsBindHost:
+    def test_loopback_hosts_are_allowed(self):
         policy = LoopbackTransportPolicy()
-        assert policy.rejects_origin("http://localhost:5173") is False
-        assert policy.rejects_origin("http://127.0.0.1:8430") is False
-        assert policy.rejects_origin("https://localhost") is False
+        assert policy.allows_bind_host("127.0.0.1") is True
+        assert policy.allows_bind_host("localhost") is True
 
-    def test_foreign_origin_is_rejected(self):
-        assert LoopbackTransportPolicy().rejects_origin("http://evil.com") is True
+    def test_off_loopback_bind_is_refused(self):
+        """A routable interface is the off-loopback case luxd refuses at startup."""
+        assert LoopbackTransportPolicy().allows_bind_host("192.0.2.1") is False
+
+    def test_another_foreign_host_is_refused(self):
+        assert LoopbackTransportPolicy().allows_bind_host("192.168.1.10") is False
 
     def test_custom_hostnames_replace_the_default_allowlist(self):
         policy = LoopbackTransportPolicy(hostnames=("example.test",))
-        assert policy.rejects_origin("http://example.test") is False
-        assert policy.rejects_origin("http://localhost") is True
+        assert policy.allows_bind_host("example.test") is True
+        assert policy.allows_bind_host("127.0.0.1") is False
 
 
 class TestSecuritySettings:

@@ -2,7 +2,37 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Direct HTTP MCP connection to luxd, no mcp-proxy in the path.** With luxd on
+  streamable HTTP, Claude Code can connect natively at
+  `http://127.0.0.1:8430/mcp` through its HTTP MCP configuration. A copy-paste
+  config is in `.claude-plugin/mcp-http.example.json`, and
+  `scripts/direct_connection_probe.py` drives a real session end to end
+  (initialize, list tools, call a tool) as runnable proof. See DES-055.
+
 ### Changed
+
+- **luxd's MCP leg moved from WebSocket to streamable HTTP.** luxd now serves
+  MCP over the mcp SDK's streamable-HTTP transport, mounted beside the REST
+  routes on the same FastAPI app and loopback port at `/mcp`. Every MCP session
+  capability is preserved — per-session identity (including the reserved-REST
+  refusal, now a 403), the register/cleanup lifecycle (menu drop plus the
+  disconnect cascade of scenes, subscriptions, writer, and inbox), pub-sub
+  `recv` delivery, and the byte-identical tool surface (the characterization
+  corpus stays green without regeneration). The loopback trust policy migrates
+  onto the SDK transport's Host (421) and Origin (403) validation. luxd now
+  refuses a non-loopback `--host` at startup with one clear line rather than
+  binding a wider interface than its guards trust. See DES-055.
+
+- **The plugin connects to luxd directly over HTTP.** `.claude-plugin/plugin.json`'s
+  `mcpServers.lux` block is now `{"type": "http", "url": "http://127.0.0.1:8430/mcp"}`
+  — the `mcp-proxy` stdio bridge and its `lux serve` fallback are gone. The
+  installer pins `luxd` to `--port 8430` in the launchd plist, so the static URL
+  is correct for installed systems; on a non-default port, read it from the port
+  file (`~/.punt-labs/lux/hub.port`). This completes the WebSocket-to-HTTP swap
+  on the install path: a plugin shipped before this could not reach the
+  WebSocket-less luxd. See DES-055.
 
 - **The command-line tool is the third thin client of the engine.**
   `lux show beads` and `lux ping` now reach luxd over its typed REST API through
@@ -18,11 +48,40 @@
 
 ### Removed
 
+- **The deprecated WebSocket MCP transport.** luxd's `/mcp` WebSocket route, its
+  `mcp.server.websocket.websocket_server` import, and the two `reportDeprecated`
+  suppressions that import required are gone — no dual transport. With the WS
+  server dependency removed, the `mcp<2` cap lifts to `<3` (the `>=1.28.1`
+  security floor stays; FastMCP governs the effective upper bound).
 - **`--socket` on `lux show beads` and `lux ping`.** The CLI addresses luxd by
   its port (read from the hub port file), not the display socket path, so the
   `--socket`/`-s` option on these two commands is gone; `lux ping` keeps
   `--timeout`. `punt_lux.DisplayClient` and the `LuxClient` alias are no longer
   exported from the package root — the display client is Hub-internal.
+- **`mcp-proxy` leaves lux's path entirely.** With the plugin on direct HTTP,
+  the `lux serve` (stdio MCP) and `lux setup-proxy` commands and the
+  `punt_lux.remote` module (the `mcp-proxy` TOML config writer) are removed, and
+  `install.sh` no longer installs or configures `mcp-proxy` — the installer's
+  job is luxd, the marketplace, and the plugin. A Hub-bypassing in-process stdio
+  server contradicts the single-engine model; luxd is the one front door.
+
+### Fixed
+
+- **A vanished MCP client no longer strands its session.** luxd hands the SDK
+  session manager a `session_idle_timeout` (1800s), so a client that dies
+  without a clean disconnect is reaped and its Hub-side state (scenes, menus,
+  subscriptions, inbox) released, instead of living until restart.
+- **Session teardown is isolated.** Each cleanup leg (menu drop, disconnect
+  cascade) runs independently and logs any failure against the session key, so
+  one failing leg cannot starve the other or surface as an unattributed SDK
+  "session crashed".
+- **The live session count reflects instances, not unique keys.** Two sessions
+  admitted under the same key count as two, and the first to disconnect leaves
+  the peer counted (previously a same-key disconnect could drop a still-live
+  peer from the count).
+- **Shutdown drains sessions before stopping the writer.** The caller lifespan
+  (the display replicator) is the outer scope, so each session's cleanup cascade
+  runs while the replicator carrying its display effects is still alive.
 
 ## [0.20.0] - 2026-07-22
 

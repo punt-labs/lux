@@ -21,11 +21,12 @@ dependencies = [
     "typer>=0.15.0,<1",
     "rich>=15,<16",
     "fastmcp>=3.0.0,<4",
-    # Direct floor past three HIGH advisories (WebSocket Host/Origin validation,
-    # HTTP session principal verification, cross-client task access). Capped
-    # below 2.0 because the SDK deletes the WebSocket server transport there,
-    # which luxd relies on for the luxd<->mcp-proxy leg.
-    "mcp>=1.28.1,<2",
+    # luxd imports the SDK's streamable-HTTP session manager and transport
+    # security settings directly. Floor past three HIGH advisories (Host/Origin
+    # validation, HTTP session principal verification, cross-client task access);
+    # no WS-server ceiling any more, so the cap is just the next-next major
+    # (fastmcp governs the effective upper bound).
+    "mcp>=1.28.1,<3",
     "pydantic>=2.0.0,<3",
     "starlette>=1.3.1,<2",
     "fastapi>=0.115.0,<1",

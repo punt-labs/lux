@@ -115,7 +115,7 @@ Demos are in `demos/` --- each connects as a client and drives the display:
 
 ## MCP Tools
 
-Agents interact with Lux through **27 MCP tools** exposed by `lux serve`:
+Agents interact with Lux through **27 MCP tools** that `luxd` serves over its streamable-HTTP `/mcp` endpoint:
 
 | Tool | What it does |
 |------|-------------|
@@ -226,7 +226,6 @@ All elements with an `id` support an optional `tooltip` field (string shown on h
 | Command | What it does |
 |---------|-------------|
 | `lux display` | Start the display server (ImGui window) |
-| `lux serve` | Start the MCP server (stdio transport) |
 | `lux enable` | Enable visual output for this project |
 | `lux disable` | Disable visual output for this project |
 | `lux status` | Check if the display server is running |
@@ -239,7 +238,6 @@ All elements with an `id` support an optional `tooltip` field (string shown on h
 | `lux hub-uninstall` | Remove the `luxd` service |
 | `lux ensure-hub` | Ensure `luxd` is running (`--restart` to restart) |
 | `lux hub-status` | Report `luxd` service status |
-| `lux setup-proxy` | Write the `mcp-proxy` config for the hub |
 | `lux version` | Print version |
 
 ## Architecture
@@ -259,6 +257,28 @@ Window on screen
 ```
 
 The Hub is the single source of truth for element state, ownership, and handler dispatch. The Display is a rendering replica: it paints the current scene and forwards interactions back to the Hub, which runs the real handler and re-pushes updated state. MCP is one entry point, not the only one.
+
+### Connecting Claude Code directly over HTTP
+
+`luxd` serves MCP over streamable HTTP at `http://127.0.0.1:8430/mcp`, on the same loopback port as its REST API. Claude Code can connect to that endpoint natively through its HTTP MCP configuration, with no `mcp-proxy` bridge in the path. Point Claude Code's MCP config (a project `.mcp.json` or the plugin's `mcpServers` block) at the endpoint:
+
+```json
+{
+  "mcpServers": {
+    "lux": { "type": "http", "url": "http://127.0.0.1:8430/mcp" }
+  }
+}
+```
+
+The bundled plugin ships exactly this HTTP config in its `mcpServers` block — no `mcp-proxy` bridge and no `lux serve` stdio fallback. The installer registers `luxd` as a launchd service pinned to `--port 8430`, so the static URL is correct on installed systems; if you run `luxd` on a non-default port, read the real one from the port file (`~/.punt-labs/lux/hub.port`, i.e. `HubPaths().read_port()`) and set the URL to match.
+
+A copy-paste example is in [`.claude-plugin/mcp-http.example.json`](.claude-plugin/mcp-http.example.json). Start `luxd` first (`lux hub-install` and start the service, or run `luxd` in a terminal), then verify the direct connection end to end:
+
+```bash
+uv run python scripts/direct_connection_probe.py
+```
+
+The probe initializes a session, lists the tool surface, and calls a read-only tool. `luxd` binds loopback only and refuses a non-loopback `--host` at startup; remote access awaits authentication.
 
 ## Documentation
 
