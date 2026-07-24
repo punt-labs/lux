@@ -196,6 +196,27 @@ LIFECYCLE_SCENARIOS: tuple[Scenario, ...] = (
         setup={"display_running": True},
     ),
     Scenario(
+        name="show-framed-ttl",
+        tool="show",
+        inputs={
+            "scene_id": "s1",
+            "elements": [{"kind": "text", "id": "t1", "content": "Hi"}],
+            "frame_id": "dash",
+            "frame_ttl_seconds": 5.0,
+        },
+        setup={"display_running": True},
+    ),
+    Scenario(
+        name="show-bad-frame-ttl",
+        tool="show",
+        inputs={
+            "scene_id": "s1",
+            "elements": [],
+            "frame_ttl_seconds": 0,
+        },
+        setup={"display_running": True, "client": {}},
+    ),
+    Scenario(
         name="show-bad-frame-size",
         tool="show",
         inputs={

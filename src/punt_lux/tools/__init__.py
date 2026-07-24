@@ -38,9 +38,13 @@ from punt_lux.tools.tools import (
     set_theme,
     set_window_settings,
     show,
+    update,
+)
+
+# Importing composite_tools.py registers the convenience wrappers over show().
+from punt_lux.tools.composite_tools import (
     show_dashboard,
     show_table,
-    update,
 )
 
 # Importing subscribe_tools.py registers Agent Subscribe / Publish tools

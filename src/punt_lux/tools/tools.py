@@ -1,4 +1,9 @@
-"""All 29 MCP tool definitions for the Lux display surface."""
+"""The core MCP tool definitions for the Lux display surface.
+
+The convenience wrappers composed over ``show()`` — ``show_table`` and
+``show_dashboard`` — live in ``composite_tools``; the Agent Subscribe / Publish
+tools live in ``subscribe_tools``. All register on the one FastMCP instance.
+"""
 
 from __future__ import annotations
 
@@ -23,9 +28,7 @@ from punt_lux.operations import (
     RecentErrors,
     RecentEvents,
     RegisterToolRequest,
-    RenderDashboardRequest,
     RenderRequest,
-    RenderTableRequest,
     SceneInspection,
     SceneList,
     SceneShown,
@@ -159,6 +162,7 @@ def show(
     frame_size: list[int] | None = None,
     frame_flags: dict[str, bool] | None = None,
     frame_layout: str | None = None,  # "tab" or "stack"
+    frame_ttl_seconds: float | None = None,
 ) -> str:
     """Display a scene in the Lux window.
 
@@ -230,6 +234,10 @@ def show(
         auto_resize, no_title_bar, no_background, no_scrollbar.
       frame_layout: how multiple scenes share the frame — "tab" (one at a time via a
         tab bar, default) or "stack" (stacked with collapsing headers).
+      frame_ttl_seconds: a positive lifetime after which the Hub removes the frame
+        and its scenes from both tiers, unless a re-show refreshes it first. Omit
+        (the default) for a frame that never expires; a re-show with no TTL clears
+        a prior one.
 
     Writes the scene to the Hub and returns ``"shown:<scene_id>"`` at once — the
     replicator sends it in the background; "shown" means accepted, not drawn.
@@ -246,177 +254,11 @@ def show(
                 "size": frame_size,
                 "flags": frame_flags,
                 "layout": frame_layout,
+                "ttl_seconds": frame_ttl_seconds,
             },
         }
     )
     return _format_render(OPERATIONS.render(request, scope=_scope()))
-
-
-@mcp.tool()
-def show_table(
-    scene_id: str,
-    columns: list[str],
-    rows: list[list[Any]],
-    filters: list[dict[str, Any]] | None = None,
-    detail: dict[str, Any] | None = None,
-    flags: list[str] | None = None,
-    title: str | None = None,
-    frame_id: str | None = None,
-    frame_title: str | None = None,
-) -> str:
-    """Display a filterable data table with optional detail panel.
-
-    This is a convenience wrapper around ``show()`` for the most common
-    pattern: a searchable, filterable table with drill-down detail.
-    Filters and detail run at 60fps in the display — zero round trips.
-
-    Args:
-        scene_id: Unique identifier for this scene.
-        columns: Column headers (e.g., ["ID", "Title", "Status"]).
-        rows: Table data — each row is a list matching columns order.
-        filters: Built-in filter controls rendered above the table.
-            Two types:
-              Search:  {"type": "search", "column": [0, 1],
-                        "hint": "Filter by ID or title..."}
-              Combo:   {"type": "combo", "column": 2, "label": "Status",
-                        "items": ["All", "Open", "Closed"]}
-            First combo item should be "All" (no filter). Include only
-            values that exist in the data. 1-3 filters is ideal.
-        detail: Drill-down panel shown when a row is selected.
-            Structure:
-              {"fields": ["ID", "Status", "Priority"],
-               "rows": [["ISS-1", "Open", "P1"], ...],
-               "body": ["Full description for row 1...", ...]}
-            ``detail.rows`` **and** ``detail.body`` must both be
-            parallel to ``rows`` (same count, same order). Each
-            entry in ``detail.body`` is the expanded text for the
-            corresponding row.
-        flags: Table flags (default: ["borders", "row_bg"]).
-            Available: "borders", "row_bg", "resizable", "sortable",
-            "copy_id" (copy first column to clipboard on row select).
-        title: Window title.
-        frame_id: Target frame for tab isolation (e.g., "beads-lux").
-        frame_title: Display title for the frame (e.g., "Beads: lux").
-
-    Example — issue explorer with search, status filter, and detail::
-
-        show_table(
-            scene_id="issues",
-            columns=["ID", "Title", "Status", "Priority"],
-            rows=[
-                ["ISS-1", "Fix login timeout", "Open", "P1"],
-                ["ISS-2", "Add dark mode", "In Progress", "P2"],
-            ],
-            filters=[
-                {"type": "search", "column": [0, 1],
-                 "hint": "Filter by ID or title..."},
-                {"type": "combo", "column": 2, "label": "Status",
-                 "items": ["All", "Open", "In Progress"]},
-            ],
-            detail={
-                "fields": ["ID", "Status", "Priority", "Assignee"],
-                "rows": [
-                    ["ISS-1", "Open", "P1", "alice"],
-                    ["ISS-2", "In Progress", "P2", "bob"],
-                ],
-                "body": [
-                    "Login flow times out after 30s on slow connections.",
-                    "Add system-wide dark mode toggle.",
-                ],
-            },
-            title="Issue Explorer",
-        )
-    """
-    request = RenderTableRequest.parse(
-        {
-            "scene_id": scene_id,
-            "columns": columns,
-            "rows": rows,
-            "filters": filters,
-            "detail": detail,
-            "flags": flags,
-            "title": title,
-            "frame_id": frame_id,
-            "frame_title": frame_title,
-        }
-    )
-    return _format_render(OPERATIONS.render_table(request, scope=_scope()))
-
-
-@mcp.tool()
-def show_dashboard(
-    scene_id: str,
-    metrics: list[dict[str, str]] | None = None,
-    charts: list[dict[str, Any]] | None = None,
-    table_columns: list[str] | None = None,
-    table_rows: list[list[Any]] | None = None,
-    title: str | None = None,
-    frame_id: str | None = None,
-    frame_title: str | None = None,
-) -> str:
-    """Display a dashboard with metric cards, charts, and a data table.
-
-    This is a convenience wrapper around ``show()`` for the dashboard
-    pattern: metric cards across the top, charts in the middle, and a
-    summary table at the bottom. All sections are optional — include
-    only the ones relevant to your data.
-
-    Args:
-        scene_id: Unique identifier for this scene.
-        metrics: Key-value metric cards displayed in a row.
-            Each dict: {"label": "Total Users", "value": "1,234"}.
-            2-5 cards is ideal for a single-glance overview.
-        charts: Plot elements displayed below the metrics.
-            Each dict is a plot config:
-              {"id": "p1", "title": "Trend",
-               "x_label": "Time", "y_label": "Value",
-               "series": [{"label": "requests", "type": "line",
-                           "x": [1,2,3], "y": [10,20,15]}]}
-            Series types: "line" (trends), "bar" (comparisons),
-            "scatter" (correlations).
-        table_columns: Column headers for the summary table.
-        table_rows: Rows for the summary table.
-        title: Window title.
-
-    Example — test results dashboard::
-
-        show_dashboard(
-            scene_id="test-results",
-            metrics=[
-                {"label": "Total", "value": "142"},
-                {"label": "Passed", "value": "137"},
-                {"label": "Failed", "value": "5"},
-                {"label": "Duration", "value": "2m 34s"},
-            ],
-            charts=[{
-                "id": "duration-chart",
-                "title": "Test Duration by Suite",
-                "x_label": "Suite", "y_label": "Seconds",
-                "series": [{"label": "duration", "type": "bar",
-                            "x": [1, 2, 3],
-                            "y": [45, 82, 27]}],
-            }],
-            table_columns=["Test", "Status", "Duration"],
-            table_rows=[
-                ["test_login", "PASS", "1.2s"],
-                ["test_upload", "FAIL", "5.0s"],
-            ],
-            title="Test Results",
-        )
-    """
-    request = RenderDashboardRequest.parse(
-        {
-            "scene_id": scene_id,
-            "metrics": metrics,
-            "charts": charts,
-            "table_columns": table_columns,
-            "table_rows": table_rows,
-            "title": title,
-            "frame_id": frame_id,
-            "frame_title": frame_title,
-        }
-    )
-    return _format_render(OPERATIONS.render_dashboard(request, scope=_scope()))
 
 
 @mcp.tool()
