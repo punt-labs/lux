@@ -866,12 +866,8 @@ class DisplayServer:
         if msg.frame_id is not None:
             self._handle_framed_scene(sock, msg)
             return
-        try:
-            fd = sock.fileno()
-        except OSError:
-            return
         self._wrap_abc_elements(msg)
-        self._scene_manager.handle_scene(msg, fd)
+        self._scene_manager.handle_scene(msg)
         self._route_to_domain_display(msg)
         ack = AckMessage(scene_id=msg.id, ts=time.time())
         self._socket_server.send_to_client(sock, ack)

@@ -73,7 +73,7 @@ class TestHandleSceneNew:
         mgr, _ = _make_manager()
         scene = _make_scene()
 
-        mgr.handle_scene(scene, owner_fd=10)
+        mgr.handle_scene(scene)
 
         assert "s1" in mgr._scenes
         assert mgr._scene_order == ["s1"]
@@ -85,7 +85,7 @@ class TestHandleSceneNew:
         mgr, _ = _make_manager()
         scene = _make_scene(elements=[WindowElement(id="w1", children=[], title="Win")])
 
-        mgr.handle_scene(scene, owner_fd=10)
+        mgr.handle_scene(scene)
 
         assert "w1" in mgr._dirty_windows
 
@@ -102,8 +102,8 @@ class TestHandleSceneReplace:
         first = _make_scene(elements=[TextElement(id="t1", content="First")])
         second = _make_scene(elements=[TextElement(id="t2", content="Second")])
 
-        mgr.handle_scene(first, owner_fd=10)
-        mgr.handle_scene(second, owner_fd=10)
+        mgr.handle_scene(first)
+        mgr.handle_scene(second)
 
         assert mgr._scenes["s1"].elements[0].id == "t2"
         assert mgr._scene_order == ["s1"]
@@ -123,7 +123,7 @@ class TestHandleSceneReplace:
         until scene clear — cosmetic, never a functional break.
         """
         mgr, _ = _make_manager()
-        mgr.handle_scene(_make_scene(), owner_fd=10)
+        mgr.handle_scene(_make_scene())
         ws = mgr._scene_widget_state["s1"]
         ws.set("t1", "survivor")
         ws.set("__tbl_sel_t1", 3)
@@ -132,7 +132,7 @@ class TestHandleSceneReplace:
         ws.set("__tbl_sel_b1", 5)
 
         replacement = _make_scene(elements=[TextElement(id="t1", content="New")])
-        mgr.handle_scene(replacement, owner_fd=10)
+        mgr.handle_scene(replacement)
 
         assert ws.get("t1") == "survivor"
         assert ws.get("__tbl_sel_t1") == 3
@@ -150,7 +150,7 @@ class TestHandleSceneReplace:
         """
         mgr, stale_calls = _make_manager()
         shared: list[object] = [ButtonElement(id="shared", label="Click")]
-        mgr.handle_scene(_make_scene(scene_id="s1", elements=shared), owner_fd=10)
+        mgr.handle_scene(_make_scene(scene_id="s1", elements=shared))
         mgr.handle_framed_scene(
             _make_scene(scene_id="s2", frame_id="f1", elements=shared), owner_fd=11
         )
@@ -158,7 +158,7 @@ class TestHandleSceneReplace:
         replacement = _make_scene(
             scene_id="s1", elements=[TextElement(id="t2", content="New")]
         )
-        mgr.handle_scene(replacement, owner_fd=10)
+        mgr.handle_scene(replacement)
 
         drained = [sid for call in stale_calls for sid in call]
         assert "shared" not in drained
@@ -173,14 +173,13 @@ class TestHandleSceneReplace:
         mgr.handle_scene(
             _make_scene(
                 scene_id="s1", elements=[ButtonElement(id="only", label="Click")]
-            ),
-            owner_fd=10,
+            )
         )
 
         replacement = _make_scene(
             scene_id="s1", elements=[TextElement(id="t2", content="New")]
         )
-        mgr.handle_scene(replacement, owner_fd=10)
+        mgr.handle_scene(replacement)
 
         drained = [sid for call in stale_calls for sid in call]
         assert "only" in drained
@@ -197,7 +196,7 @@ class TestHandleSceneReplace:
         """
         mgr, stale_calls = _make_manager()
         shared: list[object] = [ButtonElement(id="shared", label="Click")]
-        mgr.handle_scene(_make_scene(scene_id="s1", elements=shared), owner_fd=10)
+        mgr.handle_scene(_make_scene(scene_id="s1", elements=shared))
         mgr.handle_framed_scene(
             _make_scene(scene_id="s2", frame_id="f1", elements=shared), owner_fd=11
         )
@@ -219,13 +218,13 @@ class TestHandleSceneReplace:
         spurious ``TabChanged``. The survivor's selection state is untouched.
         """
         mgr, _ = _make_manager()
-        mgr.handle_scene(_make_scene(), owner_fd=10)
+        mgr.handle_scene(_make_scene())
         ws = mgr._scene_widget_state["s1"]
         ws.set(f"t1{WidgetState.HONOURED_SUFFIX}", "tab-2")
         ws.set("__tbl_sel_t1", 3)
 
         replacement = _make_scene(elements=[TextElement(id="t1", content="New")])
-        mgr.handle_scene(replacement, owner_fd=10)
+        mgr.handle_scene(replacement)
 
         assert ws.get(f"t1{WidgetState.HONOURED_SUFFIX}") is None
         assert ws.get("__tbl_sel_t1") == 3
@@ -244,14 +243,14 @@ class TestHandleFramedScene:
 
         mgr.handle_framed_scene(scene, owner_fd=10)
 
-        assert "f1" in mgr._frames
-        frame = mgr._frames["f1"]
+        assert "f1" in mgr.frames
+        frame = mgr.frames["f1"]
         assert frame.title == "My Frame"
         assert "s1" in frame.scenes
         assert frame.scene_order == ["s1"]
-        assert mgr._scene_to_frame["s1"] == "f1"
-        assert mgr._scene_to_owner["s1"] == 10
-        assert mgr._focus_frame_id == "f1"
+        assert mgr.scene_to_frame["s1"] == "f1"
+        assert mgr.scene_to_owner["s1"] == 10
+        assert mgr.focus_frame_id == "f1"
 
     def test_second_scene_joins_frame(self) -> None:
         """A second scene with the same frame_id is added to the frame."""
@@ -262,7 +261,7 @@ class TestHandleFramedScene:
         mgr.handle_framed_scene(s1, owner_fd=10)
         mgr.handle_framed_scene(s2, owner_fd=11)
 
-        frame = mgr._frames["f1"]
+        frame = mgr.frames["f1"]
         assert set(frame.scenes.keys()) == {"s1", "s2"}
         assert frame.scene_order == ["s1", "s2"]
         assert frame.owner_fds == {10, 11}
@@ -281,9 +280,9 @@ class TestDismissScene:
         s2 = _make_scene(scene_id="s2")
         s3 = _make_scene(scene_id="s3")
 
-        mgr.handle_scene(s1, owner_fd=10)
-        mgr.handle_scene(s2, owner_fd=10)
-        mgr.handle_scene(s3, owner_fd=10)
+        mgr.handle_scene(s1)
+        mgr.handle_scene(s2)
+        mgr.handle_scene(s3)
         mgr._active_tab = "s2"
 
         mgr.dismiss_scene("s2")
@@ -297,7 +296,7 @@ class TestDismissScene:
     def test_dismiss_last_scene(self) -> None:
         """Dismissing the only scene sets _active_tab to None."""
         mgr, _ = _make_manager()
-        mgr.handle_scene(_make_scene(), owner_fd=10)
+        mgr.handle_scene(_make_scene())
 
         mgr.dismiss_scene("s1")
 
@@ -308,7 +307,7 @@ class TestDismissScene:
         """WindowElement dirty flags are cleaned when the scene is dismissed."""
         mgr, _ = _make_manager()
         scene = _make_scene(elements=[WindowElement(id="w1", children=[], title="Win")])
-        mgr.handle_scene(scene, owner_fd=10)
+        mgr.handle_scene(scene)
         assert "w1" in mgr._dirty_windows
 
         mgr.dismiss_scene("s1")
@@ -324,7 +323,7 @@ class TestDismissScene:
         """
         mgr, stale_calls = _make_manager()
         shared: list[object] = [ButtonElement(id="shared", label="Click")]
-        mgr.handle_scene(_make_scene(scene_id="s1", elements=shared), owner_fd=10)
+        mgr.handle_scene(_make_scene(scene_id="s1", elements=shared))
         mgr.handle_framed_scene(
             _make_scene(scene_id="s2", frame_id="f1", elements=shared), owner_fd=11
         )
@@ -352,13 +351,13 @@ class TestCloseFrame:
 
         stale_ids = mgr.close_frame("f1")
 
-        assert "f1" not in mgr._frames
-        assert "s1" not in mgr._scene_to_frame
-        assert "s2" not in mgr._scene_to_frame
+        assert "f1" not in mgr.frames
+        assert "s1" not in mgr.scene_to_frame
+        assert "s2" not in mgr.scene_to_frame
         assert "s1" not in mgr._scene_widget_state
         assert "s2" not in mgr._scene_widget_state
-        assert "s1" not in mgr._scene_to_owner
-        assert "s2" not in mgr._scene_to_owner
+        assert "s1" not in mgr.scene_to_owner
+        assert "s2" not in mgr.scene_to_owner
         # stale_ids should include element ids from the dismissed scenes
         assert len(stale_ids) > 0
 
@@ -373,11 +372,11 @@ class TestCloseFrame:
         mgr, _ = _make_manager()
         s1 = _make_scene(scene_id="s1", frame_id="f1", frame_title="Frame")
         mgr.handle_framed_scene(s1, owner_fd=10)
-        assert mgr._focus_frame_id == "f1"
+        assert mgr.focus_frame_id == "f1"
 
         mgr.close_frame("f1")
 
-        assert mgr._focus_frame_id is None
+        assert mgr.focus_frame_id is None
 
 
 # -------------------------------------------------------------------
@@ -392,24 +391,24 @@ class TestUpsertSceneDedup:
         s1 = _make_scene(scene_id="s1", frame_id="f1", frame_title="First")
         mgr.handle_framed_scene(s1, owner_fd=10)
 
-        assert "s1" in mgr._frames["f1"].scenes
+        assert "s1" in mgr.frames["f1"].scenes
 
         # Move s1 to frame f2
         s1_moved = _make_scene(scene_id="s1", frame_id="f2", frame_title="Second")
         mgr.handle_framed_scene(s1_moved, owner_fd=10)
 
         # s1 should be in f2, not f1
-        assert "s1" in mgr._frames["f2"].scenes
-        assert mgr._scene_to_frame["s1"] == "f2"
+        assert "s1" in mgr.frames["f2"].scenes
+        assert mgr.scene_to_frame["s1"] == "f2"
         # f1 was the only scene — closing it should remove the frame
-        assert "f1" not in mgr._frames
+        assert "f1" not in mgr.frames
 
     def test_unframed_scene_moves_to_frame(self) -> None:
         """An unframed scene with matching id is dismissed when framed."""
         mgr, _ = _make_manager()
         # Add s1 as unframed
         s1 = _make_scene(scene_id="s1")
-        mgr.handle_scene(s1, owner_fd=10)
+        mgr.handle_scene(s1)
         assert "s1" in mgr._scenes
 
         # Now send s1 into a frame
@@ -418,7 +417,7 @@ class TestUpsertSceneDedup:
 
         # s1 should be gone from unframed scenes and present in frame
         assert "s1" not in mgr._scenes
-        assert "s1" in mgr._frames["f1"].scenes
+        assert "s1" in mgr.frames["f1"].scenes
 
 
 # -------------------------------------------------------------------
@@ -433,7 +432,7 @@ class TestClearAll:
 
         # Add unframed and framed scenes
         s1 = _make_scene(scene_id="s1")
-        mgr.handle_scene(s1, owner_fd=10)
+        mgr.handle_scene(s1)
         s2 = _make_scene(scene_id="s2", frame_id="f1", frame_title="Frame")
         mgr.handle_framed_scene(s2, owner_fd=10)
 
@@ -442,9 +441,9 @@ class TestClearAll:
         assert len(mgr._scenes) == 0
         assert len(mgr._scene_order) == 0
         assert mgr._active_tab is None
-        assert len(mgr._frames) == 0
-        assert len(mgr._scene_to_frame) == 0
-        assert len(mgr._scene_to_owner) == 0
+        assert len(mgr.frames) == 0
+        assert len(mgr.scene_to_frame) == 0
+        assert len(mgr.scene_to_owner) == 0
         assert len(mgr._scene_widget_state) == 0
         assert len(mgr._dirty_windows) == 0
 
@@ -593,3 +592,77 @@ class TestWidgetStateResetHonoured:
         assert ws.get(f"tb{WidgetState.PENDING_SUFFIX}") is None
         assert ws.get("__tbl_sel_tb") == 4
         assert ws.get("input_x") == "half-typed"
+
+
+# -------------------------------------------------------------------
+# Empty scene removes its frame — no husk frames (ruling 1)
+# -------------------------------------------------------------------
+
+
+class TestEmptySceneRemovesFrame:
+    """An emptied scene push removes the frame; content and frame vanish together."""
+
+    def test_empty_framed_scene_closes_its_only_frame(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(
+            _make_scene(
+                scene_id="s1",
+                frame_id="f1",
+                elements=[TextElement(id="t1", content="Hi")],
+            ),
+            owner_fd=10,
+        )
+        assert "f1" in mgr.frames
+
+        # The Hub emptied the scene and blanked it — an empty framed push.
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f1", elements=[]),
+            owner_fd=10,
+        )
+        assert "f1" not in mgr.frames  # gone, not a husk
+        assert "s1" not in mgr.scene_to_frame
+        assert mgr.resolve_scene("s1") is None
+
+    def test_empty_framed_scene_keeps_a_frame_holding_other_scenes(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(
+            _make_scene(
+                scene_id="s1",
+                frame_id="f1",
+                elements=[TextElement(id="t1", content="A")],
+            ),
+            owner_fd=10,
+        )
+        mgr.handle_framed_scene(
+            _make_scene(
+                scene_id="s2",
+                frame_id="f1",
+                elements=[TextElement(id="t2", content="B")],
+            ),
+            owner_fd=10,
+        )
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f1", elements=[]),
+            owner_fd=10,
+        )
+        assert "f1" in mgr.frames  # survives — s2 still holds it
+        assert mgr.resolve_scene("s1") is None
+        assert mgr.resolve_scene("s2") is not None
+
+    def test_empty_framed_scene_for_an_absent_frame_is_a_noop(self) -> None:
+        mgr, _ = _make_manager()
+        # No frame ever created; an empty push must not raise or create one.
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f1", elements=[]),
+            owner_fd=10,
+        )
+        assert "f1" not in mgr.frames
+
+    def test_empty_unframed_scene_is_dismissed(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_scene(
+            _make_scene(scene_id="s1", elements=[TextElement(id="t1", content="Hi")])
+        )
+        assert "s1" in mgr.scenes
+        mgr.handle_scene(_make_scene(scene_id="s1", elements=[]))
+        assert "s1" not in mgr.scenes

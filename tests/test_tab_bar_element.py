@@ -722,7 +722,7 @@ class TestEchoSuppressionLifecycle:
         """Install a tab bar and re-thread the factory as the display would."""
         bar = _abc_tab_bar(active_tab=active_tab)
         sm = server._scene_manager
-        sm.handle_scene(SceneMessage(id="s1", elements=[bar]), owner_fd=0)
+        sm.handle_scene(SceneMessage(id="s1", elements=[bar]))
         ws = sm.widget_state_for("s1")
         assert ws is not None
         factory = server._imgui_renderer_factory
@@ -735,8 +735,7 @@ class TestEchoSuppressionLifecycle:
         factory.widget_state.set(_honoured_key(), "tab-1")
         # A whole-scene re-push of the same surviving tab bar.
         sm.handle_scene(
-            SceneMessage(id="s1", elements=[_abc_tab_bar(active_tab="tab-1")]),
-            owner_fd=0,
+            SceneMessage(id="s1", elements=[_abc_tab_bar(active_tab="tab-1")])
         )
         repushed = sm.widget_state_for("s1")
         assert repushed is not None
@@ -762,16 +761,14 @@ class TestEchoSuppressionLifecycle:
         factory.widget_state.set(_honoured_key(), "tab-1")
         # Re-push without the tab bar → it is removed.
         sm.handle_scene(
-            SceneMessage(id="s1", elements=[TextElement(id="only", content="x")]),
-            owner_fd=0,
+            SceneMessage(id="s1", elements=[TextElement(id="only", content="x")])
         )
         removed = sm.widget_state_for("s1")
         assert removed is not None
         assert removed.get(_honoured_key(), _UNHONOURED) is _UNHONOURED
         # Re-add the same-id tab bar: it starts fresh, no stale honoured value.
         sm.handle_scene(
-            SceneMessage(id="s1", elements=[_abc_tab_bar(active_tab="tab-1")]),
-            owner_fd=0,
+            SceneMessage(id="s1", elements=[_abc_tab_bar(active_tab="tab-1")])
         )
         readded = sm.widget_state_for("s1")
         assert readded is not None
@@ -803,8 +800,7 @@ class TestEchoSuppressionLifecycle:
         sm, factory = self._install(_server())
         factory.widget_state.set(_honoured_key(), "tab-1")
         sm.handle_scene(
-            SceneMessage(id="s1", elements=[_abc_tab_bar(active_tab="tab-1")]),
-            owner_fd=0,
+            SceneMessage(id="s1", elements=[_abc_tab_bar(active_tab="tab-1")])
         )
         repushed = sm.widget_state_for("s1")
         assert repushed is not None

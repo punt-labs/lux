@@ -46,10 +46,6 @@ if TYPE_CHECKING:
 
 __all__ = ["InProcessLoop", "SyncReplicator"]
 
-# handle_scene ignores the owner fd (noqa ARG002 there); the rig has no
-# socket, so any int stands in for the replica's owning client.
-_REPLICA_OWNER_FD = 0
-
 
 class InProcessLoop:
     """One windowless Display replica wired to the Hub over InMemoryConnection.
@@ -120,7 +116,7 @@ class InProcessLoop:
         for elem in replica.elements:
             if isinstance(elem, AbcElement):
                 elem.bind_renderer_factory(RaisingRendererFactory())
-        self._server._scene_manager.handle_scene(replica, _REPLICA_OWNER_FD)
+        self._server._scene_manager.handle_scene(replica)
         self._server._route_to_domain_display(replica)
         # Render would set this before any click; the rig sets it so a
         # subsequently-fired interaction stamps the right scene_id.
