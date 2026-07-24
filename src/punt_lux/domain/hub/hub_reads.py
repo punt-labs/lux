@@ -2,9 +2,11 @@
 
 The read half of ``HubDisplay`` that answers "what is in the store right now?"
 for introspection: a scene's roots, its element count, its distinct root owners,
-and the live client sessions. Each takes the store's read lock, so the lock
-discipline lives here with the reads and never escapes to the facade, which
-delegates to this object.
+and the live client sessions. The three reads over the element tree take the
+store's read lock, so that lock discipline lives here with the reads and never
+escapes to the facade, which delegates to this object. ``client_sessions`` reads
+the client registry, which is not part of the locked element store and keeps its
+own consistency, so it takes no store lock.
 """
 
 from __future__ import annotations
