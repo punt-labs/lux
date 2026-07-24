@@ -1131,14 +1131,14 @@
     "future_annotations": 1.0
   },
   "src/punt_lux/domain/hub/clients.py": {
-    "module_size": 227.0,
-    "classes_per_module": 1.0,
     "method_ratio": 1.0,
-    "class_to_func_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 0.91,
     "max_complexity": 8.0,
     "avg_complexity": 3.09,
+    "module_size": 227.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
@@ -1203,6 +1203,19 @@
     "avg_complexity": 1.67,
     "module_size": 171.0,
     "classes_per_module": 2.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
+  "src/punt_lux/domain/hub/frame_expiry.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 1.0,
+    "max_complexity": 4.0,
+    "avg_complexity": 1.83,
+    "module_size": 69.0,
+    "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
@@ -1443,14 +1456,14 @@
     "future_annotations": 1.0
   },
   "src/punt_lux/domain/hub/scene_presentation.py": {
-    "module_size": 116.0,
-    "classes_per_module": 2.0,
     "method_ratio": 1.0,
-    "class_to_func_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 2.43,
     "max_complexity": 3.0,
     "avg_complexity": 1.29,
+    "module_size": 116.0,
+    "classes_per_module": 2.0,
+    "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
@@ -1521,14 +1534,14 @@
     "future_annotations": 1.0
   },
   "src/punt_lux/domain/hub/subtree_remover.py": {
-    "module_size": 102.0,
-    "classes_per_module": 1.0,
     "method_ratio": 1.0,
-    "class_to_func_ratio": 1.0,
     "encapsulation_ratio": 1.0,
     "avg_params": 2.4,
     "max_complexity": 4.0,
     "avg_complexity": 2.2,
+    "module_size": 102.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
