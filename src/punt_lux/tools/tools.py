@@ -412,11 +412,13 @@ def list_scenes() -> SceneList:
 
 @mcp.tool()
 def screenshot() -> str:
-    """Capture a screenshot of the display window.
+    """Report that display screenshot capture is unsupported (DES-028).
 
-    Returns the file path to a PNG image of the current display.
-    The agent can read this image to see exactly what is rendered.
-    Returns "not running" if the display server is not available.
+    Framebuffer capture is unresolved below the message layer, so every call
+    returns ``"error: screenshot capture is not supported by the display; see
+    DES-028"`` rather than an image path. The tool remains so the refusal is
+    explicit rather than a missing verb; it will produce an image once DES-028 is
+    resolved.
     """
     return _fault_or(OPERATIONS.screenshot(), lambda r: str(r.path))
 
