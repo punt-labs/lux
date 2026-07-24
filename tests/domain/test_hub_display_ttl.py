@@ -156,6 +156,31 @@ def test_manual_remove_frame_disarms_the_ttl() -> None:
     )  # no stale sweep of a closed frame
 
 
+def test_forget_disarms_the_ttl_once_the_frame_empties() -> None:
+    clock = FakeClock()
+    display = HubDisplay(clock)
+    scene = SceneId("s")
+    _show(display, scene, ttl_seconds=5.0)
+
+    display.frames.forget(scene)  # the scene is blanked and reclaimed
+    assert display.frames.seconds_until_next() is None  # no armed deadline left
+
+
+def test_forget_keeps_the_ttl_while_another_scene_holds_the_frame() -> None:
+    clock = FakeClock()
+    display = HubDisplay(clock)
+    first = SceneId("a")
+    second = SceneId("b")
+    _show(display, first, ttl_seconds=5.0)
+    _show(display, second, ttl_seconds=5.0)  # same frame
+
+    display.frames.forget(first)
+    assert display.frames.seconds_until_next() == 5.0  # b still holds the frame
+
+    display.frames.forget(second)
+    assert display.frames.seconds_until_next() is None  # frame now empty, disarmed
+
+
 def test_expire_due_removes_every_scene_the_frame_holds() -> None:
     clock = FakeClock()
     display = HubDisplay(clock)

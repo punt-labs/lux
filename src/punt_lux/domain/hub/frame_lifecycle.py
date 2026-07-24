@@ -56,29 +56,50 @@ class FrameLifecycle:
         self._lock = lock
         return self
 
+    def present(
+        self,
+        scene_id: SceneId,
+        presentation: ScenePresentation,
+        ttl_seconds: float | None,
+    ) -> None:
+        """Record how a scene is framed and arm its frame's TTL, in one locked step.
+
+        Recording the presentation and arming the deadline is a single method, so
+        a caller cannot install a frame yet forget to (re-)arm it: the atomicity
+        the sweep relies on is a property of this method, not a convention the
+        caller must uphold. A ``ttl_seconds`` of None clears any prior deadline, so
+        a re-show without a TTL makes the frame permanent.
+        """
+        with self._lock.write():
+            self._frames.record(scene_id, presentation)
+            self._expiry.set_deadline(presentation.frame_id, ttl_seconds)
+
     def record(self, scene_id: SceneId, presentation: ScenePresentation) -> None:
-        """Remember how a scene was shown, for a later whole-scene resend."""
+        """Remember how a scene is framed, without touching its TTL.
+
+        The presentation half of :meth:`present`, kept for callers (and tests) that
+        set up or refresh a frame's presentation with no bearing on its deadline.
+        """
         with self._lock.write():
             self._frames.record(scene_id, presentation)
 
     def forget(self, scene_id: SceneId) -> None:
-        """Drop a scene's presentation once a clear blanks it away. Idempotent."""
+        """Drop a scene's presentation; disarm its frame's TTL once the frame empties.
+
+        A blanked scene's frame should not keep a live deadline the sweep would
+        later wake to act on for nothing. Once this scene is forgotten, if no other
+        scene remains in its frame the frame's deadline is disarmed. Idempotent.
+        """
         with self._lock.write():
+            frame_id = self._frames.presentation_for(scene_id).frame_id
             self._frames.forget(scene_id)
+            if not self._frames.scenes_in_frame(frame_id):
+                self._expiry.disarm(frame_id)
 
     def presentation_for(self, scene_id: SceneId) -> ScenePresentation:
         """Return how a scene was shown, or a self-framed default, read under lock."""
         with self._lock.read():
             return self._frames.presentation_for(scene_id)
-
-    def set_deadline(self, frame_id: str, ttl_seconds: float | None) -> None:
-        """Arm ``frame_id`` at ``ttl_seconds``, or clear its deadline when None.
-
-        Called inside the re-show's write lock so arming the deadline is atomic
-        with installing the scene's roots.
-        """
-        with self._lock.write():
-            self._expiry.set_deadline(frame_id, ttl_seconds)
 
     def remove_frame(self, frame_id: str) -> frozenset[SceneId]:
         """Close ``frame_id``: tear down its scenes, disarm its TTL, return them.

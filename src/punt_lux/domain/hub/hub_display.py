@@ -259,17 +259,17 @@ class HubDisplay:
         *,
         ttl_seconds: float | None = None,
     ) -> None:
-        """Replace a scene's roots, record its presentation, and set the frame TTL.
+        """Replace a scene's roots and show it into its frame with a TTL.
 
-        All three writes share one write lock, so a concurrent snapshot never pairs
-        new roots with an old presentation and a concurrent expiry sweep never races
-        the deadline arm (see ``FrameLifecycle``). A ``ttl_seconds`` of None clears
-        any prior deadline, making a re-show without a TTL permanent.
+        Both writes share one write lock, so a concurrent snapshot never pairs new
+        roots with an old presentation and a concurrent expiry sweep never races the
+        deadline arm (``FrameLifecycle.present`` records the presentation and arms
+        the deadline as one step). A ``ttl_seconds`` of None clears any prior
+        deadline, making a re-show without a TTL permanent.
         """
         with self._lock.write():
             self.replace_scene(connection_id, scene_id, roots)
-            self._frame_lifecycle.record(scene_id, presentation)
-            self._frame_lifecycle.set_deadline(presentation.frame_id, ttl_seconds)
+            self._frame_lifecycle.present(scene_id, presentation, ttl_seconds)
 
     # -- apply -------------------------------------------------------------
 
