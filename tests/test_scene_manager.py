@@ -11,6 +11,7 @@ from punt_lux.protocol import (
     ButtonElement,
     SceneMessage,
     SeparatorElement,
+    TableElement,
     TextElement,
     WindowElement,
 )
@@ -60,6 +61,30 @@ def _make_manager() -> tuple[SceneManager, list[list[str]]]:
 
     mgr = SceneManager(on_scene_replaced=on_replaced)
     return mgr, stale_calls
+
+
+class TestEmptyPushIsRemoval:
+    """An empty element push is a scene removal — the intended semantics.
+
+    ``show(scene_id, [])`` dismisses the scene rather than leaving an empty window;
+    a scene whose tree still holds an element (a zero-row table is one
+    ``TableElement``) is kept. Documents the boundary so the direct-empty-show
+    change stays deliberate and the beads zero-rows case stays safe.
+    """
+
+    def test_empty_element_push_dismisses_the_scene(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_scene(_make_scene("s1"))
+        assert "s1" in mgr._scenes
+
+        mgr.handle_scene(_make_scene("s1", elements=[]))  # show("s1", [])
+        assert "s1" not in mgr._scenes  # removed, not an empty husk
+
+    def test_a_zero_row_table_is_not_a_removal(self) -> None:
+        mgr, _ = _make_manager()
+        table = TableElement(id="tbl", columns=["A"], rows=[])
+        mgr.handle_scene(_make_scene("s1", elements=[table]))
+        assert "s1" in mgr._scenes  # a TableElement is still an element — kept
 
 
 # -------------------------------------------------------------------
