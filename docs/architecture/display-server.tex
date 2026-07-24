@@ -231,8 +231,12 @@ A client disconnects (error or clean close).
 \subsection{Receive Scene}
 % -------------------------------------------------------------------
 
-A client sends a new scene, replacing any existing one.
-The event queue is cleared since old element references are stale.
+A client sends a new scene, replacing any existing one. An empty element set is
+a removal, not an install: the scene disappears (\texttt{hasScene' = zfalse})
+rather than lingering as an empty husk --- the Hub blanks a removed scene by
+re-pushing it with no elements, and the display treats that empty push as the
+dismissal it is. A non-empty push installs the scene as before. Either way the
+event queue is cleared, since old element references are stale.
 
 \begin{schema}{ReceiveScene}
   \Delta DisplayServer \\
@@ -242,7 +246,8 @@ The event queue is cleared since old element references are stale.
   \where
   newElemIds? \subseteq \dom newElemKinds? \\
   \# newElemIds? \leq maxElements \\
-  hasScene' = ztrue \\
+  (newElemIds? \neq \emptyset \implies hasScene' = ztrue) \\
+  (newElemIds? = \emptyset \implies hasScene' = zfalse) \\
   sceneId' = newSceneId? \\
   elemIds' = newElemIds? \\
   elemKinds' = newElemKinds? \\

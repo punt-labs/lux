@@ -310,7 +310,10 @@ def test_hub_interaction_dispatch_frame_close_removes_the_frames_scenes(
             parent_id=None,
         ),
     )
-    isolated_display.frames.record(scene_id, ScenePresentation(frame_id=frame_id))
+    # Arm a TTL too, so the close also proves remove_frame disarms the deadline.
+    isolated_display.frames.present(
+        scene_id, ScenePresentation(frame_id=frame_id), ttl_seconds=60.0
+    )
 
     mock_replicator = MagicMock()
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)
@@ -329,6 +332,7 @@ def test_hub_interaction_dispatch_frame_close_removes_the_frames_scenes(
 
     assert isolated_display.scene_roots(scene_id) == []
     mock_replicator.mark_dirty.assert_called_once_with(scene_id)
+    assert isolated_display.frames.seconds_until_next() is None  # TTL disarmed
 
 
 def test_hub_interaction_dispatch_value_changed_rejects_non_scalar(

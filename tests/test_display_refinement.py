@@ -212,6 +212,33 @@ class TestRefinementReceiveScene:
         assert snap.elem_ids == frozenset({"t1", "sep-named"})
         assert snap.elem_kinds == {"t1": "text", "sep-named": "separator"}
 
+    def test_empty_scene_push_is_a_removal_and_commutes(self):
+        """An empty element push removes the scene (amended ReceiveScene).
+
+        The harness never fed an empty set before, so the old model's
+        unconditional ``hasScene' = ztrue`` diverged from the code's
+        dismiss-on-empty invisibly. This case holds the code to the amended spec:
+        an empty push abstracts to ``has_scene`` False and commutes.
+        """
+        server = _make_server()
+        sock = _mock_sock()
+        server._handle_message(
+            sock, SceneMessage(id="s1", elements=[TextElement(id="t1", content="Hi")])
+        )
+        abs_before = abstract(server)
+        assert abs_before.has_scene  # installed
+
+        server._handle_message(sock, SceneMessage(id="s1", elements=[]))  # removal
+
+        abs_after = abstract_receive_scene(
+            abs_before,
+            new_scene_id="s1",
+            new_elem_ids=frozenset(),
+            new_elem_kinds={},
+        )
+        assert not abs_after.has_scene  # the amended model removes on empty
+        assert abstract(server) == abs_after
+
 
 # ---------------------------------------------------------------------------
 # ClearScene commutativity
