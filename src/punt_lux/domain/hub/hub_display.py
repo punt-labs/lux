@@ -16,9 +16,9 @@ responsibility:
 A scene's presentation is kept until the scene is blanked away or re-shown, so an
 emptied scene can still be blanked into the frame it was shown in; once the
 replicator delivers that blank it reclaims the presentation. ``drop_connection``
-tears down each root a departing connection owned — ABC roots via the Observer
-cascade, wire-only roots directly through the ``SubtreeRemover`` — and returns the
-scenes it touched so the caller can repaint them.
+forgets a departing connection as a Hub client but leaves its scenes standing:
+a session's UI survives the session, to be removed later by a frame close, a
+clear, or a TTL — never by the disconnect itself.
 
 Every write runs under ``StoreLock`` so a snapshot never reads a half-applied
 scene. Every read takes the lock in read mode too — the replicator's crossing
@@ -33,7 +33,6 @@ from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.hub.child_index import ChildIndex
-from punt_lux.domain.hub.connection_dropper import ConnectionDropper
 from punt_lux.domain.hub.element_index import (
     ElementIndex,
     UnknownElementError,
@@ -98,7 +97,6 @@ class HubDisplay:
     _installer: SubtreeInstaller
     _lock: StoreLock
     _reader: SceneReader
-    _dropper: ConnectionDropper
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
@@ -121,12 +119,6 @@ class HubDisplay:
         )
         self._lock = StoreLock()
         self._reader = SceneReader(self._index, self._frames, self._lock)
-        self._dropper = ConnectionDropper(
-            self._clients,
-            self._owners,
-            self._children,
-            self._remover,
-        )
         return self
 
     @property
@@ -337,14 +329,15 @@ class HubDisplay:
 
     # -- cleanup trigger ---------------------------------------------------
 
-    def drop_connection(self, connection_id: ConnectionId) -> frozenset[SceneId]:
-        """Tear down a departing connection's roots; return the scenes it touched.
+    def drop_connection(self, connection_id: ConnectionId) -> None:
+        """Forget a departing connection as a Hub client, leaving its scenes.
 
-        The caller marks the returned scenes dirty so the replicator blanks the
-        ones the drop emptied and repaints the ones a survivor still holds. See
-        ``ConnectionDropper``.
+        A session's UI survives the session: the connection's roots stay
+        installed and stay owned by its id (so a later frame close, clear, or TTL
+        can still remove them). Only the client registration is dropped, so the
+        session no longer appears among the live Hub clients.
         """
-        return self._dropper.drop(connection_id)
+        self._clients.discard(connection_id)
 
     # -- private helpers ---------------------------------------------------
 

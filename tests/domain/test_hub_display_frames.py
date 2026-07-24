@@ -115,7 +115,7 @@ def test_clear_keeps_the_frame_of_a_scene_a_survivor_still_holds() -> None:
 
 
 def test_frame_persists_after_connection_drop() -> None:
-    """Dropping the owning connection keeps its scenes' frames for the blank."""
+    """Dropping the owning connection keeps its scenes' frames — the UI survives."""
     hub_display = _seed_framed_scene()
     assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
 
@@ -124,15 +124,16 @@ def test_frame_persists_after_connection_drop() -> None:
     assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
 
 
-def test_drop_connection_returns_the_scenes_it_touched() -> None:
-    """A9: drop names the departed connection's scenes for the caller to repaint.
+def test_drop_connection_leaves_the_scenes_standing() -> None:
+    """A9: a session's scenes survive its disconnect — only the client is forgotten.
 
-    The disconnect entry point marks these dirty so the replicator blanks the
-    ones the drop emptied into their frames, and repaints the ones a survivor
-    still holds.
+    The connection's roots stay installed and owned by its id (so a later frame
+    close, clear, or TTL can remove them); only the Hub-client registration goes.
     """
     hub_display = _seed_framed_scene()  # _OWNER holds a root in _SCENE
-    assert hub_display.drop_connection(_OWNER) == frozenset({_SCENE})
+    hub_display.drop_connection(_OWNER)
+    assert hub_display.scene_roots(_SCENE)
+    assert not hub_display.is_client(_OWNER)
 
 
 def test_non_empty_replace_keeps_the_frame() -> None:
@@ -150,14 +151,12 @@ def test_non_empty_replace_keeps_the_frame() -> None:
     assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
 
 
-def test_dropping_one_owner_keeps_frame_while_another_holds_a_root() -> None:
-    """Dropping one owner of a shared scene does not forget the frame.
+def test_dropping_one_owner_keeps_both_roots_of_a_shared_scene() -> None:
+    """Dropping a connection removes none of its roots — the UI survives.
 
-    The scene has two roots from two connections. Dropping the first must not
-    take the frame with it — the second connection's root is still live and its
-    next re-push would land in the wrong frame if the association were gone.
-    This is the over-eviction guard: forget keys on the scene's roots, not on
-    which scenes the dropped connection happened to touch.
+    The scene has two roots from two connections. Dropping the first tears down
+    nothing: both roots and the frame association survive, to be removed later
+    only by an explicit act (frame close, clear, TTL), never by the disconnect.
     """
     hub_display = _seed_framed_scene()  # _OWNER holds root "root"
     hub_display.register_client(_OTHER)
@@ -168,8 +167,7 @@ def test_dropping_one_owner_keeps_frame_while_another_holds_a_root() -> None:
 
     hub_display.drop_connection(_OWNER)
 
-    # _OTHER's root survives, so the frame association survives with it.
-    assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"other"}
+    assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"root", "other"}
     assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
 
 

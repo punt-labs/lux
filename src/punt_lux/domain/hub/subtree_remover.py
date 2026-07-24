@@ -11,9 +11,9 @@ Two entry points, one shared walk:
 
 - ``remove_subtree`` — the storage-only path. The ``update`` remove tool and
   the ABC observer cascade both land here through ``HubDisplay.apply``.
-- ``drop_root`` — the disconnect path for one scene-root. An ABC root is flipped
-  ``mark_removed`` so its observer cascade drives removal; a wire-only root has
-  no observer, so it is torn down directly through ``remove_subtree``.
+- ``drop_root`` — the explicit-removal path for one scene-root. An ABC root is
+  flipped ``mark_removed`` so its observer cascade drives removal; a wire-only
+  root has no observer, so it is torn down directly through ``remove_subtree``.
 """
 
 from __future__ import annotations
