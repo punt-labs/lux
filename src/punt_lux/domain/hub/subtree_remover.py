@@ -97,6 +97,22 @@ class SubtreeRemover:
                 connection_id,
             )
 
+    def drop_scene_roots(self, scene_id: SceneId) -> None:
+        """Tear down every root of a scene, whatever connection owns it.
+
+        The whole-scene removal a frame close or a TTL needs. The owner may have
+        departed — a scene outlives its session — so each root drops on its
+        recorded owner; a rootless scene is a no-op. Roots are snapshotted first
+        because ``drop_root`` mutates the index as the cascade unwinds.
+        """
+        roots = [
+            (element_id, self._owners.get(scene_id, element_id))
+            for element_id, _ in self._index.scene_root_items(scene_id)
+        ]
+        for element_id, owner in roots:
+            if owner is not None:
+                self.drop_root(scene_id, element_id, owner)
+
     def _drop_storage(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Drop one element from every storage collaborator. Idempotent."""
         self._index.discard(scene_id, element_id)

@@ -39,8 +39,10 @@ from punt_lux.domain.hub.element_index import (
     UnknownSceneError,
 )
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from punt_lux.domain.hub.hub_reads import HubReads
 from punt_lux.domain.hub.owner_tracker import OwnerTracker
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
+from punt_lux.domain.hub.presentation_access import LockedPresentations
 from punt_lux.domain.hub.root_registry import RootRegistry
 from punt_lux.domain.hub.scene_presentation import (
     ScenePresentation,
@@ -71,16 +73,14 @@ __all__ = [
 class HubDisplay:
     """Hub-side authoritative store of Elements, owners, and clients.
 
-    Facade over four typed collaborators. State invariants (established
-    at ``apply`` time, trusted thereafter):
+    Facade over typed collaborators. State invariants (established at ``apply``
+    time, trusted thereafter):
 
     - Every Element installed has a known owner ``ConnectionId``.
-    - A scene-root ABC Element (``parent_id=None``) has a
-      HubDisplay-owned observer registered; flipping ``_removed`` on
-      the root triggers a callback into ``apply(RemoveElement(...))``.
-    - Child Elements (``parent_id`` set) are observed by their parent
-      composite, NOT by HubDisplay — the parent's observer is what
-      drives ``apply(RemoveElement(...))`` for the child.
+    - A scene-root ABC Element (``parent_id=None``) carries a HubDisplay-owned
+      observer; flipping ``_removed`` calls back into ``apply(RemoveElement(...))``.
+    - A child Element (``parent_id`` set) is observed by its parent composite, not
+      by HubDisplay, which drives its ``apply(RemoveElement(...))`` instead.
 
     Tests construct their own ``HubDisplay()``; the module exposes
     ``hub_display`` as the production singleton.
@@ -97,6 +97,8 @@ class HubDisplay:
     _installer: SubtreeInstaller
     _lock: StoreLock
     _reader: SceneReader
+    _presentations: LockedPresentations
+    _reads: HubReads
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
@@ -119,6 +121,8 @@ class HubDisplay:
         )
         self._lock = StoreLock()
         self._reader = SceneReader(self._index, self._frames, self._lock)
+        self._presentations = LockedPresentations(self._frames, self._lock)
+        self._reads = HubReads(self._index, self._owners, self._clients, self._lock)
         return self
 
     @property
@@ -149,8 +153,7 @@ class HubDisplay:
 
     def scene_roots(self, scene_id: SceneId) -> list[WireElement]:
         """Return non-removed root elements for a scene, read under the lock."""
-        with self._lock.read():
-            return self._index.scene_roots(scene_id)
+        return self._reads.scene_roots(scene_id)
 
     @property
     def reader(self) -> SceneReader:
@@ -168,24 +171,15 @@ class HubDisplay:
         self, scene_id: SceneId, presentation: ScenePresentation
     ) -> None:
         """Remember how a scene was shown, for a later whole-scene resend."""
-        with self._lock.write():
-            self._frames.record(scene_id, presentation)
+        self._presentations.record(scene_id, presentation)
 
     def forget_presentation(self, scene_id: SceneId) -> None:
-        """Drop a scene's presentation once a clear blanks it away.
-
-        A whole-display clear empties the scene and blanks the display, and
-        nothing repaints it without a re-show recording a fresh presentation, so
-        the entry is dead weight. Bounds the frame map on the clear path, as the
-        replicator's post-blank reclaim does on the per-scene path.
-        """
-        with self._lock.write():
-            self._frames.forget(scene_id)
+        """Drop a scene's presentation once a clear blanks it away."""
+        self._presentations.forget(scene_id)
 
     def presentation_for(self, scene_id: SceneId) -> ScenePresentation:
         """Return how a scene was shown, or a self-framed default, read under lock."""
-        with self._lock.read():
-            return self._frames.presentation_for(scene_id)
+        return self._presentations.presentation_for(scene_id)
 
     def resolve(self, scene_id: SceneId, element_id: ElementId) -> WireElement:
         """Return the indexed Element or raise ``UnknownElementError``."""
@@ -217,22 +211,15 @@ class HubDisplay:
 
     def element_count(self, scene_id: SceneId) -> int:
         """Return the count of non-removed elements in a scene, read under lock."""
-        with self._lock.read():
-            return self._index.element_count(scene_id)
+        return self._reads.element_count(scene_id)
 
     def scene_owners(self, scene_id: SceneId) -> tuple[ConnectionId, ...]:
-        """Return each scene's distinct root owners, first-appearance order.
-
-        Empty if unowned; filter(None) drops a root whose owner is unrecorded.
-        """
-        with self._lock.read():
-            roots = self._index.scene_root_items(scene_id)
-            owned = (self._owners.get(scene_id, key) for key, _ in roots)
-            return tuple(dict.fromkeys(filter(None, owned)))
+        """Return each scene's distinct root owners, first-appearance order."""
+        return self._reads.scene_owners(scene_id)
 
     def client_sessions(self) -> Mapping[ConnectionId, float]:
         """Return each registered Hub session paired with its connect time."""
-        return self._clients.sessions()
+        return self._reads.client_sessions()
 
     @trace
     def replace_scene(
@@ -338,6 +325,19 @@ class HubDisplay:
         session no longer appears among the live Hub clients.
         """
         self._clients.discard(connection_id)
+
+    def remove_frame(self, frame_id: str) -> frozenset[SceneId]:
+        """Remove every scene shown in ``frame_id``; return the scenes touched.
+
+        The frame-close / TTL path: each scene's roots are torn down through the
+        remover whatever the (possibly departed) owner, so an orphaned frame still
+        closes. The caller marks the returned scenes dirty to repaint.
+        """
+        with self._lock.write():
+            scenes = self._frames.scenes_in_frame(frame_id)
+            for scene_id in scenes:
+                self._remover.drop_scene_roots(scene_id)
+            return frozenset(scenes)
 
     # -- private helpers ---------------------------------------------------
 

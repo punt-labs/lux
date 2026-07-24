@@ -119,11 +119,18 @@ class ClientRegistry:
         ``HubDisplay``, constructs a ``ButtonClicked`` or
         ``ValueChanged`` depending on ``event_kind``, and fires the
         Hub-side handlers (which have real ``HubPublishSink``).
+
+        A ``frame_close`` action is not an element interaction: the display sends
+        it when the user closes a frame, and the Hub answers by removing that
+        frame's scenes so both tiers agree the frame is gone.
         """
         from punt_lux.domain.element_abc import Element as ElementABC
         from punt_lux.domain.hub import hub_display
         from punt_lux.domain.ids import ElementId, SceneId
 
+        if msg.action == "frame_close":
+            ClientRegistry._close_frame(msg.element_id)
+            return
         scene_id = msg.scene_id
         element_id = msg.element_id
         if scene_id is None:
@@ -175,6 +182,21 @@ class ClientRegistry:
         from punt_lux.domain.hub.replicator_instance import hub_replicator
 
         hub_replicator.mark_dirty(SceneId(scene_id))
+
+    @staticmethod
+    def _close_frame(frame_id: str) -> None:
+        """Remove a display-closed frame's scenes on the Hub and repaint.
+
+        The user closed the frame on the display; the Hub removes the scenes that
+        frame held so the authoritative store agrees, then marks each dirty. The
+        replicator blanks them, which the display treats as removal — idempotent
+        with the frame the user already closed.
+        """
+        from punt_lux.domain.hub import hub_display
+        from punt_lux.domain.hub.replicator_instance import hub_replicator
+
+        for scene_id in hub_display.remove_frame(frame_id):
+            hub_replicator.mark_dirty(scene_id)
 
     @staticmethod
     def _build_hub_event(

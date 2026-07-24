@@ -136,6 +136,31 @@ def test_drop_connection_leaves_the_scenes_standing() -> None:
     assert not hub_display.is_client(_OWNER)
 
 
+def test_remove_frame_tears_down_its_scenes() -> None:
+    """Closing a frame removes the scenes it held; both tiers agree it is gone."""
+    hub_display = _seed_framed_scene()
+    touched = hub_display.remove_frame(_FRAME)
+    assert touched == frozenset({_SCENE})
+    assert hub_display.scene_roots(_SCENE) == []
+
+
+def test_remove_frame_removes_a_scene_whose_owner_departed() -> None:
+    """A frame close still works after the owning session left.
+
+    Scenes outlive their session; the close tears down each root through the
+    remover regardless of the (now-departed) owner, so an orphaned frame closes.
+    """
+    hub_display = _seed_framed_scene()
+    hub_display.drop_connection(_OWNER)  # session gone, scene stands
+    touched = hub_display.remove_frame(_FRAME)
+    assert touched == frozenset({_SCENE})
+    assert hub_display.scene_roots(_SCENE) == []
+
+
+def test_remove_frame_of_an_unknown_frame_touches_nothing() -> None:
+    assert HubDisplay().remove_frame("ghost") == frozenset()
+
+
 def test_non_empty_replace_keeps_the_frame() -> None:
     """A re-show (non-empty ``replace_scene``) preserves the recorded frame.
 

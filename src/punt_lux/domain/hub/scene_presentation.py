@@ -136,3 +136,11 @@ class ScenePresentationRegistry:
         return self._presentations.get(
             scene_id, ScenePresentation(frame_id=str(scene_id))
         )
+
+    def scenes_in_frame(self, frame_id: str) -> list[SceneId]:
+        """Return every recorded scene currently shown in ``frame_id``.
+
+        The Hub's answer to "which scenes does this display frame hold?" — used to
+        remove them all when a user closes the frame or a frame TTL expires.
+        """
+        return [s for s, p in self._presentations.items() if p.frame_id == frame_id]
