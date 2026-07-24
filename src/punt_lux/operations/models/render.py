@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.operations.models.common import OpError
@@ -43,6 +43,10 @@ class FrameSpec(BaseModel):
     size: tuple[int, int] | None = None  # None lets the display choose
     flags: FrameFlags | None = None  # None means no window flags
     layout: Literal["tab", "stack"] | None = None  # None uses the display default
+    # None is the genuine "permanent" state (PY-TS-14): the frame never expires
+    # unless a later re-show arms a TTL. A set value must be positive — a zero or
+    # negative lifetime is rejected at this boundary rather than expiring at once.
+    ttl_seconds: float | None = Field(default=None, gt=0)
 
 
 class RenderRequest(BaseModel):
@@ -79,7 +83,18 @@ class RenderRequest(BaseModel):
             return f"frame_layout must be 'tab' or 'stack', got {value!r}"
         if loc[:2] == ("frame", "size"):
             return "frame_size must be [width, height]"
+        if loc == ("frame", "ttl_seconds"):
+            return f"frame_ttl_seconds must be a positive number, got {value!r}"
         return OpError.describe(err)
+
+    def frame_ttl(self) -> float | None:
+        """Return the frame's time-to-live in seconds, or None for a permanent frame.
+
+        None is the documented "permanent" contract (PY-TS-14): the Hub arms a
+        deadline only when a positive TTL is present, and a re-show with no TTL
+        clears any prior one.
+        """
+        return self.frame.ttl_seconds if self.frame is not None else None
 
     def presentation(self) -> ScenePresentation:
         """Build the frame presentation, resolving frame id and title defaults."""

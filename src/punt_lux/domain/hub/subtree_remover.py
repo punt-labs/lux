@@ -11,9 +11,9 @@ Two entry points, one shared walk:
 
 - ``remove_subtree`` — the storage-only path. The ``update`` remove tool and
   the ABC observer cascade both land here through ``HubDisplay.apply``.
-- ``drop_root`` — the disconnect path for one scene-root. An ABC root is flipped
-  ``mark_removed`` so its observer cascade drives removal; a wire-only root has
-  no observer, so it is torn down directly through ``remove_subtree``.
+- ``drop_root`` — the explicit-removal path for one scene-root. An ABC root is
+  flipped ``mark_removed`` so its observer cascade drives removal; a wire-only
+  root has no observer, so it is torn down directly through ``remove_subtree``.
 """
 
 from __future__ import annotations
@@ -96,6 +96,22 @@ class SubtreeRemover:
                 scene_id,
                 connection_id,
             )
+
+    def drop_scene_roots(self, scene_id: SceneId) -> None:
+        """Tear down every root of a scene, whatever connection owns it.
+
+        The whole-scene removal a frame close or a TTL needs. The owner may have
+        departed — a scene outlives its session — so each root drops on its
+        recorded owner; a rootless scene is a no-op. Roots are snapshotted first
+        because ``drop_root`` mutates the index as the cascade unwinds.
+        """
+        roots = [
+            (element_id, self._owners.get(scene_id, element_id))
+            for element_id, _ in self._index.scene_root_items(scene_id)
+        ]
+        for element_id, owner in roots:
+            if owner is not None:
+                self.drop_root(scene_id, element_id, owner)
 
     def _drop_storage(self, scene_id: SceneId, element_id: ElementId) -> None:
         """Drop one element from every storage collaborator. Idempotent."""

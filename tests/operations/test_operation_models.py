@@ -43,9 +43,32 @@ def test_parse_reports_a_bad_frame_size_as_its_legacy_message() -> None:
     assert result.reason == "frame_size must be [width, height]"
 
 
+def test_parse_reports_a_non_positive_frame_ttl_as_its_message() -> None:
+    result = RenderRequest.parse(
+        {"scene_id": "s", "elements": [], "frame": {"ttl_seconds": 0}}
+    )
+    assert isinstance(result, OpError)
+    assert result.reason == "frame_ttl_seconds must be a positive number, got 0"
+
+
 def test_parse_accepts_a_valid_request() -> None:
     result = RenderRequest.parse({"scene_id": "s", "elements": []})
     assert isinstance(result, RenderRequest)
+
+
+def test_frame_ttl_is_none_without_a_frame() -> None:
+    request = RenderRequest(scene_id="s", elements=[])
+    assert request.frame_ttl() is None
+
+
+def test_frame_ttl_is_none_for_a_permanent_frame() -> None:
+    request = RenderRequest(scene_id="s", elements=[], frame=FrameSpec())
+    assert request.frame_ttl() is None
+
+
+def test_frame_ttl_carries_a_positive_lifetime() -> None:
+    request = RenderRequest(scene_id="s", elements=[], frame=FrameSpec(ttl_seconds=2.5))
+    assert request.frame_ttl() == 2.5
 
 
 def test_presentation_defaults_the_frame_from_the_scene_id() -> None:

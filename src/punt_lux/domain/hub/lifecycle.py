@@ -1,12 +1,15 @@
 """Connection-lifecycle cleanup — single entry point for disconnect.
 
-The transport layer (``luxd``) calls ``disconnect_connection`` when an
-MCP session ends. The function drops the client's HubDisplay
-registration, marks every owned root removed (the Element Observer
-cascade prunes the rest of the tree), tears down the per-connection
-subscription scope and writer binding, and finally invokes the caller's
-``on_disconnect`` sink so transport-layer state (e.g. the MCP inbox
-queue) is released in the same cascade.
+The transport layer (``luxd``) calls ``disconnect_connection`` when an MCP
+session ends. The function forgets the connection as a Hub client, tears down
+its subscription scope and writer binding, and invokes the caller's
+``on_disconnect`` sink so transport-layer state (e.g. the MCP inbox queue) is
+released in the same cascade.
+
+It deliberately does NOT remove the scenes the connection installed: a session's
+UI survives the session. The scenes stay standing, still owned by the departed
+connection id, until a later explicit removal — a user closing the frame, an
+agent clearing, or a frame TTL expiring.
 """
 
 from __future__ import annotations
@@ -18,7 +21,6 @@ from punt_lux.domain.hub.hub_display import (
     HubDisplay,
     hub_display as default_hub_display,
 )
-from punt_lux.domain.hub.replicator_instance import hub_replicator
 from punt_lux.domain.ids import ConnectionId
 
 if TYPE_CHECKING:
@@ -34,20 +36,16 @@ def disconnect_connection(
     hub_display: HubDisplay = default_hub_display,
     hub: Hub = default_hub,
 ) -> None:
-    """Cascade cleanup for ``connection_id``.
+    """Clean the session for ``connection_id`` while its scenes stay standing.
 
-    ``on_disconnect`` is a required callback fired after the domain
-    cleanup so the transport layer can release per-session resources
-    (MCP inbox queue, file handles, etc.). There is no default sink —
-    every caller commits to an explicit cleanup target.
+    Forgets the connection as a Hub client and releases its subscriptions, then
+    fires ``on_disconnect`` so the transport layer frees per-session resources
+    (MCP inbox queue, file handles, etc.). The connection's scenes are left
+    installed — nothing is blanked — so there is no repaint to mark.
 
-    Defaults for ``hub_display`` and ``hub`` point at the production
-    singletons; tests pass their own isolated instances.
+    Defaults for ``hub_display`` and ``hub`` point at the production singletons;
+    tests pass their own isolated instances.
     """
-    touched = hub_display.drop_connection(connection_id)
-    # Repaint every scene the drop touched: the replicator blanks the ones it
-    # emptied into their own frames and repaints the ones a survivor still holds.
-    for scene_id in touched:
-        hub_replicator.mark_dirty(scene_id)
+    hub_display.drop_connection(connection_id)
     hub.on_disconnect(connection_id)
     on_disconnect(connection_id)

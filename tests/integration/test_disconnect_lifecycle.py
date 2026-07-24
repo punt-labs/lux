@@ -104,7 +104,10 @@ def test_display_interact_rejects_disconnected_client_with_unknown_client_error(
 
     assert not hub_display.is_client(connection_id)
     assert not display.is_client(client_id)
-    assert hub_display.elements_owned_by(connection_id) == ()
+    # Scenes survive session death: the connection's elements stay installed and
+    # owned by its id (so a later frame close, clear, or TTL can still remove
+    # them), even though it is no longer a live client.
+    assert hub_display.elements_owned_by(connection_id) != ()
 
     msg = RemoteEventHandlerInvocation(
         element_id=str(element_id),

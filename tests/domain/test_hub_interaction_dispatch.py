@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 
 from punt_lux.domain.hub import clients as clients_module
 from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.hub.scene_presentation import ScenePresentation
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.domain.update import AddElement
@@ -284,6 +285,54 @@ def test_hub_interaction_dispatch_unknown_event_kind_returns_silently(
     )
 
     assert fired == []
+
+
+def test_hub_interaction_dispatch_frame_close_removes_the_frames_scenes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A ``frame_close`` action removes the frame's scenes and marks them dirty.
+
+    The user closed the frame on the display; the Hub must remove the scenes that
+    frame held so both tiers agree, then mark them dirty for the replicator.
+    """
+    import punt_lux.domain.hub as hub_module
+
+    isolated_display = HubDisplay()
+    scene_id = SceneId("framed")
+    owner = ConnectionId("agent")
+    frame_id = "f1"
+    isolated_display.register_client(owner)
+    isolated_display.apply(
+        owner,
+        AddElement(
+            scene_id=scene_id,
+            element=ButtonElement(id="b", label="x"),
+            parent_id=None,
+        ),
+    )
+    # Arm a TTL too, so the close also proves remove_frame disarms the deadline.
+    isolated_display.frames.present(
+        scene_id, ScenePresentation(frame_id=frame_id), ttl_seconds=60.0
+    )
+
+    mock_replicator = MagicMock()
+    monkeypatch.setattr(hub_module, "hub_display", isolated_display)
+    monkeypatch.setattr(
+        "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
+    )
+
+    clients_module.ClientRegistry._hub_interaction_dispatch(
+        RemoteEventHandlerInvocation(
+            element_id=frame_id,
+            action="frame_close",
+            ts=1.0,
+            value=None,
+        )
+    )
+
+    assert isolated_display.scene_roots(scene_id) == []
+    mock_replicator.mark_dirty.assert_called_once_with(scene_id)
+    assert isolated_display.frames.seconds_until_next() is None  # TTL disarmed
 
 
 def test_hub_interaction_dispatch_value_changed_rejects_non_scalar(

@@ -1,0 +1,8 @@
+{
+  "inputs": [],
+  "response": "error: screenshot capture is not supported by the display; see DES-028",
+  "setup": {
+    "display_running": true
+  },
+  "tool": "screenshot"
+}

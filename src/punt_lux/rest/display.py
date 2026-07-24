@@ -110,7 +110,12 @@ class DisplayRoutes:
         return self._errors.respond(self._ops.set_frame_state(frame_id, patch))
 
     def screenshot(self) -> Screenshot:
-        """Capture the display framebuffer and return the image path."""
+        """Refuse the screenshot: framebuffer capture is unsupported (DES-028).
+
+        Capture is unresolved below the message layer, so the operation rejects up
+        front and this route answers 409 rather than returning an image path. It
+        will capture once DES-028 is resolved.
+        """
         return self._errors.respond(self._ops.screenshot())
 
     def ping(self, timeout: _PingTimeout = None) -> Pong:

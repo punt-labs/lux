@@ -41,7 +41,7 @@ def _seed(store: HubDisplay, scene: str, content: str = "x") -> SceneId:
     store.replace_scene(
         _CONN, scene_id, [TextElement(id=f"{scene}-root", content=content)]
     )
-    store.record_presentation(scene_id, ScenePresentation(frame_id=scene))
+    store.frames.record(scene_id, ScenePresentation(frame_id=scene))
     return scene_id
 
 
@@ -384,7 +384,7 @@ def test_the_resend_carries_the_recorded_frame() -> None:
     scene = SceneId("s1")
     store.register_client(_CONN)
     store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
-    store.record_presentation(scene, ScenePresentation(frame_id="hello-frame"))
+    store.frames.record(scene, ScenePresentation(frame_id="hello-frame"))
     repl, sender, _provider, _lifecycle = _replicator(store)
     repl.start()
     try:
@@ -531,7 +531,7 @@ def test_an_emptied_scene_is_blanked_into_its_frame() -> None:
     scene = SceneId("s1")
     store.register_client(_CONN)
     store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
-    store.record_presentation(scene, ScenePresentation(frame_id="hello-frame"))
+    store.frames.record(scene, ScenePresentation(frame_id="hello-frame"))
     store.replace_scene(_CONN, scene, ())  # empty the scene
     repl, sender, _provider, _lifecycle = _replicator(store)
     repl.start()
@@ -556,7 +556,7 @@ def test_blanking_an_emptied_scene_reclaims_its_presentation() -> None:
     scene = SceneId("s1")
     store.register_client(_CONN)
     store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
-    store.record_presentation(scene, ScenePresentation(frame_id="hello-frame"))
+    store.frames.record(scene, ScenePresentation(frame_id="hello-frame"))
     store.replace_scene(_CONN, scene, ())  # empty the scene
     repl, sender, _provider, _lifecycle = _replicator(store)
     repl.start()
@@ -565,10 +565,10 @@ def test_blanking_an_emptied_scene_reclaims_its_presentation() -> None:
         assert sender.wait_sent(2.0)
         assert sender.frames == ["hello-frame"]  # blanked into its own frame first
         for _ in range(200):  # the reclaim runs just after the send returns
-            if store.presentation_for(scene).frame_id == "s1":
+            if store.frames.presentation_for(scene).frame_id == "s1":
                 break
             threading.Event().wait(0.01)
-        assert store.presentation_for(scene).frame_id == "s1"  # reclaimed
+        assert store.frames.presentation_for(scene).frame_id == "s1"  # reclaimed
     finally:
         repl.stop()
 
@@ -583,7 +583,7 @@ def test_a_failed_blank_is_re_marked_then_retried_and_the_frame_reclaimed() -> N
     scene = SceneId("s1")
     store.register_client(_CONN)
     store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
-    store.record_presentation(scene, ScenePresentation(frame_id="hello-frame"))
+    store.frames.record(scene, ScenePresentation(frame_id="hello-frame"))
     store.replace_scene(_CONN, scene, ())  # empty the scene
     repl, sender, provider, _lifecycle = _replicator(store)
     gate = threading.Event()
@@ -602,10 +602,11 @@ def test_a_failed_blank_is_re_marked_then_retried_and_the_frame_reclaimed() -> N
         assert sender.frames == ["hello-frame"]  # the retry blanked into the frame
         assert sender.roots == [[]]  # with no roots
         for _ in range(200):
-            if store.presentation_for(scene).frame_id == "s1":
+            if store.frames.presentation_for(scene).frame_id == "s1":
                 break
             threading.Event().wait(0.01)
-        assert store.presentation_for(scene).frame_id == "s1"  # reclaimed after blank
+        # reclaimed after blank
+        assert store.frames.presentation_for(scene).frame_id == "s1"
     finally:
         gate.set()
         repl.stop()
@@ -620,7 +621,7 @@ def test_a_reshow_during_the_blank_send_keeps_its_new_presentation() -> None:
     scene = SceneId("s1")
     store.register_client(_CONN)
     store.replace_scene(_CONN, scene, [TextElement(id="s1-root", content="x")])
-    store.record_presentation(scene, ScenePresentation(frame_id="old-frame"))
+    store.frames.record(scene, ScenePresentation(frame_id="old-frame"))
     store.replace_scene(_CONN, scene, ())  # empty it, so the worker will blank it
     repl, sender, _provider, _lifecycle = _replicator(store)
     gate = threading.Event()
@@ -642,7 +643,7 @@ def test_a_reshow_during_the_blank_send_keeps_its_new_presentation() -> None:
         # so the new frame holds across the settle window rather than reverting.
         for _ in range(50):
             threading.Event().wait(0.01)
-            assert store.presentation_for(scene).frame_id == "new-frame"
+            assert store.frames.presentation_for(scene).frame_id == "new-frame"
     finally:
         gate.set()
         repl.stop()
@@ -659,7 +660,7 @@ def test_a_requeued_blank_targets_the_recorded_frame() -> None:
     store.register_client(_CONN)
     for sid, frame in ((a, "frame-a"), (b, "frame-b")):
         store.replace_scene(_CONN, sid, [TextElement(id=f"{sid}-root", content="x")])
-        store.record_presentation(sid, ScenePresentation(frame_id=frame))
+        store.frames.record(sid, ScenePresentation(frame_id=frame))
         store.replace_scene(_CONN, sid, ())  # empty it
     repl, sender, provider, _lifecycle = _replicator(store)
     sender.fail_on_scene("s2", OSError())  # scene B's blank fails once

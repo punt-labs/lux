@@ -24,9 +24,9 @@ from typing import TYPE_CHECKING, Self, final
 if TYPE_CHECKING:
     from punt_lux.domain.element import Element as WireElement
     from punt_lux.domain.hub.element_index import ElementIndex
+    from punt_lux.domain.hub.frame_lifecycle import FrameLifecycle
     from punt_lux.domain.hub.scene_presentation import (
         ScenePresentation,
-        ScenePresentationRegistry,
         ScenePusher,
     )
     from punt_lux.domain.hub.store_lock import StoreLock
@@ -70,23 +70,23 @@ class SceneSnapshot:
 class SceneReader:
     """The store's replicator-facing side: locked snapshots, live ids, reclaim.
 
-    Composes the element index, the presentation registry, and the store lock.
+    Composes the element index, the frame authority, and the store lock.
     ``snapshot`` and ``live_scene_ids`` hold the read lock only long enough to
     copy a scene's state out; ``reclaim_if_rootless`` takes the write lock to
-    forget a blanked scene's presentation once it re-confirms the scene is still
+    reclaim a blanked scene's frame once it re-confirms the scene is still
     rootless. Both disciplines live here, in the store, and never escape to the
     replicator that calls them.
     """
 
     _index: ElementIndex
-    _frames: ScenePresentationRegistry
+    _frames: FrameLifecycle
     _lock: StoreLock
     __slots__ = ("_frames", "_index", "_lock")
 
     def __new__(
         cls,
         index: ElementIndex,
-        frames: ScenePresentationRegistry,
+        frames: FrameLifecycle,
         lock: StoreLock,
     ) -> Self:
         self = super().__new__(cls)
@@ -108,13 +108,13 @@ class SceneReader:
             return tuple(s for s in self._index.scenes() if self._index.scene_roots(s))
 
     def reclaim_if_rootless(self, scene_id: SceneId) -> None:
-        """Forget a blanked scene's presentation, but only if it is still rootless.
+        """Reclaim a blanked scene's frame, but only if it is still rootless.
 
-        The replicator calls this after it blanks an emptied scene: the scene is
-        gone from the store, so its presentation is dead weight. The rootless
-        re-check under the write lock guards a re-show that landed during the send
-        window — that re-show installed roots and a fresh presentation, so the
-        scene is no longer rootless and its new presentation is kept, not dropped.
+        Called by the replicator after it blanks an emptied scene. Reclaiming through
+        the frame authority's ``forget`` drops the presentation *and* disarms the
+        frame's TTL once it empties, so a scene blanked by an ``update`` never strands
+        a live deadline the sweep wakes to fire as a no-op. The rootless re-check keeps
+        a re-show that landed during the send window — roots and frame reinstalled.
         """
         with self._lock.write():
             if not self._index.scene_roots(scene_id):

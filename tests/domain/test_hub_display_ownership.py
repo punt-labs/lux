@@ -141,6 +141,56 @@ def test_replace_scene_removes_old_roots_and_installs_new() -> None:
         hub_display.resolve(_SCENE, ElementId("old"))
 
 
+def test_reshow_from_a_new_connection_replaces_a_departed_sessions_roots() -> None:
+    """A re-show clears an orphan a departed session left, keeping single ownership.
+
+    The original session shows a scene, then disconnects — its roots stand, owned
+    by its departed id. A new connection re-shows the same scene_id. Because the
+    scene is the unit of replacement, the orphan is torn down and only the new
+    roots remain, all owned by the new connection — no ghost content, no duplicate.
+    """
+    hub_display = HubDisplay()
+    departed = ConnectionId("departed-session")
+    fresh = ConnectionId("fresh-session")
+
+    hub_display.register_client(departed)
+    hub_display.replace_scene(departed, _SCENE, [_WireLeaf(id="old")])
+    hub_display.drop_connection(departed)  # session gone, its root stands orphaned
+
+    hub_display.replace_scene(fresh, _SCENE, [_WireLeaf(id="new")])
+
+    roots = hub_display.scene_roots(_SCENE)
+    assert {e.id for e in roots} == {"new"}  # orphan gone, only the new root
+    assert hub_display.owner_of(_SCENE, ElementId("new")) == fresh
+    assert hub_display.scene_owners(_SCENE) == (fresh,)  # single ownership
+
+
+def test_clear_leaves_a_root_another_connection_owns_in_a_shared_scene() -> None:
+    """``clear`` removes only the caller's roots, never a co-owner's in the scene.
+
+    Unlike a re-show (whole-scene replacement), a clear is owner-scoped: one
+    connection clearing its UI must not evict a root another connection still holds
+    in the same scene.
+    """
+    from punt_lux.domain.hub.scene_writer import HubSceneWriter
+
+    hub_display = HubDisplay()
+    hub_display.register_client(_OWNER)
+    hub_display.register_client(_STRANGER)
+    hub_display.apply(
+        _OWNER,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="mine"), parent_id=None),
+    )
+    hub_display.apply(
+        _STRANGER,
+        AddElement(scene_id=_SCENE, element=_WireLeaf(id="theirs"), parent_id=None),
+    )
+
+    HubSceneWriter(hub_display).clear(_OWNER)
+
+    assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"theirs"}
+
+
 def test_remove_root_of_an_already_dropped_element_is_a_no_op() -> None:
     """A scene-root removal with no owner tears nothing down and does not raise.
 

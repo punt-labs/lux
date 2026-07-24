@@ -238,11 +238,16 @@ def abstract_receive_scene(
     new_elem_ids: frozenset[str],
     new_elem_kinds: dict[str, str],
 ) -> AbstractState:
-    """Z spec ReceiveScene: replace scene, clear event queue."""
+    """Z spec ReceiveScene: install a non-empty scene; an empty push removes it.
+
+    An empty element set is a removal (``has_scene`` False), matching the code's
+    dismiss-on-empty and the amended spec's ``newElemIds? = empty => hasScene' =
+    zfalse``.
+    """
     return AbstractState(
         clients=state.clients,
         readers=state.readers,
-        has_scene=True,
+        has_scene=len(new_elem_ids) > 0,
         scene_id=new_scene_id,
         elem_ids=new_elem_ids,
         elem_kinds=new_elem_kinds,

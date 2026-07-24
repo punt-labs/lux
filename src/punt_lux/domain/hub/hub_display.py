@@ -10,15 +10,17 @@ responsibility:
 - ``ChildIndex`` — parent → children edges for one-walk descendant removal.
 - ``HubClientRegistry`` — connections registered as Hub clients.
 - ``ScenePresentationRegistry`` — how each live scene is framed for a resend.
+- ``FrameExpiry`` — per-frame TTL deadlines; armed at ``show_scene`` and swept by
+  ``expire_due`` under the store lock, so a re-show and an expiry never race.
 - ``SubtreeInstaller`` / ``SubtreeRemover`` — the mirror install and teardown
   walks ``apply`` delegates to.
 
 A scene's presentation is kept until the scene is blanked away or re-shown, so an
 emptied scene can still be blanked into the frame it was shown in; once the
 replicator delivers that blank it reclaims the presentation. ``drop_connection``
-tears down each root a departing connection owned — ABC roots via the Observer
-cascade, wire-only roots directly through the ``SubtreeRemover`` — and returns the
-scenes it touched so the caller can repaint them.
+forgets a departing connection as a Hub client but leaves its scenes standing:
+a session's UI survives the session, to be removed later by a frame close, a
+clear, or a TTL — never by the disconnect itself.
 
 Every write runs under ``StoreLock`` so a snapshot never reads a half-applied
 scene. Every read takes the lock in read mode too — the replicator's crossing
@@ -29,17 +31,20 @@ own behavior and never escapes to the caller.
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.element import Element as WireElement
 from punt_lux.domain.hub.child_index import ChildIndex
-from punt_lux.domain.hub.connection_dropper import ConnectionDropper
 from punt_lux.domain.hub.element_index import (
     ElementIndex,
     UnknownElementError,
     UnknownSceneError,
 )
+from punt_lux.domain.hub.frame_expiry import FrameExpiry
+from punt_lux.domain.hub.frame_lifecycle import FrameLifecycle
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
+from punt_lux.domain.hub.hub_reads import HubReads
 from punt_lux.domain.hub.owner_tracker import OwnerTracker
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
 from punt_lux.domain.hub.root_registry import RootRegistry
@@ -57,7 +62,7 @@ from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from contextlib import AbstractContextManager
 
 __all__ = [
@@ -72,16 +77,14 @@ __all__ = [
 class HubDisplay:
     """Hub-side authoritative store of Elements, owners, and clients.
 
-    Facade over four typed collaborators. State invariants (established
-    at ``apply`` time, trusted thereafter):
+    Facade over typed collaborators. State invariants (established at ``apply``
+    time, trusted thereafter):
 
     - Every Element installed has a known owner ``ConnectionId``.
-    - A scene-root ABC Element (``parent_id=None``) has a
-      HubDisplay-owned observer registered; flipping ``_removed`` on
-      the root triggers a callback into ``apply(RemoveElement(...))``.
-    - Child Elements (``parent_id`` set) are observed by their parent
-      composite, NOT by HubDisplay — the parent's observer is what
-      drives ``apply(RemoveElement(...))`` for the child.
+    - A scene-root ABC Element (``parent_id=None``) carries a HubDisplay-owned
+      observer; flipping ``_removed`` calls back into ``apply(RemoveElement(...))``.
+    - A child Element (``parent_id`` set) is observed by its parent composite, not
+      by HubDisplay, which drives its ``apply(RemoveElement(...))`` instead.
 
     Tests construct their own ``HubDisplay()``; the module exposes
     ``hub_display`` as the production singleton.
@@ -98,9 +101,10 @@ class HubDisplay:
     _installer: SubtreeInstaller
     _lock: StoreLock
     _reader: SceneReader
-    _dropper: ConnectionDropper
+    _reads: HubReads
+    _frame_lifecycle: FrameLifecycle
 
-    def __new__(cls) -> Self:
+    def __new__(cls, clock: Callable[[], float] = time.monotonic) -> Self:
         self = super().__new__(cls)
         self._index = ElementIndex()
         self._owners = OwnerTracker()
@@ -120,13 +124,11 @@ class HubDisplay:
             self._remove_root,
         )
         self._lock = StoreLock()
-        self._reader = SceneReader(self._index, self._frames, self._lock)
-        self._dropper = ConnectionDropper(
-            self._clients,
-            self._owners,
-            self._children,
-            self._remover,
+        self._frame_lifecycle = FrameLifecycle(
+            self._frames, self._remover, FrameExpiry(clock), self._lock
         )
+        self._reader = SceneReader(self._index, self._frame_lifecycle, self._lock)
+        self._reads = HubReads(self._index, self._owners, self._clients, self._lock)
         return self
 
     @property
@@ -157,8 +159,7 @@ class HubDisplay:
 
     def scene_roots(self, scene_id: SceneId) -> list[WireElement]:
         """Return non-removed root elements for a scene, read under the lock."""
-        with self._lock.read():
-            return self._index.scene_roots(scene_id)
+        return self._reads.scene_roots(scene_id)
 
     @property
     def reader(self) -> SceneReader:
@@ -170,30 +171,16 @@ class HubDisplay:
         """
         return self._reader
 
-    # -- presentation ------------------------------------------------------
+    @property
+    def frames(self) -> FrameLifecycle:
+        """Return the frame authority — presentations, TTL expiry, and teardown.
 
-    def record_presentation(
-        self, scene_id: SceneId, presentation: ScenePresentation
-    ) -> None:
-        """Remember how a scene was shown, for a later whole-scene resend."""
-        with self._lock.write():
-            self._frames.record(scene_id, presentation)
-
-    def forget_presentation(self, scene_id: SceneId) -> None:
-        """Drop a scene's presentation once a clear blanks it away.
-
-        A whole-display clear empties the scene and blanks the display, and
-        nothing repaints it without a re-show recording a fresh presentation, so
-        the entry is dead weight. Bounds the frame map on the clear path, as the
-        replicator's post-blank reclaim does on the per-scene path.
+        Callers reach how a scene is framed (``presentation_for``), close a frame
+        (``remove_frame``), and sweep expiry (``expire_due``) through this
+        sub-object, exposed like ``reader`` so the facade carries no per-frame
+        delegator.
         """
-        with self._lock.write():
-            self._frames.forget(scene_id)
-
-    def presentation_for(self, scene_id: SceneId) -> ScenePresentation:
-        """Return how a scene was shown, or a self-framed default, read under lock."""
-        with self._lock.read():
-            return self._frames.presentation_for(scene_id)
+        return self._frame_lifecycle
 
     def resolve(self, scene_id: SceneId, element_id: ElementId) -> WireElement:
         """Return the indexed Element or raise ``UnknownElementError``."""
@@ -225,22 +212,15 @@ class HubDisplay:
 
     def element_count(self, scene_id: SceneId) -> int:
         """Return the count of non-removed elements in a scene, read under lock."""
-        with self._lock.read():
-            return self._index.element_count(scene_id)
+        return self._reads.element_count(scene_id)
 
     def scene_owners(self, scene_id: SceneId) -> tuple[ConnectionId, ...]:
-        """Return each scene's distinct root owners, first-appearance order.
-
-        Empty if unowned; filter(None) drops a root whose owner is unrecorded.
-        """
-        with self._lock.read():
-            roots = self._index.scene_root_items(scene_id)
-            owned = (self._owners.get(scene_id, key) for key, _ in roots)
-            return tuple(dict.fromkeys(filter(None, owned)))
+        """Return each scene's distinct root owners, first-appearance order."""
+        return self._reads.scene_owners(scene_id)
 
     def client_sessions(self) -> Mapping[ConnectionId, float]:
         """Return each registered Hub session paired with its connect time."""
-        return self._clients.sessions()
+        return self._reads.client_sessions()
 
     @trace
     def replace_scene(
@@ -249,21 +229,19 @@ class HubDisplay:
         scene_id: SceneId,
         roots: Sequence[WireElement],
     ) -> None:
-        """Replace ``scene_id`` for ``connection_id`` with ``roots``.
+        """Replace ``scene_id`` wholesale with ``roots`` owned by ``connection_id``.
 
-        The Hub stays authoritative: a re-show first removes every root
-        this connection previously owned in the scene, then installs the
-        new roots through the normal ``apply(AddElement(...))`` path so
-        ownership, root observers, and child indexes are rebuilt in one
-        place.
+        The scene is the unit of replacement: a re-show first tears down every
+        root the scene holds — whatever connection owns it — then installs the
+        new roots through the normal ``apply(AddElement(...))`` path so ownership,
+        root observers, and child indexes are rebuilt in one place. Clearing every
+        root regardless of owner is the whole-UI-resend contract: the latest show
+        of a scene_id defines the whole scene, so an orphan left by a departed
+        session is cleared by the next show, never stranded beside the new roots.
         """
         with self._lock.write():
             self.register_client(connection_id)
-            for root_id in self._owned_roots_in_scene(connection_id, scene_id):
-                self.apply(
-                    connection_id,
-                    RemoveElement(scene_id=scene_id, element_id=root_id),
-                )
+            self._remover.drop_scene_roots(scene_id)
             for root in roots:
                 self.apply(
                     connection_id,
@@ -276,15 +254,20 @@ class HubDisplay:
         scene_id: SceneId,
         roots: Sequence[WireElement],
         presentation: ScenePresentation,
+        *,
+        ttl_seconds: float | None = None,
     ) -> None:
-        """Replace a scene's roots and record its presentation under one write lock.
+        """Replace a scene's roots and show it into its frame with a TTL.
 
-        Batching both writes means a concurrent snapshot never pairs the new roots
-        with the old presentation, or the reverse.
+        Both writes share one write lock, so a concurrent snapshot never pairs new
+        roots with an old presentation and a concurrent expiry sweep never races the
+        deadline arm (``FrameLifecycle.present`` records the presentation and arms
+        the deadline as one step). A ``ttl_seconds`` of None clears any prior
+        deadline, making a re-show without a TTL permanent.
         """
         with self._lock.write():
             self.replace_scene(connection_id, scene_id, roots)
-            self.record_presentation(scene_id, presentation)
+            self._frame_lifecycle.present(scene_id, presentation, ttl_seconds)
 
     # -- apply -------------------------------------------------------------
 
@@ -322,29 +305,17 @@ class HubDisplay:
                     self._owners.require_ownership(sid, eid, connection_id)
                     self._remover.remove_subtree(sid, eid)
 
-    def _owned_roots_in_scene(
-        self,
-        connection_id: ConnectionId,
-        scene_id: SceneId,
-    ) -> tuple[ElementId, ...]:
-        """Return the scene-root ids this connection currently owns."""
-        return tuple(
-            element_id
-            for owned_scene, element_id in self._owners.keys_for(connection_id)
-            if owned_scene == scene_id
-            and self._children.is_root(owned_scene, element_id)
-        )
-
     # -- cleanup trigger ---------------------------------------------------
 
-    def drop_connection(self, connection_id: ConnectionId) -> frozenset[SceneId]:
-        """Tear down a departing connection's roots; return the scenes it touched.
+    def drop_connection(self, connection_id: ConnectionId) -> None:
+        """Forget a departing connection as a Hub client, leaving its scenes.
 
-        The caller marks the returned scenes dirty so the replicator blanks the
-        ones the drop emptied and repaints the ones a survivor still holds. See
-        ``ConnectionDropper``.
+        A session's UI survives the session: the connection's roots stay
+        installed and stay owned by its id (so a later frame close, clear, or TTL
+        can still remove them). Only the client registration is dropped, so the
+        session no longer appears among the live Hub clients.
         """
-        return self._dropper.drop(connection_id)
+        self._clients.discard(connection_id)
 
     # -- private helpers ---------------------------------------------------
 

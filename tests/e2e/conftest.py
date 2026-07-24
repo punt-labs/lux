@@ -63,14 +63,13 @@ def loop_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[LoopHarness]:
     monkeypatch.setattr(client_registry, "get", lambda: rig.repush_client)
     # A click marks the scene dirty; the sync replicator re-pushes it at once,
     # standing in for the background worker so the loop stays deterministic. Patch
-    # every name the singleton is bound under: the composition root, and the two
-    # modules that import it by name at module load — ``tools.tools`` (a tool
-    # mark) and ``lifecycle`` (a disconnect mark) — since patching only the root
-    # would leave those marking the real background replicator.
+    # every name the singleton is bound under: the composition root and
+    # ``tools.tools`` (a tool mark) — since patching only the root would leave
+    # that marking the real background replicator. (Disconnect no longer marks
+    # the replicator: a session's scenes survive, so there is nothing to repaint.)
     sync = SyncReplicator(rig)
     monkeypatch.setattr("punt_lux.domain.hub.replicator_instance.hub_replicator", sync)
     monkeypatch.setattr("punt_lux.tools.tools.hub_replicator", sync)
-    monkeypatch.setattr("punt_lux.domain.hub.lifecycle.hub_replicator", sync)
     harness = LoopHarness(rig)
     yield harness
     harness.teardown()

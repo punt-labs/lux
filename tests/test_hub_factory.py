@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from punt_lux.domain.handlers.decorators import PublishSink
@@ -14,11 +15,23 @@ from punt_lux.protocol.element_factory import JsonElementFactory
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    import pytest
+
 
 class TestHubPublishSink:
     def test_satisfies_publish_sink_protocol(self) -> None:
         sink = HubPublishSink(ConnectionId("conn-1"))
         assert isinstance(sink, PublishSink)
+
+    def test_publish_to_no_subscriber_is_logged(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        # An interaction on a scene whose owner has departed publishes into a scope
+        # with no writer: it must leave a trace rather than evaporate silently.
+        sink = HubPublishSink(ConnectionId("conn-orphaned"))
+        with caplog.at_level(logging.INFO, logger="punt_lux.domain.hub.hub_factory"):
+            sink("openTicket", {})
+        assert "reached no subscribers" in caplog.text
 
     def test_publish_routes_to_hub_in_caller_scope(self) -> None:
         connection_id = ConnectionId("conn-publish-routes")

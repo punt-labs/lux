@@ -1,0 +1,22 @@
+{
+  "inputs": [
+    [
+      "elements",
+      []
+    ],
+    [
+      "frame_ttl_seconds",
+      0
+    ],
+    [
+      "scene_id",
+      "s1"
+    ]
+  ],
+  "response": "error: frame_ttl_seconds must be a positive number, got 0",
+  "setup": {
+    "client": {},
+    "display_running": true
+  },
+  "tool": "show"
+}

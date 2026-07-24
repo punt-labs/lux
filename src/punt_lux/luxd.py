@@ -9,6 +9,7 @@ Domain state lives in ``punt_lux.domain.hub``; this module bootstraps transport.
 from __future__ import annotations
 
 import argparse
+import asyncio
 import logging
 import os
 import sys
@@ -16,8 +17,12 @@ from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from pathlib import Path
 from socket import socket
+from typing import TYPE_CHECKING
 
 import uvicorn
+
+if TYPE_CHECKING:
+    from punt_lux.domain.hub.expiry_sweep import ExpirySweep
 from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 
@@ -96,6 +101,30 @@ def _remove_port_file(port_path: Path) -> None:
         logger.warning("Could not remove port file: %s", port_path)
 
 
+@asynccontextmanager
+async def _expiry_sweep_running(
+    sweep: ExpirySweep,
+) -> AsyncGenerator[asyncio.Task[None]]:
+    """Run the frame-TTL sweep for the block, cancelled and awaited on exit.
+
+    On exit the task is cancelled and awaited so none survives shutdown. A task
+    that died with an exception re-raises it on await; that is logged and swallowed
+    here so the caller's own shutdown always continues (``CancelledError`` from the
+    normal cancel is expected and ignored).
+    """
+    task = asyncio.create_task(sweep.run())
+    try:
+        yield task
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            logger.exception("frame-expiry sweep task failed before shutdown")
+
+
 # ---------------------------------------------------------------------------
 # Server entry point
 # ---------------------------------------------------------------------------
@@ -128,12 +157,21 @@ def serve(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-        # The one background writer to the display starts and stops with luxd.
+        # The one background writer to the display starts and stops with luxd; the
+        # frame-TTL sweep runs on this event loop beside it, retiring expired frames
+        # through the replicator's dirty queue. These are imported lazily to keep
+        # the Hub singletons out of module import (import-cycle avoidance).
+        from punt_lux.domain.hub import hub_display
+        from punt_lux.domain.hub.expiry_sweep import ExpirySweep
         from punt_lux.domain.hub.replicator_instance import hub_replicator
 
         hub_replicator.start()
+        sweep = ExpirySweep(hub_display.frames, hub_replicator)
         try:
-            yield
+            # The sweep is cancelled and awaited when this block exits — before the
+            # replicator stops — so no pending task survives shutdown.
+            async with _expiry_sweep_running(sweep):
+                yield
         finally:
             hub_replicator.stop()
             _remove_port_file(port_path)

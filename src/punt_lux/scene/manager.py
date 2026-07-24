@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
-from itertools import chain, count
+from collections.abc import Mapping, Sequence
+from itertools import chain
 from typing import Self
 
 from punt_lux.protocol import (
@@ -13,6 +13,7 @@ from punt_lux.protocol import (
 )
 from punt_lux.scene.element_walk import SceneTreeWalk
 from punt_lux.scene.frame import Frame
+from punt_lux.scene.frame_book import FrameBook
 from punt_lux.scene.widget_state import WidgetState
 from punt_lux.types import OnSceneReplacedFn
 
@@ -20,19 +21,18 @@ _log = logging.getLogger(__name__)
 
 
 class SceneManager:
-    """Own the scene graph — frames, scenes, scene-to-frame mapping, widget state.
+    """Own the scene graph — unframed scenes, widget state, stale-id notification.
 
-    Pure state machine: no ImGui, socket, or OpenGL. Tree navigation is delegated
-    to :class:`SceneTreeWalk`.
+    Frames and the scene→frame/owner maps belong to a composed :class:`FrameBook`;
+    this class keeps the unframed scenes, per-scene widget state, and the stale-id
+    notification the two share. Pure state machine: no ImGui, socket, or OpenGL.
+    Tree navigation is delegated to :class:`SceneTreeWalk`.
     """
 
     _scenes: dict[str, SceneMessage]
     _scene_order: list[str]
     _active_tab: str | None
-    _frames: dict[str, Frame]
-    _focus_frame_id: str | None
-    _scene_to_frame: dict[str, str]
-    _scene_to_owner: dict[str, int]
+    _book: FrameBook
     _scene_widget_state: dict[str, WidgetState]
     _dirty_windows: set[str]
     _on_scene_replaced: OnSceneReplacedFn
@@ -47,10 +47,7 @@ class SceneManager:
         self._scenes = {}
         self._scene_order = []
         self._active_tab = None
-        self._frames = {}
-        self._focus_frame_id = None
-        self._scene_to_frame = {}
-        self._scene_to_owner = {}
+        self._book = FrameBook()
         self._scene_widget_state = {}
         self._dirty_windows = set()
         self._on_scene_replaced = on_scene_replaced
@@ -76,24 +73,32 @@ class SceneManager:
         self._active_tab = value
 
     @property
-    def frames(self) -> dict[str, Frame]:
-        return self._frames
+    def frames(self) -> Mapping[str, Frame]:
+        return self._book.frames
 
     @property
-    def focus_frame_id(self) -> str | None:
-        return self._focus_frame_id
-
-    @focus_frame_id.setter
-    def focus_frame_id(self, value: str | None) -> None:
-        self._focus_frame_id = value
+    def scene_to_frame(self) -> Mapping[str, str]:
+        return self._book.scene_to_frame
 
     @property
-    def scene_to_frame(self) -> dict[str, str]:
-        return self._scene_to_frame
+    def scene_to_owner(self) -> Mapping[str, int]:
+        return self._book.scene_to_owner
 
-    @property
-    def scene_to_owner(self) -> dict[str, int]:
-        return self._scene_to_owner
+    def request_focus(self, frame_id: str) -> None:
+        """Mark ``frame_id`` to take window focus on its next render."""
+        self._book.request_focus(frame_id)
+
+    def consume_focus(self, frame_id: str) -> bool:
+        """Return whether ``frame_id`` was awaiting focus, clearing the request."""
+        return self._book.consume_focus(frame_id)
+
+    def minimize(self, frame_id: str) -> None:
+        """Minimize the named frame. No-op if it is gone."""
+        self._book.minimize(frame_id)
+
+    def reassign_scenes_of(self, departed_fd: int, orphan_fd: int) -> None:
+        """Transfer a departed client's framed scenes to a surviving co-owner."""
+        self._book.reassign_scenes_of(departed_fd, orphan_fd)
 
     @property
     def dirty_windows(self) -> set[str]:
@@ -101,12 +106,16 @@ class SceneManager:
 
     # -- public API --------------------------------------------------------
 
-    def handle_scene(
-        self,
-        msg: SceneMessage,
-        owner_fd: int,  # noqa: ARG002
-    ) -> None:
-        """Add or replace an unframed scene."""
+    def handle_scene(self, msg: SceneMessage) -> None:
+        """Add or replace an unframed scene; an empty push dismisses it.
+
+        The Hub blanks a removed scene by pushing it with no elements, so an
+        empty push is a removal — the scene disappears rather than lingering as
+        an empty husk.
+        """
+        if not msg.elements:
+            self.dismiss_scene(msg.id)
+            return
         is_new = msg.id not in self._scenes
         old_scene = self._scenes.get(msg.id)
         self._scenes[msg.id] = msg
@@ -121,49 +130,38 @@ class SceneManager:
             self._replace_scene_state(msg, old_scene)
 
     def handle_framed_scene(self, msg: SceneMessage, owner_fd: int) -> None:
-        """Route a scene into a frame, creating the frame if needed."""
+        """Route a scene into a frame, creating the frame if needed.
+
+        An empty push removes the scene from its frame instead of creating or
+        keeping one: the frame and its content appear and disappear together, so
+        an emptied scene never lingers as a husk frame.
+        """
         frame_id = msg.frame_id
         if frame_id is None:
             return
-        frame = self._frames.get(frame_id)
-        if frame is None:
-            title = msg.frame_title or msg.title or frame_id
-            frame = Frame(
-                frame_id=frame_id,
-                title=title,
-                owner_fds={owner_fd},
-                scenes={},
-                scene_order=[],
-                cascade_index=self._next_cascade_index(),
-                initial_size=msg.frame_size,
-                flags=msg.frame_flags,
-                layout=msg.frame_layout or "tab",
-            )
-            self._frames[frame_id] = frame
-        else:
-            frame.owner_fds.add(owner_fd)
+        if not msg.elements:
+            # An emptied scene push is the Hub signalling removal: dismiss it from
+            # whatever frame holds it and close the frame once it holds nothing,
+            # so no husk frame lingers. An untracked scene is a no-op.
+            stale = self._book.frame_of_scene(msg.id) or self._book.frames.get(frame_id)
+            if stale is not None and self.dismiss_framed_scene(stale, msg.id):
+                self.close_frame(stale.frame_id)
+            return
+        frame = self._book.ensure(msg, frame_id, owner_fd)
         self.upsert_scene_in_frame(frame, msg)
-        self._scene_to_owner[msg.id] = owner_fd
-        if msg.frame_title:
-            frame.title = msg.frame_title
-        if msg.frame_flags is not None:
-            frame.flags = msg.frame_flags
-        if msg.frame_layout is not None:
-            frame.layout = msg.frame_layout
+        self._book.record_owner(msg.id, owner_fd)
         frame.minimized = False
-        self._focus_frame_id = frame_id
+        self._book.request_focus(frame_id)
 
     def upsert_scene_in_frame(self, frame: Frame, msg: SceneMessage) -> None:
         """Add or replace a scene within a frame."""
         # If this scene_id exists elsewhere, remove it from the old
         # location to prevent the same scene rendering in two places.
-        old_frame_id = self._scene_to_frame.get(msg.id)
+        old_frame_id = self._book.scene_to_frame.get(msg.id)
         if old_frame_id is not None and old_frame_id != frame.frame_id:
-            old_frame = self._frames.get(old_frame_id)
-            if old_frame is not None:
-                frame_empty = self.dismiss_framed_scene(old_frame, msg.id)
-                if frame_empty:
-                    self.close_frame(old_frame.frame_id)
+            old_frame = self._book.frames.get(old_frame_id)
+            if old_frame is not None and self.dismiss_framed_scene(old_frame, msg.id):
+                self.close_frame(old_frame.frame_id)
         elif msg.id in self._scenes:
             self.dismiss_scene(msg.id)
         is_new = msg.id not in frame.scenes
@@ -173,7 +171,7 @@ class SceneManager:
             frame.scene_order.append(msg.id)
             self._scene_widget_state[msg.id] = WidgetState()
             frame.active_tab = msg.id
-            self._scene_to_frame[msg.id] = frame.frame_id
+            self._book.set_frame(msg.id, frame.frame_id)
             for elem in msg.elements:
                 if isinstance(elem, WindowElement):
                     self._dirty_windows.add(elem.id)
@@ -185,12 +183,8 @@ class SceneManager:
         scene = self._scenes.get(scene_id)
         if scene is not None:
             return scene
-        frame_id = self._scene_to_frame.get(scene_id)
-        if frame_id is not None:
-            frame = self._frames.get(frame_id)
-            if frame is not None:
-                return frame.scenes.get(scene_id)
-        return None
+        frame = self._book.frame_of_scene(scene_id)
+        return frame.scenes.get(scene_id) if frame is not None else None
 
     def dismiss_scene(self, scene_id: str) -> None:
         """Remove an unframed scene and all its associated state."""
@@ -223,8 +217,7 @@ class SceneManager:
             self._notify_stale(self._element_ids(dismissed.elements))
         frame.scene_order = [s for s in frame.scene_order if s != scene_id]
         self._scene_widget_state.pop(scene_id, None)
-        self._scene_to_frame.pop(scene_id, None)
-        self._scene_to_owner.pop(scene_id, None)
+        self._book.forget_scene(scene_id)
         if frame.active_tab == scene_id:
             frame.active_tab = frame.scene_order[0] if frame.scene_order else None
         return not frame.scenes
@@ -234,19 +227,16 @@ class SceneManager:
 
         The caller drains its event queue and sends close notifications from them.
         """
-        frame = self._frames.pop(frame_id, None)
+        frame = self._book.pop_frame(frame_id)
         if frame is None:
             return []
-        if self._focus_frame_id == frame_id:
-            self._focus_frame_id = None
         removed_ids: set[str] = set()
         for scene_id in frame.scene_order:
             scene = frame.scenes.get(scene_id)
             if scene is not None:
                 removed_ids |= self._element_ids(scene.elements)
             self._scene_widget_state.pop(scene_id, None)
-            self._scene_to_frame.pop(scene_id, None)
-            self._scene_to_owner.pop(scene_id, None)
+            self._book.forget_scene(scene_id)
         return self._notify_stale(removed_ids)
 
     def clear_all(self) -> None:
@@ -254,9 +244,7 @@ class SceneManager:
         self._scenes.clear()
         self._scene_order.clear()
         self._active_tab = None
-        self._frames.clear()
-        self._scene_to_frame.clear()
-        self._scene_to_owner.clear()
+        self._book.clear()
         self._scene_widget_state.clear()
         self._dirty_windows.clear()
 
@@ -275,9 +263,8 @@ class SceneManager:
 
     def _surviving_element_ids(self) -> set[str]:
         """Return every element id held by any stored scene, framed or not."""
-        framed = (s for f in self._frames.values() for s in f.scenes.values())
         ids: set[str] = set()
-        for scene in chain(self._scenes.values(), framed):
+        for scene in chain(self._scenes.values(), self._book.framed_scenes()):
             ids |= self._element_ids(scene.elements)
         return ids
 
@@ -313,8 +300,3 @@ class SceneManager:
         for elem in elements:
             ids.update(self._walk.collect_ids(elem))
         return ids
-
-    def _next_cascade_index(self) -> int:
-        """Return the smallest unused cascade index."""
-        used = {f.cascade_index for f in self._frames.values()}
-        return next(i for i in count() if i not in used)

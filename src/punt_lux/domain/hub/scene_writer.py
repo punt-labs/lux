@@ -112,23 +112,23 @@ class HubSceneWriter:
             return WriteAccepted()
 
     def clear(self, connection_id: ConnectionId) -> None:
-        """Remove every scene the connection owns, keeping it registered.
+        """Remove every element the connection owns, keeping it registered.
 
-        Replaces each owned scene with an empty root set through the ``show`` path,
-        so ownership and child indexes unwind as on a normal replace. A scene left
-        empty by this replace has its presentation forgotten — the whole-display
-        blank that follows a clear needs no per-frame targeting, and nothing
-        repaints it without a re-show recording a fresh frame, so the frame map
-        stays bounded under a churning-id clear workload. A scene another connection
-        still holds a root in keeps its frame: that survivor's next re-push must
-        land in the frame it was shown in.
+        Owner-scoped, unlike a re-show (whole-scene regardless of owner): a root
+        another connection holds in a shared scene stays, and removing a root drops
+        its subtree so a co-owned child is an idempotent no-op. A scene left empty
+        has its frame forgotten (bounding the frame map under a churning-id clear);
+        one a survivor still holds keeps its frame for the next re-push.
         """
+        touched: set[SceneId] = set()
         with self._display.write_lock():
-            owned = self._display.elements_owned_by(connection_id)
-            for scene_id in {scene_id for scene_id, _ in owned}:
-                self._display.replace_scene(connection_id, scene_id, ())
+            for scene_id, element_id in self._display.elements_owned_by(connection_id):
+                touched.add(scene_id)
+                removal = RemoveElement(scene_id=scene_id, element_id=element_id)
+                self._display.apply(connection_id, removal)
+            for scene_id in touched:
                 if not self._display.scene_roots(scene_id):
-                    self._display.forget_presentation(scene_id)
+                    self._display.frames.forget(scene_id)
 
     def _field_realizations(
         self, scope: SceneScope, batch: PatchBatch

@@ -88,11 +88,12 @@ class TestRaisesOnBadSetup:
     def test_missing_stub_spec_raises(self) -> None:
         # A scenario that forgets to declare client.query but calls a query tool
         # would silently see None on the old contract. The stub raises instead so
-        # the missing declaration surfaces.
+        # the missing declaration surfaces. set_theme reaches client.query once the
+        # theme parses, so an empty client spec surfaces the missing declaration.
         with pytest.raises(ToolCallError, match="stub 'query' called"):
             ToolExerciser.call(
-                "screenshot",
-                {},
+                "set_theme",
+                {"theme": "darcula"},
                 {"display_running": True, "client": {}},
             )
 
@@ -100,23 +101,25 @@ class TestRaisesOnBadSetup:
 class TestPassthroughAllowlist:
     def test_query_tool_runs_without_declaring_setup_apps_side_effects(self) -> None:
         # _setup_apps calls declare_menu_item and on_event on first _get_client().
-        # Those two are in _PASSTHROUGH_METHODS so a scenario that only declares
-        # the query its tool actually uses records cleanly — the constant-overhead
-        # side effects don't need a spec entry.
-        result = ToolExerciser.call(
-            "screenshot",
-            {},
-            {
-                "display_running": True,
-                "client": {
-                    "query": {
-                        "method": "screenshot",
-                        "result": {"path": "/tmp/lux-x.png"},
-                    }
+        # Those two are in _PASSTHROUGH_METHODS, so a query-path tool that declares
+        # only its own query gets past them. set_theme then returns a typed
+        # ThemeState; the exerciser's str-only contract surfaces that as "returned
+        # non-string" — reaching it proves the passthrough methods and the query
+        # both ran without a missing-spec ToolCallError.
+        with pytest.raises(ToolCallError, match="returned non-string"):
+            ToolExerciser.call(
+                "set_theme",
+                {"theme": "darcula"},
+                {
+                    "display_running": True,
+                    "client": {
+                        "query": {
+                            "method": "set_theme",
+                            "result": {"current": "darcula", "available": ["darcula"]},
+                        }
+                    },
                 },
-            },
-        )
-        assert result == "/tmp/lux-x.png"
+            )
 
     def test_non_allowlisted_method_still_raises(self) -> None:
         # The allowlist is constrained — only declare_menu_item and
