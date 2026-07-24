@@ -250,7 +250,7 @@ class TestHandleFramedScene:
         assert frame.scene_order == ["s1"]
         assert mgr.scene_to_frame["s1"] == "f1"
         assert mgr.scene_to_owner["s1"] == 10
-        assert mgr.focus_frame_id == "f1"
+        assert mgr.consume_focus("f1") is True  # a fresh framed scene takes focus
 
     def test_second_scene_joins_frame(self) -> None:
         """A second scene with the same frame_id is added to the frame."""
@@ -368,15 +368,14 @@ class TestCloseFrame:
         assert stale_ids == []
 
     def test_focus_frame_cleared(self) -> None:
-        """If the closed frame was focused, _focus_frame_id is cleared."""
+        """If the closed frame was focused, its focus request is cleared."""
         mgr, _ = _make_manager()
         s1 = _make_scene(scene_id="s1", frame_id="f1", frame_title="Frame")
         mgr.handle_framed_scene(s1, owner_fd=10)
-        assert mgr.focus_frame_id == "f1"
 
         mgr.close_frame("f1")
 
-        assert mgr.focus_frame_id is None
+        assert mgr.consume_focus("f1") is False
 
 
 # -------------------------------------------------------------------

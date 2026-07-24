@@ -12,12 +12,13 @@ frames this book reports as created, placed, or removed.
 from __future__ import annotations
 
 from itertools import chain, count
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Self, final
 
 from punt_lux.scene.frame import Frame
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Mapping
 
     from punt_lux.protocol import SceneMessage
 
@@ -45,28 +46,24 @@ class FrameBook:
     # -- read-only access for the rendering layer ---------------------------
 
     @property
-    def frames(self) -> dict[str, Frame]:
-        """Return the frame map keyed by frame id."""
-        return self._frames
+    def frames(self) -> Mapping[str, Frame]:
+        """Return a read-only view of the frame map keyed by frame id.
+
+        The renderer reads and renders the frames but never adds or removes one;
+        the view keeps that guarantee at the boundary. (The ``Frame`` objects it
+        yields are still mutable — their own methods own their internal state.)
+        """
+        return MappingProxyType(self._frames)
 
     @property
-    def focus_frame_id(self) -> str | None:
-        """Return the frame that most recently took focus, if any."""
-        return self._focus_frame_id
-
-    @focus_frame_id.setter
-    def focus_frame_id(self, value: str | None) -> None:
-        self._focus_frame_id = value
+    def scene_to_frame(self) -> Mapping[str, str]:
+        """Return a read-only view of scene id → the frame holding it."""
+        return MappingProxyType(self._scene_to_frame)
 
     @property
-    def scene_to_frame(self) -> dict[str, str]:
-        """Return the map from scene id to the frame holding it."""
-        return self._scene_to_frame
-
-    @property
-    def scene_to_owner(self) -> dict[str, int]:
-        """Return the map from framed scene id to its owning client fd."""
-        return self._scene_to_owner
+    def scene_to_owner(self) -> Mapping[str, int]:
+        """Return a read-only view of framed scene id → its owning client fd."""
+        return MappingProxyType(self._scene_to_owner)
 
     def frame_of_scene(self, scene_id: str) -> Frame | None:
         """Return the frame a scene lives in, or ``None`` if it is unframed."""
@@ -109,6 +106,45 @@ class FrameBook:
         if msg.frame_layout is not None:
             frame.layout = msg.frame_layout
         return frame
+
+    def request_focus(self, frame_id: str) -> None:
+        """Mark ``frame_id`` to take window focus on its next render."""
+        self._focus_frame_id = frame_id
+
+    def consume_focus(self, frame_id: str) -> bool:
+        """Return whether ``frame_id`` was awaiting focus, clearing the request.
+
+        Focus is a one-shot: the renderer asks once per frame render and the book
+        forgets it, so a frame is focused on the render after it was requested and
+        not again.
+        """
+        if self._focus_frame_id != frame_id:
+            return False
+        self._focus_frame_id = None
+        return True
+
+    def minimize(self, frame_id: str) -> None:
+        """Minimize the named frame. No-op if it is gone."""
+        frame = self._frames.get(frame_id)
+        if frame is not None:
+            frame.minimized = True
+
+    def reassign_scenes_of(self, departed_fd: int, orphan_fd: int) -> None:
+        """Transfer a departed client's framed scenes to a surviving co-owner.
+
+        The client leaves every frame it co-owned; each scene it owned passes to
+        another owner of that frame, or to ``orphan_fd`` when none remains. Scenes
+        persist across a disconnect --- they are never dismissed here.
+        """
+        for frame in self._frames.values():
+            frame.owner_fds.discard(departed_fd)
+            for scene_id in frame.scene_order:
+                if self._scene_to_owner.get(scene_id) != departed_fd:
+                    continue
+                remaining = frame.owner_fds
+                self._scene_to_owner[scene_id] = (
+                    next(iter(remaining)) if remaining else orphan_fd
+                )
 
     def set_frame(self, scene_id: str, frame_id: str) -> None:
         """Record which frame now holds ``scene_id``."""

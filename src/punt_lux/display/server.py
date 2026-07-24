@@ -613,21 +613,10 @@ class DisplayServer:
         Handles menu registration cleanup and scene ownership transfer.
         """
         self._menu_manager.on_client_disconnected(fd)
-        # Transfer ownership of this client's scenes to another client
-        # in the same frame, or mark them as orphans if no other client
-        # remains.  Scenes persist -- they are never dismissed on disconnect.
-        sm = self._scene_manager
-        for f in list(sm.frames.values()):
-            f.owner_fds.discard(fd)
-            owned_scenes = [
-                sid for sid in f.scene_order if sm.scene_to_owner.get(sid) == fd
-            ]
-            for sid in owned_scenes:
-                remaining = f.owner_fds
-                if remaining:
-                    sm.scene_to_owner[sid] = next(iter(remaining))
-                else:
-                    sm.scene_to_owner[sid] = _ORPHAN_FD
+        # Transfer ownership of this client's scenes to another client in the same
+        # frame, or mark them as orphans if no other client remains.  Scenes
+        # persist -- they are never dismissed on disconnect.
+        self._scene_manager.reassign_scenes_of(fd, _ORPHAN_FD)
 
     # -- message handling --------------------------------------------------
 
@@ -1175,9 +1164,8 @@ class DisplayServer:
             fh = float(frame.initial_size[1]) if frame.initial_size else default_size[1]
         imgui.set_next_window_pos((x, y), cond)
         imgui.set_next_window_size((fw, fh), cond)
-        if self._scene_manager.focus_frame_id == frame.frame_id:
+        if self._scene_manager.consume_focus(frame.frame_id):
             imgui.set_next_window_focus()
-            self._scene_manager.focus_frame_id = None
         win_flags = self._resolve_frame_flags(frame, imgui)
         still_open = True
         expanded, still_open = imgui.begin(
@@ -1239,7 +1227,7 @@ class DisplayServer:
         for fid in closed_frames:
             self._close_frame(fid)
         for fid in minimized_frames:
-            sm.frames[fid].minimized = True
+            sm.minimize(fid)
         # Dock bar for minimized frames
         self._render_dock_bar(imgui, any_frame_hovered=any_frame_hovered)
 
@@ -1335,7 +1323,7 @@ class DisplayServer:
 
             if hovered and clicked:
                 frame.minimized = False
-                self._scene_manager.focus_frame_id = frame.frame_id
+                self._scene_manager.request_focus(frame.frame_id)
 
             pill_x += pill_w + pill_gap
 

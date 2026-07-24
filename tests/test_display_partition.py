@@ -1157,12 +1157,12 @@ class TestFrameAutoFocusPartitions:
     """Frames auto-focus and restore on scene creation only."""
 
     def test_scene_sets_focus_frame_id(self):
-        """Receiving a framed scene sets _focus_frame_id."""
+        """Receiving a framed scene requests focus for its frame."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        assert server._scene_manager.focus_frame_id == "f1"
+        assert server._scene_manager.consume_focus("f1") is True
 
     def test_scene_restores_minimized_frame(self):
         """Receiving a framed scene un-minimizes the frame."""
@@ -1175,25 +1175,23 @@ class TestFrameAutoFocusPartitions:
         assert not server._scene_manager.frames["f1"].minimized
 
     def test_close_frame_clears_focus(self):
-        """Closing a frame clears _focus_frame_id if it matches."""
+        """Closing a frame clears its pending focus request."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
-        assert server._scene_manager.focus_frame_id == "f1"
         server._close_frame("f1")
-        assert server._scene_manager.focus_frame_id is None
+        assert server._scene_manager.consume_focus("f1") is False
 
     def test_close_other_frame_preserves_focus(self):
-        """Closing a different frame does not clear _focus_frame_id."""
+        """Closing a different frame leaves the focus request standing."""
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._handle_message(sock, _framed_scene("s2", "f2"))
-        assert server._scene_manager.focus_frame_id == "f2"
         server._close_frame("f1")
-        assert server._scene_manager.focus_frame_id == "f2"
+        assert server._scene_manager.consume_focus("f2") is True
 
 
 class TestFrameSizeAndFlagsPartitions:
@@ -1460,11 +1458,11 @@ class TestFrameMinimizeDockPartitions:
         _register(server, sock)
         server._handle_message(sock, _framed_scene("s1", "f1"))
         server._scene_manager.frames["f1"].minimized = True
-        server._scene_manager.focus_frame_id = None
+        server._scene_manager.consume_focus("f1")  # clear the pending focus
         # New scene for the same frame triggers restore + focus.
         server._handle_message(sock, _framed_scene("s2", "f1"))
         assert not server._scene_manager.frames["f1"].minimized
-        assert server._scene_manager.focus_frame_id == "f1"
+        assert server._scene_manager.consume_focus("f1") is True
 
     def test_fit_all_restores_minimized_frames(self):
         """_apply_fit_all() restores all minimized frames."""

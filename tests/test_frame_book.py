@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from punt_lux.protocol import SceneMessage, TextElement
 from punt_lux.scene.frame_book import FrameBook
 
@@ -86,20 +88,20 @@ class TestPopFrame:
     def test_pop_returns_frame_and_clears_focus_when_it_held_it(self) -> None:
         book = FrameBook()
         book.ensure(_scene(), "f1", owner_fd=10)
-        book.focus_frame_id = "f1"
+        book.request_focus("f1")
         popped = book.pop_frame("f1")
         assert popped is not None
         assert popped.frame_id == "f1"
         assert "f1" not in book.frames
-        assert book.focus_frame_id is None
+        assert book.consume_focus("f1") is False  # focus cleared with the frame
 
     def test_pop_keeps_focus_on_a_different_frame(self) -> None:
         book = FrameBook()
         book.ensure(_scene(scene_id="s1"), "f1", owner_fd=10)
         book.ensure(_scene(scene_id="s2"), "f2", owner_fd=10)
-        book.focus_frame_id = "f2"
+        book.request_focus("f2")
         book.pop_frame("f1")
-        assert book.focus_frame_id == "f2"
+        assert book.consume_focus("f2") is True  # f2 still awaits focus
 
     def test_pop_absent_frame_is_none(self) -> None:
         assert FrameBook().pop_frame("ghost") is None
@@ -120,9 +122,89 @@ class TestFramedScenesAndClear:
         book.ensure(_scene(), "f1", owner_fd=10)
         book.set_frame("s1", "f1")
         book.record_owner("s1", 10)
-        book.focus_frame_id = "f1"
+        book.request_focus("f1")
         book.clear()
         assert not book.frames
         assert not book.scene_to_frame
         assert not book.scene_to_owner
-        assert book.focus_frame_id is None
+        assert book.consume_focus("f1") is False  # focus dropped by clear
+
+
+class TestConsumeFocus:
+    def test_consume_is_one_shot(self) -> None:
+        book = FrameBook()
+        book.request_focus("f1")
+        assert book.consume_focus("f1") is True  # awaited focus, now cleared
+        assert book.consume_focus("f1") is False  # not again
+
+    def test_consume_of_an_unfocused_frame_is_false(self) -> None:
+        book = FrameBook()
+        book.request_focus("f1")
+        assert book.consume_focus("f2") is False  # f2 never requested
+        assert book.consume_focus("f1") is True  # f1's request still stands
+
+
+class TestMinimize:
+    def test_minimizes_a_present_frame(self) -> None:
+        book = FrameBook()
+        book.ensure(_scene(), "f1", owner_fd=10)
+        book.minimize("f1")
+        assert book.frames["f1"].minimized is True
+
+    def test_minimize_absent_frame_is_a_noop(self) -> None:
+        FrameBook().minimize("ghost")  # no raise
+
+
+class TestReassignScenesOf:
+    def _framed_scene(self, book: FrameBook, scene_id: str, owner_fd: int) -> None:
+        """Install a framed scene owned by ``owner_fd`` in frame ``f1``."""
+        frame = book.ensure(_scene(scene_id=scene_id), "f1", owner_fd=owner_fd)
+        frame.scene_order.append(scene_id)
+        book.set_frame(scene_id, "f1")
+        book.record_owner(scene_id, owner_fd)
+
+    def test_transfers_to_a_surviving_co_owner(self) -> None:
+        book = FrameBook()
+        self._framed_scene(book, "s1", owner_fd=10)
+        book.ensure(_scene(scene_id="s1"), "f1", owner_fd=11)  # second co-owner
+
+        book.reassign_scenes_of(10, orphan_fd=-1)
+
+        assert book.scene_to_owner["s1"] == 11
+        assert 10 not in book.frames["f1"].owner_fds
+
+    def test_orphans_when_no_owner_remains(self) -> None:
+        book = FrameBook()
+        self._framed_scene(book, "s1", owner_fd=10)
+
+        book.reassign_scenes_of(10, orphan_fd=-1)
+
+        assert book.scene_to_owner["s1"] == -1
+        assert not book.frames["f1"].owner_fds
+
+    def test_leaves_a_scene_another_client_owns_untouched(self) -> None:
+        book = FrameBook()
+        self._framed_scene(book, "s1", owner_fd=11)
+        book.ensure(_scene(scene_id="s1"), "f1", owner_fd=10)  # departing co-owner
+
+        book.reassign_scenes_of(10, orphan_fd=-1)
+
+        assert book.scene_to_owner["s1"] == 11  # unchanged; 11 still owns it
+        assert 10 not in book.frames["f1"].owner_fds
+
+
+class TestReadOnlyViews:
+    def test_frames_view_rejects_mutation(self) -> None:
+        book = FrameBook()
+        book.ensure(_scene(), "f1", owner_fd=10)
+        with pytest.raises(TypeError):
+            book.frames["f2"] = book.frames["f1"]  # type: ignore[index]
+
+    def test_scene_maps_are_read_only(self) -> None:
+        book = FrameBook()
+        book.set_frame("s1", "f1")
+        book.record_owner("s1", 10)
+        with pytest.raises(TypeError):
+            book.scene_to_frame["s2"] = "f9"  # type: ignore[index]
+        with pytest.raises(TypeError):
+            book.scene_to_owner["s2"] = 7  # type: ignore[index]

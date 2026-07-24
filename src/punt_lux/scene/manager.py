@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from itertools import chain
 from typing import Self
 
@@ -73,24 +73,32 @@ class SceneManager:
         self._active_tab = value
 
     @property
-    def frames(self) -> dict[str, Frame]:
+    def frames(self) -> Mapping[str, Frame]:
         return self._book.frames
 
     @property
-    def focus_frame_id(self) -> str | None:
-        return self._book.focus_frame_id
-
-    @focus_frame_id.setter
-    def focus_frame_id(self, value: str | None) -> None:
-        self._book.focus_frame_id = value
-
-    @property
-    def scene_to_frame(self) -> dict[str, str]:
+    def scene_to_frame(self) -> Mapping[str, str]:
         return self._book.scene_to_frame
 
     @property
-    def scene_to_owner(self) -> dict[str, int]:
+    def scene_to_owner(self) -> Mapping[str, int]:
         return self._book.scene_to_owner
+
+    def request_focus(self, frame_id: str) -> None:
+        """Mark ``frame_id`` to take window focus on its next render."""
+        self._book.request_focus(frame_id)
+
+    def consume_focus(self, frame_id: str) -> bool:
+        """Return whether ``frame_id`` was awaiting focus, clearing the request."""
+        return self._book.consume_focus(frame_id)
+
+    def minimize(self, frame_id: str) -> None:
+        """Minimize the named frame. No-op if it is gone."""
+        self._book.minimize(frame_id)
+
+    def reassign_scenes_of(self, departed_fd: int, orphan_fd: int) -> None:
+        """Transfer a departed client's framed scenes to a surviving co-owner."""
+        self._book.reassign_scenes_of(departed_fd, orphan_fd)
 
     @property
     def dirty_windows(self) -> set[str]:
@@ -143,7 +151,7 @@ class SceneManager:
         self.upsert_scene_in_frame(frame, msg)
         self._book.record_owner(msg.id, owner_fd)
         frame.minimized = False
-        self._book.focus_frame_id = frame_id
+        self._book.request_focus(frame_id)
 
     def upsert_scene_in_frame(self, frame: Frame, msg: SceneMessage) -> None:
         """Add or replace a scene within a frame."""

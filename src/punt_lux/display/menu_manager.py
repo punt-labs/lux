@@ -6,11 +6,14 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
-from typing import Any, Self
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Any, Self
 
 from punt_lux.client_label import ClientLabel
 from punt_lux.protocol import RemoteEventHandlerInvocation
+
+if TYPE_CHECKING:
+    from punt_lux.scene.frame import Frame
 
 logger = logging.getLogger(__name__)
 
@@ -31,7 +34,7 @@ class MenuManager:
     _get_decorated: Callable[[], bool]
     _get_opacity: Callable[[], float]
     _get_font_scale: Callable[[], float]
-    _get_frames: Callable[[], dict[str, Any]]
+    _get_frames: Callable[[], Mapping[str, Frame]]
     _get_client_names: Callable[[], dict[int, str]]
     _on_clear_all: Callable[[], None]
     _on_fit_all: Callable[[], None]
@@ -55,7 +58,7 @@ class MenuManager:
         get_decorated: Callable[[], bool],
         get_opacity: Callable[[], float],
         get_font_scale: Callable[[], float],
-        get_frames: Callable[[], dict[str, Any]],
+        get_frames: Callable[[], Mapping[str, Frame]],
         get_client_names: Callable[[], dict[int, str]],
         on_clear_all: Callable[[], None],
         on_fit_all: Callable[[], None],
