@@ -231,7 +231,7 @@ class _IdleFrames:
 
 
 class _RaisingWaitFrames:
-    """An ExpiryFrames whose wait query raises, killing the sweep task's loop."""
+    """An ExpiryFrames whose wait query always raises — the loop must survive it."""
 
     def seconds_until_next(self) -> float | None:
         msg = "wait boom"
@@ -242,7 +242,7 @@ class _RaisingWaitFrames:
 
 
 class TestExpirySweepLifespan:
-    """The lifespan helper cancels AND awaits the sweep, and survives a dead task."""
+    """The lifespan helper cancels AND awaits the sweep, which survives a bad cycle."""
 
     def test_cancels_and_awaits_the_task_on_exit(self) -> None:
         import asyncio
@@ -260,7 +260,7 @@ class TestExpirySweepLifespan:
 
         asyncio.run(drive())
 
-    def test_shutdown_completes_even_if_the_task_already_died(self) -> None:
+    def test_shutdown_is_clean_when_the_sweep_survives_a_raising_wait(self) -> None:
         import asyncio
 
         from punt_lux.domain.hub.expiry_sweep import ExpirySweep
@@ -269,14 +269,13 @@ class TestExpirySweepLifespan:
         sweep = ExpirySweep(_RaisingWaitFrames(), _SpyMarker())
 
         async def drive() -> None:
-            # The task dies with RuntimeError on its first wait query; exiting the
-            # block must log-and-swallow that on await, not re-raise it, so a
-            # caller's own shutdown still runs.
+            # A raising wait query no longer kills the loop: it backs off the idle
+            # poll and keeps running, so the task is alive for the block and the
+            # lifespan helper cancels and awaits it cleanly on exit.
             async with _expiry_sweep_running(sweep) as task:
-                for _ in range(200):
-                    await asyncio.sleep(0.001)
-                    if task.done():
-                        break
-                assert task.done()  # died on its own
+                await asyncio.sleep(0.02)
+                assert not task.done()  # survived the raising wait, did not die
+            assert task.done()  # cancelled and awaited on exit
+            assert task.cancelled()
 
         asyncio.run(drive())  # exits cleanly — no exception escaped the block

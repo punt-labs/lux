@@ -84,14 +84,14 @@ class ExpirySweep:
     async def run(self) -> None:
         """Wait-sweep-repeat until the task is cancelled at shutdown.
 
-        A failing sweep cycle is logged and the loop continues: one bad cycle must
-        not silently kill TTL enforcement for the whole process. This broad catch is
-        the loop's boundary (PY-EH-6); ``CancelledError`` is a ``BaseException`` and
-        so is not caught, so cancellation at shutdown still ends the task.
+        The wait and the sweep are one guarded step (PY-EH-6): a raise from either is
+        logged and the loop backs off the idle poll rather than terminating or
+        spinning. ``CancelledError`` is not caught, so shutdown cancellation ends it.
         """
         while True:
-            await asyncio.sleep(self.next_wait())
             try:
+                await asyncio.sleep(self.next_wait())
                 self.sweep()
             except Exception:
-                logger.exception("frame-expiry sweep cycle failed; continuing")
+                logger.exception("frame-expiry cycle failed; backing off the idle poll")
+                await asyncio.sleep(_IDLE_POLL_SECONDS)

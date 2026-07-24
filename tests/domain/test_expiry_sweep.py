@@ -265,11 +265,62 @@ def test_run_survives_a_raising_sweep_cycle() -> None:
 
     async def drive() -> None:
         task = asyncio.create_task(sweep.run())
-        for _ in range(200):
-            await asyncio.sleep(0.001)
+        for _ in range(300):  # poll past the ~1s idle back-off for recovery
+            await asyncio.sleep(0.01)
             if marker.marked:
                 break
         assert not task.done()  # the raising cycle did not kill the loop
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(drive())
+    assert scene in marker.marked  # a later cycle swept after the raise
+
+
+@final
+class _RaiseWaitOnceFrames:
+    """An ``ExpiryFrames`` whose first ``seconds_until_next`` raises, then idles.
+
+    ``expire_due`` always yields the scene, so once the loop survives the faulting
+    wait it can prove it recovered by marking that scene on a later cycle.
+    """
+
+    _raised: bool
+    _scene: SceneId
+    __slots__ = ("_raised", "_scene")
+
+    def __new__(cls, scene: SceneId) -> Self:
+        self = super().__new__(cls)
+        self._raised = False
+        self._scene = scene
+        return self
+
+    def seconds_until_next(self) -> float | None:
+        if not self._raised:
+            self._raised = True
+            msg = "wait boom"
+            raise RuntimeError(msg)
+        return 0.0
+
+    def expire_due(self) -> frozenset[SceneId]:
+        return frozenset({self._scene})
+
+
+def test_run_survives_a_raising_wait_computation() -> None:
+    # A raise from seconds_until_next must not terminate the task: the loop backs
+    # off to the idle poll, then a later cycle computes a real wait and sweeps.
+    scene = SceneId("x")
+    marker = SpyMarker()
+    sweep = ExpirySweep(_RaiseWaitOnceFrames(scene), marker)
+
+    async def drive() -> None:
+        task = asyncio.create_task(sweep.run())
+        for _ in range(300):  # poll past the ~1s idle back-off for recovery
+            await asyncio.sleep(0.01)
+            if marker.marked:
+                break
+        assert not task.done()  # the faulting wait did not kill the loop
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
