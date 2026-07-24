@@ -84,6 +84,7 @@ class SceneOperations:
             # the cast bridges list invariance across that crossing (PY-TS-12).
             cast("Sequence[DomainElement]", elements),
             request.presentation(),
+            ttl_seconds=request.frame_ttl(),
         )
         self._replicator.mark_dirty(SceneId(request.scene_id))
         return SceneShown(scene_id=request.scene_id)

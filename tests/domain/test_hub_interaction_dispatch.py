@@ -310,7 +310,7 @@ def test_hub_interaction_dispatch_frame_close_removes_the_frames_scenes(
             parent_id=None,
         ),
     )
-    isolated_display.record_presentation(scene_id, ScenePresentation(frame_id=frame_id))
+    isolated_display.frames.record(scene_id, ScenePresentation(frame_id=frame_id))
 
     mock_replicator = MagicMock()
     monkeypatch.setattr(hub_module, "hub_display", isolated_display)

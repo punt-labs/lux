@@ -253,7 +253,7 @@ class SyncReplicator:
         from punt_lux.domain.hub import hub_display
 
         roots = hub_display.scene_roots(scene_id)
-        presentation = hub_display.presentation_for(scene_id)
+        presentation = hub_display.frames.presentation_for(scene_id)
         presentation.push(self._rig.repush_client, scene_id, roots)
 
     def mark_cleared(self) -> None:

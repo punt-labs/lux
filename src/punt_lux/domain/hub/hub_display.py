@@ -10,6 +10,8 @@ responsibility:
 - ``ChildIndex`` — parent → children edges for one-walk descendant removal.
 - ``HubClientRegistry`` — connections registered as Hub clients.
 - ``ScenePresentationRegistry`` — how each live scene is framed for a resend.
+- ``FrameExpiry`` — per-frame TTL deadlines; armed at ``show_scene`` and swept by
+  ``expire_due`` under the store lock, so a re-show and an expiry never race.
 - ``SubtreeInstaller`` / ``SubtreeRemover`` — the mirror install and teardown
   walks ``apply`` delegates to.
 
@@ -29,6 +31,7 @@ own behavior and never escapes to the caller.
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Self
 
 from punt_lux.domain.element import Element as WireElement
@@ -38,11 +41,12 @@ from punt_lux.domain.hub.element_index import (
     UnknownElementError,
     UnknownSceneError,
 )
+from punt_lux.domain.hub.frame_expiry import FrameExpiry
+from punt_lux.domain.hub.frame_lifecycle import FrameLifecycle
 from punt_lux.domain.hub.hub_clients import HubClientRegistry
 from punt_lux.domain.hub.hub_reads import HubReads
 from punt_lux.domain.hub.owner_tracker import OwnerTracker
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
-from punt_lux.domain.hub.presentation_access import LockedPresentations
 from punt_lux.domain.hub.root_registry import RootRegistry
 from punt_lux.domain.hub.scene_presentation import (
     ScenePresentation,
@@ -58,7 +62,7 @@ from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Callable, Mapping, Sequence
     from contextlib import AbstractContextManager
 
 __all__ = [
@@ -97,10 +101,10 @@ class HubDisplay:
     _installer: SubtreeInstaller
     _lock: StoreLock
     _reader: SceneReader
-    _presentations: LockedPresentations
     _reads: HubReads
+    _frame_lifecycle: FrameLifecycle
 
-    def __new__(cls) -> Self:
+    def __new__(cls, clock: Callable[[], float] = time.monotonic) -> Self:
         self = super().__new__(cls)
         self._index = ElementIndex()
         self._owners = OwnerTracker()
@@ -121,8 +125,10 @@ class HubDisplay:
         )
         self._lock = StoreLock()
         self._reader = SceneReader(self._index, self._frames, self._lock)
-        self._presentations = LockedPresentations(self._frames, self._lock)
         self._reads = HubReads(self._index, self._owners, self._clients, self._lock)
+        self._frame_lifecycle = FrameLifecycle(
+            self._frames, self._remover, FrameExpiry(clock), self._lock
+        )
         return self
 
     @property
@@ -165,21 +171,16 @@ class HubDisplay:
         """
         return self._reader
 
-    # -- presentation ------------------------------------------------------
+    @property
+    def frames(self) -> FrameLifecycle:
+        """Return the frame authority — presentations, TTL expiry, and teardown.
 
-    def record_presentation(
-        self, scene_id: SceneId, presentation: ScenePresentation
-    ) -> None:
-        """Remember how a scene was shown, for a later whole-scene resend."""
-        self._presentations.record(scene_id, presentation)
-
-    def forget_presentation(self, scene_id: SceneId) -> None:
-        """Drop a scene's presentation once a clear blanks it away."""
-        self._presentations.forget(scene_id)
-
-    def presentation_for(self, scene_id: SceneId) -> ScenePresentation:
-        """Return how a scene was shown, or a self-framed default, read under lock."""
-        return self._presentations.presentation_for(scene_id)
+        Callers reach how a scene is framed (``presentation_for``), close a frame
+        (``remove_frame``), and sweep expiry (``expire_due``) through this
+        sub-object, exposed like ``reader`` so the facade carries no per-frame
+        delegator.
+        """
+        return self._frame_lifecycle
 
     def resolve(self, scene_id: SceneId, element_id: ElementId) -> WireElement:
         """Return the indexed Element or raise ``UnknownElementError``."""
@@ -255,15 +256,20 @@ class HubDisplay:
         scene_id: SceneId,
         roots: Sequence[WireElement],
         presentation: ScenePresentation,
+        *,
+        ttl_seconds: float | None = None,
     ) -> None:
-        """Replace a scene's roots and record its presentation under one write lock.
+        """Replace a scene's roots, record its presentation, and set the frame TTL.
 
-        Batching both writes means a concurrent snapshot never pairs the new roots
-        with the old presentation, or the reverse.
+        All three writes share one write lock, so a concurrent snapshot never pairs
+        new roots with an old presentation and a concurrent expiry sweep never races
+        the deadline arm (see ``FrameLifecycle``). A ``ttl_seconds`` of None clears
+        any prior deadline, making a re-show without a TTL permanent.
         """
         with self._lock.write():
             self.replace_scene(connection_id, scene_id, roots)
-            self.record_presentation(scene_id, presentation)
+            self._frame_lifecycle.record(scene_id, presentation)
+            self._frame_lifecycle.set_deadline(presentation.frame_id, ttl_seconds)
 
     # -- apply -------------------------------------------------------------
 
@@ -325,19 +331,6 @@ class HubDisplay:
         session no longer appears among the live Hub clients.
         """
         self._clients.discard(connection_id)
-
-    def remove_frame(self, frame_id: str) -> frozenset[SceneId]:
-        """Remove every scene shown in ``frame_id``; return the scenes touched.
-
-        The frame-close / TTL path: each scene's roots are torn down through the
-        remover whatever the (possibly departed) owner, so an orphaned frame still
-        closes. The caller marks the returned scenes dirty to repaint.
-        """
-        with self._lock.write():
-            scenes = self._frames.scenes_in_frame(frame_id)
-            for scene_id in scenes:
-                self._remover.drop_scene_roots(scene_id)
-            return frozenset(scenes)
 
     # -- private helpers ---------------------------------------------------
 

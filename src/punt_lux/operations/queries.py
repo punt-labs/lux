@@ -89,7 +89,7 @@ class QueryOperations:
         scenes: list[SceneSummary] = []
         frames: dict[str, _FrameAccumulator] = {}
         for sid in self._display.live_scene_ids():
-            presentation = self._display.presentation_for(sid)
+            presentation = self._display.frames.presentation_for(sid)
             scenes.append(
                 SceneSummary(
                     scene_id=str(sid),

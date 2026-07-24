@@ -553,7 +553,7 @@ class TestShowTool:
         )
 
         # The recorded presentation is what the replicator resends the scene with.
-        assert store.presentation_for(SceneId("s1")).frame_id == "dash"
+        assert store.frames.presentation_for(SceneId("s1")).frame_id == "dash"
 
     @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_show_rejects_an_unknown_layout(self, mock_get: MagicMock) -> None:

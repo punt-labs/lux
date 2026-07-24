@@ -54,7 +54,7 @@ def _seed_framed_scene() -> HubDisplay:
         _OWNER,
         AddElement(scene_id=_SCENE, element=_WireLeaf(id="root"), parent_id=None),
     )
-    hub_display.record_presentation(_SCENE, ScenePresentation(frame_id=_FRAME))
+    hub_display.frames.record(_SCENE, ScenePresentation(frame_id=_FRAME))
     return hub_display
 
 
@@ -66,12 +66,12 @@ def test_frame_persists_after_an_empty_replace() -> None:
     only after the blank is delivered.
     """
     hub_display = _seed_framed_scene()
-    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
     hub_display.replace_scene(_OWNER, _SCENE, ())
 
     # The scene is empty but its frame is kept, so a blank push lands in it.
-    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_clear_forgets_each_scenes_frame() -> None:
@@ -83,12 +83,13 @@ def test_clear_forgets_each_scenes_frame() -> None:
     self-framed default.
     """
     hub_display = _seed_framed_scene()
-    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
     HubSceneWriter(hub_display).clear(_OWNER)
 
     assert not hub_display.scene_roots(_SCENE)  # emptied
-    assert hub_display.presentation_for(_SCENE).frame_id == str(_SCENE)  # forgotten
+    # forgotten — falls back to the self-framed default
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == str(_SCENE)
 
 
 def test_clear_keeps_the_frame_of_a_scene_a_survivor_still_holds() -> None:
@@ -111,17 +112,17 @@ def test_clear_keeps_the_frame_of_a_scene_a_survivor_still_holds() -> None:
 
     # _OWNER's root is gone, _OTHER's survives, so the scene keeps its frame.
     assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"other"}
-    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_frame_persists_after_connection_drop() -> None:
     """Dropping the owning connection keeps its scenes' frames — the UI survives."""
     hub_display = _seed_framed_scene()
-    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
     hub_display.drop_connection(_OWNER)
 
-    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_drop_connection_leaves_the_scenes_standing() -> None:
@@ -139,7 +140,7 @@ def test_drop_connection_leaves_the_scenes_standing() -> None:
 def test_remove_frame_tears_down_its_scenes() -> None:
     """Closing a frame removes the scenes it held; both tiers agree it is gone."""
     hub_display = _seed_framed_scene()
-    touched = hub_display.remove_frame(_FRAME)
+    touched = hub_display.frames.remove_frame(_FRAME)
     assert touched == frozenset({_SCENE})
     assert hub_display.scene_roots(_SCENE) == []
 
@@ -152,13 +153,13 @@ def test_remove_frame_removes_a_scene_whose_owner_departed() -> None:
     """
     hub_display = _seed_framed_scene()
     hub_display.drop_connection(_OWNER)  # session gone, scene stands
-    touched = hub_display.remove_frame(_FRAME)
+    touched = hub_display.frames.remove_frame(_FRAME)
     assert touched == frozenset({_SCENE})
     assert hub_display.scene_roots(_SCENE) == []
 
 
 def test_remove_frame_of_an_unknown_frame_touches_nothing() -> None:
-    assert HubDisplay().remove_frame("ghost") == frozenset()
+    assert HubDisplay().frames.remove_frame("ghost") == frozenset()
 
 
 def test_non_empty_replace_keeps_the_frame() -> None:
@@ -173,7 +174,7 @@ def test_non_empty_replace_keeps_the_frame() -> None:
 
     hub_display.replace_scene(_OWNER, _SCENE, [_WireLeaf(id="fresh")])
 
-    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_dropping_one_owner_keeps_both_roots_of_a_shared_scene() -> None:
@@ -193,7 +194,7 @@ def test_dropping_one_owner_keeps_both_roots_of_a_shared_scene() -> None:
     hub_display.drop_connection(_OWNER)
 
     assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"root", "other"}
-    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_dropping_a_child_only_owner_keeps_frame() -> None:
@@ -218,7 +219,7 @@ def test_dropping_a_child_only_owner_keeps_frame() -> None:
 
     # The root remains, so the frame is kept.
     assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"root"}
-    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_removing_last_root_via_update_keeps_the_frame() -> None:
@@ -231,8 +232,8 @@ def test_removing_last_root_via_update_keeps_the_frame() -> None:
     hub_display.register_client(_OWNER)
     text = TextElement(id="t1", content="hello")
     hub_display.apply(_OWNER, AddElement(scene_id=_SCENE, element=text, parent_id=None))
-    hub_display.record_presentation(_SCENE, ScenePresentation(frame_id=_FRAME))
-    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+    hub_display.frames.record(_SCENE, ScenePresentation(frame_id=_FRAME))
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
     result = HubSceneWriter(hub_display).apply(
         _OWNER, _SCENE, [{"id": "t1", "remove": True}]
@@ -240,7 +241,7 @@ def test_removing_last_root_via_update_keeps_the_frame() -> None:
 
     assert isinstance(result, WriteAccepted)
     assert not hub_display.scene_roots(_SCENE)
-    assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
 
 
 def test_show_scene_commits_roots_and_frame_under_one_lock() -> None:
@@ -268,8 +269,8 @@ def test_show_scene_commits_roots_and_frame_under_one_lock() -> None:
         assert not committed.wait(0.3)  # provably blocked on the store lock
         # Neither half has changed: old root and old frame both still present.
         assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"root"}
-        assert hub_display.presentation_for(_SCENE).frame_id == _FRAME
+        assert hub_display.frames.presentation_for(_SCENE).frame_id == _FRAME
     assert committed.wait(2.0)  # lock released; the reshow commits both together
     worker.join(timeout=2.0)
     assert {e.id for e in hub_display.scene_roots(_SCENE)} == {"fresh"}
-    assert hub_display.presentation_for(_SCENE).frame_id == "new-frame"
+    assert hub_display.frames.presentation_for(_SCENE).frame_id == "new-frame"

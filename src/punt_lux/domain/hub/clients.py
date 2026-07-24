@@ -195,7 +195,7 @@ class ClientRegistry:
         from punt_lux.domain.hub import hub_display
         from punt_lux.domain.hub.replicator_instance import hub_replicator
 
-        for scene_id in hub_display.remove_frame(frame_id):
+        for scene_id in hub_display.frames.remove_frame(frame_id):
             hub_replicator.mark_dirty(scene_id)
 
     @staticmethod

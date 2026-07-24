@@ -128,7 +128,7 @@ class HubSceneWriter:
             for scene_id in {scene_id for scene_id, _ in owned}:
                 self._display.replace_scene(connection_id, scene_id, ())
                 if not self._display.scene_roots(scene_id):
-                    self._display.forget_presentation(scene_id)
+                    self._display.frames.forget(scene_id)
 
     def _field_realizations(
         self, scope: SceneScope, batch: PatchBatch
