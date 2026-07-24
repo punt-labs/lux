@@ -16,6 +16,7 @@ session A publishes to session A's topics, never to session B's.
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, Self, cast
 
 from punt_lux.domain.hub.hub import hub
@@ -30,6 +31,8 @@ if TYPE_CHECKING:
     from punt_lux.domain.ids import ConnectionId
 
 __all__ = ["HubPublishSink", "hub_element_factory"]
+
+logger = logging.getLogger(__name__)
 
 
 class HubPublishSink:
@@ -53,8 +56,20 @@ class HubPublishSink:
         return self
 
     def __call__(self, topic: str, payload: Mapping[str, object]) -> None:
-        """Publish ``payload`` to ``topic`` in the bound connection's scope."""
-        hub.publish(self._connection_id, Topic(topic), payload)
+        """Publish ``payload`` to ``topic`` in the bound connection's scope.
+
+        Log when the publish reaches no subscriber: a handler firing on a scene
+        whose owning session has departed (scenes outlive sessions) publishes into
+        a scope with no writer, so the event would otherwise vanish without a trace.
+        """
+        delivered = hub.publish(self._connection_id, Topic(topic), payload)
+        if delivered == 0:
+            logger.info(
+                "publish to topic %r reached no subscribers "
+                "(connection %s — an orphaned scene, or a topic no one is on)",
+                topic,
+                self._connection_id,
+            )
 
     def __reduce__(self) -> tuple[object, ...]:
         """Support native serialization for Hub-to-Display transport."""
