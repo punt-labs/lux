@@ -132,6 +132,7 @@ def serve(
         # frame-TTL sweep runs on this event loop beside it, retiring expired frames
         # through the replicator's dirty queue.
         import asyncio
+        import contextlib
 
         from punt_lux.domain.hub import hub_display
         from punt_lux.domain.hub.expiry_sweep import ExpirySweep
@@ -144,7 +145,10 @@ def serve(
         try:
             yield
         finally:
+            # Cancel and await the sweep so no pending task survives shutdown.
             sweep_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await sweep_task
             hub_replicator.stop()
             _remove_port_file(port_path)
             pid_path.unlink(missing_ok=True)
