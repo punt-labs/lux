@@ -14,14 +14,13 @@ from typing import Self
 
 from punt_lux.operations.display_control import DisplayControlOperations
 from punt_lux.operations.display_reply import (
-    DisplayErrored,
     DisplayFault,
     DisplayReplied,
     DisplayReply,
 )
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.display_info import DisplayInfo
-from punt_lux.operations.models.display_probe import Pong, Screenshot
+from punt_lux.operations.models.display_probe import Pong
 from punt_lux.operations.models.display_write import FrameStatePatch
 from punt_lux.operations.models.menu_results import Ok
 from punt_lux.operations.models.theme import SetThemeRequest, ThemeState
@@ -149,21 +148,17 @@ def test_get_window_settings_reads_all_four_fields() -> None:
     assert result.fps_idle == 30.0
 
 
-def test_screenshot_returns_path_then_maps_error() -> None:
-    ok = DisplayControlOperations(
-        _FakePort(query=DisplayReplied({"path": "/tmp/lux-x.png"}))
-    )
-    shot = ok.screenshot()
-    assert isinstance(shot, Screenshot)
-    assert shot.path == "/tmp/lux-x.png"
-
-    errored = DisplayControlOperations(
-        _FakePort(query=DisplayErrored(message="OpenGL not available"))
-    )
-    result = errored.screenshot()
+def test_screenshot_reports_unsupported_without_touching_the_display() -> None:
+    # DES-028: framebuffer capture is unsolved below the message layer, so the
+    # operation refuses cleanly and never routes a request the display would
+    # reject with an internal message (nor returns a blank PNG).
+    port = _FakePort()
+    result = DisplayControlOperations(port).screenshot()
     assert isinstance(result, OpError)
     assert result.code == "rejected"
-    assert result.reason == "OpenGL not available"
+    assert "not supported" in result.reason
+    assert "DES-028" in result.reason
+    assert port.last_method == ""  # the display was never asked
 
 
 def test_ping_returns_elapsed_time() -> None:

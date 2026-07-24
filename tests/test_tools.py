@@ -42,7 +42,6 @@ from punt_lux.protocol import (
     PlotElement,
     PongMessage,
     ProgressElement,
-    QueryResponse,
     SelectableElement,
     SliderElement,
     SpinnerElement,
@@ -2175,56 +2174,17 @@ class TestListScenesTool:
 
 class TestScreenshotTool:
     @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=False)
-    def test_screenshot_not_running(
+    @patch.object(DisplayPaths, "is_running", return_value=True)
+    def test_screenshot_reports_unsupported(
         self, mock_running: MagicMock, mock_get: MagicMock
     ) -> None:
-
+        # DES-028: framebuffer capture is unsolved, so the tool refuses cleanly
+        # and never reaches the display — even with a display running.
         result = screenshot()
-        assert result == "not running"
+        assert result == (
+            "error: screenshot capture is not supported by the display; see DES-028"
+        )
         mock_get.assert_not_called()
-
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_screenshot_returns_path(
-        self, mock_running: MagicMock, mock_get: MagicMock
-    ) -> None:
-        client = _mock_client()
-        client.query.return_value = QueryResponse(
-            method="screenshot",
-            result={"path": "/tmp/lux-screenshot-abc.png"},
-        )
-        mock_get.return_value = client
-
-        result = screenshot()
-        assert result == "/tmp/lux-screenshot-abc.png"
-
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_screenshot_error(
-        self, mock_running: MagicMock, mock_get: MagicMock
-    ) -> None:
-        client = _mock_client()
-        client.query.return_value = QueryResponse(
-            method="screenshot",
-            error="OpenGL not available",
-        )
-        mock_get.return_value = client
-
-        result = screenshot()
-        assert result == "error: OpenGL not available"
-
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    @patch.object(DisplayPaths, "is_running", return_value=True)
-    def test_screenshot_timeout(
-        self, mock_running: MagicMock, mock_get: MagicMock
-    ) -> None:
-        client = _mock_client()
-        client.query.return_value = None
-        mock_get.return_value = client
-
-        result = screenshot()
-        assert result == "timeout"
 
 
 class TestSessionKey:

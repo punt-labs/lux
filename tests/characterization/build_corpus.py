@@ -425,35 +425,12 @@ INTROSPECTION_SCENARIOS: tuple[Scenario, ...] = (
         setup={"display_running": False},
     ),
     Scenario(
-        name="screenshot-ok",
+        # DES-028: framebuffer capture is unsupported, so screenshot refuses up
+        # front regardless of display state — one scenario pins that one answer.
+        name="screenshot-unsupported",
         tool="screenshot",
         inputs={},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {
-                    "method": "screenshot",
-                    "result": {"path": "/tmp/lux-screenshot-abc.png"},
-                }
-            },
-        },
-    ),
-    Scenario(
-        name="screenshot-error",
-        tool="screenshot",
-        inputs={},
-        setup={
-            "display_running": True,
-            "client": {
-                "query": {"method": "screenshot", "error": "OpenGL not available"}
-            },
-        },
-    ),
-    Scenario(
-        name="screenshot-not-running",
-        tool="screenshot",
-        inputs={},
-        setup={"display_running": False},
+        setup={"display_running": True},
     ),
 )
 

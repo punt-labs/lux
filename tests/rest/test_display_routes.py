@@ -116,20 +116,13 @@ def test_set_frame_state_id_mismatch_is_502() -> None:
     )
 
 
-def test_screenshot() -> None:
-    client = make_client(
-        display_port=StubPort(DisplayReplied({"path": "/tmp/shot.png"}))
-    )
-    resp = client.get("/display/screenshot")
-    assert resp.status_code == 200
-    assert resp.json()["path"] == "/tmp/shot.png"
-
-
-def test_screenshot_without_a_path_is_502() -> None:
-    # The display replied but carried no path — a backend fault (502), the same
-    # class as a bad-reply narrowing failure.
+def test_screenshot_unsupported_is_409() -> None:
+    # DES-028: framebuffer capture is unsolved, so the operation refuses up front
+    # with a rejection (409); the display is never reached (StubPort is inert).
     client = make_client(display_port=StubPort(DisplayReplied({})))
-    assert client.get("/display/screenshot").status_code == 502
+    resp = client.get("/display/screenshot")
+    assert resp.status_code == 409
+    assert "DES-028" in resp.json()["detail"]
 
 
 def test_ping() -> None:

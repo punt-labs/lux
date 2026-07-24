@@ -1,18 +1,19 @@
 """DisplayControlOperations — the display-fact reads and writes, all proxied.
 
-The Hub cannot own an ImGui theme, a window's opacity, a GPU backend string, a
-framebuffer capture, or a frame's transient minimize state. These operations
-reach the running display over luxd's one connection through the injected
-:class:`DisplayPort`. The caller still enters through a Hub operation, so there
-is one code path; the reach-around that is gone is a tool or a command-line tool
-talking to the display directly.
+The Hub cannot own an ImGui theme, a window's opacity, a GPU backend string, or
+a frame's transient minimize state. These operations reach the running display
+over luxd's one connection through the injected :class:`DisplayPort`. The caller
+still enters through a Hub operation, so there is one code path; the reach-around
+that is gone is a tool or a command-line tool talking to the display directly.
 
 Every operation answers with a typed result. The getters (``get_display_info``,
-``get_theme``, ``get_window_settings``), the probes (``screenshot``, ``ping``),
-and the setters (``set_theme`` → :class:`ThemeState`, ``set_window_settings`` →
+``get_theme``, ``get_window_settings``), the ``ping`` probe, and the setters
+(``set_theme`` → :class:`ThemeState`, ``set_window_settings`` →
 :class:`WindowSettings`, ``set_frame_state`` → :class:`Ok`) all narrow the
 display's reply into their result type; a reply the type does not recognize is
-an ``OpError(rejected)``, never a fabricated success.
+an ``OpError(rejected)``, never a fabricated success. ``screenshot`` is the lone
+operation that never reaches the display — framebuffer capture is unsupported
+(DES-028), so it refuses with an ``OpError(rejected)`` up front.
 """
 
 from __future__ import annotations
@@ -69,14 +70,11 @@ class DisplayControlOperations:
         return WindowSettings.from_payload(payload)
 
     def screenshot(self) -> Screenshot | OpError:
-        """Capture the display framebuffer and return the image path."""
-        payload = self._port.query("screenshot", {}).resolve()
-        if isinstance(payload, OpError):
-            return payload
-        path = payload.get("path")
-        if not isinstance(path, str):
-            return OpError(code="fault", reason="screenshot reply carried no path")
-        return Screenshot(path=path)
+        """Refuse cleanly: framebuffer capture is unsupported (DES-028)."""
+        return OpError(
+            code="rejected",
+            reason="screenshot capture is not supported by the display; see DES-028",
+        )
 
     def ping(self, wait: float | None = None) -> Pong | OpError:
         """Round-trip a ping bounded by ``wait`` seconds; return the elapsed time.
