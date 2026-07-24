@@ -18,6 +18,7 @@ sleeps is still swept within that bound.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
 if TYPE_CHECKING:
@@ -25,6 +26,8 @@ if TYPE_CHECKING:
     from punt_lux.operations.ports import DirtyMarker
 
 __all__ = ["ExpiryFrames", "ExpirySweep"]
+
+logger = logging.getLogger(__name__)
 
 # The longest the sweep ever sleeps. It caps both the idle wait (no deadline armed)
 # and an armed wait, so a nearer deadline armed mid-sleep is picked up within this
@@ -79,7 +82,16 @@ class ExpirySweep:
             self._marker.mark_dirty(scene_id)
 
     async def run(self) -> None:
-        """Wait-sweep-repeat until the task is cancelled at shutdown."""
+        """Wait-sweep-repeat until the task is cancelled at shutdown.
+
+        A failing sweep cycle is logged and the loop continues: one bad cycle must
+        not silently kill TTL enforcement for the whole process. This broad catch is
+        the loop's boundary (PY-EH-6); ``CancelledError`` is a ``BaseException`` and
+        so is not caught, so cancellation at shutdown still ends the task.
+        """
         while True:
             await asyncio.sleep(self.next_wait())
-            self.sweep()
+            try:
+                self.sweep()
+            except Exception:
+                logger.exception("frame-expiry sweep cycle failed; continuing")

@@ -18,6 +18,8 @@ from punt_lux.session_key import RESERVED_REST_CONNECTION
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
+    from punt_lux.domain.ids import SceneId
+
 
 class TestHealthRoute:
     def test_returns_ok_with_zero_sessions(self):
@@ -200,3 +202,81 @@ class TestRestSurfaceMounted:
         body = resp.json()
         assert "scenes" in body
         assert "frames" in body
+
+
+class _SpyMarker:
+    """Records marked scenes; the sweep's replicator stand-in."""
+
+    def __init__(self) -> None:
+        self.marked: list[SceneId] = []
+
+    def mark_dirty(self, scene_id: SceneId) -> None:
+        self.marked.append(scene_id)
+
+    def mark_cleared(self) -> None:  # pragma: no cover - unused by the sweep
+        raise AssertionError("sweep never clears")
+
+    def mark_menus(self) -> None:  # pragma: no cover - unused by the sweep
+        raise AssertionError("sweep never touches menus")
+
+
+class _IdleFrames:
+    """An ExpiryFrames that never has work — a benign sweep."""
+
+    def seconds_until_next(self) -> float | None:
+        return None
+
+    def expire_due(self) -> frozenset[SceneId]:
+        return frozenset()
+
+
+class _RaisingWaitFrames:
+    """An ExpiryFrames whose wait query raises, killing the sweep task's loop."""
+
+    def seconds_until_next(self) -> float | None:
+        msg = "wait boom"
+        raise RuntimeError(msg)
+
+    def expire_due(self) -> frozenset[SceneId]:  # pragma: no cover - never reached
+        return frozenset()
+
+
+class TestExpirySweepLifespan:
+    """The lifespan helper cancels AND awaits the sweep, and survives a dead task."""
+
+    def test_cancels_and_awaits_the_task_on_exit(self) -> None:
+        import asyncio
+
+        from punt_lux.domain.hub.expiry_sweep import ExpirySweep
+        from punt_lux.luxd import _expiry_sweep_running
+
+        sweep = ExpirySweep(_IdleFrames(), _SpyMarker())
+
+        async def drive() -> None:
+            async with _expiry_sweep_running(sweep) as task:
+                assert not task.done()  # running for the block's duration
+            assert task.done()  # cancelled and awaited on exit — no pending task
+            assert task.cancelled()
+
+        asyncio.run(drive())
+
+    def test_shutdown_completes_even_if_the_task_already_died(self) -> None:
+        import asyncio
+
+        from punt_lux.domain.hub.expiry_sweep import ExpirySweep
+        from punt_lux.luxd import _expiry_sweep_running
+
+        sweep = ExpirySweep(_RaisingWaitFrames(), _SpyMarker())
+
+        async def drive() -> None:
+            # The task dies with RuntimeError on its first wait query; exiting the
+            # block must log-and-swallow that on await, not re-raise it, so a
+            # caller's own shutdown still runs.
+            async with _expiry_sweep_running(sweep) as task:
+                for _ in range(200):
+                    await asyncio.sleep(0.001)
+                    if task.done():
+                        break
+                assert task.done()  # died on its own
+
+        asyncio.run(drive())  # exits cleanly — no exception escaped the block

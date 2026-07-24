@@ -10,9 +10,10 @@ concurrent re-show, and so this one small object stays trivially testable with a
 fake clock and model-checkable in isolation.
 
 Time is monotonic, not wall-clock: a TTL is a duration, so it must be immune to
-clock adjustments. ``claim_due`` removes as it returns, keeping "is it due?" and
-"take it" a single indivisible decision — a re-arm that lands after a claim
-starts a fresh countdown rather than re-firing a deadline already consumed.
+clock adjustments. ``due_frames`` reports the due set without consuming it; the
+caller (under the store lock) tears each down and only then ``disarm``s it, so a
+tear-down that raises leaves the deadline armed to retry rather than consumed and
+lost. The store lock, not removal here, is what serialises a concurrent re-show.
 """
 
 from __future__ import annotations
@@ -60,19 +61,18 @@ class FrameExpiry:
         else:
             self.arm(frame_id, ttl_seconds)
 
-    def claim_due(self) -> frozenset[str]:
-        """Remove and return every frame whose deadline has passed at the clock now.
+    def due_frames(self) -> frozenset[str]:
+        """Return every frame whose deadline has passed at the clock now.
 
-        Claim-and-remove in one call is what makes the expiry decision atomic under
-        the caller's lock: a frame is returned exactly once and its deadline is
-        gone, so a re-arm after the claim starts a fresh countdown instead of
-        re-firing a deadline already consumed.
+        A peek, not a consume: the deadline stays armed until the caller
+        :meth:`disarm`s it. The caller (holding the store lock) tears a due frame
+        down and only then disarms it, so a tear-down that raises leaves the frame's
+        deadline in place to be retried on the next sweep rather than consumed and
+        lost. The store lock the caller holds — not removal here — is what keeps a
+        concurrent re-show from racing the decision.
         """
         now = self._now()
-        due = frozenset(f for f, deadline in self._deadlines.items() if deadline <= now)
-        for frame_id in due:
-            del self._deadlines[frame_id]
-        return due
+        return frozenset(fid for fid, dl in self._deadlines.items() if dl <= now)
 
     def seconds_until_next(self) -> float | None:
         """Return the wait until the soonest deadline, or None when none are armed.

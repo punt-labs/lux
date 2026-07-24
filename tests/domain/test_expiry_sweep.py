@@ -182,6 +182,51 @@ def test_run_sweeps_until_cancelled() -> None:
     assert scene in marker.marked
 
 
+@final
+class _RaiseOnceFrames:
+    """An ``ExpiryFrames`` whose first ``expire_due`` raises, then yields a scene."""
+
+    _raised: bool
+    _scene: SceneId
+    __slots__ = ("_raised", "_scene")
+
+    def __new__(cls, scene: SceneId) -> Self:
+        self = super().__new__(cls)
+        self._raised = False
+        self._scene = scene
+        return self
+
+    def seconds_until_next(self) -> float | None:
+        return 0.0
+
+    def expire_due(self) -> frozenset[SceneId]:
+        if not self._raised:
+            self._raised = True
+            msg = "sweep boom"
+            raise RuntimeError(msg)
+        return frozenset({self._scene})
+
+
+def test_run_survives_a_raising_sweep_cycle() -> None:
+    scene = SceneId("x")
+    marker = SpyMarker()
+    sweep = ExpirySweep(_RaiseOnceFrames(scene), marker)
+
+    async def drive() -> None:
+        task = asyncio.create_task(sweep.run())
+        for _ in range(200):
+            await asyncio.sleep(0.001)
+            if marker.marked:
+                break
+        assert not task.done()  # the raising cycle did not kill the loop
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(drive())
+    assert scene in marker.marked  # a later cycle swept after the raise
+
+
 @pytest.mark.integration
 def test_run_expires_a_real_frame_end_to_end() -> None:
     """A real ``FrameLifecycle`` on the monotonic clock, swept by a real loop.

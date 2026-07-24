@@ -17,7 +17,7 @@ down by a stale deadline: the re-show's ``set_deadline`` and the sweep's
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
 if TYPE_CHECKING:
     from punt_lux.domain.hub.frame_expiry import FrameExpiry
@@ -26,10 +26,22 @@ if TYPE_CHECKING:
         ScenePresentationRegistry,
     )
     from punt_lux.domain.hub.store_lock import StoreLock
-    from punt_lux.domain.hub.subtree_remover import SubtreeRemover
     from punt_lux.domain.ids import SceneId
 
-__all__ = ["FrameLifecycle"]
+__all__ = ["FrameLifecycle", "SceneRootRemover"]
+
+
+@runtime_checkable
+class SceneRootRemover(Protocol):
+    """The one teardown operation FrameLifecycle needs — the ``SubtreeRemover`` side.
+
+    A structural interface so the lifecycle depends on the teardown it uses, not on
+    the whole remover, and a test can drive it with a fake.
+    """
+
+    def drop_scene_roots(self, scene_id: SceneId) -> None:
+        """Tear down every root of ``scene_id`` whatever its owner."""
+        ...
 
 
 @final
@@ -37,7 +49,7 @@ class FrameLifecycle:
     """Own each scene's presentation, its TTL deadline, and its teardown, under lock."""
 
     _frames: ScenePresentationRegistry
-    _remover: SubtreeRemover
+    _remover: SceneRootRemover
     _expiry: FrameExpiry
     _lock: StoreLock
     __slots__ = ("_expiry", "_frames", "_lock", "_remover")
@@ -45,7 +57,7 @@ class FrameLifecycle:
     def __new__(
         cls,
         frames: ScenePresentationRegistry,
-        remover: SubtreeRemover,
+        remover: SceneRootRemover,
         expiry: FrameExpiry,
         lock: StoreLock,
     ) -> Self:
@@ -115,13 +127,20 @@ class FrameLifecycle:
     def expire_due(self) -> frozenset[SceneId]:
         """Tear down every frame whose TTL has passed; return the scenes to repaint.
 
-        Claim-and-remove runs under one write lock, so expiring a frame and tearing
-        down its scenes is atomic against a concurrent re-show.
+        The whole sweep runs under one write lock, so expiring a frame and tearing
+        down its scenes is atomic against a concurrent re-show. Each due frame is
+        torn down and only then disarmed, so a tear-down that raises leaves that
+        frame's deadline armed for the next sweep instead of consuming it and
+        stranding the frame (the raise propagates to the sweep loop, which logs and
+        continues; frames not yet reached keep their deadlines too). Tear-down work
+        runs while the store lock is held, so it must stay bounded — a scene-roots
+        removal, nothing heavier.
         """
         with self._lock.write():
             scenes: set[SceneId] = set()
-            for frame_id in self._expiry.claim_due():
+            for frame_id in self._expiry.due_frames():
                 scenes |= self._tear_down(frame_id)
+                self._expiry.disarm(frame_id)
             return frozenset(scenes)
 
     def seconds_until_next(self) -> float | None:
