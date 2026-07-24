@@ -143,9 +143,9 @@ def test_sweep_marks_nothing_before_the_deadline() -> None:
     assert marker.marked == []
 
 
-def test_next_wait_is_the_soonest_deadline_when_armed() -> None:
-    sweep = ExpirySweep(_StubFrames(wait=2.5, due=[]), SpyMarker())
-    assert sweep.next_wait() == 2.5
+def test_next_wait_is_the_soonest_deadline_when_within_the_cap() -> None:
+    sweep = ExpirySweep(_StubFrames(wait=0.5, due=[]), SpyMarker())
+    assert sweep.next_wait() == 0.5
 
 
 def test_next_wait_idles_when_nothing_is_armed() -> None:
@@ -156,6 +156,13 @@ def test_next_wait_idles_when_nothing_is_armed() -> None:
 def test_next_wait_clamps_a_passed_deadline_to_zero() -> None:
     sweep = ExpirySweep(_StubFrames(wait=-3.0, due=[]), SpyMarker())
     assert sweep.next_wait() == 0.0
+
+
+def test_next_wait_caps_a_far_deadline_at_the_idle_poll() -> None:
+    # A distant deadline must not make the loop sleep past a nearer one armed while
+    # it waits: the wait is capped so the loop re-checks within the idle poll.
+    sweep = ExpirySweep(_StubFrames(wait=3600.0, due=[]), SpyMarker())
+    assert sweep.next_wait() == 1.0
 
 
 def test_run_sweeps_until_cancelled() -> None:
@@ -208,3 +215,50 @@ def test_run_expires_a_real_frame_end_to_end() -> None:
     asyncio.run(drive())
     assert marker.marked == [scene]
     assert not display.scene_roots(scene)
+
+
+@pytest.mark.integration
+def test_run_sweeps_a_short_deadline_armed_after_a_far_one() -> None:
+    """A near deadline armed while the loop waits on a far one still fires promptly.
+
+    The regression guard for the wait cap: a frame is armed an hour out, the sweep
+    starts (its first wait is capped, not an hour), then a second frame is armed a
+    blink out. Without the cap the loop would sleep ~an hour and the short frame
+    would linger; with it, the short frame retires within about the idle poll.
+    """
+    display = HubDisplay()  # real monotonic clock
+    far = SceneId("far")
+    near = SceneId("near")
+    display.show_scene(
+        _OWNER,
+        far,
+        [_WireLeaf(id="f")],
+        ScenePresentation(frame_id="far"),
+        ttl_seconds=3600.0,
+    )
+    marker = SpyMarker()
+    sweep = ExpirySweep(display.frames, marker)
+
+    async def drive() -> None:
+        task = asyncio.create_task(sweep.run())
+        await asyncio.sleep(0.02)  # let the loop enter its (capped) first wait
+        display.show_scene(
+            _OWNER,
+            near,
+            [_WireLeaf(id="n")],
+            ScenePresentation(frame_id="near"),
+            ttl_seconds=0.02,
+        )
+        for _ in range(200):  # poll up to ~2s — well under the 1s cap + margin
+            await asyncio.sleep(0.01)
+            if near in marker.marked:
+                break
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+    asyncio.run(drive())
+    assert near in marker.marked  # the near frame fired
+    assert far not in marker.marked  # the far one is still an hour out
+    assert not display.scene_roots(near)
+    assert display.scene_roots(far)

@@ -10,8 +10,9 @@ store mutator on the loop, serialized with every other write by the store lock.
 Sweeping through ``FrameLifecycle.expire_due`` keeps the expiry decision atomic
 against a concurrent re-show (see ``FrameLifecycle``), so a frame re-armed with a
 fresh TTL is never retired by a stale deadline. When no frame is armed the task
-idles at a coarse poll rather than spinning; when one is, it waits exactly until
-that deadline.
+idles at a coarse poll rather than spinning; when one is, it waits until that
+deadline but never longer than the idle poll, so a nearer deadline armed while it
+sleeps is still swept within that bound.
 """
 
 from __future__ import annotations
@@ -25,9 +26,10 @@ if TYPE_CHECKING:
 
 __all__ = ["ExpiryFrames", "ExpirySweep"]
 
-# No frame is armed: re-check at this coarse cadence rather than block forever, so
-# a deadline armed while idle is picked up within one poll. TTLs are second-scale,
-# so a one-second idle poll adds no meaningful slop.
+# The longest the sweep ever sleeps. It caps both the idle wait (no deadline armed)
+# and an armed wait, so a nearer deadline armed mid-sleep is picked up within this
+# bound rather than after the earlier, longer wait elapses. TTLs are second-scale,
+# so a one-second cap adds no meaningful slop.
 _IDLE_POLL_SECONDS = 1.0
 
 
@@ -61,11 +63,15 @@ class ExpirySweep:
     def next_wait(self) -> float:
         """Return how long to sleep before the next sweep, in seconds.
 
-        The soonest armed deadline, clamped so a passed deadline sweeps at once; the
-        coarse idle poll when nothing is armed.
+        The soonest armed deadline, clamped below so a passed deadline sweeps at
+        once and capped above at the idle poll so a nearer deadline armed while this
+        sleep is in flight is still picked up within that bound; the idle poll when
+        nothing is armed.
         """
         wait = self._frames.seconds_until_next()
-        return _IDLE_POLL_SECONDS if wait is None else max(wait, 0.0)
+        if wait is None:
+            return _IDLE_POLL_SECONDS
+        return min(max(wait, 0.0), _IDLE_POLL_SECONDS)
 
     def sweep(self) -> None:
         """Retire every due frame and mark its scenes dirty for the replicator."""
