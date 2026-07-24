@@ -902,7 +902,8 @@ Each MCP session has its own identity.  \texttt{McpAsgiApp}
 and refuses the reserved REST connection key.  \texttt{SessionScopedServer}
 (\modpath{mcp\_session.py}) runs the Hub cleanup cascade when a session
 ends, and \texttt{session\_cleanup.py} tears down that session's Hub-side
-scenes stay-behind, menu items, subscriptions, and inbox.  A vanished
+menu items, subscriptions, and inbox; its scenes stay behind (see
+\S\ref{sec:frames}, Scenes Survive Their Session).  A vanished
 client --- a killed process, a dropped socket --- is reaped 30 minutes
 after its last activity, so its Hub state cannot leak until restart.
 Session teardown is isolated: one session ending does not disturb another.
@@ -1103,11 +1104,16 @@ the OpenAPI schema from the model, so there is no second schema to maintain.
 \texttt{GET,PUT /display/theme}      & \texttt{get/set\_theme} & \texttt{ThemeState | OpError} \\
 \texttt{GET,PATCH /display/window}   & \texttt{get/set\_window\_settings} & \texttt{WindowSettings | OpError} \\
 \texttt{PATCH /display/frames/\{id\}} & \texttt{set\_frame\_state} & \texttt{Ok | OpError} \\
+\texttt{GET /display/screenshot}     & \texttt{screenshot}   & \texttt{Screenshot | OpError} \\
 \texttt{GET /display/ping}           & \texttt{ping}         & \texttt{Pong | OpError} \\
 \texttt{GET,PUT /display-mode}       & \texttt{read/write\_display\_mode} & \texttt{DisplayModeState | OpError} \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+The \texttt{GET /display/screenshot} route exists but refuses like its tool:
+framebuffer capture is unsolved below the message layer, so \texttt{screenshot}
+returns \texttt{rejected}, which the table maps to HTTP 409 (DES-028).
 
 Pub-sub is not on REST.  Publishing is scoped to the publisher's own
 session, and a REST caller shares one anonymous default scope with no
