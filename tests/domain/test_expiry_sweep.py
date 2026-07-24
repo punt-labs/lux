@@ -17,8 +17,14 @@ from typing import Literal, Self, final
 import pytest
 
 from punt_lux.domain.hub.expiry_sweep import ExpirySweep
+from punt_lux.domain.hub.frame_expiry import FrameExpiry
+from punt_lux.domain.hub.frame_lifecycle import FrameLifecycle
 from punt_lux.domain.hub.hub_display import HubDisplay
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.domain.hub.scene_presentation import (
+    ScenePresentation,
+    ScenePresentationRegistry,
+)
+from punt_lux.domain.hub.store_lock import StoreLock
 from punt_lux.domain.ids import ConnectionId, SceneId
 
 _OWNER = ConnectionId("sweep-owner")
@@ -141,6 +147,51 @@ def test_sweep_marks_nothing_before_the_deadline() -> None:
     sweep.sweep()
 
     assert marker.marked == []
+
+
+@final
+class _FailingRemover:
+    """A scene-root remover that raises for one scene, records the rest."""
+
+    _fail_on: SceneId
+    _torn: list[SceneId]
+    __slots__ = ("_fail_on", "_torn")
+
+    def __new__(cls, fail_on: SceneId) -> Self:
+        self = super().__new__(cls)
+        self._fail_on = fail_on
+        self._torn = []
+        return self
+
+    def drop_scene_roots(self, scene_id: SceneId) -> None:
+        if scene_id == self._fail_on:
+            msg = f"boom for {scene_id}"
+            raise RuntimeError(msg)
+        self._torn.append(scene_id)
+
+
+def test_sweep_marks_the_surviving_frame_when_another_teardown_fails() -> None:
+    # A later frame's failed tear-down must not lose an earlier frame's repaint:
+    # the good frame is marked dirty regardless, the bad one is left to retry.
+    clock = FakeClock()
+    good = SceneId("good")
+    bad = SceneId("bad")
+    lifecycle = FrameLifecycle(
+        ScenePresentationRegistry(),
+        _FailingRemover(bad),
+        FrameExpiry(clock),
+        StoreLock(),
+    )
+    lifecycle.present(good, ScenePresentation(frame_id="fg"), 1.0)
+    lifecycle.present(bad, ScenePresentation(frame_id="fb"), 1.0)
+    marker = SpyMarker()
+    sweep = ExpirySweep(lifecycle, marker)
+
+    clock.advance(1.0)
+    sweep.sweep()
+
+    assert marker.marked == [good]  # the surviving frame was repainted
+    assert lifecycle.seconds_until_next() == 0.0  # bad stays armed (due), to retry
 
 
 def test_next_wait_is_the_soonest_deadline_when_within_the_cap() -> None:

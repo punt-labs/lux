@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from typing import Self, final
 
-import pytest
-
 from punt_lux.domain.hub.frame_expiry import FrameExpiry
 from punt_lux.domain.hub.frame_lifecycle import FrameLifecycle
 from punt_lux.domain.hub.scene_presentation import (
@@ -76,22 +74,22 @@ def _lifecycle(clock: FakeClock, remover: _Remover) -> FrameLifecycle:
     )
 
 
-def test_expire_due_leaves_the_frame_armed_when_its_teardown_raises() -> None:
+def test_expire_due_leaves_a_failed_frame_armed_and_returns_nothing() -> None:
     clock = FakeClock()
     remover = _Remover(fail_on=SceneId("s"))
     fl = _lifecycle(clock, remover)
     fl.present(SceneId("s"), ScenePresentation(frame_id="f"), 1.0)
 
     clock.advance(1.0)
-    with pytest.raises(RuntimeError):
-        fl.expire_due()
+    # The tear-down fails; it is caught, so expire_due returns nothing (the frame
+    # is not in the repaint set) and the deadline is left armed — not consumed.
+    assert fl.expire_due() == frozenset()
 
-    # The raise left the deadline in place — not consumed — so the next sweep retries.
     remover.stop_failing()
-    assert fl.expire_due() == frozenset({SceneId("s")})
+    assert fl.expire_due() == frozenset({SceneId("s")})  # retried and retired
 
 
-def test_a_failed_teardown_does_not_strand_the_other_due_frames() -> None:
+def test_a_failed_teardown_still_repaints_the_other_frames() -> None:
     clock = FakeClock()
     remover = _Remover(fail_on=SceneId("bad"))
     fl = _lifecycle(clock, remover)
@@ -99,12 +97,13 @@ def test_a_failed_teardown_does_not_strand_the_other_due_frames() -> None:
     fl.present(SceneId("bad"), ScenePresentation(frame_id="fb"), 1.0)
 
     clock.advance(1.0)
-    with pytest.raises(RuntimeError):
-        fl.expire_due()
+    # The bad frame's tear-down fails, but the good frame is torn down AND returned
+    # — so the caller repaints it. A failure on one frame never strands another
+    # (torn down on the Hub yet dropped from the repaint set), whatever the order.
+    returned = fl.expire_due()
+    assert returned == frozenset({SceneId("good")})
+    assert SceneId("good") in remover.torn
+    assert SceneId("bad") not in remover.torn
 
-    # Whatever the iteration order, no due frame is consumed without being torn
-    # down: a second sweep (remover healed) retires everything still outstanding.
     remover.stop_failing()
-    remaining = fl.expire_due()
-    assert SceneId("bad") in remaining or SceneId("bad") in remover.torn
-    assert SceneId("good") in remover.torn  # the good frame was torn down
+    assert fl.expire_due() == frozenset({SceneId("bad")})  # bad retried, retired

@@ -17,6 +17,7 @@ down by a stale deadline: the re-show's ``set_deadline`` and the sweep's
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Protocol, Self, final, runtime_checkable
 
 if TYPE_CHECKING:
@@ -29,6 +30,8 @@ if TYPE_CHECKING:
     from punt_lux.domain.ids import SceneId
 
 __all__ = ["FrameLifecycle", "SceneRootRemover"]
+
+logger = logging.getLogger(__name__)
 
 
 @runtime_checkable
@@ -128,18 +131,28 @@ class FrameLifecycle:
         """Tear down every frame whose TTL has passed; return the scenes to repaint.
 
         The whole sweep runs under one write lock, so expiring a frame and tearing
-        down its scenes is atomic against a concurrent re-show. Each due frame is
-        torn down and only then disarmed, so a tear-down that raises leaves that
-        frame's deadline armed for the next sweep instead of consuming it and
-        stranding the frame (the raise propagates to the sweep loop, which logs and
-        continues; frames not yet reached keep their deadlines too). Tear-down work
-        runs while the store lock is held, so it must stay bounded — a scene-roots
-        removal, nothing heavier.
+        down its scenes is atomic against a concurrent re-show. Frames are isolated
+        from one another the way ``Hub.publish`` isolates subscribers: each is torn
+        down and only then disarmed, and a frame whose tear-down raises is logged
+        and left armed to retry on the next sweep — it never consumes the frame nor
+        aborts the others. Every frame that *did* tear down is in the returned set
+        regardless, so the caller repaints it even when a later frame fails; a
+        returned frame is never stranded (torn down on the Hub but never blanked).
+        Tear-down work runs while the store lock is held, so it must stay bounded —
+        a scene-roots removal, nothing heavier.
         """
         with self._lock.write():
             scenes: set[SceneId] = set()
             for frame_id in self._expiry.due_frames():
-                scenes |= self._tear_down(frame_id)
+                try:
+                    torn = self._tear_down(frame_id)
+                except Exception:
+                    logger.exception(
+                        "frame %s tear-down failed; leaving its TTL armed to retry",
+                        frame_id,
+                    )
+                    continue
+                scenes |= torn
                 self._expiry.disarm(frame_id)
             return frozenset(scenes)
 
