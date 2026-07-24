@@ -128,13 +128,23 @@ def serve(
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
-        # The one background writer to the display starts and stops with luxd.
+        # The one background writer to the display starts and stops with luxd; the
+        # frame-TTL sweep runs on this event loop beside it, retiring expired frames
+        # through the replicator's dirty queue.
+        import asyncio
+
+        from punt_lux.domain.hub import hub_display
+        from punt_lux.domain.hub.expiry_sweep import ExpirySweep
         from punt_lux.domain.hub.replicator_instance import hub_replicator
 
         hub_replicator.start()
+        sweep_task = asyncio.create_task(
+            ExpirySweep(hub_display.frames, hub_replicator).run()
+        )
         try:
             yield
         finally:
+            sweep_task.cancel()
             hub_replicator.stop()
             _remove_port_file(port_path)
             pid_path.unlink(missing_ok=True)
