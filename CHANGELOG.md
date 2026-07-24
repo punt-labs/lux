@@ -2,6 +2,34 @@
 
 ## [Unreleased]
 
+### Added
+
+- **Optional frame TTL.** A frame can carry `ttl_seconds` at show time (MCP
+  `show` and REST `PUT /scenes/{id}` via `frame.ttl_seconds`); the Hub retires
+  the frame when the TTL elapses, removing its scenes from both the Hub store
+  and the display. No TTL means the frame is permanent until dismissed. TTLs
+  exist at the frame level only.
+
+### Changed
+
+- **Scenes survive their session.** A disconnected or idle-reaped MCP session
+  no longer takes its rendered frames with it — subscriptions, inbox, and menu
+  items are still cleaned up, but what's on screen stays until the user closes
+  the frame, the agent clears or empties the scene, or a frame TTL expires.
+- **An empty-element push now removes the scene** (and closes its frame)
+  instead of storing an empty husk. A zero-row table is still content — only a
+  push with no elements at all is a removal.
+
+### Fixed
+
+- **Closing a frame in the window now removes its scenes from the Hub.**
+  Previously the click closed the frame locally and the Hub kept the scene —
+  the tiers silently diverged and empty "husk" frames accumulated across
+  sessions.
+- **The `screenshot` tool reports capture as unsupported** (with the DES-028
+  reference) instead of leaking an internal display error, and its docstrings
+  no longer promise a PNG path.
+
 ## [0.21.0] - 2026-07-22
 
 ### Added
