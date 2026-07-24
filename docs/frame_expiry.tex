@@ -1,0 +1,290 @@
+%
+% frame_expiry.tex
+%
+% A Z specification of lux's frame time-to-live (TTL) expiry: a frame shown with
+% a deadline is torn down once its deadline passes, unless a re-show refreshes it
+% first. The one safety property that the TTL feature adds over the existing store
+% is atomicity between a re-show and an expiry sweep: a frame re-armed with a fresh
+% deadline must never be torn down by a stale (already-passed) deadline.
+%
+% Both the re-show (install the scene's roots AND arm the frame's deadline) and the
+% sweep (decide a frame is due AND tear its roots down) run under the one store
+% lock, so each is a single atomic step and they cannot interleave. This model
+% encodes that atomicity and checks the safety invariant across every interleaving
+% of re-show, clock advance, expiry, and manual close. The fidelity variant
+% (Section~\ref{sec:fidelity}) splits the re-show into two steps -- dropping the
+% atomicity the lock provides -- and ProB then reaches the exact bad state where a
+% freshly re-shown frame has been torn down.
+%
+% Models the design in docs/architecture/target/target.md (the Hub is
+% authoritative; a re-show is a whole-UI resend) as realised by
+% src/punt_lux/domain/hub/frame_lifecycle.py (show/arm and expire/tear-down under
+% one StoreLock) and src/punt_lux/domain/hub/frame_expiry.py (the deadlines).
+%
+% Type-check:  fuzz -t docs/frame_expiry.tex
+% Model-check: make prob SPEC=docs/frame_expiry.tex   (coverage + deadlock)
+%   Safety I1 is a reachability goal, not a state invariant (so the fidelity
+%   variant can reach the bad state):
+%     probcli docs/frame_expiry.tex -model_check \
+%       -goal "#f.(f:FRAME & deadline(f)=dfuture & roots(f)=absent)" \
+%       -p DEFAULT_SETSIZE 2
+%   Atomic model: goal never satisfied. Fidelity variant (Section 8): satisfied.
+%
+% Formatting follows the fuzz house rules: schema lines under 80 columns,
+% predicates broken at \land/\lor/\implies.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{lux Frame TTL Expiry: a Z Specification}
+\author{Formal model of the re-show / expiry atomicity invariant}
+\date{July 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+A frame may carry a time-to-live. Shown with a positive TTL, it is removed once
+that many seconds pass with no re-show refreshing it. The Hub is authoritative:
+it arms the deadline when the frame is shown, sweeps the frames whose deadlines
+have passed, and tears their scenes down through the same path a manual frame
+close uses.
+
+The sweep introduces a race the store did not have before. A frame's deadline can
+pass at the very moment an agent re-shows that frame to refresh it. If the sweep
+reads the passed deadline and tears the frame down \emph{after} the re-show has
+re-installed its roots but \emph{before} the re-show has armed the fresh deadline,
+the freshly shown frame is destroyed. The fix is that both the re-show and the
+sweep run under the one store lock, so each is a single atomic step: the re-show
+installs the roots and arms the new deadline together, and the sweep decides a
+frame is due and tears it down together. Whichever runs second sees the other's
+whole effect.
+
+One safety property must hold across every interleaving:
+
+\begin{description}
+  \item[I1 --- a live deadline implies a shown frame.] A frame whose deadline is
+    still in the future always has its roots installed. Equivalently: expiry never
+    leaves a frame torn down while a fresh (future) deadline is armed on it. This is
+    the property that fails if the re-show's ``install roots'' and ``arm deadline''
+    are not one atomic step.
+\end{description}
+
+The model abstracts real time to three tokens --- a deadline is absent, in the
+future, or already passed --- because I1 turns only on the \emph{order} in which a
+frame's roots and its deadline change, not on any duration.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [FRAME]
+\end{zed}
+
+\texttt{FRAME} is the set of frames the Hub can hold. One frame already exhibits
+the race (the re-show and the sweep contend over a single frame's roots and
+deadline); ProB's \texttt{DEFAULT\_SETSIZE} bounds the carrier and a second frame
+confirms the invariant is per-frame.
+
+Every operation acts on a frame input, so whenever any frame exists a
+\texttt{ReShow} is enabled and the system can always act. The only state with
+nothing enabled is the empty universe --- no frames at all, hence no work --- a
+degenerate rest state, not a stuck system (see the deadlock note in the
+verification section).
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  ROOTS ::= present | absent
+\end{zed}
+
+Whether a frame's scene roots are installed in the store. \texttt{present}: the
+frame is shown. \texttt{absent}: torn down (never shown, closed, or expired).
+
+\begin{zed}
+  DEADLINE ::= dnone | dfuture | dpast
+\end{zed}
+
+A frame's TTL deadline, abstracted relative to ``now''. \texttt{dnone}: no TTL is
+armed (a permanent frame). \texttt{dfuture}: a TTL is armed and has not yet passed.
+\texttt{dpast}: the armed TTL has passed --- the frame is due for the sweep.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema. Its predicate carries only \emph{structural}
+coherence --- \texttt{roots} and \texttt{deadline} are total over the frames. The
+safety property I1 is deliberately \emph{absent} from the schema: were it a state
+invariant, ProB would treat any operation that broke it as \emph{disabled} rather
+than as a violation, and the fidelity check (Section~\ref{sec:fidelity}) could no
+longer reach the bad state. I1 is therefore stated as a reachability goal and
+checked against the reachable state space (see the verification section).
+
+\begin{schema}{Frame}
+  roots : FRAME \fun ROOTS \\
+  deadline : FRAME \fun DEADLINE
+\end{schema}
+
+\texttt{roots} records, per frame, whether its scene is installed;
+\texttt{deadline} records its TTL token. I1 --- any frame with a future deadline is
+shown --- holds because the only operation that arms a future deadline
+(\texttt{ReShow}) installs the roots in the same step, and the only operations that
+remove the roots (\texttt{Expire}, \texttt{ManualClose}) clear the deadline in the
+same step. The verification proves this is more than an assertion: the negating
+state is unreachable.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Frame'
+\where
+  roots' = (\lambda f : FRAME @ absent) \\
+  deadline' = (\lambda f : FRAME @ dnone)
+\end{schema}
+
+Every frame starts torn down with no deadline armed --- I1 holds vacuously.
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+\texttt{ReShow} is the whole show/re-show step: it installs the frame's roots and
+arms a fresh (future) deadline \emph{together}, under the store lock. This is the
+atomicity that guarantees I1: roots and a future deadline are set in one
+indivisible transition, so no state ever has a future deadline without roots.
+
+\begin{schema}{ReShow}
+  \Delta Frame \\
+  f? : FRAME
+\where
+  roots' = roots \oplus \{ f? \mapsto present \} \\
+  deadline' = deadline \oplus \{ f? \mapsto dfuture \}
+\end{schema}
+
+\texttt{ReShowNoTtl} is a re-show that carries no TTL: it installs the roots and
+clears any prior deadline, making the frame permanent. It cannot break I1 --- it
+never arms a future deadline.
+
+\begin{schema}{ReShowNoTtl}
+  \Delta Frame \\
+  f? : FRAME
+\where
+  roots' = roots \oplus \{ f? \mapsto present \} \\
+  deadline' = deadline \oplus \{ f? \mapsto dnone \}
+\end{schema}
+
+\texttt{TimePass} is the environment advancing the clock past an armed deadline:
+a frame's future deadline becomes passed. The roots are untouched --- the frame is
+still shown, now merely due --- so I1 is preserved (the deadline is no longer
+\texttt{dfuture}).
+
+\begin{schema}{TimePass}
+  \Delta Frame \\
+  f? : FRAME
+\where
+  deadline~f? = dfuture \\
+  deadline' = deadline \oplus \{ f? \mapsto dpast \} \\
+  roots' = roots
+\end{schema}
+
+\texttt{Expire} is the sweep retiring a due frame: a frame whose deadline has
+passed has its roots torn down and its deadline cleared, together, under the store
+lock. Guarded on \texttt{dpast}, so the sweep only ever removes a frame whose TTL
+has genuinely passed --- never one bearing a future deadline.
+
+\begin{schema}{Expire}
+  \Delta Frame \\
+  f? : FRAME
+\where
+  deadline~f? = dpast \\
+  roots' = roots \oplus \{ f? \mapsto absent \} \\
+  deadline' = deadline \oplus \{ f? \mapsto dnone \}
+\end{schema}
+
+\texttt{ManualClose} is the user closing the frame (or a clear): its roots are torn
+down and its deadline disarmed together, whatever the deadline was.
+
+\begin{schema}{ManualClose}
+  \Delta Frame \\
+  f? : FRAME
+\where
+  roots' = roots \oplus \{ f? \mapsto absent \} \\
+  deadline' = deadline \oplus \{ f? \mapsto dnone \}
+\end{schema}
+
+% ============================================================
+\section{Verification}
+% ============================================================
+
+I1 is checked as a reachability goal: the negating state
+\[
+  B \defs \exists f : FRAME @ deadline~f = dfuture \land roots~f = absent
+\]
+--- a frame with a future deadline but no roots --- must be unreachable. In ProB:
+
+\begin{verbatim}
+probcli docs/frame_expiry.tex -model_check \
+  -goal "#f.(f:FRAME & deadline(f)=dfuture & roots(f)=absent)" \
+  -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Against the atomic model this reports the goal is \emph{never} satisfied over the
+whole reachable state space --- no reachable state has a frame with a future
+deadline and absent roots, so no \texttt{Expire} ever fires on a frame a re-show
+has just refreshed. The bare \texttt{-model\_check} additionally confirms every
+operation is covered and the structural state predicate is preserved.
+
+\paragraph{Deadlock.} There is nothing here to deadlock: the store is guarded by a
+single reentrant lock, so there is no second lock and no acquisition order that
+could cycle. Whenever a frame exists, \texttt{ReShow} is enabled, so the reachable
+state space (which \texttt{-model\_check} traverses from \texttt{Init} over a
+non-empty bounded carrier) has no stuck state. The constraint-based
+\texttt{-cbc\_deadlock} does report one state with no enabled operation --- the
+empty universe, $roots = \emptyset \land deadline = \emptyset$, where no frame
+exists to act on. That state is unreachable from \texttt{Init} (which populates
+every frame) and is not a concurrency deadlock; it is the trivial ``no frames, no
+work'' rest state. It is recorded here rather than papered over.
+
+% ============================================================
+\section{Fidelity: dropping the atomicity reproduces the bug}
+\label{sec:fidelity}
+% ============================================================
+
+The atomicity is load-bearing, and the model reproduces the defect when it is
+removed. To confirm, split the single \texttt{ReShow} step into two
+independently-schedulable steps --- as a design that armed the TTL in a
+\emph{separate} store-lock acquisition from \texttt{show\_scene} would have:
+\texttt{ReShowRootsBAD}, which sets $roots' = roots \oplus \{ f? \mapsto present \}$
+and leaves \texttt{deadline} unchanged, and \texttt{ArmDeadlineBAD}, which sets
+$deadline' = deadline \oplus \{ f? \mapsto dfuture \}$ and leaves \texttt{roots}
+unchanged. These two schemas are deliberately \emph{absent} from the committed model above;
+they are run only by temporarily swapping them in for \texttt{ReShow} and re-running
+the goal check.
+
+With them in place the goal $B$ becomes reachable, and ProB prints the trace. The
+essence is that once arming a deadline is a step separate from installing the
+roots, the two can be pulled apart: a frame can carry a future deadline while its
+roots are absent. ProB's shortest witness arms a deadline on a frame that was
+never shown (\texttt{ArmDeadlineBAD} straight from \texttt{Init}); the realistic
+form is the re-show/expiry interleaving the lock is meant to forbid --- a re-show
+installs the roots, the sweep expires the frame's already-passed deadline and tears
+those roots down, and the re-show then arms its fresh deadline on the now
+torn-down frame. Every such trace ends in $B$: a future deadline tracked for a
+frame the Hub is not showing. The single atomic \texttt{ReShow} installs the roots
+and arms the deadline in one indivisible step, so no trace can separate them, which
+is why $B$ is unreachable in the committed model (all 16 reachable states visited,
+goal never satisfied).
+
+\end{document}
