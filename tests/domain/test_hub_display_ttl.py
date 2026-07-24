@@ -203,3 +203,49 @@ def test_seconds_until_next_expiry_reports_the_soonest_deadline() -> None:
     _show(display, SceneId("a"), frame_id="fa", ttl_seconds=3.0)
     _show(display, SceneId("b"), frame_id="fb", ttl_seconds=1.0)
     assert display.frames.seconds_until_next() == 1.0
+
+
+def test_reclaiming_a_blanked_ttl_frame_disarms_its_deadline() -> None:
+    """The replicator's post-blank reclaim disarms a blanked TTL frame's deadline.
+
+    Emptying a scene via ``update`` keeps its presentation (to blank into the frame)
+    and leaves the deadline armed; once the replicator delivers that blank and
+    reclaims the rootless scene, the deadline must be disarmed. Without it the sweep
+    keeps waking until the stale deadline fires as a no-op.
+    """
+    clock = FakeClock()
+    display = HubDisplay(clock)
+    scene = SceneId("s")
+    _show(display, scene, ttl_seconds=5.0)
+
+    display.replace_scene(_OWNER, scene, ())  # update-to-empty: blanked, frame kept
+    assert display.frames.seconds_until_next() == 5.0  # still armed pre-reclaim
+
+    display.reader.reclaim_if_rootless(scene)  # replicator reclaims the delivered blank
+
+    assert display.frames.seconds_until_next() is None  # deadline disarmed
+    assert display.frames.presentation_for(scene).frame_id == str(scene)  # reclaimed
+
+
+def test_a_reused_frame_id_does_not_inherit_a_reclaimed_frames_deadline() -> None:
+    """A scene entering a reclaimed frame cannot be expired by the old deadline.
+
+    A frame reclaimed after a blank must carry no armed deadline, or a later scene
+    that reuses its frame id — recorded without a TTL of its own — would be torn
+    down prematurely by the departed scene's stale deadline.
+    """
+    clock = FakeClock()
+    display = HubDisplay(clock)
+    first = SceneId("first")
+    _show(display, first, ttl_seconds=5.0)  # _FRAME armed at 5s
+    display.replace_scene(_OWNER, first, ())
+    display.reader.reclaim_if_rootless(first)  # disarms _FRAME
+
+    second = SceneId("second")
+    display.replace_scene(_OWNER, second, [_WireLeaf(id="r2")])
+    # Record into the reused frame with no TTL of its own.
+    display.frames.record(second, ScenePresentation(frame_id=_FRAME))
+
+    clock.advance(100.0)  # well past the departed scene's would-be deadline
+    assert display.frames.expire_due() == frozenset()  # no stale deadline fired
+    assert display.scene_roots(second)  # the reused-frame scene stands

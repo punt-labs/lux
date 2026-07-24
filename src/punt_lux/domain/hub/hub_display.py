@@ -124,11 +124,11 @@ class HubDisplay:
             self._remove_root,
         )
         self._lock = StoreLock()
-        self._reader = SceneReader(self._index, self._frames, self._lock)
-        self._reads = HubReads(self._index, self._owners, self._clients, self._lock)
         self._frame_lifecycle = FrameLifecycle(
             self._frames, self._remover, FrameExpiry(clock), self._lock
         )
+        self._reader = SceneReader(self._index, self._frame_lifecycle, self._lock)
+        self._reads = HubReads(self._index, self._owners, self._clients, self._lock)
         return self
 
     @property

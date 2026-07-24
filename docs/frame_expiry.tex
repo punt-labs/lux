@@ -138,9 +138,11 @@ checked against the reachable state space (see the verification section).
 \texttt{roots} records, per frame, whether its scene is installed;
 \texttt{deadline} records its TTL token. I1 --- any frame with a future deadline is
 shown --- holds because the only operation that arms a future deadline
-(\texttt{ReShow}) installs the roots in the same step, and the only operations that
-remove the roots (\texttt{Expire}, \texttt{ManualClose}) clear the deadline in the
-same step. The verification proves this is more than an assertion: the negating
+(\texttt{ReShow}) installs the roots in the same step, and every operation that
+removes the roots (\texttt{Expire}, \texttt{ManualClose}, \texttt{Reclaim}) clears
+the deadline in the same step. That last clause is the general form of the property:
+\emph{every} removal path disarms, so no removal can leave a frame counting down with
+nothing shown. The verification proves this is more than an assertion: the negating
 state is unreachable.
 
 % ============================================================
@@ -224,6 +226,27 @@ down and its deadline disarmed together, whatever the deadline was.
   deadline' = deadline \oplus \{ f? \mapsto dnone \}
 \end{schema}
 
+\texttt{Reclaim} is the replicator retiring a frame after it has blanked an emptied
+scene: an \texttt{update} strips the scene's last root, or a session departs, and
+once the blank is delivered the replicator reclaims the now-rootless frame. Like a
+manual close it is a removal, so it tears the roots down and disarms the deadline
+together --- the disarm is the point. It models
+\texttt{SceneReader.reclaim\_if\_rootless} routing through
+\texttt{FrameLifecycle.forget}, which drops the presentation and disarms the TTL
+once the frame empties. It is a distinct removal path from \texttt{ManualClose} and
+\texttt{Expire}, and the invariant is that \emph{every} removal path disarms: a
+reclaim that dropped the roots but left the deadline armed would strand a live
+deadline the sweep keeps waking to fire as a no-op (the defect
+Section~\ref{sec:fidelity} reproduces).
+
+\begin{schema}{Reclaim}
+  \Delta Frame \\
+  f? : FRAME
+\where
+  roots' = roots \oplus \{ f? \mapsto absent \} \\
+  deadline' = deadline \oplus \{ f? \mapsto dnone \}
+\end{schema}
+
 % ============================================================
 \section{Verification}
 % ============================================================
@@ -286,5 +309,26 @@ frame the Hub is not showing. The single atomic \texttt{ReShow} installs the roo
 and arms the deadline in one indivisible step, so no trace can separate them, which
 is why $B$ is unreachable in the committed model (all 16 reachable states visited,
 goal never satisfied).
+
+\paragraph{A removal that skips the disarm.}
+The same $B$ is reached by a second, independent defect --- the one this model was
+extended to guard. Replace \texttt{Reclaim} with \texttt{ReclaimNoDisarmBAD}, which
+drops the roots but leaves the deadline untouched:
+\[
+  roots' = roots \oplus \{ f? \mapsto absent \}
+  \quad\land\quad deadline' = deadline .
+\]
+It models the shipped defect where the replicator's post-blank reclaim forgot the
+scene's presentation through the raw registry, bypassing the frame authority's
+disarm, so an emptied TTL frame kept a live deadline. Applied to a shown, armed
+frame ($roots~f = present$, $deadline~f = dfuture$) it yields $roots~f = absent$
+with $deadline~f = dfuture$ --- exactly $B$, a frame counting down with nothing
+shown. Re-running the goal check with \texttt{ReclaimNoDisarmBAD} swapped in for
+\texttt{Reclaim} reports $B$ reachable and prints the one-step trace; the committed
+\texttt{Reclaim}, which disarms in the same step, keeps $B$ unreachable. This is the
+model-checked statement of the invariant that \emph{every} removal path disarms:
+each of \texttt{Expire}, \texttt{ManualClose}, and \texttt{Reclaim} clears the
+deadline as it clears the roots, and dropping the disarm from any one of them
+reaches $B$.
 
 \end{document}
