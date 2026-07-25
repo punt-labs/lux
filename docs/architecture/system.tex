@@ -199,8 +199,8 @@ Domain (pure) & \modpath{domain/}                & The renderer-free and
                 are the typed events; \texttt{handlers/remote\_dispatch.py}
                 wraps handlers for the two-tier path. \\
 Scene         & \modpath{scene/}                 & The Display's scene
-                graph.  \texttt{SceneManager} owns the unframed scenes and
-                per-scene widget state; \texttt{FrameBook} owns the frames
+                graph.  \texttt{SceneManager} owns the per-scene widget
+                state; \texttt{FrameBook} owns the frames
                 and the scene-to-frame and scene-to-owner maps;
                 \texttt{frame.py} is the \texttt{Frame} window. \\
 Protocol      & \modpath{protocol/}              & The wire contract:
@@ -781,10 +781,10 @@ A frame exists to show scenes.  When a frame's last scene is removed, the
 frame closes; a frame still holding other scenes stays open.
 
 The Hub blanks a scene by pushing it with no elements.  The Display treats
-an empty-element push as a removal, not as an empty window: an unframed
-empty push dismisses the scene, and a framed one dismisses the scene from
-its frame and closes the frame once it holds nothing.  This is the amended
-contract the legacy display-server model now checks (Section
+an empty-element push as a removal, not as an empty window: it dismisses the
+scene from its frame and closes the frame once it holds nothing --- every
+scene is framed, so there is no separate unframed removal path.  This is the
+amended contract the legacy display-server model now checks (Section
 \S\ref{sec:formal}).
 
 When the user closes a frame on the Display, the Display sends a
