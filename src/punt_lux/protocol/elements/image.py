@@ -29,6 +29,7 @@ from punt_lux.domain.element_abc import Element
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.image_codec import JsonImageDecoder, JsonImageEncoder
 from punt_lux.protocol.elements.image_source import DataImage, ImageSource, PathImage
+from punt_lux.protocol.elements.image_source_spec import ImageSourceSpec
 from punt_lux.protocol.elements.patch_field import PatchField
 
 if TYPE_CHECKING:
@@ -77,7 +78,7 @@ class ImageElement(Element):
     ) -> Self:
         self = super().__new__(cls, renderer_factory=renderer_factory, emit=emit)
         self._id = id
-        self._source = cls._resolve_source(path, data)
+        self._source = ImageSourceSpec(path, data).resolve()
         self._format = format
         self._alt = alt
         self._width = width
@@ -85,23 +86,6 @@ class ImageElement(Element):
         self._tooltip = tooltip
         self._kind = "image"
         return self
-
-    @staticmethod
-    def _resolve_source(path: str | None, data: str | None) -> ImageSource:
-        """Return the one-of source, raising on "neither" or "both" (PY-CC-2).
-
-        The discriminated invariant is established here so no constructed image
-        can hold an absent or ambiguous source.
-        """
-        if path is not None and data is not None:
-            msg = "ImageElement accepts 'path' or 'data', not both"
-            raise ValueError(msg)
-        if path is not None:
-            return PathImage(path)
-        if data is not None:
-            return DataImage(data)
-        msg = "ImageElement requires either 'path' or 'data'"
-        raise ValueError(msg)
 
     @staticmethod
     def coerce_format(value: object) -> ImageFormat | None:
@@ -196,6 +180,20 @@ class ImageElement(Element):
     def _set_tooltip(self, value: object) -> None:
         """Replace the tooltip text (used by ``Element.apply_patch``)."""
         self._tooltip = PatchField("tooltip").as_optional_str(value)
+
+    def apply_patch(self, patch: Mapping[str, object]) -> Self:
+        """Reject a both-source patch, then apply the rest atomically.
+
+        ``_set_path`` and ``_set_data`` each replace ``_source`` independently, so
+        a lone base ``apply_patch`` would let a patch carrying both keys silently
+        keep whichever ran last. Refuse the pair up front, mirroring the
+        constructor's "not both" (PY-EH-1); a one-directional source switch is
+        untouched.
+        """
+        if {"path", "data"} <= patch.keys():
+            msg = "image patch accepts 'path' or 'data', not both"
+            raise ValueError(msg)
+        return super().apply_patch(patch)
 
     def to_dict(self) -> dict[str, object]:
         """Return the JSON-compatible wire representation."""

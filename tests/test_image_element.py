@@ -269,6 +269,25 @@ class TestPatchPath:
         assert isinstance(image.source, DataImage)
         assert (image.data, image.path) == ("blob", None)
 
+    def test_apply_patch_switches_source_to_path(self) -> None:
+        image = ImageElement(id="i1", data="blob")
+        image.apply_patch({"path": "/b.png"})
+        assert isinstance(image.source, PathImage)
+        assert (image.path, image.data) == ("/b.png", None)
+
+    def test_apply_patch_rejects_both_source_keys(self) -> None:
+        image = ImageElement(id="i1", path="/a.png")
+        with pytest.raises(ValueError, match="not both"):
+            image.apply_patch({"path": "/b.png", "data": "blob"})
+
+    def test_both_source_patch_leaves_element_unchanged(self) -> None:
+        """The pair-check raises before any setter runs — nothing mutates."""
+        image = ImageElement(id="i1", path="/a.png", width=10)
+        with pytest.raises(ValueError, match="not both"):
+            image.apply_patch({"path": "/b.png", "data": "blob", "width": 99})
+        assert isinstance(image.source, PathImage)
+        assert (image.path, image.data, image.width) == ("/a.png", None, 10)
+
     def test_apply_patch_rejects_unknown_format(self) -> None:
         image = ImageElement(id="i1", path="/a.png")
         with pytest.raises(ValueError, match="format"):
