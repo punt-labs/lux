@@ -646,6 +646,18 @@ class TestSerialization:
         )
         assert restored.elements == []
 
+    def test_scene_decode_rejects_a_non_dict_element_entry(self):
+        # Each entry must be a dict — a bare string decodes to a named error, not a
+        # raw TypeError from probing "_pickled" in a non-dict.
+        with pytest.raises(ValueError, match="scene element must be a dict"):
+            SceneMessage.from_dict({"id": "s1", "frame_id": "s1", "elements": ["oops"]})
+
+    def test_scene_decode_rejects_a_non_str_pickled_entry(self):
+        with pytest.raises(ValueError, match="scene element _pickled must be a str"):
+            SceneMessage.from_dict(
+                {"id": "s1", "frame_id": "s1", "elements": [{"_pickled": 123}]}
+            )
+
     def test_connect_message_roundtrip(self):
         original = ConnectMessage(name="quarry")
         d = message_to_dict(original)
