@@ -22,6 +22,7 @@ from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
 from punt_lux.display.renderers.imgui.group import ImGuiGroupRenderer
 from punt_lux.display.renderers.imgui.input_number import ImGuiInputNumberRenderer
 from punt_lux.display.renderers.imgui.input_text import ImGuiInputTextRenderer
+from punt_lux.display.renderers.imgui.markdown import ImGuiMarkdownRenderer
 from punt_lux.display.renderers.imgui.progress import ImGuiProgressRenderer
 from punt_lux.display.renderers.imgui.radio import ImGuiRadioRenderer
 from punt_lux.display.renderers.imgui.selectable import ImGuiSelectableRenderer
@@ -39,6 +40,7 @@ from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
+from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement
@@ -80,6 +82,7 @@ class ImGuiRendererFactory:
         (CollapsingHeaderElement, ImGuiCollapsingHeaderRenderer),
         (TabBarElement, ImGuiTabBarRenderer),
         (ProgressElement, ImGuiProgressRenderer),
+        (MarkdownElement, ImGuiMarkdownRenderer),
         (SliderElement, ImGuiSliderRenderer),
         (ColorPickerElement, ImGuiColorPickerRenderer),
         (ComboElement, ImGuiComboRenderer),

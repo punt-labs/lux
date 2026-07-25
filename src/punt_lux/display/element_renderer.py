@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, ClassVar, Self, cast
 
 from punt_lux.display.renderers import (
     ImageRenderer,
-    MarkdownRenderer,
     SeparatorRenderer,
     SpinnerRenderer,
 )
@@ -26,7 +25,6 @@ from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.protocol.elements.graphics import DrawElement
 from punt_lux.protocol.elements.image import ImageElement
-from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.separator import SeparatorElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.scene import WidgetState
@@ -66,7 +64,6 @@ class ElementRenderer:
     _image_renderer: ImageRenderer
     _separator_renderer: SeparatorRenderer
     _spinner_renderer: SpinnerRenderer
-    _markdown_renderer: MarkdownRenderer
     _draw_element_renderer: DrawElementRenderer
     # Legacy composites: containers recurse their children back through
     # ``render_element``; tree/plot/modal paint their own extracted surface.
@@ -96,7 +93,6 @@ class ElementRenderer:
         (ImageElement, "_image_renderer"),
         (SeparatorElement, "_separator_renderer"),
         (SpinnerElement, "_spinner_renderer"),
-        (MarkdownElement, "_markdown_renderer"),
     )
     # Derived from the dispatch table, not double-listed. Each residual element is
     # a slotted dataclass: read the ``kind`` field default, not the slot descriptor.
@@ -129,7 +125,6 @@ class ElementRenderer:
         self._image_renderer = ImageRenderer(texture_cache)
         self._separator_renderer = SeparatorRenderer()
         self._spinner_renderer = SpinnerRenderer()
-        self._markdown_renderer = MarkdownRenderer()
         self._draw_element_renderer = DrawElementRenderer()
         self._container_renderer = ContainerRenderer(
             widget_state, check_dirty_window, self.render_element

@@ -23,6 +23,7 @@ from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
+from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.text import TextElement
@@ -45,6 +46,7 @@ _ABC_TYPES: tuple[type, ...] = (
     InputNumberElement,
     SliderElement,
     ColorPickerElement,
+    MarkdownElement,
 )
 
 

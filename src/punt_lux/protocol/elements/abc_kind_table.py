@@ -57,6 +57,11 @@ from punt_lux.protocol.elements.input_text_codec import (
     JsonInputTextDecoder,
     JsonInputTextEncoder,
 )
+from punt_lux.protocol.elements.markdown import MarkdownElement
+from punt_lux.protocol.elements.markdown_codec import (
+    JsonMarkdownDecoder,
+    JsonMarkdownEncoder,
+)
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.progress_codec import (
     JsonProgressDecoder,
@@ -138,6 +143,12 @@ class DefaultAbcKinds:
                 kind="progress",
                 codec=KindCodec(
                     ProgressElement, JsonProgressDecoder, JsonProgressEncoder().encode
+                ),
+            ),
+            LeafKindSpec(
+                kind="markdown",
+                codec=KindCodec(
+                    MarkdownElement, JsonMarkdownDecoder, JsonMarkdownEncoder().encode
                 ),
             ),
             DialogKindSpec(

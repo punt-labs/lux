@@ -47,6 +47,7 @@ class AbcKindNames:
             "group",
             "collapsing_header",
             "tab_bar",
+            "markdown",
         }
     )
 

@@ -16,7 +16,6 @@ from typing import Self
 
 from punt_lux.protocol.elements.codec import Register
 from punt_lux.protocol.elements.image import ImageElement
-from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.separator import SeparatorElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
 
@@ -49,10 +48,4 @@ class BasicsRegistry:
             SpinnerElement,
             SpinnerElement.to_dict,
             SpinnerElement.from_dict,
-        )
-        register(
-            "markdown",
-            MarkdownElement,
-            MarkdownElement.to_dict,
-            MarkdownElement.from_dict,
         )
