@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import pickle
 from typing import Any
 
 import pytest
@@ -666,6 +668,28 @@ class TestSerialization:
     def test_scene_decode_rejects_a_missing_frame_id(self):
         with pytest.raises(ValueError, match="scene field 'frame_id' must be a str"):
             SceneMessage.from_dict({"id": "s1", "elements": []})
+
+    def test_scene_decode_rejects_truncated_base64_pickle(self):
+        # A corrupt pickle payload must not escape as binascii/EOF/UnpicklingError
+        # (the display's reader only catches ValueError/KeyError/TypeError).
+        with pytest.raises(ValueError, match="_pickled is not decodable"):
+            self._decode_pickled("!!!not base64!!!")
+
+    def test_scene_decode_rejects_valid_base64_truncated_pickle(self):
+        truncated = base64.b64encode(pickle.dumps([1, 2, 3])[:5]).decode("ascii")
+        with pytest.raises(ValueError, match="_pickled is not decodable"):
+            self._decode_pickled(truncated)
+
+    def test_scene_decode_rejects_garbage_pickle_bytes(self):
+        garbage = base64.b64encode(b"not a pickled element").decode("ascii")
+        with pytest.raises(ValueError, match="_pickled is not decodable"):
+            self._decode_pickled(garbage)
+
+    @staticmethod
+    def _decode_pickled(payload: str) -> None:
+        SceneMessage.from_dict(
+            {"id": "s1", "frame_id": "s1", "elements": [{"_pickled": payload}]}
+        )
 
     def test_connect_message_roundtrip(self):
         original = ConnectMessage(name="quarry")

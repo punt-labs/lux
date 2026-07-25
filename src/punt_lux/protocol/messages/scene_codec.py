@@ -18,8 +18,6 @@ if TYPE_CHECKING:
 
 __all__ = ["SceneCodec"]
 
-_LAYOUTS = ("single", "rows", "columns", "grid")
-
 
 class SceneCodec:
     """Encode/decode a ``SceneMessage`` to/from its wire dict, validating fields."""
@@ -56,9 +54,8 @@ class SceneCodec:
         from punt_lux.protocol.messages.scene import SceneMessage
 
         layout = d.get("layout", "single")
-        if layout not in _LAYOUTS:
+        if layout not in ("single", "rows", "columns", "grid"):
             raise ValueError(f"layout must be single/rows/columns/grid, got {layout!r}")
-        raw_layout = d.get("frame_layout")
         return SceneMessage(
             id=cls._require_str(d, "id"),
             elements=cls._decode_elements(d.get("elements")),
@@ -70,16 +67,14 @@ class SceneCodec:
             frame_flags=cast("dict[str, bool]", f)
             if isinstance(f := d.get("frame_flags"), dict)
             else None,
-            frame_layout=cast("Literal['tab', 'stack']", raw_layout)  # pyright: ignore[reportUnnecessaryCast]
-            if raw_layout in ("tab", "stack")
+            frame_layout=cast("Literal['tab', 'stack']", rl)  # pyright: ignore[reportUnnecessaryCast]
+            if (rl := d.get("frame_layout")) in ("tab", "stack")
             else None,
         )
 
     @staticmethod
     def _require_str(d: dict[str, Any], field: str) -> str:
-        """Return the required str field, or raise if it is absent or not a str."""
-        value = d.get(field)
-        if not isinstance(value, str):
+        if not isinstance(value := d.get(field), str):
             raise ValueError(f"scene field {field!r} must be a str, got {value!r}")
         return value
 
@@ -92,20 +87,25 @@ class SceneCodec:
 
     @staticmethod
     def _decode_entry(e: object) -> Element:
-        """Decode one entry: a dict (pickled ABC or legacy); else a named error."""
         if not isinstance(e, dict):
             raise ValueError(f"scene element must be a dict, got {e!r}")
         entry = cast("dict[str, Any]", e)
         pickled = entry.get("_pickled")
         if pickled is None:
             return cast("Element", container_dispatch.dispatch.from_dict(entry))
+        return SceneCodec._unpickle(pickled)
+
+    @staticmethod
+    def _unpickle(pickled: object) -> Element:
         if not isinstance(pickled, str):
             raise ValueError(f"scene element _pickled must be a str, got {pickled!r}")
-        return cast("Element", pickle.loads(base64.b64decode(pickled)))
+        try:
+            return cast("Element", pickle.loads(base64.b64decode(pickled)))
+        except (ValueError, EOFError, pickle.UnpicklingError) as exc:
+            raise ValueError(f"scene element _pickled is not decodable: {exc}") from exc
 
     @staticmethod
     def _parse_frame_size(raw: object) -> tuple[int, int] | None:
-        """Convert a frame_size to a 2-tuple, or None if it is not a 2-sequence."""
         try:
             a, b = cast("tuple[int, int]", raw)
             return (int(a), int(b))
