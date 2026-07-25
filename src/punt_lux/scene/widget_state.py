@@ -9,6 +9,13 @@ from typing import Any, ClassVar, Self, cast
 class WidgetState:
     """Key-value store for interactive widget state across ImGui frames."""
 
+    # Suffixes of a modal/dialog's open/dismiss latch slots — the single source
+    # every producer (the ImGui modal and dialog adapters, the legacy modal
+    # renderer) and the ``discard_for`` consumer share, so a re-added same-id
+    # popup reopens only while these keys agree. Kept across a re-push.
+    OPEN_SUFFIX: ClassVar[str] = "__open"
+    DISMISS_SUFFIX: ClassVar[str] = "__dismissed"
+
     # Suffixes of the tab-bar suppression slots (per-render-session, reset on a
     # re-push). Honoured = the active tab a frame last force-selected (echo);
     # pending = the tab a ``TabChanged`` is outstanding for (fire suppression).
@@ -124,8 +131,8 @@ class WidgetState:
         if not element_id:
             return
         self.discard(element_id)
-        self.discard(f"{element_id}__open")
-        self.discard(f"{element_id}__dismissed")
+        self.discard(f"{element_id}{self.OPEN_SUFFIX}")
+        self.discard(f"{element_id}{self.DISMISS_SUFFIX}")
         self.discard(f"{element_id}{self.HONOURED_SUFFIX}")
         self.discard(f"{element_id}{self.PENDING_SUFFIX}")
         self.discard(f"{element_id}{self.CONTINUOUS_EDIT_BUFFER_SUFFIX}")

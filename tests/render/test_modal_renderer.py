@@ -52,8 +52,8 @@ def test_open_frame_opens_popup_and_renders_children(
 
     ModalRenderer(ws, lambda _msg: None, children.append).render(modal)
 
-    imgui.open_popup.assert_called_once_with("Confirm##m")
-    imgui.begin_popup_modal.assert_called_once_with("Confirm##m", True)
+    imgui.open_popup.assert_called_once_with("Confirm###m")
+    imgui.begin_popup_modal.assert_called_once_with("Confirm###m", True)
     assert ws.get("m__open") == 1
     assert children == [child]
     imgui.end_popup.assert_called_once()
@@ -122,4 +122,4 @@ def test_default_title_falls_back_to_id(monkeypatch: pytest.MonkeyPatch) -> None
         LegacyModalElement(id="m", open=True)
     )
 
-    assert imgui.begin_popup_modal.call_args == call("m##m", True)
+    assert imgui.begin_popup_modal.call_args == call("m###m", True)

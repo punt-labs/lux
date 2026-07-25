@@ -24,6 +24,7 @@ from imgui_bundle import imgui
 
 from punt_lux.domain.container_interaction import ModalClosed
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.scene.widget_state import WidgetState
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -42,8 +43,6 @@ class ImGuiModalRenderer:
     _open_key: str
     _dismiss_key: str
 
-    _OPEN_KEY_SUFFIX: ClassVar[str] = "__open"
-    _DISMISS_KEY_SUFFIX: ClassVar[str] = "__dismissed"
     _OPEN: ClassVar[int] = 1
     _CLOSED: ClassVar[int] = 0
 
@@ -52,8 +51,8 @@ class ImGuiModalRenderer:
         self._elem = elem
         self._factory = factory
         self._was_open = False
-        self._open_key = f"{elem.id}{cls._OPEN_KEY_SUFFIX}"
-        self._dismiss_key = f"{elem.id}{cls._DISMISS_KEY_SUFFIX}"
+        self._open_key = f"{elem.id}{WidgetState.OPEN_SUFFIX}"
+        self._dismiss_key = f"{elem.id}{WidgetState.DISMISS_SUFFIX}"
         return self
 
     def begin(self) -> bool:
@@ -75,7 +74,11 @@ class ImGuiModalRenderer:
             return False
 
         title = self._elem.title or self._elem.id
-        popup_id = f"{title}##{self._elem.id}"
+        # Triple-hash pins the ImGui popup identity to the element id alone, so a
+        # title change (re-push or _set_title patch) never re-hashes the popup —
+        # which would make begin_popup_modal report it closed and spuriously
+        # dismiss an open modal. Double-hash keeps the label inside the identity.
+        popup_id = f"{title}###{self._elem.id}"
         if not was_open and not dismissed:
             imgui.open_popup(popup_id)
             ws.set(self._open_key, self._OPEN)

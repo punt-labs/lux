@@ -57,7 +57,7 @@ def test_open_frame_opens_popup(monkeypatch: pytest.MonkeyPatch) -> None:
     renderer.end(opened=visible)
 
     assert visible is True
-    imgui.open_popup.assert_called_once_with("Confirm##m")
+    imgui.open_popup.assert_called_once_with("Confirm###m")
     imgui.end_popup.assert_called_once()
     assert factory.widget_state.get("m__open") == 1
     assert seen == []
@@ -113,4 +113,63 @@ def test_default_title_falls_back_to_id(monkeypatch: pytest.MonkeyPatch) -> None
 
     ImGuiModalRenderer(modal, factory).begin()
 
-    imgui.begin_popup_modal.assert_called_once_with("m##m", True)
+    imgui.begin_popup_modal.assert_called_once_with("m###m", True)
+
+
+class _IdentityImgui:
+    """Minimal ImGui fake modeling ``##`` vs ``###`` popup-identity semantics.
+
+    ImGui derives a popup's identity from the label string: ``"Title##id"`` hashes
+    the whole string (so the label is part of the identity), while ``"Title###id"``
+    hashes only the part after ``###`` (identity is the id alone). This fake keys
+    the open set on that identity so a title change is only "still open" when the
+    identity is stable — reproducing the real dismissal bug the ``###`` fix guards.
+    """
+
+    def __init__(self) -> None:
+        self._open: set[str] = set()
+
+    @staticmethod
+    def _identity(popup_id: str) -> str:
+        return popup_id.split("###", 1)[1] if "###" in popup_id else popup_id
+
+    def open_popup(self, popup_id: str) -> None:
+        self._open.add(self._identity(popup_id))
+
+    def begin_popup_modal(self, popup_id: str, _closable: bool) -> tuple[bool, bool]:
+        return (self._identity(popup_id) in self._open, True)
+
+    def end_popup(self) -> None:
+        return None
+
+
+def test_title_change_on_open_modal_does_not_dismiss(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Renaming an open modal keeps it open — no spurious ModalClosed.
+
+    The ``###`` identity pins the popup to the element id, so a ``_set_title``
+    patch (or a re-push under a new title) does not re-hash the popup and make
+    ImGui report it closed. Under the old ``##`` identity this test fires a
+    ModalClosed — the exact dismiss-on-rename bug.
+    """
+    monkeypatch.setattr(
+        "punt_lux.display.renderers.imgui.modal.imgui", _IdentityImgui()
+    )
+    modal, seen = _capturing_modal(open=True)
+    factory = _factory()
+
+    # Frame 1: open the modal.
+    first = ImGuiModalRenderer(modal, factory)
+    first.end(opened=first.begin())
+    assert seen == []
+    assert factory.widget_state.get("m__open") == 1
+
+    # Frame 2: rename the still-open modal via the patch path, then re-render.
+    modal.apply_patch({"title": "Renamed"})
+    second = ImGuiModalRenderer(modal, factory)
+    second.end(opened=second.begin())
+
+    assert seen == []  # not dismissed by the rename
+    assert factory.widget_state.get("m__open") == 1  # still latched open
+    assert factory.widget_state.get("m__dismissed") in (None, 0)

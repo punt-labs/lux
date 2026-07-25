@@ -20,11 +20,11 @@ from typing import TYPE_CHECKING, Self, final
 from imgui_bundle import imgui
 
 from punt_lux.protocol import RemoteEventHandlerInvocation
+from punt_lux.scene.widget_state import WidgetState
 
 if TYPE_CHECKING:
     from punt_lux.protocol import Element
     from punt_lux.protocol.elements.layout import LegacyModalElement
-    from punt_lux.scene import WidgetState
     from punt_lux.types import EmitEventFn
 
 __all__ = ["ModalRenderer"]
@@ -68,9 +68,11 @@ class ModalRenderer:
         """Paint the modal, driving its open/dismiss latch and child body."""
         eid = elem.id
         title = elem.title or elem.id
-        popup_id = f"{title}##{eid}"
-        open_key = f"{eid}__open"
-        dismiss_key = f"{eid}__dismissed"
+        # Triple-hash pins the ImGui popup identity to the id, so a title change
+        # never re-hashes the popup and spuriously dismisses an open modal.
+        popup_id = f"{title}###{eid}"
+        open_key = f"{eid}{WidgetState.OPEN_SUFFIX}"
+        dismiss_key = f"{eid}{WidgetState.DISMISS_SUFFIX}"
 
         was_open = self._widget_state.ensure(open_key, _MODAL_CLOSED) == _MODAL_OPEN
         dismissed = self._widget_state.ensure(dismiss_key, _MODAL_CLOSED) == _MODAL_OPEN

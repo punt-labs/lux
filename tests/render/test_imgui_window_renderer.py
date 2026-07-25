@@ -48,7 +48,7 @@ def test_begin_opens_window_without_p_open(monkeypatch: pytest.MonkeyPatch) -> N
     # The one call that proves no close affordance: begin receives only the
     # title id and a flags keyword — no p_open positional/second argument.
     (title_arg,), kwargs = imgui.begin.call_args
-    assert title_arg == "Panel##w"
+    assert title_arg == "Panel###w"
     assert set(kwargs) == {"flags"}
 
 
@@ -93,3 +93,30 @@ def test_end_closes_the_window(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # imgui.begin is always paired with imgui.end, even when collapsed.
     imgui.end.assert_called_once_with()
+
+
+def test_title_change_keeps_window_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A title change keeps the same ImGui window identity (the part after ###).
+
+    The identity is the element id alone, so ImGui treats a renamed window as the
+    same window — the user's drag/resize survives rather than the window snapping
+    back to its first-use-ever placement. Under the old ``##`` identity the two
+    labels would hash to different windows.
+    """
+    imgui = MagicMock()
+    imgui.begin.return_value = (True, True)
+    _patch(monkeypatch, imgui)
+    factory = _factory()
+
+    window = WindowElement(id="w", title="Panel")
+    ImGuiWindowRenderer(window, factory).begin()
+    first = imgui.begin.call_args[0][0]
+
+    window.apply_patch({"title": "Renamed"})
+    ImGuiWindowRenderer(window, factory).begin()
+    second = imgui.begin.call_args[0][0]
+
+    assert first == "Panel###w"
+    assert second == "Renamed###w"
+    # Different labels, identical ImGui identity (the part after ###).
+    assert first.split("###", 1)[1] == second.split("###", 1)[1] == "w"

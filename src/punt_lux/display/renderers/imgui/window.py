@@ -59,7 +59,10 @@ class ImGuiWindowRenderer:
         imgui.set_next_window_pos((placement.x, placement.y), cond)
         imgui.set_next_window_size((placement.width, placement.height), cond)
         title = self._elem.title or self._elem.id
-        expanded, _ = imgui.begin(f"{title}##{self._elem.id}", flags=self._flag_mask())
+        # Triple-hash pins the ImGui window identity to the element id alone: a
+        # title change keeps the same window, so the user's drag/resize survives
+        # instead of the window re-appearing at the first-use-ever placement.
+        expanded, _ = imgui.begin(f"{title}###{self._elem.id}", flags=self._flag_mask())
         return expanded
 
     def _flag_mask(self) -> int:
