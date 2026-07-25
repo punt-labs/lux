@@ -80,7 +80,7 @@ class JsonDialogDecoder:
         dialog = self._cls(
             renderer_factory=self._rf,
             emit=self._emit,
-            id=ctx.require_str(raw, "id"),
+            id=ctx.require_id(raw),
             title=ctx.optional_str(raw, "title", default=""),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),
         )

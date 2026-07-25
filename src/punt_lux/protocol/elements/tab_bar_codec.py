@@ -96,7 +96,7 @@ class JsonTabBarDecoder:
             for tab in self._require_list(raw.get("tabs"))
         )
         elem = self._cls(
-            id=ctx.require_str(raw, "id"),
+            id=ctx.require_id(raw),
             tabs=tabs,
             active_tab=ctx.optional_str(raw, "active_tab", default=""),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),

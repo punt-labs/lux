@@ -253,7 +253,6 @@ class DisplayServer:
         self._current_scene_id = None
         self._element_renderer = ElementRenderer(
             widget_state=self._widget_state,
-            texture_cache=self._textures,
             table_renderer=self._table_renderer,
             emit_event=self._emit_event,
             check_dirty_window=self._check_dirty_window,

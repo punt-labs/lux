@@ -101,7 +101,7 @@ class JsonInputNumberDecoder:
         elem = self._cls(
             renderer_factory=self._rf,
             emit=self._emit,
-            id=ctx.require_str(raw, "id"),
+            id=ctx.require_id(raw),
             label=ctx.optional_str(raw, "label", default=""),
             value=ctx.optional_number(raw, "value", default=0.0),
             min=ctx.optional_nullable_number(raw, "min"),

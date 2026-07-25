@@ -33,7 +33,6 @@ from punt_lux.protocol.elements import container_dispatch
 # _util because the codec layer above the per-element modules uses it.
 from punt_lux.protocol.elements._util import strip_none as _strip_none
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
-from punt_lux.protocol.elements.basics import BasicsRegistry
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.codec import ElementCodec
@@ -153,14 +152,15 @@ Element = (
 
 
 def build_element_codec() -> ElementCodec:
-    """Return a fresh :class:`ElementCodec` with every kind registered.
+    """Return a fresh :class:`ElementCodec` with the still-legacy kinds registered.
 
-    Each :class:`JsonElementFactory` owns its own codec instance — the
-    codec carries no DI, but binding a separate instance per factory
-    keeps factory construction self-contained.
+    Only the not-yet-migrated families (layout, graphics, table) register here;
+    the basics family has fully crossed onto the Element-ABC path and is decoded
+    through ``DEFAULT_ABC_REGISTRY`` instead. Each :class:`JsonElementFactory`
+    owns its own codec instance — the codec carries no DI, but binding a separate
+    instance per factory keeps factory construction self-contained.
     """
     codec = ElementCodec()
-    BasicsRegistry().apply(codec.register)
     _register_layout(codec.register)
     _register_graphics(codec.register)
     _register_table(codec.register)

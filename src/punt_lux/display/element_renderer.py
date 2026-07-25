@@ -6,29 +6,17 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from dataclasses import fields
 from typing import TYPE_CHECKING, ClassVar, Self, cast
 
-from punt_lux.display.renderers import (
-    ImageRenderer,
-    MarkdownRenderer,
-    SeparatorRenderer,
-    SpinnerRenderer,
-)
 from punt_lux.display.renderers.container_renderer import ContainerRenderer
 from punt_lux.display.renderers.draw_element_renderer import DrawElementRenderer
 from punt_lux.display.renderers.modal_renderer import ModalRenderer
 from punt_lux.display.renderers.plot_renderer import PlotRenderer
 from punt_lux.display.renderers.tree_renderer import TreeRenderer
 from punt_lux.display.table_renderer import TableRenderer
-from punt_lux.display.texture_cache import TextureCache
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.protocol.elements.graphics import DrawElement
-from punt_lux.protocol.elements.image import ImageElement
-from punt_lux.protocol.elements.markdown import MarkdownElement
-from punt_lux.protocol.elements.separator import SeparatorElement
-from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.scene import WidgetState
 
 if TYPE_CHECKING:
@@ -48,25 +36,19 @@ class ElementRenderer:
     """Render protocol Element dataclasses as ImGui widgets.
 
     A thin dispatcher: migrated kinds resolve their adapter through the
-    ``ImGuiRendererFactory`` (the one render-side authority); the residual
-    pre-ABC leaves and the still-legacy composites paint through the small
-    set of extracted renderer classes this owns. It holds no per-kind surface
-    for the migrated kinds — that duplication moved onto the factory.
+    ``ImGuiRendererFactory`` (the one render-side authority); the still-legacy
+    composites paint through the small set of extracted renderer classes this
+    owns. It holds no per-kind surface for the migrated kinds — every display
+    leaf is now on the factory path — that duplication moved onto the factory.
     """
 
     _widget_state: WidgetState
-    _texture_cache: TextureCache
     _table_renderer: TableRenderer
     _emit_event: EmitEventFn
     _current_scene_id: str | None
     _check_dirty_window: DirtyWindowFn
     # Resolves every migrated kind's adapter and owns the one shared tooltip pass.
     _imgui_renderer_factory: ImGuiRendererFactory
-    # Pre-ABC display leaves with no adapter yet — the residual dispatch table.
-    _image_renderer: ImageRenderer
-    _separator_renderer: SeparatorRenderer
-    _spinner_renderer: SpinnerRenderer
-    _markdown_renderer: MarkdownRenderer
     _draw_element_renderer: DrawElementRenderer
     # Legacy composites: containers recurse their children back through
     # ``render_element``; tree/plot/modal paint their own extracted surface.
@@ -89,22 +71,6 @@ class ElementRenderer:
         "modal": "_render_modal",
     }
 
-    # Pre-ABC display leaves with no adapter yet. This table only loses rows —
-    # every new kind lands on the ABC/factory path — and empties when these
-    # four migrate.
-    _RESIDUAL_DISPATCH: ClassVar[tuple[tuple[type, str], ...]] = (
-        (ImageElement, "_image_renderer"),
-        (SeparatorElement, "_separator_renderer"),
-        (SpinnerElement, "_spinner_renderer"),
-        (MarkdownElement, "_markdown_renderer"),
-    )
-    # Derived from the dispatch table, not double-listed. Each residual element is
-    # a slotted dataclass: read the ``kind`` field default, not the slot descriptor.
-    _RESIDUAL_KINDS: ClassVar[frozenset[str]] = frozenset(
-        str(next(f.default for f in fields(element_type) if f.name == "kind"))
-        for element_type, _ in _RESIDUAL_DISPATCH
-    )
-
     # Renderer attrs owning per-scene WidgetState; the setter forwards scene switches.
     _WIDGET_STATE_RENDERERS: ClassVar[tuple[str, ...]] = (
         "_container_renderer",
@@ -114,22 +80,16 @@ class ElementRenderer:
     def __new__(
         cls,
         widget_state: WidgetState,
-        texture_cache: TextureCache,
         table_renderer: TableRenderer,
         emit_event: EmitEventFn,
         check_dirty_window: DirtyWindowFn,
     ) -> Self:
         self = super().__new__(cls)
         self._widget_state = widget_state
-        self._texture_cache = texture_cache
         self._table_renderer = table_renderer
         self._emit_event = emit_event
         self._check_dirty_window = check_dirty_window
         self._current_scene_id = None
-        self._image_renderer = ImageRenderer(texture_cache)
-        self._separator_renderer = SeparatorRenderer()
-        self._spinner_renderer = SpinnerRenderer()
-        self._markdown_renderer = MarkdownRenderer()
         self._draw_element_renderer = DrawElementRenderer()
         self._container_renderer = ContainerRenderer(
             widget_state, check_dirty_window, self.render_element
@@ -145,13 +105,11 @@ class ElementRenderer:
     def element_kind_count(self) -> int:
         """Return the number of distinct element kinds the Display can paint.
 
-        The honest fork total: the legacy string kinds, the residual leaves,
-        and the ABC registry's migrated kinds, de-duplicated (a container kind
-        exists in both the legacy table and the ABC registry during the fork).
+        The honest fork total: the legacy string kinds and the ABC registry's
+        migrated kinds, de-duplicated (a container kind exists in both the
+        legacy table and the ABC registry during the fork).
         """
-        return len(
-            set(self._RENDERERS) | self._RESIDUAL_KINDS | DEFAULT_ABC_REGISTRY.all_kinds
-        )
+        return len(set(self._RENDERERS) | DEFAULT_ABC_REGISTRY.all_kinds)
 
     @property
     def widget_state(self) -> WidgetState:
@@ -191,8 +149,8 @@ class ElementRenderer:
         A migrated kind — including a leaf nested in a legacy container — resolves
         its adapter through the factory (DES-042: the same adapter the top-level
         ABC path uses, so pixels are byte-identical). Everything else falls to the
-        residual leaves, then the legacy string dispatch, then the unsupported
-        fallback, each followed by the shared tooltip pass.
+        legacy string dispatch, then the unsupported fallback, each followed by
+        the shared tooltip pass.
         """
         from imgui_bundle import imgui
 
@@ -200,12 +158,11 @@ class ElementRenderer:
         if factory.handles(elem):
             self._render_via_factory(elem)
             return
-        if not self._dispatch_residual(elem):
-            method_name = self._RENDERERS.get(elem.kind)
-            if method_name is not None:
-                getattr(self, method_name)(elem)
-            else:
-                imgui.text(f"[unsupported element: {elem.kind}]")
+        method_name = self._RENDERERS.get(elem.kind)
+        if method_name is not None:
+            getattr(self, method_name)(elem)
+        else:
+            imgui.text(f"[unsupported element: {elem.kind}]")
         self._imgui_renderer_factory.apply_tooltip(elem)
 
     def _render_via_factory(self, elem: AbcElement) -> None:
@@ -232,18 +189,6 @@ class ElementRenderer:
             # ``end`` closes any opened surface and applies the adapter's tooltip;
             # run it even if a child raises so an opened modal stays balanced.
             adapter.end(opened=opened)
-
-    def _dispatch_residual(self, elem: Element) -> bool:
-        """Route the pre-ABC display leaves that have no adapter yet.
-
-        Returns True iff ``elem`` is one of the four leaves (image, separator,
-        spinner, markdown) still painted by a stateless renderer here.
-        """
-        for element_type, renderer_attr in self._RESIDUAL_DISPATCH:
-            if isinstance(elem, element_type):
-                getattr(self, renderer_attr).render(elem)
-                return True
-        return False
 
     # -- container rendering ---------------------------------------------------
 

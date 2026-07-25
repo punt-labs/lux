@@ -71,3 +71,11 @@ class PatchField:
         The optional twin of ``as_number`` for ``min`` / ``max`` / ``step``.
         """
         return None if value is None else self.as_number(value)
+
+    def as_optional_int(self, value: object) -> int | None:
+        """Return ``value`` as ``int | None`` or raise; ``None`` clears the field.
+
+        The optional twin of ``as_int`` for an image's ``width`` / ``height``,
+        where ``None`` means "use the natural pixel size".
+        """
+        return None if value is None else self.as_int(value)

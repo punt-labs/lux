@@ -117,11 +117,11 @@ The 25 kinds are the `Element` union at `__init__.py:130`.
 | 2 | `button` | `ButtonElement` (`button.py:52`) | **ABC** ✓ | **Interactive** (`ButtonClicked`) | wrap seam `element_abc.py:231` |
 | 3 | `checkbox` | `CheckboxElement` (`checkbox.py:41`) | **ABC** ✓ (see 2a) | **Interactive** (`ValueChanged`) | wrap seam `element_abc.py:248` |
 | 4 | `dialog` | `DialogElement` (`dialog.py:131`) | **ABC** ✓ | **Interactive** (composite) | private model + children (`dialog.py:50`,`:215`) |
-| 5 | `image` | `ImageElement` (`image.py`) | Legacy dataclass | Display-only | image texture (`texture_cache`) |
-| 6 | `separator` | `SeparatorElement` (`separator.py:15`) | Legacy dataclass | Display-only | anonymous id (`""`) → id-synthesis path |
+| 5 | `image` | `ImageElement` (`image.py`) | **ABC** ✓ | Display-only | discriminated `PathImage`/`DataImage` source; textures display-local (`texture_cache`) |
+| 6 | `separator` | `SeparatorElement` (`separator.py`) | **ABC** ✓ | Display-only | anonymous id via the `Anonymizable` Protocol (pump asks the element for an id-stamped copy) |
 | 7 | `progress` | `ProgressElement` (`progress.py`) | **ABC** ✓ | Display-only | — |
-| 8 | `spinner` | `SpinnerElement` (`spinner.py`) | Legacy dataclass | Display-only | — |
-| 9 | `markdown` | `MarkdownElement` (`markdown.py`) | Legacy dataclass | Display-only | — |
+| 8 | `spinner` | `SpinnerElement` (`spinner.py`) | **ABC** ✓ | Display-only | — |
+| 9 | `markdown` | `MarkdownElement` (`markdown.py`) | **ABC** ✓ | Display-only | — |
 | 10 | `slider` | `SliderElement` (`slider.py`) | **ABC** ✓ | **Interactive** (`value`) | non-atomic; `ContinuousEditArbiter[float]` (commit-on-idle) |
 | 11 | `combo` | `ComboElement` (`combo.py`) | **ABC** ✓ | **Interactive** (`selected`) | atomic-selection int index; shared `ApplyPatchOnChange` |
 | 12 | `input_text` | `InputTextElement` (`input_text.py`) | **ABC** ✓ | **Interactive** (`value`) | non-atomic; `ContinuousEditArbiter[str]` (commit-on-idle) |
@@ -140,19 +140,21 @@ The 25 kinds are the `Element` union at `__init__.py:130`.
 | 25 | `draw` | `DrawElement` (`graphics.py:27`) | Legacy dataclass | Display-only | typed draw-command family (curve/line/shape/text) |
 
 Summary: **this audit's original count was 4 migrated, 21 legacy.** Since then
-the migration has advanced to **15 migrated, 10 legacy** (`selectable` is the
-15th). Migrated: the io-model leaves `text`, `button`, `checkbox`, `dialog`; the
-display-only primitive `progress`; the four non-atomic mutable inputs
-`input_text`, `slider`, `color_picker`, `input_number` (all on the shared
-`ContinuousEditArbiter`); the three atomic-selection inputs `combo`, `radio`,
-`selectable` (all on the shared `ApplyPatchOnChange` value handler — combo/radio
-key an int index, selectable a bool); and the containers `group`, `tab_bar`,
-`collapsing_header`. The authoritative live status is
-[`migration/README.md`](migration/README.md) §"Where we are"; this table is the
-per-element analysis. Of the 10 legacy: the interactive composite `modal` — and,
-structurally, `table`/`plot` only if selection becomes Hub-authoritative — plus
-the display-only kinds `image`, `separator`, `spinner`, `markdown`, `window`,
-`tree`, `plot`, `draw`, with `table` sitting on the boundary.
+the migration has advanced to **19 migrated, 6 legacy** (batch B1 closed the
+display-only basics). Migrated: the io-model leaves `text`, `button`,
+`checkbox`, `dialog`; the display-only leaves `image`, `separator`, `progress`,
+`spinner`, `markdown` (B1 — image on a discriminated `PathImage`/`DataImage`
+source; separator anonymous ids via the `Anonymizable` Protocol); the four
+non-atomic mutable inputs `input_text`, `slider`, `color_picker`,
+`input_number` (all on the shared `ContinuousEditArbiter`); the three
+atomic-selection inputs `combo`, `radio`, `selectable` (all on the shared
+`ApplyPatchOnChange` value handler — combo/radio key an int index, selectable a
+bool); and the containers `group`, `tab_bar`, `collapsing_header`. The
+authoritative live status is [`migration/README.md`](migration/README.md)
+§"Where we are"; this table is the per-element analysis. The 6 remaining
+legacy: the stateful composites `window` and `modal` (B4), `tree`, the
+graphics pair `draw`/`plot` (B5), and `table` (B6 — selection becomes
+Hub-authoritative there).
 
 ## 4. What "migrated" means per class
 

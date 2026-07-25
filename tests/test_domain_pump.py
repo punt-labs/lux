@@ -43,6 +43,19 @@ def _scene_snapshot_ids(pump: DomainPump, scene_id: SceneId) -> frozenset[Elemen
         return frozenset()
 
 
+def test_empty_id_abc_element_still_crashes_the_pump(pump: DomainPump) -> None:
+    """Fidelity: an empty-id ABC element that bypasses the decode guard crashes here.
+
+    ``_with_unique_id`` cannot ``dataclasses.replace`` an ABC element and raises;
+    nothing in the frame callback catches it. The decode-boundary ``require_id``
+    rejection (tested in ``test_empty_id_rejection``) is what stops such an
+    element from ever reaching this point.
+    """
+    msg = SceneMessage(id="s1", elements=[TextElement(id="", content="x")])
+    with pytest.raises(ValueError, match="requires an explicit id"):
+        pump.route(msg)
+
+
 def test_route_adds_basics_elements(pump: DomainPump) -> None:
     msg = SceneMessage(id="s1", elements=[TextElement(id="t1", content="hi")])
     pump.route(msg)

@@ -73,7 +73,7 @@ class JsonCheckboxDecoder:
         elem = self._cls(
             renderer_factory=self._rf,
             emit=self._emit,
-            id=ctx.require_str(raw, "id"),
+            id=ctx.require_id(raw),
             label=ctx.optional_str(raw, "label", default=""),
             value=ctx.optional_bool(raw, "value", default=False),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),

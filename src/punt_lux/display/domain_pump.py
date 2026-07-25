@@ -6,6 +6,7 @@ import dataclasses
 import logging
 from typing import Any, ClassVar, Self, cast
 
+from punt_lux.domain.anonymizable import Anonymizable
 from punt_lux.domain.composite import Composite
 from punt_lux.domain.display import Display, Result
 from punt_lux.domain.element import Element as DomainElement
@@ -21,20 +22,26 @@ from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.dialog import DialogElement
+from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
+from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.slider import SliderElement
+from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.protocol.elements.text import TextElement
 
 __all__ = ["DomainPump"]
 
 _log = logging.getLogger(__name__)
 
-# ABC-based element kinds that route through the ``apply`` path.
-# ABC elements carry runtime state (renderer factory, emit, handler
-# registry) and cannot pass through dataclasses.replace, which the basic
-# native-kind path uses for anonymous-id synthesis.
+# ABC element kinds that require an explicit id: they carry runtime state
+# (renderer factory, emit, handler registry) and cannot pass through
+# dataclasses.replace, which the basic native-kind path uses for anonymous-id
+# synthesis. An anonymous instance of any of these is a wire error. The
+# anonymous-capable ABC kind (``separator``) is deliberately absent — it
+# implements ``Anonymizable`` and is re-stamped through that capability, not
+# refused here.
 _ABC_TYPES: tuple[type, ...] = (
     TextElement,
     ButtonElement,
@@ -45,6 +52,9 @@ _ABC_TYPES: tuple[type, ...] = (
     InputNumberElement,
     SliderElement,
     ColorPickerElement,
+    MarkdownElement,
+    SpinnerElement,
+    ImageElement,
 )
 
 
@@ -137,9 +147,17 @@ class DomainPump:
         Display's ``dict[ElementId, Element]`` when multiple appear in
         one scene; SceneManager has no such check.  Synthesis is scoped
         to the dual-write boundary — wire/renderer see the original id.
+
+        An ABC leaf cannot go through ``dataclasses.replace``; the
+        anonymous-capable kind exposes ``Anonymizable`` and returns an
+        id-stamped copy. A frozen dataclass is re-stamped with ``replace``.
+        Any other ABC kind arriving anonymous is a wire error.
         """
         if elem.id:
             return elem
+        synthesized = f"{elem.kind}:{index}"
+        if isinstance(elem, Anonymizable):
+            return cast("DomainElement", elem.with_synthesized_id(synthesized))
         if isinstance(elem, _ABC_TYPES):
             msg = (
                 f"ABC element of kind={elem.kind!r} requires an explicit id "
@@ -148,7 +166,7 @@ class DomainPump:
             raise ValueError(msg)
         # Element Protocol is opaque to dataclasses.replace's TypeVar; every
         # native dataclass element is a frozen dataclass with `id`.
-        replaced = dataclasses.replace(cast("Any", elem), id=f"{elem.kind}:{index}")
+        replaced = dataclasses.replace(cast("Any", elem), id=synthesized)
         return cast("DomainElement", replaced)
 
     def _clear_scene(self, scene_id: SceneId) -> None:

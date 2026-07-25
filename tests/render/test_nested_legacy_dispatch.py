@@ -57,7 +57,6 @@ def _renderer() -> ElementRenderer:
     textures = TextureCache()
     er = ElementRenderer(
         widget_state=widget_state,
-        texture_cache=textures,
         table_renderer=TableRenderer(
             widget_state=widget_state, emit_event=_no_emit_event
         ),

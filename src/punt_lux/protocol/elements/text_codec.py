@@ -68,7 +68,7 @@ class JsonTextDecoder:
         return self._cls(
             renderer_factory=self._rf,
             emit=self._emit,
-            id=ctx.require_str(raw, "id"),
+            id=ctx.require_id(raw),
             content=ctx.require_str(raw, "content"),
             style=ctx.optional_nullable_str(raw, "style"),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),

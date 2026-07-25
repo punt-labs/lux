@@ -66,7 +66,7 @@ class JsonComboDecoder:
         elem = self._cls(
             renderer_factory=self._rf,
             emit=self._emit,
-            id=ctx.require_str(raw, "id"),
+            id=ctx.require_id(raw),
             label=ctx.optional_str(raw, "label", default=""),
             items=ctx.optional_string_list(raw, "items"),
             selected=ctx.optional_int_with_default(raw, "selected", default=0),

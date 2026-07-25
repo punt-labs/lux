@@ -47,6 +47,8 @@ from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder, JsonDialogEncoder
 from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.group_codec import JsonGroupDecoder, JsonGroupEncoder
+from punt_lux.protocol.elements.image import ImageElement
+from punt_lux.protocol.elements.image_codec import JsonImageDecoder, JsonImageEncoder
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_number_codec import (
     JsonInputNumberDecoder,
@@ -56,6 +58,11 @@ from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.input_text_codec import (
     JsonInputTextDecoder,
     JsonInputTextEncoder,
+)
+from punt_lux.protocol.elements.markdown import MarkdownElement
+from punt_lux.protocol.elements.markdown_codec import (
+    JsonMarkdownDecoder,
+    JsonMarkdownEncoder,
 )
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.progress_codec import (
@@ -69,8 +76,18 @@ from punt_lux.protocol.elements.selectable_codec import (
     JsonSelectableDecoder,
     JsonSelectableEncoder,
 )
+from punt_lux.protocol.elements.separator import SeparatorElement
+from punt_lux.protocol.elements.separator_codec import (
+    JsonSeparatorDecoder,
+    JsonSeparatorEncoder,
+)
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.slider_codec import JsonSliderDecoder, JsonSliderEncoder
+from punt_lux.protocol.elements.spinner import SpinnerElement
+from punt_lux.protocol.elements.spinner_codec import (
+    JsonSpinnerDecoder,
+    JsonSpinnerEncoder,
+)
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.tab_bar_codec import (
     JsonTabBarDecoder,
@@ -138,6 +155,32 @@ class DefaultAbcKinds:
                 kind="progress",
                 codec=KindCodec(
                     ProgressElement, JsonProgressDecoder, JsonProgressEncoder().encode
+                ),
+            ),
+            LeafKindSpec(
+                kind="markdown",
+                codec=KindCodec(
+                    MarkdownElement, JsonMarkdownDecoder, JsonMarkdownEncoder().encode
+                ),
+            ),
+            LeafKindSpec(
+                kind="spinner",
+                codec=KindCodec(
+                    SpinnerElement, JsonSpinnerDecoder, JsonSpinnerEncoder().encode
+                ),
+            ),
+            LeafKindSpec(
+                kind="separator",
+                codec=KindCodec(
+                    SeparatorElement,
+                    JsonSeparatorDecoder,
+                    JsonSeparatorEncoder().encode,
+                ),
+            ),
+            LeafKindSpec(
+                kind="image",
+                codec=KindCodec(
+                    ImageElement, JsonImageDecoder, JsonImageEncoder().encode
                 ),
             ),
             DialogKindSpec(

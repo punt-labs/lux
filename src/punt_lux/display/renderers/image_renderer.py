@@ -19,7 +19,7 @@ _DEFAULT_HEIGHT = 150
 
 
 class ImageRenderer:
-    """Render an ImageElement using a TextureCache for path-based images."""
+    """Render an ImageElement, uploading path- or data-sourced pixels to a texture."""
 
     _texture_cache: TextureCache
 
@@ -29,11 +29,21 @@ class ImageRenderer:
         return self
 
     def render(self, elem: ImageElement) -> None:
+        """Paint the image, or its alt text when no texture is available."""
         width = elem.width if elem.width is not None else _DEFAULT_WIDTH
         height = elem.height if elem.height is not None else _DEFAULT_HEIGHT
-        tex_id = self._texture_cache.get_or_load(elem.path) if elem.path else None
+        tex_id = self._resolve_texture(elem)
         if tex_id is not None:
             imgui.image(imgui.ImTextureRef(tex_id), ImVec2(width, height))
             return
         alt = elem.alt or elem.path or "(image)"
         imgui.text(f"[{alt}]")
+
+    def _resolve_texture(self, elem: ImageElement) -> int | None:
+        """Return the element's texture id, or ``None`` to fall back to alt text.
+
+        The source dispatches to the right cache leg (path vs data). A source
+        that will not load is not a crash: the cache returns ``None`` — having
+        logged the failure once — and render() degrades to alt text.
+        """
+        return elem.source.load_texture(self._texture_cache)

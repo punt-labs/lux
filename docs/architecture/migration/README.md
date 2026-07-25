@@ -10,14 +10,17 @@ ADRs in [`../../../DESIGN.md`](../../../DESIGN.md)).
 
 ## Where we are
 
-**15 of 25 element kinds are on the new Element-ABC path**, and the foundation
+**19 of 25 element kinds are on the new Element-ABC path**, and the foundation
 under them is complete:
 
 - **Migrated kinds:** the io-model leaves `text`, `button`, `checkbox`,
-  `dialog`; the display-only primitive `progress`; the four non-atomic mutable
-  inputs `input_text`, `slider`, `color_picker`, `input_number`; the three
-  atomic-selection inputs `combo`, `radio`, `selectable`; and the containers
-  `group`, `tab_bar`, `collapsing_header`.
+  `dialog`; the display-only leaves `image`, `separator`, `progress`,
+  `spinner`, `markdown` (batch B1 — image on a discriminated
+  `PathImage`/`DataImage` source, separator anonymous ids via the
+  `Anonymizable` Protocol); the four non-atomic mutable inputs `input_text`,
+  `slider`, `color_picker`, `input_number`; the three atomic-selection inputs
+  `combo`, `radio`, `selectable`; and the containers `group`, `tab_bar`,
+  `collapsing_header`.
 - **The render engine (PR #239):** `Element.render()` is now the real paint
   path — a fixed Template-Method skeleton (`_begin` / `_paint_self` /
   `_render_children` / `_end`) on the ABC, with per-kind ImGui adapters
@@ -34,11 +37,10 @@ under them is complete:
   batch; no out-of-range value is installed. Committed as a regression artifact
   (re-run `fuzz` + the model-check whenever the modeled code changes).
 
-The other 10 kinds are still legacy frozen dataclasses on the `SceneManager` +
-dual-write `DomainPump` path: the interactive composite `modal`, and the
-display-only `image`, `separator`, `spinner`, `markdown`, `window`, `tree`,
-`plot`, `draw`; `table` sits on the boundary because it carries built-in view
-state.
+The other 6 kinds are still legacy frozen dataclasses on the `SceneManager` +
+dual-write `DomainPump` path: the stateful composites `window` and `modal`
+(batch B4), `tree`, the graphics pair `draw`/`plot` (B5), and `table` (B6 —
+it sits on the boundary because it carries built-in view state).
 
 Two composition facts, not to be conflated:
 

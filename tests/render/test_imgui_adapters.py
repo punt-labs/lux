@@ -57,10 +57,8 @@ def _no_check_dirty(_window_id: str) -> bool:
 
 
 def _element_renderer(widget_state: WidgetState) -> ElementRenderer:
-    textures = TextureCache()
     return ElementRenderer(
         widget_state=widget_state,
-        texture_cache=textures,
         table_renderer=TableRenderer(
             widget_state=widget_state, emit_event=_no_emit_event
         ),

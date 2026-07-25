@@ -207,19 +207,6 @@ def test_every_basics_kind_flows_through_display_apply() -> None:
     assert snap.element_ids == frozenset({ElementId(e.id) for e in elements})
 
 
-def test_basics_module_holds_only_registration() -> None:
-    """basics.py is now a thin registration shim, not a class container.
-
-    Each kind lives in its own module — the only class basics defines is
-    ``BasicsRegistry``, which wires the six per-kind codecs into the
-    package-level ElementCodec at import time.
-    """
-    from punt_lux.protocol.elements import basics
-
-    assert hasattr(basics, "BasicsRegistry")
-    assert basics.__all__ == ["BasicsRegistry"]
-
-
 def test_scene_manager_has_no_basics_branches() -> None:
     """Step 8 verification: scene/manager.py never references basics kinds.
 
