@@ -59,6 +59,7 @@ def test_hub_interaction_dispatch_runs_grouped_button_handlers_once(
             scene_id=str(scene_id),
             element_id=str(element_id),
             action="confirm",
+            event_kind="button_clicked",
             ts=1.0,
             value=True,
         )
@@ -197,6 +198,7 @@ def test_hub_interaction_dispatch_marks_dirty_without_display_io(
             scene_id=str(scene_id),
             element_id=str(element_id),
             action="confirm",
+            event_kind="button_clicked",
             ts=1.0,
             value=True,
         )
@@ -375,3 +377,48 @@ def test_hub_interaction_dispatch_value_changed_rejects_non_scalar(
     )
 
     assert fired == []
+
+
+def test_hub_interaction_dispatch_kindless_invocation_denied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A kindless (event_kind=None) invocation matches no spec and is denied.
+
+    The old ``(None, "button_clicked")`` tolerance is gone: an invocation that
+    names no kind is not a button click by default — it fits no element's spec,
+    so it is denied at the boundary and the handler never runs.
+    """
+    import punt_lux.domain.hub as hub_module
+
+    isolated_display = HubDisplay()
+    scene_id = SceneId("scene")
+    element_id = ElementId("btn")
+    owner = ConnectionId("agent")
+    isolated_display.register_client(owner)
+
+    button = ButtonElement(id=str(element_id), label="OK")
+    fired: list[str] = []
+    button.add_handler(ButtonClicked, lambda _e: fired.append("fired"))
+    isolated_display.apply(
+        owner,
+        AddElement(scene_id=scene_id, element=button, parent_id=None),
+    )
+
+    mock_replicator = MagicMock()
+    monkeypatch.setattr(hub_module, "hub_display", isolated_display)
+    monkeypatch.setattr(
+        "punt_lux.domain.hub.replicator_instance.hub_replicator", mock_replicator
+    )
+
+    clients_module.ClientRegistry._hub_interaction_dispatch(
+        RemoteEventHandlerInvocation(
+            scene_id=str(scene_id),
+            element_id=str(element_id),
+            action="click",
+            ts=1.0,
+            value=True,
+        )
+    )
+
+    assert fired == []
+    mock_replicator.mark_dirty.assert_not_called()

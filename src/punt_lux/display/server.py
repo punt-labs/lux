@@ -938,6 +938,7 @@ class DisplayServer:
                     RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
+                        event_kind="value_changed",
                         ts=time.time(),
                         value=val,
                     )
@@ -953,17 +954,16 @@ class DisplayServer:
                     )
                 )
             elif isinstance(elem, ComboElement):
-                item_text = (
-                    elem.items[elem.selected]
-                    if 0 <= elem.selected < len(elem.items)
-                    else ""
-                )
+                # The ABC combo fires ValueChanged carrying the selected index
+                # (a scalar) — matching ComboRenderer, not the legacy index/item
+                # dict, which value_changed no longer accepts.
                 self._emit_event(
                     RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
+                        event_kind="value_changed",
                         ts=time.time(),
-                        value={"index": elem.selected, "item": item_text},
+                        value=elem.selected,
                     )
                 )
             elif isinstance(elem, InputTextElement):
@@ -971,22 +971,19 @@ class DisplayServer:
                     RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
+                        event_kind="value_changed",
                         ts=time.time(),
                         value=elem.value,
                     )
                 )
             elif isinstance(elem, RadioElement):
-                item_text = (
-                    elem.items[elem.selected]
-                    if 0 <= elem.selected < len(elem.items)
-                    else ""
-                )
                 self._emit_event(
                     RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
+                        event_kind="value_changed",
                         ts=time.time(),
-                        value={"index": elem.selected, "item": item_text},
+                        value=elem.selected,
                     )
                 )
             elif isinstance(elem, ColorPickerElement):
@@ -994,6 +991,7 @@ class DisplayServer:
                     RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
+                        event_kind="value_changed",
                         ts=time.time(),
                         value=elem.value,
                     )
@@ -1003,6 +1001,7 @@ class DisplayServer:
                     RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="clicked",
+                        event_kind="value_changed",
                         ts=time.time(),
                         value=not elem.selected,
                     )

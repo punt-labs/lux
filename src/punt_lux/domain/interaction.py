@@ -18,6 +18,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Literal, Self
 
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.domain.interaction_errors import WrongKindError
 
 __all__ = ["ButtonClicked", "EventKind", "ValueChanged"]
 
@@ -60,6 +61,24 @@ class ButtonClicked:
         object.__setattr__(self, "owner_id", owner_id)
         return self
 
+    @classmethod
+    def from_wire(
+        cls,
+        *,
+        scene_id: SceneId,
+        element_id: ElementId,
+        owner_id: ClientId,
+        value: object,
+    ) -> Self:
+        """Build the click event from a wire payload; the value is vestigial.
+
+        A click carries no payload of its own — the interaction *is* the event —
+        so ``value`` is accepted and ignored. Kept in the signature so every
+        wire event shares one construction shape (see the ``WireEvent`` protocol).
+        """
+        _ = value  # payload-less event; the shared WireEvent signature carries it
+        return cls(scene_id=scene_id, element_id=element_id, owner_id=owner_id)
+
 
 @dataclass(frozen=True, slots=True, init=False)
 class ValueChanged:
@@ -93,3 +112,35 @@ class ValueChanged:
         object.__setattr__(self, "owner_id", owner_id)
         object.__setattr__(self, "value", value)
         return self
+
+    @classmethod
+    def from_wire(
+        cls,
+        *,
+        scene_id: SceneId,
+        element_id: ElementId,
+        owner_id: ClientId,
+        value: object,
+    ) -> Self:
+        """Build the value-change event, validating the payload is a scalar.
+
+        The value-input family (checkbox, input_text, slider, input_number,
+        color_picker, combo, radio, selectable) all fire ``ValueChanged``, so the
+        boundary check lives here once: the payload must be a JSON scalar. The
+        precise per-kind shape (a checkbox's ``bool``, a combo's index ``int``)
+        is the firing element's own invariant, enforced when its setter applies
+        the patch (DES-039) — not re-encoded per element here.
+        """
+        if not isinstance(value, bool | int | float | str):
+            raise WrongKindError(
+                scene_id=scene_id,
+                element_id=element_id,
+                expected="a scalar value_changed payload (bool, int, float, or str)",
+                got=type(value).__name__,
+            )
+        return cls(
+            scene_id=scene_id,
+            element_id=element_id,
+            owner_id=owner_id,
+            value=value,
+        )

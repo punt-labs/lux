@@ -320,6 +320,7 @@ def test_confirm_click_traces_end_to_end_through_every_tier() -> None:
     click = RemoteEventHandlerInvocation(
         element_id=str(_OK_BUTTON_ID),
         action="click",
+        event_kind="button_clicked",
         scene_id=str(_SCENE),
         value=True,
     )
@@ -450,6 +451,7 @@ def test_confirm_click_traces_through_module_level_element_from_dict(
     click = RemoteEventHandlerInvocation(
         element_id=str(_OK_BUTTON_ID),
         action="click",
+        event_kind="button_clicked",
         scene_id=str(_SCENE),
         value=True,
     )

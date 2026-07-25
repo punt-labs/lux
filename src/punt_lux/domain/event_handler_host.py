@@ -12,13 +12,16 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, cast
 
+from punt_lux.domain.ids import ElementId
+from punt_lux.domain.interaction_errors import WrongKindError
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from punt_lux.domain.element_abc import Element
-    from punt_lux.domain.event_protocol import Event, Handler
+    from punt_lux.domain.event_protocol import Event, Handler, WireEvent
+    from punt_lux.domain.ids import ClientId, SceneId
     from punt_lux.domain.interaction import EventKind
     from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
     from punt_lux.protocol.messages.remote_invocation import (
@@ -136,6 +139,44 @@ class EventHandlerHost:
             )
         for child in self._children():
             child.wrap_handlers_for_remote(send_fn)
+
+    def build_remote_event(
+        self,
+        *,
+        event_kind: str | None,
+        scene_id: SceneId,
+        owner_id: ClientId,
+        value: object,
+    ) -> WireEvent:
+        """Build the typed event this element fires for a wire invocation.
+
+        Polymorphic dispatch on the element in hand: match the invocation's
+        ``event_kind`` against this element's own ``_remote_dispatch_specs`` and
+        let the matched spec build the typed event (validating the payload's
+        shape). No matching spec means the resolved element does not fire that
+        kind — a ``kindless`` (``None``) invocation matches nothing either — so
+        it is denied with ``WrongKindError`` at the boundary, never fired.
+        """
+        element_id = ElementId(self.id)
+        for spec in self._remote_dispatch_specs():
+            if spec.event_kind == event_kind:
+                return spec.build_event(
+                    scene_id=scene_id,
+                    element_id=element_id,
+                    owner_id=owner_id,
+                    value=value,
+                )
+        raise WrongKindError(
+            scene_id=scene_id,
+            element_id=element_id,
+            expected=self._interactive_kinds_summary(),
+            got=repr(event_kind),
+        )
+
+    def _interactive_kinds_summary(self) -> str:
+        """Return the wire kinds this element answers to, for a denial message."""
+        kinds = [spec.event_kind for spec in self._remote_dispatch_specs()]
+        return ", ".join(kinds) if kinds else "no interactive events"
 
     def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
         """Return interactive-event specs to remote-wrap; empty by default."""

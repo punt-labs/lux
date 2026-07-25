@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Literal, Self
 
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.domain.interaction_errors import WrongKindError
 
 __all__ = ["HeaderToggled", "ModalClosed", "TabChanged"]
 
@@ -48,6 +49,30 @@ class TabChanged:
         object.__setattr__(self, "owner_id", owner_id)
         object.__setattr__(self, "tab_id", tab_id)
         return self
+
+    @classmethod
+    def from_wire(
+        cls,
+        *,
+        scene_id: SceneId,
+        element_id: ElementId,
+        owner_id: ClientId,
+        value: object,
+    ) -> Self:
+        """Build the tab-change event; the payload must be the new tab's id."""
+        if not isinstance(value, str):
+            raise WrongKindError(
+                scene_id=scene_id,
+                element_id=element_id,
+                expected="a tab_changed payload (str tab_id)",
+                got=type(value).__name__,
+            )
+        return cls(
+            scene_id=scene_id,
+            element_id=element_id,
+            owner_id=owner_id,
+            tab_id=value,
+        )
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -84,6 +109,30 @@ class HeaderToggled:
         object.__setattr__(self, "open", open_)
         return self
 
+    @classmethod
+    def from_wire(
+        cls,
+        *,
+        scene_id: SceneId,
+        element_id: ElementId,
+        owner_id: ClientId,
+        value: object,
+    ) -> Self:
+        """Build the header-toggle event; the payload must be the new open state."""
+        if not isinstance(value, bool):
+            raise WrongKindError(
+                scene_id=scene_id,
+                element_id=element_id,
+                expected="a header_toggled payload (bool open state)",
+                got=type(value).__name__,
+            )
+        return cls(
+            scene_id=scene_id,
+            element_id=element_id,
+            owner_id=owner_id,
+            open_=value,
+        )
+
 
 @dataclass(frozen=True, slots=True, init=False)
 class ModalClosed:
@@ -114,3 +163,16 @@ class ModalClosed:
         object.__setattr__(self, "element_id", element_id)
         object.__setattr__(self, "owner_id", owner_id)
         return self
+
+    @classmethod
+    def from_wire(
+        cls,
+        *,
+        scene_id: SceneId,
+        element_id: ElementId,
+        owner_id: ClientId,
+        value: object,
+    ) -> Self:
+        """Build the dismissal event; a close carries no payload, so ignore value."""
+        _ = value  # payload-less event; the shared WireEvent signature carries it
+        return cls(scene_id=scene_id, element_id=element_id, owner_id=owner_id)

@@ -290,6 +290,7 @@ def test_button_click_routes_through_display_to_element_handlers() -> None:
     msg = RemoteEventHandlerInvocation(
         element_id="b1",
         action="b1",
+        event_kind="button_clicked",
         value=True,
         scene_id="s1",
     )

@@ -222,13 +222,20 @@ class TestDisplayInteract:
         event = display.interact(
             alice,
             RemoteEventHandlerInvocation(
-                element_id="it", action="changed", value="hello", scene_id="s1"
+                element_id="it",
+                action="changed",
+                event_kind="value_changed",
+                value="hello",
+                scene_id="s1",
             ),
         )
         assert isinstance(event, ValueChanged)
         assert event.value == "hello"
 
-    def test_non_str_value_is_rejected(self) -> None:
+    def test_non_scalar_value_is_rejected(self) -> None:
+        # ``value_changed`` accepts any scalar at the boundary; the precise
+        # per-kind shape (input_text's ``str``) is the element's DES-039
+        # invariant. A non-scalar payload is denied here with WrongKindError.
         display = Display()
         alice = display.connect_client(name="alice")
         display.add_scene(SceneId("s1"))
@@ -238,7 +245,11 @@ class TestDisplayInteract:
             display.interact(
                 alice,
                 RemoteEventHandlerInvocation(
-                    element_id="it", action="changed", value=True, scene_id="s1"
+                    element_id="it",
+                    action="changed",
+                    event_kind="value_changed",
+                    value=[1, 2],
+                    scene_id="s1",
                 ),
             )
 
