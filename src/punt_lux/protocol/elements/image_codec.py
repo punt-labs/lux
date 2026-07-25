@@ -62,7 +62,7 @@ class JsonImageDecoder:
         return self._cls(
             renderer_factory=self._rf,
             emit=self._emit,
-            id=ctx.require_str(raw, "id"),
+            id=ctx.require_id(raw),
             path=ctx.optional_nullable_str(raw, "path"),
             data=ctx.optional_nullable_str(raw, "data"),
             format=self._cls.coerce_format(raw.get("format")),

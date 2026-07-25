@@ -75,7 +75,7 @@ class JsonGroupDecoder:
         children = tuple(self._decode(c) for c in self._as_list(raw.get("children")))
         layout = cast("Layout", ctx.optional_str(raw, "layout", default="rows"))
         return self._cls(
-            id=ctx.require_str(raw, "id"),
+            id=ctx.require_id(raw),
             layout=layout,
             children=children,
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),

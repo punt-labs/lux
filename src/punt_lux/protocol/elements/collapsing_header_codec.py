@@ -90,7 +90,7 @@ class JsonCollapsingHeaderDecoder:
         # as an alias so older payloads still open the header. ``open`` wins.
         open_field = "open" if "open" in raw else "default_open"
         elem = self._cls(
-            id=ctx.require_str(raw, "id"),
+            id=ctx.require_id(raw),
             label=ctx.optional_str(raw, "label", default=""),
             open=ctx.optional_bool(raw, open_field, default=False),
             children=children,

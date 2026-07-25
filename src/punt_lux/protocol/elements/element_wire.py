@@ -40,6 +40,20 @@ class ElementWireContext:
         """Return ``d[field]`` as str; raise on missing or wrong type."""
         return self._wire.require_string(self._wire.require_field(d, field), field)
 
+    def require_id(self, d: Mapping[str, object], field: str = "id") -> str:
+        """Return ``d[field]`` as a NON-empty str; raise on missing/empty/wrong type.
+
+        A non-anonymous element must carry a real identity. An empty ``id``
+        passes ``require_str`` but then collides in the Hub store and crashes
+        the dual-write pump's anonymous-id synthesis — a path only the
+        ``Anonymizable`` ``separator`` (which decodes its id with ``optional_str``)
+        may reach. Every other kind rejects an empty id here, at the boundary.
+        """
+        value = self.require_str(d, field)
+        if not value:
+            raise self._wire.field_error(field, "a non-empty string", value)
+        return value
+
     def require_number(self, d: Mapping[str, object], field: str) -> float:
         """Return ``d[field]`` as float; raise on missing, bool, or wrong type."""
         return self._wire.require_number(self._wire.require_field(d, field), field)

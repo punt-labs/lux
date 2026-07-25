@@ -73,7 +73,7 @@ class JsonSelectableDecoder:
         elem = self._cls(
             renderer_factory=self._rf,
             emit=self._emit,
-            id=ctx.require_str(raw, "id"),
+            id=ctx.require_id(raw),
             label=ctx.optional_str(raw, "label", default=""),
             selected=ctx.optional_bool(raw, "selected", default=False),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),

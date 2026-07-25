@@ -61,7 +61,7 @@ class JsonSpinnerDecoder:
         return self._cls(
             renderer_factory=self._rf,
             emit=self._emit,
-            id=ctx.require_str(raw, "id"),
+            id=ctx.require_id(raw),
             label=ctx.optional_str(raw, "label", default=""),
             radius=ctx.optional_number(raw, "radius", default=16.0),
             color=ctx.optional_str(raw, "color", default="#3399FF"),

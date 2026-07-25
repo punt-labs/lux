@@ -100,7 +100,7 @@ class JsonInputTextDecoder:
         elem = self._cls(
             renderer_factory=self._rf,
             emit=self._emit,
-            id=ctx.require_str(raw, "id"),
+            id=ctx.require_id(raw),
             label=ctx.optional_str(raw, "label", default=""),
             value=ctx.optional_str(raw, "value", default=""),
             hint=ctx.optional_str(raw, "hint", default=""),

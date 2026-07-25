@@ -35,6 +35,24 @@ class TestRequireStr:
             text_ctx.require_str({"id": 7}, "id")
 
 
+class TestRequireId:
+    def test_returns_value_when_present(self, text_ctx: ElementWireContext) -> None:
+        assert text_ctx.require_id({"id": "t1"}) == "t1"
+
+    def test_rejects_missing(self, text_ctx: ElementWireContext) -> None:
+        with pytest.raises(ValueError, match=r"text element.*'id'"):
+            text_ctx.require_id({})
+
+    def test_rejects_non_string(self, text_ctx: ElementWireContext) -> None:
+        with pytest.raises(ValueError, match=r"text element.*'id'"):
+            text_ctx.require_id({"id": 7})
+
+    def test_rejects_empty_string(self, text_ctx: ElementWireContext) -> None:
+        # The empty id that require_str accepts and the pump then crashes on.
+        with pytest.raises(ValueError, match=r"text element.*'id'.*non-empty"):
+            text_ctx.require_id({"id": ""})
+
+
 class TestRequireNumber:
     def test_returns_value_when_present(self, spinner_ctx: ElementWireContext) -> None:
         assert spinner_ctx.require_number({"radius": 8.0}, "radius") == 8.0
