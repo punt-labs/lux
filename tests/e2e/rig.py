@@ -46,6 +46,10 @@ if TYPE_CHECKING:
 
 __all__ = ["InProcessLoop", "SyncReplicator"]
 
+# A synthetic owner fd for framed installs: the windowless rig has no socket, so
+# it stands in for the fileno the production Display passes to the frame book.
+_RIG_OWNER_FD = 0
+
 
 class InProcessLoop:
     """One windowless Display replica wired to the Hub over InMemoryConnection.
@@ -106,7 +110,10 @@ class InProcessLoop:
         # Every concrete kind satisfies both the domain Protocol and the
         # protocol wire union; the cast bridges the two names at the codec seam.
         wire_roots = cast("list[WireElement]", list(roots))
-        outbound = SceneMessage(id=scene_id, elements=wire_roots)
+        # Frame the scene by its own id — the Hub's default synthesis for a scene
+        # whose caller named no frame — so the replica installs through the single
+        # always-framed path the production Display uses.
+        outbound = SceneMessage(id=scene_id, elements=wire_roots, frame_id=scene_id)
         replica = message_from_dict(message_to_dict(outbound))
         assert isinstance(replica, SceneMessage)
         self._server._wrap_abc_elements(replica)
@@ -116,7 +123,7 @@ class InProcessLoop:
         for elem in replica.elements:
             if isinstance(elem, AbcElement):
                 elem.bind_renderer_factory(RaisingRendererFactory())
-        self._server._scene_manager.handle_scene(replica)
+        self._server._scene_manager.handle_framed_scene(replica, _RIG_OWNER_FD)
         self._server._route_to_domain_display(replica)
         # Render would set this before any click; the rig sets it so a
         # subsequently-fired interaction stamps the right scene_id.
@@ -128,7 +135,7 @@ class InProcessLoop:
         The element returned is the wrapped Display copy, so firing it
         drives the same ``RemoteDispatchGroup`` a real click drives.
         """
-        scene = self._server._scene_manager.scenes.get(self._scene_id)
+        scene = self._server._scene_manager.resolve_scene(self._scene_id)
         if scene is None:
             msg = (
                 f"scene {self._scene_id!r} absent from display replica "

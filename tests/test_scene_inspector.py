@@ -19,13 +19,15 @@ from punt_lux.scene_inspector import SceneInspector
 
 def _scene_manager_with(scene: SceneMessage) -> SceneManager:
     sm = SceneManager(on_scene_replaced=lambda _ids: None)
-    sm._scenes[scene.id] = scene
+    sm.handle_framed_scene(scene, owner_fd=0)
     return sm
 
 
 def test_inspect_reads_element_types_and_empty_mirror() -> None:
     sm = _scene_manager_with(
-        SceneMessage(id="s1", elements=[TextElement(id="t1", content="hi")])
+        SceneMessage(
+            id="s1", elements=[TextElement(id="t1", content="hi")], frame_id="s1"
+        )
     )
     result = SceneInspector(scene_manager=sm, domain_display=Display()).inspect("s1")
     rec = result["element_paths"][0]

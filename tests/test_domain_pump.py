@@ -51,13 +51,17 @@ def test_empty_id_abc_element_still_crashes_the_pump(pump: DomainPump) -> None:
     rejection (tested in ``test_empty_id_rejection``) is what stops such an
     element from ever reaching this point.
     """
-    msg = SceneMessage(id="s1", elements=[TextElement(id="", content="x")])
+    msg = SceneMessage(
+        id="s1", elements=[TextElement(id="", content="x")], frame_id="s1"
+    )
     with pytest.raises(ValueError, match="requires an explicit id"):
         pump.route(msg)
 
 
 def test_route_adds_basics_elements(pump: DomainPump) -> None:
-    msg = SceneMessage(id="s1", elements=[TextElement(id="t1", content="hi")])
+    msg = SceneMessage(
+        id="s1", elements=[TextElement(id="t1", content="hi")], frame_id="s1"
+    )
     pump.route(msg)
     assert _scene_snapshot_ids(pump, SceneId("s1")) == {ElementId("t1")}
 
@@ -70,6 +74,7 @@ def test_route_adds_inputs_elements(pump: DomainPump) -> None:
             ButtonElement(id="b1", label="ok"),
             SliderElement(id="sl1", label="vol", value=0.5),
         ],
+        frame_id="s1",
     )
     pump.route(msg)
     expected = {ElementId("b1"), ElementId("sl1")}
@@ -84,6 +89,7 @@ def test_route_skips_mixed_scene_with_non_native_kind(pump: DomainPump) -> None:
             TextElement(id="t1", content="hi"),
             GroupElement(id="g1", children=[]),
         ],
+        frame_id="s1",
     )
     pump.route(msg)
     assert _scene_snapshot_ids(pump, SceneId("s1")) == frozenset()
@@ -91,18 +97,20 @@ def test_route_skips_mixed_scene_with_non_native_kind(pump: DomainPump) -> None:
 
 def test_route_empty_elements_clears_existing_scene(pump: DomainPump) -> None:
     """Re-sending an empty scene drops prior elements."""
-    initial = SceneMessage(id="s1", elements=[TextElement(id="t1", content="hi")])
+    initial = SceneMessage(
+        id="s1", elements=[TextElement(id="t1", content="hi")], frame_id="s1"
+    )
     pump.route(initial)
     assert _scene_snapshot_ids(pump, SceneId("s1")) == {ElementId("t1")}
 
-    cleared = SceneMessage(id="s1", elements=[])
+    cleared = SceneMessage(id="s1", elements=[], frame_id="s1")
     pump.route(cleared)
     assert _scene_snapshot_ids(pump, SceneId("s1")) == frozenset()
 
 
 def test_route_empty_elements_on_fresh_scene_is_safe(pump: DomainPump) -> None:
     """Empty re-send for an unseen scene id creates an empty scene, no error."""
-    msg = SceneMessage(id="s-new", elements=[])
+    msg = SceneMessage(id="s-new", elements=[], frame_id="s-new")
     pump.route(msg)
     assert _scene_snapshot_ids(pump, SceneId("s-new")) == frozenset()
 
@@ -128,6 +136,7 @@ def test_route_multiple_anonymous_separators(
             SeparatorElement(),
             SeparatorElement(),
         ],
+        frame_id="s1",
     )
     with caplog.at_level("WARNING", logger="punt_lux.display.domain_pump"):
         pump.route(msg)

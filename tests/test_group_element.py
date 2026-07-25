@@ -283,7 +283,7 @@ class TestForkGate:
 class TestLevel2WireRoundtrip:
     def test_group_crosses_as_pickled_entry_with_children(self) -> None:
         group = _stack_group("rows")
-        wire = message_to_dict(SceneMessage(id="s1", elements=[group]))
+        wire = message_to_dict(SceneMessage(id="s1", elements=[group], frame_id="s1"))
         entry = wire["elements"][0]
         assert "_pickled" in entry, "ABC group must use native pickle wire"
         restored = message_from_dict(wire)
@@ -310,7 +310,7 @@ def _server() -> DisplayServer:
 
 class TestLevel3Crossing:
     def test_rebind_recurses_into_group_children(self) -> None:
-        scene = SceneMessage(id="s1", elements=[_stack_group("rows")])
+        scene = SceneMessage(id="s1", elements=[_stack_group("rows")], frame_id="s1")
         received = _received_scene(scene)
         r_group = received.elements[0]
         assert isinstance(r_group, GroupElement)
@@ -396,7 +396,9 @@ def _mock_sock() -> MagicMock:
 
 
 def _inspect(server: DisplayServer, *elements: Element) -> QueryResponse:
-    server._handle_message(_mock_sock(), SceneMessage(id="s1", elements=list(elements)))
+    server._handle_message(
+        _mock_sock(), SceneMessage(id="s1", elements=list(elements), frame_id="s1")
+    )
     return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
 
 

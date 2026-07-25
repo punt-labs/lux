@@ -41,7 +41,7 @@ from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvoc
 
 def _roundtrip(element: Element) -> Element:
     """Ship ``element`` through the real scene wire and return the restored one."""
-    wire = message_to_dict(SceneMessage(id="s1", elements=[element]))
+    wire = message_to_dict(SceneMessage(id="s1", elements=[element], frame_id="s1"))
     assert "_pickled" in wire["elements"][0], "ABC element must use native pickle wire"
     restored = message_from_dict(wire)
     assert isinstance(restored, SceneMessage)

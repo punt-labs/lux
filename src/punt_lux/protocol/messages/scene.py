@@ -28,10 +28,10 @@ class SceneMessage:
 
     id: str
     elements: list[Element]
+    frame_id: str  # required — no scene crosses the wire unframed (Hub self-frames)
     type: Literal["scene"] = "scene"
     layout: str = "single"  # "single", "rows", "columns", "grid"
     title: str | None = None
-    frame_id: str | None = None
     frame_title: str | None = None
     frame_size: tuple[int, int] | None = None
     frame_flags: dict[str, bool] | None = None
@@ -74,9 +74,9 @@ class SceneMessage:
         return cls(
             id=d["id"],
             elements=[cls._decode_element(e) for e in d.get("elements", [])],
+            frame_id=d["frame_id"],
             layout=d.get("layout", "single"),
             title=d.get("title"),
-            frame_id=d.get("frame_id"),
             frame_title=d.get("frame_title"),
             frame_size=cls._parse_frame_size(raw_size) if raw_size else None,
             frame_flags=cast("dict[str, bool]", raw_flags)

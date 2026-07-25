@@ -29,7 +29,11 @@ def _make_scene(
     elements: list[object] | None = None,
     title: str | None = None,
 ) -> SceneMessage:
-    """Build a SceneMessage with sensible defaults."""
+    """Build a SceneMessage, self-framing by its scene id when no frame is named.
+
+    Every scene is framed — the Hub synthesizes ``frame_id = scene_id`` at the
+    render boundary when a caller names none — so the default here mirrors that.
+    """
     if elements is None:
         elements = [
             TextElement(id="t1", content="Hello", style="heading"),
@@ -39,7 +43,7 @@ def _make_scene(
     return SceneMessage(
         id=scene_id,
         elements=elements,  # type: ignore[arg-type]
-        frame_id=frame_id,
+        frame_id=frame_id if frame_id is not None else scene_id,
         frame_title=frame_title,
         frame_size=frame_size,
         frame_flags=frame_flags,
@@ -74,17 +78,17 @@ class TestEmptyPushIsRemoval:
 
     def test_empty_element_push_dismisses_the_scene(self) -> None:
         mgr, _ = _make_manager()
-        mgr.handle_scene(_make_scene("s1"))
-        assert "s1" in mgr._scenes
+        mgr.handle_framed_scene(_make_scene("s1"), owner_fd=10)
+        assert mgr.resolve_scene("s1") is not None
 
-        mgr.handle_scene(_make_scene("s1", elements=[]))  # show("s1", [])
-        assert "s1" not in mgr._scenes  # removed, not an empty husk
+        mgr.handle_framed_scene(_make_scene("s1", elements=[]), owner_fd=10)
+        assert mgr.resolve_scene("s1") is None  # removed, not an empty husk
 
     def test_a_zero_row_table_is_not_a_removal(self) -> None:
         mgr, _ = _make_manager()
         table = TableElement(id="tbl", columns=["A"], rows=[])
-        mgr.handle_scene(_make_scene("s1", elements=[table]))
-        assert "s1" in mgr._scenes  # a TableElement is still an element — kept
+        mgr.handle_framed_scene(_make_scene("s1", elements=[table]), owner_fd=10)
+        assert mgr.resolve_scene("s1") is not None  # a TableElement is kept
 
 
 # -------------------------------------------------------------------
@@ -94,15 +98,16 @@ class TestEmptyPushIsRemoval:
 
 class TestHandleSceneNew:
     def test_scene_appears_in_state(self) -> None:
-        """A new scene populates scenes, order, active_tab, and widget state."""
+        """A new scene populates its frame, order, active_tab, and widget state."""
         mgr, _ = _make_manager()
         scene = _make_scene()
 
-        mgr.handle_scene(scene)
+        mgr.handle_framed_scene(scene, owner_fd=10)
 
-        assert "s1" in mgr._scenes
-        assert mgr._scene_order == ["s1"]
-        assert mgr._active_tab == "s1"
+        frame = mgr.frames["s1"]
+        assert "s1" in frame.scenes
+        assert frame.scene_order == ["s1"]
+        assert frame.active_tab == "s1"
         assert isinstance(mgr._scene_widget_state.get("s1"), WidgetState)
 
     def test_window_elements_marked_dirty(self) -> None:
@@ -112,7 +117,7 @@ class TestHandleSceneNew:
             elements=[LegacyWindowElement(id="w1", children=[], title="Win")]
         )
 
-        mgr.handle_scene(scene)
+        mgr.handle_framed_scene(scene, owner_fd=10)
 
         assert "w1" in mgr._dirty_windows
 
@@ -124,16 +129,17 @@ class TestHandleSceneNew:
 
 class TestHandleSceneReplace:
     def test_replacement_overwrites_scene(self) -> None:
-        """Sending a scene with the same id replaces the previous one."""
+        """Sending a scene with the same id into its frame replaces the previous one."""
         mgr, stale_calls = _make_manager()
         first = _make_scene(elements=[TextElement(id="t1", content="First")])
         second = _make_scene(elements=[TextElement(id="t2", content="Second")])
 
-        mgr.handle_scene(first)
-        mgr.handle_scene(second)
+        mgr.handle_framed_scene(first, owner_fd=10)
+        mgr.handle_framed_scene(second, owner_fd=10)
 
-        assert mgr._scenes["s1"].elements[0].id == "t2"
-        assert mgr._scene_order == ["s1"]
+        frame = mgr.frames["s1"]
+        assert frame.scenes["s1"].elements[0].id == "t2"
+        assert frame.scene_order == ["s1"]
         # on_scene_replaced called with stale IDs (t1 removed, t2 added)
         assert len(stale_calls) == 1
         assert "t1" in stale_calls[0]
@@ -150,7 +156,7 @@ class TestHandleSceneReplace:
         until scene clear — cosmetic, never a functional break.
         """
         mgr, _ = _make_manager()
-        mgr.handle_scene(_make_scene())
+        mgr.handle_framed_scene(_make_scene(), owner_fd=10)
         ws = mgr._scene_widget_state["s1"]
         ws.set("t1", "survivor")
         ws.set("__tbl_sel_t1", 3)
@@ -159,7 +165,7 @@ class TestHandleSceneReplace:
         ws.set("__tbl_sel_b1", 5)
 
         replacement = _make_scene(elements=[TextElement(id="t1", content="New")])
-        mgr.handle_scene(replacement)
+        mgr.handle_framed_scene(replacement, owner_fd=10)
 
         assert ws.get("t1") == "survivor"
         assert ws.get("__tbl_sel_t1") == 3
@@ -167,25 +173,27 @@ class TestHandleSceneReplace:
         assert ws.get("b1__open") is None
         assert ws.get("__tbl_sel_b1") == 5
 
-    def test_replace_keeps_events_for_id_a_frame_still_holds(self) -> None:
-        """Replacing a scene keeps events for an id another scene still holds.
+    def test_replace_keeps_events_for_id_another_frame_still_holds(self) -> None:
+        """Replacing a scene keeps events for an id a scene in another frame holds.
 
         A whole-root re-push drains the ids the replaced scene dropped — but only
-        those no other framed or unframed scene holds. When a framed scene shares
-        an element id, replacing the unframed scene with content that drops that id
-        must not report it stale: its queued events remain valid inside the frame.
+        those no other framed scene holds. When a scene in a second frame shares an
+        element id, replacing the first scene with content that drops that id must
+        not report it stale: its queued events remain valid inside the other frame.
         """
         mgr, stale_calls = _make_manager()
         shared: list[object] = [ButtonElement(id="shared", label="Click")]
-        mgr.handle_scene(_make_scene(scene_id="s1", elements=shared))
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f0", elements=shared), owner_fd=10
+        )
         mgr.handle_framed_scene(
             _make_scene(scene_id="s2", frame_id="f1", elements=shared), owner_fd=11
         )
 
         replacement = _make_scene(
-            scene_id="s1", elements=[TextElement(id="t2", content="New")]
+            scene_id="s1", frame_id="f0", elements=[TextElement(id="t2", content="New")]
         )
-        mgr.handle_scene(replacement)
+        mgr.handle_framed_scene(replacement, owner_fd=10)
 
         drained = [sid for call in stale_calls for sid in call]
         assert "shared" not in drained
@@ -197,44 +205,20 @@ class TestHandleSceneReplace:
         holding the id, replacing that scene away must drain its queued events.
         """
         mgr, stale_calls = _make_manager()
-        mgr.handle_scene(
+        mgr.handle_framed_scene(
             _make_scene(
                 scene_id="s1", elements=[ButtonElement(id="only", label="Click")]
-            )
+            ),
+            owner_fd=10,
         )
 
         replacement = _make_scene(
             scene_id="s1", elements=[TextElement(id="t2", content="New")]
         )
-        mgr.handle_scene(replacement)
+        mgr.handle_framed_scene(replacement, owner_fd=10)
 
         drained = [sid for call in stale_calls for sid in call]
         assert "only" in drained
-
-    def test_framed_replace_keeps_events_for_id_unframed_scene_holds(self) -> None:
-        """Replacing a framed scene keeps events an unframed scene still holds.
-
-        The framed-replace mirror of the unframed case: a whole-root re-push into
-        a frame drains the ids the replaced scene dropped, but only those no other
-        framed or unframed scene holds. When an unframed scene shares an element
-        id, replacing the framed scene with content that drops that id must not
-        report it stale — the unframed scene rescues it and its queued events
-        remain valid.
-        """
-        mgr, stale_calls = _make_manager()
-        shared: list[object] = [ButtonElement(id="shared", label="Click")]
-        mgr.handle_scene(_make_scene(scene_id="s1", elements=shared))
-        mgr.handle_framed_scene(
-            _make_scene(scene_id="s2", frame_id="f1", elements=shared), owner_fd=11
-        )
-
-        replacement = _make_scene(
-            scene_id="s2", frame_id="f1", elements=[TextElement(id="t2", content="New")]
-        )
-        mgr.handle_framed_scene(replacement, owner_fd=11)
-
-        drained = [sid for call in stale_calls for sid in call]
-        assert "shared" not in drained
 
     def test_replace_resets_honoured_but_keeps_survivor_state(self) -> None:
         """A re-push resets echo-suppression bookkeeping, keeps user state.
@@ -245,13 +229,13 @@ class TestHandleSceneReplace:
         spurious ``TabChanged``. The survivor's selection state is untouched.
         """
         mgr, _ = _make_manager()
-        mgr.handle_scene(_make_scene())
+        mgr.handle_framed_scene(_make_scene(), owner_fd=10)
         ws = mgr._scene_widget_state["s1"]
         ws.set(f"t1{WidgetState.HONOURED_SUFFIX}", "tab-2")
         ws.set("__tbl_sel_t1", 3)
 
         replacement = _make_scene(elements=[TextElement(id="t1", content="New")])
-        mgr.handle_scene(replacement)
+        mgr.handle_framed_scene(replacement, owner_fd=10)
 
         assert ws.get(f"t1{WidgetState.HONOURED_SUFFIX}") is None
         assert ws.get("__tbl_sel_t1") == 3
@@ -300,64 +284,55 @@ class TestHandleFramedScene:
 
 
 class TestDismissScene:
-    def test_cleanup_and_neighbor_selection(self) -> None:
-        """Dismissing a scene removes state and selects the neighbor tab."""
+    def test_cleanup_and_next_tab_selection(self) -> None:
+        """Dismissing a scene from a frame removes its state and re-picks the tab."""
         mgr, _ = _make_manager()
-        s1 = _make_scene(scene_id="s1")
-        s2 = _make_scene(scene_id="s2")
-        s3 = _make_scene(scene_id="s3")
+        frame_id = "f1"
+        for sid in ("s1", "s2", "s3"):
+            mgr.handle_framed_scene(
+                _make_scene(scene_id=sid, frame_id=frame_id), owner_fd=10
+            )
+        frame = mgr.frames[frame_id]
+        frame.active_tab = "s2"
 
-        mgr.handle_scene(s1)
-        mgr.handle_scene(s2)
-        mgr.handle_scene(s3)
-        mgr._active_tab = "s2"
+        empty = mgr.dismiss_framed_scene(frame, "s2")
 
-        mgr.dismiss_scene("s2")
-
-        assert "s2" not in mgr._scenes
-        assert "s2" not in mgr._scene_order
+        assert empty is False
+        assert "s2" not in frame.scenes
+        assert "s2" not in frame.scene_order
         assert "s2" not in mgr._scene_widget_state
-        # s2 was at index 1 — next neighbor is s3 (min(1, 1) = index 1)
-        assert mgr._active_tab == "s3"
+        # The dismissed active tab yields to the frame's first remaining scene.
+        assert frame.active_tab == "s1"
 
-    def test_dismiss_last_scene(self) -> None:
-        """Dismissing the only scene sets _active_tab to None."""
+    def test_dismiss_last_scene_empties_the_frame(self) -> None:
+        """Dismissing the only scene reports the frame empty and clears its tab."""
         mgr, _ = _make_manager()
-        mgr.handle_scene(_make_scene())
+        mgr.handle_framed_scene(_make_scene(), owner_fd=10)
+        frame = mgr.frames["s1"]
 
-        mgr.dismiss_scene("s1")
+        empty = mgr.dismiss_framed_scene(frame, "s1")
 
-        assert mgr._active_tab is None
-        assert len(mgr._scenes) == 0
+        assert empty is True
+        assert frame.active_tab is None
+        assert len(frame.scenes) == 0
 
-    def test_dismiss_removes_window_dirty_flags(self) -> None:
-        """LegacyWindowElement dirty flags are cleaned when the scene is dismissed."""
-        mgr, _ = _make_manager()
-        scene = _make_scene(
-            elements=[LegacyWindowElement(id="w1", children=[], title="Win")]
-        )
-        mgr.handle_scene(scene)
-        assert "w1" in mgr._dirty_windows
+    def test_shared_id_across_frames_survives_one_dismissal(self) -> None:
+        """Dismissing a scene keeps events for an id a scene in another frame holds.
 
-        mgr.dismiss_scene("s1")
-
-        assert "w1" not in mgr._dirty_windows
-
-    def test_shared_id_in_frame_survives_unframed_dismissal(self) -> None:
-        """Dismissing an unframed scene keeps events for an id a frame still holds.
-
-        Stale-event draining keys on element id alone. When a framed scene and an
-        unframed scene share an element id, dismissing the unframed one must not
-        report that id stale — its queued events remain valid inside the frame.
+        Stale-event draining keys on element id alone. When two scenes in separate
+        frames share an element id, dismissing one must not report that id stale —
+        the other frame's queued events remain valid.
         """
         mgr, stale_calls = _make_manager()
         shared: list[object] = [ButtonElement(id="shared", label="Click")]
-        mgr.handle_scene(_make_scene(scene_id="s1", elements=shared))
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s1", frame_id="f0", elements=shared), owner_fd=10
+        )
         mgr.handle_framed_scene(
             _make_scene(scene_id="s2", frame_id="f1", elements=shared), owner_fd=11
         )
 
-        mgr.dismiss_scene("s1")
+        mgr.dismiss_framed_scene(mgr.frames["f0"], "s1")
 
         drained = [sid for call in stale_calls for sid in call]
         assert "shared" not in drained
@@ -431,22 +406,6 @@ class TestUpsertSceneDedup:
         # f1 was the only scene — closing it should remove the frame
         assert "f1" not in mgr.frames
 
-    def test_unframed_scene_moves_to_frame(self) -> None:
-        """An unframed scene with matching id is dismissed when framed."""
-        mgr, _ = _make_manager()
-        # Add s1 as unframed
-        s1 = _make_scene(scene_id="s1")
-        mgr.handle_scene(s1)
-        assert "s1" in mgr._scenes
-
-        # Now send s1 into a frame
-        s1_framed = _make_scene(scene_id="s1", frame_id="f1", frame_title="Frame")
-        mgr.handle_framed_scene(s1_framed, owner_fd=10)
-
-        # s1 should be gone from unframed scenes and present in frame
-        assert "s1" not in mgr._scenes
-        assert "s1" in mgr.frames["f1"].scenes
-
 
 # -------------------------------------------------------------------
 # 8. test_clear_all
@@ -458,18 +417,15 @@ class TestClearAll:
         """clear_all empties all scene-related state."""
         mgr, _ = _make_manager()
 
-        # Add unframed and framed scenes
-        s1 = _make_scene(scene_id="s1")
-        mgr.handle_scene(s1)
-        s2 = _make_scene(scene_id="s2", frame_id="f1", frame_title="Frame")
-        mgr.handle_framed_scene(s2, owner_fd=10)
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f0"), owner_fd=10)
+        mgr.handle_framed_scene(
+            _make_scene(scene_id="s2", frame_id="f1", frame_title="Frame"), owner_fd=10
+        )
 
         mgr.clear_all()
 
-        assert len(mgr._scenes) == 0
-        assert len(mgr._scene_order) == 0
-        assert mgr._active_tab is None
-        assert len(mgr.frames) == 0
+        assert mgr.frame_count == 0
+        assert mgr.scene_count == 0
         assert len(mgr.scene_to_frame) == 0
         assert len(mgr.scene_to_owner) == 0
         assert len(mgr._scene_widget_state) == 0
@@ -479,7 +435,7 @@ class TestClearAll:
         """Calling clear_all on empty state does not fail."""
         mgr, _ = _make_manager()
         mgr.clear_all()
-        assert mgr._active_tab is None
+        assert mgr.frame_count == 0
 
 
 class TestWidgetStateDiscardFor:
@@ -686,11 +642,24 @@ class TestEmptySceneRemovesFrame:
         )
         assert "f1" not in mgr.frames
 
-    def test_empty_unframed_scene_is_dismissed(self) -> None:
+
+class TestFramesOnlyInvariant:
+    """The unframed scene path is gone: every scene lives in a frame or nowhere."""
+
+    def test_no_unframed_scene_api_remains(self) -> None:
+        # Fork-completion: the unframed branch was removed, not shimmed. The
+        # storage and its handlers must be absent, not merely unused.
+        surface = set(dir(SceneManager))
+        removed = {"handle_scene", "dismiss_scene", "scenes", "scene_order"}
+        assert removed.isdisjoint(surface), surface & removed
+
+    def test_resolve_scene_is_none_for_an_absent_scene(self) -> None:
         mgr, _ = _make_manager()
-        mgr.handle_scene(
-            _make_scene(scene_id="s1", elements=[TextElement(id="t1", content="Hi")])
-        )
-        assert "s1" in mgr.scenes
-        mgr.handle_scene(_make_scene(scene_id="s1", elements=[]))
-        assert "s1" not in mgr.scenes
+        assert mgr.resolve_scene("ghost") is None
+
+    def test_resolve_scene_reads_through_the_frame(self) -> None:
+        mgr, _ = _make_manager()
+        mgr.handle_framed_scene(_make_scene(scene_id="s1", frame_id="f1"), owner_fd=10)
+        resolved = mgr.resolve_scene("s1")
+        assert resolved is not None
+        assert resolved is mgr.frames["f1"].scenes["s1"]

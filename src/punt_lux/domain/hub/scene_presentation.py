@@ -49,7 +49,7 @@ class ScenePusher(Protocol):
         *,
         title: str | None = ...,
         layout: SceneLayout = ...,
-        frame_id: str | None = ...,
+        frame_id: str,
         frame_title: str | None = ...,
         frame_size: tuple[int, int] | None = ...,
         frame_flags: dict[str, bool] | None = ...,

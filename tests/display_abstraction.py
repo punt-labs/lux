@@ -108,10 +108,17 @@ def abstract(server: DisplayServer) -> AbstractState:
     # readers -> keys of the readers dict (should equal client_fds)
     reader_fds = frozenset(ss._readers.keys())
 
-    # Scene decomposition — abstraction maps multi-scene to "active tab" view
-    has_scene = len(server._scene_manager._scenes) > 0
-    active_id = server._scene_manager._active_tab
-    scene = server._scene_manager._scenes.get(active_id) if active_id else None
+    # Scene decomposition — every scene lives in a frame now, so the abstract
+    # "active scene" is a frame's active tab. The refinement suite installs one
+    # scene at a time, so the first frame with an active tab is that scene.
+    scene = None
+    for frame in server._scene_manager.frames.values():
+        active_id = frame.active_tab
+        if active_id is not None:
+            scene = frame.scenes.get(active_id)
+            if scene is not None:
+                break
+    has_scene = scene is not None
     scene_id = scene.id if scene is not None else ""
     # Filter out empty-string ids.  ``SeparatorElement.id``
     # defaults to ``""`` for anonymous separators (post-PY-OO-2 split:

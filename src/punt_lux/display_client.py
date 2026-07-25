@@ -512,17 +512,16 @@ class DisplayClient:
     ) -> AckMessage | None:
         """Send a scene to the display and wait for acknowledgement.
 
-        When *frame_id* is provided, the scene is rendered inside a named
-        frame (an ImGui inner window).  The frame is created on first use.
-
-        Returns the :class:`AckMessage` or ``None`` on timeout.
+        Every scene is framed: an omitted *frame_id* self-frames by *scene_id* (as
+        the Hub does), so a bare ``show`` still lands in a named frame. Returns the
+        :class:`AckMessage` or ``None`` on timeout.
         """
         msg = SceneMessage(
             id=scene_id,
             elements=elements,
             title=title,
             layout=layout,
-            frame_id=frame_id,
+            frame_id=frame_id if frame_id is not None else scene_id,
             frame_title=frame_title,
             frame_size=frame_size,
             frame_flags=frame_flags,
@@ -544,13 +543,13 @@ class DisplayClient:
         frame_flags: dict[str, bool] | None = None,
         frame_layout: Literal["tab", "stack"] | None = None,
     ) -> None:
-        """Send a scene without waiting for ack.  Safe to call from callbacks."""
+        """Send a scene without waiting for ack (an omitted *frame_id* self-frames)."""
         msg = SceneMessage(
             id=scene_id,
             elements=elements,
             title=title,
             layout=layout,
-            frame_id=frame_id,
+            frame_id=frame_id if frame_id is not None else scene_id,
             frame_title=frame_title,
             frame_size=frame_size,
             frame_flags=frame_flags,

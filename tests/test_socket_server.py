@@ -121,6 +121,7 @@ class TestAcceptAndPoll:
                 scene = SceneMessage(
                     id="s1",
                     elements=[TextElement(id="t1", content="hello")],
+                    frame_id="s1",
                 )
                 send_message(client, scene)
 
@@ -203,6 +204,7 @@ class TestSendToClient:
                 scene = SceneMessage(
                     id="s2",
                     elements=[TextElement(id="t2", content="world")],
+                    frame_id="s2",
                 )
                 server.send_to_client(conn, scene)
 

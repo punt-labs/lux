@@ -58,7 +58,9 @@ def _mock_client() -> MagicMock:
 def _inspect(server: DisplayServer, elem: object) -> QueryResponse:
     sock = MagicMock()
     sock.fileno.return_value = 7
-    server._handle_message(sock, SceneMessage(id="s1", elements=[cast("Any", elem)]))
+    server._handle_message(
+        sock, SceneMessage(id="s1", elements=[cast("Any", elem)], frame_id="s1")
+    )
     return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
 
 
@@ -432,7 +434,7 @@ class TestLevel2WireRoundtrip:
     def test_crosses_as_pickled_entry(self) -> None:
         elem = _decode(SliderElement(id="sl", label="N", value=7.0).to_dict())
         assert isinstance(elem, SliderElement)
-        wire = message_to_dict(SceneMessage(id="s1", elements=[elem]))
+        wire = message_to_dict(SceneMessage(id="s1", elements=[elem], frame_id="s1"))
         entry = wire["elements"][0]
         assert "_pickled" in entry, "ABC slider must use native pickle wire"
         restored = message_from_dict(wire)
@@ -444,7 +446,7 @@ class TestLevel2WireRoundtrip:
     def test_builtin_state_sync_handler_survives_the_wire(self) -> None:
         elem = _decode(SliderElement(id="sl", label="N").to_dict())
         assert isinstance(elem, SliderElement)
-        wire = message_to_dict(SceneMessage(id="s1", elements=[elem]))
+        wire = message_to_dict(SceneMessage(id="s1", elements=[elem], frame_id="s1"))
         restored = message_from_dict(wire)
         assert isinstance(restored, SceneMessage)
         r_elem = restored.elements[0]
@@ -457,7 +459,9 @@ class TestLevel2WireRoundtrip:
 
 class TestLevel3Crossing:
     def test_rebind_binds_the_slider_renderer_factory(self) -> None:
-        scene = SceneMessage(id="s1", elements=[SliderElement(id="sl", value=5.0)])
+        scene = SceneMessage(
+            id="s1", elements=[SliderElement(id="sl", value=5.0)], frame_id="s1"
+        )
         received = message_from_dict(message_to_dict(scene))
         assert isinstance(received, SceneMessage)
         slider = received.elements[0]

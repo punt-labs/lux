@@ -858,19 +858,12 @@ class DisplayServer:
         self._menu_manager.handle_register_menu(fd, msg.items)
 
     def _handle_scene(self, sock: socket.socket, msg: SceneMessage) -> None:
-        if msg.frame_id is not None:
-            self._handle_framed_scene(sock, msg)
-            return
-        self._wrap_abc_elements(msg)
-        self._scene_manager.handle_scene(msg)
-        self._route_to_domain_display(msg)
-        ack = AckMessage(scene_id=msg.id, ts=time.time())
-        self._socket_server.send_to_client(sock, ack)
-        if self._test_auto_click:
-            self._auto_click_buttons(msg)
+        """Route a scene into its frame, creating the frame if needed.
 
-    def _handle_framed_scene(self, sock: socket.socket, msg: SceneMessage) -> None:
-        """Route a scene into a frame, creating the frame if needed."""
+        Every scene carries a frame — the Hub synthesizes one at the render
+        boundary when the caller names none (frame_id = scene_id), so the display
+        has a single, always-framed install path.
+        """
         try:
             fd = sock.fileno()
         except OSError:
@@ -904,7 +897,7 @@ class DisplayServer:
         """Enqueue synthetic interactions for testable elements (test mode).
 
         Synthetic events run BEFORE the first render loop assigns
-        ``self._current_scene_id`` from ``_render_scene_tab``.
+        ``self._current_scene_id`` from ``_render_framed_scene``.
         Without stamping the scene id here, ``_emit_event`` would set
         ``scene_id=None`` and ``DomainPump.route_interaction`` would
         silently drop every synthetic button click.  Save / restore the
@@ -1028,38 +1021,9 @@ class DisplayServer:
         self._menu_manager.check_world_menu_background_click(imgui)
         self._menu_manager.render_world_panel(imgui)
 
-        # Render framed scenes (workspace model)
+        # Every scene renders inside a frame (workspace model); there is no
+        # unframed scene surface — the Hub frames every scene at the boundary.
         self._render_frames(imgui)
-
-        sm = self._scene_manager
-        if not sm.scenes:
-            return
-
-        if len(sm.scenes) == 1:
-            # Single scene: render directly without tab bar chrome
-            scene_id = sm.scene_order[0]
-            self._render_scene_tab(scene_id)
-            return
-
-        # Multiple scenes: render closable tab bar
-        if imgui.begin_tab_bar("##lux_scenes"):
-            closed_tabs: list[str] = []
-            for scene_id in list(sm.scene_order):
-                scene = sm.scenes[scene_id]
-                label = scene.title or scene_id
-                closable = True
-                selected, still_open = imgui.begin_tab_item(
-                    f"{label}##{scene_id}", closable
-                )
-                if selected:
-                    sm.active_tab = scene_id
-                    self._render_scene_tab(scene_id)
-                    imgui.end_tab_item()
-                if still_open is not None and not still_open:
-                    closed_tabs.append(scene_id)
-            imgui.end_tab_bar()
-            for sid in closed_tabs:
-                sm.dismiss_scene(sid)
 
     # Cascade layout: each new frame offsets from the previous one.
     _CASCADE_BASE_X = 30.0
@@ -1442,24 +1406,6 @@ class DisplayServer:
                 owner_sock = self._socket_server.fd_to_client.get(ofd)
                 if owner_sock is not None:
                     self._socket_server.send_to_client(owner_sock, close_event)
-
-    def _render_scene_tab(self, scene_id: str) -> None:
-        """Render a single scene's elements with its own widget state."""
-        sm = self._scene_manager
-        self._current_scene_id = scene_id
-        self._element_renderer.current_scene_id = scene_id
-        ws = sm.widget_state_for(scene_id)
-        if ws is not None:
-            self._widget_state = ws
-            self._table_renderer.widget_state = ws
-            self._element_renderer.widget_state = ws
-        scene = sm.scenes[scene_id]
-        if scene.title and len(sm.scenes) == 1:
-            from imgui_bundle import imgui
-
-            imgui.separator_text(scene.title)
-        for elem in scene.elements:
-            self._paint_element(elem)
 
     # Element rendering delegated to ElementRenderer -- see element_renderer.py.
 

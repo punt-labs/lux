@@ -58,7 +58,9 @@ def _mock_client() -> MagicMock:
 def _inspect(server: DisplayServer, elem: object) -> QueryResponse:
     sock = MagicMock()
     sock.fileno.return_value = 7
-    server._handle_message(sock, SceneMessage(id="s1", elements=[cast("Any", elem)]))
+    server._handle_message(
+        sock, SceneMessage(id="s1", elements=[cast("Any", elem)], frame_id="s1")
+    )
     return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
 
 
@@ -307,7 +309,7 @@ class TestLevel2WireRoundtrip:
     def test_crosses_as_pickled_entry(self) -> None:
         elem = _decode(ColorPickerElement(id="cp", value="#123456").to_dict())
         assert isinstance(elem, ColorPickerElement)
-        wire = message_to_dict(SceneMessage(id="s1", elements=[elem]))
+        wire = message_to_dict(SceneMessage(id="s1", elements=[elem], frame_id="s1"))
         entry = wire["elements"][0]
         assert "_pickled" in entry, "ABC color_picker must use native pickle wire"
         restored = message_from_dict(wire)
@@ -319,7 +321,7 @@ class TestLevel2WireRoundtrip:
     def test_builtin_state_sync_handler_survives_the_wire(self) -> None:
         elem = _decode(ColorPickerElement(id="cp", label="C").to_dict())
         assert isinstance(elem, ColorPickerElement)
-        wire = message_to_dict(SceneMessage(id="s1", elements=[elem]))
+        wire = message_to_dict(SceneMessage(id="s1", elements=[elem], frame_id="s1"))
         restored = message_from_dict(wire)
         assert isinstance(restored, SceneMessage)
         r_elem = restored.elements[0]
@@ -333,7 +335,9 @@ class TestLevel2WireRoundtrip:
 class TestLevel3Crossing:
     def test_rebind_binds_the_color_picker_renderer_factory(self) -> None:
         scene = SceneMessage(
-            id="s1", elements=[ColorPickerElement(id="cp", value="#FF0000")]
+            id="s1",
+            elements=[ColorPickerElement(id="cp", value="#FF0000")],
+            frame_id="s1",
         )
         received = message_from_dict(message_to_dict(scene))
         assert isinstance(received, SceneMessage)

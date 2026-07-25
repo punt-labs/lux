@@ -98,15 +98,6 @@ class QueryDispatcher:
         """Query handler for list_scenes."""
         sm = self._scene_manager
         scenes: list[dict[str, Any]] = []
-        for sid, scene in sm.scenes.items():
-            scenes.append(
-                {
-                    "scene_id": sid,
-                    "element_count": len(scene.elements),
-                    "frame_id": sm.scene_to_frame.get(sid),
-                    "owner_fd": sm.scene_to_owner.get(sid),
-                }
-            )
         for fid, frame in sm.frames.items():
             for sid, scene in frame.scenes.items():
                 scenes.append(

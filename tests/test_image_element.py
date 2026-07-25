@@ -53,7 +53,9 @@ def _mock_sock() -> Any:
 
 
 def _inspect(server: DisplayServer, *elements: Element) -> QueryResponse:
-    server._handle_message(_mock_sock(), SceneMessage(id="s1", elements=list(elements)))
+    server._handle_message(
+        _mock_sock(), SceneMessage(id="s1", elements=list(elements), frame_id="s1")
+    )
     return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
 
 
@@ -180,7 +182,7 @@ class TestSelfValidation:
 class TestLevel2WireRoundtrip:
     def test_image_crosses_as_pickled_entry(self) -> None:
         image = ImageElement(id="i1", path="/a.png", alt="cat", tooltip="hover")
-        wire = message_to_dict(SceneMessage(id="s1", elements=[image]))
+        wire = message_to_dict(SceneMessage(id="s1", elements=[image], frame_id="s1"))
         entry = wire["elements"][0]
         assert "_pickled" in entry, "ABC image must use native pickle wire"
         restored = message_from_dict(wire)
@@ -197,7 +199,9 @@ class TestLevel2WireRoundtrip:
 
 class TestLevel3Crossing:
     def test_rebind_binds_the_image_renderer_factory(self) -> None:
-        scene = SceneMessage(id="s1", elements=[ImageElement(id="i1", path="/a.png")])
+        scene = SceneMessage(
+            id="s1", elements=[ImageElement(id="i1", path="/a.png")], frame_id="s1"
+        )
         received = message_from_dict(message_to_dict(scene))
         assert isinstance(received, SceneMessage)
         image = received.elements[0]
