@@ -652,3 +652,5 @@
 {"ts":"2026-07-25T19:08:17Z","commit":"e61f191","files_scored":335,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-07-25T19:30:59Z","commit":"f39bf60","files_scored":335,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-07-25T20:09:43Z","commit":"c833139","files_scored":335,"files_improved":2,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/operations/models/render.py":{"avg_params":[0.5,0.4],"avg_complexity":[2.5,2.2]},"src/punt_lux/protocol/elements/modal.py":{"module_size":[218.0,217.0]}}}
+{"ts":"2026-07-25T20:23:50Z","commit":"f2f69c4","files_scored":335,"files_improved":1,"files_regressed":3,"verdict":"fail","deltas":{"src/punt_lux/protocol/messages/scene.py":{"method_ratio":[0.0,0.857],"avg_params":[1.0,0.71],"max_complexity":[5.0,4.0],"avg_complexity":[2.43,2.0],"class_to_func_ratio":[0.25,0.667]}}}
+{"ts":"2026-07-25T20:26:40Z","commit":"f2f69c4","files_scored":335,"files_improved":1,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/protocol/messages/scene.py":{"module_size":[120.0,116.0]}}}

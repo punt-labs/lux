@@ -224,7 +224,7 @@ class DisplayServer:
             scene_manager=self._scene_manager,
         )
         # Install the luxd-tier element factory so inbound scene
-        # decoding (via reader.drain_typed → _scene_from_dict →
+        # decoding (via reader.drain_typed → SceneMessage.from_dict →
         # container_dispatch.dispatch.from_dict) routes through a real
         # factory. The Display is not allowed to own business publish
         # behavior; if a handler ever runs locally before remote wrapping,

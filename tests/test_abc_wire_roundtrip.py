@@ -2,8 +2,9 @@
 
 Two real boundaries, no stubs:
 
-- The native-pickle scene wire (``protocol/messages/scene.py`` ``_scene_to_dict`` /
-  ``_scene_from_dict``): build -> ``message_to_dict`` -> assert ``_pickled`` ->
+- The native-pickle scene wire (``protocol/messages/scene.py`` —
+  ``SceneMessage.to_dict`` / ``SceneMessage.from_dict``): build ->
+  ``message_to_dict`` -> assert ``_pickled`` ->
   ``message_from_dict`` -> compare-equal, for all four kinds including a dialog
   (which previously had no scene roundtrip) and a dialog with a child.
 
