@@ -74,6 +74,11 @@ from punt_lux.protocol.elements.selectable_codec import (
     JsonSelectableDecoder,
     JsonSelectableEncoder,
 )
+from punt_lux.protocol.elements.separator import SeparatorElement
+from punt_lux.protocol.elements.separator_codec import (
+    JsonSeparatorDecoder,
+    JsonSeparatorEncoder,
+)
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.slider_codec import JsonSliderDecoder, JsonSliderEncoder
 from punt_lux.protocol.elements.spinner import SpinnerElement
@@ -160,6 +165,14 @@ class DefaultAbcKinds:
                 kind="spinner",
                 codec=KindCodec(
                     SpinnerElement, JsonSpinnerDecoder, JsonSpinnerEncoder().encode
+                ),
+            ),
+            LeafKindSpec(
+                kind="separator",
+                codec=KindCodec(
+                    SeparatorElement,
+                    JsonSeparatorDecoder,
+                    JsonSeparatorEncoder().encode,
                 ),
             ),
             DialogKindSpec(

@@ -95,7 +95,8 @@ def test_multiple_separators_survive_install() -> None:
 
     _show(hub, sep_top, text, sep_bottom)
 
-    assert hub.scene_roots(_SCENE) == [sep_top, text, sep_bottom]
+    expected: list[Element] = [sep_top, text, sep_bottom]
+    assert hub.scene_roots(_SCENE) == expected
 
 
 def test_both_separators_survive_a_re_push() -> None:

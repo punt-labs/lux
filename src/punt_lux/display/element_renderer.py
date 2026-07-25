@@ -9,10 +9,7 @@ from collections.abc import Callable
 from dataclasses import fields
 from typing import TYPE_CHECKING, ClassVar, Self, cast
 
-from punt_lux.display.renderers import (
-    ImageRenderer,
-    SeparatorRenderer,
-)
+from punt_lux.display.renderers import ImageRenderer
 from punt_lux.display.renderers.container_renderer import ContainerRenderer
 from punt_lux.display.renderers.draw_element_renderer import DrawElementRenderer
 from punt_lux.display.renderers.modal_renderer import ModalRenderer
@@ -24,7 +21,6 @@ from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.protocol.elements.graphics import DrawElement
 from punt_lux.protocol.elements.image import ImageElement
-from punt_lux.protocol.elements.separator import SeparatorElement
 from punt_lux.scene import WidgetState
 
 if TYPE_CHECKING:
@@ -60,7 +56,6 @@ class ElementRenderer:
     _imgui_renderer_factory: ImGuiRendererFactory
     # Pre-ABC display leaves with no adapter yet — the residual dispatch table.
     _image_renderer: ImageRenderer
-    _separator_renderer: SeparatorRenderer
     _draw_element_renderer: DrawElementRenderer
     # Legacy composites: containers recurse their children back through
     # ``render_element``; tree/plot/modal paint their own extracted surface.
@@ -88,7 +83,6 @@ class ElementRenderer:
     # four migrate.
     _RESIDUAL_DISPATCH: ClassVar[tuple[tuple[type, str], ...]] = (
         (ImageElement, "_image_renderer"),
-        (SeparatorElement, "_separator_renderer"),
     )
     # Derived from the dispatch table, not double-listed. Each residual element is
     # a slotted dataclass: read the ``kind`` field default, not the slot descriptor.
@@ -119,7 +113,6 @@ class ElementRenderer:
         self._check_dirty_window = check_dirty_window
         self._current_scene_id = None
         self._image_renderer = ImageRenderer(texture_cache)
-        self._separator_renderer = SeparatorRenderer()
         self._draw_element_renderer = DrawElementRenderer()
         self._container_renderer = ContainerRenderer(
             widget_state, check_dirty_window, self.render_element

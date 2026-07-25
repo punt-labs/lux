@@ -49,6 +49,7 @@ class AbcKindNames:
             "tab_bar",
             "markdown",
             "spinner",
+            "separator",
         }
     )
 
