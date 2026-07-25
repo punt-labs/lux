@@ -54,6 +54,44 @@ def test_render_installs_scene_and_marks_dirty() -> None:
     assert store.resolve(SceneId("s1"), ElementId("t1")).id == "t1"
 
 
+def test_render_without_a_frame_synthesizes_one_at_the_scene_id() -> None:
+    # THE RULE at the operations path: a frameless request installs a scene whose
+    # recorded presentation frames it by its own id — no scene reaches the store
+    # unframed. All three surfaces (MCP show, REST PUT, CLI) inherit this here.
+    store, recorder = HubDisplay(), _Recorder()
+    request = RenderRequest.parse(
+        {"scene_id": "s1", "elements": [{"kind": "text", "id": "t1", "content": "Hi"}]}
+    )
+    result = _ops(store, recorder).render(request, scope=_LOCAL)
+    assert isinstance(result, SceneShown)
+    presentation = store.frames.presentation_for(SceneId("s1"))
+    assert presentation.frame_id == "s1"
+    assert presentation.frame_title == "s1"
+
+
+def test_synthesized_frame_is_a_lifecycle_citizen_a_close_removes_the_scene() -> None:
+    # The synthesized frame participates in the dismissal machinery identically to
+    # an explicit one: closing frame "s1" tears down the scene's roots on the Hub.
+    store, recorder = HubDisplay(), _Recorder()
+    request = RenderRequest.parse(
+        {"scene_id": "s1", "elements": [{"kind": "text", "id": "t1", "content": "Hi"}]}
+    )
+    _ops(store, recorder).render(request, scope=_LOCAL)
+    removed = store.frames.remove_frame("s1")
+    assert removed == frozenset({SceneId("s1")})
+    assert store.scene_roots(SceneId("s1")) == []
+
+
+def test_a_frameless_request_arms_no_ttl_the_synthesized_frame_is_permanent() -> None:
+    # A TTL rides in on the frame spec; a request that names no frame has no TTL
+    # to arm, so its synthesized frame is permanent by construction.
+    request = RenderRequest.parse(
+        {"scene_id": "s1", "elements": [{"kind": "text", "id": "t1", "content": "Hi"}]}
+    )
+    assert isinstance(request, RenderRequest)
+    assert request.frame_ttl() is None
+
+
 def test_render_passes_an_op_error_straight_through() -> None:
     recorder = _Recorder()
     error = OpError(code="invalid_request", reason="bad layout")

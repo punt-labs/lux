@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from punt_lux.domain.hub.scene_presentation import ScenePresentation
+from punt_lux.domain.hub.scene_presentation import SceneLayout, ScenePresentation
 from punt_lux.operations.models.common import OpError
 
 if TYPE_CHECKING:
@@ -16,11 +16,9 @@ __all__ = ["FrameFlags", "FrameSpec", "RenderRequest"]
 
 
 class FrameFlags(BaseModel):
-    """The ImGui window flags a scene's frame may carry.
+    """ImGui window flags a scene's frame may carry; unknown keys are ignored.
 
-    Unknown keys are ignored, not rejected: the string-return tools' contract is
-    "no behavior change" and the legacy path silently dropped unrecognised flag
-    keys, so this one model keeps ``extra="ignore"`` on purpose.
+    ``extra="ignore"`` mirrors the legacy path, which silently dropped unknown flags.
     """
 
     model_config = ConfigDict(frozen=True, extra="ignore")
@@ -43,9 +41,8 @@ class FrameSpec(BaseModel):
     size: tuple[int, int] | None = None  # None lets the display choose
     flags: FrameFlags | None = None  # None means no window flags
     layout: Literal["tab", "stack"] | None = None  # None uses the display default
-    # None is the genuine "permanent" state (PY-TS-14): the frame never expires
-    # unless a later re-show arms a TTL. A set value must be positive — a zero or
-    # negative lifetime is rejected at this boundary rather than expiring at once.
+    # None is the "permanent" state (PY-TS-14): the frame never expires unless a
+    # re-show arms a TTL. A set value must be positive; zero/negative is rejected.
     ttl_seconds: float | None = Field(default=None, gt=0)
 
 
@@ -60,8 +57,8 @@ class RenderRequest(BaseModel):
     # operation (PY-TS-14 wire boundary).
     elements: list[dict[str, object]]
     title: str | None = None  # None shows the scene id as the frame title
-    layout: Literal["single", "rows", "columns", "grid"] = "single"
-    frame: FrameSpec | None = None  # None means a default single-scene frame
+    layout: SceneLayout = "single"
+    frame: FrameSpec | None = None  # None synthesizes a default frame at render
 
     @classmethod
     def parse(cls, raw: Mapping[str, object]) -> RenderRequest | OpError:
@@ -88,28 +85,33 @@ class RenderRequest(BaseModel):
         return OpError.describe(err)
 
     def frame_ttl(self) -> float | None:
-        """Return the frame's time-to-live in seconds, or None for a permanent frame.
+        """Return the frame's TTL in seconds, or None for a permanent frame (PY-TS-14).
 
-        None is the documented "permanent" contract (PY-TS-14): the Hub arms a
-        deadline only when a positive TTL is present, and a re-show with no TTL
-        clears any prior one.
+        The Hub arms a deadline only for a positive TTL; a re-show with no TTL
+        clears any prior one, so None is the "permanent" contract, not "expire now".
         """
         return self.frame.ttl_seconds if self.frame is not None else None
 
+    def _resolved_frame(self) -> FrameSpec:
+        """Return the named frame, or synthesize a default one when none was named.
+
+        Where "every scene is framed" is guaranteed: an unnamed frame becomes a
+        default ``FrameSpec`` whose ``frame_id`` resolves to the scene id below.
+        """
+        return self.frame if self.frame is not None else FrameSpec()
+
     def presentation(self) -> ScenePresentation:
-        """Build the frame presentation, resolving frame id and title defaults."""
-        frame = self.frame if self.frame is not None else FrameSpec()
-        frame_id = frame.frame_id if frame.frame_id is not None else self.scene_id
-        frame_title = (
-            frame.frame_title
-            if frame.frame_title is not None
-            else (self.title or self.scene_id)
-        )
+        """Build the total presentation this scene renders into, framed by default."""
+        frame = self._resolved_frame()
         return ScenePresentation(
-            frame_id=frame_id,
+            frame_id=frame.frame_id if frame.frame_id is not None else self.scene_id,
             title=self.title,
             layout=self.layout,
-            frame_title=frame_title,
+            frame_title=(
+                frame.frame_title
+                if frame.frame_title is not None
+                else (self.title or self.scene_id)
+            ),
             frame_size=frame.size,
             frame_flags=frame.flags.model_dump() if frame.flags is not None else None,
             frame_layout=frame.layout,
