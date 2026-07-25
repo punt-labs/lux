@@ -18,6 +18,7 @@ from punt_lux.protocol import (
     CheckboxElement,
     ClearMessage,
     Element,
+    LegacyWindowElement,
     MenuMessage,
     PingMessage,
     RegisterMenuMessage,
@@ -25,7 +26,6 @@ from punt_lux.protocol import (
     SceneMessage,
     SeparatorElement,
     TextElement,
-    WindowElement,
 )
 from punt_lux.scene import WidgetState
 
@@ -758,7 +758,7 @@ class TestMultiScene:
         """Re-sending a scene with the same ID should not force window positions."""
         server = _make_server()
         sock = _mock_sock()
-        win = WindowElement(id="w1", title="Panel", x=10, y=10)
+        win = LegacyWindowElement(id="w1", title="Panel", x=10, y=10)
         scene = SceneMessage(id="s1", elements=[win])
 
         server._handle_message(sock, scene)
@@ -775,7 +775,7 @@ class TestMultiScene:
         """A new scene ID should mark windows dirty for initial positioning."""
         server = _make_server()
         sock = _mock_sock()
-        win = WindowElement(id="w1", title="Panel", x=10, y=10)
+        win = LegacyWindowElement(id="w1", title="Panel", x=10, y=10)
 
         server._handle_message(sock, SceneMessage(id="s1", elements=[win]))
         server._scene_manager._dirty_windows.clear()

@@ -25,6 +25,11 @@ from punt_lux.protocol.elements.tab_bar_codec import (
     JsonTabBarDecoder,
     JsonTabBarEncoder,
 )
+from punt_lux.protocol.elements.window import WindowElement
+from punt_lux.protocol.elements.window_codec import (
+    JsonWindowDecoder,
+    JsonWindowEncoder,
+)
 from punt_lux.protocol.standalone_collapsing_header_handler import (
     build_standalone_collapsing_header_handler_decoder,
 )
@@ -81,5 +86,11 @@ class DefaultContainerKinds:
                     ModalElement, JsonModalDecoder, JsonModalEncoder().encode
                 ),
                 handler_builder=build_standalone_modal_handler_decoder,
+            ),
+            ContainerKindSpec(
+                kind="window",
+                codec=KindCodec(
+                    WindowElement, JsonWindowDecoder, JsonWindowEncoder().encode
+                ),
             ),
         ]

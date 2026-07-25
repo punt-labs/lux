@@ -58,6 +58,7 @@ from punt_lux.protocol.elements import (
     LegacyCollapsingHeaderElement,
     LegacyGroupElement,
     LegacyTabBarElement,
+    LegacyWindowElement,
     MarkdownElement,
     ModalElement,
     PlotElement,
@@ -72,7 +73,6 @@ from punt_lux.protocol.elements import (
     TableFilter,
     TextElement,
     TreeElement,
-    WindowElement,
 )
 from punt_lux.protocol.elements.draw_bounds import Radius
 from punt_lux.protocol.elements.draw_commands_curve import BezierCubic
@@ -179,7 +179,7 @@ def _collect_kinds(elements: list[Element]) -> frozenset[str]:
             elem,
             LegacyGroupElement
             | LegacyCollapsingHeaderElement
-            | WindowElement
+            | LegacyWindowElement
             | ModalElement,
         ):
             kinds |= _collect_kinds(elem.children)
@@ -633,7 +633,7 @@ class SmokeRunner:
                     },
                 ],
             ),
-            WindowElement(
+            LegacyWindowElement(
                 id="layout-window",
                 title="Sub-window",
                 x=80.0,

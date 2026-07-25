@@ -27,7 +27,7 @@ from punt_lux.protocol import (
     LegacyGroupElement,
     LegacyModalElement,
     LegacyTabBarElement,
-    WindowElement,
+    LegacyWindowElement,
 )
 
 if TYPE_CHECKING:
@@ -204,7 +204,8 @@ class SceneTreeWalk:
             lists.extend(element.pages)
             return lists
         if isinstance(
-            element, (LegacyCollapsingHeaderElement, WindowElement, LegacyModalElement)
+            element,
+            (LegacyCollapsingHeaderElement, LegacyWindowElement, LegacyModalElement),
         ):
             return [element.children]
         if isinstance(element, LegacyTabBarElement):

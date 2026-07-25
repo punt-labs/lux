@@ -22,10 +22,10 @@ from punt_lux.protocol.elements import (
     LegacyGroupElement,
     LegacyModalElement,
     LegacyTabBarElement,
+    LegacyWindowElement,
     SeparatorElement,
     TextElement,
     TreeElement,
-    WindowElement,
 )
 
 
@@ -81,7 +81,7 @@ def test_collect_kinds_recurses_into_containers(manual_smoke: ModuleType) -> Non
     ]
     group = LegacyGroupElement(id="g", layout="rows", children=inner)
     header = LegacyCollapsingHeaderElement(id="h", children=inner)
-    window = WindowElement(id="w", children=inner)
+    window = LegacyWindowElement(id="w", children=inner)
     modal = LegacyModalElement(id="m", children=inner)
     kinds = manual_smoke._collect_kinds([group, header, window, modal])
     assert kinds == frozenset(

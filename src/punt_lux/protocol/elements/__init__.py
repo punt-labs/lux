@@ -54,8 +54,8 @@ from punt_lux.protocol.elements.layout import (
     LegacyGroupElement,
     LegacyModalElement,
     LegacyTabBarElement,
+    LegacyWindowElement,
     TreeElement,
-    WindowElement,
     register_codecs as _register_layout,
 )
 from punt_lux.protocol.elements.markdown import MarkdownElement
@@ -75,6 +75,7 @@ from punt_lux.protocol.elements.table import (
     register_codecs as _register_table,
 )
 from punt_lux.protocol.elements.text import TextElement
+from punt_lux.protocol.elements.window import WindowElement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 
 __all__ = [
@@ -95,6 +96,7 @@ __all__ = [
     "LegacyGroupElement",
     "LegacyModalElement",
     "LegacyTabBarElement",
+    "LegacyWindowElement",
     "MarkdownElement",
     "ModalElement",
     "PlotElement",
@@ -142,6 +144,7 @@ Element = (
     | CollapsingHeaderElement
     | LegacyCollapsingHeaderElement
     | WindowElement
+    | LegacyWindowElement
     | SelectableElement
     | TreeElement
     | TableElement

@@ -22,7 +22,7 @@ if TYPE_CHECKING:
         LegacyCollapsingHeaderElement,
         LegacyGroupElement,
         LegacyTabBarElement,
-        WindowElement,
+        LegacyWindowElement,
     )
     from punt_lux.scene import WidgetState
 
@@ -42,7 +42,7 @@ class ContainerRenderer:
     _check_dirty_window: DirtyWindowFn
     _render_child: RenderChildFn
 
-    # (WindowElement attribute, ImGui WindowFlags_ member) pairs — a data
+    # (LegacyWindowElement attribute, ImGui WindowFlags_ member) pairs — a data
     # table replaces a six-branch if-cascade so folding the flags is one loop.
     _WINDOW_FLAG_ATTRS: ClassVar[tuple[tuple[str, str], ...]] = (
         ("no_move", "no_move"),
@@ -173,8 +173,8 @@ class ContainerRenderer:
     # -- window ----------------------------------------------------------------
 
     @staticmethod
-    def _window_flags(win: WindowElement) -> int:
-        """Fold a WindowElement's boolean options into an ImGui flags mask."""
+    def _window_flags(win: LegacyWindowElement) -> int:
+        """Fold a LegacyWindowElement's boolean options into an ImGui flags mask."""
         flags = 0
         for attr, flag_name in ContainerRenderer._WINDOW_FLAG_ATTRS:
             if getattr(win, attr):
@@ -183,7 +183,7 @@ class ContainerRenderer:
 
     def render_window(self, elem: Element) -> None:
         """Render a floating window; children paint while it is expanded."""
-        win = cast("WindowElement", elem)
+        win = cast("LegacyWindowElement", elem)
         flags = self._window_flags(win)
 
         # check_dirty_window returns True and clears the flag when the window

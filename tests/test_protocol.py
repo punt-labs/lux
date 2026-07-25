@@ -27,6 +27,7 @@ from punt_lux.protocol import (
     LegacyCollapsingHeaderElement,
     LegacyGroupElement,
     LegacyTabBarElement,
+    LegacyWindowElement,
     ListScenesRequest,
     ListScenesResponse,
     MarkdownElement,
@@ -57,7 +58,6 @@ from punt_lux.protocol import (
     ThemeMessage,
     TreeElement,
     UnknownMessage,
-    WindowElement,
     decode_frame,
     encode_frame,
     encode_message,
@@ -197,7 +197,7 @@ class TestElements:
         assert e.children == []
 
     def test_window_element(self):
-        e = WindowElement(
+        e = LegacyWindowElement(
             id="w1",
             title="Panel",
             x=100,
@@ -212,7 +212,7 @@ class TestElements:
         assert len(e.children) == 1
 
     def test_window_element_defaults(self):
-        e = WindowElement(id="w1")
+        e = LegacyWindowElement(id="w1")
         assert e.title == ""
         assert e.x == 50.0
         assert e.y == 50.0
@@ -227,7 +227,7 @@ class TestElements:
         assert e.children == []
 
     def test_window_element_flags(self):
-        e = WindowElement(id="w1", no_move=True, no_resize=True, auto_resize=True)
+        e = LegacyWindowElement(id="w1", no_move=True, no_resize=True, auto_resize=True)
         assert e.no_move is True
         assert e.no_resize is True
         assert e.auto_resize is True
@@ -1310,93 +1310,15 @@ class TestSerialization:
         assert isinstance(grp, LegacyGroupElement)
         assert len(grp.children) == 2
 
-    def test_window_roundtrip(self):
-        e = WindowElement(
-            id="w1",
-            title="Settings",
-            x=100,
-            y=50,
-            width=400,
-            height=300,
-            no_resize=True,
-            children=[
-                TextElement(id="t1", content="Hello from window"),
-                SliderElement(id="sl1", label="Vol"),
-                ButtonElement(id="b1", label="OK"),
-            ],
-        )
-        scene = SceneMessage(id="s1", elements=[e])
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        win = restored.elements[0]
-        assert isinstance(win, WindowElement)
-        assert win.title == "Settings"
-        assert win.x == 100
-        assert win.width == 400
-        assert win.no_resize is True
-        assert win.no_move is False
-        assert len(win.children) == 3
-
-    def test_window_flags_excluded_when_false(self):
-        e = WindowElement(id="w1")
-        scene = SceneMessage(id="s1", elements=[e])
-        d = message_to_dict(scene)
-        elem_d = d["elements"][0]
-        for flag in (
-            "no_move",
-            "no_resize",
-            "no_collapse",
-            "no_title_bar",
-            "no_scrollbar",
-            "auto_resize",
-        ):
-            assert flag not in elem_d
-
-    def test_multiple_windows_roundtrip(self):
-        w1 = WindowElement(
-            id="w1",
-            title="Left",
-            x=10,
-            y=10,
-            children=[TextElement(id="t1", content="Panel 1")],
-        )
-        w2 = WindowElement(
-            id="w2",
-            title="Right",
-            x=320,
-            y=10,
-            children=[TextElement(id="t2", content="Panel 2")],
-        )
-        scene = SceneMessage(id="s1", elements=[w1, w2])
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        assert len(restored.elements) == 2
-        assert isinstance(restored.elements[0], WindowElement)
-        assert isinstance(restored.elements[1], WindowElement)
-        assert restored.elements[0].title == "Left"
-        assert restored.elements[1].title == "Right"
-
-    def test_window_with_nested_containers_roundtrip(self):
-        grp = LegacyGroupElement(
-            id="g1",
-            layout="columns",
-            children=[
-                ButtonElement(id="b1", label="A"),
-                ButtonElement(id="b2", label="B"),
-            ],
-        )
-        win = WindowElement(
+    def test_window_with_legacy_child_forks_legacy_roundtrip(self):
+        # A not-yet-migrated child (table) forks the whole window legacy; the
+        # all-ABC window roundtrip is covered in test_window_element.py.
+        win = LegacyWindowElement(
             id="w1",
             title="Complex",
             children=[
-                grp,
-                LegacyCollapsingHeaderElement(
-                    id="ch1",
-                    label="More",
-                    children=[TextElement(id="t1", content="nested")],
-                ),
+                TableElement(id="tbl", columns=["A"], rows=[["x"]]),
+                TextElement(id="t1", content="nested"),
             ],
         )
         scene = SceneMessage(id="s1", elements=[win])
@@ -1404,10 +1326,8 @@ class TestSerialization:
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
         r_win = restored.elements[0]
-        assert isinstance(r_win, WindowElement)
-        assert isinstance(r_win.children[0], LegacyGroupElement)
-        # A legacy window forces every nested container legacy (fork-don't-mix).
-        assert isinstance(r_win.children[1], LegacyCollapsingHeaderElement)
+        assert isinstance(r_win, LegacyWindowElement)
+        assert r_win.children[0].kind == "table"
 
     def test_deeply_nested_containers_roundtrip(self):
         # An all-ABC subtree — a header holding a text — decodes onto the ABC

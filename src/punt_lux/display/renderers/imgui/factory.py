@@ -33,6 +33,7 @@ from punt_lux.display.renderers.imgui.slider import ImGuiSliderRenderer
 from punt_lux.display.renderers.imgui.spinner import ImGuiSpinnerRenderer
 from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
+from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
 from punt_lux.display.renderers.tooltip_painter import TooltipPainter
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.protocol.elements.button import ButtonElement
@@ -55,6 +56,7 @@ from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.text import TextElement
+from punt_lux.protocol.elements.window import WindowElement
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -87,6 +89,7 @@ class ImGuiRendererFactory:
         (InputNumberElement, ImGuiInputNumberRenderer),
         (DialogElement, ImGuiDialogRenderer),
         (ModalElement, ImGuiModalRenderer),
+        (WindowElement, ImGuiWindowRenderer),
         (GroupElement, ImGuiGroupRenderer),
         (CollapsingHeaderElement, ImGuiCollapsingHeaderRenderer),
         (TabBarElement, ImGuiTabBarRenderer),
