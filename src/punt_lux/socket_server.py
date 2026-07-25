@@ -199,12 +199,24 @@ class SocketServer:
             sock.close()
         logger.debug("Client disconnected (remaining: %d)", len(self._clients))
 
-    def send_to_client(self, sock: socket.socket, msg: Message) -> None:
-        """Send a protocol message to a client, removing on failure."""
+    def send_to_client(self, sock: socket.socket, msg: Message) -> bool:
+        """Send ``msg`` to ``sock``; return whether it was delivered.
+
+        On failure name the dropped message kind (a dropped interaction leaves
+        the Hub unaware), remove the dead client, and report ``False`` so the
+        caller can compensate.
+        """
         try:
             sock.sendall(encode_message(msg))
-        except (ConnectionError, OSError):
+        except (ConnectionError, OSError) as exc:
+            logger.warning(
+                "send failed (%s); dropped %s, removing client",
+                type(exc).__name__,
+                type(msg).__name__,
+            )
             self.remove_client(sock)
+            return False
+        return True
 
     def register_client_name(self, fd: int, name: str, connect_time: float) -> None:
         """Record a client's display name and connect timestamp."""

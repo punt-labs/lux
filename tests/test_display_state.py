@@ -568,6 +568,95 @@ class TestFlushEvents:
         assert len(server._event_queue) == 0
 
 
+class TestModalDismissRevertOnUndeliverable:
+    """An undeliverable ``modal_closed`` must revert to Hub truth, not diverge.
+
+    A modal dismiss is optimistic: the renderer latches the popup shut and fires
+    ``ModalClosed`` toward the Hub. If that interaction never lands, the Hub
+    still holds the modal open — so the display latches are cleared to reopen the
+    replica, and a non-modal drop leaves latches untouched.
+    """
+
+    @staticmethod
+    def _latch_modal(
+        server: DisplayServer, scene_id: str, element_id: str
+    ) -> WidgetState:
+        ws = WidgetState()
+        server._scene_manager._scene_widget_state[scene_id] = ws
+        ws.set(f"{element_id}{WidgetState.OPEN_SUFFIX}", 1)
+        ws.set(f"{element_id}{WidgetState.DISMISS_SUFFIX}", 1)
+        return ws
+
+    @staticmethod
+    def _queue_modal_closed(
+        server: DisplayServer, scene_id: str, element_id: str
+    ) -> None:
+        server._event_queue.append(
+            RemoteEventHandlerInvocation(
+                element_id=element_id,
+                action="changed",
+                event_kind="modal_closed",
+                scene_id=scene_id,
+                ts=1.0,
+                value=None,
+            )
+        )
+
+    def test_no_client_drop_reverts_modal_dismiss(self) -> None:
+        server = _make_server()
+        ws = self._latch_modal(server, "s1", "m1")
+        self._queue_modal_closed(server, "s1", "m1")
+
+        server._flush_events()  # no client connected
+
+        assert ws.get(f"m1{WidgetState.OPEN_SUFFIX}") is None
+        assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") is None
+        assert len(server._event_queue) == 0
+
+    def test_send_failure_reverts_modal_dismiss_and_removes_client(self) -> None:
+        server = _make_server()
+        sock = _mock_sock()
+        sock.sendall.side_effect = OSError("boom")
+        server._socket_server.clients.append(sock)
+        from punt_lux.protocol import FrameReader
+
+        server._socket_server._readers[sock.fileno()] = FrameReader()
+        ws = self._latch_modal(server, "s1", "m1")
+        self._queue_modal_closed(server, "s1", "m1")
+
+        server._flush_events()
+
+        assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") is None
+        assert sock not in server._socket_server.clients
+
+    def test_delivered_modal_dismiss_is_not_reverted(self) -> None:
+        server = _make_server()
+        sock = _mock_sock_fd(10)
+        server._socket_server.clients.append(sock)
+        server._socket_server._fd_to_client[10] = sock
+        ws = self._latch_modal(server, "s1", "m1")
+        self._queue_modal_closed(server, "s1", "m1")
+
+        server._flush_events()
+
+        sock.sendall.assert_called_once()
+        # Delivered: the Hub will re-push the removal, so the latch must hold.
+        assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") == 1
+
+    def test_non_modal_undelivered_event_leaves_latches_untouched(self) -> None:
+        server = _make_server()
+        ws = self._latch_modal(server, "s1", "m1")
+        server._event_queue.append(
+            RemoteEventHandlerInvocation(
+                element_id="b1", action="click", scene_id="s1", ts=1.0
+            )
+        )
+
+        server._flush_events()  # no client connected
+
+        assert ws.get(f"m1{WidgetState.DISMISS_SUFFIX}") == 1
+
+
 # -----------------------------------------------------------------------
 # Multi-scene (persistent dismissable tabs)
 # -----------------------------------------------------------------------

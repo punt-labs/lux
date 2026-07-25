@@ -181,6 +181,19 @@
     "public_attr_violations": 0.0,
     "future_annotations": 1.0
   },
+  "src/punt_lux/display/interaction_delivery.py": {
+    "method_ratio": 1.0,
+    "encapsulation_ratio": 1.0,
+    "avg_params": 1.4,
+    "max_complexity": 6.0,
+    "avg_complexity": 3.6,
+    "module_size": 106.0,
+    "classes_per_module": 1.0,
+    "class_to_func_ratio": 1.0,
+    "init_violations": 0.0,
+    "public_attr_violations": 0.0,
+    "future_annotations": 1.0
+  },
   "src/punt_lux/display/macos.py": {
     "method_ratio": 0.0,
     "encapsulation_ratio": 1.0,
@@ -886,10 +899,10 @@
   "src/punt_lux/display/server.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 0.95,
+    "avg_params": 0.97,
     "max_complexity": 12.0,
-    "avg_complexity": 3.21,
-    "module_size": 1332.0,
+    "avg_complexity": 3.14,
+    "module_size": 1329.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
@@ -4243,7 +4256,7 @@
     "avg_params": 0.79,
     "max_complexity": 8.0,
     "avg_complexity": 2.64,
-    "module_size": 220.0,
+    "module_size": 231.0,
     "classes_per_module": 1.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,
