@@ -20,6 +20,7 @@ from punt_lux.display.renderers.imgui.color_picker import ImGuiColorPickerRender
 from punt_lux.display.renderers.imgui.combo import ImGuiComboRenderer
 from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
 from punt_lux.display.renderers.imgui.group import ImGuiGroupRenderer
+from punt_lux.display.renderers.imgui.image import ImGuiImageRenderer
 from punt_lux.display.renderers.imgui.input_number import ImGuiInputNumberRenderer
 from punt_lux.display.renderers.imgui.input_text import ImGuiInputTextRenderer
 from punt_lux.display.renderers.imgui.markdown import ImGuiMarkdownRenderer
@@ -40,6 +41,7 @@ from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.group import GroupElement
+from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.markdown import MarkdownElement
@@ -89,6 +91,7 @@ class ImGuiRendererFactory:
         (MarkdownElement, ImGuiMarkdownRenderer),
         (SpinnerElement, ImGuiSpinnerRenderer),
         (SeparatorElement, ImGuiSeparatorRenderer),
+        (ImageElement, ImGuiImageRenderer),
         (SliderElement, ImGuiSliderRenderer),
         (ColorPickerElement, ImGuiColorPickerRenderer),
         (ComboElement, ImGuiComboRenderer),

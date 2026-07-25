@@ -22,6 +22,7 @@ from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.dialog import DialogElement
+from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.markdown import MarkdownElement
@@ -53,6 +54,7 @@ _ABC_TYPES: tuple[type, ...] = (
     ColorPickerElement,
     MarkdownElement,
     SpinnerElement,
+    ImageElement,
 )
 
 

@@ -50,6 +50,7 @@ class AbcKindNames:
             "markdown",
             "spinner",
             "separator",
+            "image",
         }
     )
 

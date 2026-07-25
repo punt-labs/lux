@@ -47,6 +47,8 @@ from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder, JsonDialogEncoder
 from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.group_codec import JsonGroupDecoder, JsonGroupEncoder
+from punt_lux.protocol.elements.image import ImageElement
+from punt_lux.protocol.elements.image_codec import JsonImageDecoder, JsonImageEncoder
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_number_codec import (
     JsonInputNumberDecoder,
@@ -173,6 +175,12 @@ class DefaultAbcKinds:
                     SeparatorElement,
                     JsonSeparatorDecoder,
                     JsonSeparatorEncoder().encode,
+                ),
+            ),
+            LeafKindSpec(
+                kind="image",
+                codec=KindCodec(
+                    ImageElement, JsonImageDecoder, JsonImageEncoder().encode
                 ),
             ),
             DialogKindSpec(
