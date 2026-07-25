@@ -20,7 +20,11 @@ from punt_lux.display_client import DisplayClient
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
-    from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
+    from punt_lux.domain.container_interaction import (
+        HeaderToggled,
+        ModalClosed,
+        TabChanged,
+    )
     from punt_lux.domain.interaction import ButtonClicked, ValueChanged
     from punt_lux.protocol import RemoteEventHandlerInvocation
 
@@ -206,13 +210,17 @@ class ClientRegistry:
         element_id: str,
         owner: str,
         value: object,
-    ) -> ButtonClicked | ValueChanged | HeaderToggled | TabChanged | None:
+    ) -> ButtonClicked | ValueChanged | HeaderToggled | TabChanged | ModalClosed | None:
         """Construct the typed event for ``event_kind`` + wire ``value``.
 
         Returns ``None`` (deny-by-default) when the value has the wrong shape
         for the kind or the kind is unknown — the caller then fires nothing.
         """
-        from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
+        from punt_lux.domain.container_interaction import (
+            HeaderToggled,
+            ModalClosed,
+            TabChanged,
+        )
         from punt_lux.domain.ids import ClientId, ElementId, SceneId
         from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 
@@ -237,6 +245,9 @@ class ClientRegistry:
                 logger.warning("hub dispatch tab_changed non-str value=%r", value)
                 return None
             return TabChanged(scene_id=sid, element_id=eid, owner_id=oid, tab_id=value)
+        if event_kind == "modal_closed":
+            # A dismissal carries no value; the close itself is the whole event.
+            return ModalClosed(scene_id=sid, element_id=eid, owner_id=oid)
         if event_kind in (None, "button_clicked"):
             return ButtonClicked(scene_id=sid, element_id=eid, owner_id=oid)
         logger.warning("hub dispatch unknown event_kind=%r for %s", event_kind, eid)

@@ -979,6 +979,63 @@ class Scenario:
         )
 
     @classmethod
+    def modal_dismiss_progress(cls) -> Self:
+        """A modal whose user-close removes it from the Hub, beside a survivor leaf.
+
+        The injected interaction is the modal's own ``modal_closed`` (value
+        ``None``) — a plain modal has no child button, so the modal itself is
+        the target. On the Hub the built-in dismiss handler runs
+        ``ModalModel.close`` -> ``mark_removed``; the root-observer cascade
+        drops the modal from ``HubDisplay`` and the dispatch re-push carries
+        the shrunken tree, so the modal is present before the close and absent
+        after — and no resurrect follows. A wire ``handlers`` entry on the
+        ``closed`` event publishes ``modal_dismissed``. The sibling progress
+        survives the removal and carries the agent's reaction.
+        """
+        return cls(
+            name="modal-dismiss-progress",
+            scene_id="e2e-modal-scene",
+            elements=(
+                {
+                    "kind": "modal",
+                    "id": "dismiss-modal",
+                    "title": "Confirm",
+                    "open": True,
+                    "children": (
+                        {"kind": "text", "id": "modal-body", "content": "Dismiss me"},
+                    ),
+                    "handlers": [
+                        {
+                            "event": "closed",
+                            "factory": "noop",
+                            "wrap": [
+                                {
+                                    "decorator": "publish",
+                                    "topics": ["modal_dismissed"],
+                                }
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "kind": "progress",
+                    "id": "mdl-progress",
+                    "fraction": 0.0,
+                    "label": "idle",
+                },
+            ),
+            target_element_id="dismiss-modal",
+            interaction=InteractionExpectation(event_kind="modal_closed", value=None),
+            publish=WirePublish("modal_dismissed"),
+            react=(
+                ReactPatch(element_id="mdl-progress", field="fraction", value=1.0),
+                ReactPatch(element_id="mdl-progress", field="label", value="dismissed"),
+            ),
+            display_only_id="mdl-progress",
+            repush=RemovedAfterDispatch("dismiss-modal"),
+        )
+
+    @classmethod
     def payload_button_progress(cls) -> Self:
         """A button whose Hub handler publishes a non-empty payload.
 
@@ -1063,5 +1120,6 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario.tab_bar_change_progress(),
     Scenario.tab_bar_button_progress(),
     Scenario.dialog_confirm_progress(),
+    Scenario.modal_dismiss_progress(),
     Scenario.payload_button_progress(),
 )

@@ -14,6 +14,7 @@ from typing import Literal, Self
 import pytest
 
 from punt_lux.domain import ClientId, ElementId, SceneId
+from punt_lux.domain.container_interaction import ModalClosed
 from punt_lux.domain.display import Display
 from punt_lux.domain.error import (
     DuplicateIdError,
@@ -37,7 +38,7 @@ from punt_lux.domain.interaction_errors import (
 from punt_lux.domain.ownership import OwnershipError
 from punt_lux.domain.snapshot import SceneSnapshot
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
-from punt_lux.protocol.elements import CheckboxElement
+from punt_lux.protocol.elements import CheckboxElement, ModalElement
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 
 
@@ -665,6 +666,36 @@ def test_interact_checkbox_rejects_non_bool_value() -> None:
                 element_id="c1", action="changed", value="yes", scene_id="s1"
             ),
         )
+
+
+def test_interact_modal_returns_modal_closed_and_fires_handler() -> None:
+    """A close on the migrated ModalElement yields ModalClosed and fires.
+
+    The Hub resolves the modal, ``InteractionEventBuilder._modal_closed`` builds
+    the typed event, and ``Display.interact`` fires it on the real ABC copy — the
+    same resolve→build→re-dispatch leg the button and checkbox exemplars prove.
+    """
+    display = Display()
+    alice = display.connect_client(name="alice")
+    display.add_scene(SceneId("s1"))
+    modal = ModalElement(id="m1", title="Confirm")
+    display.apply(alice, AddElement(scene_id=SceneId("s1"), element=modal))
+
+    observed: list[ModalClosed] = []
+    modal.add_handler(ModalClosed, observed.append)
+
+    event = display.interact(
+        alice,
+        RemoteEventHandlerInvocation(
+            element_id="m1", action="closed", value=None, scene_id="s1"
+        ),
+    )
+
+    assert isinstance(event, ModalClosed)
+    assert event.owner_id == alice
+    assert event.element_id == ElementId("m1")
+    assert event.scene_id == SceneId("s1")
+    assert observed == [event]  # fired exactly once on the real ABC element
 
 
 def test_interact_does_not_fan_out_through_apply_subscribers() -> None:
