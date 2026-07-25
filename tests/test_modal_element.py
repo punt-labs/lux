@@ -27,10 +27,13 @@ from punt_lux.domain.validation_walk import ElementTreeValidator, HasChildElemen
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import (
     ButtonElement,
+    CollapsingHeaderElement,
+    GroupElement,
     LegacyModalElement,
     ModalElement,
     ProgressElement,
     TextElement,
+    WindowElement,
 )
 from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
@@ -204,6 +207,86 @@ class TestSelfValidation:
         modal = ModalElement(id="m", title="T")
         assert isinstance(modal, HasChildElements)
         assert isinstance(modal, AbcElement)
+
+
+class TestForbidWindowInModal:
+    """A window always floats top-level, so it cannot nest inside a modal.
+
+    Forbidden at both boundaries anywhere in the subtree; a group or a
+    collapsing_header is the sanctioned way to panel a modal's body.
+    """
+
+    _MSG = "window cannot nest inside a modal"
+
+    def test_validate_rejects_a_direct_window_child(self) -> None:
+        modal = _abc_modal(children=(WindowElement(id="w"),))
+        report = ElementTreeValidator().validate_tree([modal])
+        assert not report.ok
+        assert any(self._MSG in e.message for e in report.errors)
+        assert any(e.element_kind == "modal" for e in report.errors)
+
+    def test_validate_rejects_a_window_nested_in_a_group(self) -> None:
+        modal = _abc_modal(
+            children=(GroupElement(id="g", children=(WindowElement(id="w"),)),)
+        )
+        report = ElementTreeValidator().validate_tree([modal])
+        assert not report.ok
+        assert any(self._MSG in e.message for e in report.errors)
+
+    def test_from_dict_rejects_a_window_descendant(self) -> None:
+        wire = {
+            "kind": "modal",
+            "id": "m",
+            "children": [{"kind": "window", "id": "w"}],
+        }
+        with pytest.raises(ValueError, match=self._MSG):
+            ModalElement.from_dict(wire)
+
+    def test_from_dict_rejects_a_window_in_a_group_in_a_modal(self) -> None:
+        window = {"kind": "window", "id": "w"}
+        wire = {
+            "kind": "modal",
+            "id": "m",
+            "children": [{"kind": "group", "id": "g", "children": [window]}],
+        }
+        with pytest.raises(ValueError, match=self._MSG):
+            ModalElement.from_dict(wire)
+
+    def test_group_and_header_children_are_fine(self) -> None:
+        modal = _abc_modal(
+            children=(
+                GroupElement(id="g", children=(TextElement(id="t", content="hi"),)),
+                CollapsingHeaderElement(
+                    id="h", label="More", children=(ButtonElement(id="b", label="Go"),)
+                ),
+            )
+        )
+        assert ElementTreeValidator().validate_tree([modal]).ok
+
+    def test_window_at_scene_level_is_unaffected(self) -> None:
+        # A window as a top-level scene element (not inside a modal) is valid;
+        # only the modal nesting is forbidden.
+        scene = [WindowElement(id="w"), _abc_modal()]
+        assert ElementTreeValidator().validate_tree(scene).ok
+
+    @patch(_CLIENT_GET)
+    def test_show_rejects_a_window_in_a_modal(self, mock_get: MagicMock) -> None:
+        client = _mock_client()
+        mock_get.return_value = client
+        result = show(
+            "s1",
+            [
+                {
+                    "kind": "modal",
+                    "id": "m",
+                    "title": "Confirm",
+                    "children": [{"kind": "window", "id": "w"}],
+                }
+            ],
+        )
+        assert result.startswith("error: scene not rendered")
+        assert self._MSG in result
+        client.show.assert_not_called()
 
 
 class TestShowRejectsInvalidModal:

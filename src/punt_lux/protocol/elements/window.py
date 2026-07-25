@@ -9,6 +9,14 @@ drag, resize, and collapse are Display-local ephemeral state the Hub never track
 the element keeps only the initial :class:`WindowPlacement` an agent seeds and the
 :class:`WindowFlags` that disable behaviours.
 
+Tree position governs an element's LIFECYCLE, never its GEOMETRY. ImGui's
+``begin`` always creates a top-level window, so a window floats top-level whatever
+it nests in — its parent scopes when it is shown and removed, not where it draws.
+Nested in a plain container it renders as a legal-but-legacy on-screen escapee;
+nested in a *modal* it is incoherent (the modal blocks its own escaped child) and
+forbidden — see ``ModalElement.validate``. Use a group or collapsing_header for a
+panel that must stay inside its parent's box.
+
 The codec body lives in ``window_codec.py``; ``to_dict`` / ``from_dict`` remain
 here as thin delegators so the runtime-checkable ``domain.element.Element``
 Protocol stays satisfied, mirroring the ``Group`` split precedent (PY-OO-2).

@@ -24,11 +24,13 @@ from punt_lux.domain.container_interaction import ModalClosed
 from punt_lux.domain.element_abc import Element
 from punt_lux.domain.handlers.decorators import PublishSink
 from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
+from punt_lux.domain.validation import ValidationError
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.elements.container_dispatch import dispatch
 from punt_lux.protocol.elements.modal_codec import JsonModalDecoder, JsonModalEncoder
 from punt_lux.protocol.elements.patch_field import PatchField
+from punt_lux.protocol.elements.window import WindowElement
 from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
 from punt_lux.protocol.standalone_modal_handler import (
     build_standalone_modal_handler_decoder,
@@ -101,6 +103,13 @@ class ModalElement(Element):
     _kind: Literal["modal"]
 
     _MODAL_CLOSED_ACTION: ClassVar[str] = "modal_closed"
+    # A window always floats top-level (see WindowElement), so nesting one in a
+    # modal makes it escape while the modal blocks its escaped child — incoherent,
+    # so forbidden at both boundaries anywhere in the subtree.
+    _NO_WINDOW_IN_MODAL: ClassVar[str] = (
+        "a window cannot nest inside a modal — a window always floats top-level; "
+        "use group or collapsing_header for panels"
+    )
 
     def __new__(
         cls,
@@ -195,6 +204,24 @@ class ModalElement(Element):
         """Return the modal-closed bucket's spec under the element-id action."""
         return (RemoteDispatchSpec(ModalClosed, self.id, "modal_closed"),)
 
+    # -- self-validation ---------------------------------------------------
+
+    def validate(self) -> tuple[ValidationError, ...]:
+        """Reject a ``window`` anywhere in the subtree (see ``_NO_WINDOW_IN_MODAL``)."""
+        if self._first_window_descendant() is None:
+            return ()
+        return (ValidationError(self._id, self._kind, self._NO_WINDOW_IN_MODAL),)
+
+    def _first_window_descendant(self) -> Element | None:
+        """Return the first ``window`` anywhere in the subtree, or ``None``."""
+        stack = list(self.child_elements())
+        while stack:
+            elem = stack.pop()
+            if isinstance(elem, WindowElement):
+                return elem
+            stack.extend(elem.child_elements())
+        return None
+
     # -- codec delegators --------------------------------------------------
 
     def to_dict(self) -> dict[str, object]:
@@ -223,7 +250,12 @@ class ModalElement(Element):
                 cast("PublishSink", RaisingPublishSink("ModalElement.from_dict")),
             ),
         )
-        return cast("Self", decoder.decode(d))
+        modal = cast("Self", decoder.decode(d))
+        # The invariant rides with the decode boundary too (PY-EH-1): a modal
+        # whose subtree nests a window is rejected here, not only at validate().
+        if modal._first_window_descendant() is not None:
+            raise ValueError(f"modal {modal.id!r}: {cls._NO_WINDOW_IN_MODAL}")
+        return modal
 
     # -- introspection (Inspectable) ---------------------------------------
 
