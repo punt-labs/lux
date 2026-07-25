@@ -1,11 +1,10 @@
 """Text element paint path selection — display server routes Text via factory.
 
-The display server's ``_render_scene`` / ``_render_scene_tab`` dispatch a
-``TextElement`` through ``ImGuiRendererFactory`` rather than the legacy
-``ElementRenderer``; every other kind keeps the ``ElementRenderer``
-path. This test asserts the factory contract (which renderer it
-returns for a Text element) — the visual tier (manual) covers the
-actual paint.
+The display server's ``_render_framed_scene`` dispatches a ``TextElement``
+through ``ImGuiRendererFactory`` rather than the legacy ``ElementRenderer``;
+every other kind keeps the ``ElementRenderer`` path. This test asserts the
+factory contract (which renderer it returns for a Text element) — the visual
+tier (manual) covers the actual paint.
 """
 
 from __future__ import annotations

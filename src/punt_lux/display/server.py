@@ -1363,7 +1363,7 @@ class DisplayServer:
         # ``_emit_event`` stamps scene_id from ``self._current_scene_id``
         # for any RemoteEventHandlerInvocation whose scene_id is None —
         # without this assignment, clicks inside framed scenes carried
-        # whatever ``_render_scene_tab`` last set (stale or None), so
+        # whatever a prior frame's render last set (stale or None), so
         # ``DomainPump.route_interaction`` silently dropped them.
         self._current_scene_id = scene_id
         self._element_renderer.current_scene_id = scene_id
