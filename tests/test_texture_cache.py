@@ -9,6 +9,7 @@ stub at all — which is exactly the property under test.
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import logging
 from collections.abc import Iterator
@@ -48,6 +49,34 @@ class TestDataLeg:
         # A second load hits the content-keyed cache — no re-decode, no re-upload.
         assert cache.get_or_load_data(data) == 4242
         assert uploads["n"] == 1
+
+    def test_same_payload_hashes_once_across_repeated_loads(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The renderer reloads the same payload every frame; the SHA-256 that
+        derives the content key runs on first sight only, then serves from the
+        payload→key memo — otherwise a cached image pays O(payload) per frame.
+        """
+
+        def _fake_upload(_img: object) -> int:
+            return 4242
+
+        monkeypatch.setattr(TextureCache, "_upload", _fake_upload)
+        real_sha256 = hashlib.sha256
+        hashes = {"n": 0}
+
+        def _counting_sha256(payload: bytes = b"") -> object:
+            hashes["n"] += 1
+            return real_sha256(payload)
+
+        monkeypatch.setattr(
+            "punt_lux.display.texture_cache.hashlib.sha256", _counting_sha256
+        )
+        cache = TextureCache()
+        data = _png_base64()
+
+        assert [cache.get_or_load_data(data) for _ in range(3)] == [4242, 4242, 4242]
+        assert hashes["n"] == 1
 
     def test_bad_base64_returns_none_and_warns(
         self, caplog: pytest.LogCaptureFixture
@@ -130,4 +159,15 @@ class TestNegativeCacheLogsOnce:
             first = cache.get_or_load_data(payload)
             second = cache.get_or_load_data(payload)
         assert (first, second) == (None, None)
-        assert sum("decode inline image" in r.getMessage() for r in caplog.records) == 1
+        decode_warnings = [
+            r.getMessage()
+            for r in caplog.records
+            if "decode inline image" in r.getMessage()
+        ]
+        assert len(decode_warnings) == 1
+        # The warning carries identifying context: payload length and the reason
+        # (never the payload itself), so a broken data URL is diagnosable.
+        prefix = f"Failed to decode inline image data ({len(payload)} base64 chars): "
+        assert decode_warnings[0].startswith(prefix)
+        assert len(decode_warnings[0]) > len(prefix)
+        assert payload not in decode_warnings[0]
