@@ -49,7 +49,7 @@ class SceneMessage:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:
         """Rebuild from a wire dict (delegates to :class:`SceneCodec`)."""
-        return cast("Self", SceneCodec.decode(cls, d))
+        return cast("Self", SceneCodec.decode(d))
 
     @staticmethod
     def register_codecs(register: _Register) -> None:

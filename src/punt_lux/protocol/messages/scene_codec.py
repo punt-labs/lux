@@ -1,10 +1,4 @@
-"""Wire codec for the scene-replacement message — encode and decode over JSON.
-
-Split out of ``scene.py`` so the ``SceneMessage`` dataclass stays a lean value
-type: it keeps ``to_dict`` / ``from_dict`` as its public serialization surface and
-delegates the work here. This is the same shape the element kinds use — a small
-codec sibling that owns the wire mapping and its validation.
-"""
+"""Wire codec for the scene-replacement message — the sibling of ``scene.py``."""
 
 from __future__ import annotations
 
@@ -28,12 +22,7 @@ _LAYOUTS = ("single", "rows", "columns", "grid")
 
 
 class SceneCodec:
-    """Encode a ``SceneMessage`` to its wire dict and decode one back, with validation.
-
-    Every ``ValueError`` names the offending field and value so a malformed wire dict
-    fails loud with the same shape at every boundary — a missing frame, a bad layout,
-    an omitted or wrongly-typed element list, or a non-dict entry.
-    """
+    """Encode/decode a ``SceneMessage`` to/from its wire dict, validating fields."""
 
     @staticmethod
     def encode(msg: SceneMessage) -> dict[str, Any]:
@@ -62,16 +51,18 @@ class SceneCodec:
         )
 
     @classmethod
-    def decode(cls, message_cls: type[SceneMessage], d: dict[str, Any]) -> SceneMessage:
+    def decode(cls, d: dict[str, Any]) -> SceneMessage:
         """Rebuild a scene from its wire dict, validating every field."""
+        from punt_lux.protocol.messages.scene import SceneMessage
+
         layout = d.get("layout", "single")
         if layout not in _LAYOUTS:
             raise ValueError(f"layout must be single/rows/columns/grid, got {layout!r}")
         raw_layout = d.get("frame_layout")
-        return message_cls(
-            id=d["id"],
+        return SceneMessage(
+            id=cls._require_str(d, "id"),
             elements=cls._decode_elements(d.get("elements")),
-            frame_id=d["frame_id"],
+            frame_id=cls._require_str(d, "frame_id"),
             layout=layout,
             title=d.get("title"),
             frame_title=d.get("frame_title"),
@@ -83,6 +74,14 @@ class SceneCodec:
             if raw_layout in ("tab", "stack")
             else None,
         )
+
+    @staticmethod
+    def _require_str(d: dict[str, Any], field: str) -> str:
+        """Return the required str field, or raise if it is absent or not a str."""
+        value = d.get(field)
+        if not isinstance(value, str):
+            raise ValueError(f"scene field {field!r} must be a str, got {value!r}")
+        return value
 
     @staticmethod
     def _decode_elements(raw: object) -> list[Element]:
@@ -102,7 +101,6 @@ class SceneCodec:
             return cast("Element", container_dispatch.dispatch.from_dict(entry))
         if not isinstance(pickled, str):
             raise ValueError(f"scene element _pickled must be a str, got {pickled!r}")
-        # Trusted, co-deployed Hub/Display IPC — the pickle producer is the Hub.
         return cast("Element", pickle.loads(base64.b64decode(pickled)))
 
     @staticmethod

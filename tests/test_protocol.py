@@ -658,6 +658,15 @@ class TestSerialization:
                 {"id": "s1", "frame_id": "s1", "elements": [{"_pickled": 123}]}
             )
 
+    def test_scene_decode_rejects_a_missing_id(self):
+        # A required str field decodes to a named error, not a bare KeyError.
+        with pytest.raises(ValueError, match="scene field 'id' must be a str"):
+            SceneMessage.from_dict({"frame_id": "s1", "elements": []})
+
+    def test_scene_decode_rejects_a_missing_frame_id(self):
+        with pytest.raises(ValueError, match="scene field 'frame_id' must be a str"):
+            SceneMessage.from_dict({"id": "s1", "elements": []})
+
     def test_connect_message_roundtrip(self):
         original = ConnectMessage(name="quarry")
         d = message_to_dict(original)
