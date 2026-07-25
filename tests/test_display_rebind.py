@@ -62,6 +62,7 @@ def test_received_elements_carry_raising_sentinel_before_rebind() -> None:
                 TextElement(id="t1", content="hi"),
                 ButtonElement(id="b1", label="OK"),
             ],
+            frame_id="s1",
         )
     )
     for elem in _abc_elements(received):
@@ -78,6 +79,7 @@ def test_wrap_abc_elements_rebinds_the_real_display_factory() -> None:
                 TextElement(id="t1", content="hi"),
                 ButtonElement(id="b1", label="OK"),
             ],
+            frame_id="s1",
         )
     )
 
@@ -93,7 +95,7 @@ def test_rebind_recurses_into_dialog_children() -> None:
     """A composite's children are rebound in the same walk (recursion proof)."""
     dialog = DialogElement(id="d1", title="Confirm")
     dialog.install_children((ButtonElement(id="ok", label="OK"),))
-    received = _received_scene(SceneMessage(id="s1", elements=[dialog]))
+    received = _received_scene(SceneMessage(id="s1", elements=[dialog], frame_id="s1"))
     restored_dialog = received.elements[0]
     assert isinstance(restored_dialog, DialogElement)
     child = restored_dialog.children[0]

@@ -53,7 +53,9 @@ def _mock_sock() -> Any:
 
 
 def _inspect(server: DisplayServer, *elements: Element) -> QueryResponse:
-    server._handle_message(_mock_sock(), SceneMessage(id="s1", elements=list(elements)))
+    server._handle_message(
+        _mock_sock(), SceneMessage(id="s1", elements=list(elements), frame_id="s1")
+    )
     return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
 
 
@@ -119,7 +121,9 @@ class TestSelfValidation:
 class TestLevel2WireRoundtrip:
     def test_markdown_crosses_as_pickled_entry(self) -> None:
         markdown = MarkdownElement(id="md1", content="# Hi", tooltip="notes")
-        wire = message_to_dict(SceneMessage(id="s1", elements=[markdown]))
+        wire = message_to_dict(
+            SceneMessage(id="s1", elements=[markdown], frame_id="s1")
+        )
         entry = wire["elements"][0]
         assert "_pickled" in entry, "ABC markdown must use native pickle wire"
         restored = message_from_dict(wire)
@@ -136,7 +140,7 @@ class TestLevel2WireRoundtrip:
 class TestLevel3Crossing:
     def test_rebind_binds_the_markdown_renderer_factory(self) -> None:
         scene = SceneMessage(
-            id="s1", elements=[MarkdownElement(id="md1", content="# Hi")]
+            id="s1", elements=[MarkdownElement(id="md1", content="# Hi")], frame_id="s1"
         )
         received = message_from_dict(message_to_dict(scene))
         assert isinstance(received, SceneMessage)

@@ -117,6 +117,17 @@ def test_list_scenes_reflects_a_rendered_scene() -> None:
     assert body["scenes"][0]["owners"] == ["rest-test"]
 
 
+def test_render_without_a_frame_lands_framed_by_its_scene_id() -> None:
+    # THE RULE inherited at the REST PUT surface: a body that names no frame still
+    # installs a framed scene, visible as a frame named by the scene id.
+    client = make_client()
+    resp = client.put("/scenes/alpha", json={"scene_id": "alpha", "elements": [_TEXT]})
+    assert resp.status_code == 200
+    body = client.get("/scenes").json()
+    assert body["scenes"][0]["frame_id"] == "alpha"
+    assert [f["frame_id"] for f in body["frames"]] == ["alpha"]
+
+
 def test_inspect_scene_returns_the_tree() -> None:
     client = make_client()
     _render(client)

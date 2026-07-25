@@ -293,7 +293,7 @@ class TestLevel2WireRoundtrip:
     def test_header_crosses_as_pickled_entry_with_children(self) -> None:
         header = _decode(_abc_header(open=True).to_dict())
         assert isinstance(header, CollapsingHeaderElement)
-        wire = message_to_dict(SceneMessage(id="s1", elements=[header]))
+        wire = message_to_dict(SceneMessage(id="s1", elements=[header], frame_id="s1"))
         entry = wire["elements"][0]
         assert "_pickled" in entry, "ABC header must use native pickle wire"
         restored = message_from_dict(wire)
@@ -308,7 +308,7 @@ class TestLevel2WireRoundtrip:
         # being present after the pickle crossing.
         header = _decode(_abc_header().to_dict())
         assert isinstance(header, CollapsingHeaderElement)
-        wire = message_to_dict(SceneMessage(id="s1", elements=[header]))
+        wire = message_to_dict(SceneMessage(id="s1", elements=[header], frame_id="s1"))
         restored = message_from_dict(wire)
         assert isinstance(restored, SceneMessage)
         r_header = restored.elements[0]
@@ -329,7 +329,7 @@ class TestLevel3Crossing:
     def test_rebind_recurses_into_header_children(self) -> None:
         header = _decode(_abc_header().to_dict())
         assert isinstance(header, CollapsingHeaderElement)
-        received = _received(SceneMessage(id="s1", elements=[header]))
+        received = _received(SceneMessage(id="s1", elements=[header], frame_id="s1"))
         r_header = received.elements[0]
         assert isinstance(r_header, CollapsingHeaderElement)
         child = r_header.children[0]
@@ -415,7 +415,9 @@ def _mock_sock() -> MagicMock:
 
 
 def _inspect(server: DisplayServer, *elements: Element) -> QueryResponse:
-    server._handle_message(_mock_sock(), SceneMessage(id="s1", elements=list(elements)))
+    server._handle_message(
+        _mock_sock(), SceneMessage(id="s1", elements=list(elements), frame_id="s1")
+    )
     return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
 
 

@@ -26,7 +26,6 @@ from punt_lux.protocol import (
     TextElement,
     encode_message,
 )
-from punt_lux.scene import WidgetState
 
 from .display_abstraction import (
     abstract,
@@ -65,12 +64,8 @@ def _register_client(server: DisplayServer, sock: MagicMock) -> None:
 
 
 def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
-    """Inject a scene into the multi-scene state."""
-    server._scene_manager._scenes[scene.id] = scene
-    if scene.id not in server._scene_manager._scene_order:
-        server._scene_manager._scene_order.append(scene.id)
-    server._scene_manager._scene_widget_state[scene.id] = WidgetState()
-    server._scene_manager._active_tab = scene.id
+    """Install a scene into its frame (every scene is framed)."""
+    server._scene_manager.handle_framed_scene(scene, owner_fd=0)
 
 
 def _set_scene(server: DisplayServer, scene_id: str = "s1") -> None:
@@ -82,6 +77,7 @@ def _set_scene(server: DisplayServer, scene_id: str = "s1") -> None:
             ButtonElement(id="b1", label="Click"),
             SeparatorElement(id="sep1"),
         ],
+        frame_id=scene_id,
     )
     _inject_scene(server, scene)
 
@@ -122,6 +118,7 @@ class TestRefinementReceiveScene:
                 TextElement(id="t1", content="Hello"),
                 ButtonElement(id="b1", label="Go"),
             ],
+            frame_id="s1",
         )
         server._handle_message(sock, scene)
 
@@ -148,8 +145,7 @@ class TestRefinementReceiveScene:
 
         # Same scene ID — replaces in-place, drains stale events
         new_scene = SceneMessage(
-            id="s1",
-            elements=[TextElement(id="t2", content="New")],
+            id="s1", elements=[TextElement(id="t2", content="New")], frame_id="s1"
         )
         server._handle_message(sock, new_scene)
 
@@ -173,6 +169,7 @@ class TestRefinementReceiveScene:
                 ButtonElement(id="b1", label="B"),
                 SeparatorElement(id="sep1"),
             ],
+            frame_id="s1",
         )
         server._handle_message(sock, scene)
 
@@ -204,6 +201,7 @@ class TestRefinementReceiveScene:
                 SeparatorElement(),  # anonymous — id == ""
                 SeparatorElement(id="sep-named"),
             ],
+            frame_id="s1",
         )
         server._handle_message(sock, scene)
 
@@ -223,12 +221,17 @@ class TestRefinementReceiveScene:
         server = _make_server()
         sock = _mock_sock()
         server._handle_message(
-            sock, SceneMessage(id="s1", elements=[TextElement(id="t1", content="Hi")])
+            sock,
+            SceneMessage(
+                id="s1", elements=[TextElement(id="t1", content="Hi")], frame_id="s1"
+            ),
         )
         abs_before = abstract(server)
         assert abs_before.has_scene  # installed
 
-        server._handle_message(sock, SceneMessage(id="s1", elements=[]))  # removal
+        server._handle_message(
+            sock, SceneMessage(id="s1", elements=[], frame_id="s1")
+        )  # removal
 
         abs_after = abstract_receive_scene(
             abs_before,
@@ -407,10 +410,7 @@ class TestRefinementShutdown:
             client.close()
         server._socket_server.clients.clear()
         server._socket_server._readers.clear()
-        server._scene_manager._scenes.clear()
-        server._scene_manager._scene_order.clear()
-        server._scene_manager._active_tab = None
-        server._scene_manager._scene_widget_state.clear()
+        server._scene_manager.clear_all()
         server._event_queue.clear()
         server._socket_server._server_sock = None
 
@@ -423,10 +423,7 @@ class TestRefinementShutdown:
 
         server._socket_server.clients.clear()
         server._socket_server._readers.clear()
-        server._scene_manager._scenes.clear()
-        server._scene_manager._scene_order.clear()
-        server._scene_manager._active_tab = None
-        server._scene_manager._scene_widget_state.clear()
+        server._scene_manager.clear_all()
         server._event_queue.clear()
         server._socket_server._server_sock = None
 
@@ -482,8 +479,7 @@ class TestRefinementDrainMessages:
     def test_drain_complete_message_reduces_buffer(self):
         reader = FrameReader()
         msg = SceneMessage(
-            id="s1",
-            elements=[TextElement(id="t1", content="Hi")],
+            id="s1", elements=[TextElement(id="t1", content="Hi")], frame_id="s1"
         )
         frame = encode_message(msg)
         reader.feed(frame)
@@ -498,8 +494,7 @@ class TestRefinementDrainMessages:
     def test_drain_partial_message_preserves_buffer(self):
         reader = FrameReader()
         msg = SceneMessage(
-            id="s1",
-            elements=[TextElement(id="t1", content="Hi")],
+            id="s1", elements=[TextElement(id="t1", content="Hi")], frame_id="s1"
         )
         frame = encode_message(msg)
         # Feed only half the frame
@@ -537,7 +532,9 @@ class TestRefinementComposed:
         abs_state = abstract(server)
 
         # Concrete: receive scene then clear
-        scene = SceneMessage(id="s1", elements=[TextElement(id="t1", content="A")])
+        scene = SceneMessage(
+            id="s1", elements=[TextElement(id="t1", content="A")], frame_id="s1"
+        )
         server._handle_message(sock, scene)
         server._handle_message(sock, ClearMessage())
 

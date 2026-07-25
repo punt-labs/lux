@@ -1,8 +1,8 @@
 """FrameBook — the display's frame collection and its scene placement maps.
 
 The frame-management half of the scene graph, split out of ``SceneManager`` so
-that class keeps to the unframed scenes, per-scene widget state, and stale-id
-notification. ``FrameBook`` owns the frames themselves, which frame each scene
+that class keeps to per-scene widget state and stale-id notification.
+``FrameBook`` owns the frames themselves, which frame each scene
 lives in, and which client owns each framed scene, plus the frame's cascade
 placement. It knows nothing about widget state or stale-id notification — those
 are cross-cutting concerns the ``SceneManager`` layers on top, reacting to the
@@ -66,7 +66,7 @@ class FrameBook:
         return MappingProxyType(self._scene_to_owner)
 
     def frame_of_scene(self, scene_id: str) -> Frame | None:
-        """Return the frame a scene lives in, or ``None`` if it is unframed."""
+        """Return the frame a scene lives in, or ``None`` if no frame holds it."""
         frame_id = self._scene_to_frame.get(scene_id)
         return self._frames.get(frame_id) if frame_id is not None else None
 

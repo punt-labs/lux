@@ -32,7 +32,6 @@ from punt_lux.protocol import (
     TextElement,
     encode_message,
 )
-from punt_lux.scene import WidgetState
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -41,6 +40,23 @@ from punt_lux.scene import WidgetState
 
 def _server() -> DisplayServer:
     return DisplayServer("/tmp/test-lux-partition.sock")
+
+
+def _scene_count(server: DisplayServer) -> int:
+    """Total scenes the display holds, across every frame."""
+    return server._scene_manager.scene_count
+
+
+def _active_scene_id(server: DisplayServer) -> str | None:
+    """The abstract active scene: the first frame's active tab, or None."""
+    return server._scene_manager.active_scene_id
+
+
+def _scene(server: DisplayServer, scene_id: str) -> SceneMessage:
+    """Return the framed scene with ``scene_id`` (asserting it is present)."""
+    resolved = server._scene_manager.resolve_scene(scene_id)
+    assert resolved is not None, f"scene {scene_id!r} absent from the display"
+    return resolved
 
 
 def _sock(fd: int = 42) -> MagicMock:
@@ -59,22 +75,17 @@ def _register(server: DisplayServer, sock: MagicMock) -> None:
 def _scene_with(
     scene_id: str, *elems: TextElement | ButtonElement | SeparatorElement
 ) -> SceneMessage:
-    return SceneMessage(id=scene_id, elements=list(elems))
+    return SceneMessage(id=scene_id, elements=list(elems), frame_id=scene_id)
 
 
 def _inject_scene(server: DisplayServer, scene: SceneMessage) -> None:
-    server._scene_manager._scenes[scene.id] = scene
-    if scene.id not in server._scene_manager._scene_order:
-        server._scene_manager._scene_order.append(scene.id)
-    server._scene_manager._scene_widget_state[scene.id] = WidgetState()
-    server._scene_manager._active_tab = scene.id
+    # Every scene is framed; install it through the frame book like the display's
+    # own scene handler does (the scene self-frames by its id via _scene_with).
+    server._scene_manager.handle_framed_scene(scene, owner_fd=0)
 
 
 def _clear_all_scenes(server: DisplayServer) -> None:
-    server._scene_manager._scenes.clear()
-    server._scene_manager._scene_order.clear()
-    server._scene_manager._active_tab = None
-    server._scene_manager._scene_widget_state.clear()
+    server._scene_manager.clear_all()
 
 
 # ---------------------------------------------------------------------------
@@ -186,7 +197,7 @@ class TestDisconnectClientPartitions:
             RemoteEventHandlerInvocation(element_id="t1", action="click", ts=1.0)
         )
         server._socket_server.remove_client(sock)
-        assert len(server._scene_manager._scenes) > 0
+        assert _scene_count(server) > 0
         assert len(server._event_queue) == 1
 
     def test_disconnect_4_rejected_not_connected(self):
@@ -216,9 +227,9 @@ class TestReceiveScenePartitions:
         sock = _sock()
         scene = _scene_with("s1", TextElement(id="t1", content="Hi"))
         server._handle_message(sock, scene)
-        assert len(server._scene_manager._scenes) > 0
-        assert server._scene_manager._active_tab == "s1"
-        assert len(server._scene_manager._scenes["s1"].elements) == 1
+        assert _scene_count(server) > 0
+        assert _active_scene_id(server) == "s1"
+        assert len(_scene(server, "s1").elements) == 1
 
     def test_scene_2_boundary_max_elements(self):
         """P2: Receive scene with maxElements(3) elements."""
@@ -231,8 +242,8 @@ class TestReceiveScenePartitions:
             SeparatorElement(id="sep1"),
         )
         server._handle_message(sock, scene)
-        assert len(server._scene_manager._scenes) > 0
-        assert len(server._scene_manager._scenes["s1"].elements) == 3
+        assert _scene_count(server) > 0
+        assert len(_scene(server, "s1").elements) == 3
 
     def test_scene_3_new_id_preserves_events(self):
         """P3: New scene (different ID) preserves existing events."""
@@ -247,8 +258,8 @@ class TestReceiveScenePartitions:
 
         new_scene = _scene_with("s2", TextElement(id="t2", content="New"))
         server._handle_message(sock, new_scene)
-        assert len(server._scene_manager._scenes) > 0
-        assert server._scene_manager._active_tab == "s2"
+        assert _scene_count(server) > 0
+        assert server._scene_manager.resolve_scene("s2") is not None
         assert len(server._event_queue) == 1  # events from s1 persist
 
     def test_scene_4_empty_scene_is_not_stored(self):
@@ -259,8 +270,8 @@ class TestReceiveScenePartitions:
         """
         server = _server()
         sock = _sock()
-        server._handle_message(sock, SceneMessage(id="s1", elements=[]))
-        assert "s1" not in server._scene_manager.scenes
+        server._handle_message(sock, SceneMessage(id="s1", elements=[], frame_id="s1"))
+        assert server._scene_manager.resolve_scene("s1") is None
 
     def test_scene_5_all_element_kinds(self):
         """P5: Scene with all 4 element kinds (text, button, separator, image).
@@ -276,8 +287,8 @@ class TestReceiveScenePartitions:
             SeparatorElement(id="sep1"),
         )
         server._handle_message(sock, scene)
-        assert len(server._scene_manager._scenes) > 0
-        kinds = {e.kind for e in server._scene_manager._scenes["s1"].elements}
+        assert _scene_count(server) > 0
+        kinds = {e.kind for e in _scene(server, "s1").elements}
         assert kinds == {"text", "button", "separator"}
 
     def test_scene_6_idempotent_same_scene_id(self):
@@ -288,8 +299,8 @@ class TestReceiveScenePartitions:
         server._handle_message(sock, scene1)
         scene2 = _scene_with("s1", TextElement(id="t1", content="V2"))
         server._handle_message(sock, scene2)
-        assert len(server._scene_manager._scenes) > 0
-        elem = server._scene_manager._scenes["s1"].elements[0]
+        assert _scene_count(server) > 0
+        elem = _scene(server, "s1").elements[0]
         assert isinstance(elem, TextElement)
         assert elem.content == "V2"
 
@@ -310,14 +321,14 @@ class TestClearScenePartitions:
             sock, _scene_with("s1", TextElement(id="t1", content="A"))
         )
         server._handle_message(sock, ClearMessage())
-        assert len(server._scene_manager._scenes) == 0
+        assert _scene_count(server) == 0
 
     def test_clear_2_idempotent_no_scene(self):
         """P2: Clear when no scene exists (idempotent)."""
         server = _server()
         sock = _sock()
         server._handle_message(sock, ClearMessage())
-        assert len(server._scene_manager._scenes) == 0
+        assert _scene_count(server) == 0
 
     def test_clear_3_clears_event_queue(self):
         """P3: Clear also drains the event queue (I7 preservation)."""
@@ -413,7 +424,7 @@ class TestButtonClickPartitions:
         """REJECTED ¬P1: No scene -> no button to click.
         Concrete code: _render_scene shows "waiting" text, no buttons."""
         server = _server()
-        assert len(server._scene_manager._scenes) == 0
+        assert _scene_count(server) == 0
         # No buttons rendered, so no events can be queued
         assert len(server._event_queue) == 0
 
@@ -633,7 +644,7 @@ class TestShutdownPartitions:
 
         assert len(server._socket_server.clients) == 0
         assert len(server._socket_server._readers) == 0
-        assert len(server._scene_manager._scenes) == 0
+        assert _scene_count(server) == 0
         assert len(server._event_queue) == 0
         assert server._socket_server.server_sock is None
 
@@ -647,7 +658,7 @@ class TestShutdownPartitions:
         server._socket_server._server_sock = None
 
         assert len(server._socket_server.clients) == 0
-        assert len(server._scene_manager._scenes) == 0
+        assert _scene_count(server) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -681,8 +692,8 @@ class TestInvariantPartitions:
             SeparatorElement(id="sep1"),
         )
         server._handle_message(sock, scene)
-        assert len(server._scene_manager._scenes) > 0
-        elems = server._scene_manager._scenes["s1"].elements
+        assert _scene_count(server) > 0
+        elems = _scene(server, "s1").elements
         elem_ids = {e.id for e in elems if e.id}
         elem_with_kind = {e.id for e in elems if e.id and hasattr(e, "kind")}
         assert elem_ids <= elem_with_kind
@@ -695,11 +706,11 @@ class TestInvariantPartitions:
         sock = _sock()
         scene = _scene_with("s1", ButtonElement(id="b1", label="X"))
         server._handle_message(sock, scene)
-        assert len(server._scene_manager._scenes) > 0
+        assert _scene_count(server) > 0
         server._event_queue.append(
             RemoteEventHandlerInvocation(element_id="b1", action="b1", ts=1.0)
         )
-        s1_elems = server._scene_manager._scenes["s1"].elements
+        s1_elems = _scene(server, "s1").elements
         scene_elem_ids = {e.id for e in s1_elems if e.id}
         event_elem_ids = {e.element_id for e in server._event_queue}
         assert event_elem_ids <= scene_elem_ids
@@ -769,8 +780,8 @@ class TestCreateFramePartitions:
         assert frame.scene_order == ["s1"]
         assert frame.active_tab == "s1"
         assert server._scene_manager.scene_to_frame["s1"] == "frame-beads"
-        # Scene should NOT be in the unframed scene list
-        assert "s1" not in server._scene_manager._scenes
+        # The scene resolves through its frame — the only place scenes now live.
+        assert server._scene_manager.resolve_scene("s1") is not None
 
     def test_create_frame_with_title(self):
         """Frame title comes from frame_title field."""
@@ -837,9 +848,9 @@ class TestFrameCascadePartitions:
         _register(server, sock)
         server._socket_server._fd_to_client[10] = sock
 
-        server._handle_framed_scene(sock, _framed_scene("s1", "f1"))
-        server._handle_framed_scene(sock, _framed_scene("s2", "f2"))
-        server._handle_framed_scene(sock, _framed_scene("s3", "f3"))
+        server._handle_scene(sock, _framed_scene("s1", "f1"))
+        server._handle_scene(sock, _framed_scene("s2", "f2"))
+        server._handle_scene(sock, _framed_scene("s3", "f3"))
 
         assert server._scene_manager.frames["f1"].cascade_index == 0
         assert server._scene_manager.frames["f2"].cascade_index == 1
@@ -852,12 +863,12 @@ class TestFrameCascadePartitions:
         _register(server, sock)
         server._socket_server._fd_to_client[10] = sock
 
-        server._handle_framed_scene(sock, _framed_scene("s1", "f1"))
-        server._handle_framed_scene(sock, _framed_scene("s2", "f2"))
+        server._handle_scene(sock, _framed_scene("s1", "f1"))
+        server._handle_scene(sock, _framed_scene("s2", "f2"))
         server._close_frame("f1")
 
         # After closing f1 (index 0), f2 keeps index 1, so f3 gets index 0
-        server._handle_framed_scene(sock, _framed_scene("s3", "f3"))
+        server._handle_scene(sock, _framed_scene("s3", "f3"))
         assert server._scene_manager.frames["f3"].cascade_index == 0
 
 
@@ -1202,9 +1213,7 @@ class TestFrameSizeAndFlagsPartitions:
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
-        server._handle_framed_scene(
-            sock, _framed_scene("s1", "f1", frame_size=(400, 200))
-        )
+        server._handle_scene(sock, _framed_scene("s1", "f1", frame_size=(400, 200)))
         assert server._scene_manager.frames["f1"].initial_size == (400, 200)
 
     def test_frame_size_none_by_default(self):
@@ -1212,7 +1221,7 @@ class TestFrameSizeAndFlagsPartitions:
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
-        server._handle_framed_scene(sock, _framed_scene("s1", "f1"))
+        server._handle_scene(sock, _framed_scene("s1", "f1"))
         assert server._scene_manager.frames["f1"].initial_size is None
 
     def test_frame_flags_stored(self):
@@ -1221,7 +1230,7 @@ class TestFrameSizeAndFlagsPartitions:
         sock = _sock(fd=10)
         _register(server, sock)
         flags = {"no_resize": True, "auto_resize": False}
-        server._handle_framed_scene(sock, _framed_scene("s1", "f1", frame_flags=flags))
+        server._handle_scene(sock, _framed_scene("s1", "f1", frame_flags=flags))
         assert server._scene_manager.frames["f1"].flags == flags
 
     def test_frame_flags_none_by_default(self):
@@ -1229,7 +1238,7 @@ class TestFrameSizeAndFlagsPartitions:
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
-        server._handle_framed_scene(sock, _framed_scene("s1", "f1"))
+        server._handle_scene(sock, _framed_scene("s1", "f1"))
         assert server._scene_manager.frames["f1"].flags is None
 
     def test_frame_size_only_set_on_creation(self):
@@ -1237,12 +1246,8 @@ class TestFrameSizeAndFlagsPartitions:
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
-        server._handle_framed_scene(
-            sock, _framed_scene("s1", "f1", frame_size=(400, 200))
-        )
-        server._handle_framed_scene(
-            sock, _framed_scene("s2", "f1", frame_size=(800, 600))
-        )
+        server._handle_scene(sock, _framed_scene("s1", "f1", frame_size=(400, 200)))
+        server._handle_scene(sock, _framed_scene("s2", "f1", frame_size=(800, 600)))
         # initial_size is set at frame creation time, not updated
         assert server._scene_manager.frames["f1"].initial_size == (400, 200)
 
@@ -1251,11 +1256,11 @@ class TestFrameSizeAndFlagsPartitions:
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
-        server._handle_framed_scene(
+        server._handle_scene(
             sock, _framed_scene("s1", "f1", frame_flags={"no_resize": True})
         )
         assert server._scene_manager.frames["f1"].flags == {"no_resize": True}
-        server._handle_framed_scene(
+        server._handle_scene(
             sock,
             _framed_scene("s2", "f1", frame_flags={"auto_resize": True}),
         )
@@ -1266,10 +1271,10 @@ class TestFrameSizeAndFlagsPartitions:
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
-        server._handle_framed_scene(
+        server._handle_scene(
             sock, _framed_scene("s1", "f1", frame_flags={"no_resize": True})
         )
-        server._handle_framed_scene(sock, _framed_scene("s2", "f1"))
+        server._handle_scene(sock, _framed_scene("s2", "f1"))
         assert server._scene_manager.frames["f1"].flags == {"no_resize": True}
 
 
@@ -1281,7 +1286,7 @@ class TestFrameLayoutPartitions:
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
-        server._handle_framed_scene(sock, _framed_scene("s1", "f1"))
+        server._handle_scene(sock, _framed_scene("s1", "f1"))
         assert server._scene_manager.frames["f1"].layout == "tab"
 
     def test_stack_layout_on_creation(self):
@@ -1289,9 +1294,7 @@ class TestFrameLayoutPartitions:
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
-        server._handle_framed_scene(
-            sock, _framed_scene("s1", "f1", frame_layout="stack")
-        )
+        server._handle_scene(sock, _framed_scene("s1", "f1", frame_layout="stack"))
         assert server._scene_manager.frames["f1"].layout == "stack"
 
     def test_layout_updated_by_subsequent_scene(self):
@@ -1299,10 +1302,8 @@ class TestFrameLayoutPartitions:
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
-        server._handle_framed_scene(sock, _framed_scene("s1", "f1", frame_layout="tab"))
-        server._handle_framed_scene(
-            sock, _framed_scene("s2", "f1", frame_layout="stack")
-        )
+        server._handle_scene(sock, _framed_scene("s1", "f1", frame_layout="tab"))
+        server._handle_scene(sock, _framed_scene("s2", "f1", frame_layout="stack"))
         assert server._scene_manager.frames["f1"].layout == "stack"
 
     def test_layout_unchanged_when_not_provided(self):
@@ -1310,10 +1311,8 @@ class TestFrameLayoutPartitions:
         server = _server()
         sock = _sock(fd=10)
         _register(server, sock)
-        server._handle_framed_scene(
-            sock, _framed_scene("s1", "f1", frame_layout="stack")
-        )
-        server._handle_framed_scene(sock, _framed_scene("s2", "f1"))
+        server._handle_scene(sock, _framed_scene("s1", "f1", frame_layout="stack"))
+        server._handle_scene(sock, _framed_scene("s2", "f1"))
         assert server._scene_manager.frames["f1"].layout == "stack"
 
     def test_frame_layout_in_protocol_round_trip(self):

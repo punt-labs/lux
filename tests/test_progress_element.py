@@ -58,7 +58,9 @@ def _mock_sock() -> MagicMock:
 
 
 def _inspect(server: DisplayServer, *elements: Element) -> QueryResponse:
-    server._handle_message(_mock_sock(), SceneMessage(id="s1", elements=list(elements)))
+    server._handle_message(
+        _mock_sock(), SceneMessage(id="s1", elements=list(elements), frame_id="s1")
+    )
     return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
 
 
@@ -191,7 +193,9 @@ class TestLevel2WireRoundtrip:
         progress = ProgressElement(
             id="p1", fraction=0.5, label="Loading", tooltip="ETA"
         )
-        wire = message_to_dict(SceneMessage(id="s1", elements=[progress]))
+        wire = message_to_dict(
+            SceneMessage(id="s1", elements=[progress], frame_id="s1")
+        )
         entry = wire["elements"][0]
         assert "_pickled" in entry, "ABC progress must use native pickle wire"
         restored = message_from_dict(wire)
@@ -208,7 +212,9 @@ class TestLevel2WireRoundtrip:
 
 class TestLevel3Crossing:
     def test_rebind_binds_the_progress_renderer_factory(self) -> None:
-        scene = SceneMessage(id="s1", elements=[ProgressElement(id="p1", fraction=0.5)])
+        scene = SceneMessage(
+            id="s1", elements=[ProgressElement(id="p1", fraction=0.5)], frame_id="s1"
+        )
         received = message_from_dict(message_to_dict(scene))
         assert isinstance(received, SceneMessage)
         progress = received.elements[0]

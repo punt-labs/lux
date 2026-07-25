@@ -78,6 +78,35 @@ def test_presentation_defaults_the_frame_from_the_scene_id() -> None:
     assert presentation.frame_title == "scene"
 
 
+def test_presentation_synthesizes_a_frame_when_none_is_named() -> None:
+    # THE RULE: a request that carries no frame at all still renders framed —
+    # the engine synthesizes one at frame_id = scene_id.
+    request = RenderRequest(scene_id="scene", elements=[])
+    assert request.frame is None
+    presentation = request.presentation()
+    assert presentation.frame_id == "scene"
+    assert presentation.frame_title == "scene"
+
+
+def test_presentation_frame_title_defaults_to_the_scene_title() -> None:
+    request = RenderRequest(scene_id="scene", elements=[], title="Dashboard")
+    presentation = request.presentation()
+    assert presentation.frame_id == "scene"
+    assert presentation.frame_title == "Dashboard"
+
+
+def test_presentation_keeps_an_explicit_frame_id_and_title() -> None:
+    request = RenderRequest(
+        scene_id="scene",
+        elements=[],
+        title="ignored-title",
+        frame=FrameSpec(frame_id="dash", frame_title="Metrics"),
+    )
+    presentation = request.presentation()
+    assert presentation.frame_id == "dash"
+    assert presentation.frame_title == "Metrics"
+
+
 def test_update_parse_maps_wire_shapes_to_variants() -> None:
     result = UpdateRequest.parse(
         [{"id": "a", "set": {"x": 1}}, {"id": "b", "remove": True}]

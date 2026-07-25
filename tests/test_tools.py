@@ -556,6 +556,20 @@ class TestShowTool:
         # The recorded presentation is what the replicator resends the scene with.
         assert store.frames.presentation_for(SceneId("s1")).frame_id == "dash"
 
+    def test_show_without_a_frame_synthesizes_one_at_the_scene_id(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # THE RULE inherited at the MCP show surface: a call that names no frame
+        # still records a frame named by the scene id — no scene goes unframed.
+        store = HubDisplay()
+        _bind_store(monkeypatch, store)
+
+        show("s1", [{"kind": "text", "id": "t1", "content": "Hi"}])
+
+        presentation = store.frames.presentation_for(SceneId("s1"))
+        assert presentation.frame_id == "s1"
+        assert presentation.frame_title == "s1"
+
     @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_show_rejects_an_unknown_layout(self, mock_get: MagicMock) -> None:
         # An out-of-set layout is rejected at the wire boundary before anything is

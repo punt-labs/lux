@@ -444,7 +444,7 @@ class TestLevel2WireRoundtrip:
     def test_tab_bar_crosses_as_pickled_entry_with_children(self) -> None:
         bar = _decode(_abc_tab_bar().to_dict())
         assert isinstance(bar, TabBarElement)
-        wire = message_to_dict(SceneMessage(id="s1", elements=[bar]))
+        wire = message_to_dict(SceneMessage(id="s1", elements=[bar], frame_id="s1"))
         entry = wire["elements"][0]
         assert "_pickled" in entry, "ABC tab_bar must use native pickle wire"
         restored = message_from_dict(wire)
@@ -456,7 +456,7 @@ class TestLevel2WireRoundtrip:
     def test_builtin_state_sync_handler_survives_the_wire(self) -> None:
         bar = _decode(_abc_tab_bar().to_dict())
         assert isinstance(bar, TabBarElement)
-        wire = message_to_dict(SceneMessage(id="s1", elements=[bar]))
+        wire = message_to_dict(SceneMessage(id="s1", elements=[bar], frame_id="s1"))
         restored = message_from_dict(wire)
         assert isinstance(restored, SceneMessage)
         r_bar = restored.elements[0]
@@ -477,7 +477,7 @@ class TestLevel3Crossing:
     def test_rebind_recurses_into_tab_children(self) -> None:
         bar = _decode(_abc_tab_bar().to_dict())
         assert isinstance(bar, TabBarElement)
-        received = _received(SceneMessage(id="s1", elements=[bar]))
+        received = _received(SceneMessage(id="s1", elements=[bar], frame_id="s1"))
         r_bar = received.elements[0]
         assert isinstance(r_bar, TabBarElement)
         child = r_bar.child_elements()[0]
@@ -722,7 +722,9 @@ class TestEchoSuppressionLifecycle:
         """Install a tab bar and re-thread the factory as the display would."""
         bar = _abc_tab_bar(active_tab=active_tab)
         sm = server._scene_manager
-        sm.handle_scene(SceneMessage(id="s1", elements=[bar]))
+        sm.handle_framed_scene(
+            SceneMessage(id="s1", elements=[bar], frame_id="s1"), owner_fd=0
+        )
         ws = sm.widget_state_for("s1")
         assert ws is not None
         factory = server._imgui_renderer_factory
@@ -734,8 +736,11 @@ class TestEchoSuppressionLifecycle:
         # Render session 1 honoured the Hub active tab.
         factory.widget_state.set(_honoured_key(), "tab-1")
         # A whole-scene re-push of the same surviving tab bar.
-        sm.handle_scene(
-            SceneMessage(id="s1", elements=[_abc_tab_bar(active_tab="tab-1")])
+        sm.handle_framed_scene(
+            SceneMessage(
+                id="s1", elements=[_abc_tab_bar(active_tab="tab-1")], frame_id="s1"
+            ),
+            owner_fd=0,
         )
         repushed = sm.widget_state_for("s1")
         assert repushed is not None
@@ -760,15 +765,21 @@ class TestEchoSuppressionLifecycle:
         sm, factory = self._install(_server())
         factory.widget_state.set(_honoured_key(), "tab-1")
         # Re-push without the tab bar → it is removed.
-        sm.handle_scene(
-            SceneMessage(id="s1", elements=[TextElement(id="only", content="x")])
+        sm.handle_framed_scene(
+            SceneMessage(
+                id="s1", elements=[TextElement(id="only", content="x")], frame_id="s1"
+            ),
+            owner_fd=0,
         )
         removed = sm.widget_state_for("s1")
         assert removed is not None
         assert removed.get(_honoured_key(), _UNHONOURED) is _UNHONOURED
         # Re-add the same-id tab bar: it starts fresh, no stale honoured value.
-        sm.handle_scene(
-            SceneMessage(id="s1", elements=[_abc_tab_bar(active_tab="tab-1")])
+        sm.handle_framed_scene(
+            SceneMessage(
+                id="s1", elements=[_abc_tab_bar(active_tab="tab-1")], frame_id="s1"
+            ),
+            owner_fd=0,
         )
         readded = sm.widget_state_for("s1")
         assert readded is not None
@@ -799,8 +810,11 @@ class TestEchoSuppressionLifecycle:
         # no-spurious-fire tests above do that, failing under the old code).
         sm, factory = self._install(_server())
         factory.widget_state.set(_honoured_key(), "tab-1")
-        sm.handle_scene(
-            SceneMessage(id="s1", elements=[_abc_tab_bar(active_tab="tab-1")])
+        sm.handle_framed_scene(
+            SceneMessage(
+                id="s1", elements=[_abc_tab_bar(active_tab="tab-1")], frame_id="s1"
+            ),
+            owner_fd=0,
         )
         repushed = sm.widget_state_for("s1")
         assert repushed is not None
@@ -822,7 +836,9 @@ def _mock_sock() -> MagicMock:
 
 
 def _inspect(server: DisplayServer, *elements: Element) -> QueryResponse:
-    server._handle_message(_mock_sock(), SceneMessage(id="s1", elements=list(elements)))
+    server._handle_message(
+        _mock_sock(), SceneMessage(id="s1", elements=list(elements), frame_id="s1")
+    )
     return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
 
 

@@ -48,7 +48,7 @@ def _make_scene(
             ButtonElement(id="b1", label="Click"),
             SeparatorElement(),
         ]
-    return SceneMessage(id=scene_id, elements=elements)
+    return SceneMessage(id=scene_id, elements=elements, frame_id=scene_id)
 
 
 def _mock_sock() -> MagicMock:
@@ -107,7 +107,7 @@ class TestEmitEvent:
         # Empty element list — the scene_id assignment lives at the top of
         # _render_framed_scene, so the render loop never runs.  Keeps the
         # test free of ImGui context requirements.
-        scene = SceneMessage(id="framed-1", elements=[])
+        scene = SceneMessage(id="framed-1", elements=[], frame_id="framed-1")
         frame = Frame(
             frame_id="f1",
             title="F1",
@@ -219,7 +219,7 @@ class TestEventQueueOnSceneChange:
         server._handle_message(sock, new_scene)
 
         assert len(server._event_queue) == 1
-        assert "s2" in server._scene_manager._scenes
+        assert server._scene_manager.resolve_scene("s2") is not None
 
     def test_same_scene_id_drains_stale_events(self) -> None:
         server = _make_server()
@@ -268,7 +268,7 @@ class TestEventQueueOnSceneChange:
         server._handle_message(sock, ClearMessage())
 
         assert len(server._event_queue) == 0
-        assert len(server._scene_manager._scenes) == 0
+        assert _scene_count(server) == 0
 
     def test_ping_does_not_clear_events(self) -> None:
         server = _make_server()
@@ -662,21 +662,26 @@ class TestModalDismissRevertOnUndeliverable:
 # -----------------------------------------------------------------------
 
 
+def _scene_count(server: DisplayServer) -> int:
+    """Total scenes the display holds, across every frame."""
+    return server._scene_manager.scene_count
+
+
 class TestMultiScene:
-    def test_second_scene_creates_tab(self) -> None:
-        """Sending two scenes with different IDs keeps both in _scenes."""
+    def test_second_scene_creates_a_second_frame(self) -> None:
+        """Two scenes with different ids self-frame into two separate frames."""
         server = _make_server()
         sock = _mock_sock()
 
         server._handle_message(sock, _make_scene(scene_id="s1"))
         server._handle_message(sock, _make_scene(scene_id="s2"))
 
-        assert "s1" in server._scene_manager._scenes
-        assert "s2" in server._scene_manager._scenes
-        assert server._scene_manager._scene_order == ["s1", "s2"]
+        assert server._scene_manager.resolve_scene("s1") is not None
+        assert server._scene_manager.resolve_scene("s2") is not None
+        assert set(server._scene_manager.frames) == {"s1", "s2"}
 
     def test_same_scene_id_replaces_content(self) -> None:
-        """Re-sending the same scene_id replaces content, no new tab."""
+        """Re-sending the same scene_id replaces content in its frame."""
         server = _make_server()
         sock = _mock_sock()
 
@@ -695,9 +700,10 @@ class TestMultiScene:
             ),
         )
 
-        assert len(server._scene_manager._scenes) == 1
-        assert server._scene_manager._scene_order == ["s1"]
-        elem = server._scene_manager._scenes["s1"].elements[0]
+        assert _scene_count(server) == 1
+        scene = server._scene_manager.resolve_scene("s1")
+        assert scene is not None
+        elem = scene.elements[0]
         assert isinstance(elem, TextElement)
         assert elem.content == "New"
 
@@ -745,20 +751,9 @@ class TestMultiScene:
         server._handle_message(sock, _make_scene(scene_id="s2"))
         server._handle_message(sock, ClearMessage())
 
-        assert len(server._scene_manager._scenes) == 0
-        assert server._scene_manager._scene_order == []
-        assert server._scene_manager._active_tab is None
+        assert _scene_count(server) == 0
+        assert len(server._scene_manager.frames) == 0
         assert len(server._scene_manager._scene_widget_state) == 0
-
-    def test_scene_order_preserved(self) -> None:
-        """Scenes appear in insertion order."""
-        server = _make_server()
-        sock = _mock_sock()
-
-        for sid in ["s1", "s2", "s3"]:
-            server._handle_message(sock, _make_scene(scene_id=sid))
-
-        assert server._scene_manager._scene_order == ["s1", "s2", "s3"]
 
     def test_widget_state_isolated_per_scene(self) -> None:
         """Each scene gets its own WidgetState instance."""
@@ -774,81 +769,38 @@ class TestMultiScene:
         ws1.set("slider1", 42)
         assert ws2.get("slider1") is None
 
-    def test_dismiss_scene_removes_state(self) -> None:
-        """Dismissing a scene cleans up all associated state."""
+    def test_empty_push_removes_a_scene_and_its_frame(self) -> None:
+        """An empty push removes the scene from its frame and closes the frame."""
         server = _make_server()
         sock = _mock_sock()
 
         server._handle_message(sock, _make_scene(scene_id="s1"))
         server._handle_message(sock, _make_scene(scene_id="s2"))
 
-        server._scene_manager.dismiss_scene("s1")
+        server._handle_message(sock, _make_scene(scene_id="s1", elements=[]))
 
-        assert "s1" not in server._scene_manager._scenes
-        assert server._scene_manager._scene_order == ["s2"]
+        assert server._scene_manager.resolve_scene("s1") is None
+        assert "s1" not in server._scene_manager.frames
         assert "s1" not in server._scene_manager._scene_widget_state
-        assert server._scene_manager._active_tab == "s2"
+        assert server._scene_manager.resolve_scene("s2") is not None
 
-    def test_dismiss_middle_tab_selects_next_neighbor(self) -> None:
-        """Dismissing the middle tab selects the next tab (browser behavior)."""
-        server = _make_server()
-        sock = _mock_sock()
-
-        for sid in ["s1", "s2", "s3"]:
-            server._handle_message(sock, _make_scene(scene_id=sid))
-
-        # Active is s3 (latest). Switch to s2 to test middle dismiss.
-        server._scene_manager._active_tab = "s2"
-        server._scene_manager.dismiss_scene("s2")
-
-        assert server._scene_manager._scene_order == ["s1", "s3"]
-        assert server._scene_manager._active_tab == "s3"  # next neighbor, not first
-
-    def test_dismiss_last_tab_selects_previous(self) -> None:
-        """Dismissing the rightmost tab selects the one before it."""
-        server = _make_server()
-        sock = _mock_sock()
-
-        for sid in ["s1", "s2", "s3"]:
-            server._handle_message(sock, _make_scene(scene_id=sid))
-
-        server._scene_manager._active_tab = "s3"
-        server._scene_manager.dismiss_scene("s3")
-
-        assert server._scene_manager._scene_order == ["s1", "s2"]
-        assert server._scene_manager._active_tab == "s2"  # previous, not first
-
-    def test_dismiss_first_tab_selects_next(self) -> None:
-        """Dismissing the first tab selects the second tab."""
-        server = _make_server()
-        sock = _mock_sock()
-
-        for sid in ["s1", "s2", "s3"]:
-            server._handle_message(sock, _make_scene(scene_id=sid))
-
-        server._scene_manager._active_tab = "s1"
-        server._scene_manager.dismiss_scene("s1")
-
-        assert server._scene_manager._scene_order == ["s2", "s3"]
-        assert server._scene_manager._active_tab == "s2"
-
-    def test_active_tab_set_to_newest_scene(self) -> None:
-        """Each new scene becomes the active tab."""
+    def test_each_scene_is_its_frames_active_tab(self) -> None:
+        """A self-framed scene is the active tab of the frame it creates."""
         server = _make_server()
         sock = _mock_sock()
 
         server._handle_message(sock, _make_scene(scene_id="s1"))
-        assert server._scene_manager._active_tab == "s1"
+        assert server._scene_manager.frames["s1"].active_tab == "s1"
 
         server._handle_message(sock, _make_scene(scene_id="s2"))
-        assert server._scene_manager._active_tab == "s2"
+        assert server._scene_manager.frames["s2"].active_tab == "s2"
 
     def test_same_scene_id_does_not_dirty_windows(self) -> None:
         """Re-sending a scene with the same ID should not force window positions."""
         server = _make_server()
         sock = _mock_sock()
         win = LegacyWindowElement(id="w1", title="Panel", x=10, y=10)
-        scene = SceneMessage(id="s1", elements=[win])
+        scene = SceneMessage(id="s1", elements=[win], frame_id="s1")
 
         server._handle_message(sock, scene)
         assert "w1" in server._scene_manager._dirty_windows
@@ -866,10 +818,14 @@ class TestMultiScene:
         sock = _mock_sock()
         win = LegacyWindowElement(id="w1", title="Panel", x=10, y=10)
 
-        server._handle_message(sock, SceneMessage(id="s1", elements=[win]))
+        server._handle_message(
+            sock, SceneMessage(id="s1", elements=[win], frame_id="s1")
+        )
         server._scene_manager._dirty_windows.clear()
 
-        server._handle_message(sock, SceneMessage(id="s2", elements=[win]))
+        server._handle_message(
+            sock, SceneMessage(id="s2", elements=[win], frame_id="s2")
+        )
         assert "w1" in server._scene_manager._dirty_windows
 
     def test_dismiss_drains_events_for_dismissed_scene(self) -> None:
@@ -910,7 +866,8 @@ class TestMultiScene:
         assert len(server._event_queue) == 2
 
         # Dismiss s1 — its events should be drained
-        server._scene_manager.dismiss_scene("s1")
+        _sm = server._scene_manager
+        _sm.dismiss_framed_scene(_sm.frames["s1"], "s1")
 
         assert len(server._event_queue) == 0
 
@@ -947,7 +904,8 @@ class TestMultiScene:
         )
 
         # Dismiss s1 — only s1's events drained
-        server._scene_manager.dismiss_scene("s1")
+        _sm = server._scene_manager
+        _sm.dismiss_framed_scene(_sm.frames["s1"], "s1")
 
         assert len(server._event_queue) == 1
         assert server._event_queue[0].element_id == "btn_s2"
@@ -989,7 +947,8 @@ class TestMultiScene:
         )
 
         # Dismiss s1 — shared_btn survives in s2, s1_only does not
-        server._scene_manager.dismiss_scene("s1")
+        _sm = server._scene_manager
+        _sm.dismiss_framed_scene(_sm.frames["s1"], "s1")
 
         assert len(server._event_queue) == 1
         assert server._event_queue[0].element_id == "shared_btn"

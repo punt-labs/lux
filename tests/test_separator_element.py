@@ -54,7 +54,9 @@ def _mock_sock() -> Any:
 
 
 def _inspect(server: DisplayServer, *elements: Element) -> QueryResponse:
-    server._handle_message(_mock_sock(), SceneMessage(id="s1", elements=list(elements)))
+    server._handle_message(
+        _mock_sock(), SceneMessage(id="s1", elements=list(elements), frame_id="s1")
+    )
     return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
 
 
@@ -133,7 +135,9 @@ class TestAnonymizable:
 class TestLevel2WireRoundtrip:
     def test_separator_crosses_as_pickled_entry(self) -> None:
         separator = SeparatorElement(id="s1", tooltip="break")
-        wire = message_to_dict(SceneMessage(id="s1", elements=[separator]))
+        wire = message_to_dict(
+            SceneMessage(id="s1", elements=[separator], frame_id="s1")
+        )
         entry = wire["elements"][0]
         assert "_pickled" in entry, "ABC separator must use native pickle wire"
         restored = message_from_dict(wire)
@@ -149,7 +153,9 @@ class TestLevel2WireRoundtrip:
 
 class TestLevel3Crossing:
     def test_rebind_binds_the_separator_renderer_factory(self) -> None:
-        scene = SceneMessage(id="s1", elements=[SeparatorElement(id="s1")])
+        scene = SceneMessage(
+            id="s1", elements=[SeparatorElement(id="s1")], frame_id="s1"
+        )
         received = message_from_dict(message_to_dict(scene))
         assert isinstance(received, SceneMessage)
         separator = received.elements[0]

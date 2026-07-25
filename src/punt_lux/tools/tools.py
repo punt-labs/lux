@@ -228,7 +228,7 @@ def show(
 
     All elements with an id support an optional ``"tooltip"`` (shown on hover).
 
-    Frame sizing (only with ``frame_id``):
+    Frame sizing:
       frame_size:  [width, height] in pixels — initial size hint (first use only).
       frame_flags: ImGui window flag keys, each true/false — no_resize, no_collapse,
         auto_resize, no_title_bar, no_background, no_scrollbar.

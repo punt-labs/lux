@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import pickle
 from typing import Any
 
 import pytest
@@ -424,6 +426,7 @@ class TestMessages:
         msg = SceneMessage(
             id="s1",
             elements=[TextElement(id="t1", content="hi")],
+            frame_id="s1",
             layout="rows",
             title="Test",
         )
@@ -552,6 +555,7 @@ class TestSerialization:
                 SeparatorElement(),
                 ImageElement(id="i1", path="/tmp/x.png", width=100),
             ],
+            frame_id="s1",
             layout="rows",
             title="Test Scene",
         )
@@ -611,6 +615,82 @@ class TestSerialization:
         assert restored.frame_size is None
         assert restored.frame_flags is None
 
+    def test_scene_decode_rejects_an_out_of_set_layout(self):
+        # The layout field is a Literal; decode must reject an out-of-set value
+        # with the same named error the RenderRequest boundary raises, not smuggle
+        # it in behind an Any.
+        with pytest.raises(ValueError, match="layout must be single/rows/columns/grid"):
+            SceneMessage.from_dict(
+                {"id": "s1", "frame_id": "s1", "elements": [], "layout": "diagonal"}
+            )
+
+    def test_scene_decode_accepts_each_valid_layout(self):
+        for value in ("single", "rows", "columns", "grid"):
+            restored = SceneMessage.from_dict(
+                {"id": "s1", "frame_id": "s1", "elements": [], "layout": value}
+            )
+            assert restored.layout == value
+
+    def test_scene_decode_rejects_a_missing_elements_field(self):
+        # Omission is not removal: a wire dict with no elements field is malformed,
+        # not the empty-push remove signal.
+        with pytest.raises(ValueError, match="scene elements must be a present list"):
+            SceneMessage.from_dict({"id": "s1", "frame_id": "s1"})
+
+    def test_scene_decode_rejects_a_non_list_elements_field(self):
+        with pytest.raises(ValueError, match="scene elements must be a present list"):
+            SceneMessage.from_dict({"id": "s1", "frame_id": "s1", "elements": "nope"})
+
+    def test_scene_decode_accepts_an_explicit_empty_elements_list(self):
+        # An explicit [] is the intentional empty-push removal signal — kept valid.
+        restored = SceneMessage.from_dict(
+            {"id": "s1", "frame_id": "s1", "elements": []}
+        )
+        assert restored.elements == []
+
+    def test_scene_decode_rejects_a_non_dict_element_entry(self):
+        # Each entry must be a dict — a bare string decodes to a named error, not a
+        # raw TypeError from probing "_pickled" in a non-dict.
+        with pytest.raises(ValueError, match="scene element must be a dict"):
+            SceneMessage.from_dict({"id": "s1", "frame_id": "s1", "elements": ["oops"]})
+
+    def test_scene_decode_rejects_a_non_str_pickled_entry(self):
+        with pytest.raises(ValueError, match="scene element _pickled must be a str"):
+            SceneMessage.from_dict(
+                {"id": "s1", "frame_id": "s1", "elements": [{"_pickled": 123}]}
+            )
+
+    def test_scene_decode_rejects_a_missing_id(self):
+        # A required str field decodes to a named error, not a bare KeyError.
+        with pytest.raises(ValueError, match="scene field 'id' must be a str"):
+            SceneMessage.from_dict({"frame_id": "s1", "elements": []})
+
+    def test_scene_decode_rejects_a_missing_frame_id(self):
+        with pytest.raises(ValueError, match="scene field 'frame_id' must be a str"):
+            SceneMessage.from_dict({"id": "s1", "elements": []})
+
+    def test_scene_decode_rejects_truncated_base64_pickle(self):
+        # A corrupt pickle payload must not escape as binascii/EOF/UnpicklingError
+        # (the display's reader only catches ValueError/KeyError/TypeError).
+        with pytest.raises(ValueError, match="_pickled is not decodable"):
+            self._decode_pickled("!!!not base64!!!")
+
+    def test_scene_decode_rejects_valid_base64_truncated_pickle(self):
+        truncated = base64.b64encode(pickle.dumps([1, 2, 3])[:5]).decode("ascii")
+        with pytest.raises(ValueError, match="_pickled is not decodable"):
+            self._decode_pickled(truncated)
+
+    def test_scene_decode_rejects_garbage_pickle_bytes(self):
+        garbage = base64.b64encode(b"not a pickled element").decode("ascii")
+        with pytest.raises(ValueError, match="_pickled is not decodable"):
+            self._decode_pickled(garbage)
+
+    @staticmethod
+    def _decode_pickled(payload: str) -> None:
+        SceneMessage.from_dict(
+            {"id": "s1", "frame_id": "s1", "elements": [{"_pickled": payload}]}
+        )
+
     def test_connect_message_roundtrip(self):
         original = ConnectMessage(name="quarry")
         d = message_to_dict(original)
@@ -627,6 +707,7 @@ class TestSerialization:
                 SceneMessage(
                     id="s1",
                     elements=[TextElement(id="t1", content="hello")],
+                    frame_id="s1",
                     layout="rows",
                     title="Test",
                 ),
@@ -745,13 +826,13 @@ class TestSerialization:
             )
 
     def test_strip_none_fields(self):
-        msg = SceneMessage(id="s1", elements=[], title=None)
+        msg = SceneMessage(id="s1", elements=[], title=None, frame_id="s1")
         d = message_to_dict(msg)
         assert "title" not in d
 
     def test_button_disabled_included(self):
         e = ButtonElement(id="b1", label="X", disabled=True)
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         # ABC elements use native serialization — roundtrip preserves fields
         assert "_pickled" in d["elements"][0]
@@ -763,7 +844,7 @@ class TestSerialization:
 
     def test_button_disabled_false_excluded(self):
         e = ButtonElement(id="b1", label="X", disabled=False)
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         # ABC elements use native serialization — roundtrip preserves fields
         restored = message_from_dict(d)
@@ -774,7 +855,7 @@ class TestSerialization:
 
     def test_slider_roundtrip(self):
         e = SliderElement(id="sl1", label="Vol", value=50.0, min=0.0, max=100.0)
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -788,7 +869,7 @@ class TestSerialization:
         # restored element, not the wire dict; the Level-1 JSON shape carries it.
         e = SliderElement(id="sl2", label="N", integer=True)
         assert e.to_dict()["integer"] is True
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         restored = message_from_dict(message_to_dict(scene))
         assert isinstance(restored, SceneMessage)
         assert isinstance(restored.elements[0], SliderElement)
@@ -801,7 +882,7 @@ class TestSerialization:
 
     def test_checkbox_roundtrip(self):
         e = CheckboxElement(id="cb1", label="On", value=True)
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -811,7 +892,7 @@ class TestSerialization:
 
     def test_combo_roundtrip(self):
         e = ComboElement(id="co1", label="Pick", items=["A", "B", "C"], selected=2)
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -822,7 +903,7 @@ class TestSerialization:
 
     def test_input_text_roundtrip(self):
         e = InputTextElement(id="it1", label="Name", value="Alice", hint="who?")
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -833,13 +914,13 @@ class TestSerialization:
 
     def test_input_text_hint_excluded_when_empty(self):
         e = InputTextElement(id="it2", label="X")
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         assert "hint" not in d["elements"][0]
 
     def test_radio_roundtrip(self):
         e = RadioElement(id="r1", label="Opt", items=["X", "Y"], selected=1)
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -850,7 +931,7 @@ class TestSerialization:
 
     def test_color_picker_roundtrip(self):
         e = ColorPickerElement(id="cp1", label="Bg", value="#FF0000")
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -863,7 +944,7 @@ class TestSerialization:
         e = DrawElement(
             id="d1", width=200, height=100, bg_color="#000000", commands=(rect,)
         )
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -877,7 +958,7 @@ class TestSerialization:
 
     def test_draw_bg_color_excluded_when_none(self):
         e = DrawElement(id="d1")
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         assert "bg_color" not in d["elements"][0]
 
@@ -911,7 +992,7 @@ class TestSerialization:
                 ButtonElement(id="b1", label="Right"),
             ],
         )
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -941,7 +1022,7 @@ class TestSerialization:
                 },
             ],
         )
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -964,7 +1045,7 @@ class TestSerialization:
                 PlotElement(id="sel1"),
             ],
         )
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -976,7 +1057,7 @@ class TestSerialization:
 
     def test_selectable_roundtrip(self):
         e = SelectableElement(id="s1", label="Option A", selected=True)
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -997,7 +1078,7 @@ class TestSerialization:
             {"label": "README.md"},
         ]
         e = TreeElement(id="tr1", label="Project", nodes=nodes)
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1015,7 +1096,7 @@ class TestSerialization:
             nodes=[{"label": "info", "children": [{"label": "value"}]}],
             flat=True,
         )
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1026,13 +1107,13 @@ class TestSerialization:
     def test_tree_flat_false_not_serialized(self):
         """flat=False should not appear in the wire dict (default omission)."""
         e = TreeElement(id="tr1", label="X")
-        d = message_to_dict(SceneMessage(id="s1", elements=[e]))
+        d = message_to_dict(SceneMessage(id="s1", elements=[e], frame_id="s1"))
         elem_dict = d["elements"][0]
         assert "flat" not in elem_dict
 
     def test_tree_empty_nodes_roundtrip(self):
         e = TreeElement(id="tr1", label="Empty")
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1047,7 +1128,7 @@ class TestSerialization:
             rows=[["Alice", 95], ["Bob", 87]],
             flags=["borders", "row_bg", "sortable"],
         )
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1059,7 +1140,7 @@ class TestSerialization:
 
     def test_table_empty_roundtrip(self):
         e = TableElement(id="tbl1")
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1082,7 +1163,7 @@ class TestSerialization:
                 ),
             ],
         )
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1108,7 +1189,7 @@ class TestSerialization:
                 body=["Bug description", "Feature description"],
             ),
         )
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1126,7 +1207,7 @@ class TestSerialization:
             rows=[["1", "Fix bug", "open"]],
             column_widths=[1.0, 4.0, 2.0],
         )
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1181,7 +1262,7 @@ class TestSerialization:
             height=400,
             series=series,
         )
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1196,7 +1277,7 @@ class TestSerialization:
 
     def test_plot_empty_roundtrip(self):
         e = PlotElement(id="p1")
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1207,7 +1288,7 @@ class TestSerialization:
 
     def test_progress_roundtrip(self):
         e = ProgressElement(id="pg1", fraction=0.5, label="Half")
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1218,13 +1299,13 @@ class TestSerialization:
 
     def test_progress_label_excluded_when_empty(self):
         e = ProgressElement(id="pg1", fraction=0.3)
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         assert "label" not in d["elements"][0]
 
     def test_spinner_roundtrip(self):
         e = SpinnerElement(id="sp1", label="Wait", radius=20.0, color="#FF0000")
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1236,13 +1317,13 @@ class TestSerialization:
 
     def test_spinner_label_excluded_when_empty(self):
         e = SpinnerElement(id="sp1")
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         assert "label" not in d["elements"][0]
 
     def test_markdown_roundtrip(self):
         e = MarkdownElement(id="md1", content="# Title\n\nParagraph.")
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1252,7 +1333,7 @@ class TestSerialization:
 
     def test_tooltip_roundtrip(self):
         e = TextElement(id="t1", content="hover me", tooltip="help")
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         # ABC elements use native serialization — roundtrip preserves fields
         restored = message_from_dict(d)
@@ -1263,7 +1344,7 @@ class TestSerialization:
 
     def test_tooltip_excluded_when_none(self):
         e = TextElement(id="t1", content="no tip")
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         # ABC elements use native serialization — roundtrip preserves fields
         restored = message_from_dict(d)
@@ -1274,7 +1355,7 @@ class TestSerialization:
 
     def test_collapsing_header_default_open_excluded_when_false(self):
         e = LegacyCollapsingHeaderElement(id="ch1", label="Section")
-        scene = SceneMessage(id="s1", elements=[e])
+        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         assert "default_open" not in d["elements"][0]
 
@@ -1298,7 +1379,7 @@ class TestSerialization:
                 }
             ],
         )
-        scene = SceneMessage(id="s1", elements=[outer])
+        scene = SceneMessage(id="s1", elements=[outer], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1321,7 +1402,7 @@ class TestSerialization:
                 TextElement(id="t1", content="nested"),
             ],
         )
-        scene = SceneMessage(id="s1", elements=[win])
+        scene = SceneMessage(id="s1", elements=[win], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1336,7 +1417,7 @@ class TestSerialization:
         leaf = TextElement(id="leaf", content="deep")
         ch = CollapsingHeaderElement(id="ch1", label="Inner", children=[leaf])
         grp = LegacyGroupElement(id="g1", children=[ch])
-        scene = SceneMessage(id="s1", elements=[grp])
+        scene = SceneMessage(id="s1", elements=[grp], frame_id="s1")
         d = message_to_dict(scene)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1362,6 +1443,7 @@ class TestSerialization:
                 SeparatorElement(),
                 ButtonElement(id="b1", label="Apply"),
             ],
+            frame_id="s1",
         )
         d = message_to_dict(original)
         restored = message_from_dict(d)
@@ -1482,6 +1564,7 @@ class TestSerialization:
         original = SceneMessage(
             id="s1",
             elements=[ModalElement(id="m1", title="X", open=False)],
+            frame_id="s1",
         )
         d = message_to_dict(original)
         restored = message_from_dict(d)
@@ -1498,7 +1581,7 @@ class TestSerialization:
                 ButtonElement(id="b1", label="Yes", action="confirm"),
             )
         )
-        original = SceneMessage(id="s1", elements=[built])
+        original = SceneMessage(id="s1", elements=[built], frame_id="s1")
         d = message_to_dict(original)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)
@@ -1514,6 +1597,7 @@ class TestSerialization:
             elements=[
                 InputNumberElement(id="in1", label="Price", value=9.99, step=0.01),
             ],
+            frame_id="s1",
         )
         d = message_to_dict(original)
         restored = message_from_dict(d)

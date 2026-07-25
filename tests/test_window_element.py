@@ -315,7 +315,7 @@ class TestLevel2WireRoundtrip:
     def test_window_crosses_as_pickled_entry_with_chrome(self) -> None:
         window = _decode(_abc_window(flags=WindowFlags(no_move=True)).to_dict())
         assert isinstance(window, WindowElement)
-        wire = message_to_dict(SceneMessage(id="s1", elements=[window]))
+        wire = message_to_dict(SceneMessage(id="s1", elements=[window], frame_id="s1"))
         entry = wire["elements"][0]
         assert "_pickled" in entry, "ABC window must use native pickle wire"
         restored = message_from_dict(wire)
@@ -340,7 +340,7 @@ class TestLevel3Crossing:
     def test_rebind_recurses_into_window_children(self) -> None:
         window = _decode(_abc_window().to_dict())
         assert isinstance(window, WindowElement)
-        received = _received(SceneMessage(id="s1", elements=[window]))
+        received = _received(SceneMessage(id="s1", elements=[window], frame_id="s1"))
         r_window = received.elements[0]
         assert isinstance(r_window, WindowElement)
         child = r_window.children[0]
@@ -369,7 +369,9 @@ def _mock_sock() -> MagicMock:
 
 
 def _inspect(server: DisplayServer, *elements: Element) -> QueryResponse:
-    server._handle_message(_mock_sock(), SceneMessage(id="s1", elements=list(elements)))
+    server._handle_message(
+        _mock_sock(), SceneMessage(id="s1", elements=list(elements), frame_id="s1")
+    )
     return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
 
 

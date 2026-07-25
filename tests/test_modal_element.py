@@ -321,7 +321,7 @@ class TestLevel2WireRoundtrip:
     def test_modal_crosses_as_pickled_entry_with_children(self) -> None:
         modal = _decode(_abc_modal(open=True).to_dict())
         assert isinstance(modal, ModalElement)
-        wire = message_to_dict(SceneMessage(id="s1", elements=[modal]))
+        wire = message_to_dict(SceneMessage(id="s1", elements=[modal], frame_id="s1"))
         entry = wire["elements"][0]
         assert "_pickled" in entry, "ABC modal must use native pickle wire"
         restored = message_from_dict(wire)
@@ -336,7 +336,7 @@ class TestLevel2WireRoundtrip:
         # present after the pickle crossing.
         modal = _decode(_abc_modal().to_dict())
         assert isinstance(modal, ModalElement)
-        wire = message_to_dict(SceneMessage(id="s1", elements=[modal]))
+        wire = message_to_dict(SceneMessage(id="s1", elements=[modal], frame_id="s1"))
         restored = message_from_dict(wire)
         assert isinstance(restored, SceneMessage)
         r_modal = restored.elements[0]
@@ -357,7 +357,7 @@ class TestLevel3Crossing:
     def test_rebind_recurses_into_modal_children(self) -> None:
         modal = _decode(_abc_modal().to_dict())
         assert isinstance(modal, ModalElement)
-        received = _received(SceneMessage(id="s1", elements=[modal]))
+        received = _received(SceneMessage(id="s1", elements=[modal], frame_id="s1"))
         r_modal = received.elements[0]
         assert isinstance(r_modal, ModalElement)
         child = r_modal.children[0]
@@ -445,7 +445,9 @@ def _mock_sock() -> MagicMock:
 
 
 def _inspect(server: DisplayServer, *elements: Element) -> QueryResponse:
-    server._handle_message(_mock_sock(), SceneMessage(id="s1", elements=list(elements)))
+    server._handle_message(
+        _mock_sock(), SceneMessage(id="s1", elements=list(elements), frame_id="s1")
+    )
     return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
 
 

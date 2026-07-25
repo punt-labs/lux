@@ -49,7 +49,9 @@ def _mock_sock() -> MagicMock:
 
 def _feed(server: DisplayServer, elements: list[Element]) -> QueryResponse:
     """Push an all-native scene, then run the enriched inspect_scene query."""
-    server._handle_message(_mock_sock(), SceneMessage(id="s1", elements=elements))
+    server._handle_message(
+        _mock_sock(), SceneMessage(id="s1", elements=elements, frame_id="s1")
+    )
     return server.query_dispatcher.handle_query("inspect_scene", {"scene_id": "s1"})
 
 

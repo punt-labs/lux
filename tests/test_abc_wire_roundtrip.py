@@ -2,8 +2,9 @@
 
 Two real boundaries, no stubs:
 
-- The native-pickle scene wire (``protocol/messages/scene.py`` ``_scene_to_dict`` /
-  ``_scene_from_dict``): build -> ``message_to_dict`` -> assert ``_pickled`` ->
+- The native-pickle scene wire (``protocol/messages/scene.py`` —
+  ``SceneMessage.to_dict`` / ``SceneMessage.from_dict``): build ->
+  ``message_to_dict`` -> assert ``_pickled`` ->
   ``message_from_dict`` -> compare-equal, for all four kinds including a dialog
   (which previously had no scene roundtrip) and a dialog with a child.
 
@@ -40,7 +41,7 @@ from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvoc
 
 def _roundtrip(element: Element) -> Element:
     """Ship ``element`` through the real scene wire and return the restored one."""
-    wire = message_to_dict(SceneMessage(id="s1", elements=[element]))
+    wire = message_to_dict(SceneMessage(id="s1", elements=[element], frame_id="s1"))
     assert "_pickled" in wire["elements"][0], "ABC element must use native pickle wire"
     restored = message_from_dict(wire)
     assert isinstance(restored, SceneMessage)
