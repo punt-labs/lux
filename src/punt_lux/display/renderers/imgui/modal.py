@@ -7,10 +7,11 @@ Element render skeleton draws the body through the default child recursion;
 ``end`` closes the popup, applies the tooltip, and runs the external-close
 cascade. Visibility is sourced from the modal's own ``ModalModel``.
 
-A plain modal has no child controllers to resolve an Escape/outside close, so
-this adapter fires ``ModalClosed`` through the element's handler registry (which
-the Display wrapped for remote dispatch); the Hub runs the dismiss and re-pushes,
-and the widget-state dismiss latch keeps the popup shut until that re-push lands.
+A plain modal has no child controllers, so the adapter resolves its dismiss
+gestures — the ✕ and Escape (an outside click is blocked, not a dismiss) — and
+fires ``ModalClosed`` through the element's handler registry (which the Display
+wrapped for remote dispatch); the Hub runs the dismiss and re-pushes, and the
+widget-state dismiss latch keeps the popup shut until that re-push lands.
 """
 
 from __future__ import annotations
@@ -96,21 +97,36 @@ class ImGuiModalRenderer:
         """No-op — the modal's only body is its children (default recursion)."""
 
     def end(self, *, opened: bool) -> None:
-        """Close the popup (only if open), apply the tooltip, run the cascade."""
+        """Close the popup and route one ``ModalClosed`` for this frame's gesture.
+
+        Two gestures dismiss: the ✕ (begin_popup_modal reports not-visible) and
+        Escape while focused (resolved here — real ImGui does not close a modal
+        on Escape). An outside click deliberately does NOT dismiss: a modal
+        blocks its background, chosen popover-vs-modal semantics.
+        """
         if opened:
+            if self._escape_dismissed():
+                self._handle_external_close()
+                imgui.close_current_popup()
             imgui.end_popup()
         if self._was_open and not opened:
             self._handle_external_close()
         self._factory.apply_tooltip(self._elem)
 
+    def _escape_dismissed(self) -> bool:
+        """Return whether Escape dismissed the focused popup this frame.
+
+        Focus-gated so only the topmost modal reacts to the key.
+        """
+        return imgui.is_window_focused() and imgui.is_key_pressed(imgui.Key.escape)
+
     def _handle_external_close(self) -> None:
         """Latch the dismiss and route the close to the Hub.
 
-        ImGui closes the popup itself on Escape or an outside click. The latch
-        keeps it shut until the Hub's removal re-push lands, and firing
-        ``ModalClosed`` through the element's wrapped registry sends the close to
-        the Hub, where the built-in dismiss handler removes the modal. The event
-        is only fired once — the ``open`` guard skips a modal already dismissed
+        The latch keeps the popup shut until the Hub's removal re-push lands, and
+        firing ``ModalClosed`` through the element's wrapped registry sends the
+        close to the Hub, where the built-in dismiss handler removes the modal.
+        The event fires once — the ``open`` guard skips a modal already dismissed
         on the Hub whose replica has not yet been dropped.
         """
         ws = self._factory.widget_state
