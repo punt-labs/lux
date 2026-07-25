@@ -20,8 +20,6 @@ from punt_lux.display_client import DisplayClient
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
-    from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
-    from punt_lux.domain.interaction import ButtonClicked, ValueChanged
     from punt_lux.protocol import RemoteEventHandlerInvocation
 
 logger = logging.getLogger(__name__)
@@ -126,7 +124,8 @@ class ClientRegistry:
         """
         from punt_lux.domain.element_abc import Element as ElementABC
         from punt_lux.domain.hub import hub_display
-        from punt_lux.domain.ids import ElementId, SceneId
+        from punt_lux.domain.ids import ClientId, ElementId, SceneId
+        from punt_lux.domain.interaction_errors import WrongKindError
 
         if msg.action == "frame_close":
             ClientRegistry._close_frame(msg.element_id)
@@ -157,21 +156,25 @@ class ClientRegistry:
                 type(element).__name__,
             )
             return
-        event_kind = msg.event_kind
-        event = ClientRegistry._build_hub_event(
-            event_kind=event_kind,
-            scene_id=scene_id,
-            element_id=element_id,
-            owner=str(owner),
-            value=msg.value,
-        )
-        if event is None:
+        # Polymorphic dispatch: the resolved element builds its own typed event
+        # from the wire payload, consulting its RemoteDispatchSpecs. No matching
+        # spec (a kind the element does not fire, or a kindless invocation) is a
+        # WrongKindError — denied here, never fired, no re-push.
+        try:
+            event = element.build_remote_event(
+                event_kind=msg.event_kind,
+                scene_id=SceneId(scene_id),
+                owner_id=ClientId(str(owner)),
+                value=msg.value,
+            )
+        except WrongKindError as exc:
+            logger.warning("hub dispatch denied element_id=%s: %s", element_id, exc)
             return
         logger.debug(
             "hub dispatch firing element_id=%s scene_id=%s event_kind=%s",
             element_id,
             scene_id,
-            event_kind,
+            msg.event_kind,
         )
         element.fire(event)
 
@@ -197,50 +200,6 @@ class ClientRegistry:
 
         for scene_id in hub_display.frames.remove_frame(frame_id):
             hub_replicator.mark_dirty(scene_id)
-
-    @staticmethod
-    def _build_hub_event(
-        *,
-        event_kind: str | None,
-        scene_id: str,
-        element_id: str,
-        owner: str,
-        value: object,
-    ) -> ButtonClicked | ValueChanged | HeaderToggled | TabChanged | None:
-        """Construct the typed event for ``event_kind`` + wire ``value``.
-
-        Returns ``None`` (deny-by-default) when the value has the wrong shape
-        for the kind or the kind is unknown — the caller then fires nothing.
-        """
-        from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
-        from punt_lux.domain.ids import ClientId, ElementId, SceneId
-        from punt_lux.domain.interaction import ButtonClicked, ValueChanged
-
-        sid, eid, oid = SceneId(scene_id), ElementId(element_id), ClientId(owner)
-        if event_kind == "value_changed":
-            # A checkbox toggle carries bool, an input_text edit str, a slider
-            # drag int/float. The firing element's own setter re-validates the
-            # value shape (a slider rejects a non-finite or out-of-range value).
-            if not isinstance(value, bool | int | float | str):
-                logger.warning("hub dispatch value_changed non-scalar value=%r", value)
-                return None
-            return ValueChanged(scene_id=sid, element_id=eid, owner_id=oid, value=value)
-        if event_kind == "header_toggled":
-            if not isinstance(value, bool):
-                logger.warning("hub dispatch header_toggled non-bool value=%r", value)
-                return None
-            return HeaderToggled(
-                scene_id=sid, element_id=eid, owner_id=oid, open_=value
-            )
-        if event_kind == "tab_changed":
-            if not isinstance(value, str):
-                logger.warning("hub dispatch tab_changed non-str value=%r", value)
-                return None
-            return TabChanged(scene_id=sid, element_id=eid, owner_id=oid, tab_id=value)
-        if event_kind in (None, "button_clicked"):
-            return ButtonClicked(scene_id=sid, element_id=eid, owner_id=oid)
-        logger.warning("hub dispatch unknown event_kind=%r for %s", event_kind, eid)
-        return None
 
     def _on_beads_browser(self, _msg: RemoteEventHandlerInvocation) -> None:
         """Build the beads board off-thread; it writes the Hub and marks dirty.

@@ -17,6 +17,22 @@
 
 ### Changed
 
+- **Element migration batch B4: `window` and `modal` are on the Element-ABC
+  path** (21 of 25 kinds migrated). A modal is now dismissal-convergent:
+  the close button and Escape route through the Hub, a dismissed modal is
+  removed (a re-push cannot resurrect it), and if the dismissal cannot reach
+  the Hub the popup visibly reopens rather than silently diverging. Clicking
+  outside a modal deliberately does not dismiss it — a modal blocks. A window
+  element keeps its view state (drag/resize) local to the display and
+  deliberately has no close affordance — dismissal belongs to frames.
+  Renaming an open modal or window no longer dismisses it or resets its
+  position.
+- **Interaction events are element-owned.** Each interactive element declares
+  its wire kind, payload validation, and event construction on its own
+  `RemoteDispatchSpec`; the central event-building ladder is deleted. A
+  remote invocation naming the wrong kind — or no kind at all — gets a named
+  denial instead of being guessed at, and a new interactive kind registers in
+  exactly one place.
 - **Element migration batch B1: `image`, `separator`, `spinner`, and
   `markdown` are on the Element-ABC path** (19 of 25 kinds migrated; the
   legacy code for each is deleted). User-visible effects: `tooltip` now works
@@ -37,6 +53,10 @@
 
 ### Fixed
 
+- **Multi-client event broadcast no longer stops at the first successful
+  send** — every connected display client receives the event.
+- **A `window` element rejects non-finite placement** (infinite or NaN
+  position/size) at validation instead of passing it to the renderer.
 - **Closing a frame in the window now removes its scenes from the Hub.**
   Previously the click closed the frame locally and the Hub kept the scene —
   the tiers silently diverged and empty "husk" frames accumulated across

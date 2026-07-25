@@ -19,7 +19,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, Self, cast
 
-from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
+from punt_lux.domain.container_interaction import (
+    HeaderToggled,
+    ModalClosed,
+    TabChanged,
+)
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.hub import hub, hub_display
 from punt_lux.domain.hub.hub_factory import hub_element_factory
@@ -35,6 +39,7 @@ from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
+from punt_lux.protocol.elements.modal import ModalElement
 from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement
 from punt_lux.protocol.elements.slider import SliderElement
@@ -333,6 +338,13 @@ class SimulatedAgent:
                 owner_id=ClientId("__display__"),
                 tab_id=self._other_tab(element),
             )
+        if isinstance(element, ModalElement):
+            # A dismissal carries no payload — the close itself is the event.
+            return ModalClosed(
+                scene_id=SceneId("__display__"),
+                element_id=ElementId(element.id),
+                owner_id=ClientId("__display__"),
+            )
         msg = f"no synthetic event for element kind of {element.id!r}"
         raise TypeError(msg)
 
@@ -365,5 +377,7 @@ class SimulatedAgent:
             return HeaderToggled
         if isinstance(element, TabBarElement):
             return TabChanged
+        if isinstance(element, ModalElement):
+            return ModalClosed
         msg = f"no interaction event type for element kind of {element.id!r}"
         raise TypeError(msg)

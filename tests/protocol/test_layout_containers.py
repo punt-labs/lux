@@ -19,10 +19,10 @@ from punt_lux.domain.validation_walk import HasChildElements
 from punt_lux.protocol.elements import Element
 from punt_lux.protocol.elements.layout import (
     LegacyCollapsingHeaderElement,
+    LegacyModalElement,
     LegacyTabBarElement,
-    ModalElement,
+    LegacyWindowElement,
     TreeElement,
-    WindowElement,
 )
 from punt_lux.protocol.elements.table import TableElement
 from punt_lux.protocol.elements.text import TextElement
@@ -31,7 +31,7 @@ from punt_lux.protocol.elements.text import TextElement
 class TestContainerChildElements:
     def test_window_exposes_children(self) -> None:
         child = TextElement(id="t", content="x")
-        window = WindowElement(id="w", children=[child])
+        window = LegacyWindowElement(id="w", children=[child])
         assert window.child_elements() == (child,)
 
     def test_collapsing_header_exposes_children(self) -> None:
@@ -41,7 +41,7 @@ class TestContainerChildElements:
 
     def test_modal_exposes_children(self) -> None:
         child = TextElement(id="t", content="x")
-        modal = ModalElement(id="m", children=[child])
+        modal = LegacyModalElement(id="m", children=[child])
         assert modal.child_elements() == (child,)
 
     def test_tab_bar_exposes_every_tab_child(self) -> None:
@@ -57,9 +57,9 @@ class TestContainerChildElements:
         assert tab_bar.child_elements() == (a, b)
 
     def test_empty_containers_have_no_children(self) -> None:
-        assert WindowElement(id="w").child_elements() == ()
+        assert LegacyWindowElement(id="w").child_elements() == ()
         assert LegacyCollapsingHeaderElement(id="ch").child_elements() == ()
-        assert ModalElement(id="m").child_elements() == ()
+        assert LegacyModalElement(id="m").child_elements() == ()
         assert LegacyTabBarElement(id="tb").child_elements() == ()
 
     def test_tree_exposes_no_child_elements(self) -> None:
@@ -177,9 +177,9 @@ class TestContainerContract:
     def test_derivation_finds_the_known_containers(self) -> None:
         found = set(_container_element_classes())
         expected = {
-            WindowElement,
+            LegacyWindowElement,
             LegacyCollapsingHeaderElement,
-            ModalElement,
+            LegacyModalElement,
             LegacyTabBarElement,
             TreeElement,
         }

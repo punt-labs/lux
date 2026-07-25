@@ -52,13 +52,14 @@ from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.layout import (
     LegacyCollapsingHeaderElement,
     LegacyGroupElement,
+    LegacyModalElement,
     LegacyTabBarElement,
-    ModalElement,
+    LegacyWindowElement,
     TreeElement,
-    WindowElement,
     register_codecs as _register_layout,
 )
 from punt_lux.protocol.elements.markdown import MarkdownElement
+from punt_lux.protocol.elements.modal import ModalElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement
@@ -74,6 +75,7 @@ from punt_lux.protocol.elements.table import (
     register_codecs as _register_table,
 )
 from punt_lux.protocol.elements.text import TextElement
+from punt_lux.protocol.elements.window import WindowElement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 
 __all__ = [
@@ -92,7 +94,9 @@ __all__ = [
     "InputTextElement",
     "LegacyCollapsingHeaderElement",
     "LegacyGroupElement",
+    "LegacyModalElement",
     "LegacyTabBarElement",
+    "LegacyWindowElement",
     "MarkdownElement",
     "ModalElement",
     "PlotElement",
@@ -140,6 +144,7 @@ Element = (
     | CollapsingHeaderElement
     | LegacyCollapsingHeaderElement
     | WindowElement
+    | LegacyWindowElement
     | SelectableElement
     | TreeElement
     | TableElement
@@ -148,6 +153,7 @@ Element = (
     | SpinnerElement
     | MarkdownElement
     | ModalElement
+    | LegacyModalElement
 )
 
 

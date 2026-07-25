@@ -1,13 +1,14 @@
 # pyright: reportUnknownMemberType=false, reportUnknownVariableType=false
 # pyright: reportUnknownArgumentType=false, reportMissingModuleSource=false
-"""Render a ``ModalElement`` — a popup that blocks background interaction.
+"""Render a ``LegacyModalElement`` — a popup that blocks background interaction.
 
 Owns the modal open/dismiss latch and the child-recursion into the popup
 body. Split out of ``ElementRenderer`` so the general element dispatch and
 the modal subsystem each stay one responsibility (PY-IC-6). The latch lives
 in the injected ``WidgetState`` keyed by element id, so the renderer holds no
 frame-spanning state of its own; children recurse through the injected
-``render_child`` callback, never a dispatch table.
+``render_child`` callback, never a dispatch table. The ABC ``ModalElement``
+paints through ``ImGuiModalRenderer``; this renders the legacy fork.
 """
 
 from __future__ import annotations
@@ -19,11 +20,11 @@ from typing import TYPE_CHECKING, Self, final
 from imgui_bundle import imgui
 
 from punt_lux.protocol import RemoteEventHandlerInvocation
+from punt_lux.scene.widget_state import WidgetState
 
 if TYPE_CHECKING:
     from punt_lux.protocol import Element
-    from punt_lux.protocol.elements.layout import ModalElement
-    from punt_lux.scene import WidgetState
+    from punt_lux.protocol.elements.layout import LegacyModalElement
     from punt_lux.types import EmitEventFn
 
 __all__ = ["ModalRenderer"]
@@ -63,13 +64,15 @@ class ModalRenderer:
     def widget_state(self, value: WidgetState) -> None:
         self._widget_state = value
 
-    def render(self, elem: ModalElement) -> None:
+    def render(self, elem: LegacyModalElement) -> None:
         """Paint the modal, driving its open/dismiss latch and child body."""
         eid = elem.id
         title = elem.title or elem.id
-        popup_id = f"{title}##{eid}"
-        open_key = f"{eid}__open"
-        dismiss_key = f"{eid}__dismissed"
+        # Triple-hash pins the ImGui popup identity to the id, so a title change
+        # never re-hashes the popup and spuriously dismisses an open modal.
+        popup_id = f"{title}###{eid}"
+        open_key = f"{eid}{WidgetState.OPEN_SUFFIX}"
+        dismiss_key = f"{eid}{WidgetState.DISMISS_SUFFIX}"
 
         was_open = self._widget_state.ensure(open_key, _MODAL_CLOSED) == _MODAL_OPEN
         dismissed = self._widget_state.ensure(dismiss_key, _MODAL_CLOSED) == _MODAL_OPEN

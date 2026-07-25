@@ -24,10 +24,10 @@ from punt_lux.protocol import (
     GroupElement,
     LegacyCollapsingHeaderElement,
     LegacyGroupElement,
+    LegacyModalElement,
     LegacyTabBarElement,
-    ModalElement,
+    LegacyWindowElement,
     TextElement,
-    WindowElement,
 )
 from punt_lux.scene.element_walk import AbcNode, ListSlot, SceneTreeWalk
 
@@ -44,9 +44,9 @@ def _legacy_containers_with_child(child: TextElement) -> list[tuple[str, Element
             "tab_bar",
             LegacyTabBarElement(id="p", tabs=[{"label": "T", "children": [child]}]),
         ),
-        ("window", WindowElement(id="p", children=[child], title="W")),
+        ("window", LegacyWindowElement(id="p", children=[child], title="W")),
         ("collapsing_header", LegacyCollapsingHeaderElement(id="p", children=[child])),
-        ("modal", ModalElement(id="p", children=[child])),
+        ("modal", LegacyModalElement(id="p", children=[child])),
     ]
 
 

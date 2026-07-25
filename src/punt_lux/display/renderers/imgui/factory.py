@@ -24,6 +24,7 @@ from punt_lux.display.renderers.imgui.image import ImGuiImageRenderer
 from punt_lux.display.renderers.imgui.input_number import ImGuiInputNumberRenderer
 from punt_lux.display.renderers.imgui.input_text import ImGuiInputTextRenderer
 from punt_lux.display.renderers.imgui.markdown import ImGuiMarkdownRenderer
+from punt_lux.display.renderers.imgui.modal import ImGuiModalRenderer
 from punt_lux.display.renderers.imgui.progress import ImGuiProgressRenderer
 from punt_lux.display.renderers.imgui.radio import ImGuiRadioRenderer
 from punt_lux.display.renderers.imgui.selectable import ImGuiSelectableRenderer
@@ -32,6 +33,7 @@ from punt_lux.display.renderers.imgui.slider import ImGuiSliderRenderer
 from punt_lux.display.renderers.imgui.spinner import ImGuiSpinnerRenderer
 from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
+from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
 from punt_lux.display.renderers.tooltip_painter import TooltipPainter
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.protocol.elements.button import ButtonElement
@@ -45,6 +47,7 @@ from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.markdown import MarkdownElement
+from punt_lux.protocol.elements.modal import ModalElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement
@@ -53,6 +56,7 @@ from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.text import TextElement
+from punt_lux.protocol.elements.window import WindowElement
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -84,6 +88,8 @@ class ImGuiRendererFactory:
         (InputTextElement, ImGuiInputTextRenderer),
         (InputNumberElement, ImGuiInputNumberRenderer),
         (DialogElement, ImGuiDialogRenderer),
+        (ModalElement, ImGuiModalRenderer),
+        (WindowElement, ImGuiWindowRenderer),
         (GroupElement, ImGuiGroupRenderer),
         (CollapsingHeaderElement, ImGuiCollapsingHeaderRenderer),
         (TabBarElement, ImGuiTabBarRenderer),

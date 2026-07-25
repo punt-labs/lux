@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Self, cast
 
@@ -12,24 +13,21 @@ from punt_lux.protocol.elements.container_dispatch import dispatch as _dispatche
 __all__ = [
     "LegacyCollapsingHeaderElement",
     "LegacyGroupElement",
+    "LegacyModalElement",
     "LegacyTabBarElement",
-    "ModalElement",
+    "LegacyWindowElement",
     "TreeElement",
-    "WindowElement",
     "register_codecs",
 ]
 
 
 @dataclass(frozen=True, slots=True)
 class LegacyGroupElement:
-    """A layout container that arranges children in rows or columns.
+    """A layout container arranging children in rows, columns, or pages.
 
-    Layout modes:
-      - ``rows`` (default): vertical stack
-      - ``columns``: horizontal side-by-side
-      - ``paged``: combo-driven page switcher.  ``children`` are always
-        visible (header/nav), ``pages`` are indexed content panels
-        switched by the combo identified by ``page_source``.
+    ``rows`` (default) stacks vertically, ``columns`` side-by-side; ``paged`` is
+    a combo-driven switcher where ``children`` stay visible (header/nav) and
+    ``pages`` are indexed panels switched by the combo named in ``page_source``.
     """
 
     id: str
@@ -41,11 +39,10 @@ class LegacyGroupElement:
     tooltip: str | None = None
 
     def child_elements(self) -> tuple[object, ...]:
-        """Return direct children for the validation walk.
+        """Return direct children (visible plus every paged element) for the walk.
 
-        Includes both the always-visible ``children`` and every element
-        across ``pages`` — an invalid element hidden on a non-active page
-        is still installed into the scene and must be caught.
+        An invalid element hidden on a non-active page is still installed and
+        must be caught, so ``pages`` are walked too.
         """
         paged = [element for page in self.pages for element in page]
         return (*self.children, *paged)
@@ -83,36 +80,22 @@ class LegacyGroupElement:
     def decode_child(raw: dict[str, Any]) -> Any:
         """Decode one container child, forcing any nested container legacy.
 
-        A legacy container must never hold an ABC container — the legacy
-        render path has no adapter for one and would fall back to the
-        ``[unsupported element]`` placeholder. Routing a nested ``group`` or
-        ``collapsing_header`` straight to its legacy form keeps every
-        conditionally-ABC container inside a legacy subtree legacy, so an ABC
-        container can never nest inside a legacy one. Other children decode
-        through the shared dispatcher, where migrated leaves (text, button, …)
-        still decode to their ABC form.
-
-        Shared by every legacy container codec in this module (tab-bar,
-        window, header, modal) so the invariant holds at every nesting site.
+        A legacy container must never hold an ABC container (the legacy renderer
+        has no adapter for one). Forcing a nested conditionally-ABC container to
+        its legacy form keeps the whole subtree legacy; other children decode
+        through the shared dispatcher, where migrated leaves still cross to ABC.
         """
         kind = raw.get("kind")
-        if kind == "group":
-            return LegacyGroupElement.from_dict(raw)
-        if kind == "collapsing_header":
-            return LegacyCollapsingHeaderElement.from_dict(raw)
-        if kind == "tab_bar":
-            return LegacyTabBarElement.from_dict(raw)
-        return _dispatchers.from_dict(raw)
+        forced = _LEGACY_CONTAINER_DECODERS.get(kind) if isinstance(kind, str) else None
+        return forced(raw) if forced is not None else _dispatchers.from_dict(raw)
 
 
 @dataclass(frozen=True, slots=True)
 class LegacyTabBarElement:
-    """A tabbed container. Each tab has a label and child elements.
+    """The legacy dataclass fork of ``tab_bar`` (fork-don't-mix).
 
-    The legacy dataclass path (fork-don't-mix): a ``tab_bar`` whose
-    subtree is not entirely migrated-ABC, or one nested inside a legacy
-    container, decodes onto this class. The ABC ``TabBarElement`` takes the
-    canonical name.
+    Decoded when a ``tab_bar``'s subtree is not all-ABC or it nests inside a
+    legacy container; the ABC ``TabBarElement`` takes the canonical name.
     """
 
     id: str
@@ -155,12 +138,10 @@ class LegacyTabBarElement:
 
 @dataclass(frozen=True, slots=True)
 class LegacyCollapsingHeaderElement:
-    """A collapsible section with a label and child elements.
+    """The legacy dataclass fork of ``collapsing_header`` (fork-don't-mix).
 
-    The legacy dataclass path (fork-don't-mix): a
-    ``collapsing_header`` whose subtree is not entirely migrated-ABC, or one
-    nested inside a legacy container, decodes onto this class. The ABC
-    ``CollapsingHeaderElement`` takes the canonical name.
+    Decoded when the subtree is not all-ABC or it nests inside a legacy
+    container; the ABC ``CollapsingHeaderElement`` takes the canonical name.
     """
 
     id: str
@@ -200,8 +181,12 @@ class LegacyCollapsingHeaderElement:
 
 
 @dataclass(frozen=True, slots=True)
-class WindowElement:
-    """A movable, resizable sub-window inside the display."""
+class LegacyWindowElement:
+    """The legacy dataclass fork of ``window`` — a movable, resizable sub-window.
+
+    Decoded when a ``window``'s subtree is not all-ABC or it nests inside a legacy
+    container; the ABC ``WindowElement`` takes the canonical name.
+    """
 
     id: str
     kind: Literal["window"] = "window"
@@ -275,14 +260,11 @@ class WindowElement:
 class TreeElement:
     """A collapsible tree with recursive nodes.
 
-    Each node in ``nodes`` is a dict with ``"label"`` (str) and optional
-    ``"children"`` (list of nodes).  Leaf nodes omit ``"children"`` or
-    use an empty list.
-
-    When ``flat`` is True, children render without indentation: branch
-    nodes use ``NoTreePushOnOpen`` (arrow toggles but no indent push),
-    and leaf nodes render as selectable items instead of tree leaves.
-    Useful for inline disclosure patterns where horizontal space is tight.
+    Each node in ``nodes`` is a dict with a ``"label"`` (str) and optional
+    ``"children"`` (list of nodes). When ``flat`` is True, children render
+    without indentation (branch nodes toggle via ``NoTreePushOnOpen``, leaves
+    render as selectable items) — an inline disclosure for tight horizontal
+    space.
     """
 
     id: str
@@ -295,19 +277,16 @@ class TreeElement:
     def child_elements(self) -> tuple[object, ...]:
         """Return no child elements — a tree's nodes are plain mappings.
 
-        Tree nodes carry ``label`` / ``children`` data, not nested Lux
-        elements, so the walk has nothing to recurse into. The node
-        structure is checked by :meth:`validate` instead.
+        Nodes carry ``label`` / ``children`` data, not Lux elements, so the walk
+        has nothing to recurse into; :meth:`validate` checks the node structure.
         """
         return ()
 
     def validate(self) -> tuple[ValidationError, ...]:
         """Return errors where a node is not a labeled mapping.
 
-        Component-appropriate structural check for a *tree*: every node
-        must be a mapping carrying a string ``label``, and a node's
-        optional ``children`` must be a list obeying the same rule at
-        every depth. Malformed nodes are reported, never dropped.
+        Every node must be a mapping carrying a string ``label``; an optional
+        ``children`` list obeys the same rule at every depth. Reported, not dropped.
         """
         return tuple(self._node_errors(self.nodes))
 
@@ -369,12 +348,12 @@ class TreeElement:
 
 
 @dataclass(frozen=True, slots=True)
-class ModalElement:
-    """A modal popup dialog that blocks interaction with background content.
+class LegacyModalElement:
+    """The legacy dataclass fork of ``modal`` (fork-don't-mix).
 
-    Set ``open=True`` to show the modal.  Children render inside.
-    The display emits a ``"closed"`` event when the user dismisses it
-    (Escape or X button).  Button clicks inside fire normal button events.
+    Decoded when a ``modal``'s subtree is not entirely migrated-ABC or it nests
+    inside a legacy container; the ABC ``ModalElement`` takes the canonical name.
+    ``open=True`` shows the popup; the display emits ``"closed"`` on dismiss.
     """
 
     id: str
@@ -411,6 +390,17 @@ class ModalElement:
         )
 
 
+# Conditionally-ABC container kinds forced legacy when nested in a legacy subtree
+# — data-driven (Open-Closed): a new such kind is one entry, not another branch.
+_LEGACY_CONTAINER_DECODERS: dict[str, Callable[[dict[str, Any]], Any]] = {
+    "group": LegacyGroupElement.from_dict,
+    "collapsing_header": LegacyCollapsingHeaderElement.from_dict,
+    "tab_bar": LegacyTabBarElement.from_dict,
+    "modal": LegacyModalElement.from_dict,
+    "window": LegacyWindowElement.from_dict,
+}
+
+
 def register_codecs(register: Register) -> None:
     """Register this module's element codecs into an ElementCodec."""
     register(
@@ -431,6 +421,16 @@ def register_codecs(register: Register) -> None:
         LegacyCollapsingHeaderElement.to_dict,
         LegacyCollapsingHeaderElement.from_dict,
     )
-    register("window", WindowElement, WindowElement.to_dict, WindowElement.from_dict)
+    register(
+        "window",
+        LegacyWindowElement,
+        LegacyWindowElement.to_dict,
+        LegacyWindowElement.from_dict,
+    )
     register("tree", TreeElement, TreeElement.to_dict, TreeElement.from_dict)
-    register("modal", ModalElement, ModalElement.to_dict, ModalElement.from_dict)
+    register(
+        "modal",
+        LegacyModalElement,
+        LegacyModalElement.to_dict,
+        LegacyModalElement.from_dict,
+    )

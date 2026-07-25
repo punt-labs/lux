@@ -8,8 +8,8 @@ from itertools import chain
 from typing import Self
 
 from punt_lux.protocol import (
+    LegacyWindowElement,
     SceneMessage,
-    WindowElement,
 )
 from punt_lux.scene.element_walk import SceneTreeWalk
 from punt_lux.scene.frame import Frame
@@ -124,7 +124,7 @@ class SceneManager:
             self._scene_widget_state[msg.id] = WidgetState()
             self._active_tab = msg.id
             for elem in msg.elements:
-                if isinstance(elem, WindowElement):
+                if isinstance(elem, LegacyWindowElement):
                     self._dirty_windows.add(elem.id)
         else:
             self._replace_scene_state(msg, old_scene)
@@ -173,7 +173,7 @@ class SceneManager:
             frame.active_tab = msg.id
             self._book.set_frame(msg.id, frame.frame_id)
             for elem in msg.elements:
-                if isinstance(elem, WindowElement):
+                if isinstance(elem, LegacyWindowElement):
                     self._dirty_windows.add(elem.id)
         else:
             self._replace_scene_state(msg, old_scene)
@@ -193,7 +193,7 @@ class SceneManager:
         dismissed = self._scenes.pop(scene_id, None)
         if dismissed is not None:
             for elem in dismissed.elements:
-                if isinstance(elem, WindowElement):
+                if isinstance(elem, LegacyWindowElement):
                     self._dirty_windows.discard(elem.id)
             self._notify_stale(self._element_ids(dismissed.elements))
         self._scene_order = [s for s in old_order if s != scene_id]

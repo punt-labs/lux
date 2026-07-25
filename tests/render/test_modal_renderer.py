@@ -13,7 +13,7 @@ from unittest.mock import MagicMock, call
 
 from punt_lux.display.renderers.leaf_widget_renderer import LeafWidgetRenderer
 from punt_lux.display.renderers.modal_renderer import ModalRenderer
-from punt_lux.protocol.elements.layout import ModalElement
+from punt_lux.protocol.elements.layout import LegacyModalElement
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.scene.widget_state import WidgetState
 
@@ -48,12 +48,12 @@ def test_open_frame_opens_popup_and_renders_children(
     ws = WidgetState()
     children: list[object] = []
     child = TextElement(id="c", content="hi")
-    modal = ModalElement(id="m", title="Confirm", open=True, children=[child])
+    modal = LegacyModalElement(id="m", title="Confirm", open=True, children=[child])
 
     ModalRenderer(ws, lambda _msg: None, children.append).render(modal)
 
-    imgui.open_popup.assert_called_once_with("Confirm##m")
-    imgui.begin_popup_modal.assert_called_once_with("Confirm##m", True)
+    imgui.open_popup.assert_called_once_with("Confirm###m")
+    imgui.begin_popup_modal.assert_called_once_with("Confirm###m", True)
     assert ws.get("m__open") == 1
     assert children == [child]
     imgui.end_popup.assert_called_once()
@@ -66,7 +66,7 @@ def test_dismiss_cycle_latches_and_emits_closed(
     _patch(monkeypatch, imgui)
     ws = WidgetState()
     events: list[RemoteEventHandlerInvocation] = []
-    modal = ModalElement(id="m", title="Confirm", open=True)
+    modal = LegacyModalElement(id="m", title="Confirm", open=True)
     renderer = ModalRenderer(ws, events.append, lambda _child: None)
 
     # Frame 1: agent opens the modal.
@@ -91,7 +91,7 @@ def test_agent_close_clears_latches(monkeypatch: pytest.MonkeyPatch) -> None:
     ws = WidgetState()
     ws.set("m__open", 1)
     ws.set("m__dismissed", 1)
-    modal = ModalElement(id="m", title="Confirm", open=False)
+    modal = LegacyModalElement(id="m", title="Confirm", open=False)
 
     ModalRenderer(ws, lambda _msg: None, lambda _child: None).render(modal)
 
@@ -106,7 +106,7 @@ def test_dismissed_modal_does_not_reopen(monkeypatch: pytest.MonkeyPatch) -> Non
     _patch(monkeypatch, imgui)
     ws = WidgetState()
     ws.set("m__dismissed", 1)  # user already dismissed, agent has not acked
-    modal = ModalElement(id="m", title="Confirm", open=True)
+    modal = LegacyModalElement(id="m", title="Confirm", open=True)
 
     ModalRenderer(ws, lambda _msg: None, lambda _child: None).render(modal)
 
@@ -119,7 +119,7 @@ def test_default_title_falls_back_to_id(monkeypatch: pytest.MonkeyPatch) -> None
     _patch(monkeypatch, imgui)
 
     ModalRenderer(WidgetState(), lambda _msg: None, lambda _child: None).render(
-        ModalElement(id="m", open=True)
+        LegacyModalElement(id="m", open=True)
     )
 
-    assert imgui.begin_popup_modal.call_args == call("m##m", True)
+    assert imgui.begin_popup_modal.call_args == call("m###m", True)

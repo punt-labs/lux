@@ -30,7 +30,7 @@ from punt_lux.display.texture_cache import TextureCache
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.dialog import DialogElement
-from punt_lux.protocol.elements.layout import LegacyGroupElement, WindowElement
+from punt_lux.protocol.elements.layout import LegacyGroupElement, LegacyWindowElement
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.scene.widget_state import WidgetState
@@ -90,7 +90,7 @@ def test_group_leaves_route_through_the_factory_adapter() -> None:
 def test_window_leaf_routes_through_the_factory_adapter() -> None:
     er = _renderer()
     button = ButtonElement(id="wb", label="Go")
-    window = WindowElement(id="w", children=[button])
+    window = LegacyWindowElement(id="w", children=[button])
     factory = er.imgui_renderer_factory
 
     child = window.children[0]

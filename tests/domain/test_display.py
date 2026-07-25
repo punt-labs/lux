@@ -14,6 +14,7 @@ from typing import Literal, Self
 import pytest
 
 from punt_lux.domain import ClientId, ElementId, SceneId
+from punt_lux.domain.container_interaction import ModalClosed
 from punt_lux.domain.display import Display
 from punt_lux.domain.error import (
     DuplicateIdError,
@@ -37,7 +38,7 @@ from punt_lux.domain.interaction_errors import (
 from punt_lux.domain.ownership import OwnershipError
 from punt_lux.domain.snapshot import SceneSnapshot
 from punt_lux.domain.update import AddElement, RemoveElement, SetProperty
-from punt_lux.protocol.elements import CheckboxElement
+from punt_lux.protocol.elements import ButtonElement, CheckboxElement, ModalElement
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 
 
@@ -588,6 +589,7 @@ def _click_msg(
     return RemoteEventHandlerInvocation(
         element_id=element_id,
         action=element_id,
+        event_kind="button_clicked",
         value=True,
         scene_id=scene_id,
     )
@@ -602,7 +604,7 @@ def test_interact_button_returns_typed_button_clicked() -> None:
         alice,
         AddElement(
             scene_id=SceneId("s1"),
-            element=_Button(id=ElementId("b1"), label="OK"),
+            element=ButtonElement(id="b1", label="OK"),
         ),
     )
 
@@ -634,7 +636,11 @@ def test_interact_checkbox_returns_value_changed_and_fires_handler() -> None:
     event = display.interact(
         alice,
         RemoteEventHandlerInvocation(
-            element_id="c1", action="changed", value=True, scene_id="s1"
+            element_id="c1",
+            action="changed",
+            event_kind="value_changed",
+            value=True,
+            scene_id="s1",
         ),
     )
 
@@ -645,8 +651,14 @@ def test_interact_checkbox_returns_value_changed_and_fires_handler() -> None:
     assert observed == [event]  # fired exactly once on the real ABC element
 
 
-def test_interact_checkbox_rejects_non_bool_value() -> None:
-    """A checkbox toggle with a non-bool wire value is a WrongKindError."""
+def test_interact_value_changed_rejects_non_scalar_value() -> None:
+    """A value_changed payload that is not a scalar is a WrongKindError.
+
+    ``ValueChanged.from_wire`` validates the shared value-input shape — a JSON
+    scalar — at the boundary; a non-scalar (here a list) is denied. The precise
+    per-kind shape (a checkbox's ``bool``) is the element's own DES-039 invariant,
+    enforced when its setter applies the patch, not re-checked here.
+    """
     display = Display()
     alice = display.connect_client(name="alice")
     display.add_scene(SceneId("s1"))
@@ -662,9 +674,48 @@ def test_interact_checkbox_rejects_non_bool_value() -> None:
         display.interact(
             alice,
             RemoteEventHandlerInvocation(
-                element_id="c1", action="changed", value="yes", scene_id="s1"
+                element_id="c1",
+                action="changed",
+                event_kind="value_changed",
+                value=[1, 2],
+                scene_id="s1",
             ),
         )
+
+
+def test_interact_modal_returns_modal_closed_and_fires_handler() -> None:
+    """A close on the migrated ModalElement yields ModalClosed and fires.
+
+    The Hub resolves the modal and asks it to build its own event from the wire
+    payload (``build_remote_event`` → ``ModalClosed.from_wire``); ``Display.interact``
+    fires it on the real ABC copy — the same resolve→build→re-dispatch leg the
+    button and checkbox exemplars prove.
+    """
+    display = Display()
+    alice = display.connect_client(name="alice")
+    display.add_scene(SceneId("s1"))
+    modal = ModalElement(id="m1", title="Confirm")
+    display.apply(alice, AddElement(scene_id=SceneId("s1"), element=modal))
+
+    observed: list[ModalClosed] = []
+    modal.add_handler(ModalClosed, observed.append)
+
+    event = display.interact(
+        alice,
+        RemoteEventHandlerInvocation(
+            element_id="m1",
+            action="closed",
+            event_kind="modal_closed",
+            value=None,
+            scene_id="s1",
+        ),
+    )
+
+    assert isinstance(event, ModalClosed)
+    assert event.owner_id == alice
+    assert event.element_id == ElementId("m1")
+    assert event.scene_id == SceneId("s1")
+    assert observed == [event]  # fired exactly once on the real ABC element
 
 
 def test_interact_does_not_fan_out_through_apply_subscribers() -> None:
@@ -680,7 +731,7 @@ def test_interact_does_not_fan_out_through_apply_subscribers() -> None:
         alice,
         AddElement(
             scene_id=SceneId("s1"),
-            element=_Button(id=ElementId("b1"), label="OK"),
+            element=ButtonElement(id="b1", label="OK"),
         ),
     )
     observed: list[Event] = []
@@ -765,24 +816,12 @@ def test_interact_validation_precedes_mutation() -> None:
     assert _button(before, ElementId("b1")) == _button(after, ElementId("b1"))
 
 
-def test_interact_raises_wrong_kind_for_non_button_element() -> None:
-    """A button-shaped click on a non-button element raises ``WrongKindError``."""
+def test_interact_denies_legacy_non_abc_element() -> None:
+    """A wire click at a legacy (non-ABC) element raises ``WrongKindError``.
 
-    @dataclass(frozen=True, slots=True)
-    class _Slider:
-        id: ElementId
-        label: str
-        value: float = 0.0
-        kind: Literal["slider"] = "slider"
-        tooltip: str | None = None
-
-        def to_dict(self) -> dict[str, object]:  # pragma: no cover — unused
-            return {"id": str(self.id), "kind": self.kind, "label": self.label}
-
-        @classmethod
-        def from_dict(cls, d: Mapping[str, object]) -> Self:  # pragma: no cover
-            return cls(id=ElementId(str(d["id"])), label=str(d.get("label", "")))
-
+    Only ABC elements declare interaction specs; a legacy wire dataclass fires
+    nothing, so the interaction is denied before any event is built.
+    """
     display = Display()
     alice = display.connect_client(name="alice")
     display.add_scene(SceneId("s1"))
@@ -790,22 +829,24 @@ def test_interact_raises_wrong_kind_for_non_button_element() -> None:
         alice,
         AddElement(
             scene_id=SceneId("s1"),
-            element=_Slider(id=ElementId("s1elem"), label="Vol"),
+            element=_Button(id=ElementId("b1"), label="Legacy"),
         ),
     )
 
     with pytest.raises(WrongKindError) as exc_info:
-        display.interact(alice, _click_msg("s1", "s1elem"))
+        display.interact(alice, _click_msg("s1", "b1"))
 
-    assert (
-        exc_info.value.expected
-        == "button, checkbox, input_text, collapsing_header, or tab_bar"
-    )
-    assert exc_info.value.got == "slider"
+    assert exc_info.value.expected == "an interactive element"
+    assert exc_info.value.got == "_Button"
 
 
-def test_interact_raises_wrong_kind_for_non_true_value_on_button() -> None:
-    """A button element addressed with ``value=False`` raises ``WrongKindError``."""
+def test_interact_denies_mismatched_event_kind() -> None:
+    """An event_kind the resolved element does not fire is denied by its specs.
+
+    A checkbox declares only ``value_changed``; a ``button_clicked`` invocation
+    matches no spec, so the element denies it — the WrongKindError names the
+    kinds the element does answer to.
+    """
     display = Display()
     alice = display.connect_client(name="alice")
     display.add_scene(SceneId("s1"))
@@ -813,15 +854,32 @@ def test_interact_raises_wrong_kind_for_non_true_value_on_button() -> None:
         alice,
         AddElement(
             scene_id=SceneId("s1"),
-            element=_Button(id=ElementId("b1"), label="OK"),
+            element=CheckboxElement(id="c1", label="Bold"),
         ),
     )
-    msg = RemoteEventHandlerInvocation(
-        element_id="b1",
-        action="b1",
-        value=False,
-        scene_id="s1",
+
+    with pytest.raises(WrongKindError) as exc_info:
+        display.interact(alice, _click_msg("s1", "c1"))
+
+    assert exc_info.value.expected == "value_changed"
+    assert exc_info.value.got == "'button_clicked'"
+
+
+def test_interact_denies_kindless_invocation() -> None:
+    """A kindless (event_kind=None) invocation matches no spec and is denied."""
+    display = Display()
+    alice = display.connect_client(name="alice")
+    display.add_scene(SceneId("s1"))
+    display.apply(
+        alice,
+        AddElement(
+            scene_id=SceneId("s1"),
+            element=ButtonElement(id="b1", label="OK"),
+        ),
+    )
+    kindless = RemoteEventHandlerInvocation(
+        element_id="b1", action="b1", value=True, scene_id="s1"
     )
 
     with pytest.raises(WrongKindError):
-        display.interact(alice, msg)
+        display.interact(alice, kindless)

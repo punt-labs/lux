@@ -9,11 +9,11 @@ from __future__ import annotations
 
 from punt_lux.protocol import (
     ButtonElement,
+    LegacyWindowElement,
     SceneMessage,
     SeparatorElement,
     TableElement,
     TextElement,
-    WindowElement,
 )
 from punt_lux.scene import SceneManager, WidgetState
 
@@ -108,7 +108,9 @@ class TestHandleSceneNew:
     def test_window_elements_marked_dirty(self) -> None:
         """Window elements in a new scene are added to _dirty_windows."""
         mgr, _ = _make_manager()
-        scene = _make_scene(elements=[WindowElement(id="w1", children=[], title="Win")])
+        scene = _make_scene(
+            elements=[LegacyWindowElement(id="w1", children=[], title="Win")]
+        )
 
         mgr.handle_scene(scene)
 
@@ -329,9 +331,11 @@ class TestDismissScene:
         assert len(mgr._scenes) == 0
 
     def test_dismiss_removes_window_dirty_flags(self) -> None:
-        """WindowElement dirty flags are cleaned when the scene is dismissed."""
+        """LegacyWindowElement dirty flags are cleaned when the scene is dismissed."""
         mgr, _ = _make_manager()
-        scene = _make_scene(elements=[WindowElement(id="w1", children=[], title="Win")])
+        scene = _make_scene(
+            elements=[LegacyWindowElement(id="w1", children=[], title="Win")]
+        )
         mgr.handle_scene(scene)
         assert "w1" in mgr._dirty_windows
 

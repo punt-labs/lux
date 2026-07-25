@@ -24,10 +24,8 @@ from punt_lux.protocol.elements import (
     ButtonElement,
     GroupElement,
     LegacyGroupElement,
-    ModalElement,
     TableElement,
     TextElement,
-    WindowElement,
 )
 from punt_lux.protocol.elements.group_codec import JsonGroupDecoder
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
@@ -119,25 +117,15 @@ def _table_wire() -> dict[str, Any]:
 
 # Each always-legacy container kind wrapping an all-ABC inner group, paired with
 # the concrete legacy class the whole tree must decode to. A ``group`` becomes
-# legacy only alongside a legacy sibling; ``tab_bar``, ``window``, and ``modal``
-# have no ABC form yet, so they are always legacy and force any nested group
-# legacy too. ``collapsing_header`` is now conditionally-ABC and has its own
-# fork-gate coverage in ``test_collapsing_header_element``.
+# legacy only alongside a legacy sibling; ``tab_bar`` has no ABC form yet, so it is
+# always legacy and forces any nested group legacy too. ``collapsing_header``,
+# ``modal``, and ``window`` are now conditionally-ABC and carry their own fork-gate
+# coverage in their per-kind migration-gate tests.
 _LEGACY_CONTAINER_CASES: tuple[tuple[str, dict[str, Any], type], ...] = (
     (
         "legacy_group",
         {"kind": "group", "id": "o", "children": [_table_wire(), _inner_abc_group()]},
         LegacyGroupElement,
-    ),
-    (
-        "window",
-        {"kind": "window", "id": "w", "children": [_inner_abc_group()]},
-        WindowElement,
-    ),
-    (
-        "modal",
-        {"kind": "modal", "id": "m", "children": [_inner_abc_group()]},
-        ModalElement,
     ),
 )
 

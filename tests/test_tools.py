@@ -38,6 +38,7 @@ from punt_lux.protocol import (
     GroupElement,
     InputTextElement,
     LegacyGroupElement,
+    LegacyWindowElement,
     MarkdownElement,
     PlotElement,
     PongMessage,
@@ -261,16 +262,16 @@ class TestElementFromDict:
         )
         assert isinstance(elem, WindowElement)
         assert elem.title == "Panel"
-        assert elem.x == 100
+        assert elem.placement.x == 100
         assert len(elem.children) == 1
 
     def test_window_defaults(self) -> None:
         elem = agent_element_factory().element_from_dict({"kind": "window", "id": "w1"})
         assert isinstance(elem, WindowElement)
         assert elem.title == ""
-        assert elem.width == 300.0
-        assert elem.no_move is False
-        assert elem.children == []
+        assert elem.placement.width == 300.0
+        assert elem.flags.no_move is False
+        assert elem.children == ()
 
     def test_selectable_element(self) -> None:
         elem = agent_element_factory().element_from_dict(
@@ -1098,7 +1099,7 @@ def _seed_legacy_window_with_child(
     can assert its identity survives a root patch.
     """
     child = PlotElement(id=child_id, title="Vol")
-    window = WindowElement(id=window_id, title=title, children=[child])
+    window = LegacyWindowElement(id=window_id, title=title, children=[child])
     store.replace_scene(
         ConnectionId(connection),
         SceneId(scene),
@@ -1517,7 +1518,9 @@ class TestUpdateTool:
         result = update("s1", [{"id": "w1", "set": {"title": "New"}}])
 
         assert result == "shown:s1"
-        window = cast("WindowElement", store.resolve(SceneId("s1"), ElementId("w1")))
+        window = cast(
+            "LegacyWindowElement", store.resolve(SceneId("s1"), ElementId("w1"))
+        )
         assert window.title == "New"
         # The child object survives the root patch by reference — same identity,
         # still resolvable by its stable id.
@@ -1783,7 +1786,9 @@ class TestUpdateTool:
         )
 
         assert result.startswith("error: scene not updated")
-        window = cast("WindowElement", store.resolve(SceneId("s1"), ElementId("w1")))
+        window = cast(
+            "LegacyWindowElement", store.resolve(SceneId("s1"), ElementId("w1"))
+        )
         assert window.title == "Old"
         assert window.children[0] is child
         client.show_async.assert_not_called()
@@ -1833,7 +1838,9 @@ class TestUpdateTool:
                 ],
             )
 
-        window = cast("WindowElement", store.resolve(SceneId("s1"), ElementId("w1")))
+        window = cast(
+            "LegacyWindowElement", store.resolve(SceneId("s1"), ElementId("w1"))
+        )
         assert window.title == "Old"
         assert window.children[0] is child
 

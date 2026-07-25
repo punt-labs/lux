@@ -1,10 +1,11 @@
-"""Typed interaction events for the Hub-authoritative container view-selections.
+"""Typed interaction events for the Hub-authoritative container interactions.
 
-Each interactive container owns one agent-drivable selection: a
-``collapsing_header``'s open state (``HeaderToggled``) or a ``tab_bar``'s active
-tab (``TabChanged``). A gesture routes it down the same remote-dispatch path as
-``ButtonClicked`` — the Hub updates the authoritative selection and re-pushes.
-Kept apart from the ``interaction`` leaf events so no module exceeds three classes.
+Each interactive container routes one gesture down the same remote-dispatch path
+as ``ButtonClicked``: a ``collapsing_header``'s open state (``HeaderToggled``), a
+``tab_bar``'s active tab (``TabChanged``), or a ``modal``'s user dismissal
+(``ModalClosed``). The Hub runs the container's authoritative reaction — mirror
+the selection, or dismiss the modal — and re-pushes. Kept apart from the
+``interaction`` leaf events so no module exceeds three classes.
 """
 
 from __future__ import annotations
@@ -13,8 +14,9 @@ from dataclasses import dataclass
 from typing import ClassVar, Literal, Self
 
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
+from punt_lux.domain.interaction_errors import WrongKindError
 
-__all__ = ["HeaderToggled", "TabChanged"]
+__all__ = ["HeaderToggled", "ModalClosed", "TabChanged"]
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -47,6 +49,30 @@ class TabChanged:
         object.__setattr__(self, "owner_id", owner_id)
         object.__setattr__(self, "tab_id", tab_id)
         return self
+
+    @classmethod
+    def from_wire(
+        cls,
+        *,
+        scene_id: SceneId,
+        element_id: ElementId,
+        owner_id: ClientId,
+        value: object,
+    ) -> Self:
+        """Build the tab-change event; the payload must be the new tab's id."""
+        if not isinstance(value, str):
+            raise WrongKindError(
+                scene_id=scene_id,
+                element_id=element_id,
+                expected="a tab_changed payload (str tab_id)",
+                got=type(value).__name__,
+            )
+        return cls(
+            scene_id=scene_id,
+            element_id=element_id,
+            owner_id=owner_id,
+            tab_id=value,
+        )
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -82,3 +108,71 @@ class HeaderToggled:
         object.__setattr__(self, "owner_id", owner_id)
         object.__setattr__(self, "open", open_)
         return self
+
+    @classmethod
+    def from_wire(
+        cls,
+        *,
+        scene_id: SceneId,
+        element_id: ElementId,
+        owner_id: ClientId,
+        value: object,
+    ) -> Self:
+        """Build the header-toggle event; the payload must be the new open state."""
+        if not isinstance(value, bool):
+            raise WrongKindError(
+                scene_id=scene_id,
+                element_id=element_id,
+                expected="a header_toggled payload (bool open state)",
+                got=type(value).__name__,
+            )
+        return cls(
+            scene_id=scene_id,
+            element_id=element_id,
+            owner_id=owner_id,
+            open_=value,
+        )
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ModalClosed:
+    """A typed dismissal event for a ``modal`` — the user closed it.
+
+    Unlike the other container events it carries no selection payload: a close
+    has no value beyond "it happened". Routed down the same remote-dispatch path
+    as ``ButtonClicked``, the Hub fires the modal's built-in dismiss handler
+    (``model.close`` -> ``mark_removed``) so the removal cascade drops the modal
+    from both tiers. Same ``init=False`` + ``__new__`` construction as the
+    leaf events.
+    """
+
+    scene_id: SceneId
+    element_id: ElementId
+    owner_id: ClientId
+    kind: ClassVar[Literal["modal_closed"]] = "modal_closed"
+
+    def __new__(
+        cls,
+        *,
+        scene_id: SceneId,
+        element_id: ElementId,
+        owner_id: ClientId,
+    ) -> Self:
+        self = object.__new__(cls)
+        object.__setattr__(self, "scene_id", scene_id)
+        object.__setattr__(self, "element_id", element_id)
+        object.__setattr__(self, "owner_id", owner_id)
+        return self
+
+    @classmethod
+    def from_wire(
+        cls,
+        *,
+        scene_id: SceneId,
+        element_id: ElementId,
+        owner_id: ClientId,
+        value: object,
+    ) -> Self:
+        """Build the dismissal event; a close carries no payload, so ignore value."""
+        _ = value  # payload-less event; the shared WireEvent signature carries it
+        return cls(scene_id=scene_id, element_id=element_id, owner_id=owner_id)

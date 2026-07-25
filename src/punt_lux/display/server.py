@@ -28,6 +28,7 @@ from punt_lux.display.domain_pump import DomainPump
 from punt_lux.display.element_renderer import ElementRenderer
 from punt_lux.display.glfw_window import GlfwWindow
 from punt_lux.display.idle_screen import render_idle
+from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import hide_from_dock_and_cmd_tab
 from punt_lux.display.menu_manager import MenuManager
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
@@ -132,6 +133,7 @@ class DisplayServer:
     _domain_client_id: ClientId
     _domain_pump: DomainPump
     _event_queue: list[RemoteEventHandlerInvocation]
+    _interaction_delivery: InteractionDelivery
     _textures: TextureCache
     _table_renderer: TableRenderer
     _widget_state: WidgetState
@@ -215,6 +217,11 @@ class DisplayServer:
             on_message=self._handle_message,
             on_client_disconnected=self._on_client_disconnected,
             on_error=self._query_dispatcher.record_error,
+        )
+        self._interaction_delivery = InteractionDelivery(
+            socket_server=self._socket_server,
+            menu_manager=self._menu_manager,
+            scene_manager=self._scene_manager,
         )
         # Install the luxd-tier element factory so inbound scene
         # decoding (via reader.drain_typed → _scene_from_dict →
@@ -931,6 +938,7 @@ class DisplayServer:
                     RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
+                        event_kind="value_changed",
                         ts=time.time(),
                         value=val,
                     )
@@ -946,17 +954,16 @@ class DisplayServer:
                     )
                 )
             elif isinstance(elem, ComboElement):
-                item_text = (
-                    elem.items[elem.selected]
-                    if 0 <= elem.selected < len(elem.items)
-                    else ""
-                )
+                # The ABC combo fires ValueChanged carrying the selected index
+                # (a scalar) — matching ComboRenderer, not the legacy index/item
+                # dict, which value_changed no longer accepts.
                 self._emit_event(
                     RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
+                        event_kind="value_changed",
                         ts=time.time(),
-                        value={"index": elem.selected, "item": item_text},
+                        value=elem.selected,
                     )
                 )
             elif isinstance(elem, InputTextElement):
@@ -964,22 +971,19 @@ class DisplayServer:
                     RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
+                        event_kind="value_changed",
                         ts=time.time(),
                         value=elem.value,
                     )
                 )
             elif isinstance(elem, RadioElement):
-                item_text = (
-                    elem.items[elem.selected]
-                    if 0 <= elem.selected < len(elem.items)
-                    else ""
-                )
                 self._emit_event(
                     RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
+                        event_kind="value_changed",
                         ts=time.time(),
-                        value={"index": elem.selected, "item": item_text},
+                        value=elem.selected,
                     )
                 )
             elif isinstance(elem, ColorPickerElement):
@@ -987,6 +991,7 @@ class DisplayServer:
                     RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="changed",
+                        event_kind="value_changed",
                         ts=time.time(),
                         value=elem.value,
                     )
@@ -996,6 +1001,7 @@ class DisplayServer:
                     RemoteEventHandlerInvocation(
                         element_id=elem.id,
                         action="clicked",
+                        event_kind="value_changed",
                         ts=time.time(),
                         value=not elem.selected,
                     )
@@ -1472,34 +1478,24 @@ class DisplayServer:
                 }
             )
 
-    @trace
-    def _dispatch_queued_events(self) -> None:
-        """Send queued events to the owning client or broadcast."""
-        for event in self._event_queue:
-            is_world_menu = (
-                event.action == "menu"
-                and isinstance(event.value, dict)
-                and event.value.get("menu") == "World"
-            )
-            owner_fd = (
-                self._menu_manager.menu_owners.get(event.element_id)
-                if is_world_menu
-                else None
-            )
-            if owner_fd is None and event.scene_id:
-                owner_fd = self._scene_manager.scene_to_owner.get(event.scene_id)
-            if owner_fd is not None:
-                target = self._socket_server.fd_to_client.get(owner_fd)
-                if target is not None:
-                    self._socket_server.send_to_client(target, event)
-            else:
-                for client in list(self._socket_server.clients):
-                    self._socket_server.send_to_client(client, event)
-
     def _flush_events(self) -> None:
+        """Send queued interactions to the Hub, then compensate the undelivered.
+
+        Delivery is delegated to ``InteractionDelivery``; an undeliverable
+        ``modal_closed`` reopens the optimistically-dismissed popup so the two
+        tiers never silently diverge (see ``revert_modal_dismissals``).
+        """
         if not self._event_queue:
             return
         self._record_queued_events()
         if self._socket_server.clients:
-            self._dispatch_queued_events()
+            undelivered = self._interaction_delivery.deliver(self._event_queue)
+        else:
+            undelivered = list(self._event_queue)
+            logger.warning(
+                "no display client connected; dropping %d queued interaction(s): %s",
+                len(undelivered),
+                [f"{ev.element_id}:{ev.event_kind}" for ev in undelivered],
+            )
+        self._interaction_delivery.revert_modal_dismissals(undelivered)
         self._event_queue.clear()

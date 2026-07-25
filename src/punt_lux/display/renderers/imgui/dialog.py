@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, ClassVar, Self, final
 
 from imgui_bundle import imgui
 
+from punt_lux.scene.widget_state import WidgetState
+
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
     from punt_lux.protocol.elements.dialog import DialogElement
@@ -36,10 +38,6 @@ class ImGuiDialogRenderer:
     _open_key: str
     _dismiss_key: str
 
-    # Widget-state latch keys — matching the legacy modal flow so a scene
-    # that previously opened a modal under the same id keeps its dismiss state.
-    _OPEN_KEY_SUFFIX: ClassVar[str] = "__open"
-    _DISMISS_KEY_SUFFIX: ClassVar[str] = "__dismissed"
     _OPEN: ClassVar[int] = 1
     _CLOSED: ClassVar[int] = 0
 
@@ -48,8 +46,10 @@ class ImGuiDialogRenderer:
         self._elem = elem
         self._factory = factory
         self._was_open = False
-        self._open_key = f"{elem.id}{cls._OPEN_KEY_SUFFIX}"
-        self._dismiss_key = f"{elem.id}{cls._DISMISS_KEY_SUFFIX}"
+        # Latch keys share WidgetState's suffixes so a re-added same-id dialog
+        # reopens (WidgetState.discard_for clears the same keys).
+        self._open_key = f"{elem.id}{WidgetState.OPEN_SUFFIX}"
+        self._dismiss_key = f"{elem.id}{WidgetState.DISMISS_SUFFIX}"
         return self
 
     def begin(self) -> bool:
@@ -71,7 +71,10 @@ class ImGuiDialogRenderer:
             return False
 
         title = self._elem.title or self._elem.id
-        popup_id = f"{title}##{self._elem.id}"
+        # Triple-hash pins the ImGui popup identity to the element id alone, so a
+        # title change never re-hashes the popup and spuriously dismisses an open
+        # dialog (the same fix the modal adapter carries).
+        popup_id = f"{title}###{self._elem.id}"
         if not was_open and not dismissed:
             imgui.open_popup(popup_id)
             ws.set(self._open_key, self._OPEN)

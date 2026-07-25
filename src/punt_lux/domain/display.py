@@ -54,10 +54,7 @@ from punt_lux.domain.interaction_errors import (
     UnknownClientError,
     UnknownInteractionElementError,
     UnknownInteractionSceneError,
-)
-from punt_lux.domain.interaction_event_builder import (
-    InteractionEventBuilder,
-    TypedInteraction,
+    WrongKindError,
 )
 from punt_lux.domain.ownership import OwnershipError
 from punt_lux.domain.snapshot import SceneSnapshot
@@ -66,6 +63,7 @@ from punt_lux.domain.update import AddElement, RemoveElement, SetProperty, Updat
 
 if TYPE_CHECKING:
     from punt_lux.domain.element import Element
+    from punt_lux.domain.event_protocol import WireEvent
     from punt_lux.protocol.messages.remote_invocation import (
         RemoteEventHandlerInvocation,
     )
@@ -76,10 +74,6 @@ logger = logging.getLogger(__name__)
 
 type EventCallback = Callable[[Event], None]
 type Result = Event | Error
-
-# Stateless — one shared builder maps an element kind + wire value to its
-# typed interaction event for every ``interact`` call.
-_INTERACTION_EVENT_BUILDER = InteractionEventBuilder()
 
 
 class Display:
@@ -257,21 +251,16 @@ class Display:
         self,
         client_id: ClientId,
         msg: RemoteEventHandlerInvocation,
-    ) -> TypedInteraction:
-        """Validate the wire message, construct the typed event, fire it.
+    ) -> WireEvent:
+        """Validate the wire message, ask the element to build its event, fire it.
 
-        Callers must pass a wire-shape-valid message: ``msg.action`` is
-        an element action (not ``"menu"`` or ``"frame_close"``) and
-        ``msg.scene_id`` is not ``None``. The pump enforces those
-        wire-shape preconditions before invoking this method; direct
-        callers must do the same.
-
-        Raises ``UnknownClientError`` / ``UnknownInteractionSceneError``
-        / ``UnknownInteractionElementError`` /
-        ``UnauthorizedInteractionError`` / ``WrongKindError`` on any
-        domain validation failure. Returns the constructed event
-        (``ButtonClicked`` for a button, ``ValueChanged`` for a checkbox)
-        after dispatching it through the resolved Element's handler registry.
+        Callers must pass a wire-shape-valid message: ``msg.action`` is an element
+        action (not ``"menu"`` or ``"frame_close"``) and ``msg.scene_id`` is not
+        ``None``; the pump enforces those before invoking this method. The resolved
+        element builds its own typed event (``build_remote_event``) — the same
+        element-owned declaration the Hub dispatch uses, not duplicated here — and
+        the fired event is returned. Raises an ``InteractionError`` subclass
+        (``UnknownClientError``, ``WrongKindError``, …) on any validation failure.
         """
         if not self.is_client(client_id):
             raise UnknownClientError(client_id=client_id)
@@ -303,15 +292,22 @@ class Display:
                 element_id=element_id,
                 dismissed_id=dismissed,
             )
-        event = _INTERACTION_EVENT_BUILDER.build(
-            element=element,
+        if not isinstance(element, ElementABC):
+            # Only ABC elements declare interaction specs; a legacy wire
+            # dataclass fires nothing, so a wire click at one is denied.
+            raise WrongKindError(
+                scene_id=scene_id,
+                element_id=element_id,
+                expected="an interactive element",
+                got=type(element).__name__,
+            )
+        event = element.build_remote_event(
+            event_kind=msg.event_kind,
             scene_id=scene_id,
-            element_id=element_id,
             owner_id=client_id,
             value=msg.value,
         )
-        if isinstance(element, ElementABC):
-            element.fire(event)
+        element.fire(event)
         return event
 
     def _dismissed_ancestor(

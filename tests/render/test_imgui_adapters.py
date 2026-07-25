@@ -284,3 +284,24 @@ def test_dialog_end_does_not_dismiss_a_never_opened_dialog() -> None:
     assert dialog.visible is True
     assert dialog.removed is False
     assert removed == []
+
+
+def test_dialog_popup_id_pins_identity_with_triple_hash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The dialog popup identity is the element id alone (###).
+
+    Triple-hash keeps ImGui's popup identity stable across a title change, so a
+    re-title never re-hashes the popup and spuriously dismisses an open dialog —
+    the same fix the modal adapter carries. Under the old ``##`` identity the
+    label was part of the identity and a rename read as an external close.
+    """
+    imgui = MagicMock()
+    imgui.begin_popup_modal.return_value = (False, False)
+    monkeypatch.setattr("punt_lux.display.renderers.imgui.dialog.imgui", imgui)
+    dialog = DialogElement(id="dlg", title="Confirm")
+
+    ImGuiDialogRenderer(dialog, _factory()).begin()
+
+    imgui.open_popup.assert_called_once_with("Confirm###dlg")
+    imgui.begin_popup_modal.assert_called_once_with("Confirm###dlg", True)
