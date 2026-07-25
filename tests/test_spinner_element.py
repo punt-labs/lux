@@ -144,6 +144,13 @@ class TestSelfValidation:
         )
         assert not result.ok
 
+    def test_nan_radius_fails_the_tree_walk(self) -> None:
+        """A NaN radius is unpaintable — validate() flags it and the walk fails."""
+        result = ElementTreeValidator().validate_tree(
+            [SpinnerElement(id="sp1", radius=float("nan"))]
+        )
+        assert not result.ok
+
 
 # -- Level 2: pickle scene wire ---------------------------------------------
 
@@ -234,6 +241,11 @@ class TestPatchPath:
         spinner = SpinnerElement(id="sp1")
         with pytest.raises(ValueError, match="radius must be positive"):
             spinner.apply_patch({"radius": 0.0})
+
+    def test_apply_patch_rejects_nan_radius(self) -> None:
+        spinner = SpinnerElement(id="sp1")
+        with pytest.raises(ValueError, match="radius must be positive"):
+            spinner.apply_patch({"radius": float("nan")})
 
     def test_apply_patch_advances_label_and_color(self) -> None:
         spinner = SpinnerElement(id="sp1")
