@@ -102,7 +102,6 @@ class ModalElement(Element):
     _tooltip: str | None
     _kind: Literal["modal"]
 
-    _MODAL_CLOSED_ACTION: ClassVar[str] = "modal_closed"
     # A window always floats top-level (see WindowElement), so nesting one in a
     # modal makes it escape while the modal blocks its escaped child — incoherent,
     # so forbidden at both boundaries anywhere in the subtree.
