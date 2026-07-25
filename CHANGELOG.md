@@ -4,6 +4,11 @@
 
 ### Added
 
+- **Inline image data renders.** An `image` element with base64 `data` now
+  decodes and paints (content-hash cached), where it previously fell through
+  to its alt text. A malformed payload degrades to alt text with one warning
+  in the display log — never a crash, never once-per-frame log spam (missing
+  image files also now log once instead of every frame).
 - **Optional frame TTL.** A frame can carry `ttl_seconds` at show time (MCP
   `show` and REST `PUT /scenes/{id}` via `frame.ttl_seconds`); the Hub retires
   the frame when the TTL elapses, removing its scenes from both the Hub store
@@ -12,6 +17,16 @@
 
 ### Changed
 
+- **Element migration batch B1: `image`, `separator`, `spinner`, and
+  `markdown` are on the Element-ABC path** (19 of 25 kinds migrated; the
+  legacy code for each is deleted). User-visible effects: `tooltip` now works
+  on all four kinds (the legacy path silently dropped it); an `image` is
+  either a path image or a data image, validated one-or-the-other with named
+  errors; a `spinner` rejects a zero or negative `radius` instead of
+  invisibly painting nothing.
+- **An element with an empty `id` is rejected at decode with a named error**
+  (separators excepted — they are anonymous by design). Previously an empty
+  id could crash the display window mid-install.
 - **Scenes survive their session.** A disconnected or idle-reaped MCP session
   no longer takes its rendered frames with it — subscriptions, inbox, and menu
   items are still cleaned up, but what's on screen stays until the user closes
