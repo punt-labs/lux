@@ -58,6 +58,21 @@ class TestDataLeg:
         assert tex_id is None
         assert any("decode inline image" in r.getMessage() for r in caplog.records)
 
+    def test_strictly_invalid_base64_degrades_and_logs_once(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A wrong-padding payload raises ``binascii.Error`` under
+        ``validate=True``. ``binascii.Error`` is a ``ValueError``, so the data
+        leg catches it and degrades: ``None``, remembered, decode warned once —
+        the crash never reaches the render loop.
+        """
+        cache = TextureCache()
+        with caplog.at_level(logging.WARNING, logger="punt_lux.display.texture_cache"):
+            first = cache.get_or_load_data("YWJjZA")
+            second = cache.get_or_load_data("YWJjZA")
+        assert (first, second) == (None, None)
+        assert sum("decode inline image" in r.getMessage() for r in caplog.records) == 1
+
     def test_non_image_bytes_return_none_and_warn(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
