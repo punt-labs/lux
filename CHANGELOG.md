@@ -17,6 +17,13 @@
 
 ### Changed
 
+- **Every agent scene renders in a frame.** A `show()` (MCP, REST, or CLI)
+  that names no frame gets one synthesized — `frame_id` is the scene id, the
+  title comes from the request — so all agent content is closable, can carry
+  a TTL, and is removed cleanly; frameless rendering is reserved for the
+  display itself (the background and idle screen). The unframed render path
+  is deleted. Frame options (`frame_size`, flags, layout, `ttl_seconds`) now
+  take effect whether or not a `frame_id` is named.
 - **Element migration batch B4: `window` and `modal` are on the Element-ABC
   path** (21 of 25 kinds migrated). A modal is now dismissal-convergent:
   the close button and Escape route through the Hub, a dismissed modal is
