@@ -19,13 +19,14 @@
 
 - **Element migration batch B4: `window` and `modal` are on the Element-ABC
   path** (21 of 25 kinds migrated). A modal is now dismissal-convergent:
-  Escape, outside-click, and the close button all route through the Hub, a
-  dismissed modal is removed (a re-push cannot resurrect it), and if the
-  dismissal cannot reach the Hub the popup visibly reopens rather than
-  silently diverging. A window element keeps its view state (drag/resize)
-  local to the display and deliberately has no close affordance — dismissal
-  belongs to frames. Renaming an open modal or window no longer dismisses it
-  or resets its position.
+  the close button and Escape route through the Hub, a dismissed modal is
+  removed (a re-push cannot resurrect it), and if the dismissal cannot reach
+  the Hub the popup visibly reopens rather than silently diverging. Clicking
+  outside a modal deliberately does not dismiss it — a modal blocks. A window
+  element keeps its view state (drag/resize) local to the display and
+  deliberately has no close affordance — dismissal belongs to frames.
+  Renaming an open modal or window no longer dismisses it or resets its
+  position.
 - **Interaction events are element-owned.** Each interactive element declares
   its wire kind, payload validation, and event construction on its own
   `RemoteDispatchSpec`; the central event-building ladder is deleted. A
