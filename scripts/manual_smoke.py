@@ -865,13 +865,20 @@ class SmokeRunner:
         frames 1-6 are still being inspected.  Its containment is exposed
         via two child elements rendered inside the modal body.
         """
-        modal_children: list[Element] = [
-            TextElement(
-                id="modal-text",
-                content="This modal is open by default — dismiss with Escape or OK.",
-            ),
-            ButtonElement(id="modal-btn", label="OK", action="dismiss"),
-        ]
+        modal_dialog = ModalElement(id="modal-dialog", title="Modal dialog", open=True)
+        # The ABC modal receives its body through the decoder seam, not the
+        # constructor; installing here mirrors what the wire decoder does.
+        modal_dialog.install_children(
+            (
+                TextElement(
+                    id="modal-text",
+                    content=(
+                        "This modal is open by default — dismiss with Escape or OK."
+                    ),
+                ),
+                ButtonElement(id="modal-btn", label="OK", action="dismiss"),
+            )
+        )
         elements: list[Element] = [
             TextElement(id="modal-heading", content="Modal", style="heading"),
             TextElement(
@@ -881,12 +888,7 @@ class SmokeRunner:
                     "interact with the rest of the display."
                 ),
             ),
-            ModalElement(
-                id="modal-dialog",
-                title="Modal dialog",
-                open=True,
-                children=modal_children,
-            ),
+            modal_dialog,
         ]
         return FrameSpec(
             frame_id="smoke-modal",

@@ -47,6 +47,7 @@ class AbcKindNames:
             "group",
             "collapsing_header",
             "tab_bar",
+            "modal",
             "markdown",
             "spinner",
             "separator",
@@ -55,7 +56,7 @@ class AbcKindNames:
     )
 
     ABC_CONTAINER_KINDS: ClassVar[frozenset[str]] = frozenset(
-        {"group", "collapsing_header", "tab_bar"}
+        {"group", "collapsing_header", "tab_bar", "modal"}
     )
 
     def __new__(cls) -> Self:

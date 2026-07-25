@@ -24,8 +24,8 @@ from punt_lux.protocol import (
     GroupElement,
     LegacyCollapsingHeaderElement,
     LegacyGroupElement,
+    LegacyModalElement,
     LegacyTabBarElement,
-    ModalElement,
     TextElement,
     WindowElement,
 )
@@ -46,7 +46,7 @@ def _legacy_containers_with_child(child: TextElement) -> list[tuple[str, Element
         ),
         ("window", WindowElement(id="p", children=[child], title="W")),
         ("collapsing_header", LegacyCollapsingHeaderElement(id="p", children=[child])),
-        ("modal", ModalElement(id="p", children=[child])),
+        ("modal", LegacyModalElement(id="p", children=[child])),
     ]
 
 

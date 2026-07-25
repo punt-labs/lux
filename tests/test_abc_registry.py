@@ -98,6 +98,7 @@ def _full_specs() -> list[AbcKindSpec]:
         _container("group"),
         _container("collapsing_header", handler=True),
         _container("tab_bar", handler=True),
+        _container("modal", handler=True),
     ]
 
 

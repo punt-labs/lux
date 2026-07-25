@@ -400,7 +400,8 @@ class TestElements:
 
     def test_modal_element(self):
         child = TextElement(id="t1", content="Are you sure?")
-        e = ModalElement(id="m1", title="Confirm", children=[child])
+        e = ModalElement(id="m1", title="Confirm")
+        e.install_children((child,))
         assert e.kind == "modal"
         assert e.title == "Confirm"
         assert e.open is True
@@ -410,7 +411,7 @@ class TestElements:
         e = ModalElement(id="m2")
         assert e.title == ""
         assert e.open is True
-        assert e.children == []
+        assert e.children == ()
 
 
 # ---------------------------------------------------------------------------
@@ -1555,7 +1556,7 @@ class TestSerialization:
         assert isinstance(e, ModalElement)
         assert e.title == ""
         assert e.open is True
-        assert e.children == []
+        assert e.children == ()
 
     def test_modal_open_false_roundtrip(self):
         original = SceneMessage(
@@ -1570,19 +1571,14 @@ class TestSerialization:
         assert modal.open is False
 
     def test_modal_scene_roundtrip(self):
-        original = SceneMessage(
-            id="s1",
-            elements=[
-                ModalElement(
-                    id="m1",
-                    title="Confirm",
-                    children=[
-                        TextElement(id="t1", content="Delete?"),
-                        ButtonElement(id="b1", label="Yes", action="confirm"),
-                    ],
-                ),
-            ],
+        built = ModalElement(id="m1", title="Confirm")
+        built.install_children(
+            (
+                TextElement(id="t1", content="Delete?"),
+                ButtonElement(id="b1", label="Yes", action="confirm"),
+            )
         )
+        original = SceneMessage(id="s1", elements=[built])
         d = message_to_dict(original)
         restored = message_from_dict(d)
         assert isinstance(restored, SceneMessage)

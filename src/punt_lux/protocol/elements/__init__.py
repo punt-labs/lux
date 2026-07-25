@@ -52,13 +52,14 @@ from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.layout import (
     LegacyCollapsingHeaderElement,
     LegacyGroupElement,
+    LegacyModalElement,
     LegacyTabBarElement,
-    ModalElement,
     TreeElement,
     WindowElement,
     register_codecs as _register_layout,
 )
 from punt_lux.protocol.elements.markdown import MarkdownElement
+from punt_lux.protocol.elements.modal import ModalElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement
@@ -92,6 +93,7 @@ __all__ = [
     "InputTextElement",
     "LegacyCollapsingHeaderElement",
     "LegacyGroupElement",
+    "LegacyModalElement",
     "LegacyTabBarElement",
     "MarkdownElement",
     "ModalElement",
@@ -148,6 +150,7 @@ Element = (
     | SpinnerElement
     | MarkdownElement
     | ModalElement
+    | LegacyModalElement
 )
 
 

@@ -12,8 +12,8 @@ from punt_lux.protocol.elements.container_dispatch import dispatch as _dispatche
 __all__ = [
     "LegacyCollapsingHeaderElement",
     "LegacyGroupElement",
+    "LegacyModalElement",
     "LegacyTabBarElement",
-    "ModalElement",
     "TreeElement",
     "WindowElement",
     "register_codecs",
@@ -22,14 +22,11 @@ __all__ = [
 
 @dataclass(frozen=True, slots=True)
 class LegacyGroupElement:
-    """A layout container that arranges children in rows or columns.
+    """A layout container arranging children in rows, columns, or pages.
 
-    Layout modes:
-      - ``rows`` (default): vertical stack
-      - ``columns``: horizontal side-by-side
-      - ``paged``: combo-driven page switcher.  ``children`` are always
-        visible (header/nav), ``pages`` are indexed content panels
-        switched by the combo identified by ``page_source``.
+    ``rows`` (default) stacks vertically, ``columns`` side-by-side; ``paged`` is
+    a combo-driven switcher where ``children`` stay visible (header/nav) and
+    ``pages`` are indexed panels switched by the combo named in ``page_source``.
     """
 
     id: str
@@ -83,17 +80,13 @@ class LegacyGroupElement:
     def decode_child(raw: dict[str, Any]) -> Any:
         """Decode one container child, forcing any nested container legacy.
 
-        A legacy container must never hold an ABC container — the legacy
-        render path has no adapter for one and would fall back to the
-        ``[unsupported element]`` placeholder. Routing a nested ``group`` or
-        ``collapsing_header`` straight to its legacy form keeps every
-        conditionally-ABC container inside a legacy subtree legacy, so an ABC
-        container can never nest inside a legacy one. Other children decode
-        through the shared dispatcher, where migrated leaves (text, button, …)
-        still decode to their ABC form.
-
-        Shared by every legacy container codec in this module (tab-bar,
-        window, header, modal) so the invariant holds at every nesting site.
+        A legacy container must never hold an ABC container — the legacy render
+        path has no adapter for one and would fall back to ``[unsupported
+        element]``. Routing a nested conditionally-ABC container straight to its
+        legacy form keeps the whole legacy subtree legacy; other children decode
+        through the shared dispatcher, where migrated leaves still cross to ABC.
+        Shared by every legacy container codec here so the invariant holds at
+        every nesting site.
         """
         kind = raw.get("kind")
         if kind == "group":
@@ -102,6 +95,8 @@ class LegacyGroupElement:
             return LegacyCollapsingHeaderElement.from_dict(raw)
         if kind == "tab_bar":
             return LegacyTabBarElement.from_dict(raw)
+        if kind == "modal":
+            return LegacyModalElement.from_dict(raw)
         return _dispatchers.from_dict(raw)
 
 
@@ -275,14 +270,11 @@ class WindowElement:
 class TreeElement:
     """A collapsible tree with recursive nodes.
 
-    Each node in ``nodes`` is a dict with ``"label"`` (str) and optional
-    ``"children"`` (list of nodes).  Leaf nodes omit ``"children"`` or
-    use an empty list.
-
-    When ``flat`` is True, children render without indentation: branch
-    nodes use ``NoTreePushOnOpen`` (arrow toggles but no indent push),
-    and leaf nodes render as selectable items instead of tree leaves.
-    Useful for inline disclosure patterns where horizontal space is tight.
+    Each node in ``nodes`` is a dict with a ``"label"`` (str) and optional
+    ``"children"`` (list of nodes). When ``flat`` is True, children render
+    without indentation (branch nodes toggle via ``NoTreePushOnOpen``, leaves
+    render as selectable items) — an inline disclosure for tight horizontal
+    space.
     """
 
     id: str
@@ -369,12 +361,12 @@ class TreeElement:
 
 
 @dataclass(frozen=True, slots=True)
-class ModalElement:
-    """A modal popup dialog that blocks interaction with background content.
+class LegacyModalElement:
+    """The legacy dataclass fork of ``modal`` (fork-don't-mix).
 
-    Set ``open=True`` to show the modal.  Children render inside.
-    The display emits a ``"closed"`` event when the user dismisses it
-    (Escape or X button).  Button clicks inside fire normal button events.
+    Decoded when a ``modal``'s subtree is not entirely migrated-ABC or it nests
+    inside a legacy container; the ABC ``ModalElement`` takes the canonical name.
+    ``open=True`` shows the popup; the display emits ``"closed"`` on dismiss.
     """
 
     id: str
@@ -433,4 +425,9 @@ def register_codecs(register: Register) -> None:
     )
     register("window", WindowElement, WindowElement.to_dict, WindowElement.from_dict)
     register("tree", TreeElement, TreeElement.to_dict, TreeElement.from_dict)
-    register("modal", ModalElement, ModalElement.to_dict, ModalElement.from_dict)
+    register(
+        "modal",
+        LegacyModalElement,
+        LegacyModalElement.to_dict,
+        LegacyModalElement.from_dict,
+    )

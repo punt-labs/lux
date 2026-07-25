@@ -13,7 +13,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, Self
 
-from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
+from punt_lux.domain.container_interaction import (
+    HeaderToggled,
+    ModalClosed,
+    TabChanged,
+)
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
 from punt_lux.domain.interaction_errors import WrongKindError
 
@@ -23,7 +27,9 @@ if TYPE_CHECKING:
 
 __all__ = ["InteractionEventBuilder", "TypedInteraction"]
 
-type TypedInteraction = ButtonClicked | ValueChanged | HeaderToggled | TabChanged
+type TypedInteraction = (
+    ButtonClicked | ValueChanged | HeaderToggled | TabChanged | ModalClosed
+)
 
 
 class InteractionEventBuilder:
@@ -64,10 +70,14 @@ class InteractionEventBuilder:
             return self._header_toggled(scene_id, element_id, owner_id, value)
         if kind == "tab_bar":
             return self._tab_changed(scene_id, element_id, owner_id, value)
+        if kind == "modal":
+            return self._modal_closed(scene_id, element_id, owner_id)
         raise WrongKindError(
             scene_id=scene_id,
             element_id=element_id,
-            expected="button, checkbox, input_text, collapsing_header, or tab_bar",
+            expected=(
+                "button, checkbox, input_text, collapsing_header, tab_bar, or modal"
+            ),
             got=kind,
         )
 
@@ -148,3 +158,11 @@ class InteractionEventBuilder:
         return TabChanged(
             scene_id=scene_id, element_id=element_id, owner_id=owner_id, tab_id=value
         )
+
+    @staticmethod
+    def _modal_closed(
+        scene_id: SceneId, element_id: ElementId, owner_id: ClientId
+    ) -> ModalClosed:
+        # A dismissal carries no value — there is nothing to validate; the close
+        # itself is the whole event.
+        return ModalClosed(scene_id=scene_id, element_id=element_id, owner_id=owner_id)

@@ -1,10 +1,11 @@
-"""Typed interaction events for the Hub-authoritative container view-selections.
+"""Typed interaction events for the Hub-authoritative container interactions.
 
-Each interactive container owns one agent-drivable selection: a
-``collapsing_header``'s open state (``HeaderToggled``) or a ``tab_bar``'s active
-tab (``TabChanged``). A gesture routes it down the same remote-dispatch path as
-``ButtonClicked`` — the Hub updates the authoritative selection and re-pushes.
-Kept apart from the ``interaction`` leaf events so no module exceeds three classes.
+Each interactive container routes one gesture down the same remote-dispatch path
+as ``ButtonClicked``: a ``collapsing_header``'s open state (``HeaderToggled``), a
+``tab_bar``'s active tab (``TabChanged``), or a ``modal``'s user dismissal
+(``ModalClosed``). The Hub runs the container's authoritative reaction — mirror
+the selection, or dismiss the modal — and re-pushes. Kept apart from the
+``interaction`` leaf events so no module exceeds three classes.
 """
 
 from __future__ import annotations
@@ -14,7 +15,7 @@ from typing import ClassVar, Literal, Self
 
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 
-__all__ = ["HeaderToggled", "TabChanged"]
+__all__ = ["HeaderToggled", "ModalClosed", "TabChanged"]
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -81,4 +82,35 @@ class HeaderToggled:
         object.__setattr__(self, "element_id", element_id)
         object.__setattr__(self, "owner_id", owner_id)
         object.__setattr__(self, "open", open_)
+        return self
+
+
+@dataclass(frozen=True, slots=True, init=False)
+class ModalClosed:
+    """A typed dismissal event for a ``modal`` — the user closed it.
+
+    Unlike the other container events it carries no selection payload: a close
+    has no value beyond "it happened". Routed down the same remote-dispatch path
+    as ``ButtonClicked``, the Hub fires the modal's built-in dismiss handler
+    (``model.close`` -> ``mark_removed``) so the removal cascade drops the modal
+    from both tiers. Same ``init=False`` + ``__new__`` construction as the
+    leaf events.
+    """
+
+    scene_id: SceneId
+    element_id: ElementId
+    owner_id: ClientId
+    kind: ClassVar[Literal["modal_closed"]] = "modal_closed"
+
+    def __new__(
+        cls,
+        *,
+        scene_id: SceneId,
+        element_id: ElementId,
+        owner_id: ClientId,
+    ) -> Self:
+        self = object.__new__(cls)
+        object.__setattr__(self, "scene_id", scene_id)
+        object.__setattr__(self, "element_id", element_id)
+        object.__setattr__(self, "owner_id", owner_id)
         return self

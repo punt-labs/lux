@@ -24,6 +24,7 @@ from punt_lux.display.renderers.imgui.image import ImGuiImageRenderer
 from punt_lux.display.renderers.imgui.input_number import ImGuiInputNumberRenderer
 from punt_lux.display.renderers.imgui.input_text import ImGuiInputTextRenderer
 from punt_lux.display.renderers.imgui.markdown import ImGuiMarkdownRenderer
+from punt_lux.display.renderers.imgui.modal import ImGuiModalRenderer
 from punt_lux.display.renderers.imgui.progress import ImGuiProgressRenderer
 from punt_lux.display.renderers.imgui.radio import ImGuiRadioRenderer
 from punt_lux.display.renderers.imgui.selectable import ImGuiSelectableRenderer
@@ -45,6 +46,7 @@ from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.markdown import MarkdownElement
+from punt_lux.protocol.elements.modal import ModalElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement
@@ -84,6 +86,7 @@ class ImGuiRendererFactory:
         (InputTextElement, ImGuiInputTextRenderer),
         (InputNumberElement, ImGuiInputNumberRenderer),
         (DialogElement, ImGuiDialogRenderer),
+        (ModalElement, ImGuiModalRenderer),
         (GroupElement, ImGuiGroupRenderer),
         (CollapsingHeaderElement, ImGuiCollapsingHeaderRenderer),
         (TabBarElement, ImGuiTabBarRenderer),

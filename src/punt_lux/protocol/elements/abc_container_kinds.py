@@ -1,11 +1,8 @@
-"""The migrated container kinds — every conditionally-ABC container.
+"""The migrated container kinds — every conditionally-ABC container's spec.
 
-The aggregation leaf for containers: it imports each migrated container's
-element, decoder, encoder, and standalone-handler builder and assembles their
-specs. A container decodes onto its ABC class only when its whole subtree is
-migrated-ABC; the decoder recurses children through the tier's element decoder.
 ``DefaultContainerKinds.specs()`` is where a newly-migrated container kind adds
-one spec, keeping the registry aggregator thin.
+one spec; a container decodes onto its ABC class only when its whole subtree is
+migrated-ABC.
 """
 
 from __future__ import annotations
@@ -21,6 +18,8 @@ from punt_lux.protocol.elements.collapsing_header_codec import (
 )
 from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.group_codec import JsonGroupDecoder, JsonGroupEncoder
+from punt_lux.protocol.elements.modal import ModalElement
+from punt_lux.protocol.elements.modal_codec import JsonModalDecoder, JsonModalEncoder
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.tab_bar_codec import (
     JsonTabBarDecoder,
@@ -28,6 +27,9 @@ from punt_lux.protocol.elements.tab_bar_codec import (
 )
 from punt_lux.protocol.standalone_collapsing_header_handler import (
     build_standalone_collapsing_header_handler_decoder,
+)
+from punt_lux.protocol.standalone_modal_handler import (
+    build_standalone_modal_handler_decoder,
 )
 from punt_lux.protocol.standalone_tab_bar_handler import (
     build_standalone_tab_bar_handler_decoder,
@@ -72,5 +74,12 @@ class DefaultContainerKinds:
                     TabBarElement, JsonTabBarDecoder, JsonTabBarEncoder().encode
                 ),
                 handler_builder=build_standalone_tab_bar_handler_decoder,
+            ),
+            ContainerKindSpec(
+                kind="modal",
+                codec=KindCodec(
+                    ModalElement, JsonModalDecoder, JsonModalEncoder().encode
+                ),
+                handler_builder=build_standalone_modal_handler_decoder,
             ),
         ]

@@ -24,7 +24,6 @@ from punt_lux.protocol.elements import (
     ButtonElement,
     GroupElement,
     LegacyGroupElement,
-    ModalElement,
     TableElement,
     TextElement,
     WindowElement,
@@ -119,10 +118,10 @@ def _table_wire() -> dict[str, Any]:
 
 # Each always-legacy container kind wrapping an all-ABC inner group, paired with
 # the concrete legacy class the whole tree must decode to. A ``group`` becomes
-# legacy only alongside a legacy sibling; ``tab_bar``, ``window``, and ``modal``
-# have no ABC form yet, so they are always legacy and force any nested group
-# legacy too. ``collapsing_header`` is now conditionally-ABC and has its own
-# fork-gate coverage in ``test_collapsing_header_element``.
+# legacy only alongside a legacy sibling; ``tab_bar`` and ``window`` have no ABC
+# form yet, so they are always legacy and force any nested group legacy too.
+# ``collapsing_header`` and ``modal`` are now conditionally-ABC and have their own
+# fork-gate coverage in ``test_collapsing_header_element`` and ``test_modal_element``.
 _LEGACY_CONTAINER_CASES: tuple[tuple[str, dict[str, Any], type], ...] = (
     (
         "legacy_group",
@@ -133,11 +132,6 @@ _LEGACY_CONTAINER_CASES: tuple[tuple[str, dict[str, Any], type], ...] = (
         "window",
         {"kind": "window", "id": "w", "children": [_inner_abc_group()]},
         WindowElement,
-    ),
-    (
-        "modal",
-        {"kind": "modal", "id": "m", "children": [_inner_abc_group()]},
-        ModalElement,
     ),
 )
 

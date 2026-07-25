@@ -22,7 +22,7 @@ from punt_lux.scene import WidgetState
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
     from punt_lux.protocol import Element
-    from punt_lux.protocol.elements.layout import ModalElement, TreeElement
+    from punt_lux.protocol.elements.layout import LegacyModalElement, TreeElement
     from punt_lux.protocol.elements.plot_element import PlotElement
     from punt_lux.types import EmitEventFn
 
@@ -227,8 +227,8 @@ class ElementRenderer:
         self._plot_renderer.render(cast("PlotElement", elem))
 
     def _render_modal(self, elem: Element) -> None:
-        """Delegate modal rendering to the extracted ModalRenderer."""
-        self._modal_renderer.render(cast("ModalElement", elem))
+        """Delegate legacy modal rendering to the extracted ModalRenderer."""
+        self._modal_renderer.render(cast("LegacyModalElement", elem))
 
     # -- draw element rendering ------------------------------------------------
 

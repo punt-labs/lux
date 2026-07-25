@@ -19,7 +19,11 @@ import logging
 import time
 from typing import TYPE_CHECKING, Self
 
-from punt_lux.domain.container_interaction import HeaderToggled, TabChanged
+from punt_lux.domain.container_interaction import (
+    HeaderToggled,
+    ModalClosed,
+    TabChanged,
+)
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.tracing import trace
 
@@ -108,6 +112,9 @@ class RemoteDispatchGroup:
             value = event.open
         elif isinstance(event, TabChanged):
             value = event.tab_id
+        elif isinstance(event, ModalClosed):
+            # A dismissal has no payload; the Hub builder ignores the value.
+            value = None
         else:
             _log.warning(
                 "RemoteDispatchGroup unrecognized event type %s for element_id=%s",

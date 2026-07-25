@@ -799,7 +799,7 @@ def test_interact_raises_wrong_kind_for_non_button_element() -> None:
 
     assert (
         exc_info.value.expected
-        == "button, checkbox, input_text, collapsing_header, or tab_bar"
+        == "button, checkbox, input_text, collapsing_header, tab_bar, or modal"
     )
     assert exc_info.value.got == "slider"
 
