@@ -3,17 +3,14 @@
 
 The interactive-composite seam, copied from ``ImGuiDialogRenderer``: ``begin``
 opens the popup (or reports it hidden) and stashes the prior-frame latch; the
-Element render skeleton draws the modal's body through the default child
-recursion; ``end`` closes the popup, applies the hover tooltip, and runs the
-external-close cascade.
+Element render skeleton draws the body through the default child recursion;
+``end`` closes the popup, applies the tooltip, and runs the external-close
+cascade. Visibility is sourced from the modal's own ``ModalModel``.
 
-Visibility is sourced from the modal's own ``ModalModel`` so one state machine
-drives renderer behaviour. Where the dialog resolves an Escape/outside close
-locally (its buttons carry the Hub-routed interactions), a plain modal has no
-child controllers — so this adapter fires ``ModalClosed`` through the element's
-handler registry, which the Display has wrapped for remote dispatch. The Hub
-runs the dismiss and re-pushes; the widget-state dismiss latch keeps the popup
-shut in the frames before that re-push lands.
+A plain modal has no child controllers to resolve an Escape/outside close, so
+this adapter fires ``ModalClosed`` through the element's handler registry (which
+the Display wrapped for remote dispatch); the Hub runs the dismiss and re-pushes,
+and the widget-state dismiss latch keeps the popup shut until that re-push lands.
 """
 
 from __future__ import annotations
@@ -45,6 +42,11 @@ class ImGuiModalRenderer:
 
     _OPEN: ClassVar[int] = 1
     _CLOSED: ClassVar[int] = 0
+    # Minimum popup width. Without a size seed ImGui auto-sizes the modal to its
+    # minimal content width and the ABC text renderer's work-rect wrapping
+    # (DES-026) collapses every child to a one-character needle. The floor is
+    # expandable (unbounded max) so wider content still grows; no wire size field.
+    _MIN_WIDTH: ClassVar[float] = 320.0
 
     def __new__(cls, elem: ModalElement, factory: ImGuiRendererFactory) -> Self:
         self = super().__new__(cls)
@@ -74,10 +76,8 @@ class ImGuiModalRenderer:
             return False
 
         title = self._elem.title or self._elem.id
-        # Triple-hash pins the ImGui popup identity to the element id alone, so a
-        # title change (re-push or _set_title patch) never re-hashes the popup —
-        # which would make begin_popup_modal report it closed and spuriously
-        # dismiss an open modal. Double-hash keeps the label inside the identity.
+        # Triple-hash pins the popup identity to the element id, so a title change
+        # never re-hashes the popup and spuriously dismisses an open modal.
         popup_id = f"{title}###{self._elem.id}"
         if not was_open and not dismissed:
             imgui.open_popup(popup_id)
@@ -85,6 +85,10 @@ class ImGuiModalRenderer:
             was_open = True
         self._was_open = was_open
 
+        # Floor the width before the popup is created (see ``_MIN_WIDTH``).
+        imgui.set_next_window_size_constraints(
+            (self._MIN_WIDTH, 0.0), (imgui.FLT_MAX, imgui.FLT_MAX)
+        )
         visible, _p_open = imgui.begin_popup_modal(popup_id, True)  # noqa: FBT003
         return visible
 

@@ -63,6 +63,33 @@ def test_open_frame_opens_popup(monkeypatch: pytest.MonkeyPatch) -> None:
     assert seen == []
 
 
+def test_seeds_minimum_width_before_opening_the_popup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The adapter floors the popup width before ``begin_popup_modal``.
+
+    Without a size seed ImGui auto-sizes the modal to its minimal content width
+    and the ABC text renderer's work-rect wrapping collapses it to a needle. The
+    constraint (min width, unbounded max) must be issued before the popup is
+    created, or ImGui has already sized it.
+    """
+    imgui = MagicMock()
+    imgui.begin_popup_modal.return_value = (True, True)
+    _patch(monkeypatch, imgui)
+    modal, _ = _capturing_modal(open=True)
+    factory = _factory()
+
+    ImGuiModalRenderer(modal, factory).begin()
+
+    imgui.set_next_window_size_constraints.assert_called_once()
+    (size_min, _size_max), _kwargs = imgui.set_next_window_size_constraints.call_args
+    assert size_min == (320.0, 0.0)  # min width floor, height auto
+    names = [call[0] for call in imgui.mock_calls]
+    assert names.index("set_next_window_size_constraints") < names.index(
+        "begin_popup_modal"
+    )
+
+
 def test_external_close_fires_one_modal_closed(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -126,12 +153,19 @@ class _IdentityImgui:
     identity is stable — reproducing the real dismissal bug the ``###`` fix guards.
     """
 
+    FLT_MAX = 3.4028234663852886e38
+
     def __init__(self) -> None:
         self._open: set[str] = set()
 
     @staticmethod
     def _identity(popup_id: str) -> str:
         return popup_id.split("###", 1)[1] if "###" in popup_id else popup_id
+
+    def set_next_window_size_constraints(
+        self, _size_min: tuple[float, float], _size_max: tuple[float, float]
+    ) -> None:
+        return None
 
     def open_popup(self, popup_id: str) -> None:
         self._open.add(self._identity(popup_id))
