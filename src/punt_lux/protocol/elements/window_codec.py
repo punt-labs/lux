@@ -46,7 +46,8 @@ class JsonWindowDecoder:
     def decode(self, raw: Mapping[str, object]) -> WindowElement:
         """Construct a WindowElement, recursing children through the tier decoder."""
         ctx = ElementWireContext.for_kind("window")
-        children = tuple(self._decode(c) for c in self._as_list(raw.get("children")))
+        raw_children = self._require_list(raw.get("children"))
+        children = tuple(self._decode(c) for c in raw_children)
         return self._cls(
             id=ctx.require_id(raw),
             title=ctx.optional_str(raw, "title", default=""),
@@ -62,11 +63,18 @@ class JsonWindowDecoder:
         return cast("Element", self._decode_element(child))
 
     @staticmethod
-    def _as_list(raw: object) -> list[object]:
-        """Return ``raw`` as a list of wire objects, or empty when absent."""
-        if isinstance(raw, list):
-            return cast("list[object]", raw)
-        return []
+    def _require_list(raw: object) -> list[object]:
+        """Return ``raw`` as a list; ``[]`` when absent, raising a present non-list.
+
+        Mirrors the modal codec: a present ``children`` that is not a list is a
+        malformed wire tree and fails loud rather than silently rendering empty.
+        """
+        if raw is None:
+            return []
+        if not isinstance(raw, list):
+            msg = f"window children must be a list, got {type(raw).__name__}"
+            raise TypeError(msg)
+        return cast("list[object]", raw)
 
 
 class JsonWindowEncoder:

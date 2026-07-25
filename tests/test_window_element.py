@@ -11,6 +11,7 @@ scene wire and the ``DisplayServer`` receive/rebind path — never a stub.
 
 from __future__ import annotations
 
+import math
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -215,7 +216,46 @@ class TestSelfValidation:
         assert not report.ok
         assert report.errors[0].element_id == "w"
         assert report.errors[0].element_kind == "window"
-        assert "positive width and height" in report.errors[0].message
+        assert "positive width/height" in report.errors[0].message
+
+    @pytest.mark.parametrize("bad", [math.inf, math.nan])
+    def test_non_finite_size_is_reported(self, bad: float) -> None:
+        # ``inf > 0`` passes a naive positivity test — the spinner-radius defect
+        # class. A non-finite extent must be caught before it reaches ImGui.
+        window = WindowElement(id="w", placement=WindowPlacement(width=bad, height=100))
+        report = ElementTreeValidator().validate_tree([window])
+        assert not report.ok
+        assert report.errors[0].element_id == "w"
+        assert "finite" in report.errors[0].message
+
+    @pytest.mark.parametrize(
+        "placement",
+        [
+            WindowPlacement(x=math.inf, y=20, width=400, height=300),
+            WindowPlacement(x=math.nan, y=20, width=400, height=300),
+            WindowPlacement(x=10, y=math.inf, width=400, height=300),
+            WindowPlacement(x=10, y=math.nan, width=400, height=300),
+        ],
+    )
+    def test_non_finite_position_is_reported(self, placement: WindowPlacement) -> None:
+        # x/y were never range-checked before; a non-finite coordinate reaches
+        # ImGui's window placement unchecked without this guard.
+        report = ElementTreeValidator().validate_tree(
+            [WindowElement(id="w", placement=placement)]
+        )
+        assert not report.ok
+        assert report.errors[0].element_id == "w"
+        assert "finite" in report.errors[0].message
+
+    def test_offscreen_finite_position_is_allowed(self) -> None:
+        # A finite but off-screen position stays unclamped by design — the batch
+        # adds no Hub-side clamping semantics.
+        placement = WindowPlacement(x=-9000, y=-9000, width=400, height=300)
+        assert (
+            ElementTreeValidator()
+            .validate_tree([WindowElement(id="w", placement=placement)])
+            .ok
+        )
 
     def test_nested_malformed_child_is_collected_by_the_walk(self) -> None:
         window = _abc_window(children=(ProgressElement(id="p", fraction=5.0),))
@@ -379,6 +419,20 @@ class TestEncoderFactoryGuard:
         assert encoded["no_move"] is True
         children = cast("list[dict[str, Any]]", encoded["children"])
         assert [child["id"] for child in children] == ["t1", "b1"]
+
+
+class TestCodecChildrenShape:
+    def test_present_non_list_children_raises(self) -> None:
+        # A present ``children`` that is not a list is a malformed wire tree; the
+        # decoder fails loud (mirrors the modal codec) rather than silently
+        # rendering an empty window. Absent children still default to empty.
+        wire = {"kind": "window", "id": "w", "children": "oops"}
+        with pytest.raises(TypeError, match="window children must be a list"):
+            WindowElement.from_dict(wire)
+
+    def test_absent_children_defaults_to_empty(self) -> None:
+        restored = WindowElement.from_dict({"kind": "window", "id": "w"})
+        assert restored.children == ()
 
 
 class TestTooltipRoundTrip:

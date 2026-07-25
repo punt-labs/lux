@@ -11,6 +11,7 @@ the mask, keeping the renderer dependency out of the protocol layer.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar
 
@@ -34,6 +35,16 @@ class WindowPlacement:
     y: float = 50.0
     width: float = 300.0
     height: float = 200.0
+
+    def is_drawable(self) -> bool:
+        """Return whether all four fields are finite and the extent positive.
+
+        Finiteness is explicit because ``inf > 0`` passes a naive positivity
+        test (the spinner-radius defect class); a finite off-screen position is
+        drawable by design.
+        """
+        corners = (self.x, self.y, self.width, self.height)
+        return all(map(math.isfinite, corners)) and self.width > 0 and self.height > 0
 
     @classmethod
     def from_wire(cls, d: Mapping[str, object]) -> WindowPlacement:

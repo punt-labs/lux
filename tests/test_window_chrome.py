@@ -7,6 +7,10 @@ adapter folds into an ImGui mask.
 
 from __future__ import annotations
 
+import math
+
+import pytest
+
 from punt_lux.protocol.elements.window_chrome import WindowFlags, WindowPlacement
 
 
@@ -15,6 +19,22 @@ class TestWindowPlacement:
         assert WindowPlacement() == WindowPlacement(
             x=50.0, y=50.0, width=300.0, height=200.0
         )
+
+    def test_default_is_drawable(self) -> None:
+        assert WindowPlacement().is_drawable()
+
+    @pytest.mark.parametrize("bad", [0, -1, math.inf, math.nan])
+    def test_bad_extent_is_not_drawable(self, bad: float) -> None:
+        assert not WindowPlacement(width=bad, height=100).is_drawable()
+        assert not WindowPlacement(width=100, height=bad).is_drawable()
+
+    @pytest.mark.parametrize("bad", [math.inf, math.nan])
+    def test_non_finite_position_is_not_drawable(self, bad: float) -> None:
+        assert not WindowPlacement(x=bad, width=100, height=100).is_drawable()
+        assert not WindowPlacement(y=bad, width=100, height=100).is_drawable()
+
+    def test_finite_offscreen_position_is_drawable(self) -> None:
+        assert WindowPlacement(x=-9000, y=-9000, width=100, height=100).is_drawable()
 
     def test_from_wire_reads_present_values(self) -> None:
         placement = WindowPlacement.from_wire(

@@ -135,17 +135,17 @@ class WindowElement(Element):
     # -- self-validation ---------------------------------------------------
 
     def validate(self) -> tuple[ValidationError, ...]:
-        """Return one error when the window has a non-positive width or height.
+        """Return one error when the placement cannot be drawn.
 
-        A window with zero or negative extent cannot be drawn; the placement is
-        the window's component-appropriate structural check.
+        Drawability (finite x/y and finite positive width/height) is the
+        placement's own invariant — see :meth:`WindowPlacement.is_drawable`.
         """
-        placement = self._placement
-        if placement.width > 0 and placement.height > 0:
+        p = self._placement
+        if p.is_drawable():
             return ()
         message = (
-            f"window requires positive width and height, got "
-            f"{placement.width}x{placement.height}"
+            f"window requires finite x/y and finite positive width/height, got "
+            f"x={p.x} y={p.y} {p.width}x{p.height}"
         )
         return (ValidationError(self._id, self._kind, message),)
 
