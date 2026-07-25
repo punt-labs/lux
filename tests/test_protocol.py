@@ -613,6 +613,22 @@ class TestSerialization:
         assert restored.frame_size is None
         assert restored.frame_flags is None
 
+    def test_scene_decode_rejects_an_out_of_set_layout(self):
+        # The layout field is a Literal; decode must reject an out-of-set value
+        # with the same named error the RenderRequest boundary raises, not smuggle
+        # it in behind an Any.
+        with pytest.raises(ValueError, match="layout must be single/rows/columns/grid"):
+            SceneMessage.from_dict(
+                {"id": "s1", "frame_id": "s1", "elements": [], "layout": "diagonal"}
+            )
+
+    def test_scene_decode_accepts_each_valid_layout(self):
+        for value in ("single", "rows", "columns", "grid"):
+            restored = SceneMessage.from_dict(
+                {"id": "s1", "frame_id": "s1", "elements": [], "layout": value}
+            )
+            assert restored.layout == value
+
     def test_connect_message_roundtrip(self):
         original = ConnectMessage(name="quarry")
         d = message_to_dict(original)

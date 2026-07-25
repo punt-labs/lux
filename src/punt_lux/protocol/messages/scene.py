@@ -30,7 +30,7 @@ class SceneMessage:
     elements: list[Element]
     frame_id: str  # required — no scene crosses the wire unframed (Hub self-frames)
     type: Literal["scene"] = "scene"
-    layout: str = "single"  # "single", "rows", "columns", "grid"
+    layout: Literal["single", "rows", "columns", "grid"] = "single"
     title: str | None = None
     frame_title: str | None = None
     frame_size: tuple[int, int] | None = None
@@ -38,8 +38,7 @@ class SceneMessage:
     frame_layout: Literal["tab", "stack"] | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        """Serialize the scene and its frame; absent fields strip out of the dict."""
-        # ABC elements cross as base64 pickled objects over trusted co-deployed IPC.
+        """Serialize the scene and frame; ABC elements cross as base64 pickles."""
         from punt_lux.domain.element_abc import Element as AbcElement
 
         elements: list[dict[str, Any]] = []
@@ -68,19 +67,21 @@ class SceneMessage:
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:
         """Rebuild a scene from its wire dict, decoding each element and frame field."""
-        raw_flags = d.get("frame_flags")
-        raw_size = d.get("frame_size")
         raw_layout = d.get("frame_layout")
+        layout = d.get("layout", "single")
+        if layout not in ("single", "rows", "columns", "grid"):
+            msg = f"layout must be single/rows/columns/grid, got {layout!r}"
+            raise ValueError(msg)
         return cls(
             id=d["id"],
             elements=[cls._decode_element(e) for e in d.get("elements", [])],
             frame_id=d["frame_id"],
-            layout=d.get("layout", "single"),
+            layout=layout,
             title=d.get("title"),
             frame_title=d.get("frame_title"),
-            frame_size=cls._parse_frame_size(raw_size) if raw_size else None,
-            frame_flags=cast("dict[str, bool]", raw_flags)
-            if isinstance(raw_flags, dict)
+            frame_size=cls._parse_frame_size(s) if (s := d.get("frame_size")) else None,
+            frame_flags=cast("dict[str, bool]", f)
+            if isinstance(f := d.get("frame_flags"), dict)
             else None,
             frame_layout=cast("Literal['tab', 'stack']", raw_layout)  # pyright: ignore[reportUnnecessaryCast]
             if raw_layout in ("tab", "stack")
@@ -101,10 +102,9 @@ class SceneMessage:
         if not isinstance(raw, (list, tuple)):
             return None
         seq = cast("list[int]", raw)
-        if len(seq) != 2:
-            return None
         try:
-            return (int(seq[0]), int(seq[1]))
+            a, b = seq
+            return (int(a), int(b))
         except (TypeError, ValueError):
             return None
 
