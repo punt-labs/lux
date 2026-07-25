@@ -41,14 +41,12 @@ class SceneMessage:
         """Serialize the scene and frame; ABC elements cross as base64 pickles."""
         from punt_lux.domain.element_abc import Element as AbcElement
 
-        elements: list[dict[str, Any]] = []
-        for e in self.elements:
-            if isinstance(e, AbcElement):
-                elements.append(
-                    {"_pickled": base64.b64encode(pickle.dumps(e)).decode("ascii")}
-                )
-            else:
-                elements.append(_element_to_dict(e))
+        elements: list[dict[str, Any]] = [
+            {"_pickled": base64.b64encode(pickle.dumps(e)).decode("ascii")}
+            if isinstance(e, AbcElement)
+            else _element_to_dict(e)
+            for e in self.elements
+        ]
         return _strip_none(
             {
                 "type": self.type,
@@ -70,11 +68,10 @@ class SceneMessage:
         raw_layout = d.get("frame_layout")
         layout = d.get("layout", "single")
         if layout not in ("single", "rows", "columns", "grid"):
-            msg = f"layout must be single/rows/columns/grid, got {layout!r}"
-            raise ValueError(msg)
+            raise ValueError(f"layout must be single/rows/columns/grid, got {layout!r}")
         return cls(
             id=d["id"],
-            elements=[cls._decode_element(e) for e in d.get("elements", [])],
+            elements=cls._decode_elements(d.get("elements")),
             frame_id=d["frame_id"],
             layout=layout,
             title=d.get("title"),
@@ -89,21 +86,25 @@ class SceneMessage:
         )
 
     @staticmethod
-    def _decode_element(e: dict[str, Any]) -> Element:
-        """Decode one wire element: a pickled ABC object, or a recursed legacy dict."""
-        if "_pickled" in e:
-            encoded = cast("str", e["_pickled"])
-            return cast("Element", pickle.loads(base64.b64decode(encoded)))
-        return cast("Element", container_dispatch.dispatch.from_dict(e))
+    def _decode_elements(raw: object) -> list[Element]:
+        """Decode the wire elements — omission/non-list is malformed, not empty-push.
+
+        Each element is a pickled ABC object (``_pickled``) or a recursed legacy dict.
+        """
+        if not isinstance(raw, list):
+            raise ValueError(f"scene elements must be a present list, got {raw!r}")
+        return [
+            cast("Element", pickle.loads(base64.b64decode(cast("str", e["_pickled"]))))
+            if "_pickled" in e
+            else cast("Element", container_dispatch.dispatch.from_dict(e))
+            for e in cast("list[dict[str, Any]]", raw)
+        ]
 
     @staticmethod
     def _parse_frame_size(raw: object) -> tuple[int, int] | None:
-        """Validate and convert a frame_size value to a 2-tuple, or None."""
-        if not isinstance(raw, (list, tuple)):
-            return None
-        seq = cast("list[int]", raw)
+        """Convert a frame_size to a 2-tuple, or None if it is not a 2-sequence."""
         try:
-            a, b = seq
+            a, b = cast("tuple[int, int]", raw)
             return (int(a), int(b))
         except (TypeError, ValueError):
             return None

@@ -629,6 +629,23 @@ class TestSerialization:
             )
             assert restored.layout == value
 
+    def test_scene_decode_rejects_a_missing_elements_field(self):
+        # Omission is not removal: a wire dict with no elements field is malformed,
+        # not the empty-push remove signal.
+        with pytest.raises(ValueError, match="scene elements must be a present list"):
+            SceneMessage.from_dict({"id": "s1", "frame_id": "s1"})
+
+    def test_scene_decode_rejects_a_non_list_elements_field(self):
+        with pytest.raises(ValueError, match="scene elements must be a present list"):
+            SceneMessage.from_dict({"id": "s1", "frame_id": "s1", "elements": "nope"})
+
+    def test_scene_decode_accepts_an_explicit_empty_elements_list(self):
+        # An explicit [] is the intentional empty-push removal signal — kept valid.
+        restored = SceneMessage.from_dict(
+            {"id": "s1", "frame_id": "s1", "elements": []}
+        )
+        assert restored.elements == []
+
     def test_connect_message_roundtrip(self):
         original = ConnectMessage(name="quarry")
         d = message_to_dict(original)
