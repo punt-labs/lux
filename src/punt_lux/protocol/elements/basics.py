@@ -1,9 +1,10 @@
 """Basics-family codec registration — wires each per-kind module's codec.
 
-Per-kind classes live in ``image.py``, ``separator.py``, ``spinner.py``,
-``markdown.py``. ``text.py`` and ``progress.py`` are registered separately
-through ``JsonElementFactory`` (Element ABC dispatch — see ``__init__.py``);
-their entries are removed here to avoid double registration.
+The remaining legacy basics classes live in ``image.py`` and
+``separator.py``. ``text``, ``progress``, ``markdown``, and ``spinner`` are
+Element-ABC kinds registered through the ``AbcElementRegistry`` dispatch (see
+``abc_kind_table.py``); their entries are absent here to avoid double
+registration.
 
 The ``BasicsRegistry`` class consolidates the remaining register calls
 behind a single ``apply`` method so the package ``__init__`` does not grow
@@ -17,7 +18,6 @@ from typing import Self
 from punt_lux.protocol.elements.codec import Register
 from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.separator import SeparatorElement
-from punt_lux.protocol.elements.spinner import SpinnerElement
 
 __all__ = ["BasicsRegistry"]
 
@@ -42,10 +42,4 @@ class BasicsRegistry:
             SeparatorElement,
             SeparatorElement.to_dict,
             SeparatorElement.from_dict,
-        )
-        register(
-            "spinner",
-            SpinnerElement,
-            SpinnerElement.to_dict,
-            SpinnerElement.from_dict,
         )

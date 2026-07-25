@@ -24,8 +24,8 @@ from punt_lux.protocol.elements import (
     ButtonElement,
     CheckboxElement,
     DialogElement,
+    PlotElement,
     ProgressElement,
-    SpinnerElement,
     TextElement,
 )
 from punt_lux.scene_inspection import ElementInspection, SceneInspection
@@ -81,15 +81,19 @@ def test_element_inspection_reports_abc_render_path() -> None:
 def test_element_inspection_reports_legacy_render_path() -> None:
     """A not-yet-migrated dataclass kind reports ``legacy`` and its wire dict."""
     rec = ElementInspection.from_element(
-        SpinnerElement(id="sp1"), domain_mirror_present=False
+        PlotElement(id="pl1"), domain_mirror_present=False
     ).to_dict()
     assert rec["render_path"] == "legacy"
-    # legacy fallback is the wire dict (defaults omitted by the codec)
+    # legacy fallback is the wire dict
     assert rec["props"] == {
-        "kind": "spinner",
-        "id": "sp1",
-        "radius": 16.0,
-        "color": "#3399FF",
+        "kind": "plot",
+        "id": "pl1",
+        "title": "",
+        "x_label": "",
+        "y_label": "",
+        "width": -1,
+        "height": 300,
+        "series": [],
     }
 
 
@@ -159,7 +163,7 @@ def test_resolved_props_covers_the_settable_surface(element: Inspectable) -> Non
 
 
 def test_inspect_scene_reports_abc_for_migrated_and_legacy_for_the_rest() -> None:
-    """render_path is ``abc`` for the migrated kinds, ``legacy`` for spinner."""
+    """render_path is ``abc`` for the migrated kinds, ``legacy`` for plot."""
     server = _server()
     resp = _feed(
         server,
@@ -169,7 +173,7 @@ def test_inspect_scene_reports_abc_for_migrated_and_legacy_for_the_rest() -> Non
             CheckboxElement(id="c1", label="Bold", value=True),
             DialogElement(id="d1", title="Confirm"),
             ProgressElement(id="p1", fraction=0.42),
-            SpinnerElement(id="sp1"),
+            PlotElement(id="pl1"),
         ],
     )
     assert _record(resp, "t1")["render_path"] == "abc"
@@ -177,7 +181,7 @@ def test_inspect_scene_reports_abc_for_migrated_and_legacy_for_the_rest() -> Non
     assert _record(resp, "c1")["render_path"] == "abc"
     assert _record(resp, "d1")["render_path"] == "abc"
     assert _record(resp, "p1")["render_path"] == "abc"
-    assert _record(resp, "sp1")["render_path"] == "legacy"
+    assert _record(resp, "pl1")["render_path"] == "legacy"
 
 
 def test_inspect_scene_resolved_props_read_back_including_defaults() -> None:

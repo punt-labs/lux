@@ -76,6 +76,11 @@ from punt_lux.protocol.elements.selectable_codec import (
 )
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.slider_codec import JsonSliderDecoder, JsonSliderEncoder
+from punt_lux.protocol.elements.spinner import SpinnerElement
+from punt_lux.protocol.elements.spinner_codec import (
+    JsonSpinnerDecoder,
+    JsonSpinnerEncoder,
+)
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.tab_bar_codec import (
     JsonTabBarDecoder,
@@ -149,6 +154,12 @@ class DefaultAbcKinds:
                 kind="markdown",
                 codec=KindCodec(
                     MarkdownElement, JsonMarkdownDecoder, JsonMarkdownEncoder().encode
+                ),
+            ),
+            LeafKindSpec(
+                kind="spinner",
+                codec=KindCodec(
+                    SpinnerElement, JsonSpinnerDecoder, JsonSpinnerEncoder().encode
                 ),
             ),
             DialogKindSpec(

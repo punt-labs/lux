@@ -48,6 +48,7 @@ class AbcKindNames:
             "collapsing_header",
             "tab_bar",
             "markdown",
+            "spinner",
         }
     )
 

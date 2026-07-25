@@ -161,8 +161,8 @@ def test_checkbox_absent_from_legacy_codec_table() -> None:
 
     text/button/checkbox/dialog/slider decode and encode through the per-kind
     ABC path; leaving any of them in the legacy ``ElementCodec`` table would be
-    two live registrations for one kind. A still-legacy input kind
-    (``spinner``) remains registered as the negative control.
+    two live registrations for one kind. A still-legacy kind
+    (``plot``) remains registered as the negative control.
     """
     from punt_lux.protocol.elements import build_element_codec
 
@@ -171,7 +171,7 @@ def test_checkbox_absent_from_legacy_codec_table() -> None:
     assert "button" not in kinds
     assert "text" not in kinds
     assert "slider" not in kinds
-    assert "spinner" in kinds
+    assert "plot" in kinds
 
 
 def test_combo_round_trip_with_items() -> None:

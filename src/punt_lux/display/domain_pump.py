@@ -26,6 +26,7 @@ from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.slider import SliderElement
+from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.protocol.elements.text import TextElement
 
 __all__ = ["DomainPump"]
@@ -47,6 +48,7 @@ _ABC_TYPES: tuple[type, ...] = (
     SliderElement,
     ColorPickerElement,
     MarkdownElement,
+    SpinnerElement,
 )
 
 
