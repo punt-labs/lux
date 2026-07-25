@@ -4,9 +4,9 @@ ABC subclass with keyword-only ``__new__``. Sentinel defaults on
 ``renderer_factory`` and ``emit`` (shared through ``abc_di_defaults``) keep
 direct construction compiling; the Display binds the real factory in its
 post-receive rebind. A spinner is a leaf — no children, no handlers, no
-interaction — so it overrides none of the render-template hooks and inherits
-the empty ``validate()`` default (a passive spinner has no invalid state; its
-fields are type-checked at the decode boundary).
+interaction — so it overrides none of the render-template hooks. It is not
+vacuously valid: a non-positive ``radius`` renders a zero-size arc that
+vanishes, so ``validate()`` reports it and the ``radius`` setter refuses it.
 
 The codec body lives in ``spinner_codec.py`` (``JsonSpinnerEncoder`` /
 ``JsonSpinnerDecoder``); ``to_dict`` and ``from_dict`` remain on the class
@@ -16,9 +16,11 @@ Protocol stays satisfied.
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Literal, Self, cast
 
 from punt_lux.domain.element_abc import Element
+from punt_lux.domain.validation import ValidationError
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.patch_field import PatchField
 from punt_lux.protocol.elements.spinner_codec import (
@@ -105,8 +107,14 @@ class SpinnerElement(Element):
         self._label = PatchField("label").as_str(value)
 
     def _set_radius(self, value: object) -> None:
-        """Replace the disc radius (used by ``Element.apply_patch``)."""
+        """Coerce and range-check the disc radius; a non-positive value raises.
+
+        No self-restore — ``Element.apply_patch`` rolls the instance back.
+        """
         self._radius = PatchField("radius").as_number(value)
+        if self._radius_out_of_range():
+            msg = f"radius must be positive, got {value!r}"
+            raise ValueError(msg)
 
     def _set_color(self, value: object) -> None:
         """Replace the stroke color (used by ``Element.apply_patch``)."""
@@ -115,6 +123,24 @@ class SpinnerElement(Element):
     def _set_tooltip(self, value: object) -> None:
         """Replace the tooltip text (used by ``Element.apply_patch``)."""
         self._tooltip = PatchField("tooltip").as_optional_str(value)
+
+    def _radius_out_of_range(self) -> bool:
+        """Return whether ``radius`` is NaN or non-positive.
+
+        A zero or negative radius paints a zero-size arc that vanishes; NaN is
+        caught explicitly. The sole source of the shared positivity invariant.
+        """
+        r = self._radius
+        return math.isnan(r) or r <= 0.0
+
+    def validate(self) -> tuple[ValidationError, ...]:
+        """Return one error when ``radius`` is NaN or non-positive."""
+        message = f"radius must be positive, got {self._radius!r}"
+        return (
+            (ValidationError(self._id, self._kind, message),)
+            if self._radius_out_of_range()
+            else ()
+        )
 
     def to_dict(self) -> dict[str, object]:
         """Return the JSON-compatible wire representation."""

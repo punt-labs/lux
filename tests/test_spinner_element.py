@@ -114,9 +114,18 @@ class TestLevel1Serialization:
 
 
 class TestSelfValidation:
-    def test_spinner_validates_vacuously(self) -> None:
-        """A passive spinner has no invalid state — the ABC default returns ()."""
+    def test_default_spinner_validates_clean(self) -> None:
+        """The default radius (16.0) is positive, so validate() returns ()."""
         assert SpinnerElement(id="sp1").validate() == ()
+
+    def test_zero_radius_is_flagged(self) -> None:
+        """A zero radius paints a zero-size arc that vanishes — validate() flags it."""
+        errors = SpinnerElement(id="sp1", radius=0.0).validate()
+        assert len(errors) == 1
+        assert errors[0].element_id == "sp1"
+
+    def test_negative_radius_is_flagged(self) -> None:
+        assert SpinnerElement(id="sp1", radius=-4.0).validate() != ()
 
     def test_non_numeric_radius_rejected_at_boundary(self) -> None:
         with pytest.raises(ValueError, match=r"spinner element.*'radius'"):
@@ -128,6 +137,12 @@ class TestSelfValidation:
 
     def test_valid_spinner_passes_the_tree_walk(self) -> None:
         assert ElementTreeValidator().validate_tree([SpinnerElement(id="sp1")]).ok
+
+    def test_zero_radius_fails_the_tree_walk(self) -> None:
+        result = ElementTreeValidator().validate_tree(
+            [SpinnerElement(id="sp1", radius=0.0)]
+        )
+        assert not result.ok
 
 
 # -- Level 2: pickle scene wire ---------------------------------------------
@@ -214,6 +229,11 @@ class TestPatchPath:
         returned = spinner.apply_patch({"radius": 24.0})
         assert returned is spinner
         assert spinner.radius == 24.0
+
+    def test_apply_patch_rejects_non_positive_radius(self) -> None:
+        spinner = SpinnerElement(id="sp1")
+        with pytest.raises(ValueError, match="radius must be positive"):
+            spinner.apply_patch({"radius": 0.0})
 
     def test_apply_patch_advances_label_and_color(self) -> None:
         spinner = SpinnerElement(id="sp1")
