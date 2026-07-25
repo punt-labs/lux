@@ -3,18 +3,14 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Self
 
 from imgui_bundle import ImVec2, imgui
 
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.protocol.elements.image import ImageElement
-from punt_lux.protocol.elements.image_source import DataImage
 
 __all__ = ["ImageRenderer"]
-
-logger = logging.getLogger(__name__)
 
 
 # Image default size — preserves pre-migration behaviour of the original renderer.
@@ -46,14 +42,8 @@ class ImageRenderer:
     def _resolve_texture(self, elem: ImageElement) -> int | None:
         """Return the element's texture id, or ``None`` to fall back to alt text.
 
-        The source dispatches to the right cache leg (path vs data). A data blob
-        that will not decode is not a crash: the cache returns ``None``, and this
-        logs a warning naming the element so the frame survives on alt text.
+        The source dispatches to the right cache leg (path vs data). A source
+        that will not load is not a crash: the cache returns ``None`` — having
+        logged the failure once — and render() degrades to alt text.
         """
-        tex_id = elem.source.load_texture(self._texture_cache)
-        if tex_id is None and isinstance(elem.source, DataImage):
-            logger.warning(
-                "image %s: inline data did not decode to an image; showing alt text",
-                elem.id,
-            )
-        return tex_id
+        return elem.source.load_texture(self._texture_cache)

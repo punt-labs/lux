@@ -1,9 +1,9 @@
-"""ImageRenderer texture resolution — data blobs paint; a bad blob warns, no crash.
+"""ImageRenderer texture resolution — the source picks its cache leg, no crash.
 
 ``render`` itself issues ImGui calls that need a frame, so these tests exercise
-``_resolve_texture`` — the branch that picks the cache leg and logs the
-element-named warning — with the cache's legs stubbed. The path leg stays a plain
-delegation to ``get_or_load``.
+``_resolve_texture`` — which delegates to the source's loader leg — with the
+cache's legs stubbed. The renderer itself never logs: a failed load returns
+``None`` (the cache logged it once) and render() degrades to alt text.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ class TestResolveTexture:
         assert tex_id == 99
         assert not caplog.records
 
-    def test_data_source_decode_failure_warns_with_id_and_falls_back(
+    def test_data_source_failure_returns_none_without_renderer_warning(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
         cache = TextureCache()
@@ -50,13 +50,13 @@ class TestResolveTexture:
         renderer = ImageRenderer(cache)
         elem = ImageElement(id="broken-img", data="bad")
 
-        with caplog.at_level(
-            logging.WARNING, logger="punt_lux.display.renderers.image_renderer"
-        ):
+        # The renderer degrades to alt text; the cache owns the log-once warning,
+        # so the renderer itself never logs (no per-frame spam).
+        with caplog.at_level(logging.WARNING):
             tex_id = renderer._resolve_texture(elem)
 
         assert tex_id is None
-        assert any("broken-img" in r.getMessage() for r in caplog.records)
+        assert not caplog.records
 
     def test_path_source_delegates_to_path_leg(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture

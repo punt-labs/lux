@@ -82,7 +82,7 @@ class TestDataLeg:
         assert cache.get_or_load_data(_png_base64((3, 3))) == 2
 
 
-class TestPathLegUntouched:
+class TestPathLeg:
     def test_missing_file_returns_none_and_warns(
         self, caplog: pytest.LogCaptureFixture
     ) -> None:
@@ -91,3 +91,28 @@ class TestPathLegUntouched:
             tex_id = cache.get_or_load("/no/such/file/exists.png")
         assert tex_id is None
         assert any("not found" in r.getMessage() for r in caplog.records)
+
+
+class TestNegativeCacheLogsOnce:
+    """A broken source is decoded and logged exactly once, not every frame."""
+
+    def test_missing_path_logs_once_across_repeated_loads(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        cache = TextureCache()
+        with caplog.at_level(logging.WARNING, logger="punt_lux.display.texture_cache"):
+            first = cache.get_or_load("/no/such/file.png")
+            second = cache.get_or_load("/no/such/file.png")
+        assert (first, second) == (None, None)
+        assert sum("not found" in r.getMessage() for r in caplog.records) == 1
+
+    def test_bad_data_logs_once_across_repeated_loads(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        payload = base64.b64encode(b"not an image").decode()
+        cache = TextureCache()
+        with caplog.at_level(logging.WARNING, logger="punt_lux.display.texture_cache"):
+            first = cache.get_or_load_data(payload)
+            second = cache.get_or_load_data(payload)
+        assert (first, second) == (None, None)
+        assert sum("decode inline image" in r.getMessage() for r in caplog.records) == 1

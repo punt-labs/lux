@@ -25,26 +25,35 @@ class TextureCache:
 
     A path-sourced image keys on its path; a data-sourced image keys on a
     content hash of its base64 payload (there is no path to key on). Both
-    upload once and reuse the texture id thereafter.
+    upload once and reuse the texture id thereafter. A source that fails to
+    load is remembered in ``_failed`` so a broken image warns **once**, not
+    every frame — the render loop retries neither the load nor the log.
     """
 
     _textures: dict[str, int]
+    _failed: set[str]
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._textures = {}
+        self._failed = set()
         return self
 
     def get_or_load(self, path: str) -> int | None:
-        """Return a texture ID for *path*, uploading if needed."""
+        """Return a texture ID for *path*, uploading (and logging once) as needed."""
         if path in self._textures:
             return self._textures[path]
+        if path in self._failed:
+            return None
         if not Path(path).is_file():
             logger.warning("Image file not found: %s", path)
+            self._failed.add(path)
             return None
         tex_id = self._create_texture(path)
-        if tex_id is not None:
-            self._textures[path] = tex_id
+        if tex_id is None:
+            self._failed.add(path)
+            return None
+        self._textures[path] = tex_id
         return tex_id
 
     def get_or_load_data(self, data: str) -> int | None:
@@ -52,24 +61,30 @@ class TextureCache:
 
         Keyed by a content hash of the payload, since a data-sourced image has
         no path. Malformed base64 or bytes that are not a decodable image yield
-        ``None`` (logged) rather than raising — the caller degrades to alt text
-        and the render loop survives.
+        ``None`` and the key is remembered, so a broken payload is decoded and
+        logged exactly once — the caller degrades to alt text and the render
+        loop survives without per-frame churn.
         """
         key = f"data:{hashlib.sha256(data.encode()).hexdigest()}"
         if key in self._textures:
             return self._textures[key]
+        if key in self._failed:
+            return None
         tex_id = self._create_texture_from_data(data)
-        if tex_id is not None:
-            self._textures[key] = tex_id
+        if tex_id is None:
+            self._failed.add(key)
+            return None
+        self._textures[key] = tex_id
         return tex_id
 
     def cleanup(self) -> None:
-        """Delete all OpenGL textures."""
+        """Delete all OpenGL textures and clear the caches."""
         import OpenGL.GL as GL
 
         for tex_id in self._textures.values():
             GL.glDeleteTextures(1, [tex_id])
         self._textures.clear()
+        self._failed.clear()
 
     @staticmethod
     def _create_texture(path: str) -> int | None:
