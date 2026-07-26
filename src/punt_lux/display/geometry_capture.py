@@ -43,17 +43,17 @@ class GeometryCapture:
         self._current_scene_id = scene_id
 
     def record_window(self, element_id: str) -> None:
-        """Record the current open window's screen rect for ``element_id``."""
+        """Record the current open window's rect and stack index for ``element_id``."""
         self._recorder.record_element(
-            self._current_scene_id, element_id, self._window_rect()
+            self._current_scene_id, element_id, self._window_rect(), self._stack_index()
         )
 
     def record_frame(self, frame_id: str) -> None:
-        """Record the current open frame window's screen rect."""
-        self._recorder.record_frame(frame_id, self._window_rect())
+        """Record the current open frame window's rect and stack index."""
+        self._recorder.record_frame(frame_id, self._window_rect(), self._stack_index())
 
     def complete(self) -> None:
-        """Promote this frame's rects into the snapshot a query reads."""
+        """Promote this frame's geometry into the snapshot a query reads."""
         self._recorder.complete()
 
     @staticmethod
@@ -62,3 +62,13 @@ class GeometryCapture:
         pos = imgui.get_window_pos()
         size = imgui.get_window_size()
         return Rect(x=pos.x, y=pos.y, width=size.x, height=size.y)
+
+    @staticmethod
+    def _stack_index() -> int:
+        """Return the current window's position in ImGui's window order.
+
+        ``begin_order_within_context`` is the order this window's ``Begin`` was
+        called this frame; a modal begins after the frame beneath it, so its
+        higher value reads as "in front".
+        """
+        return imgui.internal.get_current_window_read().begin_order_within_context

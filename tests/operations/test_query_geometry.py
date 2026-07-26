@@ -30,6 +30,7 @@ from punt_lux.operations.models.query_geometry import (
 from punt_lux.operations.models.query_inspection import SceneInspection
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.protocol.geometry import Rect
+from punt_lux.protocol.painted_geometry import ElementGeometry, FrameGeometry
 
 
 class _StubPort:
@@ -63,8 +64,17 @@ def _seed(store: HubDisplay) -> None:
 
 _GEOMETRY_BLOCK = {
     "geometry": {
-        "elements": {"t1": {"x": 8.0, "y": 8.0, "width": 120.0, "height": 18.0}},
-        "frame": {"x": 0.0, "y": 0.0, "width": 640.0, "height": 480.0},
+        "elements": {
+            "t1": {
+                "rect": {"x": 8.0, "y": 8.0, "width": 120.0, "height": 18.0},
+                "paint_sequence": 0,
+                "stack_index": 2,
+            }
+        },
+        "frame": {
+            "rect": {"x": 0.0, "y": 0.0, "width": 640.0, "height": 480.0},
+            "stack_index": 0,
+        },
     }
 }
 
@@ -85,8 +95,16 @@ def test_geometry_present_carries_element_and_frame_rects() -> None:
     result = ops.inspect_scene("s1", InspectScope(want_geometry=True))
     assert isinstance(result, SceneInspection)
     assert result.geometry == GeometryPresent(
-        frame=Rect(x=0.0, y=0.0, width=640.0, height=480.0),
-        elements={"t1": Rect(x=8.0, y=8.0, width=120.0, height=18.0)},
+        frame=FrameGeometry(
+            rect=Rect(x=0.0, y=0.0, width=640.0, height=480.0), stack_index=0
+        ),
+        elements={
+            "t1": ElementGeometry(
+                rect=Rect(x=8.0, y=8.0, width=120.0, height=18.0),
+                paint_sequence=0,
+                stack_index=2,
+            )
+        },
     )
 
 

@@ -70,14 +70,23 @@ def test_inspect_returns_captured_geometry_when_requested() -> None:
         )
     )
     geometry = GeometryRecorder()
-    geometry.record_element("s1", "t1", Rect(x=8.0, y=8.0, width=120.0, height=18.0))
-    geometry.record_frame("s1", Rect(x=0.0, y=0.0, width=640.0, height=480.0))
+    geometry.record_element("s1", "t1", Rect(x=8.0, y=8.0, width=120.0, height=18.0), 2)
+    geometry.record_frame("s1", Rect(x=0.0, y=0.0, width=640.0, height=480.0), 0)
     geometry.complete()
 
     result = _inspector(sm, geometry).inspect("s1", want_geometry=True)
     assert result["geometry"] == {
-        "elements": {"t1": {"x": 8.0, "y": 8.0, "width": 120.0, "height": 18.0}},
-        "frame": {"x": 0.0, "y": 0.0, "width": 640.0, "height": 480.0},
+        "elements": {
+            "t1": {
+                "rect": {"x": 8.0, "y": 8.0, "width": 120.0, "height": 18.0},
+                "paint_sequence": 0,
+                "stack_index": 2,
+            }
+        },
+        "frame": {
+            "rect": {"x": 0.0, "y": 0.0, "width": 640.0, "height": 480.0},
+            "stack_index": 0,
+        },
     }
 
 

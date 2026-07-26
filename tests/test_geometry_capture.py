@@ -22,6 +22,8 @@ def test_complete_promotes_through_to_the_recorder() -> None:
     # promote through the capture — the snapshot must reflect it.
     rect = Rect(x=1.0, y=2.0, width=3.0, height=4.0)
     capture.enter_scene("s1")
-    capture.recorder.record_element("s1", "e", rect)
+    capture.recorder.record_element("s1", "e", rect, 0)
     capture.complete()
-    assert capture.recorder.snapshot().rect_for("s1", "e") == rect
+    geom = capture.recorder.snapshot().element_for("s1", "e")
+    assert geom is not None
+    assert geom.rect == rect

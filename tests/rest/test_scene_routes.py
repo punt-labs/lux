@@ -161,9 +161,16 @@ def test_inspect_scene_want_geometry_binds_and_carries_the_painted_rects() -> No
             "scene_id": "s1",
             "geometry": {
                 "elements": {
-                    "t1": {"x": 8.0, "y": 8.0, "width": 120.0, "height": 18.0}
+                    "t1": {
+                        "rect": {"x": 8.0, "y": 8.0, "width": 120.0, "height": 18.0},
+                        "paint_sequence": 0,
+                        "stack_index": 2,
+                    }
                 },
-                "frame": {"x": 0.0, "y": 0.0, "width": 640.0, "height": 480.0},
+                "frame": {
+                    "rect": {"x": 0.0, "y": 0.0, "width": 640.0, "height": 480.0},
+                    "stack_index": 0,
+                },
             },
         }
     )
@@ -172,16 +179,13 @@ def test_inspect_scene_want_geometry_binds_and_carries_the_painted_rects() -> No
     body = client.get("/scenes/s1", params={"want_geometry": "true"}).json()
     assert body["geometry"]["kind"] == "present"
     assert body["geometry"]["elements"]["t1"] == {
-        "x": 8.0,
-        "y": 8.0,
-        "width": 120.0,
-        "height": 18.0,
+        "rect": {"x": 8.0, "y": 8.0, "width": 120.0, "height": 18.0},
+        "paint_sequence": 0,
+        "stack_index": 2,
     }
     assert body["geometry"]["frame"] == {
-        "x": 0.0,
-        "y": 0.0,
-        "width": 640.0,
-        "height": 480.0,
+        "rect": {"x": 0.0, "y": 0.0, "width": 640.0, "height": 480.0},
+        "stack_index": 0,
     }
 
 
