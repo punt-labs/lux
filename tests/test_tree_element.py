@@ -20,7 +20,6 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from punt_lux.display import geometry_capture
-from punt_lux.display.geometry_capture import GeometryCapture
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.tree import ImGuiTreeRenderer
 from punt_lux.display.server import DisplayServer
@@ -31,10 +30,11 @@ from punt_lux.protocol.elements import GroupElement, TreeElement
 from punt_lux.protocol.elements.group_codec import JsonGroupDecoder
 from punt_lux.protocol.elements.tree_node import TreeNode
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
-from punt_lux.protocol.geometry import Rect
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.tools import show
+
+from .geometry_doubles import EXPECTED_RECT, FakeGeomImgui, GeomFactory
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -317,79 +317,10 @@ class TestEncoderFactoryGuard:
 # -- painted geometry: the leaf records a rect through the measuring group ---
 
 
-class _GeomFactory:
-    """A minimal factory exposing a real ``GeometryCapture`` and a no-op tooltip."""
-
-    _geometry: GeometryCapture
-    __slots__ = ("_geometry",)
-
-    def __new__(cls) -> _GeomFactory:
-        self = super().__new__(cls)
-        self._geometry = GeometryCapture()
-        return self
-
-    @property
-    def geometry(self) -> GeometryCapture:
-        return self._geometry
-
-    def apply_tooltip(self, _elem: object) -> None:
-        """No tooltip pass — the geometry record is what this test measures."""
-
-
-class _Vec:
-    """An ImGui vector stand-in with the ``.x``/``.y`` the geometry reads use."""
-
-    x: float
-    y: float
-    __slots__ = ("x", "y")
-
-    def __new__(cls, x: float, y: float) -> _Vec:
-        self = super().__new__(cls)
-        self.x = x
-        self.y = y
-        return self
-
-
-class _FakeWindow:
-    __slots__ = ()
-
-    @property
-    def begin_order_within_context(self) -> int:
-        return 0
-
-
-class _FakeInternal:
-    __slots__ = ()
-
-    def get_current_window_read(self) -> _FakeWindow:
-        return _FakeWindow()
-
-
-class _FakeGeomImgui:
-    """The ``geometry_capture`` imgui: ``end_group`` fixes the recorded rect."""
-
-    internal: _FakeInternal
-    __slots__ = ("internal",)
-
-    def __new__(cls) -> _FakeGeomImgui:
-        self = super().__new__(cls)
-        self.internal = _FakeInternal()
-        return self
-
-    def begin_group(self) -> None: ...
-    def end_group(self) -> None: ...
-
-    def get_item_rect_min(self) -> _Vec:
-        return _Vec(5.0, 6.0)
-
-    def get_item_rect_max(self) -> _Vec:
-        return _Vec(105.0, 46.0)
-
-
 def test_tree_adapter_records_a_painted_rect(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(geometry_capture, "imgui", _FakeGeomImgui())
+    monkeypatch.setattr(geometry_capture, "imgui", FakeGeomImgui())
     monkeypatch.setattr("punt_lux.display.renderers.imgui.tree.imgui", MagicMock())
-    factory = _GeomFactory()
+    factory = GeomFactory()
     factory.geometry.enter_scene("s1")
 
     adapter = ImGuiTreeRenderer(_tree(), cast("ImGuiRendererFactory", factory))
@@ -398,4 +329,4 @@ def test_tree_adapter_records_a_painted_rect(monkeypatch: pytest.MonkeyPatch) ->
 
     geom = factory.geometry.recorder.snapshot().element_for("s1", "tr")
     assert geom is not None
-    assert geom.rect == Rect(x=5.0, y=6.0, width=100.0, height=40.0)
+    assert geom.rect == EXPECTED_RECT

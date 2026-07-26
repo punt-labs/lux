@@ -40,23 +40,28 @@ class ImGuiPlotRenderer(LeafRenderer[PlotElement]):
     __slots__ = ()
 
     def _paint_widget(self) -> None:
-        """Paint the plot frame, axes, and every series within it."""
+        """Paint the plot under a per-element id scope so titles never collide."""
         elem = self._elem
         # An anonymous element (id == "") would push an empty scope, colliding
         # two same-title plots; fall back to object identity, stable within a
         # scene generation, so anonymous plots render collision-free.
         imgui.push_id(elem.id or f"anon-{id(elem)}")
         try:
-            if implot.begin_plot(elem.title, ImVec2(elem.width, elem.height)):
-                try:
-                    if elem.x_label or elem.y_label:
-                        implot.setup_axes(elem.x_label or "", elem.y_label or "")
-                    for index, series in enumerate(elem.series):
-                        self._plot_series(series, index)
-                finally:
-                    implot.end_plot()
+            self._paint_plot(elem)
         finally:
             imgui.pop_id()
+
+    def _paint_plot(self, elem: PlotElement) -> None:
+        """Open the ImPlot frame, set the axes, and paint every series."""
+        if not implot.begin_plot(elem.title, ImVec2(elem.width, elem.height)):
+            return
+        try:
+            if elem.x_label or elem.y_label:
+                implot.setup_axes(elem.x_label or "", elem.y_label or "")
+            for index, series in enumerate(elem.series):
+                self._plot_series(series, index)
+        finally:
+            implot.end_plot()
 
     @staticmethod
     def _plot_series(series: PlotSeries, index: int) -> None:
