@@ -6,7 +6,7 @@ named defect is foregrounded here: a malformed series (non-string label,
 non-numeric coordinate, or ragged ``x``/``y``) used to raise through the render
 loop and take the display down. It is now rejected at the Hub — type faults at
 the wire boundary (``PlotSeries.decode_all``), the ragged-length invariant in
-``PlotElement.validate`` — so an invalid tree never reaches the display, proven
+``PlotElement.validate`` — so a malformed plot never reaches the display, proven
 by a ``show()`` rejection of the exact payload class. The renderer keeps its
 label ``TypeError`` guard as defense-in-depth.
 """
