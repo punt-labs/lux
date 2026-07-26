@@ -10,6 +10,8 @@ from __future__ import annotations
 
 import copy
 
+import pytest
+
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.domain.selection_interaction import RowSelectionChanged
@@ -173,6 +175,67 @@ class TestDetailBinding:
         group = self._master_detail()
         detail = next(c for c in group.children if isinstance(c, MarkdownElement))
         assert "Select a row" in detail.content
+
+    def test_filtering_out_the_anchor_re_drives_the_detail(self) -> None:
+        # A filter that hides the anchored row must not leave the panel showing
+        # the vanished row's card (F6): _reproject re-drives the detail.
+        group = TableComposition.build(
+            TableCompositionSpec(
+                columns=("ID", "Status"),
+                rows=(("a", "open"), ("b", "closed")),
+                filters=(
+                    {"type": "combo", "column": 1, "items": ["All", "open", "closed"]},
+                ),
+                detail={
+                    "fields": ["ID"],
+                    "rows": [["a"], ["b"]],
+                    "body": ["about a", "about b"],
+                },
+            )
+        )[0]
+        assert isinstance(group, GroupElement)
+        detail = next(c for c in group.children if isinstance(c, MarkdownElement))
+        _select(_table(group), "a", anchor="a")
+        assert "about a" in detail.content
+        _change(_combo(group), 2)  # "closed" hides row a
+        assert "about a" not in detail.content
+        assert "Select a row" in detail.content  # reseated to placeholder
+
+
+class TestFilterRobustness:
+    def test_search_with_name_columns_searches_all_columns(self) -> None:
+        # A search whose "column" is names (not int indices) must not silently
+        # empty the table — it falls back to searching every column (F3).
+        group = TableComposition.build(
+            TableCompositionSpec(
+                columns=("ID", "Title"),
+                rows=(("1", "alpha"), ("2", "beta")),
+                filters=({"type": "search", "column": ["Title"]},),
+            )
+        )[0]
+        assert isinstance(group, GroupElement)
+        _change(_search(group), "alpha")
+        assert [row[0] for row in _table(group).rows] == ["1"]
+
+    def test_unknown_filter_type_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="unknown table filter type"):
+            TableComposition.build(
+                TableCompositionSpec(
+                    columns=("ID",),
+                    rows=(("a",),),
+                    filters=({"type": "slider", "column": 0},),
+                )
+            )
+
+    def test_combo_non_int_column_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="must be an int index"):
+            TableComposition.build(
+                TableCompositionSpec(
+                    columns=("ID", "Status"),
+                    rows=(("a", "open"),),
+                    filters=({"type": "combo", "column": "Status", "items": ["All"]},),
+                )
+            )
 
 
 class TestSerialization:

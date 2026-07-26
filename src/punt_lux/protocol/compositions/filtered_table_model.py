@@ -18,6 +18,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Self
 
 if TYPE_CHECKING:
+    from punt_lux.protocol.compositions.table_selection_handlers import (
+        DetailBindingHandler,
+    )
     from punt_lux.protocol.elements.table import TableElement
 
 __all__ = ["FilteredTableModel"]
@@ -33,6 +36,9 @@ class FilteredTableModel:
     _full_selection: set[str]
     _search: str
     _combo_picks: dict[int, str]
+    # PY-TS-14 OK: genuinely optional — only a master/detail composition binds a
+    # detail region; a plain filtered table has none.
+    _detail: DetailBindingHandler | None
 
     def __new__(
         cls,
@@ -50,7 +56,12 @@ class FilteredTableModel:
         self._full_selection = set()
         self._search = ""
         self._combo_picks = {}
+        self._detail = None
         return self
+
+    def bind_detail(self, detail: DetailBindingHandler) -> None:
+        """Bind the detail region so a filter re-projection re-drives it too."""
+        self._detail = detail
 
     def __reduce__(self) -> tuple[object, ...]:
         """Support native serialization for Hub-to-Display transport."""
@@ -96,7 +107,12 @@ class FilteredTableModel:
         return frozenset(self._row_id(row) for row in self._visible_rows())
 
     def _reproject(self) -> None:
-        """Patch the table with the visible rows and the projected selection."""
+        """Patch the table with the visible rows + projected selection, and detail.
+
+        The selection patch reseats the table's anchor onto a still-visible row
+        (or clears it), so a bound detail is re-driven from that anchor — the
+        panel never keeps showing a row the filter just hid.
+        """
         visible = self._visible_rows()
         visible_ids = frozenset(self._row_id(row) for row in visible)
         self._table.apply_patch(
@@ -105,6 +121,8 @@ class FilteredTableModel:
                 "selected_row_ids": sorted(self._full_selection & visible_ids),
             }
         )
+        if self._detail is not None:
+            self._detail.render_anchor(self._table.anchor_row_id)
 
     def _visible_rows(self) -> tuple[tuple[object, ...], ...]:
         """Return the unfiltered rows that pass the search and combo predicates."""
@@ -116,13 +134,17 @@ class FilteredTableModel:
         )
 
     def _matches_search(self, row: tuple[object, ...], needle: str) -> bool:
-        """Return whether ``row`` contains ``needle`` in any searched column."""
+        """Return whether ``row`` contains ``needle`` in any searched column.
+
+        A search declared with no resolvable columns (names, or a missing
+        ``column``) searches *every* column rather than matching nothing, so a
+        stray search config never silently empties the table.
+        """
         if not needle:
             return True
+        columns = self._search_columns or range(len(row))
         return any(
-            needle in str(row[col]).lower()
-            for col in self._search_columns
-            if 0 <= col < len(row)
+            needle in str(row[col]).lower() for col in columns if 0 <= col < len(row)
         )
 
     def _matches_combos(self, row: tuple[object, ...]) -> bool:
@@ -130,7 +152,7 @@ class FilteredTableModel:
         for column, chosen in self._combo_picks.items():
             if not chosen or chosen == "All":
                 continue
-            if column >= len(row) or str(row[column]) != chosen:
+            if not 0 <= column < len(row) or str(row[column]) != chosen:
                 return False
         return True
 

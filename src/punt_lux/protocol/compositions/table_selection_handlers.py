@@ -86,5 +86,14 @@ class DetailBindingHandler:
 
     @trace
     def __call__(self, event: RowSelectionChanged) -> None:
-        content = self._content_by_id.get(event.anchor, self._placeholder)
+        self.render_anchor(event.anchor)
+
+    def render_anchor(self, anchor: str) -> None:
+        """Patch the detail region to ``anchor``'s card, or the placeholder.
+
+        Called on a selection gesture and by ``FilteredTableModel`` after a filter
+        re-projection reseats the anchor, so the panel never keeps showing a row
+        the filter has hidden.
+        """
+        content = self._content_by_id.get(anchor, self._placeholder)
         self._detail.apply_patch({"content": content})

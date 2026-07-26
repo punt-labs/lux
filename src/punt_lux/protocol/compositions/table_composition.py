@@ -111,7 +111,7 @@ class TableComposition:
         table.add_handler(RowSelectionChanged, SelectionMergeHandler(model))
         children = cls._filter_controls(spec, model)
         children.append(table)
-        cls._append_detail(spec, table, children)
+        cls._append_detail(spec, table, model, children)
         return [
             GroupElement(id=f"{spec.table_id}-view", layout="rows", children=children)
         ]
@@ -135,13 +135,22 @@ class TableComposition:
     def _filter_controls(
         cls, spec: TableCompositionSpec, model: FilteredTableModel
     ) -> list[Element]:
-        """Build the search input and combo controls, each wired to the model."""
+        """Build the search input and combo controls, each wired to the model.
+
+        An unrecognised filter ``type`` is rejected here (fail-loud, like
+        ``TableFlags.from_wire``) rather than silently dropped — a typo that
+        produced no control with no feedback is worse than an error.
+        """
         controls: list[Element] = []
         for index, filt in enumerate(spec.filters):
-            if filt.get("type") == "search":
+            kind = filt.get("type")
+            if kind == "search":
                 controls.append(cls._search_input(spec.table_id, filt, model))
-            elif filt.get("type") == "combo":
+            elif kind == "combo":
                 controls.append(cls._combo(spec.table_id, index, filt, model))
+            else:
+                msg = f"unknown table filter type {kind!r} (want 'search' or 'combo')"
+                raise ValueError(msg)
         return controls
 
     @staticmethod
@@ -166,7 +175,11 @@ class TableComposition:
         raw_items = filt.get("items", [])
         items = [str(item) for item in cast("list[object]", raw_items)]
         raw_column = filt.get("column", 0)
-        column = raw_column if isinstance(raw_column, int) else 0
+        if isinstance(raw_column, bool) or not isinstance(raw_column, int):
+            got = type(raw_column).__name__
+            msg = f"combo filter 'column' must be an int index, got {got}"
+            raise ValueError(msg)
+        column = raw_column
         combo = ComboElement(
             id=f"{table_id}-filter-{index}",
             label=str(filt.get("label", "")),
@@ -183,21 +196,27 @@ class TableComposition:
 
     @classmethod
     def _append_detail(
-        cls, spec: TableCompositionSpec, table: TableElement, children: list[Element]
+        cls,
+        spec: TableCompositionSpec,
+        table: TableElement,
+        model: FilteredTableModel,
+        children: list[Element],
     ) -> None:
-        """Append a detail region and bind it to the table's selection anchor."""
+        """Append a detail region, binding it to the anchor and to filter changes.
+
+        The same binder drives on a selection gesture (a ``RowSelectionChanged``
+        handler) and after a filter re-projection (``model.bind_detail``), so the
+        panel tracks the anchor whether the user clicked or filtered.
+        """
         if spec.detail is None:
             return
         placeholder = "Select a row to see its detail."
         region = MarkdownElement(id=f"{spec.table_id}-detail", content=placeholder)
-        table.add_handler(
-            RowSelectionChanged,
-            DetailBindingHandler(
-                region,
-                content_by_id=cls._detail_content(spec),
-                placeholder=placeholder,
-            ),
+        binder = DetailBindingHandler(
+            region, content_by_id=cls._detail_content(spec), placeholder=placeholder
         )
+        table.add_handler(RowSelectionChanged, binder)
+        model.bind_detail(binder)
         children.append(region)
 
     @staticmethod
