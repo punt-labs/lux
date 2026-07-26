@@ -53,6 +53,7 @@ class AbcKindNames:
             "separator",
             "image",
             "tree",
+            "plot",
         }
     )
 

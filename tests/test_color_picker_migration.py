@@ -126,10 +126,10 @@ class TestLevel1Serialization:
 
     def test_absent_from_legacy_codec_table(self) -> None:
         # No dual live path: the migrated kind leaves the ``ElementCodec`` table.
-        # A still-legacy kind (``plot``) stays the negative control.
+        # A still-legacy kind (``table``) stays the negative control.
         kinds = build_element_codec().registered_kinds
         assert "color_picker" not in kinds
-        assert "plot" in kinds
+        assert "table" in kinds
 
 
 # -- wire-boundary rejection (reject, do not silently coerce) ----------------

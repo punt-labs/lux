@@ -23,6 +23,7 @@ from punt_lux.display.renderers.imgui.input_number import ImGuiInputNumberRender
 from punt_lux.display.renderers.imgui.input_text import ImGuiInputTextRenderer
 from punt_lux.display.renderers.imgui.markdown import ImGuiMarkdownRenderer
 from punt_lux.display.renderers.imgui.modal import ImGuiModalRenderer
+from punt_lux.display.renderers.imgui.plot import ImGuiPlotRenderer
 from punt_lux.display.renderers.imgui.progress import ImGuiProgressRenderer
 from punt_lux.display.renderers.imgui.radio import ImGuiRadioRenderer
 from punt_lux.display.renderers.imgui.selectable import ImGuiSelectableRenderer
@@ -47,6 +48,7 @@ from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.modal import ModalElement
+from punt_lux.protocol.elements.plot import PlotElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement
@@ -108,6 +110,7 @@ class ImGuiRendererFactory:
         (RadioElement, ImGuiRadioRenderer),
         (SelectableElement, ImGuiSelectableRenderer),
         (TreeElement, ImGuiTreeRenderer),
+        (PlotElement, ImGuiPlotRenderer),
     )
 
     def __new__(

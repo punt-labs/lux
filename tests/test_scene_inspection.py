@@ -26,8 +26,11 @@ from punt_lux.protocol.elements import (
     DialogElement,
     PlotElement,
     ProgressElement,
+    TableElement,
     TextElement,
 )
+from punt_lux.protocol.elements.plot_series import PlotSeries
+from punt_lux.protocol.elements.tree import TreeElement
 from punt_lux.scene_inspection import ElementInspection, SceneInspection
 
 if TYPE_CHECKING:
@@ -82,21 +85,11 @@ def test_element_inspection_reports_abc_render_path() -> None:
 
 def test_element_inspection_reports_legacy_render_path() -> None:
     """A not-yet-migrated dataclass kind reports ``legacy`` and its wire dict."""
-    rec = ElementInspection.from_element(
-        PlotElement(id="pl1"), domain_mirror_present=False
-    ).to_dict()
+    table = TableElement(id="tbl1", columns=["A"], rows=[["x"]])
+    rec = ElementInspection.from_element(table, domain_mirror_present=False).to_dict()
     assert rec["render_path"] == "legacy"
     # legacy fallback is the wire dict
-    assert rec["props"] == {
-        "kind": "plot",
-        "id": "pl1",
-        "title": "",
-        "x_label": "",
-        "y_label": "",
-        "width": -1,
-        "height": 300,
-        "series": [],
-    }
+    assert rec["props"] == table.to_dict()
 
 
 def test_scene_inspection_keeps_elements_array_and_adds_paths() -> None:
@@ -138,8 +131,10 @@ def _setter_fields(cls: type[Inspectable]) -> set[str]:
         ButtonElement(id="b1"),
         CheckboxElement(id="c1"),
         DialogElement(id="d1"),
+        TreeElement(id="tr1"),
+        PlotElement(id="pl1"),
     ],
-    ids=["text", "button", "checkbox", "dialog"],
+    ids=["text", "button", "checkbox", "dialog", "tree", "plot"],
 )
 def test_resolved_props_covers_the_settable_surface(element: Inspectable) -> None:
     """Every constructor/patch-settable field must appear in resolved_props.
@@ -165,7 +160,7 @@ def test_resolved_props_covers_the_settable_surface(element: Inspectable) -> Non
 
 
 def test_inspect_scene_reports_abc_for_migrated_and_legacy_for_the_rest() -> None:
-    """render_path is ``abc`` for the migrated kinds, ``legacy`` for plot."""
+    """render_path is ``abc`` for the migrated kinds, ``legacy`` for table."""
     server = _server()
     resp = _feed(
         server,
@@ -175,7 +170,8 @@ def test_inspect_scene_reports_abc_for_migrated_and_legacy_for_the_rest() -> Non
             CheckboxElement(id="c1", label="Bold", value=True),
             DialogElement(id="d1", title="Confirm"),
             ProgressElement(id="p1", fraction=0.42),
-            PlotElement(id="pl1"),
+            PlotElement(id="pl1", series=(PlotSeries("y", "line", (1.0,), (2.0,)),)),
+            TableElement(id="tbl1", columns=["A"], rows=[["x"]]),
         ],
     )
     assert _record(resp, "t1")["render_path"] == "abc"
@@ -183,7 +179,8 @@ def test_inspect_scene_reports_abc_for_migrated_and_legacy_for_the_rest() -> Non
     assert _record(resp, "c1")["render_path"] == "abc"
     assert _record(resp, "d1")["render_path"] == "abc"
     assert _record(resp, "p1")["render_path"] == "abc"
-    assert _record(resp, "pl1")["render_path"] == "legacy"
+    assert _record(resp, "pl1")["render_path"] == "abc"
+    assert _record(resp, "tbl1")["render_path"] == "legacy"
 
 
 def test_inspect_scene_resolved_props_read_back_including_defaults() -> None:

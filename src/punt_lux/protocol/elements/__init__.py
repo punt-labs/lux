@@ -42,7 +42,6 @@ from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.graphics import (
     DrawElement,
-    PlotElement,
     register_codecs as _register_graphics,
 )
 from punt_lux.protocol.elements.group import GroupElement
@@ -58,6 +57,7 @@ from punt_lux.protocol.elements.layout import (
 )
 from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.modal import ModalElement
+from punt_lux.protocol.elements.plot import PlotElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement

@@ -361,7 +361,7 @@ class TestElementFromDict:
         assert elem.y_label == ""
         assert elem.width == -1
         assert elem.height == 300
-        assert elem.series == []
+        assert elem.series == ()
 
     def test_progress_element(self) -> None:
         elem = agent_element_factory().element_from_dict(
@@ -1079,23 +1079,19 @@ def _seed_legacy_root(
     title: str = "opt",
     connection: str = "local",
 ) -> None:
-    """Install one legacy (non-ABC) plot root under ``connection``.
+    """Install one legacy (non-ABC) window root under ``connection``.
 
     A frozen wire dataclass is realized by ``dataclasses.replace`` on the write
     path — a legacy *root* is fully patchable, and its index entry is rebound to
-    the fresh instance.
+    the fresh instance. Built directly rather than decoded: a childless window
+    wire dict is all-ABC and would fork onto the ABC ``WindowElement``, so the
+    legacy dataclass is constructed in place to keep the root on the legacy path.
     """
-    plot = agent_element_factory().element_from_dict(
-        {
-            "kind": "plot",
-            "id": element_id,
-            "title": title,
-        }
-    )
+    window = LegacyWindowElement(id=element_id, title=title)
     store.replace_scene(
         ConnectionId(connection),
         SceneId(scene),
-        [cast("DomainElement", plot)],
+        [cast("DomainElement", window)],
     )
 
 
@@ -1107,14 +1103,14 @@ def _seed_legacy_window_with_child(
     child_id: str = "sl_child",
     title: str = "Old",
     connection: str = "local",
-) -> PlotElement:
-    """Install a legacy window root holding one legacy plot child.
+) -> TableElement:
+    """Install a legacy window root holding one legacy table child.
 
     A legacy composite: the whole subtree is frozen values, so a ``replace`` on
     the root shares the child by reference. Returns the child object so a test
     can assert its identity survives a root patch.
     """
-    child = PlotElement(id=child_id, title="Vol")
+    child = TableElement(id=child_id, columns=["A"], rows=[["x"]])
     window = LegacyWindowElement(id=window_id, title=title, children=[child])
     store.replace_scene(
         ConnectionId(connection),
@@ -1512,8 +1508,10 @@ class TestUpdateTool:
         result = update("s1", [{"id": "sl1", "set": {"title": "New"}}])
 
         assert result == "shown:s1"
-        plot = cast("PlotElement", store.resolve(SceneId("s1"), ElementId("sl1")))
-        assert plot.title == "New"
+        window = cast(
+            "LegacyWindowElement", store.resolve(SceneId("s1"), ElementId("sl1"))
+        )
+        assert window.title == "New"
         assert client.replicator.dirtied == [SceneId("s1")]
 
     def test_update_legacy_composite_root_shares_children_by_reference(
@@ -1566,10 +1564,10 @@ class TestUpdateTool:
         assert "window" in result
         # Store untouched — the nested child keeps its original value and identity.
         assert (
-            cast("PlotElement", store.resolve(SceneId("s1"), ElementId("sl_child")))
+            cast("TableElement", store.resolve(SceneId("s1"), ElementId("sl_child")))
             is child
         )
-        assert child.title == "Vol"
+        assert child.columns == ["A"]
         client.show_async.assert_not_called()
 
     def test_update_nested_legacy_removal_defers_to_show(
@@ -1618,7 +1616,7 @@ class TestUpdateTool:
 
         assert result.startswith("error: scene not updated")
         assert "immutable" in result
-        assert store.resolve(SceneId("s1"), ElementId("sl1")).kind == "plot"
+        assert store.resolve(SceneId("s1"), ElementId("sl1")).kind == "window"
         client.show_async.assert_not_called()
 
     def test_update_rejects_unknown_field_abc(
@@ -1767,8 +1765,10 @@ class TestUpdateTool:
 
         assert patched.startswith("error: scene not updated")
         assert removed.startswith("error: scene not updated")
-        plot = cast("PlotElement", store.resolve(SceneId("s1"), ElementId("sl1")))
-        assert plot.title == "opt"
+        window = cast(
+            "LegacyWindowElement", store.resolve(SceneId("s1"), ElementId("sl1"))
+        )
+        assert window.title == "opt"
         client.show_async.assert_not_called()
 
     def test_update_batch_with_legacy_composite_rejection_is_atomic(

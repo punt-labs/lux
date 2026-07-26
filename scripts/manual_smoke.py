@@ -80,6 +80,7 @@ from punt_lux.protocol.elements.draw_commands_line import Line, Polyline
 from punt_lux.protocol.elements.draw_commands_shape import Circle, Rect, Triangle
 from punt_lux.protocol.elements.draw_commands_text import TextGlyph
 from punt_lux.protocol.elements.draw_values import Color, Point2, Thickness
+from punt_lux.protocol.elements.plot_series import PlotSeries
 from punt_lux.protocol.elements.tree_node import TreeNode
 
 
@@ -806,18 +807,14 @@ class SmokeRunner:
 
     def _build_plot(self) -> FrameSpec:
         """Frame 6 — PlotElement with a line and a bar series, labeled axes."""
-        line_x = [float(i) for i in range(11)]
-        line_y = [float(i * i) / 10.0 for i in range(11)]
-        bar_x = [float(i) for i in range(1, 6)]
-        bar_y = [3.0, 7.0, 4.0, 9.0, 5.0]
-        # PY-TS-14: wire boundary — PlotElement.series is dict-typed in the
-        # protocol (each series is a heterogeneous {label, type, x, y} record);
-        # tightening it here would require a per-series dataclass that's a
-        # downstream concern.
-        series: list[dict[str, object]] = [
-            {"label": "y = x²/10", "type": "line", "x": line_x, "y": line_y},
-            {"label": "samples", "type": "bar", "x": bar_x, "y": bar_y},
-        ]
+        line_x = tuple(float(i) for i in range(11))
+        line_y = tuple(float(i * i) / 10.0 for i in range(11))
+        bar_x = tuple(float(i) for i in range(1, 6))
+        bar_y = (3.0, 7.0, 4.0, 9.0, 5.0)
+        series = (
+            PlotSeries("y = x²/10", "line", line_x, line_y),
+            PlotSeries("samples", "bar", bar_x, bar_y),
+        )
         plot = PlotElement(
             id="plot-demo",
             title="Smoke plot",

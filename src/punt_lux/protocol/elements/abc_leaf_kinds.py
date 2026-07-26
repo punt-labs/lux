@@ -41,6 +41,8 @@ from punt_lux.protocol.elements.markdown_codec import (
     JsonMarkdownDecoder,
     JsonMarkdownEncoder,
 )
+from punt_lux.protocol.elements.plot import PlotElement
+from punt_lux.protocol.elements.plot_codec import JsonPlotDecoder, JsonPlotEncoder
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.progress_codec import (
     JsonProgressDecoder,
@@ -145,6 +147,10 @@ class DefaultLeafKinds:
             LeafKindSpec(
                 kind="tree",
                 codec=KindCodec(TreeElement, JsonTreeDecoder, JsonTreeEncoder().encode),
+            ),
+            LeafKindSpec(
+                kind="plot",
+                codec=KindCodec(PlotElement, JsonPlotDecoder, JsonPlotEncoder().encode),
             ),
             DialogKindSpec(
                 codec=KindCodec(

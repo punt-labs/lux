@@ -5,8 +5,7 @@ runs each command dict through ``DrawCommandDecoder.default()``, which
 raises ``ValueError`` on any malformed input — the renderer never sees
 a dict and cannot silently default.
 
-``PlotElement`` lives in the sibling ``plot_element`` module.  The
-``register_codecs`` callback here binds both element classes into the
+The ``register_codecs`` callback here binds the draw codec into the
 project-wide ``ElementCodec`` table.
 """
 
@@ -18,9 +17,8 @@ from typing import Any, Literal, Self, cast
 from punt_lux.protocol.elements.codec import Register
 from punt_lux.protocol.elements.draw_command_kind import DrawCommand, WireDict
 from punt_lux.protocol.elements.draw_decoder import DrawCommandDecoder
-from punt_lux.protocol.elements.plot_element import PlotElement
 
-__all__ = ["DrawElement", "PlotElement", "register_codecs"]
+__all__ = ["DrawElement", "register_codecs"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,6 +90,5 @@ def _require_wire_dict(raw: object, index: int) -> WireDict:
 
 
 def register_codecs(register: Register) -> None:
-    """Register the Draw and Plot codecs into an ``ElementCodec``."""
+    """Register the Draw codec into an ``ElementCodec``."""
     register("draw", DrawElement, DrawElement.to_dict, DrawElement.from_dict)
-    register("plot", PlotElement, PlotElement.to_dict, PlotElement.from_dict)

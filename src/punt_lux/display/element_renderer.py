@@ -13,7 +13,6 @@ from imgui_bundle import imgui
 from punt_lux.display.renderers.container_renderer import ContainerRenderer
 from punt_lux.display.renderers.draw_element_renderer import DrawElementRenderer
 from punt_lux.display.renderers.modal_renderer import ModalRenderer
-from punt_lux.display.renderers.plot_renderer import PlotRenderer
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
@@ -24,7 +23,6 @@ if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
     from punt_lux.protocol import Element
     from punt_lux.protocol.elements.layout import LegacyModalElement
-    from punt_lux.protocol.elements.plot_element import PlotElement
     from punt_lux.types import EmitEventFn
 
 logger = logging.getLogger(__name__)
@@ -52,9 +50,8 @@ class ElementRenderer:
     _imgui_renderer_factory: ImGuiRendererFactory
     _draw_element_renderer: DrawElementRenderer
     # Legacy composites: containers recurse their children back through
-    # ``render_element``; plot/modal paint their own extracted surface.
+    # ``render_element``; modal paints its own extracted surface.
     _container_renderer: ContainerRenderer
-    _plot_renderer: PlotRenderer
     _modal_renderer: ModalRenderer
 
     # Legacy string dispatch — the still-legacy kinds. Shrinks as kinds migrate;
@@ -66,7 +63,6 @@ class ElementRenderer:
         "collapsing_header": "_render_collapsing_header",
         "window": "_render_window",
         "table": "_render_table",
-        "plot": "_render_plot",
         "modal": "_render_modal",
     }
 
@@ -74,7 +70,7 @@ class ElementRenderer:
     # children. They record geometry through the same ``measuring`` group the ABC
     # leaf template uses; the remaining legacy kinds are containers whose children
     # record as they recurse, so the container itself records nothing.
-    _LEGACY_LEAF_KINDS: ClassVar[frozenset[str]] = frozenset({"draw", "table", "plot"})
+    _LEGACY_LEAF_KINDS: ClassVar[frozenset[str]] = frozenset({"draw", "table"})
 
     # Renderer attrs owning per-scene WidgetState; the setter forwards scene switches.
     _WIDGET_STATE_RENDERERS: ClassVar[tuple[str, ...]] = (
@@ -99,7 +95,6 @@ class ElementRenderer:
         self._container_renderer = ContainerRenderer(
             widget_state, check_dirty_window, self.render_element, self._record_window
         )
-        self._plot_renderer = PlotRenderer()
         self._modal_renderer = ModalRenderer(
             widget_state, emit_event, self.render_element, self._record_window
         )
@@ -241,7 +236,7 @@ class ElementRenderer:
         """Delegate window rendering to the ContainerRenderer."""
         self._container_renderer.render_window(elem)
 
-    # -- table / plot / modal rendering ----------------------------------------
+    # -- table / modal rendering -----------------------------------------------
 
     def _render_table(self, elem: Element) -> None:
         """Delegate table rendering to the extracted TableRenderer."""
@@ -250,10 +245,6 @@ class ElementRenderer:
         table = cast("TableElement", elem)
         scene_id = self._current_scene_id or ""
         self._table_renderer.render(table, scene_id)
-
-    def _render_plot(self, elem: Element) -> None:
-        """Delegate plot rendering to the extracted PlotRenderer."""
-        self._plot_renderer.render(cast("PlotElement", elem))
 
     def _render_modal(self, elem: Element) -> None:
         """Delegate legacy modal rendering to the extracted ModalRenderer."""

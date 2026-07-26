@@ -69,6 +69,7 @@ from punt_lux.protocol import (
 from punt_lux.protocol.elements.draw_commands_line import Line
 from punt_lux.protocol.elements.draw_commands_shape import Rect
 from punt_lux.protocol.elements.draw_values import Color, Point2
+from punt_lux.protocol.elements.plot_series import PlotSeries
 from punt_lux.protocol.elements.tree_node import TreeNode
 
 # ---------------------------------------------------------------------------
@@ -286,9 +287,7 @@ class TestElements:
         assert e.flags == ["borders", "row_bg"]
 
     def test_plot_element(self):
-        series = [
-            {"label": "y", "type": "line", "x": [1, 2, 3], "y": [10, 20, 15]},
-        ]
+        series = (PlotSeries("y", "line", (1.0, 2.0, 3.0), (10.0, 20.0, 15.0)),)
         e = PlotElement(id="p1", title="Trend", series=series)
         assert e.kind == "plot"
         assert e.title == "Trend"
@@ -303,7 +302,7 @@ class TestElements:
         assert e.y_label == ""
         assert e.width == -1
         assert e.height == 300
-        assert e.series == []
+        assert e.series == ()
 
     def test_progress_element(self):
         e = ProgressElement(id="pg1", fraction=0.73, label="73%")
@@ -1008,7 +1007,7 @@ class TestSerialization:
         assert isinstance(grp.children[1], ButtonElement)
 
     def test_tab_bar_roundtrip(self):
-        # A legacy plot child keeps the subtree off the all-ABC path, so
+        # A legacy table child keeps the subtree off the all-ABC path, so
         # the tab bar decodes onto the legacy dataclass whose tabs are dicts.
         e = LegacyTabBarElement(
             id="tb1",
@@ -1021,7 +1020,7 @@ class TestSerialization:
                     "label": "Tab 2",
                     "children": [
                         ButtonElement(id="b1", label="Action"),
-                        PlotElement(id="sel1"),
+                        TableElement(id="sel1", columns=["A"], rows=[["x"]]),
                     ],
                 },
             ],
@@ -1038,7 +1037,7 @@ class TestSerialization:
         assert len(tb.tabs[1]["children"]) == 2
 
     def test_collapsing_header_roundtrip(self):
-        # A legacy plot child keeps the subtree off the all-ABC path, so
+        # A legacy table child keeps the subtree off the all-ABC path, so
         # the header decodes onto the legacy dataclass that carries ``default_open``.
         e = LegacyCollapsingHeaderElement(
             id="ch1",
@@ -1046,7 +1045,7 @@ class TestSerialization:
             default_open=True,
             children=[
                 CheckboxElement(id="cb1", label="Debug"),
-                PlotElement(id="sel1"),
+                TableElement(id="sel1", columns=["A"], rows=[["x"]]),
             ],
         )
         scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
@@ -1250,10 +1249,10 @@ class TestSerialization:
             )
 
     def test_plot_roundtrip(self):
-        series = [
-            {"label": "line1", "type": "line", "x": [1, 2, 3], "y": [10, 20, 15]},
-            {"label": "pts", "type": "scatter", "x": [1, 2], "y": [5, 8]},
-        ]
+        series = (
+            PlotSeries("line1", "line", (1.0, 2.0, 3.0), (10.0, 20.0, 15.0)),
+            PlotSeries("pts", "scatter", (1.0, 2.0), (5.0, 8.0)),
+        )
         e = PlotElement(
             id="p1",
             title="My Plot",
@@ -1284,7 +1283,7 @@ class TestSerialization:
         assert isinstance(restored, SceneMessage)
         plot = restored.elements[0]
         assert isinstance(plot, PlotElement)
-        assert plot.series == []
+        assert plot.series == ()
         assert plot.title == ""
 
     def test_progress_roundtrip(self):
@@ -1376,7 +1375,10 @@ class TestSerialization:
             tabs=[
                 {
                     "label": "Layout",
-                    "children": [inner, PlotElement(id="sel1")],
+                    "children": [
+                        inner,
+                        TableElement(id="sel1", columns=["A"], rows=[["x"]]),
+                    ],
                 }
             ],
         )
