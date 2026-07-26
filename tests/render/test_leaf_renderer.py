@@ -8,6 +8,12 @@ not only a legacy-nested one. Two guards: the record happens after the whole
 paint (so the group bounds it and a tooltip cannot poison the rect), and every
 leaf adapter the factory dispatches inherits the template, so no leaf kind can be
 added without its geometry captured.
+
+The leaf set the second guard covers is derived from the factory's own
+``_DISPATCH`` table minus an explicit container allowlist, not a hand-kept list:
+a new leaf kind added to ``_DISPATCH`` is auto-covered, and a new *container*
+must be consciously added to the allowlist to be exempted — otherwise it lands in
+the leaf set and fails the inheritance assertion.
 """
 
 from __future__ import annotations
@@ -17,48 +23,45 @@ from typing import TYPE_CHECKING, Self, cast, final
 
 import pytest
 
-from punt_lux.display.renderers.imgui.button import ImGuiButtonRenderer
-from punt_lux.display.renderers.imgui.checkbox import ImGuiCheckboxRenderer
-from punt_lux.display.renderers.imgui.color_picker import ImGuiColorPickerRenderer
-from punt_lux.display.renderers.imgui.combo import ImGuiComboRenderer
-from punt_lux.display.renderers.imgui.image import ImGuiImageRenderer
-from punt_lux.display.renderers.imgui.input_number import ImGuiInputNumberRenderer
-from punt_lux.display.renderers.imgui.input_text import ImGuiInputTextRenderer
+from punt_lux.display.renderers.imgui.collapsing_header import (
+    ImGuiCollapsingHeaderRenderer,
+)
+from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
+from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
+from punt_lux.display.renderers.imgui.group import ImGuiGroupRenderer
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
-from punt_lux.display.renderers.imgui.markdown import ImGuiMarkdownRenderer
-from punt_lux.display.renderers.imgui.progress import ImGuiProgressRenderer
-from punt_lux.display.renderers.imgui.radio import ImGuiRadioRenderer
-from punt_lux.display.renderers.imgui.selectable import ImGuiSelectableRenderer
-from punt_lux.display.renderers.imgui.separator import ImGuiSeparatorRenderer
-from punt_lux.display.renderers.imgui.slider import ImGuiSliderRenderer
-from punt_lux.display.renderers.imgui.spinner import ImGuiSpinnerRenderer
-from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
+from punt_lux.display.renderers.imgui.modal import ImGuiModalRenderer
+from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
 from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
 from punt_lux.protocol.elements.text import TextElement
 
 if TYPE_CHECKING:
     from collections.abc import Generator
 
-    from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
+# The container adapters — the ones that open a surface and render children, not
+# a single widget. They are exempt from the leaf-inheritance guard, and adding a
+# new container here is the conscious act the derivation forces.
+_CONTAINER_ADAPTERS: frozenset[type] = frozenset(
+    {
+        ImGuiWindowRenderer,
+        ImGuiModalRenderer,
+        ImGuiDialogRenderer,
+        ImGuiGroupRenderer,
+        ImGuiTabBarRenderer,
+        ImGuiCollapsingHeaderRenderer,
+    }
+)
 
-# Every leaf kind the factory dispatches: each must inherit the recording base.
-_LEAF_ADAPTERS = [
-    ImGuiTextRenderer,
-    ImGuiButtonRenderer,
-    ImGuiCheckboxRenderer,
-    ImGuiInputTextRenderer,
-    ImGuiInputNumberRenderer,
-    ImGuiProgressRenderer,
-    ImGuiMarkdownRenderer,
-    ImGuiSpinnerRenderer,
-    ImGuiSeparatorRenderer,
-    ImGuiImageRenderer,
-    ImGuiSliderRenderer,
-    ImGuiColorPickerRenderer,
-    ImGuiComboRenderer,
-    ImGuiRadioRenderer,
-    ImGuiSelectableRenderer,
-]
+_DISPATCHED_ADAPTERS: frozenset[type] = frozenset(
+    cast("type", adapter) for _, adapter in ImGuiRendererFactory._DISPATCH
+)
+
+# Every dispatched adapter that is not an allowlisted container is a leaf and must
+# inherit the recording base — derived, so a new leaf kind cannot slip the guard.
+_LEAF_ADAPTERS: list[type] = sorted(
+    _DISPATCHED_ADAPTERS - _CONTAINER_ADAPTERS, key=lambda a: a.__name__
+)
+_SORTED_CONTAINERS: list[type] = sorted(_CONTAINER_ADAPTERS, key=lambda a: a.__name__)
 
 
 class _CaptureSpy:
@@ -138,5 +141,10 @@ def test_every_leaf_adapter_inherits_the_recording_base(adapter: type) -> None:
     assert issubclass(adapter, LeafRenderer)
 
 
-def test_a_container_adapter_is_not_a_leaf_renderer() -> None:
-    assert not issubclass(ImGuiWindowRenderer, LeafRenderer)
+@pytest.mark.parametrize("container", _SORTED_CONTAINERS)
+def test_container_allowlist_holds_only_dispatched_non_leaves(container: type) -> None:
+    # The allowlist can only exempt a real, dispatched container: an entry that
+    # left ``_DISPATCH`` or that is secretly a leaf (which would dodge the guard)
+    # fails here, so the exemption list cannot rot or hide a leaf.
+    assert container in _DISPATCHED_ADAPTERS
+    assert not issubclass(container, LeafRenderer)
