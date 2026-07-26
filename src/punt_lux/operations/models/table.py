@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Self
 
-from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    ValidationError,
+    field_validator,
+    model_validator,
+)
 
 from punt_lux.operations.models.common import OpError
 from punt_lux.operations.models.render import FrameSpec, RenderRequest
@@ -39,6 +45,16 @@ class RenderTableRequest(BaseModel):
     title: str | None = None
     frame_id: str | None = None
     frame_title: str | None = None
+
+    @field_validator("key_column", mode="before")
+    @classmethod
+    def _reject_bool_key_column(cls, value: object) -> object:
+        """Reject a bool before coercion — ``bool`` subclasses ``int``, so Pydantic
+        would otherwise read ``True`` as column index 1."""
+        if isinstance(value, bool):
+            msg = "key_column must be an int index or a column name, not a bool"
+            raise ValueError(msg)
+        return value
 
     @model_validator(mode="after")
     def _check_key_column(self) -> Self:

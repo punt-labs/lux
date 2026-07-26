@@ -266,6 +266,21 @@ def test_render_table_parse_rejects_a_key_column_name_absent_from_columns() -> N
     assert "does not name a column" in result.reason
 
 
+def test_render_table_parse_rejects_a_bool_key_column() -> None:
+    # bool subclasses int, so Pydantic would coerce True -> column index 1; a
+    # before-validator rejects it outright.
+    result = RenderTableRequest.parse(
+        {
+            "scene_id": "s",
+            "columns": ["ID", "Name"],
+            "rows": [["1", "a"]],
+            "key_column": True,
+        }
+    )
+    assert isinstance(result, OpError)
+    assert "bool" in result.reason
+
+
 def test_render_dashboard_parse_falls_back_and_names_the_missing_field() -> None:
     result = RenderDashboardRequest.parse(
         {"scene_id": "s", "metrics": [{"label": "x"}]}
