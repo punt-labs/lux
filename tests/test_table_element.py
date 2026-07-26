@@ -331,3 +331,12 @@ class TestPatchAtomicity:
         )
         table.apply_patch({"selected_row_ids": ["a", "ghost"]})
         assert table.selected_row_ids == frozenset({"a"})
+
+    def test_bad_selection_patch_names_the_public_field(self) -> None:
+        # The error must name the public field ``selected_row_ids``, not the
+        # internal shorthand, so an agent's fix targets the right key.
+        table = TableElement(
+            id="t", columns=("ID",), rows=(("a",),), selection_mode="multi"
+        )
+        with pytest.raises(ValueError, match="selected_row_ids must be a list"):
+            table.apply_patch({"selected_row_ids": 123})

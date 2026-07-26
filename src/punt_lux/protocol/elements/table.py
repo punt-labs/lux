@@ -204,7 +204,7 @@ class TableElement(Element):
         the model the same way a gesture does, instead of being shadowed on the
         next re-projection.
         """
-        ids = frozenset(self._str_list(value, "selected")) & self._live_ids()
+        ids = frozenset(self._str_list(value, "selected_row_ids")) & self._live_ids()
         self._selection = self._selection.with_selection(ids)
         self._notify_observers("selected_row_ids")
 
