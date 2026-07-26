@@ -68,6 +68,16 @@ class RenderTableRequest(BaseModel):
             raise ValueError(msg)
         return self
 
+    @model_validator(mode="after")
+    def _check_table_id(self) -> Self:
+        """Reject an empty/whitespace table_id — it would make the table anonymous
+        (the ``""`` element-id sentinel) and its synthesized control ids ambiguous.
+        ``None`` is fine: it synthesizes the default ``"table"``."""
+        if self.table_id is not None and not self.table_id.strip():
+            msg = f"table_id must be a non-empty identifier, got {self.table_id!r}"
+            raise ValueError(msg)
+        return self
+
     @classmethod
     def parse(cls, raw: Mapping[str, object]) -> RenderTableRequest | OpError:
         """Validate raw arguments, or return an ``OpError`` instead of raising."""

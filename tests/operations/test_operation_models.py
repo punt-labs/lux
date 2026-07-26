@@ -266,6 +266,23 @@ def test_render_table_parse_rejects_a_key_column_name_absent_from_columns() -> N
     assert "does not name a column" in result.reason
 
 
+def test_render_table_parse_rejects_an_empty_table_id() -> None:
+    result = RenderTableRequest.parse(
+        {"scene_id": "s", "columns": ["A"], "rows": [["x"]], "table_id": ""}
+    )
+    assert isinstance(result, OpError)
+    assert "table_id must be a non-empty identifier" in result.reason
+
+
+def test_render_table_parse_rejects_a_whitespace_table_id() -> None:
+    # None synthesizes "table"; an explicit blank would make the table anonymous.
+    result = RenderTableRequest.parse(
+        {"scene_id": "s", "columns": ["A"], "rows": [["x"]], "table_id": "   "}
+    )
+    assert isinstance(result, OpError)
+    assert "table_id must be a non-empty identifier" in result.reason
+
+
 def test_render_table_parse_rejects_a_bool_key_column() -> None:
     # bool subclasses int, so Pydantic would coerce True -> column index 1; a
     # before-validator rejects it outright.

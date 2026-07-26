@@ -314,6 +314,14 @@ class TestDetailBinding:
 
 
 class TestFilterRobustness:
+    def test_empty_table_id_is_rejected_at_the_builder(self) -> None:
+        # PR #283: the invariant lives in build() too, so a direct caller can't
+        # construct an anonymous composition (the "" element-id sentinel).
+        with pytest.raises(ValueError, match="table_id must be a non-empty"):
+            TableComposition.build(
+                TableCompositionSpec(columns=("A",), rows=(("x",),), table_id="  ")
+            )
+
     def test_search_with_name_columns_searches_all_columns(self) -> None:
         # A search whose "column" is names (not int indices) must not silently
         # empty the table — it falls back to searching every column (F3).

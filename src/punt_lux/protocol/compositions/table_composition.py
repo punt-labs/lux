@@ -111,6 +111,13 @@ class TableComposition:
     @classmethod
     def build(cls, spec: TableCompositionSpec) -> list[Element]:
         """Return the scene roots: a basic grid, or a group with composed chrome."""
+        if not spec.table_id.strip():
+            # An empty/whitespace table_id would make the table anonymous (the ""
+            # element-id sentinel) and its synthesized control ids ambiguous. The
+            # invariant lives here too, so a direct builder caller cannot construct
+            # an anonymous composition.
+            msg = f"table_id must be a non-empty identifier, got {spec.table_id!r}"
+            raise ValueError(msg)
         table = cls._grid(spec)
         install_selection_sync(table)
         if not spec.has_chrome:
