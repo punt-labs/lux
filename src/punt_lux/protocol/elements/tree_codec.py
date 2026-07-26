@@ -72,9 +72,9 @@ class JsonTreeDecoder:
 class JsonTreeEncoder:
     """Encode a ``TreeElement`` to its JSON-compatible wire dict.
 
-    Stateless. ``flat`` and ``tooltip`` are omitted when falsy so the wire shape
-    matches the legacy dataclass codec byte-for-byte; ``label`` and ``nodes`` are
-    always emitted.
+    Stateless. ``flat`` is omitted when falsy and ``tooltip`` when ``None``
+    (an empty-string tooltip is still serialized), matching the legacy
+    dataclass codec byte-for-byte; ``label`` and ``nodes`` are always emitted.
     """
 
     __slots__ = ()
