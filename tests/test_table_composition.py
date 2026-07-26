@@ -410,6 +410,28 @@ class TestFilterRobustness:
                 )
             )
 
+    def test_empty_combo_items_is_rejected(self) -> None:
+        # PR #283: an empty items list builds a choiceless control — fail loud,
+        # matching the legacy TableFilter contract.
+        with pytest.raises(ValueError, match="'items' must be a non-empty list"):
+            TableComposition.build(
+                TableCompositionSpec(
+                    columns=("ID", "Status"),
+                    rows=(("a", "open"),),
+                    filters=({"type": "combo", "column": 1, "items": []},),
+                )
+            )
+
+    def test_omitted_combo_items_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="'items' must be a non-empty list"):
+            TableComposition.build(
+                TableCompositionSpec(
+                    columns=("ID", "Status"),
+                    rows=(("a", "open"),),
+                    filters=({"type": "combo", "column": 1},),  # items omitted
+                )
+            )
+
     def test_non_list_combo_items_is_rejected(self) -> None:
         # PR #283: an open wire shape can arrive as None/scalar — fail loud with
         # the field name, not a bare TypeError inside a comprehension.

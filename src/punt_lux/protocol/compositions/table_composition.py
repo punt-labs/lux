@@ -213,6 +213,11 @@ class TableComposition:
         """Build a categorical combo mirroring its value and driving the filter."""
         raw_items = _require_list(filt.get("items", []), "combo filter 'items'")
         items = [str(item) for item in raw_items]
+        if not items:
+            # An empty/omitted items list builds a choiceless control — fail loud,
+            # matching the legacy TableFilter contract and the other build guards.
+            msg = f"combo filter {index} 'items' must be a non-empty list"
+            raise ValueError(msg)
         raw_column = filt.get("column", 0)
         if isinstance(raw_column, bool) or not isinstance(raw_column, int):
             got = type(raw_column).__name__
