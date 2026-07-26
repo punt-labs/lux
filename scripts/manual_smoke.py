@@ -80,6 +80,7 @@ from punt_lux.protocol.elements.draw_commands_line import Line, Polyline
 from punt_lux.protocol.elements.draw_commands_shape import Circle, Rect, Triangle
 from punt_lux.protocol.elements.draw_commands_text import TextGlyph
 from punt_lux.protocol.elements.draw_values import Color, Point2, Thickness
+from punt_lux.protocol.elements.tree_node import TreeNode
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,23 +198,8 @@ def _collect_kinds(elements: list[Element]) -> frozenset[str]:
                 tab_children = tab.get("children", [])
                 if isinstance(tab_children, list):
                     kinds |= _collect_kinds(tab_children)
-        if isinstance(elem, TreeElement):
-            kinds |= _collect_tree_node_kinds(elem.nodes)
-    return frozenset(kinds)
-
-
-def _collect_tree_node_kinds(nodes: list[dict[str, object]]) -> frozenset[str]:
-    """Walk Tree nodes recursively; Tree leaves carry no element kinds."""
-    kinds: set[str] = set()
-    for node in nodes:
-        children = node.get("children", [])
-        if isinstance(children, list):
-            # Tree node children are dicts in the same shape as the parent,
-            # not Element instances — recurse via this helper, not _collect_kinds.
-            typed_children: list[dict[str, object]] = [
-                c for c in children if isinstance(c, dict)
-            ]
-            kinds |= _collect_tree_node_kinds(typed_children)
+        # A tree's nodes are a typed value family carrying no element kinds; the
+        # tree contributes only its own "tree" kind, added above.
     return frozenset(kinds)
 
 
@@ -619,19 +605,16 @@ class SmokeRunner:
             TreeElement(
                 id="layout-tree",
                 label="Tree root",
-                nodes=[
-                    {
-                        "label": "branch-1",
-                        "children": [
-                            {"label": "leaf-1a"},
-                            {"label": "leaf-1b"},
-                        ],
-                    },
-                    {
-                        "label": "branch-2",
-                        "children": [{"label": "leaf-2a"}],
-                    },
-                ],
+                nodes=(
+                    TreeNode(
+                        label="branch-1",
+                        children=(
+                            TreeNode(label="leaf-1a"),
+                            TreeNode(label="leaf-1b"),
+                        ),
+                    ),
+                    TreeNode(label="branch-2", children=(TreeNode(label="leaf-2a"),)),
+                ),
             ),
             LegacyWindowElement(
                 id="layout-window",

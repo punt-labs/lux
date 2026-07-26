@@ -69,6 +69,7 @@ from punt_lux.protocol import (
 from punt_lux.protocol.elements.draw_commands_line import Line
 from punt_lux.protocol.elements.draw_commands_shape import Rect
 from punt_lux.protocol.elements.draw_values import Color, Point2
+from punt_lux.protocol.elements.tree_node import TreeNode
 
 # ---------------------------------------------------------------------------
 # Element construction
@@ -244,10 +245,13 @@ class TestElements:
         assert e.selected is False
 
     def test_tree_element(self):
-        nodes: list[dict[str, Any]] = [
-            {"label": "src", "children": [{"label": "main.py"}, {"label": "lib.py"}]},
-            {"label": "README.md"},
-        ]
+        nodes = (
+            TreeNode(
+                label="src",
+                children=(TreeNode(label="main.py"), TreeNode(label="lib.py")),
+            ),
+            TreeNode(label="README.md"),
+        )
         e = TreeElement(id="tr1", label="Project", nodes=nodes)
         assert e.kind == "tree"
         assert e.label == "Project"
@@ -256,7 +260,7 @@ class TestElements:
     def test_tree_element_defaults(self):
         e = TreeElement(id="tr1")
         assert e.label == ""
-        assert e.nodes == []
+        assert e.nodes == ()
         assert e.flat is False
 
     def test_tree_element_flat(self):
@@ -1067,16 +1071,13 @@ class TestSerialization:
         assert elem.selected is True
 
     def test_tree_roundtrip(self):
-        nodes: list[dict[str, Any]] = [
-            {
-                "label": "src",
-                "children": [
-                    {"label": "main.py"},
-                    {"label": "utils.py"},
-                ],
-            },
-            {"label": "README.md"},
-        ]
+        nodes = (
+            TreeNode(
+                label="src",
+                children=(TreeNode(label="main.py"), TreeNode(label="utils.py")),
+            ),
+            TreeNode(label="README.md"),
+        )
         e = TreeElement(id="tr1", label="Project", nodes=nodes)
         scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
@@ -1086,14 +1087,14 @@ class TestSerialization:
         assert isinstance(tree, TreeElement)
         assert tree.label == "Project"
         assert len(tree.nodes) == 2
-        assert tree.nodes[0]["label"] == "src"
-        assert len(tree.nodes[0]["children"]) == 2
+        assert tree.nodes[0].label == "src"
+        assert len(tree.nodes[0].children) == 2
 
     def test_tree_flat_roundtrip(self):
         e = TreeElement(
             id="tr1",
             label="Details",
-            nodes=[{"label": "info", "children": [{"label": "value"}]}],
+            nodes=(TreeNode(label="info", children=(TreeNode(label="value"),)),),
             flat=True,
         )
         scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
@@ -1119,7 +1120,7 @@ class TestSerialization:
         assert isinstance(restored, SceneMessage)
         tree = restored.elements[0]
         assert isinstance(tree, TreeElement)
-        assert tree.nodes == []
+        assert tree.nodes == ()
 
     def test_table_roundtrip(self):
         e = TableElement(

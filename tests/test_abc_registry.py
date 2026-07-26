@@ -85,6 +85,7 @@ def _full_specs() -> list[AbcKindSpec]:
         _leaf("spinner"),
         _leaf("separator"),
         _leaf("image"),
+        _leaf("tree"),
         DialogKindSpec(codec=_dummy_codec()),
         _leaf("button", handler=True, sugar=True),
         _leaf("checkbox", handler=True),

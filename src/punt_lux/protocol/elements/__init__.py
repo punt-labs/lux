@@ -55,8 +55,6 @@ from punt_lux.protocol.elements.layout import (
     LegacyModalElement,
     LegacyTabBarElement,
     LegacyWindowElement,
-    TreeElement,
-    register_codecs as _register_layout,
 )
 from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.modal import ModalElement
@@ -75,6 +73,7 @@ from punt_lux.protocol.elements.table import (
     register_codecs as _register_table,
 )
 from punt_lux.protocol.elements.text import TextElement
+from punt_lux.protocol.elements.tree import TreeElement
 from punt_lux.protocol.elements.window import WindowElement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 
@@ -167,7 +166,7 @@ def build_element_codec() -> ElementCodec:
     instance per factory keeps factory construction self-contained.
     """
     codec = ElementCodec()
-    _register_layout(codec.register)
+    LegacyGroupElement.register_codecs(codec.register)
     _register_graphics(codec.register)
     _register_table(codec.register)
     return codec

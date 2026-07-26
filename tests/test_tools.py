@@ -309,7 +309,7 @@ class TestElementFromDict:
         elem = agent_element_factory().element_from_dict({"kind": "tree", "id": "tr1"})
         assert isinstance(elem, TreeElement)
         assert elem.label == ""
-        assert elem.nodes == []
+        assert elem.nodes == ()
 
     def test_table_element(self) -> None:
         elem = agent_element_factory().element_from_dict(
@@ -747,9 +747,9 @@ class TestShowTool:
 
     @patch("punt_lux.domain.hub.clients.client_registry.get")
     def test_show_rejects_tree_with_malformed_node(self, mock_get: MagicMock) -> None:
-        # A tree's nodes are mappings, not elements — the tree self-validates
-        # its own structure. A node that is not a mapping is reported, not
-        # silently dropped, and the scene is never rendered.
+        # A tree's nodes are a typed value family, not elements — a non-mapping
+        # node is rejected at the wire boundary (like a malformed draw command),
+        # not silently dropped, and the scene is never rendered.
         client = _mock_client()
         mock_get.return_value = client
 
@@ -758,8 +758,7 @@ class TestShowTool:
             [{"kind": "tree", "id": "files", "label": "Files", "nodes": [42]}],
         )
         assert result.startswith("error: scene not rendered")
-        assert "[tree 'files']" in result
-        assert "node 0 is not a mapping" in result
+        assert "nodes[0] must be a mapping" in result
         client.show.assert_not_called()
 
     @patch("punt_lux.domain.hub.clients.client_registry.get")

@@ -1,4 +1,4 @@
-"""Container self-validation contract: child exposure, tree structure, guard.
+"""Container self-validation contract: child exposure and structural guard.
 
 Every container element kind must expose its children to the validation
 walk so a malformed element nested inside it is caught rather than
@@ -22,7 +22,6 @@ from punt_lux.protocol.elements.layout import (
     LegacyModalElement,
     LegacyTabBarElement,
     LegacyWindowElement,
-    TreeElement,
 )
 from punt_lux.protocol.elements.table import TableElement
 from punt_lux.protocol.elements.text import TextElement
@@ -62,66 +61,8 @@ class TestContainerChildElements:
         assert LegacyModalElement(id="m").child_elements() == ()
         assert LegacyTabBarElement(id="tb").child_elements() == ()
 
-    def test_tree_exposes_no_child_elements(self) -> None:
-        # A tree's nodes are plain mappings, not elements; the tree checks
-        # its own node structure in validate() rather than via the walk.
-        tree = TreeElement(id="tr", nodes=[{"label": "root"}])
-        assert tree.child_elements() == ()
 
-
-class TestTreeValidate:
-    def test_well_formed_tree_has_no_errors(self) -> None:
-        tree = TreeElement(
-            id="files",
-            nodes=[
-                {"label": "src", "children": [{"label": "main.py"}]},
-                {"label": "README.md"},
-            ],
-        )
-        assert tree.validate() == ()
-
-    def test_empty_tree_is_valid(self) -> None:
-        assert TreeElement(id="files").validate() == ()
-
-    def test_non_mapping_node_is_reported(self) -> None:
-        tree = TreeElement(id="files", nodes=[42])  # type: ignore[list-item]  # deliberately malformed
-        errors = tree.validate()
-        assert len(errors) == 1
-        assert errors[0].element_kind == "tree"
-        assert errors[0].element_id == "files"
-        assert "node 0 is not a mapping" in errors[0].message
-
-    def test_node_missing_label_is_reported(self) -> None:
-        tree = TreeElement(id="files", nodes=[{"note": "no label here"}])
-        errors = tree.validate()
-        assert len(errors) == 1
-        assert "missing a string 'label'" in errors[0].message
-
-    def test_malformed_child_node_is_reported(self) -> None:
-        tree = TreeElement(
-            id="files",
-            nodes=[{"label": "root", "children": [42]}],  # malformed grandchild
-        )
-        errors = tree.validate()
-        assert len(errors) == 1
-        assert "is not a mapping" in errors[0].message
-
-    def test_non_list_nodes_is_reported(self) -> None:
-        tree = TreeElement(id="files", nodes="oops")  # type: ignore[arg-type]  # deliberately malformed
-        errors = tree.validate()
-        assert len(errors) == 1
-        assert "nodes must be a list of nodes" in errors[0].message
-
-    def test_every_malformed_node_collects_at_once(self) -> None:
-        tree = TreeElement(
-            id="files",
-            nodes=[42, {"note": "no label"}],  # type: ignore[list-item]  # deliberately malformed
-        )
-        errors = tree.validate()
-        assert len(errors) == 2
-
-
-_CHILD_BEARING_FIELDS = frozenset({"children", "tabs", "nodes", "pages"})
+_CHILD_BEARING_FIELDS = frozenset({"children", "tabs", "pages"})
 
 
 def _container_element_classes() -> list[type]:
@@ -146,11 +87,7 @@ _ELEMENT_CHILD_FIELDS = frozenset({"children", "tabs", "pages"})
 
 
 def _element_child_container_classes() -> list[type]:
-    """Containers whose children are Lux elements, not mapping nodes.
-
-    ``TreeElement`` carries only ``nodes`` (plain mappings) and legitimately
-    exposes no child elements, so it is excluded from the behavioral guard.
-    """
+    """Containers whose children are Lux elements planted in a child field."""
     return [
         cls
         for cls in _container_element_classes()
@@ -181,7 +118,6 @@ class TestContainerContract:
             LegacyCollapsingHeaderElement,
             LegacyModalElement,
             LegacyTabBarElement,
-            TreeElement,
         }
         assert expected <= found
 

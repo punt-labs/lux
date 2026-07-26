@@ -1,10 +1,7 @@
 """ImGuiRendererFactory — surface-shared mediator for ImGui per-kind renderers.
 
-Constructed once at Display startup, holding the Display-tier surface-shared
-state (``WidgetState``, ``TextureCache``, ``Emit``). It dispatches by element
-type to the per-kind adapter; ``handles`` lets ``render_element`` route every
-migrated kind here (the one render-side authority, retiring the parallel
-native-dispatch table), and every adapter shares the one ``apply_tooltip`` pass.
+Constructed once at Display startup with the Display-tier shared state; it
+dispatches by element type to the per-kind adapter and shares one tooltip pass.
 """
 
 from __future__ import annotations
@@ -34,6 +31,7 @@ from punt_lux.display.renderers.imgui.slider import ImGuiSliderRenderer
 from punt_lux.display.renderers.imgui.spinner import ImGuiSpinnerRenderer
 from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
+from punt_lux.display.renderers.imgui.tree import ImGuiTreeRenderer
 from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
 from punt_lux.display.renderers.tooltip_painter import TooltipPainter
 from punt_lux.domain.element_abc import Element as AbcElement
@@ -57,6 +55,7 @@ from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.text import TextElement
+from punt_lux.protocol.elements.tree import TreeElement
 from punt_lux.protocol.elements.window import WindowElement
 
 if TYPE_CHECKING:
@@ -108,6 +107,7 @@ class ImGuiRendererFactory:
         (ComboElement, ImGuiComboRenderer),
         (RadioElement, ImGuiRadioRenderer),
         (SelectableElement, ImGuiSelectableRenderer),
+        (TreeElement, ImGuiTreeRenderer),
     )
 
     def __new__(
