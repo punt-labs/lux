@@ -36,12 +36,22 @@ class ImGuiTreeRenderer(LeafRenderer[TreeElement]):
     __slots__ = ()
 
     def _paint_widget(self) -> None:
-        """Draw the tree's optional heading, then each top-level node."""
+        """Draw the tree under a per-element id scope, then heading and nodes.
+
+        An anonymous element (id == "") makes two same-labelled trees share node
+        ids and thus ImGui expansion state; fall back to object identity, stable
+        within a scene generation, so anonymous trees stay independent — the same
+        guard the plot leaf uses for Hub-side-constructible anonymous elements.
+        """
         elem = self._elem
-        if elem.label:
-            imgui.text(elem.label)
-        for i, node in enumerate(elem.nodes):
-            self._paint_node(node, f"{elem.id}_{i}", flat=elem.flat)
+        imgui.push_id(elem.id or f"anon-{id(elem)}")
+        try:
+            if elem.label:
+                imgui.text(elem.label)
+            for i, node in enumerate(elem.nodes):
+                self._paint_node(node, f"{elem.id}_{i}", flat=elem.flat)
+        finally:
+            imgui.pop_id()
 
     def _paint_node(self, node: TreeNode, node_id: str, *, flat: bool) -> None:
         """Paint one node and recurse into its children."""

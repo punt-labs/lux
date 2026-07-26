@@ -330,3 +330,36 @@ def test_tree_adapter_records_a_painted_rect(monkeypatch: pytest.MonkeyPatch) ->
     geom = factory.geometry.recorder.snapshot().element_for("s1", "tr")
     assert geom is not None
     assert geom.rect == EXPECTED_RECT
+
+
+# -- anonymous id scope: two anonymous trees never share expansion state -----
+
+
+def test_anonymous_tree_scopes_paint_under_object_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mock_imgui = MagicMock()
+    monkeypatch.setattr("punt_lux.display.renderers.imgui.tree.imgui", mock_imgui)
+    tree = TreeElement(id="", nodes=(TreeNode(label="a"),))
+
+    renderer = ImGuiTreeRenderer(tree, cast("ImGuiRendererFactory", MagicMock()))
+    renderer._paint_widget()
+
+    assert mock_imgui.push_id.call_args_list[0].args[0] == f"anon-{id(tree)}"
+    mock_imgui.pop_id.assert_called_once()
+
+
+def test_two_anonymous_trees_get_distinct_scopes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    mock_imgui = MagicMock()
+    monkeypatch.setattr("punt_lux.display.renderers.imgui.tree.imgui", mock_imgui)
+    factory = cast("ImGuiRendererFactory", MagicMock())
+    first = TreeElement(id="", nodes=(TreeNode(label="a"),))
+    second = TreeElement(id="", nodes=(TreeNode(label="a"),))
+
+    ImGuiTreeRenderer(first, factory)._paint_widget()
+    ImGuiTreeRenderer(second, factory)._paint_widget()
+
+    scopes = [call.args[0] for call in mock_imgui.push_id.call_args_list]
+    assert scopes[0] != scopes[1]

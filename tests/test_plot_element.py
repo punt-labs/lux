@@ -13,16 +13,18 @@ label ``TypeError`` guard as defense-in-depth.
 
 from __future__ import annotations
 
+import logging
 import tempfile
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 
 from punt_lux.display import geometry_capture
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-from punt_lux.display.renderers.imgui.plot import ImGuiPlotRenderer
+from punt_lux.display.renderers.imgui.plot import ImGuiPlotRenderer, _BarSeriesPlotter
 from punt_lux.display.server import DisplayServer
 from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.validation_walk import ElementTreeValidator
@@ -347,3 +349,96 @@ def test_plot_adapter_records_a_painted_rect(monkeypatch: pytest.MonkeyPatch) ->
     geom = factory.geometry.recorder.snapshot().element_for("s1", "pl1")
     assert geom is not None
     assert geom.rect == EXPECTED_RECT
+
+
+# -- silent-failure guards: no quiet data loss on the render path -----------
+
+_PLOT_MOD = "punt_lux.display.renderers.imgui.plot"
+
+
+def _old_signature_plot_bars(*args: object) -> None:
+    """Stand in for an old imgui-bundle: reject the 4-arg explicit-x form."""
+    if len(args) == 4:  # (label, xs, ys, bar_size) — unsupported on this build
+        msg = "plot_bars() takes 3 positional arguments but 4 were given"
+        raise TypeError(msg)
+
+
+class TestBarSignatureProbe:
+    def test_new_signature_keeps_explicit_x_and_stays_silent(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        implot = MagicMock()  # accepts the 4-arg explicit-x form
+        monkeypatch.setattr(f"{_PLOT_MOD}.implot", implot)
+        plotter = _BarSeriesPlotter()
+        with caplog.at_level(logging.WARNING):
+            plotter.plot("bars", np.array([10.0, 20.0]), np.array([1.0, 2.0]))
+        assert not caplog.records
+        assert len(implot.plot_bars.call_args_list[-1].args) == 4
+
+    def test_new_signature_does_not_swallow_a_genuine_typeerror(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        implot = MagicMock()
+        monkeypatch.setattr(f"{_PLOT_MOD}.implot", implot)
+        plotter = _BarSeriesPlotter()
+        plotter.plot("ok", np.array([1.0]), np.array([2.0]))  # probes -> takes_x
+        implot.plot_bars.side_effect = TypeError("genuine array error")
+        with pytest.raises(TypeError, match="genuine array error"):
+            plotter.plot("bad", np.array([1.0]), np.array([2.0]))
+
+    def test_old_signature_warns_once_on_non_index_x(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        implot = MagicMock()
+        implot.plot_bars = MagicMock(side_effect=_old_signature_plot_bars)
+        monkeypatch.setattr(f"{_PLOT_MOD}.implot", implot)
+        plotter = _BarSeriesPlotter()
+        x = np.array([10.0, 20.0, 30.0])
+        y = np.array([1.0, 2.0, 3.0])
+        with caplog.at_level(logging.WARNING):
+            plotter.plot("first", x, y)
+            plotter.plot("second", x, y)
+        warnings = [r for r in caplog.records if "takes no x argument" in r.message]
+        assert len(warnings) == 1  # probed once, warned once
+
+    def test_old_signature_is_silent_on_index_ramp(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        implot = MagicMock()
+        implot.plot_bars = MagicMock(side_effect=_old_signature_plot_bars)
+        monkeypatch.setattr(f"{_PLOT_MOD}.implot", implot)
+        plotter = _BarSeriesPlotter()
+        with caplog.at_level(logging.WARNING):
+            plotter.plot("ramp", np.array([0.0, 1.0, 2.0]), np.array([5.0, 6.0, 7.0]))
+        assert not caplog.records  # y-only faithfully renders an index ramp
+
+
+class TestRaggedSeriesIsLogged:
+    def test_ragged_series_warns_with_id_index_and_lengths(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setattr(f"{_PLOT_MOD}.imgui", MagicMock())
+        monkeypatch.setattr(f"{_PLOT_MOD}.implot", MagicMock())
+        plot = PlotElement(
+            id="pl1", series=(PlotSeries("y", "line", (1.0, 2.0), (3.0,)),)
+        )
+        renderer = ImGuiPlotRenderer(plot, cast("ImGuiRendererFactory", MagicMock()))
+        with caplog.at_level(logging.WARNING):
+            renderer._plot_series(plot.series[0], 0)
+        assert len(caplog.records) == 1
+        message = caplog.records[0].getMessage()
+        assert "ragged" in message
+        assert "'pl1'" in message
+        assert "x=2" in message
+        assert "y=1" in message
+
+    def test_empty_series_is_skipped_silently(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setattr(f"{_PLOT_MOD}.imgui", MagicMock())
+        monkeypatch.setattr(f"{_PLOT_MOD}.implot", MagicMock())
+        plot = PlotElement(id="pl1", series=(PlotSeries("y", "line", (), ()),))
+        renderer = ImGuiPlotRenderer(plot, cast("ImGuiRendererFactory", MagicMock()))
+        with caplog.at_level(logging.WARNING):
+            renderer._plot_series(plot.series[0], 0)
+        assert not caplog.records  # honest empty — nothing to draw, nothing to warn

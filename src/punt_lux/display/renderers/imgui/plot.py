@@ -8,16 +8,21 @@ verbatim while every item and plot still gets a distinct ImGui id. This migratio
 moves *where* the paint lives (the ABC leaf path, fork-don't-mix) and *who*
 validates a series (the Hub, via ``PlotSeries``/``PlotElement.validate``), not how
 ImPlot is driven. A typed ``PlotSeries`` carries a string label, so the label
-``TypeError`` that used to fault mid-render is now impossible past decode; the
-live defense-in-depth is the ragged-series skip, which drops a series whose
-``x``/``y`` lengths differ (a shape the Hub's ``validate`` already rejects) rather
-than handing ImPlot mismatched arrays. ``LeafRenderer`` adds the shared tooltip
-pass and the geometry capture around it.
+``TypeError`` that used to fault mid-render is now impossible past decode.
+
+Two silent-failure guards make the remaining defense-in-depth visible rather than
+quiet: a ragged series (a shape the Hub's ``validate`` already rejects) is skipped
+*and logged*, so if the branch ever fires the Hub gap is traceable instead of
+silently rendering partial data as complete; and bar drawing adapts once to the
+installed ``implot.plot_bars`` signature (see ``_BarSeriesPlotter``) and warns when
+a y-only binding cannot honor explicit x-coordinates. ``LeafRenderer`` adds the
+shared tooltip pass and the geometry capture around it.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, final
+import logging
+from typing import TYPE_CHECKING, Self, final
 
 import numpy as np
 from imgui_bundle import ImVec2, imgui, implot
@@ -31,6 +36,74 @@ if TYPE_CHECKING:
     from punt_lux.protocol.elements.plot_series import PlotSeries
 
 __all__ = ["ImGuiPlotRenderer"]
+
+logger = logging.getLogger(__name__)
+
+
+@final
+class _BarSeriesPlotter:
+    """Draw bar series, adapting once to whichever ``implot.plot_bars`` exists.
+
+    imgui-bundle ships two signatures across versions: newer ``(label, xs, ys,
+    bar_size)``; older ``(label, values, bar_size)``. The available form is probed
+    on the first bar drawn and cached, so later bars dispatch on the cached answer
+    — a genuine ``TypeError`` from a new-signature build is never swallowed by the
+    fallback (only the very first, probing call can absorb one). On a y-only build,
+    explicit x-coordinates cannot be honored: a series carrying non-index x renders
+    at 0..n-1, so warn once rather than silently mispositioning the bars.
+    """
+
+    _takes_x: bool | None  # None until the first bar probes the installed binding
+    _warned: bool
+    __slots__ = ("_takes_x", "_warned")
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._takes_x = None
+        self._warned = False
+        return self
+
+    def plot(self, label: str, x_data: Any, y_data: Any) -> None:
+        """Draw one bar series, honoring explicit x where the binding supports it."""
+        if self._takes_x is None:
+            self._probe(label, x_data, y_data)
+        elif self._takes_x:
+            implot.plot_bars(label, x_data, y_data, 0.67)
+        else:
+            self._plot_y_only(label, x_data, y_data)
+
+    def _probe(self, label: str, x_data: Any, y_data: Any) -> None:
+        """Try the explicit-x form once and remember which signature this build has."""
+        try:
+            implot.plot_bars(label, x_data, y_data, 0.67)
+        except TypeError:
+            self._takes_x = False
+            self._plot_y_only(label, x_data, y_data)
+        else:
+            self._takes_x = True
+
+    def _plot_y_only(self, label: str, x_data: Any, y_data: Any) -> None:
+        """Draw with the y-only signature, warning once if x carried real positions."""
+        if not self._warned and not self._is_index_ramp(x_data, y_data):
+            logger.warning(
+                "implot.plot_bars on this imgui-bundle build takes no x argument; "
+                "bar series %r with explicit x renders at indices 0..%d",
+                label,
+                len(y_data) - 1,
+            )
+            self._warned = True
+        implot.plot_bars(label, y_data, 0.67)
+
+    @staticmethod
+    def _is_index_ramp(x_data: Any, y_data: Any) -> bool:
+        """Return whether x is the trivial 0..n-1 ramp the y-only form implies."""
+        ramp = np.arange(len(y_data), dtype=np.float64)
+        return bool(np.array_equal(x_data, ramp))
+
+
+# One plotter per process: the plot_bars signature is a property of the installed
+# imgui-bundle binding, determined once and shared across every plot rendered.
+_BARS = _BarSeriesPlotter()
 
 
 @final
@@ -63,20 +136,32 @@ class ImGuiPlotRenderer(LeafRenderer[PlotElement]):
         finally:
             implot.end_plot()
 
-    @staticmethod
-    def _plot_series(series: PlotSeries, index: int) -> None:
+    def _plot_series(self, series: PlotSeries, index: int) -> None:
         """Plot one series (line / scatter / bar) from its typed coordinates.
 
-        Skips an empty or ragged series so ImPlot never receives mismatched
-        arrays — defense-in-depth for a shape the Hub's ``validate`` rejects.
+        A ragged series is skipped *and logged*: the Hub's ``validate`` gate should
+        have rejected it, so a fired warning means that gate has a gap, not that
+        partial data is silently drawn as complete. An empty series is skipped
+        silently — an honest "nothing to draw".
         """
+        if series.is_ragged:
+            logger.warning(
+                "plot %r series[%d] %r is ragged (x=%d, y=%d) and was skipped; "
+                "the Hub validate gate should have rejected it",
+                self._elem.id,
+                index,
+                series.label,
+                len(series.x),
+                len(series.y),
+            )
+            return
         x_data = np.array(series.x, dtype=np.float64)
         y_data = np.array(series.y, dtype=np.float64)
-        if len(x_data) == 0 or len(y_data) == 0 or series.is_ragged:
+        if len(x_data) == 0 or len(y_data) == 0:
             return
         imgui.push_id(index)
         try:
-            ImGuiPlotRenderer._draw(series.series_type, series.label, x_data, y_data)
+            self._draw(series.series_type, series.label, x_data, y_data)
         finally:
             imgui.pop_id()
 
@@ -88,11 +173,4 @@ class ImGuiPlotRenderer(LeafRenderer[PlotElement]):
         elif series_type == "scatter":
             implot.plot_scatter(label, x_data, y_data)
         elif series_type == "bar":
-            # imgui-bundle ships two plot_bars signatures across versions: newer
-            # takes (label, xs, ys, bar_size); older takes (label, values,
-            # bar_size). Try the explicit-x form, fall back to the y-only form so
-            # the renderer works against whichever binding is installed.
-            try:
-                implot.plot_bars(label, x_data, y_data, 0.67)
-            except TypeError:
-                implot.plot_bars(label, y_data, 0.67)
+            _BARS.plot(label, x_data, y_data)
