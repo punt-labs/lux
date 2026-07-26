@@ -30,6 +30,8 @@ from punt_lux.domain.selection_interaction import RowSelectionChanged
 from punt_lux.protocol.elements.table import TableElement
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from punt_lux.protocol.elements.table_flags import TableFlags
 
 __all__ = ["ImGuiTableRenderer"]
@@ -117,9 +119,26 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
 
     # -- row painting -------------------------------------------------------
 
+    @staticmethod
+    def _visible_indices(count: int, *, ensure: int = -1) -> Iterator[int]:
+        """Yield the row indices ImGui's list clipper leaves visible.
+
+        The clipper draws only the ~screenful of rows in view (order tens), so a
+        10k-row grid paints tens of rows a frame, not all of them. ``ensure``
+        forces one index (the multi-select range source) to stay unclipped so a
+        shift-range drag anchored off-screen still resolves.
+        """
+        clipper = imgui.ListClipper()
+        clipper.begin(count)
+        if ensure != -1:
+            clipper.include_item_by_index(ensure)
+        while clipper.step():
+            yield from range(clipper.display_start, clipper.display_end)
+
     def _paint_plain(self, pairs: list[_Pair], num_cols: int) -> None:
         """Paint a display-only grid — no selection affordance (mode ``none``)."""
-        for _row_id, row in pairs:
+        for index in self._visible_indices(len(pairs)):
+            _row_id, row = pairs[index]
             imgui.table_next_row()
             for col in range(num_cols):
                 imgui.table_next_column()
@@ -140,7 +159,7 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
         # multi-select scope stays open and the next frame is corrupt — the same
         # finally discipline begin_table/end_table has.
         try:
-            self._paint_selectable_rows(pairs, num_cols, storage)
+            self._paint_selectable_rows(pairs, num_cols, storage, io.range_src_item)
         finally:
             io = imgui.end_multi_select()
             storage.apply_requests(io)
@@ -151,10 +170,16 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
     def _seeded_storage(
         display_ids: tuple[str, ...], seed: frozenset[str]
     ) -> imgui.SelectionBasicStorage:
-        """Return a storage seeded from the arbiter's effective selection."""
+        """Return a storage carrying the arbiter's effective selection.
+
+        Only the selected indices are set — a fresh storage defaults to unselected
+        — so seeding is O(selected), not O(rows), and stays cheap at grid scale.
+        The whole id set is still walked to map each id to its display index.
+        """
         storage = imgui.SelectionBasicStorage()
         for index, row_id in enumerate(display_ids):
-            storage.set_item_selected(index, row_id in seed)
+            if row_id in seed:
+                storage.set_item_selected(index, selected=True)
         return storage
 
     @staticmethod
@@ -177,9 +202,18 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
         pairs: list[_Pair],
         num_cols: int,
         storage: imgui.SelectionBasicStorage,
+        range_src: int,
     ) -> None:
-        """Paint each row as a span-all-columns selectable tagged by its index."""
-        for index, (_row_id, row) in enumerate(pairs):
+        """Paint each visible row as a span-all-columns selectable, index-tagged.
+
+        Only the clipper's visible window is painted; ``range_src`` (the ImGui
+        multi-select range source) is force-included so a shift-range drag whose
+        anchor scrolled out of view still resolves. The tag is the row's absolute
+        display-order index, so the index-to-row_id translation is unaffected by
+        which rows the clipper drew.
+        """
+        for index in self._visible_indices(len(pairs), ensure=range_src):
+            _row_id, row = pairs[index]
             imgui.table_next_row()
             imgui.table_next_column()
             imgui.set_next_item_selection_user_data(index)

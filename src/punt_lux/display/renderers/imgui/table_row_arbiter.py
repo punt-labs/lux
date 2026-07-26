@@ -45,19 +45,29 @@ class TableSelectionArbiter:
     def effective_selection(self, authoritative: frozenset[str]) -> frozenset[str]:
         """Return the set to seed the storage from this frame.
 
-        While a gesture is outstanding and the Hub value has not moved, the
-        pending set is held so the display keeps the user's accumulated picks.
-        Once the Hub value reaches the pending (its confirming re-push) or moves
-        to any other value (an unrelated push), the pending is dropped and the
-        authoritative value is honoured.
+        While a gesture is outstanding, the pending set is held so the display
+        keeps the user's accumulated picks. The Hub confirms a multi-pick
+        incrementally — pending ``{A, B}`` may draw a re-push of ``{A}`` before
+        one of ``{A, B}`` — and each such subset is *convergence*, not an
+        override, so the pending is held until the Hub value reaches it exactly.
+        The pending is dropped only when:
+
+        - the Hub reaches ``pending`` exactly (fully confirmed), or
+        - a genuinely foreign value arrives — one carrying an id never in
+          ``pending`` (``authoritative`` is not a subset of ``pending``), or one
+          that regressed below an id the Hub already confirmed (the last
+          ``honoured`` set is not a subset of ``authoritative``).
         """
         pending = self._pending
         if pending is None:
             return authoritative
-        if authoritative == pending or authoritative != self._honoured:
+        if authoritative == pending:
             self._state.discard(self._pending_key)
             return authoritative
-        return pending
+        if authoritative <= pending and self._honoured <= authoritative:
+            return pending  # a converging subset re-push — keep the user's picks
+        self._state.discard(self._pending_key)
+        return authoritative
 
     def note_pending(self, fired: frozenset[str]) -> None:
         """Record the just-fired set so later frames hold it across the window."""

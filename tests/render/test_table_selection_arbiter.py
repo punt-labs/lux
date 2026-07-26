@@ -74,6 +74,38 @@ def test_unrelated_hub_push_wins_over_a_stale_pending() -> None:
     assert arbiter.effective_selection(frozenset({"x"})) == frozenset({"x"})
 
 
+def test_intermediate_subset_repush_is_convergence_not_override() -> None:
+    # PR #283 HIGH: the Hub confirms a multi-pick incrementally. Pending {A, B}
+    # may draw a re-push of {A} (confirming click 1) before {A, B} lands. That
+    # subset is CONVERGENCE — the pending must be held so no frame reseeds below
+    # {A, B} and a rapid third click still accumulates. The old rule cleared on
+    # any authoritative != honoured and dropped B here.
+    arbiter, _ = _arbiter()
+    arbiter.note_pending(frozenset({"a", "b"}))
+    arbiter.record_honoured(frozenset())
+
+    # First confirming re-push {A}: a subset of pending {A, B} — hold both.
+    assert arbiter.effective_selection(frozenset({"a"})) == frozenset({"a", "b"})
+    arbiter.record_honoured(frozenset({"a"}))
+    # Still converging: {A} again (no new re-push) stays held at {A, B}.
+    assert arbiter.effective_selection(frozenset({"a"})) == frozenset({"a", "b"})
+    arbiter.record_honoured(frozenset({"a"}))
+    # Second re-push {A, B}: reached pending exactly — adopt and clear.
+    assert arbiter.effective_selection(frozenset({"a", "b"})) == frozenset({"a", "b"})
+    arbiter.record_honoured(frozenset({"a", "b"}))
+    assert arbiter.effective_selection(frozenset({"a", "b"})) == frozenset({"a", "b"})
+
+
+def test_repush_that_regresses_below_a_confirmed_id_is_an_override() -> None:
+    # A Hub value missing an id it already confirmed (honoured {A}, now {}) is a
+    # genuine external change, not convergence — drop the pending and follow it.
+    arbiter, _ = _arbiter()
+    arbiter.note_pending(frozenset({"a", "b"}))
+    arbiter.record_honoured(frozenset({"a"}))  # the Hub already confirmed A
+
+    assert arbiter.effective_selection(frozenset()) == frozenset()
+
+
 def test_discard_for_clears_the_bridge_for_a_re_added_table() -> None:
     # A removed-then-re-added table must honour its fresh selection, not an earlier
     # pending set left in the per-scene state.
