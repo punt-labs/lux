@@ -32,6 +32,8 @@ __all__ = ["ContainerRenderer"]
 type RenderChildFn = Callable[[Element], None]
 # Check-and-clear a window's dirty flag, owned by SceneManager.
 type DirtyWindowFn = Callable[[str], bool]
+# Record a window-like element's painted rect and stack index (id, kind).
+type RecordWindowFn = Callable[[str, str], None]
 
 
 @final
@@ -41,6 +43,7 @@ class ContainerRenderer:
     _widget_state: WidgetState
     _check_dirty_window: DirtyWindowFn
     _render_child: RenderChildFn
+    _record_window: RecordWindowFn
 
     # (LegacyWindowElement attribute, ImGui WindowFlags_ member) pairs — a data
     # table replaces a six-branch if-cascade so folding the flags is one loop.
@@ -58,11 +61,13 @@ class ContainerRenderer:
         widget_state: WidgetState,
         check_dirty_window: DirtyWindowFn,
         render_child: RenderChildFn,
+        record_window: RecordWindowFn,
     ) -> Self:
         self = super().__new__(cls)
         self._widget_state = widget_state
         self._check_dirty_window = check_dirty_window
         self._render_child = render_child
+        self._record_window = record_window
         return self
 
     @property
@@ -198,6 +203,10 @@ class ContainerRenderer:
         title = win.title or win.id
         expanded, _ = imgui.begin(f"{title}##{win.id}", flags=flags)
         if expanded:
+            # Record while the window is open, so its rect and begin-order are
+            # live — a legacy window reports geometry like the ABC window adapter,
+            # not the nothing a pure container records.
+            self._record_window(win.id, win.kind)
             for child in win.children:
                 self._render_child(child)
         imgui.end()

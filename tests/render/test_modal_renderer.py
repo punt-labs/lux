@@ -34,7 +34,7 @@ def test_modal_renderer_satisfies_leaf_widget_protocol() -> None:
     # single-method Protocol. Bound through ``object`` because each renderer
     # narrows ``render``'s element type, so the check is a runtime one.
     renderer: object = ModalRenderer(
-        WidgetState(), lambda _msg: None, lambda _child: None
+        WidgetState(), lambda _msg: None, lambda _child: None, lambda _id, _kind: None
     )
     assert isinstance(renderer, LeafWidgetRenderer)
 
@@ -50,7 +50,9 @@ def test_open_frame_opens_popup_and_renders_children(
     child = TextElement(id="c", content="hi")
     modal = LegacyModalElement(id="m", title="Confirm", open=True, children=[child])
 
-    ModalRenderer(ws, lambda _msg: None, children.append).render(modal)
+    ModalRenderer(
+        ws, lambda _msg: None, children.append, lambda _id, _kind: None
+    ).render(modal)
 
     imgui.open_popup.assert_called_once_with("Confirm###m")
     imgui.begin_popup_modal.assert_called_once_with("Confirm###m", True)
@@ -67,7 +69,9 @@ def test_dismiss_cycle_latches_and_emits_closed(
     ws = WidgetState()
     events: list[RemoteEventHandlerInvocation] = []
     modal = LegacyModalElement(id="m", title="Confirm", open=True)
-    renderer = ModalRenderer(ws, events.append, lambda _child: None)
+    renderer = ModalRenderer(
+        ws, events.append, lambda _child: None, lambda _id, _kind: None
+    )
 
     # Frame 1: agent opens the modal.
     imgui.begin_popup_modal.return_value = (True, True)
@@ -93,7 +97,9 @@ def test_agent_close_clears_latches(monkeypatch: pytest.MonkeyPatch) -> None:
     ws.set("m__dismissed", 1)
     modal = LegacyModalElement(id="m", title="Confirm", open=False)
 
-    ModalRenderer(ws, lambda _msg: None, lambda _child: None).render(modal)
+    ModalRenderer(
+        ws, lambda _msg: None, lambda _child: None, lambda _id, _kind: None
+    ).render(modal)
 
     assert ws.get("m__open") == 0
     assert ws.get("m__dismissed") == 0
@@ -108,9 +114,33 @@ def test_dismissed_modal_does_not_reopen(monkeypatch: pytest.MonkeyPatch) -> Non
     ws.set("m__dismissed", 1)  # user already dismissed, agent has not acked
     modal = LegacyModalElement(id="m", title="Confirm", open=True)
 
-    ModalRenderer(ws, lambda _msg: None, lambda _child: None).render(modal)
+    ModalRenderer(
+        ws, lambda _msg: None, lambda _child: None, lambda _id, _kind: None
+    ).render(modal)
 
     imgui.open_popup.assert_not_called()
+
+
+def test_visible_modal_records_its_window_geometry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A legacy modal is window-like: while its popup is open it records its rect
+    # and stack index through record_window, so a modal wrapping a legacy table
+    # appears in the geometry map instead of reading as unpainted.
+    imgui = MagicMock()
+    imgui.begin_popup_modal.return_value = (True, True)
+    _patch(monkeypatch, imgui)
+    recorded: list[tuple[str, str]] = []
+    modal = LegacyModalElement(id="m", title="Confirm", open=True)
+
+    ModalRenderer(
+        WidgetState(),
+        lambda _msg: None,
+        lambda _child: None,
+        lambda i, k: recorded.append((i, k)),
+    ).render(modal)
+
+    assert recorded == [("m", "modal")]
 
 
 def test_default_title_falls_back_to_id(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -118,8 +148,8 @@ def test_default_title_falls_back_to_id(monkeypatch: pytest.MonkeyPatch) -> None
     imgui.begin_popup_modal.return_value = (False, False)
     _patch(monkeypatch, imgui)
 
-    ModalRenderer(WidgetState(), lambda _msg: None, lambda _child: None).render(
-        LegacyModalElement(id="m", open=True)
-    )
+    ModalRenderer(
+        WidgetState(), lambda _msg: None, lambda _child: None, lambda _id, _kind: None
+    ).render(LegacyModalElement(id="m", open=True))
 
     assert imgui.begin_popup_modal.call_args == call("m###m", True)

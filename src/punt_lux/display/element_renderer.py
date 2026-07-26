@@ -100,14 +100,23 @@ class ElementRenderer:
         self._current_scene_id = None
         self._draw_element_renderer = DrawElementRenderer()
         self._container_renderer = ContainerRenderer(
-            widget_state, check_dirty_window, self.render_element
+            widget_state, check_dirty_window, self.render_element, self._record_window
         )
         self._tree_renderer = TreeRenderer(emit_event)
         self._plot_renderer = PlotRenderer()
         self._modal_renderer = ModalRenderer(
-            widget_state, emit_event, self.render_element
+            widget_state, emit_event, self.render_element, self._record_window
         )
         return self
+
+    def _record_window(self, element_id: str, kind: str) -> None:
+        """Record a legacy window-like element's rect through the factory geometry.
+
+        Resolves the factory at call time — it is bound after construction — so a
+        legacy window or modal records its window rect and stack index like the
+        ABC window/modal/dialog adapters, keeping the geometry map total.
+        """
+        self._imgui_renderer_factory.geometry.record_window(element_id, kind)
 
     @property
     def element_kind_count(self) -> int:
