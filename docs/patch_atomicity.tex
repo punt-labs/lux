@@ -2,49 +2,56 @@
 % patch_atomicity.tex
 %
 % A Z specification of the lux Element-ABC apply_patch boundary: an atomic,
-% all-or-nothing multi-field patch on a single element whose selection write
-% is observed by a composed Hub-side model (the filtered table's full
-% selection).  Formalises the rollback-atomicity discipline hardened across
-% two fix/review rounds -- a composed mutable model that the shallow vars()
-% snapshot could not restore, and an observer notified INSIDE the patch that a
-% later failing key could not un-fire -- so that ProB can enumerate every
-% patch shape and either confirm the atomicity invariant or produce the exact
-% offending trace.
+% all-or-nothing multi-field patch on a single element whose selection AND rows
+% writes are observed by a composed Hub-side model (the filtered table's full
+% selection and dataset).  Formalises the rollback-atomicity discipline hardened
+% across three fix/review rounds -- a composed mutable model that the shallow
+% vars() snapshot could not restore; an observer notified INSIDE the patch that a
+% later failing key could not un-fire; and, added here, a REENTRANT commit-phase
+% notification whose observer folds a rows refresh into the model and re-projects
+% by issuing a NESTED apply_patch on the same element.  ProB enumerates every
+% patch shape and nesting order and either confirms the atomicity invariant or
+% produces the exact offending trace.
 %
 % Source of record:
 %   src/punt_lux/domain/element_abc.py:202  -- Element.apply_patch: snapshot =
-%                                              dict(vars(self)); open the
-%                                              _notify_buffer; run _set_<key> per
-%                                              entry; on any raise restore
-%                                              vars(self) from the snapshot,
-%                                              discard the buffer (= None), and
-%                                              re-raise; on success flush the
-%                                              buffer, firing each deferred
-%                                              notification.
-%   src/punt_lux/domain/element_abc.py:260  -- _notify_observers: the single
-%                                              property-change fan-out point;
-%                                              inside a patch it APPENDS to
-%                                              _notify_buffer instead of firing,
-%                                              so notification is deferred to
-%                                              commit (round 2).
-%   src/punt_lux/protocol/elements/table.py:195 -- _set_selected_row_ids:
-%                                              reconciles the selection and
-%                                              notifies observers.
-%   src/punt_lux/protocol/elements/table_selection_model.py -- the composed
-%                                              selection state, IMMUTABLE so the
-%                                              shallow snapshot captures a value,
-%                                              not a shared reference (round 1).
-%   src/punt_lux/protocol/compositions/filtered_table_model.py:113 --
-%                                              _on_table_change: the observer
-%                                              that folds a selection write into
-%                                              the full selection (round 2).
+%                                              dict(vars(self)); open a per-patch
+%                                              _notify_buffer (reset to None on
+%                                              entry, so each nested apply_patch
+%                                              owns its own buffer); run _set_<key>
+%                                              per entry; on any raise restore
+%                                              vars(self), discard the buffer, and
+%                                              re-raise; on success set the buffer
+%                                              to None and THEN fire each deferred
+%                                              notification -- so notifications
+%                                              fired during commit land in the
+%                                              nested patch's fresh buffer, not the
+%                                              outer one, which is already None.
+%   src/punt_lux/protocol/elements/table.py:180 -- _set_rows: reconciles the
+%                                              selection and notifies "rows" (an
+%                                              external dataset refresh) plus,
+%                                              on a reconcile, "selected_row_ids".
+%   src/punt_lux/protocol/elements/table.py:213 -- _set_selected_row_ids:
+%                                              notifies "selected_row_ids".
+%   src/punt_lux/protocol/compositions/filtered_table_model.py:118 --
+%                                              _on_table_change: the observer.  On
+%                                              "selected_row_ids" it folds the
+%                                              write into the full selection.  On
+%                                              "rows", if NOT self._reprojecting,
+%                                              it ABSORBS the write as the new
+%                                              dataset and _reproject()s, which
+%                                              sets self._reprojecting = True and
+%                                              issues a NESTED apply_patch writing
+%                                              the filtered subset + projected
+%                                              selection; the guard excludes that
+%                                              inner write from being re-absorbed.
 %
 % Type-check:  fuzz -t docs/patch_atomicity.tex
 % Model-check (see Section "Verification" for the exact goal predicates):
-%   probcli docs/patch_atomicity.tex -model_check -p DEFAULT_SETSIZE 2
+%   probcli docs/patch_atomicity.tex -model_check                 (deadlock-freedom)
 %   probcli docs/patch_atomicity.tex -model_check -nodead \
-%     -goal "phase=idle & {o|o:OBS & observed(o)/=fields(watches(o))} /= {}" \
-%     -p DEFAULT_SETSIZE 2
+%     -goal "size(smode)=0 & (observed(selObs)/=fields(ksel) or
+%            observed(theModel)/=extern)"                          (invariant AT)
 %
 % Formatting follows the fuzz house rules: \quad~ for continuation indent
 % (never \t1..\t9), schema lines under 80 columns, predicates broken at
@@ -58,8 +65,9 @@
 
 \begin{document}
 
-\title{The lux \texttt{apply\_patch} Atomicity Boundary: a Z Specification}
-\author{Formal model of the all-or-nothing patch discipline}
+\title{The lux \texttt{apply\_patch} Atomicity Boundary under Reentrant
+Notification: a Z Specification}
+\author{Formal model of the all-or-nothing patch discipline with nested patches}
 \date{July 2026}
 \maketitle
 
@@ -72,74 +80,102 @@ names to new values.  \texttt{Element.apply\_patch} applies the entries in
 order, each through a \texttt{\_set\_<key>} setter, and promises
 \emph{all-or-nothing}: if any setter rejects its value, every field the patch
 already touched is restored and the element is left exactly as it was before
-the patch began.  A composed table also has an \emph{observer} --- the
-filtered table's Hub-side model --- that folds each selection write into a
-full selection spanning filter-hidden rows.  The property that must hold is
-that \emph{a rejected patch produces no observable change at all}: neither the
-element's fields nor any observer's state may differ from their pre-patch
-values, and a patch that succeeds must leave every observer reflecting the
-patch's final values.
+the patch began.  A composed table also has an \emph{observer} --- the filtered
+table's Hub-side model --- that folds a selection write into a full selection
+spanning filter-hidden rows, and folds an external \emph{rows} write in as its
+new dataset.  The property that must hold is that \emph{a rejected patch
+produces no observable change at all}, and that a patch that succeeds leaves
+every observer reflecting the patch's final values.
 
-The same class of defect --- a rejected patch leaving an observable trace ---
-recurred across two fix/review rounds:
+The same class of defect --- a rejected patch leaving an observable trace, or a
+committed patch leaving the model inconsistent --- recurred across three
+fix/review rounds:
 
 \begin{enumerate}
   \item the table's selection lived in a \emph{mutable} composed model, so the
     shallow \texttt{dict(vars(self))} snapshot captured the model
     \emph{reference}; a setter mutated that same object in place, and the
-    rollback restored a reference to an already-mutated model --- the field was
-    not restored;
+    rollback restored a reference to an already-mutated model;
   \item the selection setter notified observers \emph{inside} the patch, so a
-    composed model folded the intermediate selection into its full selection
-    before a later key was rejected; the rollback restored the element's fields
-    but could not un-fire the notification --- the observer's state was not
-    restored.
+    composed model folded the intermediate selection before a later key was
+    rejected; the rollback restored the element's fields but could not un-fire
+    the notification;
+  \item the model absorbed an external rows refresh as its dataset and
+    re-projected by issuing a \emph{nested} \texttt{apply\_patch} from inside
+    the outer patch's commit-phase notification.  Without a guard the model
+    folds \emph{its own} filtered subset back in as the dataset, and the nested
+    write re-triggers the observer without bound.
 \end{enumerate}
 
-Round~1 was closed by making the composed selection model immutable, so each
-setter reassigns a new model and the shallow snapshot captures the old value,
-not a shared reference.  Round~2 is closed by \emph{deferring} observer
-notification: a setter queues its notifications, \texttt{apply\_patch} fires
-them only after the whole patch commits, and a rejected patch fires nothing.
-Both fixes survive here as fidelity variants (Section~\ref{sec:fidelity}) that
-reintroduce each defect to confirm the model still detects it.  Empirical
-round-by-round fixing kept missing an interleaving, so this document models the
-boundary as a finite state machine over a bounded patch, letting ProB
-enumerate every patch shape exhaustively.
+Round~1 was closed by making the composed selection model immutable.  Round~2
+by \emph{deferring} observer notification to commit.  Round~3 is closed by two
+mechanisms working together: each \texttt{apply\_patch} call owns its own
+notification buffer (it is reset to \texttt{None} on entry, so a notification
+fired during an outer commit lands in the nested patch's fresh buffer, never the
+outer one), and a \texttt{\_reprojecting} boolean guard on the model excludes
+the model's own inner write from re-absorption.  All three fixes survive here as
+fidelity variants (Section~\ref{sec:fidelity}) that reintroduce each defect to
+confirm the model still detects it.  Empirical round-by-round fixing kept
+missing an interleaving, so this document models the boundary as a finite state
+machine over a bounded \emph{stack} of patch frames, letting ProB enumerate
+every patch shape and every nesting order exhaustively.
 
 % ============================================================
 \section{Basic Types}
 % ============================================================
 
+Because the reentrancy is tied to specific fields (a \texttt{rows} write
+triggers a re-projection; a \texttt{selected\_row\_ids} write only folds) and to
+one distinguished observer (the model), the carriers are modelled concretely as
+free types rather than as unconstrained given sets.  This bakes in exactly the
+topology under test --- the model watches \texttt{rows} and re-projects, a
+plain observer watches the selection --- and keeps every carrier finite, so ProB
+is exhaustive without a \texttt{DEFAULT\_SETSIZE} parameter.
+
 \begin{zed}
-  [KEY, OBS]
+  FMODE ::= setting | flushing
 \end{zed}
 
-\texttt{KEY} is the set of field names a patch may set.  \texttt{OBS} is the
-set of registered observers; the filtered table's model is one such observer.
-Two of each suffice to exhibit a patch that sets one watched field and then
-fails on a second field, and an observer that watches the mutated field; the
-carriers are bounded by ProB's \texttt{DEFAULT\_SETSIZE}.
+A patch frame is \texttt{setting} while its setters run (buffering
+notifications) and \texttt{flushing} while its committed notifications are
+delivered.
 
-% ============================================================
-\section{Free Types}
-% ============================================================
+\begin{zed}
+  SWITCH ::= off | on
+\end{zed}
+
+Used for the \texttt{\_reprojecting} guard and for a frame's ``is a
+re-projection'' marker.
 
 \begin{zed}
   GOODVAL ::= a | b
 \end{zed}
 
 The values a field may validly hold.  Two distinct values are enough to show a
-field \emph{changing} and then being restored: the pre-patch value and a new
-one a patch installs.
+field \emph{changing} and to distinguish an agent's pushed dataset (modelled as
+\texttt{a}) from the filtered subset a re-projection writes back (modelled as
+\texttt{b}), so that ``the model absorbed its own subset'' is observable.
 
 \begin{zed}
-  PHASE ::= idle | applying
+  KEY ::= krows | ksel
 \end{zed}
 
-The patch lifecycle.  \texttt{idle}: no patch in progress; the observable
-invariant must hold.  \texttt{applying}: a patch is mid-flight, so deferred
-notifications may legitimately not yet be reflected.
+The two fields under test: \texttt{krows} (the dataset) and \texttt{ksel} (the
+selection).
+
+\begin{zed}
+  OBS ::= theModel | selObs
+\end{zed}
+
+Two observers: \texttt{theModel} is the filtered table's model, which watches
+\texttt{krows} and re-projects; \texttt{selObs} is a plain observer of the
+selection, which only folds.
+
+\begin{axdef}
+  watches : OBS \fun KEY
+\where
+  watches = \{ theModel \mapsto krows, selObs \mapsto ksel \}
+\end{axdef}
 
 A patch step either sets a known field to a valid value or names a value the
 setter rejects:
@@ -150,10 +186,9 @@ setter rejects:
 
 \texttt{setK}: set field \texttt{k} to valid value \texttt{g} (the setter
 succeeds).  \texttt{badK}: set field \texttt{k} to a rejected value (the setter
-raises, triggering rollback).  Each constructor is an injection, and their
-ranges partition \texttt{STEP}, so a step is a set or a reject, never both, and
-the test $head~queue \in \ran setK$ distinguishes them.  Two projections
-recover a step's target and (for a set) its value:
+raises, triggering rollback).  Each constructor is an injection and their ranges
+partition \texttt{STEP}, so the test $head~q \in \ran setK$ distinguishes them.
+Two projections recover a step's target and (for a set) its value:
 
 \begin{axdef}
   stepKey : STEP \fun KEY \\
@@ -165,126 +200,161 @@ recover a step's target and (for a set) its value:
   \dom stepVal = \ran setK
 \end{axdef}
 
-\texttt{stepKey} is total --- every step names a target.  \texttt{stepVal} is
-defined exactly on the \texttt{setK} steps, because only a successful set
-carries an installed value.
-
-Each observer watches exactly one field; a selection observer watches the
-selection field.  The assignment is a fixed parameter of the system, left
-unconstrained so ProB explores every mapping --- including the ones where an
-observer watches the field a patch mutates, which is what makes the invariant
-detect a field left unrestored:
+The queue bound keeps every patch (agent-built or re-projection-generated)
+finite, and the stack bound caps the reentrancy depth so the carrier is finite:
 
 \begin{axdef}
-  watches : OBS \fun KEY
-\end{axdef}
-
-The patch is a bounded sequence of steps; the bound keeps the carrier finite
-so ProB can enumerate every ordering:
-
-\begin{axdef}
-  maxlen : \nat
+  maxlen : \nat \\
+  maxdepth : \nat
 \where
-  maxlen = 3
+  maxlen = 2 \\
+  maxdepth = 3
 \end{axdef}
+
+A patch of length two exhibits ``set a watched field, then fail on a second''; a
+re-projection writes exactly two keys (\texttt{krows} then \texttt{ksel}).  A
+stack of depth two is the deepest the correct design reaches (an outer patch and
+its one nested re-projection); depth three gives ProB the room to exhibit the
+unbounded self-recursion the guard prevents.
+
+% ============================================================
+\section{The Patch Frame Stack}
+% ============================================================
+
+Reentrancy means more than one \texttt{apply\_patch} is live at once: the outer
+patch is mid-commit, delivering a notification, when the observer starts a nested
+patch.  Each live call is a \emph{frame} with its own rollback snapshot, its own
+notification buffer, and (once committing) its own set of notifications still to
+deliver.  A frame is the Z counterpart of one Python \texttt{apply\_patch} stack
+activation.
+
+The stack of frames is modelled as five parallel sequences kept in lockstep, one
+per frame attribute, rather than a sequence of a composite frame type --- ProB
+enumerates a composite type's unbounded sequence field as an unconstrained
+\texttt{ANY}, so the flat encoding is what keeps the search finite.  Frame $i$ is
+the tuple $(smode~i,\, squeue~i,\, ssnap~i,\, sprops~i,\, sreproj~i)$, and the
+top (innermost live) frame is at index $\# smode$:
+
+\begin{itemize}
+  \item \texttt{smode} --- \texttt{setting} while the frame's setters run,
+    \texttt{flushing} while its committed notifications are delivered.
+  \item \texttt{squeue} --- the frame's unprocessed setters.
+  \item \texttt{ssnap} --- its rollback snapshot, a value copy of the fields as
+    they were when the frame began.
+  \item \texttt{sprops} --- the props this frame has flagged.  While
+    \texttt{setting} this is the per-patch notification \emph{buffer} (the model
+    of \texttt{self.\_notify\_buffer}, whose reset-on-entry is why each frame's
+    buffer is its own); on commit the same set becomes the props still to
+    \emph{deliver}, shrinking as each fires.
+  \item \texttt{sreproj} --- \texttt{on} for a frame that is the model's own
+    re-projection, whose lifecycle raises and lowers the guard.
+\end{itemize}
 
 % ============================================================
 \section{State}
 % ============================================================
 
-The state is flat: one schema, six components.  Its predicate carries only the
-length bound on the queue --- a structural constraint true in every design.
-The atomicity property (Section~\ref{sec:inv}) is deliberately \emph{absent}
-here, so a violating state stays reachable and ProB can find it.
+The state carries the five stack sequences plus the field values, each
+observer's folded value, the last externally-committed dataset, and the guard.
+Its predicate carries only the lockstep and length bounds, which are structural
+and true in every design; the atomicity property (Section~\ref{sec:inv}) is
+deliberately \emph{absent} here, so a violating state stays reachable and ProB
+can find it.
 
-\begin{schema}{Patch}
-  phase : PHASE \\
+\begin{schema}{Sys}
+  smode : \seq FMODE \\
+  squeue : \seq (\seq STEP) \\
+  ssnap : \seq (KEY \fun GOODVAL) \\
+  sprops : \seq (\power KEY) \\
+  sreproj : \seq SWITCH \\
+  build : \seq STEP \\
   fields : KEY \fun GOODVAL \\
-  snap : KEY \fun GOODVAL \\
   observed : OBS \fun GOODVAL \\
-  pending : \power OBS \\
-  queue : \seq STEP
+  extern : GOODVAL \\
+  guard : SWITCH
 \where
-  \# queue \leq maxlen
+  \# smode = \# squeue \land \# smode = \# ssnap \\
+  \land \# smode = \# sprops \land \# smode = \# sreproj \\
+  \# smode \leq maxdepth \\
+  \# build \leq maxlen \\
+  \forall i : \dom squeue @ \# (squeue~i) \leq maxlen
 \end{schema}
 
-\texttt{fields} is the element's current field values --- one value per field.
-\texttt{snap} is the rollback snapshot taken when a patch begins: the values
-\texttt{apply\_patch} restores on failure.  \texttt{observed} records, for each
-observer, the field value it has folded in --- the abstraction of the filtered
-model's full selection, which is a function of the selection value at the
-moment it was notified.  \texttt{pending} is the set of observers with a
-\emph{deferred} notification queued by the in-flight patch, fired only at
-commit.  \texttt{queue} is the unprocessed tail of the current patch.
-
-The observer's real fold is a set expression --- \texttt{(full $\setminus$
-visible) $\cup$ (write $\cap$ visible)} --- that preserves hidden selections.
-That detail is orthogonal to atomicity: what a rejected patch must not do is
-leave the observer having captured \emph{any} value it should not have.  The
-model therefore abstracts the fold to ``the field value the observer was last
-notified about'', because the defect is precisely that the observer captured an
-intermediate value a rollback could not withdraw.
+\texttt{build} is the outer patch an agent assembles one step at a time while
+the element is idle, before applying it.  Building step-by-step --- rather than
+supplying a whole sequence at \texttt{BeginOuter} --- keeps every input a single
+\texttt{STEP} over the finite \texttt{STEP} carrier, so ProB enumerates the patch
+shapes without trying to enumerate arbitrary sequences.  The element is
+\emph{idle} exactly when the stack is empty ($\# smode = 0$).
+\texttt{fields} is the element's current field values.  \texttt{observed}
+records, for each observer, the value it has folded in --- for \texttt{selObs}
+the abstraction of the full selection, for \texttt{theModel} the abstraction of
+the model's \emph{dataset}.  \texttt{extern} tracks the last \texttt{krows} value
+written by an \emph{external} (non-re-projection) patch: the dataset the agent
+actually pushed, which is what the model's dataset must equal.  The field value
+and the dataset diverge under a filter --- the element shows the visible subset
+while the model holds the full dataset --- which is exactly why the dataset
+invariant compares \texttt{observed~theModel} to \texttt{extern}, not to
+\texttt{fields~krows}.  \texttt{guard} is the \texttt{\_reprojecting} boolean.
 
 % ============================================================
 \section{Initialization}
 % ============================================================
 
 \begin{schema}{Init}
-  Patch'
+  Sys'
 \where
-  phase' = idle \\
-  fields' = (\lambda k : KEY @ a) \\
-  snap' = (\lambda k : KEY @ a) \\
-  observed' = (\lambda o : OBS @ a) \\
-  pending' = \emptyset \\
-  queue' = \langle \rangle
+  smode' = \langle \rangle \land squeue' = \langle \rangle \\
+  \land ssnap' = \langle \rangle \land sprops' = \langle \rangle \\
+  \land sreproj' = \langle \rangle \land build' = \langle \rangle \\
+  fields' = \{ krows \mapsto a, ksel \mapsto a \} \\
+  observed' = \{ theModel \mapsto a, selObs \mapsto a \} \\
+  extern' = a \\
+  guard' = off
 \end{schema}
 
 A single initial state: no patch in progress, every field holds \texttt{a},
-every observer has folded \texttt{a} (so each observer already reflects its
-watched field), nothing is pending, and the queue is empty.
+every observer has folded \texttt{a}, the last external dataset was \texttt{a},
+and the guard is down.
 
 % ============================================================
-\section{Building and Beginning a Patch}
+\section{Beginning a Patch}
 % ============================================================
 
-An agent builds a patch one step at a time while the element is idle, then
-begins applying it.  Building step-by-step --- rather than supplying a whole
-sequence at once --- keeps every input a single \texttt{STEP} over a finite
-carrier, so ProB enumerates the patch shapes without trying to enumerate
-arbitrary sequences.  \texttt{Enqueue} appends one step, up to the length
-bound; any step is admissible, including a \texttt{badK} that will later cause
-a rollback:
+An agent assembles the outer patch one step at a time while idle, appending each
+step to \texttt{build} up to the length bound.  Any step is admissible,
+including a \texttt{badK} that will later trigger a rollback:
 
 \begin{schema}{Enqueue}
-  \Delta Patch \\
+  \Delta Sys \\
   p? : STEP
 \where
-  phase = idle \\
-  \# queue < maxlen \\
-  queue' = queue \cat \langle p? \rangle \\
-  phase' = phase \\
-  fields' = fields \\
-  snap' = snap \\
-  observed' = observed \\
-  pending' = pending
+  \# smode = 0 \\
+  \# build < maxlen \\
+  build' = build \cat \langle p? \rangle \\
+  smode' = smode \land squeue' = squeue \\
+  \land ssnap' = ssnap \land sprops' = sprops \land sreproj' = sreproj \\
+  fields' = fields \land observed' = observed \\
+  \land extern' = extern \land guard' = guard
 \end{schema}
 
-\texttt{BeginApply} starts the built patch: it takes the rollback snapshot ---
-a \emph{value} copy of the current fields, unmodified during the idle build ---
-and flips to \texttt{applying}.  The empty patch is admissible; it simply
-commits with nothing to do:
+\texttt{BeginOuter} applies the assembled patch: it pushes one frame onto each
+stack sequence with \texttt{squeue} taking the built steps, takes the rollback
+snapshot --- a value copy of the current fields --- and clears \texttt{build}.
+The empty patch is admissible; it simply commits with nothing to do:
 
-\begin{schema}{BeginApply}
-  \Delta Patch
+\begin{schema}{BeginOuter}
+  \Delta Sys
 \where
-  phase = idle \\
-  phase' = applying \\
-  snap' = fields \\
-  pending' = \emptyset \\
-  queue' = queue \\
-  fields' = fields \\
-  observed' = observed
+  \# smode = 0 \\
+  smode' = smode \cat \langle setting \rangle \\
+  squeue' = squeue \cat \langle build \rangle \\
+  ssnap' = ssnap \cat \langle fields \rangle \\
+  sprops' = sprops \cat \langle \emptyset \rangle \\
+  sreproj' = sreproj \cat \langle off \rangle \\
+  build' = \langle \rangle \\
+  fields' = fields \land observed' = observed \\
+  \land extern' = extern \land guard' = guard
 \end{schema}
 
 % ============================================================
@@ -292,105 +362,260 @@ commits with nothing to do:
 \label{sec:apply}
 % ============================================================
 
-Each step processes the head of the queue.  A successful set installs the value
-and \emph{queues} the notification for every observer of that field, but does
-not fire it --- notification is deferred to commit:
+Each step processes the head of the top frame's queue.  A successful set
+installs the value into the element and \emph{buffers} the notification for that
+prop into the top frame's own \texttt{sprops} entry --- it does not fire it:
 
-\begin{schema}{ApplyKey}
-  \Delta Patch
+\begin{schema}{ApplyStepTop}
+  \Delta Sys
 \where
-  phase = applying \\
-  queue \neq \langle \rangle \\
-  head~queue \in \ran setK \\
-  fields' = fields \oplus \{ stepKey~(head~queue) \mapsto stepVal~(head~queue) \} \\
-  pending' = pending \cup \\
-  \quad~ \{ o : OBS | watches~o = stepKey~(head~queue) \} \\
-  queue' = tail~queue \\
-  phase' = phase \\
-  snap' = snap \\
-  observed' = observed
+  \# smode \neq 0 \\
+  smode~(\# smode) = setting \land squeue~(\# smode) \neq \langle \rangle \\
+  head~(squeue~(\# smode)) \in \ran setK \\
+  fields' = fields \oplus \\
+  \quad~ \{ stepKey~(head~(squeue~(\# smode))) \mapsto
+           stepVal~(head~(squeue~(\# smode))) \} \\
+  squeue' = squeue \oplus \{ \# smode \mapsto tail~(squeue~(\# smode)) \} \\
+  sprops' = sprops \oplus \\
+  \quad~ \{ \# smode \mapsto (sprops~(\# smode) \cup
+           \{ stepKey~(head~(squeue~(\# smode))) \}) \} \\
+  smode' = smode \land ssnap' = ssnap \land sreproj' = sreproj \\
+  observed' = observed \land extern' = extern \\
+  \land guard' = guard \land build' = build
 \end{schema}
 
-When the queue is empty, the patch commits: every deferred notification fires,
-folding each pending observer's watched field --- now at its final committed
-value --- into the observer's state:
+When the top frame's queue is empty it commits: it flips to \texttt{flushing}
+and its buffered \texttt{sprops} become its delivery set (the same set, now read
+as props-to-deliver --- the model of \texttt{\_notify\_buffer = None} before the
+flush loop, with the local delivery list carrying the props on).  An outer patch
+that wrote \texttt{krows} records that value as the new external dataset here; a
+re-projection frame does not, because its \texttt{krows} write is the filtered
+subset, not an agent push:
 
-\begin{schema}{CommitPatch}
-  \Delta Patch
+\begin{schema}{CommitTopExtern}
+  \Delta Sys
 \where
-  phase = applying \\
-  queue = \langle \rangle \\
-  observed' = observed \oplus \\
-  \quad~ \{ o : pending @ o \mapsto fields~(watches~o) \} \\
-  phase' = idle \\
-  fields' = fields \\
-  snap' = snap \\
-  pending' = \emptyset \\
-  queue' = \langle \rangle
+  \# smode \neq 0 \\
+  smode~(\# smode) = setting \land squeue~(\# smode) = \langle \rangle \\
+  sreproj~(\# smode) = off \land krows \in sprops~(\# smode) \\
+  extern' = fields~krows \\
+  smode' = smode \oplus \{ \# smode \mapsto flushing \} \\
+  squeue' = squeue \land ssnap' = ssnap \\
+  \land sprops' = sprops \land sreproj' = sreproj \\
+  fields' = fields \land observed' = observed \\
+  \land guard' = guard \land build' = build
 \end{schema}
 
-A rejected step aborts the whole patch: the fields are restored from the
-snapshot, the deferred notifications are discarded unfired, and the rest of the
-batch is dropped.  Because nothing was ever fired, the observers are untouched
---- the rejected patch produces no observable change:
-
-\begin{schema}{AbortPatch}
-  \Delta Patch
+\begin{schema}{CommitTopPlain}
+  \Delta Sys
 \where
-  phase = applying \\
-  queue \neq \langle \rangle \\
-  head~queue \in \ran badK \\
-  fields' = snap \\
-  observed' = observed \\
-  pending' = \emptyset \\
-  queue' = \langle \rangle \\
-  phase' = idle \\
-  snap' = snap
+  \# smode \neq 0 \\
+  smode~(\# smode) = setting \land squeue~(\# smode) = \langle \rangle \\
+  \lnot (sreproj~(\# smode) = off \land krows \in sprops~(\# smode)) \\
+  smode' = smode \oplus \{ \# smode \mapsto flushing \} \\
+  squeue' = squeue \land ssnap' = ssnap \\
+  \land sprops' = sprops \land sreproj' = sreproj \\
+  fields' = fields \land observed' = observed \\
+  \land extern' = extern \land guard' = guard \land build' = build
 \end{schema}
 
-The three apply schemas partition every reachable \texttt{applying} state:
-whenever the queue is non-empty the head is a \texttt{setK} (\texttt{ApplyKey})
-or a \texttt{badK} (\texttt{AbortPatch}), and whenever it is empty
-\texttt{CommitPatch} is enabled.  With \texttt{BeginApply} enabled in every
-\texttt{idle} state, the machine never gets stuck (Section~\ref{sec:verify},
-deadlock-freedom).
+A rejected step aborts the top frame: its fields are restored from its own
+snapshot, its buffer is discarded unfired, and the frame is popped off every
+stack sequence.  If the aborted frame was a re-projection, popping it lowers the
+guard --- the model's \texttt{try/finally} lowers \texttt{\_reprojecting} whether
+the nested patch commits or raises.  Because the outer frame beneath is
+untouched, its own delivery set survives and it will resume flushing:
+
+\begin{schema}{AbortReproj}
+  \Delta Sys
+\where
+  \# smode \neq 0 \\
+  smode~(\# smode) = setting \land squeue~(\# smode) \neq \langle \rangle \\
+  head~(squeue~(\# smode)) \in \ran badK \land sreproj~(\# smode) = on \\
+  fields' = ssnap~(\# smode) \\
+  smode' = front~smode \land squeue' = front~squeue \\
+  \land ssnap' = front~ssnap \land sprops' = front~sprops \\
+  \land sreproj' = front~sreproj \\
+  guard' = off \land observed' = observed \\
+  \land extern' = extern \land build' = build
+\end{schema}
+
+\begin{schema}{AbortOuter}
+  \Delta Sys
+\where
+  \# smode \neq 0 \\
+  smode~(\# smode) = setting \land squeue~(\# smode) \neq \langle \rangle \\
+  head~(squeue~(\# smode)) \in \ran badK \land sreproj~(\# smode) = off \\
+  fields' = ssnap~(\# smode) \\
+  smode' = front~smode \land squeue' = front~squeue \\
+  \land ssnap' = front~ssnap \land sprops' = front~sprops \\
+  \land sreproj' = front~sreproj \\
+  guard' = guard \land observed' = observed \\
+  \land extern' = extern \land build' = build
+\end{schema}
+
+% ============================================================
+\section{Delivering Notifications (the reentrancy)}
+\label{sec:deliver}
+% ============================================================
+
+A committing frame delivers its props one at a time.  Delivering a \texttt{ksel}
+notification folds the selection observer --- a leaf fold with no reentrancy:
+
+\begin{schema}{DeliverSel}
+  \Delta Sys
+\where
+  \# smode \neq 0 \\
+  smode~(\# smode) = flushing \land ksel \in sprops~(\# smode) \\
+  observed' = observed \oplus \{ selObs \mapsto fields~ksel \} \\
+  sprops' = sprops \oplus \{ \# smode \mapsto (sprops~(\# smode) \setminus \{ ksel \}) \} \\
+  smode' = smode \land squeue' = squeue \\
+  \land ssnap' = ssnap \land sreproj' = sreproj \\
+  fields' = fields \land extern' = extern \\
+  \land guard' = guard \land build' = build
+\end{schema}
+
+Delivering a \texttt{krows} notification is where the model's observer runs.
+When the guard is \emph{up}, the notification is the model's own re-projection
+write coming back: the observer returns early and folds nothing --- this is the
+self-write guard:
+
+\begin{schema}{DeliverRowsSkip}
+  \Delta Sys
+\where
+  \# smode \neq 0 \\
+  smode~(\# smode) = flushing \land krows \in sprops~(\# smode) \\
+  guard = on \\
+  sprops' = sprops \oplus \{ \# smode \mapsto (sprops~(\# smode) \setminus \{ krows \}) \} \\
+  smode' = smode \land squeue' = squeue \\
+  \land ssnap' = ssnap \land sreproj' = sreproj \\
+  observed' = observed \land fields' = fields \\
+  \land extern' = extern \land guard' = guard \land build' = build
+\end{schema}
+
+When the guard is \emph{down}, the notification is an external dataset refresh.
+The model absorbs it (\texttt{observed~theModel} becomes the just-delivered field
+value), raises the guard, and pushes a nested re-projection frame that will write
+the filtered subset (\texttt{b}) into \texttt{krows} and a projected selection
+into \texttt{ksel}.  Crucially the nested frame carries its \emph{own} empty
+\texttt{sprops} entry, and the outer frame's entry has already had \texttt{krows}
+removed --- the two buffers never share storage:
+
+\begin{schema}{Reproject}
+  \Delta Sys
+\where
+  \# smode \neq 0 \\
+  smode~(\# smode) = flushing \land krows \in sprops~(\# smode) \\
+  guard = off \land \# smode < maxdepth \\
+  observed' = observed \oplus \{ theModel \mapsto fields~krows \} \\
+  smode' = smode \cat \langle setting \rangle \\
+  squeue' = squeue \cat \langle \langle setK~(krows, b), setK~(ksel, b) \rangle \rangle \\
+  ssnap' = ssnap \cat \langle fields \rangle \\
+  sprops' = (sprops \oplus \{ \# smode \mapsto
+             (sprops~(\# smode) \setminus \{ krows \}) \}) \cat \langle \emptyset \rangle \\
+  sreproj' = sreproj \cat \langle on \rangle \\
+  guard' = on \land fields' = fields \\
+  \land extern' = extern \land build' = build
+\end{schema}
+
+The same trigger may instead push a re-projection that \emph{aborts} on its
+second key --- the model asking ``can the nested patch fail mid-flight?''  Its
+rollback restores the fields to the post-outer-commit values, and the outer frame
+resumes flushing its remaining props, so the outer commit is never left
+half-delivered:
+
+\begin{schema}{ReprojectAbort}
+  \Delta Sys
+\where
+  \# smode \neq 0 \\
+  smode~(\# smode) = flushing \land krows \in sprops~(\# smode) \\
+  guard = off \land \# smode < maxdepth \\
+  observed' = observed \oplus \{ theModel \mapsto fields~krows \} \\
+  smode' = smode \cat \langle setting \rangle \\
+  squeue' = squeue \cat \langle \langle setK~(krows, b), badK~ksel \rangle \rangle \\
+  ssnap' = ssnap \cat \langle fields \rangle \\
+  sprops' = (sprops \oplus \{ \# smode \mapsto
+             (sprops~(\# smode) \setminus \{ krows \}) \}) \cat \langle \emptyset \rangle \\
+  sreproj' = sreproj \cat \langle on \rangle \\
+  guard' = on \land fields' = fields \\
+  \land extern' = extern \land build' = build
+\end{schema}
+
+When a frame has delivered every prop it is popped off every stack sequence.  A
+re-projection frame lowers the guard as it goes; an outer frame leaves the guard
+untouched and, being the last frame, returns the element to idle:
+
+\begin{schema}{PopReproj}
+  \Delta Sys
+\where
+  \# smode \neq 0 \\
+  smode~(\# smode) = flushing \land sprops~(\# smode) = \emptyset \\
+  sreproj~(\# smode) = on \\
+  smode' = front~smode \land squeue' = front~squeue \\
+  \land ssnap' = front~ssnap \land sprops' = front~sprops \\
+  \land sreproj' = front~sreproj \\
+  guard' = off \\
+  fields' = fields \land observed' = observed \\
+  \land extern' = extern \land build' = build
+\end{schema}
+
+\begin{schema}{PopOuter}
+  \Delta Sys
+\where
+  \# smode \neq 0 \\
+  smode~(\# smode) = flushing \land sprops~(\# smode) = \emptyset \\
+  sreproj~(\# smode) = off \\
+  smode' = front~smode \land squeue' = front~squeue \\
+  \land ssnap' = front~ssnap \land sprops' = front~sprops \\
+  \land sreproj' = front~sreproj \\
+  guard' = guard \\
+  fields' = fields \land observed' = observed \\
+  \land extern' = extern \land build' = build
+\end{schema}
+
+Every reachable non-idle state enables at least one operation: a \texttt{setting}
+top with a non-empty queue enables \texttt{ApplyStepTop} or one of the aborts; a
+\texttt{setting} top with an empty queue enables one of the commits; a
+\texttt{flushing} top with props to deliver enables \texttt{DeliverSel},
+\texttt{DeliverRowsSkip}, or the re-projections; a \texttt{flushing} top with
+nothing left enables a pop.  With \texttt{BeginOuter} enabled in every idle
+state, the machine never deadlocks in the correct design
+(Section~\ref{sec:verify}).
 
 % ============================================================
 \section{The Invariant}
 \label{sec:inv}
 % ============================================================
 
-One safety property must hold across all reachable states.  It is stated here
-as a predicate over \texttt{Patch}; it is \emph{not} placed in the
-\texttt{Patch} schema, because a predicate placed there would be enforced as a
-guard on every successor, silently disabling any operation that would break it
-and thereby masking the very defect this model exists to catch.
+Two safety clauses must hold whenever the element is idle
+($\# smode = 0$).  They are stated as a predicate over \texttt{Sys};
+they are \emph{not} placed in the \texttt{Sys} schema, because a predicate there
+would be enforced as a guard on every successor, silently disabling any operation
+that would break it and masking the very defect this model exists to catch.
 
 \paragraph{Invariant AT --- observable atomicity.}
-Whenever no patch is in progress, every observer reflects exactly its watched
-field's current value:
+When no patch is in progress:
 \[
-  phase = idle \implies (\forall o : OBS @ observed~o = fields~(watches~o)).
+  \# smode = 0 \implies
+  (observed~selObs = fields~ksel \; \land \; observed~theModel = extern).
 \]
-This one predicate captures both halves of the all-or-nothing contract, from
-opposite sides:
+The two conjuncts capture the two halves of the contract:
 
 \begin{itemize}
-  \item \emph{After a successful patch}, \texttt{CommitPatch} sets each pending
-    observer to its watched field's final value, and an observer whose field
-    the patch never touched is unchanged alongside an unchanged field --- so
-    \texttt{observed~o = fields~(watches~o)} for every observer.  Observers
-    reflect the patch's final values.
-  \item \emph{After a rejected patch}, \texttt{AbortPatch} restores every field
-    from the value snapshot and fires no notification, so both sides return to
-    their pre-patch values and remain equal.  The rejected patch produced no
-    observable change.
+  \item \emph{Selection (\texttt{selObs}).}  After a successful patch the
+    selection observer holds the committed \texttt{ksel} value; after a rejected
+    patch it holds the pre-patch value alongside a restored field.  Either way
+    $observed~selObs = fields~ksel$.  A round-1 or round-2 defect breaks this
+    equality --- the observer runs ahead of a rolled-back field, or a mutated
+    snapshot fails to restore the field beneath an un-fired observer.
+  \item \emph{Dataset (\texttt{theModel}).}  The model's dataset must equal the
+    dataset the agent last pushed --- the last \emph{external} \texttt{krows}
+    write, \texttt{extern} --- and \emph{not} the filtered subset the model's own
+    re-projection wrote back into the field.  With the guard, the model absorbs
+    only external writes, so $observed~theModel = extern$ at idle even though
+    $fields~krows$ now holds the subset.  Removing the guard breaks this: the
+    model folds its own subset in as the dataset.
 \end{itemize}
-
-A design that breaks either fix breaks this equality at an \texttt{idle} state:
-round~2 leaves \texttt{observed~o} ahead of a restored \texttt{fields}, and
-round~1 leaves \texttt{fields} ahead of an untouched \texttt{observed}.  The
-invariant catches the divergence whichever side moved.
 
 % ============================================================
 \section{Verification}
@@ -402,86 +627,151 @@ Type-checking is a \texttt{fuzz} pass:
   fuzz -t docs/patch_atomicity.tex
 \end{verbatim}
 
-Invariant AT is checked by asking ProB whether its negation is
-\emph{reachable}.  A goal that is not found means the property holds on every
-reachable state:
+Invariant AT is checked by asking ProB whether its negation is \emph{reachable}.
+A goal that is not found means the property holds on every reachable state:
 \begin{verbatim}
   # Invariant AT (must report: goal NOT found)
   probcli docs/patch_atomicity.tex -model_check -nodead \
-    -goal "phase=idle & {o|o:OBS & observed(o)/=fields(watches(o))} /= {}" \
-    -p DEFAULT_SETSIZE 2
+    -goal "size(smode)=0 & (observed(selObs)/=fields(ksel)
+           or observed(theModel)/=extern)"
 \end{verbatim}
 
-Deadlock-freedom is the state-space search with no goal; the machine is kept
-live by \texttt{BeginApply} in every idle state and by an apply schema while a
-patch is in progress, so a correct design never deadlocks:
+Deadlock-freedom is the state-space search with no goal; the machine is kept live
+by \texttt{BeginOuter} in every idle state and by an enabled operation in every
+in-progress state, so a correct design never deadlocks:
 \begin{verbatim}
-  # Deadlock-freedom (must report: no deadlock, no invariant violation)
-  probcli docs/patch_atomicity.tex -model_check -p DEFAULT_SETSIZE 2
+  # Deadlock-freedom (must report: no deadlock, no error)
+  probcli docs/patch_atomicity.tex -model_check
 \end{verbatim}
 
-At \texttt{DEFAULT\_SETSIZE 2} both searches are exhaustive at the full patch
-length (\texttt{maxlen} = 3): every reachable state is visited and every
-operation covered.  Both are re-run at \texttt{DEFAULT\_SETSIZE 3} with the
-patch length capped at 2 --- enough to exhibit the two length-two defect
-traces of Section~\ref{sec:fidelity} --- to confirm the result is not an
-artefact of the two-element carrier; that search too visits every state with
-no counter-example.  Raising both bounds at once (three-element carriers with
-length-three patches) is unnecessary: each defect trace is a length-two patch,
-and the two bounds are independent.
+The carriers are concrete free types, so both searches are already exhaustive
+--- there is no \texttt{DEFAULT\_SETSIZE} to raise.  Robustness against the
+bounds is checked by re-running with \texttt{maxdepth} lowered to \texttt{2}
+(the correct design's true maximum depth): the invariant still holds and no
+deadlock appears, confirming the depth-three headroom is only there to give the
+buggy variant room to recurse.
 
 % ============================================================
-\section{Fidelity: reproducing the two defects}
+\section{Fidelity: reproducing the three defects}
 \label{sec:fidelity}
 % ============================================================
 
-A model that cannot reproduce the known defects proves nothing.  Each round
-corresponds to breaking one fix of the correct design; the correct spec above
-is what remains once both are fixed.  Each variant is a single-schema edit; the
-model checker is re-run with the AT goal, which must now be \emph{found}.
+A model that cannot reproduce the known defects proves nothing.  Each variant is
+a single-schema edit; the model checker is re-run, and the named goal must now be
+\emph{found} (or, for the guard, a deadlock must appear).
 
 \paragraph{Round 2 --- observer notified inside the patch.}
-Model eager notification: in \texttt{ApplyKey}, replace the deferred pair
-\begin{verbatim}
-  pending' = pending \cup {o : OBS | watches~o = stepKey~(head~queue)}
-  observed' = observed
-\end{verbatim}
-with an \emph{immediate} fold of the just-installed value into the observers of
-that field:
-\begin{verbatim}
-  observed' = observed \oplus
-    {o : OBS | watches~o = stepKey~(head~queue) @
-       o \mapsto stepVal~(head~queue)}
-  pending' = pending
-\end{verbatim}
-Now a patch that sets a watched field and then hits a \texttt{badK} step folds
-the intermediate value into the observer, \texttt{AbortPatch} restores the
-field but cannot un-fold the observer, and at the resulting \texttt{idle} state
-\texttt{observed~o} $\neq$ \texttt{fields~(watches~o)}: the AT goal is
+Model eager notification: in \texttt{ApplyStepTop}, instead of adding the prop to
+the frame's \texttt{sprops} buffer, fold it immediately into its observers ---
+$observed' = observed \oplus \{ o : OBS | watches~o = k @ o \mapsto g \}$ for the
+just-installed key $k$ and value $g$, leaving \texttt{sprops} unchanged so
+nothing is buffered.  Now a patch that sets \texttt{ksel} and then hits a
+\texttt{badK} step folds the intermediate selection into \texttt{selObs},
+\texttt{AbortOuter} restores the field but cannot un-fold the observer, and at
+the resulting idle state $observed~selObs \neq fields~ksel$: the AT goal is
 \emph{found}.
 
 \paragraph{Round 1 --- snapshot aliases a mutable model.}
-Model the shallow snapshot capturing a shared reference: in \texttt{ApplyKey},
-add the just-installed value to the snapshot as well, as an in-place mutation
-of the model the snapshot points at,
-\begin{verbatim}
-  snap' = snap \oplus {stepKey~(head~queue) \mapsto stepVal~(head~queue)}
-\end{verbatim}
-leaving the deferred notification correct.  Now a patch that sets a watched
-field and then hits a \texttt{badK} step reaches \texttt{AbortPatch}, which
-restores \texttt{fields' = snap} --- but \texttt{snap} was mutated alongside the
-field, so the field is \emph{not} restored, while the (correctly deferred)
-observer still holds the pre-patch value.  At the resulting \texttt{idle}
-state \texttt{fields~(watches~o)} $\neq$ \texttt{observed~o}: the AT goal is
-\emph{found} from the opposite side.
+Model the shallow snapshot capturing a shared reference: in \texttt{ApplyStepTop}
+mutate the top frame's snapshot alongside the field ---
+$ssnap' = ssnap \oplus \{ \# smode \mapsto (ssnap~(\# smode) \oplus \{ k \mapsto g \}) \}$
+--- leaving the (correctly deferred) notification alone.  Now a patch that sets
+\texttt{ksel} then hits a \texttt{badK} reaches \texttt{AbortOuter}, which
+restores $fields' = ssnap~(\# smode)$ --- but the snapshot was mutated with the
+field, so the field is \emph{not} restored, while the deferred \texttt{selObs}
+still holds the pre-patch value.  At idle $fields~ksel \neq observed~selObs$: the
+AT goal is \emph{found} from the opposite side.
 
-Under the correct design neither trace exists: \texttt{ApplyKey} defers every
-notification and leaves \texttt{snap} untouched, \texttt{AbortPatch} restores a
-value snapshot and fires nothing, and \texttt{CommitPatch} folds only final
-committed values.  The reachability search for AT therefore returns \emph{goal
-not found} for the correct design and \emph{goal found} --- the two traces
-above --- for the corresponding buggy variant.  That difference is the evidence
-that the model detects the defects the code was changed, round by round, to
-prevent.
+\paragraph{Round 3 --- the self-write guard removed.}
+Model the missing \texttt{\_reprojecting} guard: delete the \texttt{DeliverRowsSkip}
+schema and drop the \texttt{guard = off} conjunct from \texttt{Reproject} and
+\texttt{ReprojectAbort}, so \emph{every} \texttt{krows} delivery re-absorbs and
+re-projects.  Now the nested re-projection's own \texttt{krows} write, delivered
+during \emph{its} commit, is folded straight back in as the dataset ---
+$observed~theModel$ becomes the filtered subset \texttt{b} while the agent pushed
+\texttt{a} --- and it pushes yet another re-projection, and so on until the depth
+bound.  Two signals witness the defect:
+\begin{verbatim}
+  # the observer folds its own subset in as the dataset
+  probcli docs/patch_atomicity.tex -model_check -nodead \
+    -goal "guard=on & observed(theModel)/=extern"       (* found *)
+
+  # the self-recursion, bounded only by the state space
+  probcli docs/patch_atomicity.tex -model_check          (* deadlock at maxdepth *)
+\end{verbatim}
+The first goal is unreachable in the correct design --- while the guard is up the
+model has already absorbed the external dataset and folds nothing more --- so its
+reachability is precisely the guard's absence.  The deadlock is the recursion
+hitting \texttt{maxdepth} with a \texttt{krows} still undelivered and no frame it
+is allowed to push: the finite image of an unbounded re-entrancy.
+
+\paragraph{Under the correct design none of the three traces exists.}
+\texttt{ApplyStepTop} defers every notification into the frame's own buffer and
+leaves the snapshot untouched; \texttt{AbortReproj} / \texttt{AbortOuter} restore
+a value snapshot and fire nothing; each commit hands its buffer to its own
+delivery set; and \texttt{DeliverRowsSkip} stops the model re-absorbing its own
+re-projection.  The AT search returns \emph{goal not found}, the guard goal is
+unreachable, and the machine is deadlock-free.
+
+% ============================================================
+\section{Nested-case partitions and test coverage}
+\label{sec:partition}
+% ============================================================
+
+The reentrancy adds four partitions to the single-patch atomicity partitions the
+earlier rounds already covered.  Each is a reachable class of trace in the model;
+the table names the operation sequence, the AT outcome, and the test in
+\texttt{tests/test\_table\_composition.py} that exercises it.
+
+\begin{center}
+\begin{tabular}{p{4.6cm} p{3.0cm} p{5.2cm}}
+\hline
+\textbf{Partition (model trace)} & \textbf{AT outcome} & \textbf{Covering test} \\
+\hline
+External rows refresh under a filter: \texttt{BeginOuter}(rows) $\to$ commit $\to$
+\texttt{Reproject} $\to$ nested writes subset $\to$ \texttt{DeliverRowsSkip} (guard
+up) $\to$ pop. &
+$observed~theModel = extern$ (full dataset, not subset). &
+\texttt{test\_agent\_rows\_patch\_refreshes\_the\_dataset\_under\_a\_filter} ---
+the agent push becomes the dataset and a later filter uses it. \\
+\hline
+Self-write guard holds: the nested re-projection's own \texttt{krows} delivery is
+skipped, not re-absorbed. &
+Dataset stays the full set; guard goal unreachable. &
+\texttt{test\_the\_models\_own\_reprojection\_keeps\_the\_dataset} --- a
+filter-clear restores every row. \\
+\hline
+Dataset change reconciles the full selection (ids gone from the data leave it),
+distinct from a filter hiding them. &
+Selection folds to the reconciled set. &
+\texttt{test\_agent\_rows\_patch\_reconciles\_the\_full\_selection}. \\
+\hline
+Dual rows+selection outer patch under a filter, both props buffered and delivered,
+one triggering the nested re-projection. &
+Both \texttt{observed} clauses hold. &
+\texttt{test\_dual\_rows\_and\_selection\_patch\_keeps\_the\_selection}. \\
+\hline
+Nested re-projection \emph{aborts} mid-flight (\texttt{ReprojectAbort}); the outer
+commit still delivers its remaining props. &
+Outer never half-delivered; both clauses hold. &
+\emph{Gap} --- covered in the model, not in a test. \\
+\hline
+\end{tabular}
+\end{center}
+
+The single-patch atomicity partitions remain covered by
+\texttt{test\_a\_failed\_multi\_key\_patch\_leaves\_the\_model\_unchanged} and
+\texttt{test\_a\_successful\_patch\_still\_folds\_through\_to\_the\_model} in
+\texttt{TestWriteThroughAtomicity}.
+
+\paragraph{The one gap.}  The \texttt{ReprojectAbort} partition --- a nested
+re-projection that raises after writing its first key --- is proven safe by the
+model (the outer commit finishes delivering, and both AT clauses hold at idle)
+but has no dedicated test.  In the shipped code a re-projection writes only
+validated subset rows and a projected selection, so it does not raise in
+practice; the partition guards against a future setter that could.  A regression
+test that forces the model's inner \texttt{apply\_patch} to reject its second key
+and asserts the outer selection notification still lands would close it.  The
+model stands as the regression artefact for the interleaving until then.
 
 \end{document}
