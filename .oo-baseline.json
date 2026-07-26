@@ -652,10 +652,10 @@
   "src/punt_lux/display/renderers/imgui/plot.py": {
     "method_ratio": 1.0,
     "encapsulation_ratio": 1.0,
-    "avg_params": 2.0,
+    "avg_params": 1.6,
     "max_complexity": 7.0,
-    "avg_complexity": 3.0,
-    "module_size": 147.0,
+    "avg_complexity": 3.3,
+    "module_size": 164.0,
     "classes_per_module": 2.0,
     "class_to_func_ratio": 1.0,
     "init_violations": 0.0,

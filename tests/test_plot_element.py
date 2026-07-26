@@ -356,41 +356,50 @@ def test_plot_adapter_records_a_painted_rect(monkeypatch: pytest.MonkeyPatch) ->
 _PLOT_MOD = "punt_lux.display.renderers.imgui.plot"
 
 
-def _old_signature_plot_bars(*args: object) -> None:
-    """Stand in for an old imgui-bundle: reject the 4-arg explicit-x form."""
-    if len(args) == 4:  # (label, xs, ys, bar_size) — unsupported on this build
-        msg = "plot_bars() takes 3 positional arguments but 4 were given"
-        raise TypeError(msg)
+# The two plot_bars overloads imgui-bundle declares, as their doc-line signatures.
+_EXPLICIT_X_DOC = (
+    "plot_bars(label_id: str, xs: ndarray[writable=False], "
+    "ys: ndarray[writable=False], bar_size: float, spec: Spec | None = None) -> None"
+)
+_Y_ONLY_DOC = (
+    "plot_bars(label_id: str, values: ndarray[writable=False], "
+    "bar_size: float = 0.67, shift: float = 0, spec: Spec | None = None) -> None"
+)
+
+
+def _implot_with_signature(doc: str) -> MagicMock:
+    """A fake implot whose plot_bars declares the given signature and counts calls."""
+    implot = MagicMock()
+    implot.plot_bars.__doc__ = doc
+    return implot
 
 
 class TestBarSignatureProbe:
-    def test_new_signature_keeps_explicit_x_and_stays_silent(
+    def test_explicit_x_binding_keeps_x_and_stays_silent(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        implot = MagicMock()  # accepts the 4-arg explicit-x form
+        implot = _implot_with_signature(_EXPLICIT_X_DOC)
         monkeypatch.setattr(f"{_PLOT_MOD}.implot", implot)
         plotter = _BarSeriesPlotter()
         with caplog.at_level(logging.WARNING):
             plotter.plot("bars", np.array([10.0, 20.0]), np.array([1.0, 2.0]))
         assert not caplog.records
-        assert len(implot.plot_bars.call_args_list[-1].args) == 4
+        assert len(implot.plot_bars.call_args_list[-1].args) == 4  # label, xs, ys, size
 
-    def test_new_signature_does_not_swallow_a_genuine_typeerror(
+    def test_genuine_typeerror_propagates_on_the_first_series(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        implot = MagicMock()
+        implot = _implot_with_signature(_EXPLICIT_X_DOC)
+        implot.plot_bars.side_effect = TypeError("genuine array error")
         monkeypatch.setattr(f"{_PLOT_MOD}.implot", implot)
         plotter = _BarSeriesPlotter()
-        plotter.plot("ok", np.array([1.0]), np.array([2.0]))  # probes -> takes_x
-        implot.plot_bars.side_effect = TypeError("genuine array error")
         with pytest.raises(TypeError, match="genuine array error"):
             plotter.plot("bad", np.array([1.0]), np.array([2.0]))
 
-    def test_old_signature_warns_once_on_non_index_x(
+    def test_y_only_binding_warns_once_on_non_index_x(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        implot = MagicMock()
-        implot.plot_bars = MagicMock(side_effect=_old_signature_plot_bars)
+        implot = _implot_with_signature(_Y_ONLY_DOC)
         monkeypatch.setattr(f"{_PLOT_MOD}.implot", implot)
         plotter = _BarSeriesPlotter()
         x = np.array([10.0, 20.0, 30.0])
@@ -399,18 +408,26 @@ class TestBarSignatureProbe:
             plotter.plot("first", x, y)
             plotter.plot("second", x, y)
         warnings = [r for r in caplog.records if "takes no x argument" in r.message]
-        assert len(warnings) == 1  # probed once, warned once
+        assert len(warnings) == 1  # warned once
+        assert len(implot.plot_bars.call_args_list[-1].args) == 3  # label, values, size
 
-    def test_old_signature_is_silent_on_index_ramp(
+    def test_y_only_binding_is_silent_on_index_ramp(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
     ) -> None:
-        implot = MagicMock()
-        implot.plot_bars = MagicMock(side_effect=_old_signature_plot_bars)
+        implot = _implot_with_signature(_Y_ONLY_DOC)
         monkeypatch.setattr(f"{_PLOT_MOD}.implot", implot)
         plotter = _BarSeriesPlotter()
         with caplog.at_level(logging.WARNING):
             plotter.plot("ramp", np.array([0.0, 1.0, 2.0]), np.array([5.0, 6.0, 7.0]))
         assert not caplog.records  # y-only faithfully renders an index ramp
+
+    def test_unparseable_signature_fails_loud(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        implot = _implot_with_signature("no signature here")
+        monkeypatch.setattr(f"{_PLOT_MOD}.implot", implot)
+        with pytest.raises(RuntimeError, match="cannot read implot"):
+            _BarSeriesPlotter()
 
 
 class TestRaggedSeriesIsLogged:

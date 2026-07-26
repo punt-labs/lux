@@ -42,45 +42,64 @@ logger = logging.getLogger(__name__)
 
 @final
 class _BarSeriesPlotter:
-    """Draw bar series, adapting once to whichever ``implot.plot_bars`` exists.
+    """Draw bar series, dispatching on the declared ``implot.plot_bars`` signature.
 
-    imgui-bundle ships two signatures across versions: newer ``(label, xs, ys,
-    bar_size)``; older ``(label, values, bar_size)``. The available form is probed
-    on the first bar drawn and cached, so later bars dispatch on the cached answer
-    — a genuine ``TypeError`` from a new-signature build is never swallowed by the
-    fallback (only the very first, probing call can absorb one). On a y-only build,
-    explicit x-coordinates cannot be honored: a series carrying non-index x renders
-    at 0..n-1, so warn once rather than silently mispositioning the bars.
+    imgui-bundle ships two plot_bars forms: explicit-x ``(label, xs, ys, bar_size)``
+    and y-only ``(label, values, bar_size)``. Which is available is read once from
+    the binding's own declared signature — *not* probed by catching a ``TypeError``,
+    so a genuine ``TypeError`` (bad arrays) propagates on every call including the
+    first instead of being masked into a silent y-only mis-render. On a y-only
+    build, explicit x cannot be honored: a series carrying non-index x renders at
+    0..n-1, so warn once rather than silently mispositioning the bars.
     """
 
-    _takes_x: bool | None  # None until the first bar probes the installed binding
+    _takes_x: bool
     _warned: bool
     __slots__ = ("_takes_x", "_warned")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self._takes_x = None
+        self._takes_x = cls._binding_takes_explicit_x()
         self._warned = False
         return self
 
+    @staticmethod
+    def _binding_takes_explicit_x() -> bool:
+        """Return whether the installed plot_bars declares an explicit-x overload.
+
+        Reads ``implot.plot_bars.__doc__`` (``inspect.signature`` raises on the
+        nanobind binding). An explicit-x overload declares two leading array
+        parameters (``xs``, ``ys``) before ``bar_size``; the y-only overload
+        declares one (``values``). Raises ``RuntimeError`` if the binding declares
+        no parseable signature — a build problem to surface, not to guess around.
+        """
+        doc = implot.plot_bars.__doc__ or ""
+        overloads = [
+            ln for ln in doc.splitlines() if ln.lstrip().startswith("plot_bars(")
+        ]
+        if not overloads:
+            msg = "cannot read implot.plot_bars signature from the installed binding"
+            raise RuntimeError(msg)
+        count = _BarSeriesPlotter._leading_array_count
+        return any(count(line) >= 2 for line in overloads)
+
+    @staticmethod
+    def _leading_array_count(signature: str) -> int:
+        """Count the leading ``ndarray`` params after ``label_id`` in one overload."""
+        params = signature[signature.index("(") + 1 : signature.rindex(")")].split(",")
+        count = 0
+        for param in params[1:]:  # skip label_id
+            if "ndarray" not in param:
+                break
+            count += 1
+        return count
+
     def plot(self, label: str, x_data: Any, y_data: Any) -> None:
         """Draw one bar series, honoring explicit x where the binding supports it."""
-        if self._takes_x is None:
-            self._probe(label, x_data, y_data)
-        elif self._takes_x:
+        if self._takes_x:
             implot.plot_bars(label, x_data, y_data, 0.67)
         else:
             self._plot_y_only(label, x_data, y_data)
-
-    def _probe(self, label: str, x_data: Any, y_data: Any) -> None:
-        """Try the explicit-x form once and remember which signature this build has."""
-        try:
-            implot.plot_bars(label, x_data, y_data, 0.67)
-        except TypeError:
-            self._takes_x = False
-            self._plot_y_only(label, x_data, y_data)
-        else:
-            self._takes_x = True
 
     def _plot_y_only(self, label: str, x_data: Any, y_data: Any) -> None:
         """Draw with the y-only signature, warning once if x carried real positions."""
