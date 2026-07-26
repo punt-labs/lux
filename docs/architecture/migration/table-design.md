@@ -50,16 +50,23 @@ row selection *itself* is Hub-authoritative element state, which removes the
 "event-only, no state" option. The live choice is between (A) selection is pure
 Hub state and nothing else, and (C) selection is Hub state *and* an interaction a
 client can attach an app handler to (publish `openTicket`, etc.). Recommend C
-because it is the established pattern, not a new one: `checkbox` and `selectable`
-already carry an optional publish handler on top of their authoritative value,
-and `ui-model.md` uses a table row-select publishing `openTicket` as its worked
-example. (A) would deliberately strip the table of the app affordance every other
-interactive kind has. Cost of C over A is zero when no handler is attached — the
-built-in state-sync handler runs alone.
+because it is the established pattern, not a new one: `checkbox`
+(`checkbox_codec.py:81`) and `selectable` (`selectable_codec.py:81`) both register
+the built-in state-sync handler *and* install extra wire `handlers` on top of
+their authoritative value, so an interactive kind carrying an optional app publish
+handler is exactly how the shipped kinds already work. (A) would deliberately
+strip the table of the app affordance every other interactive kind has. Cost of C
+over A is zero when no handler is attached — the built-in state-sync handler runs
+alone.
+
+(`ui-model.md`'s ticket example wires `openTicket` to a separate `Open`
+*button*'s Hub-side handler, not to the row-select interaction, so the support
+for C rests on the `checkbox`/`selectable` wire-`handlers` precedent above, not on
+that example.)
 
 **Decision 2 — Single-select or multi-select for v1? Recommend SINGLE-select.**
-The one real consumer (the beads browser, `apps/beads.py` + the `lux:beads`
-skill) is a single-selection list with a detail panel — exactly one row is
+The one real consumer (the beads browser, `src/punt_lux/apps/beads.py` + the
+`lux:beads` skill) is a single-selection list with a detail panel — exactly one row is
 highlighted and its detail shown. Recommend a single `selected_row_id` for v1,
 with the selection state owned by a private `TableSelectionModel`
 ([§7](#7-type-sketches-recommended-shape)) so widening to multi-select later is an
@@ -78,16 +85,30 @@ synthesized stable key." Three concrete mechanisms:
 | Explicit `row_ids: list[str]` parallel to `rows` | agent-sent, off-screen | Most flexible (id need not be displayed) but adds a parallel-array field and its length invariant, for a case no consumer has. |
 | Synthesized hash of the whole row | `hash(tuple(row))` | No agent involvement, but the id *changes when any cell in the row is edited*, so an edit "moves" the selection — the exact reorder-fragility DES-045 removes. |
 
-Recommend `key_column` (default 0). `validate()` enforces that the key column's
-values are **non-empty and unique** (so `""` can unambiguously mean "no row
-selected", mirroring `tab_bar`'s empty-`active_tab` state and its duplicate-id
-check). Reject the hash as the default (fragile under cell edits); defer the
-explicit `row_ids` array until a consumer needs an off-screen key.
+Recommend `key_column` (default 0). The key-column constraint is scoped to
+**selectable** tables only: `validate()` enforces non-empty, unique key values —
+so `""` can unambiguously mean "no row selected", mirroring `tab_bar`'s
+empty-`active_tab` state and its duplicate-id check — **only when the table is
+selectable** (a `detail` panel present or the `copy_id` flag set, matching the
+legacy `has_detail or copy_id` predicate at `table_renderer.py:127`). A
+display-only table — no detail, no `copy_id` — has no `selected_row_id` to keep
+valid, so it carries no key-column constraint at all. This matters because
+grouped/aggregate display tables routinely repeat column 0 (a `{status, count}`
+table, any category column); the legacy `table` accepted them, and an unscoped
+uniqueness rule would newly reject them — a regression. Reject the hash as the
+default (fragile under cell edits); defer the explicit `row_ids` array until a
+consumer needs an off-screen key.
 
 **Decision 4 — Keep manual pagination, or replace it with native scrolling?
-Recommend REPLACE with a native ImGui scroll region (Display-local).** The legacy
-renderer paginates in fixed 10-row pages with `<< Prev` / `Next >>` buttons
-(`table_renderer.py:286`). Under DES-046 a *paged* selection index is
+Recommend REPLACE with a native ImGui scroll region (Display-local).** The
+"pagination" here is the table's *own* fixed 10-row pager (`_ROWS_PER_PAGE = 10`
+at `table_renderer.py:25`, `<< Prev` / `Next >>` at `:286`) — not the separate
+`group` `layout="paged"` feature, which lives entirely on `LegacyGroupElement`
+and this design does not touch. That pager is user-visible on the beads board
+whenever it shows more than 10 issues, which is routine, so this is a real change
+to the one consumer's feel: **the beads board's Prev/Next buttons are replaced by
+scrolling**, and the operator's Level-6 demo confirmation covers it. Under DES-046
+a *paged* selection index is
 "discrete, agent-drivable" and would become Hub-authoritative (the paged-`group`
 consequence, `simple-composites-design.md` §4.3) — carrying real machinery. The
 alternative is to drop manual pagination and render the rows inside a scrollable
@@ -125,7 +146,7 @@ tab selection did; nothing in this design blocks that.
 - **`validate()` rides with the migration** — the table gains its
   component-appropriate `validate()` as it crosses; it already exists on the
   frozen legacy class (`table.py:143`) and moves onto the ABC class, extended
-  with the key-column invariant (DES-039).
+  with the key-column invariant *for selectable tables only* (DES-039).
 - **Writes are absolute, id-addressed, idempotent** — an agent-driven selection
   is a `SetProperty` / `apply_patch({"selected_row_id": ...})` on the Hub copy,
   re-pushed whole (DES-047).
@@ -198,9 +219,13 @@ stable sub-part id, reconciled on structural change).**
 
 ## 3. The interaction the table fires
 
-One new typed event (`domain/container_interaction.py`, beside `TabChanged`),
-a frozen-slots dataclass carrying the three identifying fields plus its payload,
-exactly like `TabChanged`:
+One new typed event, `RowSelected`, a frozen-slots dataclass carrying the three
+identifying fields plus its payload, exactly like `TabChanged`. It lands in a new
+`domain/selection_interaction.py`, not in `container_interaction.py`, for two
+reasons: `container_interaction.py` already holds three classes (`TabChanged`,
+`HeaderToggled`, `ModalClosed`), so a fourth exceeds the PY-OO-2 3-class cap; and
+a table is a leaf, not a container, so a data-widget row selection is not a
+*container* interaction. The event shape:
 
 - **`RowSelected`** — payload `row_id: str` (the newly-selected row's stable id).
   `EventKind` discriminator `"row_selected"`.
@@ -222,8 +247,14 @@ with no message-schema change; only the dispatch branches that read `value` grow
 
 1. **Built-in state-sync handler registered at decode.** `JsonTableDecoder`
    registers a serializable `_UpdateSelectedRowHandler(elem)` for `RowSelected`,
-   whose `__call__` runs `elem.apply_patch({"selected_row_id": event.row_id})` —
-   the same role `_UpdateValueHandler` plays for `checkbox`.
+   whose `__call__` runs `elem.apply_patch({"selected_row_id": event.row_id})`.
+   The handler is a small class defined **inside `table_codec.py`** beside the
+   decoder — the exact shape of `_UpdateActiveTabHandler` in
+   `tab_bar_codec.py:37` and `_UpdateOpenHandler` in `collapsing_header_codec.py`,
+   the two discrete stable-id events. (It is *not* the field-parameterised
+   `ApplyPatchOnChange` that `checkbox`/`selectable` use — that handler reads
+   `event.value` and fits the `ValueChanged` family, whereas `RowSelected` is a
+   distinct `TabChanged`-shaped event carrying a `row_id`.)
 2. **Display wraps the bucket.** After receiving the replica, the Display's
    `wrap_handlers_for_remote` finds the `RowSelected` bucket and collapses it into
    one remote-dispatch group; the Display copy never runs the real state update.
@@ -355,8 +386,8 @@ dataclass is renamed out of the way, as `GroupElement` → `LegacyGroupElement`
   no child subtree to force. A table dict decodes to the ABC `TableElement`
   whenever it is registered on the leaf path; the factory fork branch routes it.
 
-The beads consumer needs **no change**: `apps/beads.py` and the `lux:beads` skill
-both build the table through the decode path, and the factory routes the
+The beads consumer needs **no change**: `src/punt_lux/apps/beads.py` and the
+`lux:beads` skill both build the table through the decode path, and the factory routes the
 all-scalar table dict to the ABC `TableElement` once it is registered. The beads
 rows already carry a unique ID in column 0, so `key_column` default 0 works
 unchanged.
@@ -384,12 +415,14 @@ every module follows the element/codec split precedent.
   the legacy module (a `type: Literal["search", "combo"]` value class; unchanged).
 - `src/punt_lux/protocol/elements/table_detail.py` — `TableDetail` moved out.
 - `src/punt_lux/protocol/elements/table_codec.py` — `JsonTableEncoder` /
-  `JsonTableDecoder` (registers the built-in `_UpdateSelectedRowHandler` before
-  wire handlers; seeds `selected_row_id` to the first row's key when a `detail` is
-  present and the wire omits a selection).
-- `src/punt_lux/protocol/standalone_table_handler.py` — the serializable
-  `_UpdateSelectedRowHandler` + a `noop` factory, parallel to
-  `standalone_checkbox_handler.py`.
+  `JsonTableDecoder` **and the built-in `_UpdateSelectedRowHandler`** (a small
+  serializable class beside the decoder, mirroring `_UpdateActiveTabHandler` in
+  `tab_bar_codec.py:37`). The decoder registers the handler via
+  `elem.add_handler(RowSelected, _UpdateSelectedRowHandler(elem))` before
+  installing wire handlers, and seeds `selected_row_id` to the first row's key
+  when a `detail` is present and the wire omits a selection. No separate
+  `standalone_*_handler.py` module — the tab_bar/collapsing_header precedent keeps
+  the handler in the codec.
 - `src/punt_lux/display/renderers/imgui/table.py` — `ImGuiTableRenderer`
   (`@final`, subclasses `LeafRenderer[TableElement]`): paints filters, the
   scrollable row region (native scroll, list clipper), and the detail panel;
@@ -403,9 +436,11 @@ every module follows the element/codec split precedent.
 
 **Amended:**
 
-- `src/punt_lux/domain/container_interaction.py` — add `RowSelected`
-  (payload `row_id: str`); if the module would exceed 3 classes, split the
-  selection events into a sibling module.
+- `src/punt_lux/domain/selection_interaction.py` (new) — `RowSelected`
+  (payload `row_id: str`). A new module, not an amendment to
+  `container_interaction.py`: that module is already at the PY-OO-2 3-class cap
+  (`TabChanged`, `HeaderToggled`, `ModalClosed`), and a table row selection is a
+  leaf/data-widget event, not a container interaction.
 - `src/punt_lux/domain/interaction.py` — extend `EventKind` with
   `"row_selected"`.
 - `src/punt_lux/domain/handlers/remote_dispatch.py` —
@@ -431,7 +466,7 @@ migration (fork, don't mix).
 ## 7. Type sketches (recommended shape)
 
 ```python
-# domain/container_interaction.py — mirrors TabChanged exactly
+# domain/selection_interaction.py (new module) — mirrors TabChanged exactly
 @dataclass(frozen=True, slots=True, init=False)
 class RowSelected:
     """A typed row-selection event for a table. Carries the row's stable id."""
@@ -465,8 +500,9 @@ class TableSelectionModel:
     """The table's private selection state and the select/reconcile verbs.
 
     Owns single-select today; widening to multi-select is a change here, not on
-    the element. "" means no row selected (validate() forbids an empty key value,
-    so "" is unambiguous).
+    the element. "" means no row selected — unambiguous because a selectable
+    table's validate() forbids an empty key value (a display-only table has no
+    selection, so the ambiguity never arises).
     """
 
     _selected_row_id: str
@@ -511,6 +547,16 @@ class TableElement(Element):
     def selected_row_id(self) -> str:
         return self._selection.selected_row_id
 
+    @property
+    def is_selectable(self) -> bool:
+        """A table is selectable when it has a detail panel or the copy_id flag.
+
+        Mirrors the legacy ``has_detail or copy_id`` predicate
+        (``table_renderer.py:127``). A non-selectable (display-only) table has no
+        ``selected_row_id`` to keep valid, so it carries no key-column constraint.
+        """
+        return self._detail is not None or self._flags.copy_id
+
     def _row_id(self, row: tuple[object, ...]) -> str:
         """The stable id of a row — the string value of its key column."""
         return str(row[self._key_column])
@@ -524,10 +570,11 @@ class TableElement(Element):
         return (RemoteDispatchSpec(RowSelected, self.id, "row_selected"),)
 
     def validate(self) -> tuple[ValidationError, ...]:
-        """Rows-vs-columns + renderable cells (kept from legacy), plus:
-        the key column's values are non-empty and unique (so a row_id is a
-        stable, unambiguous key and "" cleanly means no selection); the detail
-        arrays stay parallel to rows; selected_row_id names a live row or ""."""
+        """Rows-vs-columns + renderable cells (kept from legacy) always; and,
+        only when ``is_selectable``: the key column's values are non-empty and
+        unique (so a row_id is a stable, unambiguous key and "" cleanly means no
+        selection) and selected_row_id names a live row or "". The detail arrays
+        stay parallel to rows whenever a detail is present."""
 
     def resolved_props(self) -> Mapping[str, object]:
         return {
@@ -551,10 +598,16 @@ in the same commit.
    (`selected_row_id == ""`) and one nested in a `group`.
 2. **Self-validation (DES-039).**
    - **valid** → `validate()` returns `()`; the tree renders.
-   - **malformed** → a ragged row, a non-scalar cell (list/dict), a duplicate or
-     empty key-column value, a detail array whose length ≠ rows, a
-     `selected_row_id` naming no row — each returns the component-appropriate
+   - **malformed (always)** → a ragged row, a non-scalar cell (list/dict), a
+     detail array whose length ≠ rows — each returns the component-appropriate
      error; driven through `show()`, assert `client.show.assert_not_called()`.
+   - **malformed (selectable only)** → a *selectable* table (detail present, or
+     `copy_id` set) with a duplicate or empty key-column value, or a
+     `selected_row_id` naming no row — each returns the error.
+   - **regression guard (the scoping)** → a *display-only* table (no detail, no
+     `copy_id`) whose column 0 repeats — e.g. a `{status, count}` aggregate —
+     `validate()` returns `()` and it renders, exactly as the legacy `table`
+     accepted it. This is the case Finding-1's scoping protects.
    - **structural guard** → the DES-039 container-guard test passes with the ABC
      class in the union (a leaf exposes `child_elements() == ()`).
 3. **Level 2 — wire roundtrip (ABC pickled path).** Put the table in a
