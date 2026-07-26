@@ -2,13 +2,15 @@
 """LeafRenderer — the shared base for every leaf ImGui adapter.
 
 A leaf paints one widget and has no children, so ``begin`` proceeds, ``end`` is a
-no-op, and ``paint`` is a fixed template: paint the widget and its tooltip inside
-the geometry ``measuring`` group, which records the leaf's rect over the whole
-paint when the group closes (see ``GeometryCapture.measuring`` for why the group
-bounds a multi-item leaf and outlasts its tooltip). Recording lives here, the one
-point both render paths reach — ``elem.render()`` for top-level and ABC-nested
-elements, and ``_render_via_factory`` for an ABC leaf inside a legacy container —
-so no leaf kind can be added without its geometry being captured.
+no-op, and ``paint`` is a fixed template: paint the widget inside the geometry
+``measuring`` group (which records the leaf's whole rect when the group closes),
+then run the tooltip pass *after* the group closes. Ordering the tooltip after
+``end_group`` matters — ImGui's last item is then the whole group, so a multi-item
+leaf's hover tooltip covers the entire leaf, not just its last painted item.
+Recording lives here, the one point both render paths reach — ``elem.render()``
+for top-level and ABC-nested elements, and ``_render_via_factory`` for an ABC leaf
+inside a legacy container — so no leaf kind can be added without its geometry
+being captured.
 """
 
 from __future__ import annotations
@@ -43,11 +45,18 @@ class LeafRenderer[E: AbcElement](ABC):
         return True
 
     def paint(self) -> None:
-        """Paint the widget and tooltip inside the group that records the rect."""
+        """Paint the widget in the measuring group, then apply the tooltip.
+
+        The tooltip pass runs *after* the group closes: ``end_group`` makes the
+        whole group ImGui's last item, so ``is_item_hovered`` in the tooltip pass
+        covers a multi-item leaf's entire extent rather than only its last painted
+        item. The rect was already recorded when the group closed, so the tooltip
+        cannot affect it.
+        """
         elem = cast("Element", self._elem)
         with self._factory.geometry.measuring(elem.id, elem.kind):
             self._paint_widget()
-            self._factory.apply_tooltip(elem)
+        self._factory.apply_tooltip(elem)
 
     def end(self, *, opened: bool) -> None:
         """Leaf — no surface to close."""
