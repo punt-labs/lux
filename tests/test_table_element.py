@@ -364,16 +364,18 @@ class TestPatchAtomicity:
 
 
 class TestRowsReconcileNotifiesObservers:
-    """A rows-only patch that changes the selection must notify observers.
+    """A rows patch notifies ``rows``; a reconcile that changes the selection also
+    notifies ``selected_row_ids``.
 
-    _set_rows reconciles the selection to the live ids; when that drops a row or
-    reseats the anchor, the same ``selected_row_ids`` signal the selection setter
-    uses is queued (deferred to commit), so a bound FilteredTableModel and detail
-    do not go stale until the next selection write. An unchanged selection fires
-    nothing.
+    A rows write always notifies ``rows`` so a bound FilteredTableModel can absorb
+    a dataset refresh; when the reconcile drops a row or reseats the anchor, the
+    ``selected_row_ids`` signal is queued too (deferred to commit), so the model
+    and detail do not go stale. An unchanged selection adds no selection signal.
     """
 
-    def test_rows_patch_dropping_the_selection_notifies_once(self) -> None:
+    def test_rows_patch_dropping_the_selection_notifies_rows_and_selection(
+        self,
+    ) -> None:
         table = TableElement(
             id="t",
             columns=("ID",),
@@ -386,9 +388,9 @@ class TestRowsReconcileNotifiesObservers:
         table.add_observer(seen.append)
         table.apply_patch({"rows": [["b"]]})  # drops a
         assert table.selected_row_ids == frozenset()
-        assert seen == ["selected_row_ids"]  # fired once, at commit
+        assert seen == ["rows", "selected_row_ids"]  # both, once each, at commit
 
-    def test_rows_patch_keeping_the_selection_fires_nothing(self) -> None:
+    def test_rows_patch_keeping_the_selection_notifies_only_rows(self) -> None:
         table = TableElement(
             id="t",
             columns=("ID",),
@@ -401,4 +403,4 @@ class TestRowsReconcileNotifiesObservers:
         table.add_observer(seen.append)
         table.apply_patch({"rows": [["a"], ["b"], ["c"]]})  # a survives, anchor a stays
         assert table.selected_row_ids == frozenset({"a"})
-        assert seen == []  # no selection/anchor change -> no notification
+        assert seen == ["rows"]  # dataset signal only; selection unchanged

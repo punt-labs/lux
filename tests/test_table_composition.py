@@ -187,6 +187,39 @@ class TestHubSideFiltering:
         _change(_combo(group), 0)  # "All" -> clear the filter
         assert table.selected_row_ids == frozenset({"a", "d"})  # both restored
 
+    def test_agent_rows_patch_refreshes_the_dataset_under_a_filter(self) -> None:
+        # PR #283 HIGH (rows analog): an agent apply_patch of rows (the refresh
+        # path) becomes the new dataset; the active filter re-applies to it, and a
+        # later filter change uses the NEW dataset, not the stale snapshot.
+        group = self._explorer()
+        table = _table(group)
+        _change(_combo(group), 1)  # "open" -> a, c visible
+        assert [row[0] for row in table.rows] == ["a", "c"]
+        table.apply_patch({"rows": [["e", "open"], ["f", "closed"]]})  # AGENT refresh
+        assert [row[0] for row in table.rows] == ["e"]  # filter re-applied to new data
+        _change(_combo(group), 0)  # "All" -> the NEW dataset, not old {a,b,c,d}
+        assert [row[0] for row in table.rows] == ["e", "f"]
+
+    def test_the_models_own_reprojection_keeps_the_dataset(self) -> None:
+        # The self-write guard: the model's re-projection writes the filtered
+        # subset, which must NOT be folded back in as the dataset — clearing the
+        # filter restores every row.
+        group = self._explorer()
+        table = _table(group)
+        _change(_combo(group), 1)  # "open" -> filtered subset a, c
+        _change(_combo(group), 0)  # "All"
+        assert [row[0] for row in table.rows] == ["a", "b", "c", "d"]
+
+    def test_agent_rows_patch_reconciles_the_full_selection(self) -> None:
+        # A dataset change (unlike a filter) drops ids that vanished from the data
+        # out of the full selection; survivors are kept.
+        group = self._explorer()
+        table = _table(group)
+        _select(table, "a", "d", anchor="d")  # full selection {a, d}
+        # Refresh the data: d is gone, a survives.
+        table.apply_patch({"rows": [["a", "open"], ["e", "open"]]})
+        assert table.selected_row_ids == frozenset({"a"})
+
 
 class TestModelSeeding:
     def test_model_seeds_full_selection_from_the_table(self) -> None:

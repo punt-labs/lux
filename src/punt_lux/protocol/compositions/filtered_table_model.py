@@ -36,6 +36,10 @@ class FilteredTableModel:
     _full_selection: set[str]
     _search: str
     _combo_picks: dict[int, str]
+    # True only while the model is patching the table from its own re-projection,
+    # so ``_on_table_change`` can tell its own filtered-subset ``rows`` write from
+    # an external (agent) dataset write and not fold the subset in as the dataset.
+    _reprojecting: bool
     # PY-TS-14 OK: genuinely optional — only a master/detail composition binds a
     # detail region; a plain filtered table has none.
     _detail: DetailBindingHandler | None
@@ -58,10 +62,11 @@ class FilteredTableModel:
         self._full_selection = set(table.selected_row_ids)
         self._search = ""
         self._combo_picks = {}
+        self._reprojecting = False
         self._detail = None
-        # Observe selection writes so an agent apply_patch of selected_row_ids
-        # folds into the full selection the same way a gesture does, never
-        # shadowed on the next re-projection. Registered on __new__ only; a
+        # Observe the table's writes so an agent apply_patch of selected_row_ids
+        # OR rows folds into the model the same way a gesture/reproject does,
+        # never shadowed on the next re-projection. Registered on __new__ only; a
         # pickled replica restores via object.__new__ and never mutates the Hub
         # copy, so it needs no observer of its own.
         table.add_observer(self._on_table_change)
@@ -111,20 +116,40 @@ class FilteredTableModel:
         )
 
     def _on_table_change(self, prop: str) -> None:
-        """Fold a selection write into the full selection (the observer callback).
+        """Fold a table write into the model (the observer callback).
 
-        Fires for every ``selected_row_ids`` write — a gesture's built-in sync, an
-        agent ``apply_patch``, or a filter re-projection's own patch — so all three
-        reach the full selection *and* re-drive a bound detail through one shared
-        path. The merge is visible-scoped and idempotent, so a re-projection's own
-        write is a no-op and a hidden selection is never dropped. Other property
-        notifications (``removed``) are ignored.
+        A ``selected_row_ids`` write — a gesture's built-in sync, an agent
+        ``apply_patch``, or a filter re-projection's own patch — folds into the
+        full selection and re-drives a bound detail through one shared path
+        (visible-scoped and idempotent, so a re-projection's own write is a
+        no-op). A ``rows`` write from *outside* the model (an agent refreshing the
+        data) becomes the new dataset; the model's own re-projection writes the
+        filtered subset, which the ``_reprojecting`` guard excludes so the subset
+        is never folded in as the dataset. Other notifications (``removed``) are
+        ignored.
         """
+        if prop == "rows":
+            if not self._reprojecting:
+                self._absorb_dataset()
+            return
         if prop != "selected_row_ids":
             return
         self.on_selection_gesture(self._table.selected_row_ids)
         if self._detail is not None:
             self._detail.render_anchor(self._table.anchor_row_id)
+
+    def _absorb_dataset(self) -> None:
+        """Adopt the table's rows as the new unfiltered dataset and re-project.
+
+        The full selection reconciles against the new dataset — ids that vanished
+        from the *data* leave it (a dataset change, unlike a filter, which keeps
+        hidden ids for restore). The re-project then re-applies the active filter
+        to the new rows.
+        """
+        self._all_rows = self._table.rows
+        live = {self._row_id(row) for row in self._all_rows}
+        self._full_selection &= live
+        self._reproject()
 
     def visible_ids(self) -> frozenset[str]:
         """Return the ids of the rows the current filter leaves visible."""
@@ -140,12 +165,16 @@ class FilteredTableModel:
         """
         visible = self._visible_rows()
         visible_ids = frozenset(self._row_id(row) for row in visible)
-        self._table.apply_patch(
-            {
-                "rows": [list(row) for row in visible],
-                "selected_row_ids": sorted(self._full_selection & visible_ids),
-            }
-        )
+        self._reprojecting = True
+        try:
+            self._table.apply_patch(
+                {
+                    "rows": [list(row) for row in visible],
+                    "selected_row_ids": sorted(self._full_selection & visible_ids),
+                }
+            )
+        finally:
+            self._reprojecting = False
 
     def _visible_rows(self) -> tuple[tuple[object, ...], ...]:
         """Return the unfiltered rows that pass the search and combo predicates."""

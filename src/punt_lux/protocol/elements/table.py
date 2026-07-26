@@ -182,16 +182,17 @@ class TableElement(Element):
     def _set_rows(self, value: object) -> None:
         """Replace the rows and reconcile the selection to the live ids.
 
-        When reconcile drops a now-absent row from the selection (or reseats the
-        anchor), notify observers with the same ``selected_row_ids`` signal the
-        selection setter uses — so a rows-only patch that changes the selection
-        re-drives a bound ``FilteredTableModel`` and detail, instead of leaving
-        them stale until the next selection write. The notification is deferred to
-        patch commit like any other, so atomicity holds.
+        Notifies ``rows`` so a bound ``FilteredTableModel`` can absorb an external
+        (agent) dataset refresh; and, when the reconcile drops a now-absent row
+        from the selection or reseats the anchor, ``selected_row_ids`` so the same
+        model and a bound detail re-drive instead of going stale until the next
+        selection write. Both notifications are deferred to patch commit like any
+        other, so atomicity holds.
         """
         self._rows = self.rows_from_wire(value)
         before = self._selection
         self._selection = self._selection.reconciled(self._live_ids())
+        self._notify_observers("rows")
         if (
             self._selection.selected_row_ids != before.selected_row_ids
             or self._selection.anchor != before.anchor
