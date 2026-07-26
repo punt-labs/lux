@@ -131,9 +131,14 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
         flags = self._multi_select_flags(elem.selection_mode)
         io = imgui.begin_multi_select(flags, storage.size, len(display_ids))
         storage.apply_requests(io)
-        self._paint_selectable_rows(pairs, num_cols, storage)
-        io = imgui.end_multi_select()
-        storage.apply_requests(io)
+        # end_multi_select must run even if a row paint raises, or the ImGui
+        # multi-select scope stays open and the next frame is corrupt — the same
+        # finally discipline begin_table/end_table has.
+        try:
+            self._paint_selectable_rows(pairs, num_cols, storage)
+        finally:
+            io = imgui.end_multi_select()
+            storage.apply_requests(io)
         self._fire_if_changed(elem, display_ids, authoritative, storage, io)
 
     @staticmethod
@@ -193,6 +198,10 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
         if not translator.is_user_change(new_ids, authoritative):
             return
         anchor = translator.anchor_for(io.range_src_item, new_ids)
+        if elem.flags.copy_id and anchor:
+            # Click-to-copy the id: the anchor is the last-interacted row's
+            # key value (the row_id), mirroring the legacy copy_id feature.
+            imgui.set_clipboard_text(anchor)
         elem.fire(
             RowSelectionChanged(
                 scene_id=SceneId(_DISPLAY),
