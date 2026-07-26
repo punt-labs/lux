@@ -8,13 +8,14 @@ the route translates.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, final
+from typing import TYPE_CHECKING, Annotated, Self, final
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from punt_lux.operations import (
     Cleared,
     ClientList,
+    InspectScope,
     OpError,
     RenderRequest,
     SceneInspection,
@@ -103,12 +104,10 @@ class SceneRoutes:
         return self._errors.respond(self._ops.list_scenes())
 
     def inspect_scene(
-        self, scene_id: str, *, want_mirror: bool = False
+        self, scene_id: str, scope: Annotated[InspectScope, Query()]
     ) -> SceneInspection:
-        """Return one scene's element tree; ``want_mirror`` proxies a display check."""
-        return self._errors.respond(
-            self._ops.inspect_scene(scene_id, want_mirror=want_mirror)
-        )
+        """Return one scene's tree; ``want_mirror``/``want_geometry`` add facts."""
+        return self._errors.respond(self._ops.inspect_scene(scene_id, scope))
 
     def list_clients(self) -> ClientList:
         """List the Hub's sessions and their scopes."""

@@ -22,14 +22,15 @@ from punt_lux.domain.ids import ConnectionId, SceneId, Topic
 from punt_lux.domain.update import AddElement
 from punt_lux.operations.display_reply import DisplayFault, DisplayReplied, DisplayReply
 from punt_lux.operations.models.common import OpError
+from punt_lux.operations.models.inspect_scope import InspectScope
 from punt_lux.operations.models.query_clients import ClientList
 from punt_lux.operations.models.query_errors import RecentErrors
 from punt_lux.operations.models.query_events import RecentEvents
-from punt_lux.operations.models.query_inspection import (
+from punt_lux.operations.models.query_inspection import SceneInspection
+from punt_lux.operations.models.query_mirror import (
     MirrorNotRequested,
     MirrorPresent,
     MirrorUnavailable,
-    SceneInspection,
 )
 from punt_lux.operations.models.query_scenes import SceneList
 from punt_lux.operations.queries import QueryOperations
@@ -119,7 +120,7 @@ def test_inspect_scene_mirror_present_when_every_element_is_mirrored() -> None:
     )
     ops = QueryOperations(store, Hub(), _StubPort(reply))
 
-    result = ops.inspect_scene("s1", want_mirror=True)
+    result = ops.inspect_scene("s1", InspectScope(want_mirror=True))
 
     assert isinstance(result, SceneInspection)
     assert result.mirror == MirrorPresent(present=True)
@@ -138,7 +139,7 @@ def test_inspect_scene_mirror_not_present_when_one_element_is_missing() -> None:
     )
     ops = QueryOperations(store, Hub(), _StubPort(reply))
 
-    result = ops.inspect_scene("s1", want_mirror=True)
+    result = ops.inspect_scene("s1", InspectScope(want_mirror=True))
 
     assert isinstance(result, SceneInspection)
     assert result.mirror == MirrorPresent(present=False)
@@ -156,7 +157,7 @@ def test_inspect_scene_mirror_not_present_when_hub_has_elements_but_paths_empty(
     reply = DisplayReplied({"scene_id": "s1", "element_paths": []})
     ops = QueryOperations(store, Hub(), _StubPort(reply))
 
-    result = ops.inspect_scene("s1", want_mirror=True)
+    result = ops.inspect_scene("s1", InspectScope(want_mirror=True))
 
     assert isinstance(result, SceneInspection)
     assert result.mirror == MirrorPresent(present=False)
@@ -175,7 +176,7 @@ def test_inspect_scene_mirror_not_present_when_paths_are_shorter_than_the_hub() 
     )
     ops = QueryOperations(store, Hub(), _StubPort(reply))
 
-    result = ops.inspect_scene("s1", want_mirror=True)
+    result = ops.inspect_scene("s1", InspectScope(want_mirror=True))
 
     assert isinstance(result, SceneInspection)
     assert result.mirror == MirrorPresent(present=False)
@@ -199,7 +200,7 @@ def test_inspect_scene_mirror_not_present_when_paths_carry_an_extra_entry() -> N
     )
     ops = QueryOperations(store, Hub(), _StubPort(reply))
 
-    result = ops.inspect_scene("s1", want_mirror=True)
+    result = ops.inspect_scene("s1", InspectScope(want_mirror=True))
 
     assert isinstance(result, SceneInspection)
     assert result.mirror == MirrorPresent(present=False)
@@ -214,7 +215,7 @@ def test_inspect_scene_mirror_unavailable_when_the_display_is_down() -> None:
         store, Hub(), _StubPort(DisplayFault(code="display_unavailable"))
     )
 
-    result = ops.inspect_scene("s1", want_mirror=True)
+    result = ops.inspect_scene("s1", InspectScope(want_mirror=True))
 
     assert isinstance(result, SceneInspection)
     assert isinstance(result.mirror, MirrorUnavailable)

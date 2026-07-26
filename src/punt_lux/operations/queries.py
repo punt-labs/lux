@@ -10,30 +10,26 @@ running display's own ring buffers, so they proxy over luxd's one connection.
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping
 from typing import TYPE_CHECKING, Literal, Self, cast, final
 
 from punt_lux.domain.element_abc import Element as ElementABC
 from punt_lux.domain.ids import SceneId
 from punt_lux.domain.inspectable import Inspectable
 from punt_lux.domain.validation_walk import HasChildElements
+from punt_lux.operations.display_facts import DisplayFactProxy
+from punt_lux.operations.frame_grouping import FrameAccumulator
 from punt_lux.operations.models.common import OpError
+from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
 from punt_lux.operations.models.query_clients import ClientList, HubClient
 from punt_lux.operations.models.query_errors import RecentErrors
 from punt_lux.operations.models.query_events import RecentEvents
+from punt_lux.operations.models.query_geometry import GeometryNotRequested
 from punt_lux.operations.models.query_inspection import (
     InspectedElement,
-    MirrorNotRequested,
-    MirrorPresent,
-    MirrorState,
-    MirrorUnavailable,
     SceneInspection,
 )
-from punt_lux.operations.models.query_scenes import (
-    FrameSummary,
-    SceneList,
-    SceneSummary,
-)
+from punt_lux.operations.models.query_mirror import MirrorNotRequested
+from punt_lux.operations.models.query_scenes import SceneList, SceneSummary
 from punt_lux.protocol.elements import element_to_dict
 
 if TYPE_CHECKING:
@@ -52,25 +48,27 @@ class QueryOperations:
     _display: HubDisplay
     _hub: Hub
     _port: DisplayPort
-    __slots__ = ("_display", "_hub", "_port")
+    _facts: DisplayFactProxy
+    __slots__ = ("_display", "_facts", "_hub", "_port")
 
     def __new__(cls, display: HubDisplay, hub: Hub, port: DisplayPort) -> Self:
         self = super().__new__(cls)
         self._display = display
         self._hub = hub
         self._port = port
+        self._facts = DisplayFactProxy(display, port)
         return self
 
     # -- Hub-authoritative reads -------------------------------------------
 
     def inspect_scene(
-        self, scene_id: str, *, want_mirror: bool = False
+        self, scene_id: str, scope: InspectScope = HUB_ONLY
     ) -> SceneInspection | OpError:
         """Return a scene's element tree read from the authoritative store.
 
         Reads ``HubDisplay`` — never the display replica. An unknown scene is a
-        ``not_found``. The display-side mirror check is proxied only when asked
-        and is never treated as Hub authority.
+        ``not_found``. The display-side mirror check and painted geometry are
+        proxied only when ``scope`` asks and are never treated as Hub authority.
         """
         sid = SceneId(scene_id)
         if sid not in self._display.live_scene_ids():
@@ -81,13 +79,22 @@ class QueryOperations:
             self._inspect(cast("WireElement", root))
             for root in self._display.scene_roots(sid)
         ]
-        mirror = self._mirror(scene_id) if want_mirror else MirrorNotRequested()
-        return SceneInspection(scene_id=scene_id, elements=elements, mirror=mirror)
+        mirror = (
+            self._facts.mirror(scene_id) if scope.want_mirror else MirrorNotRequested()
+        )
+        geometry = (
+            self._facts.geometry(scene_id)
+            if scope.want_geometry
+            else GeometryNotRequested()
+        )
+        return SceneInspection(
+            scene_id=scene_id, elements=elements, mirror=mirror, geometry=geometry
+        )
 
     def list_scenes(self) -> SceneList:
         """List every live scene and frame from the authoritative store."""
         scenes: list[SceneSummary] = []
-        frames: dict[str, _FrameAccumulator] = {}
+        frames: dict[str, FrameAccumulator] = {}
         for sid in self._display.live_scene_ids():
             presentation = self._display.frames.presentation_for(sid)
             scenes.append(
@@ -101,7 +108,7 @@ class QueryOperations:
             layout = presentation.frame_layout or "tab"
             frame = frames.setdefault(
                 presentation.frame_id,
-                _FrameAccumulator(
+                FrameAccumulator(
                     title=presentation.frame_title or presentation.frame_id,
                     layout=layout,
                 ),
@@ -182,69 +189,4 @@ class QueryOperations:
             render_path=render_path,
             resolved_props=dict(props),
             children=children,
-        )
-
-    def _mirror(self, scene_id: str) -> MirrorState:
-        """Proxy the display-side mirror check as a discriminated state.
-
-        The display answers per element under ``element_paths``. The scene is
-        present only when those paths account for *exactly* the Hub's elements:
-        every Hub element mirrored (``mirrored == hub_count``) AND no extra
-        entries beyond them (``len(entries) == hub_count``). The extras guard is
-        what stops two mirrored elements plus one unmirrored extra from passing a
-        bare count. The comparison is by count, not identity: ``element_paths``
-        ids are not a usable identity key here — anonymous elements all carry
-        ``""`` — so a set/multiset over them would not distinguish elements.
-
-        An empty Hub scene is vacuously present; a Hub holding elements whose
-        paths come back empty, short, or padded with extras is truthfully NOT
-        present. A down display, a timeout, or a reply without the paths key is
-        ``unavailable`` with a reason — distinct from "not requested".
-        """
-        payload = self._port.query("inspect_scene", {"scene_id": scene_id}).resolve()
-        if isinstance(payload, OpError):
-            return MirrorUnavailable(reason=payload.reason)
-        paths = payload.get("element_paths")
-        if not isinstance(paths, list):
-            return MirrorUnavailable(reason="display reply omitted element_paths")
-        entries = cast("list[object]", paths)
-        mirrored = sum(
-            1
-            for entry in entries
-            if isinstance(entry, Mapping)
-            and bool(cast("Mapping[str, object]", entry).get("domain_mirror_present"))
-        )
-        hub_count = self._display.element_count(SceneId(scene_id))
-        present = mirrored == hub_count and len(entries) == hub_count
-        return MirrorPresent(present=present)
-
-
-@final
-class _FrameAccumulator:
-    """Gathers the scene ids sharing one frame while ``list_scenes`` walks."""
-
-    _title: str
-    _layout: Literal["tab", "stack"]
-    _scene_ids: list[str]
-    __slots__ = ("_layout", "_scene_ids", "_title")
-
-    def __new__(cls, *, title: str, layout: Literal["tab", "stack"]) -> Self:
-        self = super().__new__(cls)
-        self._title = title
-        self._layout = layout
-        self._scene_ids = []
-        return self
-
-    def add(self, scene_id: str) -> None:
-        """Record a scene shown into this frame."""
-        self._scene_ids.append(scene_id)
-
-    def summary(self, frame_id: str) -> FrameSummary:
-        """Build the frame's summary once every scene is gathered."""
-        return FrameSummary(
-            frame_id=frame_id,
-            title=self._title,
-            scene_count=len(self._scene_ids),
-            scene_ids=self._scene_ids,
-            layout=self._layout,
         )

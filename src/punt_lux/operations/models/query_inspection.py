@@ -3,22 +3,23 @@
 Read from ``HubDisplay`` — the authority — not the display replica. Each element
 reports whether it is on the Element-ABC path or the legacy path and its resolved
 state including defaults, so a migration is verified without inspecting pixels.
+Two proxied display facts hang off the inspection when asked: the element mirror
+check (:mod:`.query_mirror`) and the painted geometry (:mod:`.query_geometry`).
 """
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
-__all__ = [
-    "InspectedElement",
-    "MirrorNotRequested",
-    "MirrorPresent",
-    "MirrorState",
-    "MirrorUnavailable",
-    "SceneInspection",
-]
+from punt_lux.operations.models.query_geometry import (
+    GeometryNotRequested,
+    SceneGeometry,
+)
+from punt_lux.operations.models.query_mirror import MirrorNotRequested, MirrorState
+
+__all__ = ["InspectedElement", "SceneInspection"]
 
 
 class InspectedElement(BaseModel):
@@ -36,52 +37,6 @@ class InspectedElement(BaseModel):
     children: list[InspectedElement] = []
 
 
-class MirrorNotRequested(BaseModel):
-    """The caller did not ask for the display-side mirror check."""
-
-    model_config = ConfigDict(frozen=True)
-
-    kind: Literal["not_requested"] = "not_requested"
-
-
-class MirrorUnavailable(BaseModel):
-    """The mirror check was requested but could not be answered.
-
-    A display that is down, a timed-out round-trip, or a malformed reply — the
-    ``reason`` carries which. Distinct from ``not_requested`` so a caller can tell
-    "you didn't ask" from "you asked and I couldn't tell".
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    kind: Literal["unavailable"] = "unavailable"
-    reason: str
-
-
-class MirrorPresent(BaseModel):
-    """The mirror check was answered: whether every element is mirrored.
-
-    ``present`` is the whole-scene answer — true only when the display holds a
-    mirror for every element, since a partially-mirrored scene is not present. An
-    empty scene is vacuously present (no element is unmirrored) — an intentional
-    edge, since the absent-scene case is a ``not_found`` error returned before the
-    check runs. Never read as Hub authority (introspection-api.md).
-    """
-
-    model_config = ConfigDict(frozen=True)
-
-    kind: Literal["present"] = "present"
-    present: bool
-
-
-# The display-side mirror check as a discriminated state, so "not requested",
-# "requested but unavailable", and "answered" can never be confused.
-MirrorState = Annotated[
-    MirrorNotRequested | MirrorUnavailable | MirrorPresent,
-    Field(discriminator="kind"),
-]
-
-
 class SceneInspection(BaseModel):
     """A scene's inspected element tree, read from the authoritative store."""
 
@@ -91,3 +46,4 @@ class SceneInspection(BaseModel):
     scene_id: str
     elements: list[InspectedElement]
     mirror: MirrorState = MirrorNotRequested()
+    geometry: SceneGeometry = GeometryNotRequested()

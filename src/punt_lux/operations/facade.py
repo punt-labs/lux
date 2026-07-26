@@ -15,6 +15,7 @@ from punt_lux.operations.config import DisplayModeOperations
 from punt_lux.operations.conveniences import ConvenienceOperations
 from punt_lux.operations.display_control import DisplayControlOperations
 from punt_lux.operations.menus import MenuOperations
+from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
 from punt_lux.operations.pubsub import PubSubOperations
 from punt_lux.operations.queries import QueryOperations
 from punt_lux.operations.scenes import SceneOperations
@@ -221,10 +222,10 @@ class Operations:
         return self._display.set_frame_state(frame_id, patch)
 
     def inspect_scene(
-        self, scene_id: str, *, want_mirror: bool = False
+        self, scene_id: str, scope: InspectScope = HUB_ONLY
     ) -> SceneInspection | OpError:
-        """Return a scene's element tree from the authoritative store."""
-        return self._queries.inspect_scene(scene_id, want_mirror=want_mirror)
+        """Return a scene's tree; ``scope`` adds the proxied mirror/geometry facts."""
+        return self._queries.inspect_scene(scene_id, scope)
 
     def list_scenes(self) -> SceneList:
         """List every live scene and frame from the authoritative store."""
