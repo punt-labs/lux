@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Literal, Self, cast
+from typing import Any, ClassVar, Literal, Self
 
-from punt_lux.domain.validation import ValidationError
 from punt_lux.protocol.elements.codec import Register
 from punt_lux.protocol.elements.container_dispatch import dispatch as _dispatchers
 
@@ -16,8 +15,6 @@ __all__ = [
     "LegacyModalElement",
     "LegacyTabBarElement",
     "LegacyWindowElement",
-    "TreeElement",
-    "register_codecs",
 ]
 
 
@@ -57,10 +54,15 @@ class LegacyGroupElement:
             "children": [recurse(c) for c in self.children],
         }
         if self.pages:
-            d["pages"] = [[recurse(e) for e in page] for page in self.pages]
+            d["pages"] = self._encoded_pages()
         if self.page_source is not None:
             d["page_source"] = self.page_source
         return d
+
+    def _encoded_pages(self) -> list[list[dict[str, Any]]]:
+        """Return the paged panels encoded to wire dicts, one list per page."""
+        recurse = _dispatchers.to_dict
+        return [[recurse(element) for element in page] for page in self.pages]
 
     @classmethod
     def from_dict(cls, d: dict[str, Any]) -> Self:
@@ -88,6 +90,45 @@ class LegacyGroupElement:
         kind = raw.get("kind")
         forced = _LEGACY_CONTAINER_DECODERS.get(kind) if isinstance(kind, str) else None
         return forced(raw) if forced is not None else _dispatchers.from_dict(raw)
+
+    @staticmethod
+    def register_codecs(register: Register) -> None:
+        """Register every legacy layout codec into an ElementCodec.
+
+        Hosted here because ``LegacyGroupElement`` already owns the module's
+        shared legacy machinery (``decode_child``); each still-legacy container
+        registers its own codec triple until it forks onto the ABC path.
+        """
+        register(
+            "group",
+            LegacyGroupElement,
+            LegacyGroupElement.to_dict,
+            LegacyGroupElement.from_dict,
+        )
+        register(
+            "tab_bar",
+            LegacyTabBarElement,
+            LegacyTabBarElement.to_dict,
+            LegacyTabBarElement.from_dict,
+        )
+        register(
+            "collapsing_header",
+            LegacyCollapsingHeaderElement,
+            LegacyCollapsingHeaderElement.to_dict,
+            LegacyCollapsingHeaderElement.from_dict,
+        )
+        register(
+            "window",
+            LegacyWindowElement,
+            LegacyWindowElement.to_dict,
+            LegacyWindowElement.from_dict,
+        )
+        register(
+            "modal",
+            LegacyModalElement,
+            LegacyModalElement.to_dict,
+            LegacyModalElement.from_dict,
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -188,6 +229,18 @@ class LegacyWindowElement:
     container; the ABC ``WindowElement`` takes the canonical name.
     """
 
+    # The bool window flags whose wire key is the attribute name; emitted only
+    # when True. A data-driven tuple keeps ``to_dict`` a single comprehension
+    # instead of one ``if`` per flag (PY-OO: dispatch on data, not a ladder).
+    _OPTIONAL_FLAGS: ClassVar[tuple[str, ...]] = (
+        "no_move",
+        "no_resize",
+        "no_collapse",
+        "no_title_bar",
+        "no_scrollbar",
+        "auto_resize",
+    )
+
     id: str
     kind: Literal["window"] = "window"
     title: str = ""
@@ -221,18 +274,7 @@ class LegacyWindowElement:
             "height": self.height,
             "children": [recurse(c) for c in self.children],
         }
-        if self.no_move:
-            d["no_move"] = True
-        if self.no_resize:
-            d["no_resize"] = True
-        if self.no_collapse:
-            d["no_collapse"] = True
-        if self.no_title_bar:
-            d["no_title_bar"] = True
-        if self.no_scrollbar:
-            d["no_scrollbar"] = True
-        if self.auto_resize:
-            d["auto_resize"] = True
+        d.update({flag: True for flag in self._OPTIONAL_FLAGS if getattr(self, flag)})
         return d
 
     @classmethod
@@ -253,97 +295,6 @@ class LegacyWindowElement:
             no_scrollbar=d.get("no_scrollbar", False),
             auto_resize=d.get("auto_resize", False),
             children=[recurse(c) for c in d.get("children", [])],
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class TreeElement:
-    """A collapsible tree with recursive nodes.
-
-    Each node in ``nodes`` is a dict with a ``"label"`` (str) and optional
-    ``"children"`` (list of nodes). When ``flat`` is True, children render
-    without indentation (branch nodes toggle via ``NoTreePushOnOpen``, leaves
-    render as selectable items) — an inline disclosure for tight horizontal
-    space.
-    """
-
-    id: str
-    kind: Literal["tree"] = "tree"
-    label: str = ""
-    nodes: list[dict[str, Any]] = field(default_factory=lambda: list[dict[str, Any]]())
-    flat: bool = False
-    tooltip: str | None = None
-
-    def child_elements(self) -> tuple[object, ...]:
-        """Return no child elements — a tree's nodes are plain mappings.
-
-        Nodes carry ``label`` / ``children`` data, not Lux elements, so the walk
-        has nothing to recurse into; :meth:`validate` checks the node structure.
-        """
-        return ()
-
-    def validate(self) -> tuple[ValidationError, ...]:
-        """Return errors where a node is not a labeled mapping.
-
-        Every node must be a mapping carrying a string ``label``; an optional
-        ``children`` list obeys the same rule at every depth. Reported, not dropped.
-        """
-        return tuple(self._node_errors(self.nodes))
-
-    def _node_errors(self, nodes: object) -> list[ValidationError]:
-        """Return errors for a node list, recursing into each node's children."""
-        if not isinstance(nodes, list):
-            return [self._error("nodes must be a list of nodes")]
-        errors: list[ValidationError] = []
-        for index, node in enumerate(cast("list[object]", nodes)):
-            errors.extend(self._one_node_errors(node, index))
-        return errors
-
-    def _one_node_errors(self, node: object, index: int) -> list[ValidationError]:
-        """Return errors for a single node at ``index``, recursing into children."""
-        if not isinstance(node, dict):
-            return [self._error(f"node {index} is not a mapping")]
-        mapping = cast("dict[str, object]", node)
-        errors: list[ValidationError] = []
-        if not isinstance(mapping.get("label"), str):
-            errors.append(self._error(f"node {index} is missing a string 'label'"))
-        children = mapping.get("children")
-        if children is not None:
-            errors.extend(self._node_errors(children))
-        return errors
-
-    def _error(self, message: str) -> ValidationError:
-        """Build a tree ValidationError carrying this tree's identity."""
-        return ValidationError(
-            element_id=self.id,
-            element_kind=self.kind,
-            message=message,
-        )
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return the JSON-compatible wire representation."""
-        d: dict[str, Any] = {
-            "kind": self.kind,
-            "id": self.id,
-            "label": self.label,
-            "nodes": self.nodes,
-        }
-        if self.flat:
-            d["flat"] = True
-        return d
-
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> Self:
-        """Construct a TreeElement from a JSON-decoded mapping.
-
-        Nodes are stored as received — malformed nodes are surfaced by
-        :meth:`validate` before render, not silently discarded here.
-        """
-        return cls(
-            id=d["id"],
-            label=d.get("label", ""),
-            nodes=d.get("nodes", []),
-            flat=d.get("flat", False),
         )
 
 
@@ -399,38 +350,3 @@ _LEGACY_CONTAINER_DECODERS: dict[str, Callable[[dict[str, Any]], Any]] = {
     "modal": LegacyModalElement.from_dict,
     "window": LegacyWindowElement.from_dict,
 }
-
-
-def register_codecs(register: Register) -> None:
-    """Register this module's element codecs into an ElementCodec."""
-    register(
-        "group",
-        LegacyGroupElement,
-        LegacyGroupElement.to_dict,
-        LegacyGroupElement.from_dict,
-    )
-    register(
-        "tab_bar",
-        LegacyTabBarElement,
-        LegacyTabBarElement.to_dict,
-        LegacyTabBarElement.from_dict,
-    )
-    register(
-        "collapsing_header",
-        LegacyCollapsingHeaderElement,
-        LegacyCollapsingHeaderElement.to_dict,
-        LegacyCollapsingHeaderElement.from_dict,
-    )
-    register(
-        "window",
-        LegacyWindowElement,
-        LegacyWindowElement.to_dict,
-        LegacyWindowElement.from_dict,
-    )
-    register("tree", TreeElement, TreeElement.to_dict, TreeElement.from_dict)
-    register(
-        "modal",
-        LegacyModalElement,
-        LegacyModalElement.to_dict,
-        LegacyModalElement.from_dict,
-    )

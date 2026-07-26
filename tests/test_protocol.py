@@ -18,7 +18,6 @@ from punt_lux.protocol import (
     ColorPickerElement,
     ComboElement,
     ConnectMessage,
-    DrawElement,
     FrameReader,
     GroupElement,
     ImageElement,
@@ -66,9 +65,8 @@ from punt_lux.protocol import (
     message_from_dict,
     message_to_dict,
 )
-from punt_lux.protocol.elements.draw_commands_line import Line
-from punt_lux.protocol.elements.draw_commands_shape import Rect
-from punt_lux.protocol.elements.draw_values import Color, Point2
+from punt_lux.protocol.elements.plot_series import PlotSeries
+from punt_lux.protocol.elements.tree_node import TreeNode
 
 # ---------------------------------------------------------------------------
 # Element construction
@@ -147,19 +145,6 @@ class TestElements:
         e = ColorPickerElement(id="cp1", label="Color")
         assert e.kind == "color_picker"
         assert e.value == "#FFFFFF"
-
-    def test_draw_element(self):
-        line = Line(p1=Point2(0, 0), p2=Point2(10, 10))
-        e = DrawElement(id="d1", commands=(line,))
-        assert e.kind == "draw"
-        assert e.width == 400
-        assert e.height == 300
-        assert e.bg_color is None
-        assert len(e.commands) == 1
-
-    def test_draw_element_defaults(self):
-        e = DrawElement(id="d1")
-        assert e.commands == ()
 
     def test_group_element(self):
         child = TextElement(id="t1", content="hi")
@@ -244,10 +229,13 @@ class TestElements:
         assert e.selected is False
 
     def test_tree_element(self):
-        nodes: list[dict[str, Any]] = [
-            {"label": "src", "children": [{"label": "main.py"}, {"label": "lib.py"}]},
-            {"label": "README.md"},
-        ]
+        nodes = (
+            TreeNode(
+                label="src",
+                children=(TreeNode(label="main.py"), TreeNode(label="lib.py")),
+            ),
+            TreeNode(label="README.md"),
+        )
         e = TreeElement(id="tr1", label="Project", nodes=nodes)
         assert e.kind == "tree"
         assert e.label == "Project"
@@ -256,7 +244,7 @@ class TestElements:
     def test_tree_element_defaults(self):
         e = TreeElement(id="tr1")
         assert e.label == ""
-        assert e.nodes == []
+        assert e.nodes == ()
         assert e.flat is False
 
     def test_tree_element_flat(self):
@@ -282,9 +270,7 @@ class TestElements:
         assert e.flags == ["borders", "row_bg"]
 
     def test_plot_element(self):
-        series = [
-            {"label": "y", "type": "line", "x": [1, 2, 3], "y": [10, 20, 15]},
-        ]
+        series = (PlotSeries("y", "line", (1.0, 2.0, 3.0), (10.0, 20.0, 15.0)),)
         e = PlotElement(id="p1", title="Trend", series=series)
         assert e.kind == "plot"
         assert e.title == "Trend"
@@ -299,7 +285,7 @@ class TestElements:
         assert e.y_label == ""
         assert e.width == -1
         assert e.height == 300
-        assert e.series == []
+        assert e.series == ()
 
     def test_progress_element(self):
         e = ProgressElement(id="pg1", fraction=0.73, label="73%")
@@ -939,50 +925,6 @@ class TestSerialization:
         assert isinstance(elem, ColorPickerElement)
         assert elem.value == "#FF0000"
 
-    def test_draw_roundtrip(self):
-        rect = Rect(min=Point2(10, 10), max=Point2(50, 50), color=Color("#FF0000"))
-        e = DrawElement(
-            id="d1", width=200, height=100, bg_color="#000000", commands=(rect,)
-        )
-        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        elem = restored.elements[0]
-        assert isinstance(elem, DrawElement)
-        assert elem.width == 200
-        assert elem.bg_color == "#000000"
-        assert len(elem.commands) == 1
-        assert isinstance(elem.commands[0], Rect)
-        assert elem.commands[0].color == Color("#FF0000")
-
-    def test_draw_bg_color_excluded_when_none(self):
-        e = DrawElement(id="d1")
-        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
-        d = message_to_dict(scene)
-        assert "bg_color" not in d["elements"][0]
-
-    def test_draw_motivating_bug_fails_loud(self):
-        # Regression: an agent that sends {"op": "circle", "x": ..., "y": ...,
-        # "r": ...} (the wrong schema) used to silently render as a white
-        # radius-10 circle at the origin because the renderer called
-        # cmd.get("center", [0, 0]) and cmd.get("radius", 10). The typed
-        # decoder must surface this as a ValueError at scene-decode time,
-        # before any rendering happens.
-        wire = {
-            "type": "scene",
-            "id": "s1",
-            "elements": [
-                {
-                    "kind": "draw",
-                    "id": "d1",
-                    "commands": [{"op": "circle", "x": 100, "y": 100, "r": 40}],
-                }
-            ],
-        }
-        with pytest.raises(ValueError, match="missing or invalid 'cmd'"):
-            message_from_dict(wire)
-
     def test_group_roundtrip(self):
         e = GroupElement(
             id="g1",
@@ -1004,7 +946,7 @@ class TestSerialization:
         assert isinstance(grp.children[1], ButtonElement)
 
     def test_tab_bar_roundtrip(self):
-        # A legacy plot child keeps the subtree off the all-ABC path, so
+        # A legacy table child keeps the subtree off the all-ABC path, so
         # the tab bar decodes onto the legacy dataclass whose tabs are dicts.
         e = LegacyTabBarElement(
             id="tb1",
@@ -1017,7 +959,7 @@ class TestSerialization:
                     "label": "Tab 2",
                     "children": [
                         ButtonElement(id="b1", label="Action"),
-                        PlotElement(id="sel1"),
+                        TableElement(id="sel1", columns=["A"], rows=[["x"]]),
                     ],
                 },
             ],
@@ -1034,7 +976,7 @@ class TestSerialization:
         assert len(tb.tabs[1]["children"]) == 2
 
     def test_collapsing_header_roundtrip(self):
-        # A legacy plot child keeps the subtree off the all-ABC path, so
+        # A legacy table child keeps the subtree off the all-ABC path, so
         # the header decodes onto the legacy dataclass that carries ``default_open``.
         e = LegacyCollapsingHeaderElement(
             id="ch1",
@@ -1042,7 +984,7 @@ class TestSerialization:
             default_open=True,
             children=[
                 CheckboxElement(id="cb1", label="Debug"),
-                PlotElement(id="sel1"),
+                TableElement(id="sel1", columns=["A"], rows=[["x"]]),
             ],
         )
         scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
@@ -1067,16 +1009,13 @@ class TestSerialization:
         assert elem.selected is True
 
     def test_tree_roundtrip(self):
-        nodes: list[dict[str, Any]] = [
-            {
-                "label": "src",
-                "children": [
-                    {"label": "main.py"},
-                    {"label": "utils.py"},
-                ],
-            },
-            {"label": "README.md"},
-        ]
+        nodes = (
+            TreeNode(
+                label="src",
+                children=(TreeNode(label="main.py"), TreeNode(label="utils.py")),
+            ),
+            TreeNode(label="README.md"),
+        )
         e = TreeElement(id="tr1", label="Project", nodes=nodes)
         scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
@@ -1086,14 +1025,14 @@ class TestSerialization:
         assert isinstance(tree, TreeElement)
         assert tree.label == "Project"
         assert len(tree.nodes) == 2
-        assert tree.nodes[0]["label"] == "src"
-        assert len(tree.nodes[0]["children"]) == 2
+        assert tree.nodes[0].label == "src"
+        assert len(tree.nodes[0].children) == 2
 
     def test_tree_flat_roundtrip(self):
         e = TreeElement(
             id="tr1",
             label="Details",
-            nodes=[{"label": "info", "children": [{"label": "value"}]}],
+            nodes=(TreeNode(label="info", children=(TreeNode(label="value"),)),),
             flat=True,
         )
         scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
@@ -1119,7 +1058,7 @@ class TestSerialization:
         assert isinstance(restored, SceneMessage)
         tree = restored.elements[0]
         assert isinstance(tree, TreeElement)
-        assert tree.nodes == []
+        assert tree.nodes == ()
 
     def test_table_roundtrip(self):
         e = TableElement(
@@ -1249,10 +1188,10 @@ class TestSerialization:
             )
 
     def test_plot_roundtrip(self):
-        series = [
-            {"label": "line1", "type": "line", "x": [1, 2, 3], "y": [10, 20, 15]},
-            {"label": "pts", "type": "scatter", "x": [1, 2], "y": [5, 8]},
-        ]
+        series = (
+            PlotSeries("line1", "line", (1.0, 2.0, 3.0), (10.0, 20.0, 15.0)),
+            PlotSeries("pts", "scatter", (1.0, 2.0), (5.0, 8.0)),
+        )
         e = PlotElement(
             id="p1",
             title="My Plot",
@@ -1283,7 +1222,7 @@ class TestSerialization:
         assert isinstance(restored, SceneMessage)
         plot = restored.elements[0]
         assert isinstance(plot, PlotElement)
-        assert plot.series == []
+        assert plot.series == ()
         assert plot.title == ""
 
     def test_progress_roundtrip(self):
@@ -1375,7 +1314,10 @@ class TestSerialization:
             tabs=[
                 {
                     "label": "Layout",
-                    "children": [inner, PlotElement(id="sel1")],
+                    "children": [
+                        inner,
+                        TableElement(id="sel1", columns=["A"], rows=[["x"]]),
+                    ],
                 }
             ],
         )

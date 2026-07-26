@@ -8,22 +8,19 @@ import logging
 from collections.abc import Callable
 from typing import TYPE_CHECKING, ClassVar, Self, cast
 
+from imgui_bundle import imgui
+
 from punt_lux.display.renderers.container_renderer import ContainerRenderer
-from punt_lux.display.renderers.draw_element_renderer import DrawElementRenderer
 from punt_lux.display.renderers.modal_renderer import ModalRenderer
-from punt_lux.display.renderers.plot_renderer import PlotRenderer
-from punt_lux.display.renderers.tree_renderer import TreeRenderer
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
-from punt_lux.protocol.elements.graphics import DrawElement
 from punt_lux.scene import WidgetState
 
 if TYPE_CHECKING:
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
     from punt_lux.protocol import Element
-    from punt_lux.protocol.elements.layout import LegacyModalElement, TreeElement
-    from punt_lux.protocol.elements.plot_element import PlotElement
+    from punt_lux.protocol.elements.layout import LegacyModalElement
     from punt_lux.types import EmitEventFn
 
 logger = logging.getLogger(__name__)
@@ -49,25 +46,19 @@ class ElementRenderer:
     _check_dirty_window: DirtyWindowFn
     # Resolves every migrated kind's adapter and owns the one shared tooltip pass.
     _imgui_renderer_factory: ImGuiRendererFactory
-    _draw_element_renderer: DrawElementRenderer
     # Legacy composites: containers recurse their children back through
-    # ``render_element``; tree/plot/modal paint their own extracted surface.
+    # ``render_element``; modal paints its own extracted surface.
     _container_renderer: ContainerRenderer
-    _tree_renderer: TreeRenderer
-    _plot_renderer: PlotRenderer
     _modal_renderer: ModalRenderer
 
     # Legacy string dispatch — the still-legacy kinds. Shrinks as kinds migrate;
     # ABC-migrated kinds resolve through the factory adapter, never here.
     _RENDERERS: ClassVar[dict[str, str]] = {
-        "draw": "_render_draw",
         "group": "_render_group",
         "tab_bar": "_render_tab_bar",
         "collapsing_header": "_render_collapsing_header",
         "window": "_render_window",
-        "tree": "_render_tree",
         "table": "_render_table",
-        "plot": "_render_plot",
         "modal": "_render_modal",
     }
 
@@ -75,9 +66,7 @@ class ElementRenderer:
     # children. They record geometry through the same ``measuring`` group the ABC
     # leaf template uses; the remaining legacy kinds are containers whose children
     # record as they recurse, so the container itself records nothing.
-    _LEGACY_LEAF_KINDS: ClassVar[frozenset[str]] = frozenset(
-        {"draw", "tree", "table", "plot"}
-    )
+    _LEGACY_LEAF_KINDS: ClassVar[frozenset[str]] = frozenset({"table"})
 
     # Renderer attrs owning per-scene WidgetState; the setter forwards scene switches.
     _WIDGET_STATE_RENDERERS: ClassVar[tuple[str, ...]] = (
@@ -98,12 +87,9 @@ class ElementRenderer:
         self._emit_event = emit_event
         self._check_dirty_window = check_dirty_window
         self._current_scene_id = None
-        self._draw_element_renderer = DrawElementRenderer()
         self._container_renderer = ContainerRenderer(
             widget_state, check_dirty_window, self.render_element, self._record_window
         )
-        self._tree_renderer = TreeRenderer(emit_event)
-        self._plot_renderer = PlotRenderer()
         self._modal_renderer = ModalRenderer(
             widget_state, emit_event, self.render_element, self._record_window
         )
@@ -183,15 +169,23 @@ class ElementRenderer:
         reading as "did not paint". A legacy container records nothing itself; its
         children record as they recurse. An unknown kind paints the marker.
         """
-        from imgui_bundle import imgui
-
         method_name = self._RENDERERS.get(elem.kind)
         if method_name is None:
-            imgui.text(f"[unsupported element: {elem.kind}]")
+            self._render_unsupported(elem.kind)
         elif elem.kind in self._LEGACY_LEAF_KINDS:
-            with self._imgui_renderer_factory.geometry.measuring(elem.id, elem.kind):
-                getattr(self, method_name)(elem)
+            self._render_measured_leaf(elem)
         else:
+            getattr(self, method_name)(elem)
+
+    @staticmethod
+    def _render_unsupported(kind: str) -> None:
+        """Paint the fallback marker for a kind with no legacy renderer."""
+        imgui.text(f"[unsupported element: {kind}]")
+
+    def _render_measured_leaf(self, elem: Element) -> None:
+        """Paint a legacy leaf inside the geometry ``measuring`` group."""
+        method_name = self._RENDERERS[elem.kind]
+        with self._imgui_renderer_factory.geometry.measuring(elem.id, elem.kind):
             getattr(self, method_name)(elem)
 
     def _render_via_factory(self, elem: AbcElement) -> None:
@@ -237,11 +231,7 @@ class ElementRenderer:
         """Delegate window rendering to the ContainerRenderer."""
         self._container_renderer.render_window(elem)
 
-    # -- tree / table / plot / modal rendering ---------------------------------
-
-    def _render_tree(self, elem: Element) -> None:
-        """Delegate tree rendering to the extracted TreeRenderer."""
-        self._tree_renderer.render(cast("TreeElement", elem))
+    # -- table / modal rendering -----------------------------------------------
 
     def _render_table(self, elem: Element) -> None:
         """Delegate table rendering to the extracted TableRenderer."""
@@ -251,19 +241,6 @@ class ElementRenderer:
         scene_id = self._current_scene_id or ""
         self._table_renderer.render(table, scene_id)
 
-    def _render_plot(self, elem: Element) -> None:
-        """Delegate plot rendering to the extracted PlotRenderer."""
-        self._plot_renderer.render(cast("PlotElement", elem))
-
     def _render_modal(self, elem: Element) -> None:
         """Delegate legacy modal rendering to the extracted ModalRenderer."""
         self._modal_renderer.render(cast("LegacyModalElement", elem))
-
-    # -- draw element rendering ------------------------------------------------
-
-    def _render_draw(self, elem: Element) -> None:
-        """Delegate a DrawElement to the extracted ``DrawElementRenderer``."""
-        if not isinstance(elem, DrawElement):
-            msg = f"_render_draw expected DrawElement; got {type(elem).__name__}"
-            raise TypeError(msg)
-        self._draw_element_renderer.render(elem)

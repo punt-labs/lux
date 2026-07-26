@@ -40,11 +40,7 @@ from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.dialog import DialogElement
-from punt_lux.protocol.elements.graphics import (
-    DrawElement,
-    PlotElement,
-    register_codecs as _register_graphics,
-)
+from punt_lux.protocol.elements.draw import DrawElement
 from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
@@ -55,11 +51,10 @@ from punt_lux.protocol.elements.layout import (
     LegacyModalElement,
     LegacyTabBarElement,
     LegacyWindowElement,
-    TreeElement,
-    register_codecs as _register_layout,
 )
 from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.modal import ModalElement
+from punt_lux.protocol.elements.plot import PlotElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement
@@ -75,6 +70,7 @@ from punt_lux.protocol.elements.table import (
     register_codecs as _register_table,
 )
 from punt_lux.protocol.elements.text import TextElement
+from punt_lux.protocol.elements.tree import TreeElement
 from punt_lux.protocol.elements.window import WindowElement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 
@@ -160,15 +156,14 @@ Element = (
 def build_element_codec() -> ElementCodec:
     """Return a fresh :class:`ElementCodec` with the still-legacy kinds registered.
 
-    Only the not-yet-migrated families (layout, graphics, table) register here;
-    the basics family has fully crossed onto the Element-ABC path and is decoded
-    through ``DEFAULT_ABC_REGISTRY`` instead. Each :class:`JsonElementFactory`
+    Only the not-yet-migrated families (layout, table) register here; the basics
+    and graphics families have fully crossed onto the Element-ABC path and are
+    decoded through ``DEFAULT_ABC_REGISTRY`` instead. Each :class:`JsonElementFactory`
     owns its own codec instance — the codec carries no DI, but binding a separate
     instance per factory keeps factory construction self-contained.
     """
     codec = ElementCodec()
-    _register_layout(codec.register)
-    _register_graphics(codec.register)
+    LegacyGroupElement.register_codecs(codec.register)
     _register_table(codec.register)
     return codec
 

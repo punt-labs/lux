@@ -7,10 +7,9 @@ so a gate that imported element classes would close a cycle. The kind *names*
 are therefore held here as plain strings and consumed both by the gate and by
 the ABC registry's import-time cross-check.
 
-This is one of the two data homes for "which kinds are on the ABC path": the
-light string set here, and the heavier class-bearing ``AbcElementRegistry``.
-The layering forbids merging them, so they are reconciled with a fail-loud
-cross-check when the default registry is built.
+This is one of two data homes for "which kinds are on the ABC path" (the other
+being ``AbcElementRegistry``); the layering forbids merging them, so a fail-loud
+cross-check reconciles the two when the default registry is built.
 """
 
 from __future__ import annotations
@@ -53,6 +52,9 @@ class AbcKindNames:
             "spinner",
             "separator",
             "image",
+            "tree",
+            "plot",
+            "draw",
         }
     )
 

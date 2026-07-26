@@ -171,7 +171,7 @@ def test_checkbox_absent_from_legacy_codec_table() -> None:
     assert "button" not in kinds
     assert "text" not in kinds
     assert "slider" not in kinds
-    assert "plot" in kinds
+    assert "table" in kinds
 
 
 def test_combo_round_trip_with_items() -> None:

@@ -1,10 +1,7 @@
 """ImGuiRendererFactory — surface-shared mediator for ImGui per-kind renderers.
 
-Constructed once at Display startup, holding the Display-tier surface-shared
-state (``WidgetState``, ``TextureCache``, ``Emit``). It dispatches by element
-type to the per-kind adapter; ``handles`` lets ``render_element`` route every
-migrated kind here (the one render-side authority, retiring the parallel
-native-dispatch table), and every adapter shares the one ``apply_tooltip`` pass.
+Constructed once at Display startup with the Display-tier shared state; it
+dispatches by element type to the per-kind adapter and shares one tooltip pass.
 """
 
 from __future__ import annotations
@@ -20,12 +17,14 @@ from punt_lux.display.renderers.imgui.collapsing_header import (
 from punt_lux.display.renderers.imgui.color_picker import ImGuiColorPickerRenderer
 from punt_lux.display.renderers.imgui.combo import ImGuiComboRenderer
 from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
+from punt_lux.display.renderers.imgui.draw import ImGuiDrawRenderer
 from punt_lux.display.renderers.imgui.group import ImGuiGroupRenderer
 from punt_lux.display.renderers.imgui.image import ImGuiImageRenderer
 from punt_lux.display.renderers.imgui.input_number import ImGuiInputNumberRenderer
 from punt_lux.display.renderers.imgui.input_text import ImGuiInputTextRenderer
 from punt_lux.display.renderers.imgui.markdown import ImGuiMarkdownRenderer
 from punt_lux.display.renderers.imgui.modal import ImGuiModalRenderer
+from punt_lux.display.renderers.imgui.plot import ImGuiPlotRenderer
 from punt_lux.display.renderers.imgui.progress import ImGuiProgressRenderer
 from punt_lux.display.renderers.imgui.radio import ImGuiRadioRenderer
 from punt_lux.display.renderers.imgui.selectable import ImGuiSelectableRenderer
@@ -34,6 +33,7 @@ from punt_lux.display.renderers.imgui.slider import ImGuiSliderRenderer
 from punt_lux.display.renderers.imgui.spinner import ImGuiSpinnerRenderer
 from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
+from punt_lux.display.renderers.imgui.tree import ImGuiTreeRenderer
 from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
 from punt_lux.display.renderers.tooltip_painter import TooltipPainter
 from punt_lux.domain.element_abc import Element as AbcElement
@@ -43,12 +43,14 @@ from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.dialog import DialogElement
+from punt_lux.protocol.elements.draw import DrawElement
 from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
 from punt_lux.protocol.elements.input_text import InputTextElement
 from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.modal import ModalElement
+from punt_lux.protocol.elements.plot import PlotElement
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement
@@ -57,6 +59,7 @@ from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.text import TextElement
+from punt_lux.protocol.elements.tree import TreeElement
 from punt_lux.protocol.elements.window import WindowElement
 
 if TYPE_CHECKING:
@@ -108,6 +111,9 @@ class ImGuiRendererFactory:
         (ComboElement, ImGuiComboRenderer),
         (RadioElement, ImGuiRadioRenderer),
         (SelectableElement, ImGuiSelectableRenderer),
+        (TreeElement, ImGuiTreeRenderer),
+        (PlotElement, ImGuiPlotRenderer),
+        (DrawElement, ImGuiDrawRenderer),
     )
 
     def __new__(

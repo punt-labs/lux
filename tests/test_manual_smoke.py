@@ -27,6 +27,7 @@ from punt_lux.protocol.elements import (
     TextElement,
     TreeElement,
 )
+from punt_lux.protocol.elements.tree_node import TreeNode
 
 
 @pytest.fixture(scope="module")
@@ -101,12 +102,10 @@ def test_collect_kinds_recurses_into_tabs(manual_smoke: ModuleType) -> None:
 
 
 def test_collect_kinds_recurses_into_tree_nodes(manual_smoke: ModuleType) -> None:
-    """TreeElement.nodes are dicts and carry no element kinds themselves."""
+    """TreeElement.nodes are typed values and carry no element kinds themselves."""
     tree = TreeElement(
         id="t",
-        nodes=[
-            {"label": "branch", "children": [{"label": "leaf"}]},
-        ],
+        nodes=(TreeNode(label="branch", children=(TreeNode(label="leaf"),)),),
     )
     kinds = manual_smoke._collect_kinds([tree])
     # Tree contributes only "tree" — node labels are not element kinds.

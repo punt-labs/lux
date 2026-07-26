@@ -1,12 +1,4 @@
-"""The migrated leaf kinds — every ABC kind decoded on the leaf path.
-
-This is the aggregation leaf for leaves: it imports each migrated leaf's
-element, decoder, encoder, and standalone-handler builder and assembles their
-specs. ``DefaultLeafKinds.specs()`` returns the static display leaves (Text,
-Progress, …), the Dialog composite-that-decodes-as-a-leaf, and the interactive
-value inputs. The container kinds live in a sibling module so neither this file
-nor the registry aggregator carries both halves' import weight.
-"""
+"""Assemble the ABC spec for every migrated leaf kind (container kinds next door)."""
 
 from __future__ import annotations
 
@@ -32,6 +24,8 @@ from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.combo_codec import JsonComboDecoder, JsonComboEncoder
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder, JsonDialogEncoder
+from punt_lux.protocol.elements.draw import DrawElement
+from punt_lux.protocol.elements.draw_codec import JsonDrawDecoder, JsonDrawEncoder
 from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.image_codec import JsonImageDecoder, JsonImageEncoder
 from punt_lux.protocol.elements.input_number import InputNumberElement
@@ -49,6 +43,8 @@ from punt_lux.protocol.elements.markdown_codec import (
     JsonMarkdownDecoder,
     JsonMarkdownEncoder,
 )
+from punt_lux.protocol.elements.plot import PlotElement
+from punt_lux.protocol.elements.plot_codec import JsonPlotDecoder, JsonPlotEncoder
 from punt_lux.protocol.elements.progress import ProgressElement
 from punt_lux.protocol.elements.progress_codec import (
     JsonProgressDecoder,
@@ -75,6 +71,8 @@ from punt_lux.protocol.elements.spinner_codec import (
 )
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.text_codec import JsonTextDecoder, JsonTextEncoder
+from punt_lux.protocol.elements.tree import TreeElement
+from punt_lux.protocol.elements.tree_codec import JsonTreeDecoder, JsonTreeEncoder
 from punt_lux.protocol.elements.value_change_handlers import (
     build_standalone_value_handler_decoder,
 )
@@ -147,6 +145,18 @@ class DefaultLeafKinds:
                 codec=KindCodec(
                     ImageElement, JsonImageDecoder, JsonImageEncoder().encode
                 ),
+            ),
+            LeafKindSpec(
+                kind="tree",
+                codec=KindCodec(TreeElement, JsonTreeDecoder, JsonTreeEncoder().encode),
+            ),
+            LeafKindSpec(
+                kind="plot",
+                codec=KindCodec(PlotElement, JsonPlotDecoder, JsonPlotEncoder().encode),
+            ),
+            LeafKindSpec(
+                kind="draw",
+                codec=KindCodec(DrawElement, JsonDrawDecoder, JsonDrawEncoder().encode),
             ),
             DialogKindSpec(
                 codec=KindCodec(

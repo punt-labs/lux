@@ -63,15 +63,14 @@ class GeometryCapture:
 
     @contextmanager
     def measuring(self, element_id: str, kind: str) -> Generator[None]:
-        """Group a leaf's paint so its recorded rect spans it and outlives its tooltip.
+        """Group a leaf's paint so its recorded rect spans every item it paints.
 
         ``begin_group``/``end_group`` make ImGui's last-item data the group's
         bounding box. Recording after ``end_group`` therefore reads a rect that
-        (1) spans every item a multi-item leaf paints — markdown lines, an image
-        and its alt text, a spinner and its label — not just the last, and
-        (2) supersedes a hover tooltip's own last-item write: ``set_tooltip``
-        paints into a separate window whose items do not inflate the parent
-        group, so a hovered leaf still records the widget rect, not the cursor.
+        spans every item a multi-item leaf paints — markdown lines, an image and
+        its alt text, a spinner and its label — not just the last. The leaf
+        template runs the hover-tooltip pass after this group closes, so the
+        tooltip never contributes to the recorded rect.
 
         ``kind`` keys an anonymous leaf (an empty-id separator) — see
         :class:`ElementRef`.
