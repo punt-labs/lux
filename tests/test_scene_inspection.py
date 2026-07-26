@@ -24,6 +24,7 @@ from punt_lux.protocol.elements import (
     ButtonElement,
     CheckboxElement,
     DialogElement,
+    LegacyGroupElement,
     PlotElement,
     ProgressElement,
     TableElement,
@@ -84,12 +85,16 @@ def test_element_inspection_reports_abc_render_path() -> None:
 
 
 def test_element_inspection_reports_legacy_render_path() -> None:
-    """A not-yet-migrated dataclass kind reports ``legacy`` and its wire dict."""
-    table = TableElement(id="tbl1", columns=["A"], rows=[["x"]])
-    rec = ElementInspection.from_element(table, domain_mirror_present=False).to_dict()
+    """A legacy dataclass kind reports ``legacy`` and its wire dict.
+
+    Every leaf kind is migrated after B6; a paged ``group`` is the remaining
+    legacy shape, so it stands in for the legacy render path here.
+    """
+    group = LegacyGroupElement(id="g1", layout="paged")
+    rec = ElementInspection.from_element(group, domain_mirror_present=False).to_dict()
     assert rec["render_path"] == "legacy"
     # legacy fallback is the wire dict
-    assert rec["props"] == table.to_dict()
+    assert rec["props"] == group.to_dict()
 
 
 def test_scene_inspection_keeps_elements_array_and_adds_paths() -> None:
@@ -160,7 +165,7 @@ def test_resolved_props_covers_the_settable_surface(element: Inspectable) -> Non
 
 
 def test_inspect_scene_reports_abc_for_migrated_and_legacy_for_the_rest() -> None:
-    """render_path is ``abc`` for the migrated kinds, ``legacy`` for table."""
+    """render_path is ``abc`` for the migrated kinds, ``legacy`` for a paged group."""
     server = _server()
     resp = _feed(
         server,
@@ -172,6 +177,7 @@ def test_inspect_scene_reports_abc_for_migrated_and_legacy_for_the_rest() -> Non
             ProgressElement(id="p1", fraction=0.42),
             PlotElement(id="pl1", series=(PlotSeries("y", "line", (1.0,), (2.0,)),)),
             TableElement(id="tbl1", columns=["A"], rows=[["x"]]),
+            LegacyGroupElement(id="g1", layout="paged"),
         ],
     )
     assert _record(resp, "t1")["render_path"] == "abc"
@@ -180,7 +186,8 @@ def test_inspect_scene_reports_abc_for_migrated_and_legacy_for_the_rest() -> Non
     assert _record(resp, "d1")["render_path"] == "abc"
     assert _record(resp, "p1")["render_path"] == "abc"
     assert _record(resp, "pl1")["render_path"] == "abc"
-    assert _record(resp, "tbl1")["render_path"] == "legacy"
+    assert _record(resp, "tbl1")["render_path"] == "abc"
+    assert _record(resp, "g1")["render_path"] == "legacy"
 
 
 def test_inspect_scene_resolved_props_read_back_including_defaults() -> None:

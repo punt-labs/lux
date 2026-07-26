@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from punt_lux.apps._beads_payload import BeadsLoader, BeadsPayloadBuilder
-from punt_lux.display_client import agent_element_factory
 from punt_lux.protocol import Element, TextElement
+from punt_lux.protocol.compositions import TableComposition, TableCompositionSpec
 
 
 class BeadsBrowser:
@@ -55,18 +55,16 @@ class BeadsBrowser:
         if not issues:
             return [TextElement(id="empty", content="No active issues.")]
         payload = self.build_payload(issues)
-        table = agent_element_factory().element_from_dict(
-            {
-                "kind": "table",
-                "id": "table",
-                "columns": payload["columns"],
-                "rows": payload["rows"],
-                "flags": ["borders", "row_bg", "resizable", "sortable", "copy_id"],
-                "filters": payload["filters"],
-                "detail": payload["detail"],
-            }
+        spec = TableCompositionSpec(
+            columns=tuple(payload["columns"]),
+            rows=tuple(tuple(row) for row in payload["rows"]),
+            filters=tuple(payload["filters"]),
+            detail=payload["detail"],
+            flags=("borders", "row_bg", "resizable", "sortable", "copy_id"),
         )
-        return [table]
+        # The composition roots are ABC elements — members of the Element union;
+        # the cast bridges the base-type/union variance across that crossing.
+        return cast("list[Element]", TableComposition.build(spec))
 
     def render(self) -> None:
         """Install the beads board into the Hub; the replicator resends it.

@@ -177,7 +177,9 @@ class TestForkGate:
             "kind": "collapsing_header",
             "id": "ch",
             "label": "S",
-            "children": [{"kind": "table", "id": "t", "columns": ["A"], "rows": []}],
+            "children": [
+                {"kind": "group", "id": "lg", "layout": "paged", "children": []}
+            ],
         }
         assert not ContainerAbcGate.is_all_abc(wire)
         assert isinstance(_decode(wire), LegacyCollapsingHeaderElement)
@@ -187,9 +189,11 @@ class TestForkGate:
             "kind": "collapsing_header",
             "id": "ch",
             "label": "S",
-            "children": [{"kind": "table", "id": "t", "columns": ["A"], "rows": []}],
+            "children": [
+                {"kind": "group", "id": "lg", "layout": "paged", "children": []}
+            ],
         }
-        with pytest.raises(ValueError, match="table"):
+        with pytest.raises(ValueError, match="paged"):
             CollapsingHeaderElement.from_dict(wire)
 
     def test_header_in_legacy_container_is_forced_legacy(self) -> None:
@@ -200,7 +204,7 @@ class TestForkGate:
             "kind": "window",
             "id": "w",
             "children": [
-                {"kind": "table", "id": "tbl", "columns": ["A"], "rows": []},
+                {"kind": "group", "id": "lg", "layout": "paged", "children": []},
                 _abc_header().to_dict(),
             ],
         }

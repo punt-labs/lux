@@ -39,8 +39,11 @@ def show_table(
     """Display a filterable data table with optional detail panel.
 
     This is a convenience wrapper around ``show()`` for the most common
-    pattern: a searchable, filterable table with drill-down detail.
-    Filters and detail run at 60fps in the display — zero round trips.
+    pattern: a searchable, filterable table with drill-down detail. The
+    Hub composes a search box, status combos, the grid, and a
+    selection-bound detail panel from primitives; filtering and detail
+    binding run Hub-side (the packaged default), so a selection hidden by
+    a filter reappears when the filter is cleared.
 
     Args:
         scene_id: Unique identifier for this scene.

@@ -1,0 +1,231 @@
+"""``TableComposition`` — build the show_table UI as element instances.
+
+The one construction path for the ``show_table`` family: a basic grid alone when
+there is no chrome, or a ``group`` stacking a search ``input_text``, status
+``combo``s, the basic ``table``, and a ``markdown`` detail region when there is —
+with the Hub-side filter, selection-merge, and detail-binding handlers wired over
+a shared ``FilteredTableModel``. ``build`` returns the scene roots;
+``ConvenienceOperations`` and ``apps.beads`` both call it, so there is one
+composition, not two.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, cast, final
+
+from punt_lux.domain.interaction import ValueChanged
+from punt_lux.domain.selection_interaction import RowSelectionChanged
+from punt_lux.protocol.compositions.filtered_table_model import FilteredTableModel
+from punt_lux.protocol.compositions.table_filter_handlers import (
+    ComboFilterHandler,
+    SearchFilterHandler,
+)
+from punt_lux.protocol.compositions.table_selection_handlers import (
+    DetailBindingHandler,
+    SelectionMergeHandler,
+)
+from punt_lux.protocol.elements.combo import ComboElement
+from punt_lux.protocol.elements.group import GroupElement
+from punt_lux.protocol.elements.input_text import InputTextElement
+from punt_lux.protocol.elements.markdown import MarkdownElement
+from punt_lux.protocol.elements.table import TableElement
+from punt_lux.protocol.elements.table_codec import install_selection_sync
+from punt_lux.protocol.elements.table_flags import TableFlags
+from punt_lux.protocol.elements.table_selection_model import SelectionMode
+from punt_lux.protocol.elements.value_change_handlers import ApplyPatchOnChange
+
+if TYPE_CHECKING:
+    from punt_lux.domain.element_abc import Element
+
+__all__ = ["TableComposition", "TableCompositionSpec"]
+
+_DEFAULT_FLAGS = ("borders", "row_bg")
+
+
+@dataclass(frozen=True, slots=True)
+class TableCompositionSpec:
+    """The inputs a show_table composition is built from.
+
+    ``filters`` and ``detail`` are open wire shapes (PY-TS-14 wire boundary): the
+    tool surface passes them through as dicts and the composition reads the keys
+    it recognises (``type``/``column``/``items`` for a filter; ``fields``/``rows``
+    /``body`` for detail).
+    """
+
+    columns: tuple[str, ...]
+    rows: tuple[tuple[object, ...], ...]
+    filters: tuple[dict[str, object], ...] = ()
+    detail: dict[str, object] | None = None
+    flags: tuple[str, ...] | None = None
+    key_column: int = 0
+    table_id: str = "table"
+
+    @property
+    def has_chrome(self) -> bool:
+        """Return whether the composition needs a filter bar or a detail panel."""
+        return bool(self.filters) or self.detail is not None
+
+    @property
+    def selection_mode(self) -> SelectionMode:
+        """Return the grid's selection mode implied by its chrome."""
+        if self.detail is not None:
+            return "single"  # detail binds to a single anchor row
+        return "multi" if self.filters else "none"
+
+    def search_columns(self) -> tuple[int, ...]:
+        """Return the columns the search filter matches, ``()`` when none."""
+        for spec in self.filters:
+            if spec.get("type") == "search":
+                column = spec.get("column", [])
+                cols: list[object] = (
+                    cast("list[object]", column)
+                    if isinstance(column, list)
+                    else [column]
+                )
+                return tuple(
+                    c for c in cols if isinstance(c, int) and not isinstance(c, bool)
+                )
+        return ()
+
+
+@final
+class TableComposition:
+    """Build the scene roots for a show_table request as element instances."""
+
+    __slots__ = ()
+
+    @classmethod
+    def build(cls, spec: TableCompositionSpec) -> list[Element]:
+        """Return the scene roots: a basic grid, or a group with composed chrome."""
+        table = cls._grid(spec)
+        install_selection_sync(table)
+        if not spec.has_chrome:
+            return [table]
+        model = FilteredTableModel(
+            all_rows=spec.rows,
+            key_column=spec.key_column,
+            search_columns=spec.search_columns(),
+            table=table,
+        )
+        table.add_handler(RowSelectionChanged, SelectionMergeHandler(model))
+        children = cls._filter_controls(spec, model)
+        children.append(table)
+        cls._append_detail(spec, table, children)
+        return [
+            GroupElement(id=f"{spec.table_id}-view", layout="rows", children=children)
+        ]
+
+    @staticmethod
+    def _grid(spec: TableCompositionSpec) -> TableElement:
+        """Build the basic grid; a table with chrome is selectable."""
+        flags = spec.flags if spec.flags is not None else _DEFAULT_FLAGS
+        return TableElement(
+            id=spec.table_id,
+            columns=spec.columns,
+            rows=spec.rows,
+            flags=TableFlags.from_wire(flags),
+            key_column=spec.key_column,
+            selection_mode=spec.selection_mode,
+        )
+
+    # -- filter controls ---------------------------------------------------
+
+    @classmethod
+    def _filter_controls(
+        cls, spec: TableCompositionSpec, model: FilteredTableModel
+    ) -> list[Element]:
+        """Build the search input and combo controls, each wired to the model."""
+        controls: list[Element] = []
+        for index, filt in enumerate(spec.filters):
+            if filt.get("type") == "search":
+                controls.append(cls._search_input(spec.table_id, filt, model))
+            elif filt.get("type") == "combo":
+                controls.append(cls._combo(spec.table_id, index, filt, model))
+        return controls
+
+    @staticmethod
+    def _search_input(
+        table_id: str, filt: dict[str, object], model: FilteredTableModel
+    ) -> InputTextElement:
+        """Build a search input mirroring its value and driving the filter."""
+        search = InputTextElement(
+            id=f"{table_id}-search",
+            label=str(filt.get("label", "Search")),
+            hint=str(filt.get("hint", "")),
+        )
+        search.add_handler(ValueChanged, ApplyPatchOnChange(search, field="value"))
+        search.add_handler(ValueChanged, SearchFilterHandler(model))
+        return search
+
+    @staticmethod
+    def _combo(
+        table_id: str, index: int, filt: dict[str, object], model: FilteredTableModel
+    ) -> ComboElement:
+        """Build a categorical combo mirroring its value and driving the filter."""
+        raw_items = filt.get("items", [])
+        items = [str(item) for item in cast("list[object]", raw_items)]
+        raw_column = filt.get("column", 0)
+        column = raw_column if isinstance(raw_column, int) else 0
+        combo = ComboElement(
+            id=f"{table_id}-filter-{index}",
+            label=str(filt.get("label", "")),
+            items=items,
+        )
+        combo.add_handler(ValueChanged, ApplyPatchOnChange(combo, field="selected"))
+        combo.add_handler(
+            ValueChanged,
+            ComboFilterHandler(model, column=column, items=tuple(items)),
+        )
+        return combo
+
+    # -- detail region -----------------------------------------------------
+
+    @classmethod
+    def _append_detail(
+        cls, spec: TableCompositionSpec, table: TableElement, children: list[Element]
+    ) -> None:
+        """Append a detail region and bind it to the table's selection anchor."""
+        if spec.detail is None:
+            return
+        placeholder = "Select a row to see its detail."
+        region = MarkdownElement(id=f"{spec.table_id}-detail", content=placeholder)
+        table.add_handler(
+            RowSelectionChanged,
+            DetailBindingHandler(
+                region,
+                content_by_id=cls._detail_content(spec),
+                placeholder=placeholder,
+            ),
+        )
+        children.append(region)
+
+    @staticmethod
+    def _detail_content(spec: TableCompositionSpec) -> dict[str, str]:
+        """Return per-row-id markdown detail content from the parallel arrays."""
+        detail = spec.detail or {}
+        fields = [str(f) for f in cast("list[object]", detail.get("fields", []))]
+        detail_rows = cast("list[object]", detail.get("rows", []))
+        bodies = cast("list[object]", detail.get("body", []))
+        content: dict[str, str] = {}
+        for index, row in enumerate(spec.rows):
+            if not 0 <= spec.key_column < len(row):
+                continue
+            raw_values: object = detail_rows[index] if index < len(detail_rows) else []
+            values: list[object] = (
+                cast("list[object]", raw_values) if isinstance(raw_values, list) else []
+            )
+            body = str(bodies[index]) if index < len(bodies) else ""
+            content[str(row[spec.key_column])] = TableComposition._detail_card(
+                fields, values, body
+            )
+        return content
+
+    @staticmethod
+    def _detail_card(fields: list[str], values: list[object], body: str) -> str:
+        """Return a markdown detail card: bold field/value lines then the body."""
+        lines = [
+            f"**{field}:** {values[i] if i < len(values) else ''}"
+            for i, field in enumerate(fields)
+        ]
+        return "\n\n".join(["\n".join(lines), body]) if body else "\n".join(lines)

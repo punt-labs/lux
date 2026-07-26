@@ -32,6 +32,7 @@ from punt_lux.display.renderers.imgui.separator import ImGuiSeparatorRenderer
 from punt_lux.display.renderers.imgui.slider import ImGuiSliderRenderer
 from punt_lux.display.renderers.imgui.spinner import ImGuiSpinnerRenderer
 from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
+from punt_lux.display.renderers.imgui.table import ImGuiTableRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.display.renderers.imgui.tree import ImGuiTreeRenderer
 from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
@@ -58,6 +59,7 @@ from punt_lux.protocol.elements.separator import SeparatorElement
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.protocol.elements.tab_bar import TabBarElement
+from punt_lux.protocol.elements.table import TableElement
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.tree import TreeElement
 from punt_lux.protocol.elements.window import WindowElement
@@ -111,6 +113,7 @@ class ImGuiRendererFactory:
         (ComboElement, ImGuiComboRenderer),
         (RadioElement, ImGuiRadioRenderer),
         (SelectableElement, ImGuiSelectableRenderer),
+        (TableElement, ImGuiTableRenderer),
         (TreeElement, ImGuiTreeRenderer),
         (PlotElement, ImGuiPlotRenderer),
         (DrawElement, ImGuiDrawRenderer),

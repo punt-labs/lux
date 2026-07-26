@@ -68,9 +68,7 @@ from punt_lux.protocol.elements import (
     SeparatorElement,
     SliderElement,
     SpinnerElement,
-    TableDetail,
     TableElement,
-    TableFilter,
     TextElement,
     TreeElement,
 )
@@ -81,6 +79,7 @@ from punt_lux.protocol.elements.draw_commands_shape import Circle, Rect, Triangl
 from punt_lux.protocol.elements.draw_commands_text import TextGlyph
 from punt_lux.protocol.elements.draw_values import Color, Point2, Thickness
 from punt_lux.protocol.elements.plot_series import PlotSeries
+from punt_lux.protocol.elements.table_flags import TableFlags
 from punt_lux.protocol.elements.tree_node import TreeNode
 
 
@@ -743,52 +742,23 @@ class SmokeRunner:
         )
 
     def _build_table(self) -> FrameSpec:
-        """Frame 5 — TableElement with filters and detail panel."""
-        rows: list[list[object]] = [
-            ["lux-001", "open", "P0", "Render every element kind"],
-            ["lux-002", "in_progress", "P1", "Add manual smoke test"],
-            ["lux-003", "closed", "P2", "Document architecture"],
-            ["lux-004", "open", "P1", "Decompose display/server.py"],
-            ["lux-005", "blocked", "P3", "Texture cache eviction"],
-        ]
-        detail_rows: list[list[object]] = [
-            ["lux-001", "P0", "open"],
-            ["lux-002", "P1", "in_progress"],
-            ["lux-003", "P2", "closed"],
-            ["lux-004", "P1", "open"],
-            ["lux-005", "P3", "blocked"],
-        ]
-        detail_body = [
-            "Smoke-test must cover all element kinds across logical frames.",
-            "This script is the deliverable for that bead.",
-            "Architecture is captured in docs/architecture/system.tex.",
-            "server.py and element_renderer.py are still > 1000 lines.",
-            "TextureCache currently has no eviction policy — unbounded growth.",
-        ]
+        """Frame 5 — the basic data grid (multi-select, real column sort)."""
+        rows: tuple[tuple[object, ...], ...] = (
+            ("lux-001", "open", "P0", "Render every element kind"),
+            ("lux-002", "in_progress", "P1", "Add manual smoke test"),
+            ("lux-003", "closed", "P2", "Document architecture"),
+            ("lux-004", "open", "P1", "Decompose display/server.py"),
+            ("lux-005", "blocked", "P3", "Texture cache eviction"),
+        )
         table = TableElement(
             id="table-beads",
-            columns=["ID", "Status", "Priority", "Title"],
+            columns=("ID", "Status", "Priority", "Title"),
             rows=rows,
-            flags=["borders", "row_bg", "resizable", "sortable", "copy_id"],
-            filters=[
-                TableFilter(
-                    type="search",
-                    column_spec=3,
-                    hint="search titles…",
-                    label="Title",
-                ),
-                TableFilter(
-                    type="combo",
-                    column_spec=1,
-                    items=["All", "open", "in_progress", "closed", "blocked"],
-                    label="Status",
-                ),
-            ],
-            detail=TableDetail(
-                fields=["ID", "Priority", "Status"],
-                rows=detail_rows,
-                body=detail_body,
+            flags=TableFlags(
+                borders=True, row_bg=True, resizable=True, sortable=True, copy_id=True
             ),
+            key_column=0,
+            selection_mode="single",
         )
         elements: list[Element] = [
             TextElement(id="table-heading", content="Table", style="heading"),
@@ -799,9 +769,8 @@ class SmokeRunner:
             title="Smoke 5 — Table",
             elements=elements,
             look_for=(
-                "5-row table with ID/Status/Priority/Title columns, search "
-                "filter on Title, status combo filter ('All', 'open', …), and "
-                "a detail panel that updates when a row is selected"
+                "5-row grid with ID/Status/Priority/Title columns; clicking a "
+                "row selects it, and clicking a column header sorts the rows"
             ),
         )
 

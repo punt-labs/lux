@@ -83,6 +83,16 @@ def _decode(wire: Mapping[str, object]) -> object:
     return agent_element_factory().element_from_dict(cast("dict[str, Any]", dict(wire)))
 
 
+def _legacy_child() -> dict[str, object]:
+    """Return a still-legacy subtree — a paged group forks its container legacy.
+
+    Every leaf kind is migrated after B6, so the legacy fork path is exercised
+    through the one remaining legacy shape: a ``group`` whose ``paged`` layout
+    the ABC group cannot hold.
+    """
+    return {"kind": "group", "id": "lg", "layout": "paged", "children": []}
+
+
 def _server() -> DisplayServer:
     raw_dir = tempfile.mkdtemp(prefix="lux-")
     return DisplayServer(socket_path=str(Path(raw_dir) / "display.sock"))
@@ -201,9 +211,7 @@ class TestForkGate:
             "tabs": [
                 {
                     "label": "One",
-                    "children": [
-                        {"kind": "table", "id": "t", "columns": ["A"], "rows": []}
-                    ],
+                    "children": [_legacy_child()],
                 }
             ],
         }
@@ -217,13 +225,11 @@ class TestForkGate:
             "tabs": [
                 {
                     "label": "One",
-                    "children": [
-                        {"kind": "table", "id": "t", "columns": ["A"], "rows": []}
-                    ],
+                    "children": [_legacy_child()],
                 }
             ],
         }
-        with pytest.raises(ValueError, match="table"):
+        with pytest.raises(ValueError, match="paged"):
             TabBarElement.from_dict(wire)
 
     def test_non_mapping_tab_surfaces_as_non_abc(self) -> None:
@@ -239,7 +245,7 @@ class TestForkGate:
             "kind": "window",
             "id": "w",
             "children": [
-                {"kind": "table", "id": "tbl", "columns": ["A"], "rows": []},
+                _legacy_child(),
                 _abc_tab_bar().to_dict(),
             ],
         }

@@ -1,262 +1,298 @@
-"""Table elements — data tables with filters and detail panels."""
+"""TableElement — the basic data grid on the Element ABC.
+
+A ``tree``-shaped data leaf (its rows are data, not child elements) that is also
+``checkbox``-interactive: it owns a Hub-authoritative row selection set, and a
+user gesture fires ``RowSelectionChanged`` down the D21 path. The selection names
+stable ``row_id``s (a row's ``key_column`` value), reconciled by set intersection
+when the rows change, so survivors keep their ids across a reorder (DES-045).
+
+The chrome the legacy table carried — a filter bar, search box, status combos, a
+detail panel — is *not* here; those are compositions of ``input_text`` / ``combo``
+/ ``group`` primitives wired through the D21 handler path (see the show_table
+composition). This element is columns, rows, a key column, a selection, render
+flags, and optional column widths.
+
+The codec body lives in ``table_codec.py``; ``to_dict`` / ``from_dict`` stay here
+as short delegators so the runtime-checkable ``domain.element.Element`` Protocol
+stays satisfied (PY-OO-2).
+"""
 
 from __future__ import annotations
 
-from dataclasses import InitVar, dataclass, field
-from typing import Any, Literal, Self, cast
+from typing import TYPE_CHECKING, Literal, Self, cast
 
+from punt_lux.domain.element_abc import Element
+from punt_lux.domain.handlers.decorators import PublishSink
+from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
+from punt_lux.domain.selection_interaction import RowSelectionChanged
 from punt_lux.domain.validation import ValidationError
-from punt_lux.protocol.elements.codec import Register
+from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
+from punt_lux.protocol.elements.patch_field import PatchField
+from punt_lux.protocol.elements.table_codec import (
+    JsonTableDecoder,
+    JsonTableEncoder,
+)
+from punt_lux.protocol.elements.table_flags import TableFlags
+from punt_lux.protocol.elements.table_selection_model import (
+    SelectionMode,
+    TableSelectionModel,
+)
+from punt_lux.protocol.elements.table_validation import TableValidator
+from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
+from punt_lux.protocol.standalone_row_selection_handler import (
+    build_standalone_row_selection_handler_decoder,
+)
 
-__all__ = [
-    "TableDetail",
-    "TableElement",
-    "TableFilter",
-    "register_codecs",
-]
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping
+
+    from punt_lux.protocol.renderer import Emit, RendererFactory
+
+__all__ = ["TableElement"]
+
+_DEFAULT_FLAGS = TableFlags()
 
 
-@dataclass(frozen=True, slots=True)
-class TableFilter:
-    """A built-in filter control rendered above a table.
+class TableElement(Element):
+    """A basic data grid: a data leaf with a Hub-authoritative row selection.
 
-    - ``search``: case-insensitive substring match on specified column(s).
-    - ``combo``: exact match dropdown; first item is treated as "All" (no filter).
+    ``tooltip`` stays ``str | None`` — absence is the documented contract for an
+    optional tooltip (PY-TS-14). ``column_widths`` is ``()`` when the grid
+    auto-sizes; ``key_column`` is the resolved column index (a wire name is
+    resolved to its index at decode).
     """
 
-    type: Literal["search", "combo"]
-    column_spec: InitVar[int | list[int]]
-    hint: str = ""  # placeholder text (search only)
-    items: list[str] | None = None  # dropdown items (combo only)
-    label: str = ""  # optional label for the control
-    _column: list[int] = field(init=False)
+    _id: str
+    _columns: tuple[str, ...]
+    _rows: tuple[tuple[object, ...], ...]
+    _flags: TableFlags
+    _column_widths: tuple[float, ...]
+    _key_column: int
+    _selection: TableSelectionModel
+    _tooltip: str | None
+    _kind: Literal["table"]
 
-    def __post_init__(self, column_spec: int | list[int]) -> None:
-        col = [column_spec] if isinstance(column_spec, int) else list(column_spec)
-        if not col:
-            msg = "TableFilter requires non-empty 'column'"
-            raise ValueError(msg)
-        if self.type == "combo" and not self.items:
-            msg = "TableFilter type='combo' requires non-empty 'items'"
-            raise ValueError(msg)
-        object.__setattr__(self, "_column", col)
+    def __new__(
+        cls,
+        *,
+        renderer_factory: RendererFactory = RAISING_FACTORY,
+        emit: Emit = NO_EMIT,
+        id: str,
+        columns: Iterable[str] = (),
+        rows: Iterable[Iterable[object]] = (),
+        flags: TableFlags = _DEFAULT_FLAGS,
+        column_widths: Iterable[float] = (),
+        key_column: int = 0,
+        selection_mode: SelectionMode = "none",
+        selected_row_ids: frozenset[str] = frozenset(),
+        anchor_row_id: str = "",
+        tooltip: str | None = None,
+    ) -> Self:
+        # Columns/rows coerce to tuples so callers may pass lists — direct
+        # construction stays ergonomic while the stored state is immutable.
+        self = super().__new__(cls, renderer_factory=renderer_factory, emit=emit)
+        self._id = id
+        self._columns = tuple(columns)
+        self._rows = tuple(tuple(row) for row in rows)
+        self._flags = flags
+        self._column_widths = tuple(column_widths)
+        self._key_column = key_column
+        self._selection = TableSelectionModel(
+            mode=selection_mode, selected=selected_row_ids, anchor=anchor_row_id
+        )
+        self._tooltip = tooltip
+        self._kind = "table"
+        return self
+
+    # -- read-only accessors (the wire-facing surface) ----------------------
 
     @property
-    def column(self) -> list[int]:
-        """Column index(es) this filter operates on (read-only)."""
-        return list(self._column)
+    def id(self) -> str:
+        """Return the table's stable identity within its enclosing Scene."""
+        return self._id
 
-    def to_dict(self) -> dict[str, Any]:
-        """Return the JSON-compatible wire representation."""
-        d: dict[str, Any] = {"type": self.type, "column": self.column}
-        if self.hint:
-            d["hint"] = self.hint
-        if self.items is not None:
-            d["items"] = self.items
-        if self.label:
-            d["label"] = self.label
-        return d
+    @property
+    def kind(self) -> Literal["table"]:
+        """Return the wire discriminator — always ``"table"``."""
+        return self._kind
 
-    @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> Self:
-        """Construct a TableFilter from a JSON-decoded mapping."""
-        ftype = d["type"]
-        if ftype not in ("search", "combo"):
-            msg = f"Unknown table filter type: {ftype!r}"
-            raise ValueError(msg)
-        return cls(
-            type=ftype,
-            column_spec=d["column"],
-            hint=d.get("hint", ""),
-            items=d.get("items"),
-            label=d.get("label", ""),
+    @property
+    def columns(self) -> tuple[str, ...]:
+        """Return the column headers (read-only)."""
+        return self._columns
+
+    @property
+    def rows(self) -> tuple[tuple[object, ...], ...]:
+        """Return the row data (read-only), each row a tuple of scalar cells."""
+        return self._rows
+
+    @property
+    def flags(self) -> TableFlags:
+        """Return the grid render flags (borders, sortable, …)."""
+        return self._flags
+
+    @property
+    def column_widths(self) -> tuple[float, ...]:
+        """Return explicit column weights, or ``()`` to auto-size."""
+        return self._column_widths
+
+    @property
+    def key_column(self) -> int:
+        """Return the resolved key-column index (the row-id source)."""
+        return self._key_column
+
+    @property
+    def selection_mode(self) -> SelectionMode:
+        """Return the selection mode (``none`` / ``single`` / ``multi``)."""
+        return self._selection.mode
+
+    @property
+    def selected_row_ids(self) -> frozenset[str]:
+        """Return the Hub-authoritative selected row ids (the visible set)."""
+        return self._selection.selected_row_ids
+
+    @property
+    def anchor_row_id(self) -> str:
+        """Return the last-interacted row's id (a detail sibling binds to it)."""
+        return self._selection.anchor
+
+    @property
+    def tooltip(self) -> str | None:
+        """Return the hover-tooltip text, or ``None`` for no tooltip."""
+        return self._tooltip
+
+    # -- row identity -------------------------------------------------------
+
+    def row_id(self, row: tuple[object, ...]) -> str:
+        """Return ``row``'s stable id — its key-column cell as a string.
+
+        Guarded so a ragged row (shorter than the key column) yields ``""``
+        rather than an ``IndexError``; ``validate`` reports the raggedness.
+        """
+        if 0 <= self._key_column < len(row):
+            return str(row[self._key_column])
+        return ""
+
+    def _live_ids(self) -> frozenset[str]:
+        """Return the id set of the current rows."""
+        return frozenset(self.row_id(row) for row in self._rows)
+
+    # -- minimal setters for the scene patch path --------------------------
+
+    def _set_rows(self, value: object) -> None:
+        """Replace the rows and reconcile the selection to the live ids."""
+        self._rows = self.rows_from_wire(value)
+        self._selection.reconcile(self._live_ids())
+
+    def _set_columns(self, value: object) -> None:
+        """Replace the column headers."""
+        self._columns = self.columns_from_wire(value)
+
+    def _set_flags(self, value: object) -> None:
+        """Replace the render flags from a wire name list."""
+        self._flags = TableFlags.from_wire(self._str_list(value, "flags"))
+
+    def _set_selected_row_ids(self, value: object) -> None:
+        """Replace the selection from an agent drive or the built-in handler."""
+        self._selection.set_selected_ids(frozenset(self._str_list(value, "selected")))
+
+    def _set_anchor_row_id(self, value: object) -> None:
+        """Set the anchor row (the last-interacted row a detail sibling shows)."""
+        self._selection.set_anchor(PatchField("anchor_row_id").as_str(value))
+
+    def _set_tooltip(self, value: object) -> None:
+        """Replace the tooltip text."""
+        self._tooltip = PatchField("tooltip").as_optional_str(value)
+
+    def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
+        """Return the row-selection bucket's spec under the element-id action."""
+        return (
+            RemoteDispatchSpec(RowSelectionChanged, self.id, "row_selection_changed"),
         )
 
-
-@dataclass(frozen=True, slots=True)
-class TableDetail:
-    """Detail data for a built-in list/detail view.
-
-    Each array is parallel to the parent ``TableElement.rows``:
-    ``rows[i]`` provides the detail metadata and ``body[i]`` provides
-    the long-form text for the *i*-th list row.
-
-    ``fields`` names the metadata columns.  The display renders them
-    as a 2-column grid (Field | Value | Field | Value).
-    """
-
-    fields: list[str]
-    rows: list[list[Any]]
-    body: list[str]
-
-    def __post_init__(self) -> None:
-        if len(self.rows) != len(self.body):
-            msg = (
-                "TableDetail rows/body length mismatch: "
-                f"{len(self.rows)} vs {len(self.body)}"
-            )
-            raise ValueError(msg)
-
-    def to_dict(self) -> dict[str, Any]:
-        """Return the JSON-compatible wire representation."""
-        return {"fields": self.fields, "rows": self.rows, "body": self.body}
+    # -- wire coercion (shared by the codec and the patch path) -------------
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> Self:
-        """Construct a TableDetail from a JSON-decoded mapping."""
-        return cls(
-            fields=d.get("fields", []),
-            rows=d.get("rows", []),
-            body=d.get("body", []),
-        )
+    def rows_from_wire(cls, value: object) -> tuple[tuple[object, ...], ...]:
+        """Coerce a wire ``rows`` value to a tuple of row tuples.
 
-
-@dataclass(frozen=True, slots=True)
-class TableElement:
-    """A data table with columns and rows."""
-
-    id: str
-    kind: Literal["table"] = "table"
-    columns: list[str] = field(default_factory=lambda: list[str]())
-    rows: list[list[Any]] = field(default_factory=lambda: list[list[Any]]())
-    flags: list[str] = field(default_factory=lambda: ["borders", "row_bg"])
-    column_widths: list[float] | None = None
-    filters: list[TableFilter] | None = None
-    detail: TableDetail | None = None
-    tooltip: str | None = None
-
-    def __post_init__(self) -> None:
-        cw = self.column_widths
-        if cw is not None and len(cw) != len(self.columns):
-            msg = (
-                f"column_widths length ({len(cw)}) "
-                f"must match columns ({len(self.columns)})"
-            )
+        Structural shape is a decode-boundary concern: ``rows`` and each row must
+        be a list (else ``ValueError``). Cell *content* — ragged width, a
+        non-scalar cell — is left for ``validate`` to report per DES-039.
+        """
+        if not isinstance(value, list):
+            msg = f"rows must be a list of rows, got {type(value).__name__}"
             raise ValueError(msg)
-        d = self.detail
-        if d is not None and len(d.rows) != len(self.rows):
-            msg = (
-                f"detail.rows length ({len(d.rows)}) must match rows ({len(self.rows)})"
-            )
+        rows: list[tuple[object, ...]] = []
+        for index, row in enumerate(cast("list[object]", value)):
+            if not isinstance(row, list):
+                msg = f"row {index} must be a list of cells, got {type(row).__name__}"
+                raise ValueError(msg)
+            rows.append(tuple(cast("list[object]", row)))
+        return tuple(rows)
+
+    @classmethod
+    def columns_from_wire(cls, value: object) -> tuple[str, ...]:
+        """Coerce a wire ``columns`` value to a tuple of header strings."""
+        return tuple(cls._str_list(value, "columns"))
+
+    @staticmethod
+    def _str_list(value: object, field: str) -> list[str]:
+        """Return ``value`` as a list of strings or raise ``ValueError``."""
+        got = type(value).__name__
+        if not isinstance(value, list) or not all(
+            isinstance(item, str) for item in cast("list[object]", value)
+        ):
+            msg = f"{field} must be a list of strings, got {got}"
             raise ValueError(msg)
+        return list(cast("list[str]", value))
+
+    # -- self-validation ---------------------------------------------------
 
     def validate(self) -> tuple[ValidationError, ...]:
-        """Return errors where the agent's data does not fit the table widget.
+        """Return errors where the data or selection does not fit the grid.
 
-        Component-appropriate checks — what "valid" means for a *table*:
-
-        - ``columns`` and ``rows`` are each a list (a present-but-``null``
-          field decodes to ``None`` and must be reported, not crash the walk);
-        - every row is itself a list of cells;
-        - every row has exactly one cell per declared column;
-        - every cell is a scalar the widget can render as text
-          (``str``, ``int``, ``float``, ``bool``, or ``None``). A list or
-          dict in a cell is a data-shape mistake the agent should fix
-          rather than a value the table can paint.
+        Delegated to ``TableValidator``: always the rows-vs-columns shape and
+        renderable cells; when selectable, the key column, its values, and the
+        selection set (DES-039).
         """
-        return self._data_errors(self.columns, self.rows)
+        return TableValidator(self).errors()
 
-    def _data_errors(
-        self,
-        columns: object,
-        rows: object,
-    ) -> tuple[ValidationError, ...]:
-        """Return errors for the ``columns``/``rows`` pair.
+    # -- codec delegators ---------------------------------------------------
 
-        Takes ``object`` parameters because the wire boundary can hand us a
-        present ``null`` for either field (``dict.get`` returns the value,
-        not the default), so the declared list types do not hold at decode
-        time. The function boundary re-widens to ``object`` for the runtime
-        list check, mirroring ``TreeElement._node_errors``.
-        """
-        if not isinstance(columns, list):
-            return (self._error("columns must be a list of column names"),)
-        if not isinstance(rows, list):
-            return (self._error("rows must be a list of rows"),)
-        column_count = len(cast("list[object]", columns))
-        errors: list[ValidationError] = []
-        for row_index, row in enumerate(cast("list[object]", rows)):
-            if not isinstance(row, list):
-                errors.append(self._error(f"row {row_index} is not a list of cells"))
-                continue
-            cells = cast("list[object]", row)
-            if len(cells) != column_count:
-                errors.append(
-                    self._error(
-                        f"row {row_index} has {len(cells)} cell(s) but the "
-                        f"table declares {column_count} column(s)",
-                    ),
-                )
-            errors.extend(self._cell_errors(row_index, cells))
-        return tuple(errors)
-
-    def _error(self, message: str) -> ValidationError:
-        """Build a table ValidationError carrying this table's identity."""
-        return ValidationError(
-            element_id=self.id,
-            element_kind=self.kind,
-            message=message,
-        )
-
-    def _cell_errors(
-        self,
-        row_index: int,
-        row: list[object],
-    ) -> tuple[ValidationError, ...]:
-        """Return one error per cell in ``row`` that the widget can't render."""
-        errors: list[ValidationError] = []
-        for col_index, cell in enumerate(row):
-            if not isinstance(cell, str | int | float | type(None)):
-                errors.append(
-                    ValidationError(
-                        element_id=self.id,
-                        element_kind=self.kind,
-                        message=(
-                            f"row {row_index} column {col_index} holds a "
-                            f"{type(cell).__name__}; table cells must be a "
-                            "string, number, boolean, or null"
-                        ),
-                    ),
-                )
-        return tuple(errors)
-
-    def to_dict(self) -> dict[str, Any]:
+    def to_dict(self) -> dict[str, object]:
         """Return the JSON-compatible wire representation."""
-        d: dict[str, Any] = {
-            "kind": self.kind,
-            "id": self.id,
-            "columns": self.columns,
-            "rows": self.rows,
-            "flags": self.flags,
-        }
-        if self.column_widths is not None:
-            d["column_widths"] = self.column_widths
-        if self.filters is not None:
-            d["filters"] = [f.to_dict() for f in self.filters]
-        if self.detail is not None:
-            d["detail"] = self.detail.to_dict()
-        return d
+        return JsonTableEncoder().encode(self)
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> Self:
-        """Construct a TableElement from a JSON-decoded mapping."""
-        raw_filters = d.get("filters")
-        raw_detail = d.get("detail")
-        return cls(
-            id=d["id"],
-            columns=d.get("columns", []),
-            rows=d.get("rows", []),
-            flags=d.get("flags", ["borders", "row_bg"]),
-            column_widths=d.get("column_widths"),
-            filters=[TableFilter.from_dict(f) for f in raw_filters]
-            if raw_filters is not None
-            else None,
-            detail=TableDetail.from_dict(raw_detail)
-            if raw_detail is not None
-            else None,
+    def from_dict(cls, d: Mapping[str, object]) -> Self:
+        """Construct a TableElement from a JSON-decoded mapping.
+
+        Wires a noop-only handler decoder so a table decoded with no ``handlers``
+        works without a real publish bus; a spec whose decorator chain invokes
+        ``publish`` raises via ``RaisingPublishSink``.
+        """
+        decoder = JsonTableDecoder(
+            renderer_factory=RAISING_FACTORY,
+            emit=NO_EMIT,
+            element_cls=cls,
+            handler_decoder=build_standalone_row_selection_handler_decoder(
+                cast("PublishSink", RaisingPublishSink("TableElement.from_dict")),
+            ),
         )
+        return cast("Self", decoder.decode(d))
 
+    # -- introspection (Inspectable) ---------------------------------------
 
-def register_codecs(register: Register) -> None:
-    """Register this module's element codecs into an ElementCodec."""
-    register("table", TableElement, TableElement.to_dict, TableElement.from_dict)
+    def resolved_props(self) -> Mapping[str, object]:
+        """Return the full resolved state, including the selection view-state."""
+        return {
+            "columns": list(self._columns),
+            "row_count": len(self._rows),
+            "flags": self._flags.to_wire(),
+            "key_column": self._key_column,
+            "selection_mode": self._selection.mode,
+            "selected_row_ids": sorted(self._selection.selected_row_ids),
+            "anchor_row_id": self._selection.anchor,
+            "tooltip": self._tooltip,
+        }

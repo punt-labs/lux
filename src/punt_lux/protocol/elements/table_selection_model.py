@@ -3,8 +3,12 @@
 Owned by ``TableElement`` (composition, PY-IC-1); mirrors ``ModalModel`` in that
 nothing outside the table constructs it or calls its verbs. It holds the
 selection *mode*, the selected ``row_id`` *set*, and the *anchor* — the
-last-interacted row a bound detail composition shows — and enforces the
-per-mode cardinality on every ``apply`` and ``reconcile``.
+last-interacted row a bound detail composition shows.
+
+Construction stores the state *raw* so ``validate()`` (the decode gate, DES-039)
+can report a wire selection that violates the mode — ``single`` with two ids, an
+anchor naming no selected row. The gesture / agent-drive verbs enforce the mode,
+since they run after the decode gate on already-valid state.
 """
 
 from __future__ import annotations
@@ -19,10 +23,9 @@ SelectionMode = Literal["none", "single", "multi"]
 class TableSelectionModel:
     """Selection state + cardinality for the element's (visible) selection.
 
-    ``none`` is a display-only grid — no selection, no key-column constraint;
-    ``single`` keeps at most one row; ``multi`` holds a set. The ``anchor`` is
-    the last-interacted row, carried explicitly (never inferred from the
-    unordered set's order); it is ``""`` when the selection is empty.
+    ``none`` is a display-only grid; ``single`` keeps at most one row; ``multi``
+    holds a set. The ``anchor`` is the last-interacted row, carried explicitly
+    (never inferred from the unordered set's order); ``""`` when empty.
     """
 
     _mode: SelectionMode
@@ -40,7 +43,6 @@ class TableSelectionModel:
         self._mode = mode
         self._selected = selected
         self._anchor = anchor
-        self._normalize()
         return self
 
     def __reduce__(self) -> tuple[object, ...]:
@@ -72,39 +74,39 @@ class TableSelectionModel:
         """Return the last-interacted row's id, or ``""`` if none is selected."""
         return self._anchor
 
-    def apply(self, row_ids: frozenset[str], anchor: str) -> None:
-        """Set the selection from a user gesture or agent drive.
+    def set_selected_ids(self, row_ids: frozenset[str]) -> None:
+        """Replace the selection from a gesture/drive; enforce the mode.
 
-        ``none`` clears to empty; ``single`` keeps only the anchor row (falling
-        back to any one id when the anchor is not among them); ``multi`` takes
-        the whole set. The anchor is recorded, then normalized to name a
-        selected row.
+        ``none`` clears, ``single`` keeps one; the anchor reseats onto a selected
+        row, and a following ``set_anchor`` names the last-touched one.
         """
         self._selected = row_ids
+        self._enforce_mode()
+
+    def set_anchor(self, anchor: str) -> None:
+        """Set the anchor; keep it only if it names a selected row."""
         self._anchor = anchor
-        self._normalize()
+        self._reseat_anchor()
 
     def reconcile(self, live_ids: frozenset[str]) -> None:
-        """Drop selected ids no longer present; reset a departed anchor.
+        """Drop selected ids no longer present and reseat a departed anchor.
 
-        Called when the element's rows change: a selected row whose id left the
-        live set is dropped, and if the anchor's row left, the anchor moves to a
-        still-selected id (or ``""``).
+        Called when the element's rows change (a removed row leaves the selection).
         """
         self._selected = self._selected & live_ids
         self._reseat_anchor()
 
-    def _normalize(self) -> None:
-        """Enforce the per-mode cardinality and a selected-or-empty anchor."""
+    def _enforce_mode(self) -> None:
+        """Apply the per-mode cardinality after a gesture/drive selection."""
         if self._mode == "none":
             self._selected = frozenset()
             self._anchor = ""
             return
-        if self._mode == "single":
-            keep = self._anchor if self._anchor in self._selected else ""
-            if not keep and self._selected:
-                keep = min(self._selected)
-            self._selected = frozenset({keep}) if keep else frozenset()
+        if self._mode == "single" and len(self._selected) > 1:
+            keep = (
+                self._anchor if self._anchor in self._selected else min(self._selected)
+            )
+            self._selected = frozenset({keep})
         self._reseat_anchor()
 
     def _reseat_anchor(self) -> None:

@@ -503,6 +503,23 @@ element-local reconcile in `_set_rows` (§3) maintains it, and an agent reads
 selection straight off the element. `FilteredTableModel` exists only where a filter
 composition splits visible from full.
 
+**Implementation note — the composition is *constructed*, not decoded.**
+`target.md`'s core model says the Hub "decodes **or constructs** typed UI
+objects." The filter, selection-merge, and detail-binding handlers hold the
+shared `FilteredTableModel` and reference sibling elements, so they cannot be
+rebuilt by a per-element wire decoder — each decoder sees one element in
+isolation. The show_table conveniences therefore take the *construct* half:
+`ConvenienceOperations.render_table` builds the whole composition as element
+instances (one `group` root, so it pickles as one graph and the shared
+references survive the Hub→Display crossing), then installs it through the same
+`SceneOperations.install` path — the same self-validation walk, the same
+`show_scene` — the wire-decode surface uses, so a constructed scene is
+downstream-indistinguishable from a decoded one. `apps.beads` calls the same
+`TableComposition` builder, so there is one construction path, not two. This is
+the precedent B7 and future conveniences inherit: a convenience whose UI carries
+cross-element state is a Hub-side app that constructs its objects, not a wire-dict
+emitter.
+
 **The documented alternative (not the packaged default): a Display-local
 quick-filter.** The `data-explorer` skill's other precedent is zero-round-trip
 Display-local filtering. An agent *may* build a composition that filters on the

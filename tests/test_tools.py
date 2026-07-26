@@ -39,6 +39,7 @@ from punt_lux.protocol import (
     GroupElement,
     InputTextElement,
     LegacyGroupElement,
+    LegacyTableElement,
     LegacyWindowElement,
     MarkdownElement,
     PlotElement,
@@ -322,18 +323,18 @@ class TestElementFromDict:
             }
         )
         assert isinstance(elem, TableElement)
-        assert elem.columns == ["Name", "Score"]
+        assert list(elem.columns) == ["Name", "Score"]
         assert len(elem.rows) == 2
-        assert "resizable" in elem.flags
+        assert elem.flags.resizable is True
 
     def test_table_defaults(self) -> None:
         elem = agent_element_factory().element_from_dict(
             {"kind": "table", "id": "tbl1"}
         )
         assert isinstance(elem, TableElement)
-        assert elem.columns == []
-        assert elem.rows == []
-        assert elem.flags == ["borders", "row_bg"]
+        assert elem.columns == ()
+        assert elem.rows == ()
+        assert elem.flags.to_wire() == ["borders", "row_bg"]
 
     def test_plot_element(self) -> None:
         elem = agent_element_factory().element_from_dict(
@@ -838,11 +839,13 @@ class TestShowTableTool:
         )
         assert result == "shown:t1"
         elements: list[object] = list(store.scene_roots(SceneId("t1")))
+        # No chrome — the basic grid is the sole root (no wrapping group).
         assert len(elements) == 1
         table = elements[0]
         assert isinstance(table, TableElement)
-        assert table.columns == ["Name", "Score"]
-        assert table.flags == ["borders", "row_bg"]
+        assert list(table.columns) == ["Name", "Score"]
+        assert table.flags.to_wire() == ["borders", "row_bg"]
+        assert table.selection_mode == "none"
 
     def test_show_table_with_filters_and_detail(
         self, monkeypatch: pytest.MonkeyPatch
@@ -866,12 +869,19 @@ class TestShowTableTool:
             title="Issues",
         )
         assert result == "shown:t2"
-        table: object = store.scene_roots(SceneId("t2"))[0]
-        assert isinstance(table, TableElement)
-        assert table.filters is not None
-        assert len(table.filters) == 2
-        assert table.detail is not None
-        assert table.detail.fields == ["ID", "Status"]
+        # Chrome is composed from primitives under one group root.
+        root: object = store.scene_roots(SceneId("t2"))[0]
+        assert isinstance(root, GroupElement)
+        kinds = [type(child).__name__ for child in root.children]
+        assert kinds == [
+            "InputTextElement",
+            "ComboElement",
+            "TableElement",
+            "MarkdownElement",
+        ]
+        table = next(c for c in root.children if isinstance(c, TableElement))
+        # Detail present -> single-select (the detail binds to one anchor row).
+        assert table.selection_mode == "single"
 
     def test_show_table_custom_flags(self, monkeypatch: pytest.MonkeyPatch) -> None:
         store = HubDisplay()
@@ -881,7 +891,7 @@ class TestShowTableTool:
 
         table: object = store.scene_roots(SceneId("t3"))[0]
         assert isinstance(table, TableElement)
-        assert table.flags == ["borders", "resizable"]
+        assert table.flags.to_wire() == ["borders", "resizable"]
 
 
 class TestShowDashboardTool:
@@ -1103,14 +1113,14 @@ def _seed_legacy_window_with_child(
     child_id: str = "sl_child",
     title: str = "Old",
     connection: str = "local",
-) -> TableElement:
+) -> LegacyTableElement:
     """Install a legacy window root holding one legacy table child.
 
     A legacy composite: the whole subtree is frozen values, so a ``replace`` on
     the root shares the child by reference. Returns the child object so a test
     can assert its identity survives a root patch.
     """
-    child = TableElement(id=child_id, columns=["A"], rows=[["x"]])
+    child = LegacyTableElement(id=child_id, columns=["A"], rows=[["x"]])
     window = LegacyWindowElement(id=window_id, title=title, children=[child])
     store.replace_scene(
         ConnectionId(connection),
@@ -1564,7 +1574,10 @@ class TestUpdateTool:
         assert "window" in result
         # Store untouched — the nested child keeps its original value and identity.
         assert (
-            cast("TableElement", store.resolve(SceneId("s1"), ElementId("sl_child")))
+            cast(
+                "LegacyTableElement",
+                store.resolve(SceneId("s1"), ElementId("sl_child")),
+            )
             is child
         )
         assert child.columns == ["A"]

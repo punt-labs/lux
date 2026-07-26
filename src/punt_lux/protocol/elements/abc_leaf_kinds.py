@@ -69,6 +69,8 @@ from punt_lux.protocol.elements.spinner_codec import (
     JsonSpinnerDecoder,
     JsonSpinnerEncoder,
 )
+from punt_lux.protocol.elements.table import TableElement
+from punt_lux.protocol.elements.table_codec import JsonTableDecoder, JsonTableEncoder
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.text_codec import JsonTextDecoder, JsonTextEncoder
 from punt_lux.protocol.elements.tree import TreeElement
@@ -87,6 +89,9 @@ from punt_lux.protocol.standalone_input_number_handler import (
 )
 from punt_lux.protocol.standalone_input_text_handler import (
     build_standalone_input_text_handler_decoder,
+)
+from punt_lux.protocol.standalone_row_selection_handler import (
+    build_standalone_row_selection_handler_decoder,
 )
 from punt_lux.protocol.standalone_slider_handler import (
     build_standalone_slider_handler_decoder,
@@ -234,5 +239,12 @@ class DefaultLeafKinds:
                     JsonSelectableEncoder().encode,
                 ),
                 handler_builder=build_standalone_value_handler_decoder,
+            ),
+            LeafKindSpec(
+                kind="table",
+                codec=KindCodec(
+                    TableElement, JsonTableDecoder, JsonTableEncoder().encode
+                ),
+                handler_builder=build_standalone_row_selection_handler_decoder,
             ),
         ]
