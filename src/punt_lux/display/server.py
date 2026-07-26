@@ -1118,18 +1118,18 @@ class DisplayServer:
             imgui.end()
             return "closed", hovered
         if not expanded:
-            # Collapse triangle clicked -- minimize to dock bar.
-            # Skip when docked: ImGui reports expanded=False during
-            # docking transitions.
+            # Collapse triangle clicked -- minimize to the dock bar, unless docked
+            # (ImGui transiently reports expanded=False mid-docking transition; a
+            # docked-collapsed frame still paints its tab, so it records below).
             if not imgui.is_window_docked():
                 imgui.set_window_collapsed(False)
                 imgui.end()
                 return "minimized", hovered
-            imgui.end()
-            return None, hovered
-        # Record the frame's rect while open — its drag/resize is Display-local.
+        else:
+            self._render_frame_contents(frame, imgui)
+        # Record the painted rect after contents lay out, so an auto-resized frame
+        # captures its final size, not a stale one. Display-local, never Hub state.
         self._imgui_renderer_factory.geometry.record_frame(frame.frame_id)
-        self._render_frame_contents(frame, imgui)
         imgui.end()
         return None, hovered
 

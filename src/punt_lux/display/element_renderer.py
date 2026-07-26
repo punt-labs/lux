@@ -71,6 +71,14 @@ class ElementRenderer:
         "modal": "_render_modal",
     }
 
+    # The legacy kinds that paint one self-contained widget rather than recursing
+    # children. They record geometry through the same ``measuring`` group the ABC
+    # leaf template uses; the remaining legacy kinds are containers whose children
+    # record as they recurse, so the container itself records nothing.
+    _LEGACY_LEAF_KINDS: ClassVar[frozenset[str]] = frozenset(
+        {"draw", "tree", "table", "plot"}
+    )
+
     # Renderer attrs owning per-scene WidgetState; the setter forwards scene switches.
     _WIDGET_STATE_RENDERERS: ClassVar[tuple[str, ...]] = (
         "_container_renderer",
@@ -149,21 +157,33 @@ class ElementRenderer:
         A migrated kind — including a leaf nested in a legacy container — resolves
         its adapter through the factory (DES-042: the same adapter the top-level
         ABC path uses, so pixels are byte-identical). Everything else falls to the
-        legacy string dispatch, then the unsupported fallback, each followed by
-        the shared tooltip pass.
+        legacy string dispatch, followed by the shared tooltip pass.
+        """
+        if self._imgui_renderer_factory.handles(elem):
+            self._render_via_factory(elem)
+            return
+        self._render_legacy(elem)
+        self._imgui_renderer_factory.apply_tooltip(elem)
+
+    def _render_legacy(self, elem: Element) -> None:
+        """Paint a still-legacy kind through the string dispatch.
+
+        A legacy leaf paints one self-contained widget inside the geometry
+        ``measuring`` group — the same the ABC leaf template uses, keyed the same
+        way — so a painted table or plot appears in the geometry map rather than
+        reading as "did not paint". A legacy container records nothing itself; its
+        children record as they recurse. An unknown kind paints the marker.
         """
         from imgui_bundle import imgui
 
-        factory = self._imgui_renderer_factory
-        if factory.handles(elem):
-            self._render_via_factory(elem)
-            return
         method_name = self._RENDERERS.get(elem.kind)
-        if method_name is not None:
-            getattr(self, method_name)(elem)
-        else:
+        if method_name is None:
             imgui.text(f"[unsupported element: {elem.kind}]")
-        self._imgui_renderer_factory.apply_tooltip(elem)
+        elif elem.kind in self._LEGACY_LEAF_KINDS:
+            with self._imgui_renderer_factory.geometry.measuring(elem.id, elem.kind):
+                getattr(self, method_name)(elem)
+        else:
+            getattr(self, method_name)(elem)
 
     def _render_via_factory(self, elem: AbcElement) -> None:
         """Paint a factory-backed ABC element (leaf or transitional dialog).
