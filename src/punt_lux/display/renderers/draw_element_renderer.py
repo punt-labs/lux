@@ -89,12 +89,19 @@ class DrawElementRenderer:
                 msg = f"unhandled draw command kind: {type(cmd).__name__}"
                 raise TypeError(msg)
 
+    # Every add_* call keywords each argument after ``col``: the installed
+    # imgui-bundle orders ImDrawList's trailing numerics as (…, rounding,
+    # thickness, flags) / (…, thickness, flags), and a positional call silently
+    # slots a value into the wrong slot when those differ across builds — the
+    # defect that put an int in a float thickness slot and a float in an int
+    # flags slot and crashed the display on a valid rect.
+
     def _draw_line(self, dl: Any, cmd: Line, ox: float, oy: float) -> None:
         dl.add_line(
             ImVec2(ox + cmd.p1.x, oy + cmd.p1.y),
             ImVec2(ox + cmd.p2.x, oy + cmd.p2.y),
             self._to_imgui_color(cmd.color.value),
-            cmd.thickness.value,
+            thickness=cmd.thickness.value,
         )
 
     def _draw_rect(self, dl: Any, cmd: Rect, ox: float, oy: float) -> None:
@@ -102,9 +109,15 @@ class DrawElementRenderer:
         lo = ImVec2(ox + cmd.min.x, oy + cmd.min.y)
         hi = ImVec2(ox + cmd.max.x, oy + cmd.max.y)
         if cmd.filled:
-            dl.add_rect_filled(lo, hi, color, cmd.rounding.value)
+            dl.add_rect_filled(lo, hi, color, rounding=cmd.rounding.value)
         else:
-            dl.add_rect(lo, hi, color, cmd.rounding.value, 0, cmd.thickness.value)
+            dl.add_rect(
+                lo,
+                hi,
+                color,
+                rounding=cmd.rounding.value,
+                thickness=cmd.thickness.value,
+            )
 
     def _draw_circle(self, dl: Any, cmd: Circle, ox: float, oy: float) -> None:
         color = self._to_imgui_color(cmd.color.value)
@@ -112,7 +125,9 @@ class DrawElementRenderer:
         if cmd.filled:
             dl.add_circle_filled(center, cmd.radius.value, color)
         else:
-            dl.add_circle(center, cmd.radius.value, color, 0, cmd.thickness.value)
+            dl.add_circle(
+                center, cmd.radius.value, color, thickness=cmd.thickness.value
+            )
 
     def _draw_triangle(self, dl: Any, cmd: Triangle, ox: float, oy: float) -> None:
         color = self._to_imgui_color(cmd.color.value)
@@ -122,7 +137,7 @@ class DrawElementRenderer:
         if cmd.filled:
             dl.add_triangle_filled(p1, p2, p3, color)
         else:
-            dl.add_triangle(p1, p2, p3, color, cmd.thickness.value)
+            dl.add_triangle(p1, p2, p3, color, thickness=cmd.thickness.value)
 
     def _draw_text(self, dl: Any, cmd: TextGlyph, ox: float, oy: float) -> None:
         color = self._to_imgui_color(cmd.color.value)
@@ -133,7 +148,7 @@ class DrawElementRenderer:
         color = self._to_imgui_color(cmd.color.value)
         points = [ImVec2(ox + p.x, oy + p.y) for p in cmd.points]
         flags = im_draw_flags_closed if cmd.closed else 0
-        dl.add_polyline(points, color, flags, cmd.thickness.value)
+        dl.add_polyline(points, color, thickness=cmd.thickness.value, flags=flags)
 
     def _draw_bezier(self, dl: Any, cmd: BezierCubic, ox: float, oy: float) -> None:
         dl.add_bezier_cubic(
@@ -142,7 +157,7 @@ class DrawElementRenderer:
             ImVec2(ox + cmd.p3.x, oy + cmd.p3.y),
             ImVec2(ox + cmd.p4.x, oy + cmd.p4.y),
             self._to_imgui_color(cmd.color.value),
-            cmd.thickness.value,
+            thickness=cmd.thickness.value,
         )
 
     # -- color helpers ---------------------------------------------------------
