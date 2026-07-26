@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from punt_lux.operations.models.query_geometry import (
     GeometryNotRequested,
@@ -34,7 +34,9 @@ class InspectedElement(BaseModel):
     # element kinds are open and each fills its own props; narrowed per kind by
     # the element codec, not here (PY-TS-14 wire boundary).
     resolved_props: dict[str, object]
-    children: list[InspectedElement] = []
+    children: list[InspectedElement] = Field(
+        default_factory=lambda: list[InspectedElement]()
+    )
 
 
 class SceneInspection(BaseModel):

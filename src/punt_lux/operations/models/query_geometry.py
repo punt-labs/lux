@@ -62,7 +62,7 @@ class GeometryPresent(BaseModel):
 
     kind: Literal["present"] = "present"
     frame: FrameGeometry | None = None
-    elements: dict[str, ElementGeometry] = {}
+    elements: dict[str, ElementGeometry] = Field(default_factory=dict)
 
     @classmethod
     def from_block(cls, block: Mapping[str, object]) -> Self:
