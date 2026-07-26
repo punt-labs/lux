@@ -88,6 +88,29 @@ def test_overlapping_elements_report_distinguishable_paint_sequence() -> None:
     assert over.paint_sequence > under.paint_sequence
 
 
+def test_two_overlapping_leaves_report_distinct_sequence_and_intersecting_rects() -> (
+    None
+):
+    # Two leaves painted over the same region: their sequence numbers order them
+    # (later on top) and their rects intersect, so an overlap assertion is
+    # decidable — the reason the operator ruled Z-order in.
+    rec = GeometryRecorder()
+    rec.record_element("s", "label", Rect(x=10.0, y=10.0, width=100.0, height=30.0), 0)
+    rec.record_element("s", "badge", Rect(x=60.0, y=20.0, width=80.0, height=30.0), 0)
+    rec.complete()
+    snap = rec.snapshot()
+    label = snap.element_for("s", "label")
+    badge = snap.element_for("s", "badge")
+    assert label is not None
+    assert badge is not None
+    assert badge.paint_sequence > label.paint_sequence
+    # The two rects overlap horizontally (60..140 vs 10..110) and vertically.
+    assert label.rect.x < badge.rect.x + badge.rect.width
+    assert badge.rect.x < label.rect.x + label.rect.width
+    assert label.rect.y < badge.rect.y + badge.rect.height
+    assert badge.rect.y < label.rect.y + label.rect.height
+
+
 def test_open_modal_window_stacks_above_the_frame_beneath_it() -> None:
     # An open modal begins after the frame under it, so ImGui gives it a higher
     # begin-order; the geometry reply reports that as a higher stack index.

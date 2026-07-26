@@ -183,6 +183,10 @@ class ElementRenderer:
         try:
             if opened:
                 adapter.paint()
+                # Capture a leaf's item rect now, while it is the last-painted
+                # item; a container is skipped (it records its own window rect or
+                # has no single rect) and its children recurse below.
+                self._imgui_renderer_factory.record_leaf_geometry(elem)
                 for child in elem.child_elements():
                     self.render_element(cast("Element", child))
         finally:

@@ -20,9 +20,9 @@ import pytest
 from punt_lux.display.geometry import GeometryRecorder
 from punt_lux.protocol.geometry import Rect
 
-# A frame captures at most a handful of window-like elements today; 50 is a
-# generous stand-in for the eventual per-leaf capture. The ceiling is ~50x the
-# measured ~40 us, loose enough to never flake yet tight enough to catch a blow-up.
+# Leaves are captured per element now, so 50 painted elements a frame is a
+# realistic mid-size scene. The ceiling is ~50x the measured ~40 us, loose enough
+# to never flake yet tight enough to catch a blow-up.
 _ELEMENTS_PER_FRAME = 50
 _FRAMES = 2_000
 _PER_FRAME_CEILING_S = 2.0e-3
