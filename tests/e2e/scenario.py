@@ -1083,6 +1083,65 @@ class Scenario:
             ),
         )
 
+    @classmethod
+    def table_multi_select_progress(cls) -> Self:
+        """A multi-select grid beside a display-only progress (the selection loop).
+
+        The injected interaction is a range gesture firing ``row_selection_changed``
+        with two ``row_ids`` plus an anchor — the only remote event whose payload is
+        a mapping, so its ``from_wire`` parse is exercised for real. The built-in
+        state-sync sets the Hub ``selected_row_ids`` ``{}``→``{a, c}``, so the
+        dispatch re-push carries the mutated selection. An agent-wired handler
+        publishes ``rows_opened`` with the full selection (for a plain table
+        ``full_selection`` equals ``selected_row_ids``, §6.1), and the agent reacts
+        by advancing the bar.
+        """
+        return cls(
+            name="table-multi-select-progress",
+            scene_id="e2e-table-scene",
+            elements=(
+                {
+                    "kind": "group",
+                    "id": "tbl-surface",
+                    "layout": "rows",
+                    "children": (
+                        {
+                            "kind": "table",
+                            "id": "grid",
+                            "columns": ("ID",),
+                            "rows": (("a",), ("b",), ("c",)),
+                            "selection_mode": "multi",
+                        },
+                        {
+                            "kind": "progress",
+                            "id": "tbl-progress",
+                            "fraction": 0.0,
+                            "label": "idle",
+                        },
+                    ),
+                },
+            ),
+            target_element_id="grid",
+            interaction=InteractionExpectation(
+                event_kind="row_selection_changed",
+                value={"row_ids": ["a", "c"], "anchor": "c"},
+            ),
+            publish=PayloadPublish(
+                topic="rows_opened", payload={"full_selection": ["a", "c"]}
+            ),
+            react=(
+                ReactPatch(element_id="tbl-progress", field="fraction", value=1.0),
+                ReactPatch(element_id="tbl-progress", field="label", value="opened"),
+            ),
+            display_only_id="tbl-progress",
+            repush=PropAfterDispatch(
+                element_id="grid",
+                field="selected_row_ids",
+                value=["a", "c"],
+                flipped=True,
+            ),
+        )
+
     def wire_elements(self) -> list[dict[str, object]]:
         """Return a fresh mutable copy of the wire tree for ``show``.
 
@@ -1119,6 +1178,7 @@ SCENARIOS: tuple[Scenario, ...] = (
     Scenario.collapsing_header_button_progress(),
     Scenario.tab_bar_change_progress(),
     Scenario.tab_bar_button_progress(),
+    Scenario.table_multi_select_progress(),
     Scenario.dialog_confirm_progress(),
     Scenario.modal_dismiss_progress(),
     Scenario.payload_button_progress(),
