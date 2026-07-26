@@ -15,6 +15,7 @@ shape is a decode error; cell content is a ``validate`` concern (DES-039).
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Self, cast
 
 from punt_lux.domain.selection_interaction import RowSelectionChanged
@@ -150,10 +151,16 @@ class JsonTableDecoder:
             msg = f"column_widths must be a list of numbers, got {type(value).__name__}"
             raise ValueError(msg)
         widths: list[float] = []
-        for item in cast("list[object]", value):
+        for index, item in enumerate(cast("list[object]", value)):
             if isinstance(item, bool) or not isinstance(item, int | float):
                 got = type(item).__name__
-                msg = f"column_widths entries must be numbers, got {got}"
+                msg = f"column_widths[{index}] must be a number, got {got}"
+                raise ValueError(msg)
+            if not math.isfinite(item):
+                # A non-finite stretch weight (nan/inf) into table_setup_column is
+                # undefined behavior; reject it at the wire boundary, like the
+                # repo's other numeric decode paths.
+                msg = f"column_widths[{index}] must be finite, got {item}"
                 raise ValueError(msg)
             widths.append(float(item))
         return tuple(widths)

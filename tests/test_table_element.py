@@ -80,6 +80,21 @@ class TestLevel1Serialization:
                 {"kind": "table", "id": "t", "columns": ["ID"], "key_column": "Nope"}
             )
 
+    def test_column_widths_reject_a_non_finite_value_naming_the_index(self) -> None:
+        # A non-finite stretch weight (nan/inf) into table_setup_column is
+        # undefined behavior — the wire boundary rejects it, naming the index.
+        for bad in (float("nan"), float("inf"), float("-inf")):
+            with pytest.raises(ValueError, match=r"column_widths\[1\] must be finite"):
+                _decode(
+                    {
+                        "kind": "table",
+                        "id": "t",
+                        "columns": ["A", "B"],
+                        "rows": [["x", "y"]],
+                        "column_widths": [1.0, bad],
+                    }
+                )
+
     def test_flags_and_selection_survive(self) -> None:
         table = TableElement(
             id="t",
