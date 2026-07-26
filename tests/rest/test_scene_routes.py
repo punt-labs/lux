@@ -253,6 +253,24 @@ def test_render_table_route_installs_the_live_composition() -> None:
     assert search.handler_count(ValueChanged) == 2
 
 
+def test_replacing_a_composed_scene_does_not_leak_the_old_model() -> None:
+    # The poller re-pushes every ~3s, replacing the scene each time. Each push
+    # builds fresh elements + FilteredTableModel + observers; the old ones — a
+    # table<->model observer CYCLE — must die with the replace, not accumulate.
+    import gc
+    import weakref
+
+    store = HubDisplay()
+    client = make_client(store=store)
+    client.put("/scenes/issues/table", json=_TABLE_BODY)
+    old_table = store.resolve(SceneId("issues"), ElementId("table"))
+    ref = weakref.ref(old_table)
+    del old_table
+    client.put("/scenes/issues/table", json=_TABLE_BODY)  # replace with fresh build
+    gc.collect()
+    assert ref() is None, "the replaced table (and its observer cycle) leaked"
+
+
 def test_render_table_route_rejects_a_body_scene_id_that_differs() -> None:
     client = make_client()
     resp = client.put("/scenes/path-id/table", json={**_TABLE_BODY, "scene_id": "body"})
