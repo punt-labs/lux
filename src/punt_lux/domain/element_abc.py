@@ -56,6 +56,9 @@ class Element(EventHandlerHost, ABC):
     _removed: bool
     _observers: list[Callable[[str], None]]
     _children_tuple: tuple[Element, ...]
+    # PY-TS-14 OK: ``None`` means "not inside apply_patch, notify immediately";
+    # a list is the per-patch buffer that defers notifications until commit.
+    _notify_buffer: list[str] | None
 
     def __new__(
         cls,
@@ -70,6 +73,7 @@ class Element(EventHandlerHost, ABC):
         self._removed = False
         self._observers = []
         self._children_tuple = ()
+        self._notify_buffer = None
         return self
 
     def __reduce__(self) -> tuple[object, ...]:
@@ -203,15 +207,28 @@ class Element(EventHandlerHost, ABC):
         if any setter raises, then the error re-raised for the caller to handle —
         one base rollback for every kind, so per-setter self-restore is
         unnecessary.
+
+        Observer notifications are *deferred to commit*: a setter records which
+        property changed (via ``_notify_observers``) into a per-patch buffer, and
+        the observers fire only after every key has succeeded. A later key failing
+        rolls back the element and fires nothing, so an observer's own state (a
+        bound ``FilteredTableModel``'s selection) can never reflect a patch that
+        reported failure — atomicity extends through the observers.
         """
         snapshot = dict(vars(self))
+        self._notify_buffer = []
         try:
             for key, value in patch.items():
                 getattr(self, f"_set_{key}")(value)
         except Exception:
             vars(self).clear()
             vars(self).update(snapshot)
+            self._notify_buffer = None
             raise
+        pending = self._notify_buffer or []
+        self._notify_buffer = None
+        for prop in pending:
+            self._notify_observers(prop)
         return self
 
     def add_observer(self, observer: Callable[[str], None]) -> None:
@@ -245,11 +262,17 @@ class Element(EventHandlerHost, ABC):
 
         The single fan-out point for property-change notifications (``removed``
         today; a table's ``selected_row_ids`` write-through, and future
-        ``visible`` / ``enabled``). Observers run against a snapshot so a callback
-        that mutates the registry mid-dispatch cannot affect the in-flight call,
-        and a raising observer is logged and skipped — one bad subscriber must not
-        strand the others (PY-EH-6 system-boundary exemption).
+        ``visible`` / ``enabled``). Inside ``apply_patch`` the notification is
+        *buffered* and flushed only when the patch commits, so a mid-patch failure
+        notifies nothing; outside a patch it fires immediately. Observers run
+        against a snapshot so a callback that mutates the registry mid-dispatch
+        cannot affect the in-flight call, and a raising observer is logged and
+        skipped — one bad subscriber must not strand the others (PY-EH-6
+        system-boundary exemption).
         """
+        if self._notify_buffer is not None:
+            self._notify_buffer.append(prop)
+            return
         for observer in tuple(self._observers):
             try:
                 observer(prop)

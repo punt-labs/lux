@@ -15,7 +15,11 @@ import pytest
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.domain.selection_interaction import RowSelectionChanged
-from punt_lux.protocol.compositions import TableComposition, TableCompositionSpec
+from punt_lux.protocol.compositions import (
+    FilteredTableModel,
+    TableComposition,
+    TableCompositionSpec,
+)
 from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.input_text import InputTextElement
@@ -189,10 +193,6 @@ class TestModelSeeding:
         # A grid built with a seeded selection (a rebuilt show_table) hands the
         # model a matching full selection, so the seed is not lost on the first
         # re-projection.
-        from punt_lux.protocol.compositions.filtered_table_model import (
-            FilteredTableModel,
-        )
-
         table = TableElement(
             id="t",
             columns=("ID",),
@@ -206,6 +206,43 @@ class TestModelSeeding:
             search_columns=(),
             table=table,
         )
+        assert model.full_selection == frozenset({"a"})
+
+
+class TestWriteThroughAtomicity:
+    """A patch that fails must not leave the observing model half-updated.
+
+    The write-through folds a selection write into the model from inside the
+    element's ``apply_patch``. If the notification fired eagerly, a later key
+    failing would roll back the element but not the model, and a filter-clear
+    could then restore a selection from a patch that reported failure (the F1
+    atomicity class, one level up). ``apply_patch`` defers observer notification
+    to commit, so a failed patch notifies nothing.
+    """
+
+    def _bound(self) -> tuple[TableElement, FilteredTableModel]:
+        rows = (("a", "o"), ("b", "c"))
+        table = TableElement(
+            id="t", columns=("ID", "S"), rows=rows, selection_mode="multi"
+        )
+        model = FilteredTableModel(
+            all_rows=rows, key_column=0, search_columns=(), table=table
+        )
+        return table, model
+
+    def test_a_failed_multi_key_patch_leaves_the_model_unchanged(self) -> None:
+        table, model = self._bound()
+        assert model.full_selection == frozenset()
+        # selected_row_ids succeeds, then columns fails (non-list) -> rollback.
+        with pytest.raises(ValueError, match="columns must be a list"):
+            table.apply_patch({"selected_row_ids": ["a"], "columns": 123})
+        assert table.selected_row_ids == frozenset()  # element rolled back
+        assert model.full_selection == frozenset()  # and the model with it
+
+    def test_a_successful_patch_still_folds_through_to_the_model(self) -> None:
+        table, model = self._bound()
+        table.apply_patch({"selected_row_ids": ["a"]})
+        assert table.selected_row_ids == frozenset({"a"})
         assert model.full_selection == frozenset({"a"})
 
 
