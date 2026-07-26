@@ -54,7 +54,7 @@ class SceneInspector:
         When ``want_geometry`` is set, the reply carries a ``geometry`` block
         with each painted element's screen rect and the scene's frame rect, read
         from the last completed frame. An element not painted last frame is
-        absent from the block — the honest answer, not a zero rect.
+        absent from the block — reported directly, not as a zero rect.
         """
         scene = self._scenes.resolve_scene(scene_id)
         if scene is None:

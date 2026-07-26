@@ -12,7 +12,7 @@ completed frame and no lock guards it.
 
 An element present in a scene's tree but absent from the snapshot was not
 painted last frame — a collapsed header's child, a closed modal's child, a
-clipped row. Its absence is the honest answer, never a zero rect.
+clipped row. Its absence reports that directly, never a zero rect.
 """
 
 from __future__ import annotations

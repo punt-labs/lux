@@ -88,7 +88,7 @@ def test_unpainted_element_is_absent_from_geometry() -> None:
         )
     )
     # The recorder captured nothing this frame — the element is in the tree but
-    # absent from the geometry block, the honest "not painted" answer.
+    # absent from the geometry block, the "not painted" answer.
     result = _inspector(sm).inspect("s1", want_geometry=True)
     assert result["geometry"]["elements"] == {}
     assert result["geometry"]["frame"] is None
