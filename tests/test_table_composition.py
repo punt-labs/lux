@@ -275,6 +275,18 @@ class TestDetailBinding:
         detail = next(c for c in group.children if isinstance(c, MarkdownElement))
         assert "Select a row" in detail.content
 
+    def test_rows_only_patch_dropping_the_anchor_re_drives_the_detail(self) -> None:
+        # PR #283: a rows-only patch that reconciles away the selected/anchored row
+        # must re-drive the detail (via the _set_rows reconcile notification), not
+        # leave it showing the vanished row.
+        group = self._master_detail()
+        detail = next(c for c in group.children if isinstance(c, MarkdownElement))
+        _select(_table(group), "a", anchor="a")
+        assert "about alpha" in detail.content
+        _table(group).apply_patch({"rows": [["b", "Beta"]]})  # drops row a
+        assert "about alpha" not in detail.content
+        assert "Select a row" in detail.content  # anchor cleared -> placeholder
+
     def test_agent_selection_patch_re_drives_the_detail(self) -> None:
         # PR #283 HIGH: an agent apply_patch of selected_row_ids (not a gesture,
         # no RowSelectionChanged) must re-drive the detail through the same path a

@@ -213,7 +213,9 @@ class Element(EventHandlerHost, ABC):
         the observers fire only after every key has succeeded. A later key failing
         rolls back the element and fires nothing, so an observer's own state (a
         bound ``FilteredTableModel``'s selection) can never reflect a patch that
-        reported failure — atomicity extends through the observers.
+        reported failure — atomicity extends through the observers. Each distinct
+        property fires once even if several setters flag it (e.g. a patch that
+        sets both ``rows`` and ``selected_row_ids``).
         """
         snapshot = dict(vars(self))
         self._notify_buffer = []
@@ -227,7 +229,7 @@ class Element(EventHandlerHost, ABC):
             raise
         pending = self._notify_buffer or []
         self._notify_buffer = None
-        for prop in pending:
+        for prop in dict.fromkeys(pending):  # de-duplicate, keep first-seen order
             self._notify_observers(prop)
         return self
 

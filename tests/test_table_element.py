@@ -134,6 +134,12 @@ class TestValidate:
         )
         assert table.validate() == ()
 
+    def test_bool_cell_is_a_valid_scalar(self) -> None:
+        # A boolean cell is an accepted scalar (the error message lists "boolean");
+        # _SCALAR names bool explicitly so the contract is self-evident.
+        table = TableElement(id="t", columns=("Name", "Active"), rows=(("x", True),))
+        assert table.validate() == ()
+
     def test_selectable_duplicate_key_is_rejected(self) -> None:
         table = TableElement(
             id="t",
@@ -355,3 +361,44 @@ class TestPatchAtomicity:
         )
         with pytest.raises(ValueError, match="selected_row_ids must be a list"):
             table.apply_patch({"selected_row_ids": 123})
+
+
+class TestRowsReconcileNotifiesObservers:
+    """A rows-only patch that changes the selection must notify observers.
+
+    _set_rows reconciles the selection to the live ids; when that drops a row or
+    reseats the anchor, the same ``selected_row_ids`` signal the selection setter
+    uses is queued (deferred to commit), so a bound FilteredTableModel and detail
+    do not go stale until the next selection write. An unchanged selection fires
+    nothing.
+    """
+
+    def test_rows_patch_dropping_the_selection_notifies_once(self) -> None:
+        table = TableElement(
+            id="t",
+            columns=("ID",),
+            rows=(("a",), ("b",)),
+            selection_mode="multi",
+            selected_row_ids=frozenset({"a"}),
+            anchor_row_id="a",
+        )
+        seen: list[str] = []
+        table.add_observer(seen.append)
+        table.apply_patch({"rows": [["b"]]})  # drops a
+        assert table.selected_row_ids == frozenset()
+        assert seen == ["selected_row_ids"]  # fired once, at commit
+
+    def test_rows_patch_keeping_the_selection_fires_nothing(self) -> None:
+        table = TableElement(
+            id="t",
+            columns=("ID",),
+            rows=(("a",), ("b",)),
+            selection_mode="multi",
+            selected_row_ids=frozenset({"a"}),
+            anchor_row_id="a",
+        )
+        seen: list[str] = []
+        table.add_observer(seen.append)
+        table.apply_patch({"rows": [["a"], ["b"], ["c"]]})  # a survives, anchor a stays
+        assert table.selected_row_ids == frozenset({"a"})
+        assert seen == []  # no selection/anchor change -> no notification

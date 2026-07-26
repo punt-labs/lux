@@ -18,7 +18,9 @@ if TYPE_CHECKING:
 
 __all__ = ["TableValidator"]
 
-_SCALAR = (str, int, float, type(None))
+# ``bool`` is listed explicitly (though a subclass of ``int``) so the accepted
+# set matches the "number, boolean, or null" error message self-evidently.
+_SCALAR = (str, bool, int, float, type(None))
 
 
 @final
