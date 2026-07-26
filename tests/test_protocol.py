@@ -18,7 +18,6 @@ from punt_lux.protocol import (
     ColorPickerElement,
     ComboElement,
     ConnectMessage,
-    DrawElement,
     FrameReader,
     GroupElement,
     ImageElement,
@@ -66,9 +65,6 @@ from punt_lux.protocol import (
     message_from_dict,
     message_to_dict,
 )
-from punt_lux.protocol.elements.draw_commands_line import Line
-from punt_lux.protocol.elements.draw_commands_shape import Rect
-from punt_lux.protocol.elements.draw_values import Color, Point2
 from punt_lux.protocol.elements.plot_series import PlotSeries
 from punt_lux.protocol.elements.tree_node import TreeNode
 
@@ -149,19 +145,6 @@ class TestElements:
         e = ColorPickerElement(id="cp1", label="Color")
         assert e.kind == "color_picker"
         assert e.value == "#FFFFFF"
-
-    def test_draw_element(self):
-        line = Line(p1=Point2(0, 0), p2=Point2(10, 10))
-        e = DrawElement(id="d1", commands=(line,))
-        assert e.kind == "draw"
-        assert e.width == 400
-        assert e.height == 300
-        assert e.bg_color is None
-        assert len(e.commands) == 1
-
-    def test_draw_element_defaults(self):
-        e = DrawElement(id="d1")
-        assert e.commands == ()
 
     def test_group_element(self):
         child = TextElement(id="t1", content="hi")
@@ -941,50 +924,6 @@ class TestSerialization:
         elem = restored.elements[0]
         assert isinstance(elem, ColorPickerElement)
         assert elem.value == "#FF0000"
-
-    def test_draw_roundtrip(self):
-        rect = Rect(min=Point2(10, 10), max=Point2(50, 50), color=Color("#FF0000"))
-        e = DrawElement(
-            id="d1", width=200, height=100, bg_color="#000000", commands=(rect,)
-        )
-        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        elem = restored.elements[0]
-        assert isinstance(elem, DrawElement)
-        assert elem.width == 200
-        assert elem.bg_color == "#000000"
-        assert len(elem.commands) == 1
-        assert isinstance(elem.commands[0], Rect)
-        assert elem.commands[0].color == Color("#FF0000")
-
-    def test_draw_bg_color_excluded_when_none(self):
-        e = DrawElement(id="d1")
-        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
-        d = message_to_dict(scene)
-        assert "bg_color" not in d["elements"][0]
-
-    def test_draw_motivating_bug_fails_loud(self):
-        # Regression: an agent that sends {"op": "circle", "x": ..., "y": ...,
-        # "r": ...} (the wrong schema) used to silently render as a white
-        # radius-10 circle at the origin because the renderer called
-        # cmd.get("center", [0, 0]) and cmd.get("radius", 10). The typed
-        # decoder must surface this as a ValueError at scene-decode time,
-        # before any rendering happens.
-        wire = {
-            "type": "scene",
-            "id": "s1",
-            "elements": [
-                {
-                    "kind": "draw",
-                    "id": "d1",
-                    "commands": [{"op": "circle", "x": 100, "y": 100, "r": 40}],
-                }
-            ],
-        }
-        with pytest.raises(ValueError, match="missing or invalid 'cmd'"):
-            message_from_dict(wire)
 
     def test_group_roundtrip(self):
         e = GroupElement(

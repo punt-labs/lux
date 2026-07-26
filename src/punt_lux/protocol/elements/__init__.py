@@ -40,10 +40,7 @@ from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.color_picker import ColorPickerElement
 from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.dialog import DialogElement
-from punt_lux.protocol.elements.graphics import (
-    DrawElement,
-    register_codecs as _register_graphics,
-)
+from punt_lux.protocol.elements.draw import DrawElement
 from punt_lux.protocol.elements.group import GroupElement
 from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.input_number import InputNumberElement
@@ -159,15 +156,14 @@ Element = (
 def build_element_codec() -> ElementCodec:
     """Return a fresh :class:`ElementCodec` with the still-legacy kinds registered.
 
-    Only the not-yet-migrated families (layout, graphics, table) register here;
-    the basics family has fully crossed onto the Element-ABC path and is decoded
-    through ``DEFAULT_ABC_REGISTRY`` instead. Each :class:`JsonElementFactory`
+    Only the not-yet-migrated families (layout, table) register here; the basics
+    and graphics families have fully crossed onto the Element-ABC path and are
+    decoded through ``DEFAULT_ABC_REGISTRY`` instead. Each :class:`JsonElementFactory`
     owns its own codec instance — the codec carries no DI, but binding a separate
     instance per factory keeps factory construction self-contained.
     """
     codec = ElementCodec()
     LegacyGroupElement.register_codecs(codec.register)
-    _register_graphics(codec.register)
     _register_table(codec.register)
     return codec
 

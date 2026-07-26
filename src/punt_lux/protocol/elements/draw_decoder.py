@@ -20,7 +20,7 @@ exercise a single command pass an arbitrary index like ``0``.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Final, Protocol, Self
+from typing import Final, Protocol, Self, cast
 
 from punt_lux.protocol.elements.draw_command_kind import (
     DrawCommand,
@@ -79,6 +79,31 @@ class DrawCommandDecoder:
             msg = f"draw command factory already registered for {kind.value!r}"
             raise ValueError(msg)
         self._factories[kind] = factory
+
+    def decode_all(self, raw: object, where: str) -> tuple[DrawCommand, ...]:
+        """Decode a wire command list to typed commands, raising on the first bad one.
+
+        The list-level boundary (PY-EH-1) for a ``draw`` element's ``commands``:
+        a non-sequence, or an entry that is not a mapping, raises ``ValueError``
+        with ``where`` (e.g. ``commands``) naming the offending position — so an
+        invalid command is refused before any element is built.
+        """
+        if not isinstance(raw, list | tuple):
+            msg = f"{where} must be a list of draw commands; got {type(raw).__name__}"
+            raise ValueError(msg)
+        seq = cast("list[object] | tuple[object, ...]", raw)
+        return tuple(
+            self.decode(self._as_mapping(item, i, where), i)
+            for i, item in enumerate(seq)
+        )
+
+    @staticmethod
+    def _as_mapping(raw: object, index: int, where: str) -> Mapping[str, object]:
+        """Narrow one command-list entry to a mapping; raise at the boundary."""
+        if not isinstance(raw, Mapping):
+            msg = f"{where}[{index}] must be a mapping; got {type(raw).__name__}"
+            raise ValueError(msg)
+        return cast("Mapping[str, object]", raw)
 
     def decode(self, d: Mapping[str, object], index: int) -> DrawCommand:
         """Decode a wire dict at ``index`` into a typed ``DrawCommand``.

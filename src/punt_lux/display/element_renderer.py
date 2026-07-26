@@ -11,12 +11,10 @@ from typing import TYPE_CHECKING, ClassVar, Self, cast
 from imgui_bundle import imgui
 
 from punt_lux.display.renderers.container_renderer import ContainerRenderer
-from punt_lux.display.renderers.draw_element_renderer import DrawElementRenderer
 from punt_lux.display.renderers.modal_renderer import ModalRenderer
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
-from punt_lux.protocol.elements.graphics import DrawElement
 from punt_lux.scene import WidgetState
 
 if TYPE_CHECKING:
@@ -48,7 +46,6 @@ class ElementRenderer:
     _check_dirty_window: DirtyWindowFn
     # Resolves every migrated kind's adapter and owns the one shared tooltip pass.
     _imgui_renderer_factory: ImGuiRendererFactory
-    _draw_element_renderer: DrawElementRenderer
     # Legacy composites: containers recurse their children back through
     # ``render_element``; modal paints its own extracted surface.
     _container_renderer: ContainerRenderer
@@ -57,7 +54,6 @@ class ElementRenderer:
     # Legacy string dispatch — the still-legacy kinds. Shrinks as kinds migrate;
     # ABC-migrated kinds resolve through the factory adapter, never here.
     _RENDERERS: ClassVar[dict[str, str]] = {
-        "draw": "_render_draw",
         "group": "_render_group",
         "tab_bar": "_render_tab_bar",
         "collapsing_header": "_render_collapsing_header",
@@ -70,7 +66,7 @@ class ElementRenderer:
     # children. They record geometry through the same ``measuring`` group the ABC
     # leaf template uses; the remaining legacy kinds are containers whose children
     # record as they recurse, so the container itself records nothing.
-    _LEGACY_LEAF_KINDS: ClassVar[frozenset[str]] = frozenset({"draw", "table"})
+    _LEGACY_LEAF_KINDS: ClassVar[frozenset[str]] = frozenset({"table"})
 
     # Renderer attrs owning per-scene WidgetState; the setter forwards scene switches.
     _WIDGET_STATE_RENDERERS: ClassVar[tuple[str, ...]] = (
@@ -91,7 +87,6 @@ class ElementRenderer:
         self._emit_event = emit_event
         self._check_dirty_window = check_dirty_window
         self._current_scene_id = None
-        self._draw_element_renderer = DrawElementRenderer()
         self._container_renderer = ContainerRenderer(
             widget_state, check_dirty_window, self.render_element, self._record_window
         )
@@ -249,12 +244,3 @@ class ElementRenderer:
     def _render_modal(self, elem: Element) -> None:
         """Delegate legacy modal rendering to the extracted ModalRenderer."""
         self._modal_renderer.render(cast("LegacyModalElement", elem))
-
-    # -- draw element rendering ------------------------------------------------
-
-    def _render_draw(self, elem: Element) -> None:
-        """Delegate a DrawElement to the extracted ``DrawElementRenderer``."""
-        if not isinstance(elem, DrawElement):
-            msg = f"_render_draw expected DrawElement; got {type(elem).__name__}"
-            raise TypeError(msg)
-        self._draw_element_renderer.render(elem)

@@ -24,6 +24,8 @@ from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.combo_codec import JsonComboDecoder, JsonComboEncoder
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.dialog_codec import JsonDialogDecoder, JsonDialogEncoder
+from punt_lux.protocol.elements.draw import DrawElement
+from punt_lux.protocol.elements.draw_codec import JsonDrawDecoder, JsonDrawEncoder
 from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.image_codec import JsonImageDecoder, JsonImageEncoder
 from punt_lux.protocol.elements.input_number import InputNumberElement
@@ -151,6 +153,10 @@ class DefaultLeafKinds:
             LeafKindSpec(
                 kind="plot",
                 codec=KindCodec(PlotElement, JsonPlotDecoder, JsonPlotEncoder().encode),
+            ),
+            LeafKindSpec(
+                kind="draw",
+                codec=KindCodec(DrawElement, JsonDrawDecoder, JsonDrawEncoder().encode),
             ),
             DialogKindSpec(
                 codec=KindCodec(

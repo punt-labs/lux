@@ -15,12 +15,12 @@ from typing import Any, Self, final
 
 from imgui_bundle import ImVec2, ImVec4, imgui
 
+from punt_lux.protocol.elements.draw import DrawElement
 from punt_lux.protocol.elements.draw_command_kind import DrawCommand
 from punt_lux.protocol.elements.draw_commands_curve import BezierCubic
 from punt_lux.protocol.elements.draw_commands_line import Line, Polyline
 from punt_lux.protocol.elements.draw_commands_shape import Circle, Rect, Triangle
 from punt_lux.protocol.elements.draw_commands_text import TextGlyph
-from punt_lux.protocol.elements.graphics import DrawElement
 
 __all__ = ["DrawElementRenderer"]
 
