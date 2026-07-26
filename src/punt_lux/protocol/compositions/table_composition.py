@@ -42,6 +42,24 @@ __all__ = ["TableComposition", "TableCompositionSpec"]
 _DEFAULT_FLAGS = ("borders", "row_bg")
 
 
+_MIN_DETAIL_RESERVE = 6  # a detail always gets at least this many lines
+_MAX_DETAIL_RESERVE = 16  # cap so a big detail never starves the grid
+
+
+def _detail_reserve_lines(detail: dict[str, object] | None) -> int:
+    """Return the text lines the grid reserves below itself for ``detail``.
+
+    Proportioned to the detail's field count (its cards are field lines plus a
+    short body), clamped to ``[6, 16]`` so the panel is always visible without
+    swallowing the grid. ``None`` (no detail) reserves nothing.
+    """
+    if detail is None:
+        return 0
+    fields = detail.get("fields")
+    field_count = len(cast("list[object]", fields)) if isinstance(fields, list) else 0
+    return min(max(field_count + 4, _MIN_DETAIL_RESERVE), _MAX_DETAIL_RESERVE)
+
+
 def _require_list(value: object, name: str) -> list[object]:
     """Return ``value`` as a list, or raise a named ``ValueError``.
 
@@ -150,7 +168,12 @@ class TableComposition:
 
     @staticmethod
     def _grid(spec: TableCompositionSpec) -> TableElement:
-        """Build the basic grid; a table with chrome is selectable."""
+        """Build the basic grid; a table with chrome is selectable.
+
+        When a detail panel follows the grid, the grid reserves space below its
+        scroll region (``scroll_reserve_lines``) so the detail stays visible
+        instead of being pushed off the bottom of the frame.
+        """
         flags = spec.flags if spec.flags is not None else _DEFAULT_FLAGS
         return TableElement(
             id=spec.table_id,
@@ -159,6 +182,7 @@ class TableComposition:
             flags=TableFlags.from_wire(flags),
             key_column=spec.key_column,
             selection_mode=spec.selection_mode,
+            scroll_reserve_lines=_detail_reserve_lines(spec.detail),
         )
 
     # -- filter controls ---------------------------------------------------

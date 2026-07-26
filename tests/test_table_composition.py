@@ -68,6 +68,24 @@ def _search(group: GroupElement) -> InputTextElement:
     return next(c for c in group.children if isinstance(c, InputTextElement))
 
 
+class TestScrollReserve:
+    def test_a_grid_without_a_detail_reserves_nothing(self) -> None:
+        from punt_lux.protocol.compositions.table_composition import (
+            _detail_reserve_lines,
+        )
+
+        assert _detail_reserve_lines(None) == 0
+
+    def test_reserve_is_proportioned_to_the_field_count_and_clamped(self) -> None:
+        from punt_lux.protocol.compositions.table_composition import (
+            _detail_reserve_lines,
+        )
+
+        assert _detail_reserve_lines({"fields": []}) == 6  # clamped up to the min
+        assert _detail_reserve_lines({"fields": ["a", "b", "c", "d", "e"]}) == 9
+        assert _detail_reserve_lines({"fields": list("abcdefghijklmnop")}) == 16  # max
+
+
 class TestBuilderShape:
     def test_no_chrome_returns_the_bare_grid(self) -> None:
         roots = TableComposition.build(
@@ -76,6 +94,7 @@ class TestBuilderShape:
         assert len(roots) == 1
         assert isinstance(roots[0], TableElement)
         assert roots[0].selection_mode == "none"
+        assert roots[0].scroll_reserve_lines == 0  # no detail -> no reserve
 
     def test_chrome_composes_one_group_root(self) -> None:
         roots = TableComposition.build(
@@ -320,6 +339,12 @@ class TestDetailBinding:
         group = self._master_detail()
         detail = next(c for c in group.children if isinstance(c, MarkdownElement))
         assert "Select a row" in detail.content
+
+    def test_detail_reserves_scroll_space_on_the_grid(self) -> None:
+        # PR #283 demo #1: with a detail below it, the grid reserves scroll space
+        # so the detail is not pushed off the bottom of the frame.
+        group = self._master_detail()
+        assert _table(group).scroll_reserve_lines > 0
 
     def test_rows_only_patch_dropping_the_anchor_re_drives_the_detail(self) -> None:
         # PR #283: a rows-only patch that reconciles away the selected/anchored row

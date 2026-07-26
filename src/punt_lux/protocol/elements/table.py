@@ -70,6 +70,7 @@ class TableElement(Element):
     _key_column: int
     _selection: TableSelectionModel
     _tooltip: str | None
+    _scroll_reserve_lines: int
     _kind: Literal["table"]
 
     def __new__(
@@ -87,6 +88,7 @@ class TableElement(Element):
         selected_row_ids: frozenset[str] = frozenset(),
         anchor_row_id: str = "",
         tooltip: str | None = None,
+        scroll_reserve_lines: int = 0,
     ) -> Self:
         # Columns/rows coerce to tuples so callers may pass lists — direct
         # construction stays ergonomic while the stored state is immutable.
@@ -101,6 +103,7 @@ class TableElement(Element):
             mode=selection_mode, selected=selected_row_ids, anchor=anchor_row_id
         )
         self._tooltip = tooltip
+        self._scroll_reserve_lines = scroll_reserve_lines
         self._kind = "table"
         return self
 
@@ -160,6 +163,16 @@ class TableElement(Element):
     def tooltip(self) -> str | None:
         """Return the hover-tooltip text, or ``None`` for no tooltip."""
         return self._tooltip
+
+    @property
+    def scroll_reserve_lines(self) -> int:
+        """Return the text lines to leave below the scroll region for a sibling.
+
+        A composed table with a detail panel below it sets this so the grid's
+        scroll region stops short and the detail stays visible; ``0`` (the
+        default) lets the grid take the available height.
+        """
+        return self._scroll_reserve_lines
 
     # -- row identity -------------------------------------------------------
 
@@ -331,4 +344,5 @@ class TableElement(Element):
             "selected_row_ids": sorted(self._selection.selected_row_ids),
             "anchor_row_id": self._selection.anchor,
             "tooltip": self._tooltip,
+            "scroll_reserve_lines": self._scroll_reserve_lines,
         }

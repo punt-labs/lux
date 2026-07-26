@@ -122,6 +122,21 @@ class TestLevel1Serialization:
         restored = _decode(wire)
         assert type(restored).__name__ == "GroupElement"
 
+    def test_scroll_reserve_lines_survives_the_roundtrip(self) -> None:
+        table = TableElement(
+            id="t", columns=("ID",), rows=(("a",),), scroll_reserve_lines=8
+        )
+        restored = _decode(table.to_dict())
+        assert isinstance(restored, TableElement)
+        assert restored.scroll_reserve_lines == 8
+
+    def test_scroll_reserve_lines_defaults_to_zero(self) -> None:
+        restored = _decode(
+            {"kind": "table", "id": "t", "columns": ["ID"], "rows": [["a"]]}
+        )
+        assert isinstance(restored, TableElement)
+        assert restored.scroll_reserve_lines == 0
+
 
 # -- Self-validation (DES-039) ----------------------------------------------
 

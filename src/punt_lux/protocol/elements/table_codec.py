@@ -129,6 +129,9 @@ class JsonTableDecoder:
             selected_row_ids=frozenset(self._decode_selected_ids(ctx, raw)),
             anchor_row_id=ctx.optional_str(raw, "anchor_row_id", default=""),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),
+            scroll_reserve_lines=ctx.optional_int_with_default(
+                raw, "scroll_reserve_lines", default=0
+            ),
         )
         install_selection_sync(elem)
         self._install_handlers(elem, raw)
@@ -277,4 +280,6 @@ class JsonTableEncoder:
             payload["anchor_row_id"] = elem.anchor_row_id
         if elem.tooltip is not None:
             payload["tooltip"] = elem.tooltip
+        if elem.scroll_reserve_lines:
+            payload["scroll_reserve_lines"] = elem.scroll_reserve_lines
         return payload

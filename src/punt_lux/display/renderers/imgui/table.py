@@ -57,7 +57,13 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
         if num_cols == 0:
             return
         table_id = f"##table_{elem.id}"
-        if not imgui.begin_table(table_id, num_cols, self._table_flags(elem.flags)):
+        height = self._reserve_height(
+            elem.scroll_reserve_lines, imgui.get_text_line_height_with_spacing()
+        )
+        outer_size = imgui.ImVec2(0.0, height)
+        if not imgui.begin_table(
+            table_id, num_cols, self._table_flags(elem.flags), outer_size
+        ):
             return
         try:
             self._setup_columns(elem)
@@ -85,6 +91,19 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
         if flags.sortable:
             value |= int(imgui.TableFlags_.sortable.value)
         return value
+
+    @staticmethod
+    def _reserve_height(reserve_lines: int, line_height: float) -> float:
+        """Return the table's outer height for ``begin_table``.
+
+        ``0`` means take the available height. A positive ``reserve_lines`` yields
+        a *negative* height — ImGui reads that as available-minus-reserve — so the
+        scroll region stops that many text lines short, leaving a following
+        sibling (a detail panel) visible under the grid.
+        """
+        if reserve_lines <= 0:
+            return 0.0
+        return -reserve_lines * line_height
 
     def _setup_columns(self, elem: TableElement) -> None:
         """Declare each column with its stretch weight.

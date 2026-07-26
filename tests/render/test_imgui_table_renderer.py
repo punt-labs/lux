@@ -142,6 +142,17 @@ def test_seeded_storage_sets_only_the_selected_indices(
     assert set_indices == [0, 2]
 
 
+def test_reserve_height_is_zero_when_no_reserve() -> None:
+    assert ImGuiTableRenderer._reserve_height(0, 20.0) == 0.0
+    assert ImGuiTableRenderer._reserve_height(-3, 20.0) == 0.0
+
+
+def test_reserve_height_is_negative_available_minus_reserve() -> None:
+    # A positive reserve yields a negative outer height — ImGui reads that as
+    # available-minus-reserve, so the grid stops short and the detail stays visible.
+    assert ImGuiTableRenderer._reserve_height(8, 20.0) == -160.0
+
+
 def test_box_select_is_a_multi_only_affordance() -> None:
     # box_select1d (rubber-band a range) belongs to multi-select only; a
     # single-select scope must not enable it, and gets single_select instead.
