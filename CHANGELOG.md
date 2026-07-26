@@ -4,6 +4,14 @@
 
 ### Added
 
+- **Tree, plot, and draw migrated to the Element-ABC path (24 of 25 kinds).**
+  The three kinds now self-validate at the Hub: a malformed plot series
+  (non-string label, non-numeric coordinate), a wrong-schema draw command, or
+  a label-less tree node is rejected back to the agent with an error naming
+  the offending index and field — payload classes that previously crashed the
+  display or rendered silently wrong. Tooltips are functional on all three
+  kinds. Tree node expansion stays display-local view state. The legacy tree
+  node-click event was removed with the migration; it had no consumers.
 - **Geometry introspection.** `inspect_scene` (MCP and REST) accepts
   `want_geometry`; the reply carries each painted element's on-screen
   rectangle plus z-order — a paint-sequence number per element and a window
