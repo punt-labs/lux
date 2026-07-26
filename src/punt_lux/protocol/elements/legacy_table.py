@@ -244,6 +244,8 @@ class LegacyTableElement:
             d["filters"] = [f.to_dict() for f in self.filters]
         if self.detail is not None:
             d["detail"] = self.detail.to_dict()
+        if self.tooltip is not None:
+            d["tooltip"] = self.tooltip
         return d
 
     @classmethod
@@ -263,6 +265,7 @@ class LegacyTableElement:
             detail=TableDetail.from_dict(raw_detail)
             if raw_detail is not None
             else None,
+            tooltip=d.get("tooltip"),
         )
 
 

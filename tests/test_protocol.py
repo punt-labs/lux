@@ -277,6 +277,17 @@ class TestElements:
         )
         assert e.validate() == ()
 
+    def test_legacy_table_tooltip_survives_the_roundtrip(self):
+        # The tooltip is a real field; it must not be silently dropped on the wire.
+        e = LegacyTableElement(id="tbl1", columns=["Name"], rows=[["x"]], tooltip="hi")
+        restored = LegacyTableElement.from_dict(e.to_dict())
+        assert restored.tooltip == "hi"
+
+    def test_legacy_table_absent_tooltip_stays_none(self):
+        e = LegacyTableElement(id="tbl1", columns=["Name"], rows=[["x"]])
+        restored = LegacyTableElement.from_dict(e.to_dict())
+        assert restored.tooltip is None
+
     def test_plot_element(self):
         series = (PlotSeries("y", "line", (1.0, 2.0, 3.0), (10.0, 20.0, 15.0)),)
         e = PlotElement(id="p1", title="Trend", series=series)
