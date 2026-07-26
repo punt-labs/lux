@@ -188,7 +188,9 @@ def test_to_wire_frame_is_null_when_frame_not_painted() -> None:
     rec = GeometryRecorder()
     rec.record_element("s", "title", Rect(x=1.0, y=1.0, width=2.0, height=2.0), 2)
     rec.complete()
-    wire = rec.snapshot().to_wire("s", frame_id=None)
+    # The scene's frame "f" is a real frame id, but nothing recorded it this
+    # frame, so its geometry is absent — reported as null, not a zero rect.
+    wire = rec.snapshot().to_wire("s", "f")
     assert wire["frame"] is None
     assert wire["elements"] == {
         "title": {

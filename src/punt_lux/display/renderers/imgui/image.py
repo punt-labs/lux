@@ -3,16 +3,14 @@
 
 Paints through a per-paint ``ImageRenderer`` (which uploads path-sourced images
 through the factory's shared ``TextureCache`` and falls back to alt text).
-``LeafRenderer`` adds the shared tooltip pass and the geometry capture around it.
-The image plus its alt fallback can paint more than one item, so the widget is
-wrapped in an ImGui group; the captured rect then spans the whole leaf.
+``LeafRenderer`` adds the shared tooltip pass and records the leaf's rect; its
+``measuring`` group spans the image plus any alt fallback the leaf paints, so the
+recorded rect covers the whole leaf.
 """
 
 from __future__ import annotations
 
 from typing import final
-
-from imgui_bundle import imgui
 
 from punt_lux.display.renderers.image_renderer import ImageRenderer
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
@@ -28,7 +26,5 @@ class ImGuiImageRenderer(LeafRenderer[ImageElement]):
     __slots__ = ()
 
     def _paint_widget(self) -> None:
-        """Upload/draw the image (texture or alt fallback), grouped as one rect."""
-        imgui.begin_group()
+        """Upload and draw the image, or its alt-text fallback."""
         ImageRenderer(self._factory.texture_cache).render(self._elem)
-        imgui.end_group()

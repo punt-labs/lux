@@ -65,7 +65,11 @@ class SceneInspector:
         )
         result = inspection.to_dict()
         if want_geometry:
-            frame_id = self._scenes.scene_to_frame.get(scene_id)
+            # A resolved scene is found through ``scene_to_frame``, so it is
+            # always mapped here; indexing (not ``.get``) turns any divergence
+            # into a KeyError the dispatcher reports as geometry-unavailable,
+            # rather than a missing entry masquerading as a not-painted frame.
+            frame_id = self._scenes.scene_to_frame[scene_id]
             result["geometry"] = self._geometry.snapshot().to_wire(scene_id, frame_id)
         return result
 

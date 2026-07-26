@@ -1,15 +1,18 @@
 """LeafRenderer records each leaf's geometry from the one place both paths reach.
 
-The template ``paint`` draws the widget, records the item, then runs the tooltip
-pass — recording lives on the adapter, the single point ``elem.render()`` and
+The template ``paint`` paints the widget and tooltip inside the geometry
+``measuring`` group, which records the leaf's rect when the group closes —
+recording lives on the adapter, the single point ``elem.render()`` and
 ``_render_via_factory`` both call, so a top-level or ABC-nested leaf is captured,
-not only a legacy-nested one. Two guards: the template records in that order, and
-every leaf adapter the factory dispatches inherits the template, so no leaf kind
-can be added without its geometry captured.
+not only a legacy-nested one. Two guards: the record happens after the whole
+paint (so the group bounds it and a tooltip cannot poison the rect), and every
+leaf adapter the factory dispatches inherits the template, so no leaf kind can be
+added without its geometry captured.
 """
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Self, cast, final
 
 import pytest
@@ -34,6 +37,8 @@ from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
 from punt_lux.protocol.elements.text import TextElement
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 
 # Every leaf kind the factory dispatches: each must inherit the recording base.
@@ -57,18 +62,25 @@ _LEAF_ADAPTERS = [
 
 
 class _CaptureSpy:
-    """Records the element ids passed to ``record_item``."""
+    """A geometry-capture stand-in whose ``measuring`` records the id on exit."""
 
     recorded: list[str]
-    __slots__ = ("recorded",)
+    _order: list[str]
+    __slots__ = ("_order", "recorded")
 
-    def __new__(cls) -> Self:
+    def __new__(cls, order: list[str]) -> Self:
         self = super().__new__(cls)
         self.recorded = []
+        self._order = order
         return self
 
-    def record_item(self, element_id: str) -> None:
-        self.recorded.append(element_id)
+    @contextmanager
+    def measuring(self, element_id: str) -> Generator[None]:
+        try:
+            yield
+        finally:
+            self.recorded.append(element_id)
+            self._order.append("record")
 
 
 class _FactorySpy:
@@ -76,16 +88,19 @@ class _FactorySpy:
 
     geometry: _CaptureSpy
     tooltipped: list[object]
-    __slots__ = ("geometry", "tooltipped")
+    order: list[str]
+    __slots__ = ("geometry", "order", "tooltipped")
 
     def __new__(cls) -> Self:
         self = super().__new__(cls)
-        self.geometry = _CaptureSpy()
+        self.order = []
+        self.geometry = _CaptureSpy(self.order)
         self.tooltipped = []
         return self
 
     def apply_tooltip(self, elem: object) -> None:
         self.tooltipped.append(elem)
+        self.order.append("tooltip")
 
 
 @final
@@ -104,16 +119,16 @@ class _SpyLeaf(LeafRenderer[TextElement]):
         self._order.append("widget")
 
 
-def test_paint_draws_the_widget_then_records_then_tooltips() -> None:
-    order: list[str] = []
+def test_paint_groups_widget_and_tooltip_then_records() -> None:
     factory = _FactorySpy()
-    leaf = _SpyLeaf(TextElement(id="leaf-1", content="x"), factory, order)
+    leaf = _SpyLeaf(TextElement(id="leaf-1", content="x"), factory, factory.order)
 
     leaf.paint()
 
-    # The widget draws first, so ``record_item`` reads the rect it just bounded;
-    # the tooltip pass runs last (its hover window must not become the last item).
-    assert order == ["widget"]
+    # Widget and tooltip both paint inside the measuring group; the rect is
+    # recorded only when the group closes, after both — so the group bounds the
+    # whole leaf and a hover tooltip's last-item write cannot poison the record.
+    assert factory.order == ["widget", "tooltip", "record"]
     assert factory.geometry.recorded == ["leaf-1"]
     assert len(factory.tooltipped) == 1
 

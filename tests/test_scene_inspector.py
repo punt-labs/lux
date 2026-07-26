@@ -9,6 +9,8 @@ painted rects the ``want_geometry`` reply carries.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING, Self, cast
+
 import pytest
 
 from punt_lux.display.geometry import GeometryRecorder
@@ -18,6 +20,9 @@ from punt_lux.protocol.elements import TextElement
 from punt_lux.protocol.geometry import Rect
 from punt_lux.scene import SceneManager
 from punt_lux.scene_inspector import SceneInspector
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 def _scene_manager_with(scene: SceneMessage) -> SceneManager:
@@ -101,3 +106,43 @@ def test_unpainted_element_is_absent_from_geometry() -> None:
     result = _inspector(sm).inspect("s1", want_geometry=True)
     assert result["geometry"]["elements"] == {}
     assert result["geometry"]["frame"] is None
+
+
+class _UnmappedScenes:
+    """A scene manager whose scene resolves but carries no frame mapping.
+
+    The real ``SceneManager`` cannot produce this — ``resolve_scene`` finds a
+    scene *through* ``scene_to_frame`` — so it models the invariant violation the
+    indexed frame lookup exists to surface loudly instead of reporting the frame
+    as merely not painted.
+    """
+
+    _scene: SceneMessage
+    __slots__ = ("_scene",)
+
+    def __new__(cls, scene: SceneMessage) -> Self:
+        self = super().__new__(cls)
+        self._scene = scene
+        return self
+
+    def resolve_scene(self, _scene_id: str) -> SceneMessage:
+        return self._scene
+
+    @property
+    def scene_to_frame(self) -> Mapping[str, str]:
+        return {}
+
+
+def test_geometry_raises_when_a_resolved_scene_has_no_frame() -> None:
+    scene = SceneMessage(
+        id="s1", elements=[TextElement(id="t1", content="hi")], frame_id="s1"
+    )
+    inspector = SceneInspector(
+        scene_manager=cast("SceneManager", _UnmappedScenes(scene)),
+        domain_display=Display(),
+        geometry=GeometryRecorder(),
+    )
+    # The missing mapping surfaces as KeyError, which the dispatcher reports as
+    # geometry-unavailable — not silently as a not-painted frame.
+    with pytest.raises(KeyError):
+        inspector.inspect("s1", want_geometry=True)

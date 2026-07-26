@@ -64,7 +64,7 @@ class GeometrySnapshot:
         """Return the frame window's painted geometry, or ``None`` if not painted."""
         return self._frames.get(frame_id)
 
-    def to_wire(self, scene_id: str, frame_id: str | None) -> dict[str, object]:
+    def to_wire(self, scene_id: str, frame_id: str) -> dict[str, object]:
         """Return the geometry reply for one scene: element geometry plus the frame.
 
         ``elements`` maps each painted element id in ``scene_id`` to its geometry
@@ -76,7 +76,7 @@ class GeometrySnapshot:
             for (sid, element_id), geometry in self._elements.items()
             if sid == scene_id
         }
-        frame = self._frames.get(frame_id) if frame_id is not None else None
+        frame = self._frames.get(frame_id)
         return {
             "elements": elements,
             "frame": frame.to_dict() if frame is not None else None,
