@@ -42,8 +42,11 @@ def install_selection_sync(elem: TableElement) -> None:
 
     The single install point for the state-sync handler, so a decoded table and
     a server-side-constructed one (the show_table composition) mirror their
-    selection the same way.
+    selection the same way. A ``none``-mode grid is display-only — it carries no
+    selection machinery — so the handler is not installed on it.
     """
+    if elem.selection_mode == "none":
+        return
     elem.add_handler(RowSelectionChanged, _UpdateSelectionHandler(elem))
 
 

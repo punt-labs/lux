@@ -213,7 +213,14 @@ class TableElement(Element):
         self._tooltip = PatchField("tooltip").as_optional_str(value)
 
     def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
-        """Return the row-selection bucket's spec under the element-id action."""
+        """Return the row-selection dispatch spec — none for a display-only grid.
+
+        A ``none``-mode grid carries no selection machinery: it advertises no
+        remote dispatch (so introspection does not report it interactive) and the
+        Display wraps no handler for it.
+        """
+        if self.selection_mode == "none":
+            return ()
         return (
             RemoteDispatchSpec(RowSelectionChanged, self.id, "row_selection_changed"),
         )

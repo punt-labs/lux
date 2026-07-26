@@ -261,6 +261,46 @@ class TestSelectionSyncAndIntrospection:
         assert props["row_count"] == 1
 
 
+class TestModeNoneCarriesNoSelectionMachinery:
+    """A display-only grid ships zero selection machinery (the reviewer's #2).
+
+    A ``none``-mode table routes to the plain renderer, so installing a state-sync
+    handler and advertising a remote-dispatch bucket are pure overhead that also
+    makes a plain grid *look* interactive in introspection. Both are gated off.
+    """
+
+    def test_none_mode_grid_advertises_no_remote_dispatch(self) -> None:
+        grid = TableElement(id="t", columns=("ID",), rows=(("a",),))
+        assert grid.selection_mode == "none"
+        assert grid._remote_dispatch_specs() == ()
+
+    def test_selectable_grid_still_advertises_its_bucket(self) -> None:
+        grid = TableElement(
+            id="t", columns=("ID",), rows=(("a",),), selection_mode="single"
+        )
+        specs = grid._remote_dispatch_specs()
+        assert len(specs) == 1
+        assert specs[0].event_kind == "row_selection_changed"
+
+    def test_none_mode_decode_installs_no_state_sync_handler(self) -> None:
+        grid = _decode({"kind": "table", "id": "t", "columns": ["ID"], "rows": [["a"]]})
+        assert isinstance(grid, TableElement)
+        assert grid.handler_count(RowSelectionChanged) == 0
+
+    def test_selectable_decode_installs_the_state_sync_handler(self) -> None:
+        grid = _decode(
+            {
+                "kind": "table",
+                "id": "t",
+                "columns": ["ID"],
+                "rows": [["a"]],
+                "selection_mode": "multi",
+            }
+        )
+        assert isinstance(grid, TableElement)
+        assert grid.handler_count(RowSelectionChanged) == 1
+
+
 class TestPatchAtomicity:
     def test_a_failed_multi_key_patch_rolls_back_the_selection(self) -> None:
         # apply_patch is all-or-nothing: a patch that mutates rows (reconciling
