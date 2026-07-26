@@ -237,23 +237,30 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
     ) -> None:
         """Fire ``RowSelectionChanged`` when the gesture changed the seeded set.
 
-        The change is judged against the *seeded* set (the arbiter's effective
-        selection), not the raw Hub value, so through the re-push window a held
-        pending set is not read back as a fresh per-frame user change.
+        The change is judged only against the *representable* part of the seed —
+        ``seed`` intersected with this frame's ``display_ids``. A pending id the
+        Hub filtered out of the rows cannot be seeded into ImGui's storage, so
+        comparing against the full seed would mismatch it every frame and fire
+        spuriously (the ghost class, entering through the pending set). Those
+        non-representable ids survive in the arbiter's pending for restore, but
+        never participate in the fire decision.
         """
+        representable = seed & frozenset(display_ids)
         translator = TableRowSelection(display_ids)
         selected = frozenset(
             index for index in range(len(display_ids)) if storage.contains(index)
         )
         new_ids = translator.ids_for(selected)
-        if not translator.is_user_change(new_ids, seed):
+        if not translator.is_user_change(new_ids, representable):
             return
         anchor = translator.anchor_for(io.range_src_item, new_ids)
         if elem.flags.copy_id and anchor:
             # Click-to-copy the id: the anchor is the last-interacted row's
             # key value (the row_id), mirroring the legacy copy_id feature.
             imgui.set_clipboard_text(anchor)
-        arbiter.note_pending(new_ids)
+        # Keep the non-representable pending ids (hidden by a filter) alongside
+        # the new visible picks, so they survive the re-push window for restore.
+        arbiter.note_pending(new_ids | (seed - frozenset(display_ids)))
         elem.fire(
             RowSelectionChanged(
                 scene_id=SceneId(_DISPLAY),

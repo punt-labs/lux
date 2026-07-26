@@ -18,6 +18,7 @@ from imgui_bundle import imgui
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.table import ImGuiTableRenderer
 from punt_lux.display.renderers.imgui.table_row_arbiter import TableSelectionArbiter
+from punt_lux.domain.selection_interaction import RowSelectionChanged
 from punt_lux.protocol.elements.table import TableElement
 from punt_lux.protocol.elements.table_flags import TableFlags
 from punt_lux.scene.widget_state import WidgetState
@@ -86,6 +87,46 @@ def test_copy_id_off_does_not_touch_the_clipboard(
         elem, ("a",), frozenset(), _storage({0}), io, _arbiter(elem)
     )
     imgui.set_clipboard_text.assert_not_called()
+
+
+def test_no_spurious_fire_for_a_non_representable_pending_id() -> None:
+    # PR #283 HIGH: the seed carries B, a pending id the Hub filter removed from
+    # the rows, so display_ids is just A. B cannot be seeded into the storage; the
+    # fire must compare only the representable part (seed ∩ display_ids = {A})
+    # against the storage's {A} -> no change, no fire. Comparing the full seed
+    # would mismatch B every frame and fire spuriously (the ghost class).
+    elem = TableElement(id="t", columns=("ID",), rows=(("a",),), selection_mode="multi")
+    fired: list[RowSelectionChanged] = []
+    elem.add_handler(RowSelectionChanged, fired.append)
+    _renderer(elem)._fire_if_changed(
+        elem,
+        ("a",),
+        frozenset({"a", "b"}),  # b is not in display_ids
+        _storage({0}),
+        MagicMock(range_src_item=0),
+        _arbiter(elem),
+    )
+    assert fired == []
+
+
+def test_a_genuine_change_still_fires_with_a_hidden_pending_id() -> None:
+    # display_ids {A, C}, seed {A, B} (B hidden). The user adds C: storage {A, C}
+    # vs representable {A} -> a real change, so it fires the visible picks {A, C}.
+    elem = TableElement(
+        id="t", columns=("ID",), rows=(("a",), ("c",)), selection_mode="multi"
+    )
+    fired: list[RowSelectionChanged] = []
+    elem.add_handler(RowSelectionChanged, fired.append)
+    _renderer(elem)._fire_if_changed(
+        elem,
+        ("a", "c"),
+        frozenset({"a", "b"}),
+        _storage({0, 1}),
+        MagicMock(range_src_item=1),
+        _arbiter(elem),
+    )
+    assert len(fired) == 1
+    assert set(fired[0].row_ids) == {"a", "c"}
 
 
 def test_box_select_is_a_multi_only_affordance() -> None:
