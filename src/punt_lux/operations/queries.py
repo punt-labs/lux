@@ -23,12 +23,10 @@ from punt_lux.operations.models.inspect_scope import HUB_ONLY, InspectScope
 from punt_lux.operations.models.query_clients import ClientList, HubClient
 from punt_lux.operations.models.query_errors import RecentErrors
 from punt_lux.operations.models.query_events import RecentEvents
-from punt_lux.operations.models.query_geometry import GeometryNotRequested
 from punt_lux.operations.models.query_inspection import (
     InspectedElement,
     SceneInspection,
 )
-from punt_lux.operations.models.query_mirror import MirrorNotRequested
 from punt_lux.operations.models.query_scenes import SceneList, SceneSummary
 from punt_lux.protocol.elements import element_to_dict
 
@@ -79,14 +77,7 @@ class QueryOperations:
             self._inspect(cast("WireElement", root))
             for root in self._display.scene_roots(sid)
         ]
-        mirror = (
-            self._facts.mirror(scene_id) if scope.want_mirror else MirrorNotRequested()
-        )
-        geometry = (
-            self._facts.geometry(scene_id)
-            if scope.want_geometry
-            else GeometryNotRequested()
-        )
+        mirror, geometry = self._facts.facts(scene_id, scope)
         return SceneInspection(
             scene_id=scene_id, elements=elements, mirror=mirror, geometry=geometry
         )
