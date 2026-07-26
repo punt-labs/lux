@@ -20,9 +20,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from punt_lux.domain.element_abc import Element
+    from punt_lux.domain.event_kinds import EventKind
     from punt_lux.domain.event_protocol import Event, Handler, WireEvent
     from punt_lux.domain.ids import ClientId, SceneId
-    from punt_lux.domain.interaction import EventKind
     from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
     from punt_lux.protocol.messages.remote_invocation import (
         RemoteEventHandlerInvocation,
