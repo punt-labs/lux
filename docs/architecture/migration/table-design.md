@@ -55,7 +55,7 @@ tables" are *named compositions*, not subclasses). This reshapes the migration:
   combos, and the detail panel are **compositions of existing primitives** —
   `input_text` (search), `combo` (categorical filters), the basic `table` (the
   grid), and a `group`/`text`/`markdown` region (detail) — assembled into one
-  scene and wired through the interaction/publish machinery. This is
+  scene and wired through the D21 handler path (not app pub-sub). This is
   [DES-040](../../../DESIGN.md)'s own doctrine: `show` is the universal render
   API, and widget conveniences are compositions expressed as skills, not fields
   bolted onto one fat element ("the elements are limited; the ways they combine
@@ -82,7 +82,12 @@ attach an app handler and publish an app-level topic ("this could be input to an
 agent"). Established pattern: `checkbox` (`checkbox_codec.py:81`) and `selectable`
 (`selectable_codec.py:81`) register the built-in state-sync handler *and* install
 extra wire `handlers`; the table does the same. Zero cost when no handler is
-attached.
+attached. **Where the agent reads the selection:** for a plain (uncomposed) table
+it reads the element's own `selected_row_ids` — that field *is* the authority. For
+a *filtered* composition the authoritative full selection lives in the composition
+state (`FilteredTableModel.full_selection`, §6.1), because the element's
+`selected_row_ids` is then only the visible projection and would silently omit
+selections hidden by the active filter.
 
 **Decision 2 — Selection cardinality. RULED: BOTH single and multi-select, "like
 every other framework."** `selection_mode` of `none` / `single` / `multi`;
@@ -93,9 +98,11 @@ supports this natively** ([§4, capability check](#imgui-multi-select-capability
 `begin/end_multi_select`, `MultiSelectFlags_.single_select`, ctrl-toggle /
 shift-range / box-select. One honest constraint: ImGui keys selection by an
 integer `SelectionUserData`, so the renderer translates current-display-order
-index ↔ `row_id` each frame (Display-local, no functional limit). The detail
-*composition* binds to the **last-selected** row (the anchor); single mode = the
-one selected row.
+index ↔ `row_id` each frame (Display-local, no functional limit). The
+authoritative `selected_row_ids` is an **unordered set**; a separate **anchor** —
+the last-interacted row, taken from ImGui's `MultiSelectIO` (its range/nav source
+item), *not* from display order — names the row a detail composition binds to.
+Single mode = the one selected row, which is also the anchor.
 
 **Decision 3 — Row-id source. RULED (clarified): `key_column` is a per-table
 attribute defaulting to 0 — not a hard-coded column 0**, and it accepts **either a
@@ -139,16 +146,22 @@ compositions of primitives (§0). Two sub-rulings:
   precedent) is documented as an alternative composition an agent *may* build, not
   the packaged default (§6.1).
 - **The detail panel is a sibling element bound to the table's selection through
-  the publish path.** The table fires `RowSelectionChanged`; a Hub-side
-  composition handler reads the new anchor `row_id`, looks up that row's detail,
-  and patches the sibling detail region — anchor = last-selected (Decision 2)
-  ([§6.2](#62-the-detail-panel-as-a-sibling-element)).
+  the D21 handler path** (a wire-`handlers` entry on `RowSelectionChanged`, not app
+  pub-sub — `target.md` keeps UI-handler mechanics and pub-sub distinct). The table
+  fires `RowSelectionChanged`; a Hub-side composition handler reads the new anchor
+  `row_id`, looks up that row's detail, and patches the sibling detail region —
+  anchor per Decision 2 (§6.2).
 
 ### Settled constraints (not reopened)
 
 - **Row selection is Hub-authoritative** — crosses the wire, the Hub owns it, the
   agent can drive it, a user gesture fires an event the Hub records, the Hub
-  reconciles on structural change, re-pushed (DES-046).
+  reconciles on structural change, re-pushed (DES-046). The *full* selection is
+  the authoritative object and it is always Hub-side: on the element itself for a
+  plain table (`selected_row_ids`), in the composition state for a filtered
+  composition (`FilteredTableModel.full_selection`, §6.1). Neither is ever
+  Display-local; the element's `selected_row_ids` under a filter is a Hub-computed
+  projection, not a second authority.
 - **Selection references stable `row_id`s, never positional `row_index`** — the
   legacy `row_index` (`table_renderer.py:165`) is the reorder bug this removes
   (DES-045). Multi-select is a *set* of `row_id`s, same rule.
@@ -180,8 +193,10 @@ For a migrated ABC basic `table`:
   no `detail` — those are separate composed elements now.)
 - **Hub-authoritative:** the grid's *data* (`columns`, `rows`), its *selection
   mode*, and its *selection set*. For a filtered composition, the **unfiltered**
-  superset lives in Hub-side composition state; the table's `rows` always holds the
-  currently-visible subset.
+  superset *and the full selection* live in a Hub-side composition-state object,
+  `FilteredTableModel` (§6.1); the table's `rows` holds the currently-visible
+  subset and its `selected_row_ids` holds the visible projection of the full
+  selection.
 - **Display-local:** the ImGui paint calls, and continuous in-flight view state —
   scroll offset and the current sort column/direction. A user's mid-type filter
   keystrokes are Display-local *while typing*; the committed filter value routes to
@@ -230,14 +245,18 @@ three identifying fields plus the full new selection set. It lands in a new
 (`container_interaction.py` already holds three classes — PY-OO-2 cap — and a table
 is a leaf, not a container).
 
-- **`RowSelectionChanged`** — payload `row_ids: tuple[str, ...]` (the full set after
-  the gesture, ordered by selection recency so the last is the anchor). `EventKind`
-  discriminator `"row_selection_changed"`.
+- **`RowSelectionChanged`** — payload `row_ids: tuple[str, ...]` (the full visible
+  selection after the gesture — an unordered set, tuple only for wire shape) plus
+  `anchor: str` (the last-interacted row's `row_id`, from ImGui's `MultiSelectIO`
+  range/nav source; `""` when the selection is empty). `EventKind` discriminator
+  `"row_selection_changed"`.
 
 Carrying the **full set** (not a per-row toggle) is deliberate: a range/box gesture
 changes many rows in one act, so one absolute event per gesture is correct and
-DES-047-shaped. Single-select is the length-≤1 case. The table declares its spec,
-mirroring `checkbox.py:117`:
+DES-047-shaped. Single-select is the length-≤1 case. The **anchor** is carried
+explicitly rather than inferred from set order, because ImGui — not the set — knows
+which item the user last touched (§4). The table declares its spec, mirroring
+`checkbox.py:117`:
 
 ```python
 def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
@@ -248,10 +267,14 @@ def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
 
 1. **Built-in state-sync handler at decode.** `JsonTableDecoder` registers a
    serializable `_UpdateSelectionHandler(elem)` for `RowSelectionChanged`, whose
-   `__call__` runs `elem.apply_patch({"selected_row_ids": list(event.row_ids)})` —
-   a small class **inside `table_codec.py`** beside the decoder, mirroring
+   `__call__` runs
+   `elem.apply_patch({"selected_row_ids": list(event.row_ids), "anchor_row_id": event.anchor})`
+   — a small class **inside `table_codec.py`** beside the decoder, mirroring
    `_UpdateActiveTabHandler` (`tab_bar_codec.py:37`). (Not the field-parameterised
-   `ApplyPatchOnChange`, which reads `event.value`; this carries a set.)
+   `ApplyPatchOnChange`, which reads `event.value`; this carries a set + anchor.)
+   Under a filtered composition, a *second* handler in the same bucket updates
+   `FilteredTableModel.full_selection` — the one event runs the whole handler chain
+   once (§6.1).
 2. **Display wraps the bucket** — `wrap_handlers_for_remote` collapses it into one
    remote-dispatch group; the Display copy never runs the real update.
 3. **User selects rows** — `ImGuiTableRenderer` (via `begin/end_multi_select`)
@@ -261,8 +284,9 @@ def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
 4. **`fire` sends one remote invocation** — `RemoteDispatchGroup.__call__` grows one
    branch: `RowSelectionChanged → value = list(event.row_ids)`.
 5. **Hub re-dispatches** — `domain/hub/clients.py` grows one branch:
-   `"row_selection_changed" → RowSelectionChanged(..., row_ids=tuple(value))`, fires
-   on the Hub copy, the built-in handler updates the authoritative set;
+   `"row_selection_changed" → RowSelectionChanged(..., row_ids=tuple(value), anchor=...)`,
+   fires on the Hub copy; the built-in handler updates the element's selection (and,
+   under a filter composition, the composition handler updates the full selection);
    `Display._build_event` grows the same branch.
 6. **Hub re-pushes the whole scene** — the table carries the new `selected_row_ids`;
    any bound detail region updates through its own composition handler (§6.2).
@@ -276,24 +300,36 @@ frame (syncs its Display-local selection storage from the authoritative set); th
 fresh Hub write (honour) from a user gesture (fire) — the tab_bar discipline
 (`simple-composites-design.md` §4.7).
 
-### Reconciliation on structural change — set intersection
+### Reconciliation on structural change — two levels
 
-When the row set changes (including a filter re-push, §6.1), the Hub keeps
-`selected_row_ids` valid by intersecting with the live row ids, preserving order:
+There are two selection stores, and they reconcile differently. The distinction is
+what closes the filter-drops-selection blocker.
 
-- **Rows added** → every selected id still names a live row → unchanged.
-- **Selected rows removed** → removed ids drop; survivors kept in order (the
-  DES-045 payoff, for a set).
-- **A selected row's cell changes** (its `key_column` value unchanged) → unchanged.
-- **A selected row filtered out** (its id no longer in the re-pushed rows) → drops
-  from the selection; the survivors stay selected. A composition that wants a
-  filtered-out selection to *return* when the filter clears preserves that intent
-  in its own Hub-side handler (§6.1) — it is composition state, not core-grid state.
+**Element-local invariant (always).** The element's `selected_row_ids` must never
+name a row not in the element's current `rows`. So `_set_rows` reconciles it by
+intersecting with the new row ids (delegating to `TableSelectionModel.reconcile`).
+The anchor resets to a still-selected live row (or `""`) if its row left. For a
+**plain, uncomposed table** this *is* the authority: the table's `rows` are the
+whole dataset, so a removed row is a genuine deletion and dropping it from the
+selection is correct (the DES-045 payoff — survivors keep their ids across a
+reorder).
 
-Reconciliation lives on the element (in `_set_rows` and at decode), delegating to
-`TableSelectionModel.reconcile`. `validate()` asserts: **every id in
-`selected_row_ids` names a live row; mode `single` holds ≤ 1; mode `none` is
-empty.**
+**Full-selection authority under a filtered composition (`FilteredTableModel`).**
+Here the element's `rows` are only the *visible* subset, so element-local
+intersection alone would silently drop a selected-but-hidden row and never restore
+it — the blocker. The composition state owns the truth instead: `full_selection`
+spans the **unfiltered** dataset and is *not* touched by a filter change. On every
+filter change the filter handler recomputes `visible = filter(all_rows)` and
+re-projects `element.selected_row_ids = full_selection ∩ visible_ids`; clearing the
+filter makes `visible == all_rows`, so the full selection reappears (§6.1). A user
+selection gesture among visible rows updates `full_selection` to
+`(full_selection − visible_ids) ∪ new_visible_selection`, preserving the hidden
+part. So a hidden selection is preserved, restored on clear, and always visible to
+an agent reading `FilteredTableModel.full_selection` (Decision 1).
+
+`validate()` (element-local) asserts: **every id in `selected_row_ids` names a live
+(visible) row; mode `single` holds ≤ 1; mode `none` is empty; the `anchor_row_id`
+is `""` or a selected row.**
 
 ## 4. Scope-bound sub-questions (answered)
 
@@ -316,9 +352,19 @@ constraint:** ImGui identifies items by an integer `SelectionUserData`, not our
 string `row_id`. The renderer tags each row's selectable with its
 current-display-order index via `set_next_item_selection_user_data(index)`, applies
 ImGui's SetRange/SetAll/Clear requests against a Display-local index set, and
-translates changed indices → `row_id`s (through the current display order) before
-firing `RowSelectionChanged`. Display-local, total, no limit; recomputed each frame
-so it composes with Display-local sort and Hub-side filtering alike.
+translates the resulting index set → the `row_id` **set** (through the current
+display order) before firing `RowSelectionChanged`. Display-local, total, no limit;
+recomputed each frame so it composes with Display-local sort and Hub-side filtering
+alike.
+
+**The anchor is separate from the set.** The display-order translation above builds
+the *membership* set, which is unordered. The **anchor** — the row a detail
+composition binds to — is the *last-interacted* item, which ImGui reports directly
+in the `MultiSelectIO` (its range source / nav item), not something read off
+display order. The renderer translates that one item's index → its `row_id` and
+carries it as `RowSelectionChanged.anchor`. So §3's "anchor" and this section agree:
+the set comes from the index-set translation; the anchor comes from ImGui's
+last-interacted item, never from the set's order.
 
 ### Legacy feature carry-over — what the basic grid keeps, what leaves
 
@@ -393,22 +439,47 @@ cut over.
 
 ## 6. The composition layer
 
-### 6.1 Filter ownership — Hub-side in v1
+### 6.1 Filter ownership — Hub-side, and `FilteredTableModel` is the selection authority
 
 The packaged composition (`show_table`, §6.3) assembles a `group` holding a filter
-bar (`input_text` for search, `combo`(s) for categoricals) above the basic
-`table`. Filtering is **Hub-side**:
+bar (`input_text` for search, `combo`(s) for categoricals) above the basic `table`.
 
-1. The full **unfiltered** dataset lives in Hub-side composition state, not in the
-   table element.
-2. A committed change to the search `input_text` (`value_changed`) or a status
-   `combo` (`value_changed`) routes through the D21 interaction path to a Hub-side
-   **filter handler** that owns the unfiltered rows.
-3. The handler recomputes the visible subset (substring match on the searched
-   columns; exact match on a combo column) and `apply_patch`es the table's `rows`.
+**The composition-state object: `FilteredTableModel`.** A single Hub-side object is
+the authority for a filtered table composition. It holds:
+
+- `all_rows` — the **unfiltered** superset (plain data; pickle-safe);
+- `full_selection` — the **authoritative full selection**, a `row_id` set spanning
+  `all_rows`, including rows currently hidden by the filter;
+- `filter_state` — the current search text and combo choices;
+- a reference to the target `table` element it projects onto.
+
+Both handlers below reach `FilteredTableModel` the way `_UpdateActiveTabHandler`
+reaches its element (`tab_bar_codec.py`): they hold it as an attribute and are
+serializable, so it travels inside the pickled scene blob and lives on the
+authoritative Hub copy. It never needs to run on the Display (the Display only
+wraps handlers for remote dispatch).
+
+Filtering is **Hub-side**:
+
+1. A committed change to the search `input_text` (`value_changed`) or a status
+   `combo` (`value_changed`) routes through the D21 handler path to a Hub-side
+   **filter handler** holding the `FilteredTableModel`.
+2. The handler recomputes `visible = filter(all_rows, filter_state)` (substring
+   match on the searched columns; exact match on a combo column), `apply_patch`es
+   the table's `rows = visible`, and **re-projects the selection**:
+   `table.selected_row_ids = full_selection ∩ visible_ids`. `full_selection` is
+   *not* modified by a filter change, so a selected-but-hidden row is preserved and
+   **filter-clear restores it** (`visible == all_rows` → the whole selection
+   reappears). This is the fix to the drop-on-filter blocker.
+3. A **user selection gesture** among visible rows fires `RowSelectionChanged`; a
+   second composition handler in the same bucket updates
+   `full_selection = (full_selection − visible_ids) ∪ new_visible_selection`,
+   keeping the hidden part intact. (The element's built-in handler independently
+   sets the visible projection, §3.)
 4. The Hub re-pushes; the table renders exactly the rows the Hub holds — **one
-   source of truth, no Display-side hidden rows.** Selection reconciles by set
-   intersection (§3): a selected row still visible stays selected.
+   source of truth, no Display-side hidden rows** — and an agent reads the true
+   selection from `FilteredTableModel.full_selection` (Decision 1), never a
+   filter-truncated view.
 
 The filter handler is generic (substring / exact match), so it is a reusable
 **composition-provided Hub-side handler**, not per-agent business logic — it does
@@ -416,6 +487,12 @@ not round-trip to the agent. (An agent that needs a *custom* predicate — numer
 range, cross-field, external lookup — wires its own handler or the `recv()` /
 `update()` loop, exactly the `data-explorer` skill's "separate elements, advanced"
 path.)
+
+**A plain, uncomposed table has no `FilteredTableModel`.** Its `rows` are the whole
+dataset and its `selected_row_ids` *is* the full authority (visible == full); the
+element-local reconcile in `_set_rows` (§3) maintains it, and an agent reads
+selection straight off the element. `FilteredTableModel` exists only where a filter
+composition splits visible from full.
 
 **The documented alternative (not the packaged default): a Display-local
 quick-filter.** The `data-explorer` skill's other precedent is zero-round-trip
@@ -430,23 +507,25 @@ the same shape as Decision 4's pagination note — flagged, not built.)
 ### 6.2 The detail panel as a sibling element
 
 The detail panel is a **sibling element bound to the table's selection through the
-publish path**, not a table field:
+D21 handler path** — a wire-`handlers` entry on `RowSelectionChanged`, *not* app
+pub-sub (`target.md` keeps UI-handler mechanics and pub-sub distinct) — not a table
+field:
 
 - The composition places a detail region beside/below the grid — a `group` holding
   a `text` heading, a small 2-column field/value grid (a basic `table` or paired
   `text`), and a `markdown`/`text` body.
 - The table fires `RowSelectionChanged`; a Hub-side **detail-binding handler**
-  (composition-provided, on the table's selection interaction) reads the new
-  **anchor** `row_id` (last-selected, Decision 2), looks up that row's detail from
-  composition state, and `apply_patch`es the sibling detail region's content.
+  (composition-provided, a wire-`handlers` entry on the table's selection event)
+  reads the event's **anchor** `row_id` (the last-interacted row, Decision 2 / §4),
+  looks up that row's detail from composition state, and `apply_patch`es the sibling
+  detail region's content.
 - The Hub re-pushes; the detail region shows the anchor row. Empty selection with a
-  detail present → the anchor is the seeded first row (§3 reconciliation seeds the
-  composition's initial selection).
+  detail present → the composition seeds the anchor to the first row at build time.
 
 This is the DES-040 business-logic-via-handler pattern: the *view* half (which row
 is selected) is the grid's built-in behavior; the *consequence* (render its detail)
 is wired by the composition. Recommended over the rejected alternative (detail as a
-table field), and it generalizes — the same publish binding drives any
+table field), and it generalizes — the same handler binding drives any
 selection-reactive sibling (a chart, an action bar), not only a detail panel.
 
 ### 6.3 What `show_table` and the beads skill compose
@@ -485,12 +564,14 @@ The core grid **shrinks**; the chrome moves to the composition layer.
   `_remote_dispatch_specs()`, `resolved_props()`; setters `_set_rows` (reconcile),
   `_set_columns`, `_set_selected_row_ids`, `_set_selection_mode`.
 - `src/punt_lux/protocol/elements/table_selection_model.py` — `TableSelectionModel`
-  (mode, ordered selected tuple, anchor, `apply` / `reconcile`, cardinality).
+  (mode, selected `frozenset`, explicit `_anchor`, `apply` / `reconcile`,
+  cardinality).
 - `src/punt_lux/protocol/elements/table_flags.py` — `TableFlags` value object.
 - `src/punt_lux/protocol/elements/table_codec.py` — `JsonTableEncoder` /
   `JsonTableDecoder` **and** the built-in `_UpdateSelectionHandler` (inside the
-  codec, mirroring `_UpdateActiveTabHandler`); resolves `selection_mode` (a bare
-  grid defaults `none`) and the `key_column` int-or-name.
+  codec, mirroring `_UpdateActiveTabHandler`; patches `selected_row_ids` **and**
+  `anchor_row_id`); resolves `selection_mode` (a bare grid defaults `none`) and the
+  `key_column` int-or-name.
 - `src/punt_lux/domain/selection_interaction.py` — `RowSelectionChanged`.
 - `src/punt_lux/display/renderers/imgui/table.py` — `ImGuiTableRenderer`
   (`@final`, `LeafRenderer[TableElement]`): grid setup, column weights, the
@@ -512,12 +593,19 @@ the composition (the composition builds chrome from real `input_text` / `combo` 
 
 **Composition layer — new:**
 
-- The `show_table` composition builder + the generic Hub-side **filter handler**
-  and **detail-binding handler** (serializable handlers the composition registers,
-  parallel in shape to the built-in state-sync handlers). Exact module layout is
-  the implementer's call (a `compositions/` helper the skill and `apps/beads.py`
-  share is the natural home); the design fixes the *ownership* (Hub-side,
-  composition-provided), not the file.
+- **`FilteredTableModel`** — the Hub-side composition-state authority (unfiltered
+  `all_rows`, `full_selection`, `filter_state`), serializable, referenced by the
+  filter and selection handlers (§6.1). This is the object that fixes the
+  drop-on-filter blocker; it exists only for a filtered composition.
+- The `show_table` composition builder + the generic serializable Hub-side handlers
+  it registers: the **filter handler** (`value_changed` on the search/combo →
+  recompute visible + re-project selection), the **selection-merge handler**
+  (`RowSelectionChanged` → update `full_selection`), and the **detail-binding
+  handler** (`RowSelectionChanged` → patch the sibling detail region from the
+  anchor). Exact module layout is the implementer's call (a `compositions/` helper
+  the skill and `apps/beads.py` share is the natural home); the design fixes the
+  *ownership* (Hub-side, composition-provided) and the `FilteredTableModel`
+  authority, not the files.
 - `apps/beads.py` — rebuilt to compose the basic grid + Hub-side chrome.
 - `skills/beads/SKILL.md`, `skills/data-explorer/SKILL.md`, and the `show_table`
   surface — updated to the composition (org rule: callers update in the same PR).
@@ -541,12 +629,15 @@ Legacy deletion (`LegacyTableElement`, `table_renderer.py`, `TableFilter`,
 # domain/selection_interaction.py (new) — mirrors TabChanged, set-valued
 @dataclass(frozen=True, slots=True, init=False)
 class RowSelectionChanged:
-    """Full new set of selected row ids, ordered by recency (last = anchor)."""
+    """The full visible selection after the gesture (row_ids, an unordered set —
+    tuple only for wire shape) plus the anchor: the last-interacted row's id from
+    ImGui's MultiSelectIO, "" when empty. The anchor is NOT derived from set order."""
 
     scene_id: SceneId
     element_id: ElementId
     owner_id: ClientId
     row_ids: tuple[str, ...]
+    anchor: str
     kind: ClassVar[Literal["row_selection_changed"]] = "row_selection_changed"
     # __new__ / from_wire as TabChanged (object.__setattr__ over the slots)
 
@@ -570,16 +661,18 @@ SelectionMode = Literal["none", "single", "multi"]
 
 
 class TableSelectionModel:
-    """Selection state + cardinality. ``none`` = display-only (no selection, no
-    key-column constraint); ``single`` keeps <= 1; ``multi`` holds a set.
-    ``_selected`` is ordered by recency so ``anchor`` (its last) is the row a
-    bound detail composition shows."""
+    """Selection state + cardinality for the element's (visible) selection.
+    ``none`` = display-only (no selection, no key-column constraint); ``single``
+    keeps <= 1; ``multi`` holds a set. ``_anchor`` is the last-interacted row —
+    carried explicitly, never inferred from set order — and is the row a bound
+    detail composition shows."""
 
     _mode: SelectionMode
-    _selected: tuple[str, ...]
+    _selected: frozenset[str]
+    _anchor: str
 
     def __new__(cls, *, mode: SelectionMode = "none",
-                selected: tuple[str, ...] = ()) -> Self: ...
+                selected: frozenset[str] = frozenset(), anchor: str = "") -> Self: ...
 
     @property
     def mode(self) -> SelectionMode: ...
@@ -589,19 +682,20 @@ class TableSelectionModel:
         return self._mode != "none"
 
     @property
-    def selected_row_ids(self) -> tuple[str, ...]:
+    def selected_row_ids(self) -> frozenset[str]:
         return self._selected
 
     @property
     def anchor(self) -> str:
-        return self._selected[-1] if self._selected else ""
+        return self._anchor
 
-    def apply(self, row_ids: tuple[str, ...]) -> None:
-        """Set from a user gesture / agent drive. none -> empty; single -> last
-        only; multi -> the full ordered deduplicated set."""
+    def apply(self, row_ids: frozenset[str], anchor: str) -> None:
+        """Set from a user gesture / agent drive. none -> empty; single -> keep
+        the anchor only; multi -> the full set. Records the explicit anchor."""
 
-    def reconcile(self, live_ids: tuple[str, ...]) -> None:
-        """Keep only ids still present, order preserved."""
+    def reconcile(self, live_ids: frozenset[str]) -> None:
+        """Keep only ids still present; if the anchor's row left, reset it to a
+        still-selected id or ""."""
 
 
 # protocol/elements/table.py — the basic grid (checkbox-interactive, tree-data-shaped)
@@ -614,8 +708,8 @@ class TableElement(Element):
     _columns: tuple[str, ...]
     _rows: tuple[tuple[object, ...], ...]
     _flags: TableFlags
-    _column_widths: tuple[float, ...] | None  # optional grid layout hint
-    _key_column: int                           # resolved from int-or-name at decode
+    _column_widths: tuple[float, ...]  # () = no explicit widths (auto-size)
+    _key_column: int                   # resolved from int-or-name at decode
     _selection: TableSelectionModel
     _tooltip: str | None
     _kind: Literal["table"]
@@ -625,7 +719,7 @@ class TableElement(Element):
         return self._selection.mode
 
     @property
-    def selected_row_ids(self) -> tuple[str, ...]:
+    def selected_row_ids(self) -> frozenset[str]:
         return self._selection.selected_row_ids
 
     def _row_id(self, row: tuple[object, ...]) -> str:
@@ -633,7 +727,7 @@ class TableElement(Element):
 
     def _set_rows(self, value: object) -> None:
         self._rows = PatchField("rows").as_rows(value)
-        self._selection.reconcile(tuple(self._row_id(r) for r in self._rows))
+        self._selection.reconcile(frozenset(self._row_id(r) for r in self._rows))
 
     def _remote_dispatch_specs(self) -> tuple[RemoteDispatchSpec, ...]:
         return (RemoteDispatchSpec(RowSelectionChanged, self.id, "row_selection_changed"),)
@@ -650,11 +744,39 @@ class TableElement(Element):
             "columns": list(self._columns),
             "row_count": len(self._rows),
             "selection_mode": self._selection.mode,
-            "selected_row_ids": list(self._selection.selected_row_ids),
+            "selected_row_ids": sorted(self._selection.selected_row_ids),
             "anchor_row_id": self._selection.anchor,
             "key_column": self._key_column,
             "tooltip": self._tooltip,
         }
+
+
+# the composition-state authority for a FILTERED table composition (§6.1).
+# Lives Hub-side; the filter + selection handlers hold it and are serializable,
+# so it travels in the pickled scene blob. A PLAIN table has none of this.
+class FilteredTableModel:
+    """Authority for a filtered table composition: the unfiltered rows and the
+    FULL selection (spanning hidden rows). Projects onto the target table."""
+
+    _all_rows: tuple[tuple[object, ...], ...]   # unfiltered superset
+    _full_selection: set[str]                    # authoritative, spans hidden rows
+    _filter_state: FilterState                    # current search text + combo picks
+
+    def visible_ids(self) -> frozenset[str]: ...  # ids of filter(all_rows)
+
+    def on_filter_change(self, new_state: FilterState) -> None:
+        """Recompute visible = filter(all_rows); patch table.rows and re-project
+        table.selected_row_ids = full_selection & visible_ids. full_selection is
+        untouched, so clearing the filter restores hidden selections."""
+
+    def on_selection_gesture(self, visible_selection: frozenset[str]) -> None:
+        """Merge the user's visible pick into the full selection, preserving the
+        hidden part: full_selection = (full_selection - visible_ids) | visible_selection."""
+
+    @property
+    def full_selection(self) -> frozenset[str]:
+        """What an agent reads (Decision 1) — never a filter-truncated view."""
+        return frozenset(self._full_selection)
 ```
 
 ## 9. Verify plan — Levels 1–6
@@ -682,21 +804,34 @@ Write expected values first; drive the real entry point; assert against live sta
    `bind_renderer_factory` rebound the factory.
 5. **Level 4 — the harness Scenarios.**
    - **Interactive multi-select** `table_multi_select_progress`: a `multi` grid;
-     inject `row_selection_changed` carrying two ids (range gesture); the built-in
-     handler sets the Hub set; assert the re-push carries it
-     (`PropAfterDispatch(field="selected_row_ids", value=[...])`); a wire `handlers`
-     entry publishes `rows_opened`; the agent advances a `progress` — Decision 1's
-     publish path.
-   - **Composed chrome — Hub-side filter** `table_search_filters_hub_side`: the
-     composition (`input_text` search + basic `table`) with a selected row that
-     matches the query. Inject a `value_changed` on the search input; the Hub-side
-     filter handler recomputes the visible rows and `apply_patch`es the table's
-     `rows`; assert the table now holds only matching rows **and the selected row
-     (still matching) stays selected** (selection intact via set-intersection
-     reconciliation). This is Decision 6's v1 path end to end.
+     inject `row_selection_changed` carrying two ids + an anchor (range gesture);
+     the built-in handler sets the Hub set and anchor; assert the re-push carries
+     them (`PropAfterDispatch(field="selected_row_ids", ...)` and `anchor_row_id`);
+     a wire `handlers` entry publishes `rows_opened`; the agent advances a
+     `progress` — Decision 1's handler + business-publish path.
+   - **Composed chrome — Hub-side search filter** `table_search_filters_hub_side`:
+     the composition (`input_text` search + basic `table` + `FilteredTableModel`)
+     with a selected row that matches the query. Inject a `value_changed` on the
+     search input; the filter handler recomputes visible rows and re-projects; assert
+     the table holds only matching rows **and the still-matching selected row stays
+     selected**.
+   - **Composed chrome — Hub-side combo filter** `table_combo_filter_hub_side`: the
+     same, driving a categorical `combo` (`value_changed` selecting one category)
+     instead of the search box; assert exact-match filtering and selection projection.
+   - **Filter hides then restores a selection (the blocker)**
+     `table_filter_preserves_hidden_selection`: select rows `{a, d}`; apply a filter
+     that hides `d` (only `a` matches) → assert `table.selected_row_ids == {a}` but
+     `FilteredTableModel.full_selection == {a, d}`; **clear the filter** → assert
+     `table.selected_row_ids == {a, d}` again (the hidden selection restored). This
+     is the finding-1 fix, proven end to end.
+   - **Detail binding** `table_detail_binds_to_anchor`: a composition with a grid +
+     sibling detail region; inject `row_selection_changed` with anchor `= b`; assert
+     the detail-binding handler `apply_patch`ed the detail region's heading/fields/
+     body to row `b`'s content (assert on the sibling element's resolved props, no
+     pixels).
    - **Reconcile-on-reorder** `table_reorder_keeps_selection`: select `{a, c}`,
      re-push rows reordered with `b` removed and a row inserted; assert
-     `selected_row_ids == (a, c)`.
+     `selected_row_ids == {a, c}`.
 6. **Level 5 — introspection.** `inspect_scene` → `render_path == "abc"`;
    `resolved_props` reads `columns`, `row_count`, `selection_mode`,
    `selected_row_ids`, `anchor_row_id`. After the interactive Scenario, the reported
@@ -705,20 +840,30 @@ Write expected values first; drive the real entry point; assert against live sta
    `show_table`, and the beads board via `lux:beads` (smoke test). Confirm by eye +
    `screenshot`: click selects, ctrl-click toggles, shift-click ranges, box-select
    works; a real column sort reorders rows and keeps the selection; the composed
-   search box filters the grid **Hub-side** (the table shows only matching rows) and
-   selection survives; clicking a row updates the sibling detail region; an
-   agent-driven `selected_row_ids` re-push moves the highlight with no gesture.
-   Capture `inspect_scene` + `list_recent_events`; **operator confirms**.
+   search box and a combo filter the grid **Hub-side** (the table shows only matching
+   rows), a selection hidden by the filter **reappears when the filter is cleared**,
+   and clicking a row updates the sibling detail region; an agent-driven
+   `selected_row_ids` re-push moves the highlight with no gesture. Capture
+   `inspect_scene` + `list_recent_events`; **operator confirms**.
 
 ## 10. Report status
 
-Design ratified with the operator's six rulings and updated accordingly, including
-the composite reshaping (Decision 6): the core `table` is now a **basic data grid**,
-and the filter bar, search box, status combos, and detail panel are **compositions
-of primitives**, filtered Hub-side in v1 with the detail panel a selection-bound
-sibling. The core write set shrinks (~290 lines of filter/detail/pagination
-rendering and ~91 lines of `TableFilter`/`TableDetail` do not migrate); the
-compositions (`show_table`, `beads`, `data-explorer`) rebuild in the same change
-per fork-don't-mix and the update-all-callers rule. No production code written.
-Saved to `docs/architecture/migration/table-design.md`. Implementation dispatches
-against this amended design.
+Design ratified with the operator's six rulings and reworked for the reshape-round
+findings. The core `table` is a **basic data grid**; the filter bar, search box,
+status combos, and detail panel are **compositions of primitives**, filtered
+Hub-side in v1 with the detail panel a selection-bound sibling on the D21 handler
+path. The reshape-round fixes: the **selection-authority blocker** is closed by
+`FilteredTableModel` — a named Hub-side composition-state object owning the
+unfiltered rows and the **full** selection, with the element's `selected_row_ids` a
+`full ∩ visible` projection the filter handler recomputes and restores on
+filter-clear (a plain table keeps element-owned selection); the detail binding is
+named the **D21 handler path**, not "publish"; the **anchor** is pinned to ImGui's
+`MultiSelectIO` last-interacted item and carried as an explicit event/field, not
+inferred from set order; `_column_widths` drops the `| None` for `()`; and the
+verify plan gains the select→hide→clear→restore scenario, an automated
+detail-binding scenario, and a combo-filter case. The core write set shrinks (~290
+lines of filter/detail/pagination rendering and ~91 lines of
+`TableFilter`/`TableDetail` do not migrate); the compositions rebuild in the same
+change per fork-don't-mix and the update-all-callers rule. No production code
+written. Saved to `docs/architecture/migration/table-design.md`. Implementation
+dispatches against this amended design.
