@@ -232,23 +232,26 @@ class Element(EventHandlerHost, ABC):
 
         The single mechanism for marking any Element removed; all three
         removal paths (agent ``RemoveElement``, component self-dismiss,
-        connection disconnect) reach it.
-
-        Observers run against a snapshot of the list so a callback that
-        mutates the registry mid-dispatch cannot affect the in-flight
-        call. A callback that raises is logged with full traceback and
-        the remaining observers still run — removal is a fan-out
-        boundary where one bad subscriber must not strand the others
-        (PY-EH-6 system-boundary exemption).
+        connection disconnect) reach it. The ``removed`` notification fans out
+        through ``_notify_observers``.
         """
         if self._removed:
             return
         self._removed = True
+        self._notify_observers("removed")
+
+    def _notify_observers(self, prop: str) -> None:
+        """Notify every observer that ``prop`` changed, isolating failures.
+
+        The single fan-out point for property-change notifications (``removed``
+        today; a table's ``selected_row_ids`` write-through, and future
+        ``visible`` / ``enabled``). Observers run against a snapshot so a callback
+        that mutates the registry mid-dispatch cannot affect the in-flight call,
+        and a raising observer is logged and skipped — one bad subscriber must not
+        strand the others (PY-EH-6 system-boundary exemption).
+        """
         for observer in tuple(self._observers):
             try:
-                observer("removed")
+                observer(prop)
             except Exception:
-                logger.exception(
-                    "observer raised on removed for element %s",
-                    self.id,
-                )
+                logger.exception("observer raised on %s for element %s", prop, self.id)

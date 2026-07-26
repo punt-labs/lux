@@ -53,10 +53,18 @@ class FilteredTableModel:
         self._key_column = key_column
         self._search_columns = search_columns
         self._table = table
-        self._full_selection = set()
+        # Seed from the table's initial selection, so a grid built with a seeded
+        # selection (a rebuilt show_table) starts with a matching full selection.
+        self._full_selection = set(table.selected_row_ids)
         self._search = ""
         self._combo_picks = {}
         self._detail = None
+        # Observe selection writes so an agent apply_patch of selected_row_ids
+        # folds into the full selection the same way a gesture does, never
+        # shadowed on the next re-projection. Registered on __new__ only; a
+        # pickled replica restores via object.__new__ and never mutates the Hub
+        # copy, so it needs no observer of its own.
+        table.add_observer(self._on_table_change)
         return self
 
     def bind_detail(self, detail: DetailBindingHandler) -> None:
@@ -101,6 +109,19 @@ class FilteredTableModel:
         self._full_selection = (self._full_selection - visible) | (
             visible_selection & visible
         )
+
+    def _on_table_change(self, prop: str) -> None:
+        """Fold a selection write into the full selection (the observer callback).
+
+        Fires for every ``selected_row_ids`` write — a gesture's built-in sync or
+        an agent ``apply_patch`` — so both reach the full selection. The merge is
+        visible-scoped and idempotent, so a re-projection's own write is a no-op
+        and a hidden selection is never dropped. Other property notifications
+        (``removed``) are ignored.
+        """
+        if prop != "selected_row_ids":
+            return
+        self.on_selection_gesture(self._table.selected_row_ids)
 
     def visible_ids(self) -> frozenset[str]:
         """Return the ids of the rows the current filter leaves visible."""

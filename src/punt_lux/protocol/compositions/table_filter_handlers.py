@@ -76,6 +76,10 @@ class ComboFilterHandler:
 
     @trace
     def __call__(self, event: ValueChanged) -> None:
-        index = event.value if isinstance(event.value, int) else 0
+        # A combo's value is a selected index. bool subclasses int, so an errant
+        # ValueChanged(value=True) would read as index 1 — guard it out (the same
+        # bool exclusion the wire decoders use) so a non-index falls back to 0.
+        raw = event.value
+        index = raw if isinstance(raw, int) and not isinstance(raw, bool) else 0
         chosen = self._items[index] if 0 <= index < len(self._items) else "All"
         self._model.on_combo(self._column, chosen)

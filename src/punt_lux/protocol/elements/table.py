@@ -198,9 +198,15 @@ class TableElement(Element):
         The ids are intersected with the live rows so a selection racing a rows
         re-push never lands a ghost id in the authoritative set (which the
         renderer would then read back as a spurious per-frame user change).
+
+        Observers are notified so a filtered composition's ``FilteredTableModel``
+        folds the write into its full selection — an agent ``apply_patch`` reaches
+        the model the same way a gesture does, instead of being shadowed on the
+        next re-projection.
         """
         ids = frozenset(self._str_list(value, "selected")) & self._live_ids()
         self._selection = self._selection.with_selection(ids)
+        self._notify_observers("selected_row_ids")
 
     def _set_anchor_row_id(self, value: object) -> None:
         """Set the anchor row (the last-interacted row a detail sibling shows)."""

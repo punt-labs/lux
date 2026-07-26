@@ -169,6 +169,45 @@ class TestHubSideFiltering:
         assert [row[0] for row in table.rows] == ["a"]
         assert table.selected_row_ids == frozenset({"a"})
 
+    def test_agent_selection_under_a_filter_writes_through_to_the_model(self) -> None:
+        # PR #283 MEDIUM: an agent apply_patch of selected_row_ids (not a gesture)
+        # must reach the model's full selection, or the next re-projection shadows
+        # it. Select d (all visible), filter it out, then agent-select a visible
+        # row; clearing the filter must restore BOTH the agent's pick and d.
+        group = self._explorer()
+        table = _table(group)
+        _select(table, "d", anchor="d")  # d selected while everything is visible
+        _change(_combo(group), 1)  # "open" -> a, c visible; d hidden
+        assert table.selected_row_ids == frozenset()  # d hidden
+        table.apply_patch({"selected_row_ids": ["a"]})  # AGENT write, not a gesture
+        _change(_combo(group), 0)  # "All" -> clear the filter
+        assert table.selected_row_ids == frozenset({"a", "d"})  # both restored
+
+
+class TestModelSeeding:
+    def test_model_seeds_full_selection_from_the_table(self) -> None:
+        # A grid built with a seeded selection (a rebuilt show_table) hands the
+        # model a matching full selection, so the seed is not lost on the first
+        # re-projection.
+        from punt_lux.protocol.compositions.filtered_table_model import (
+            FilteredTableModel,
+        )
+
+        table = TableElement(
+            id="t",
+            columns=("ID",),
+            rows=(("a",), ("b",)),
+            selection_mode="multi",
+            selected_row_ids=frozenset({"a"}),
+        )
+        model = FilteredTableModel(
+            all_rows=(("a",), ("b",)),
+            key_column=0,
+            search_columns=(),
+            table=table,
+        )
+        assert model.full_selection == frozenset({"a"})
+
 
 class TestDetailBinding:
     def _master_detail(self) -> GroupElement:
@@ -257,6 +296,44 @@ class TestFilterRobustness:
                     columns=("ID", "Status"),
                     rows=(("a", "open"),),
                     filters=({"type": "combo", "column": "Status", "items": ["All"]},),
+                )
+            )
+
+    def test_combo_ignores_a_bool_value_as_no_selection(self) -> None:
+        # PR #283: bool subclasses int, so ValueChanged(value=True) must not read
+        # as index 1 ("open"); it falls back to no selection and leaves all rows.
+        group = TableComposition.build(
+            TableCompositionSpec(
+                columns=("ID", "Status"),
+                rows=(("a", "open"), ("b", "closed")),
+                filters=(
+                    {"type": "combo", "column": 1, "items": ["All", "open", "closed"]},
+                ),
+            )
+        )[0]
+        assert isinstance(group, GroupElement)
+        _change(_combo(group), True)  # a bool, not an index
+        assert [row[0] for row in _table(group).rows] == ["a", "b"]
+
+    def test_non_list_combo_items_is_rejected(self) -> None:
+        # PR #283: an open wire shape can arrive as None/scalar — fail loud with
+        # the field name, not a bare TypeError inside a comprehension.
+        with pytest.raises(ValueError, match="combo filter 'items' must be a list"):
+            TableComposition.build(
+                TableCompositionSpec(
+                    columns=("ID", "Status"),
+                    rows=(("a", "open"),),
+                    filters=({"type": "combo", "column": 1, "items": None},),
+                )
+            )
+
+    def test_non_list_detail_fields_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="detail 'fields' must be a list"):
+            TableComposition.build(
+                TableCompositionSpec(
+                    columns=("ID",),
+                    rows=(("a",),),
+                    detail={"fields": None, "rows": [["a"]], "body": ["x"]},
                 )
             )
 

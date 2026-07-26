@@ -23,7 +23,6 @@ from punt_lux.protocol.compositions.table_filter_handlers import (
 )
 from punt_lux.protocol.compositions.table_selection_handlers import (
     DetailBindingHandler,
-    SelectionMergeHandler,
 )
 from punt_lux.protocol.elements.combo import ComboElement
 from punt_lux.protocol.elements.group import GroupElement
@@ -41,6 +40,20 @@ if TYPE_CHECKING:
 __all__ = ["TableComposition", "TableCompositionSpec"]
 
 _DEFAULT_FLAGS = ("borders", "row_bg")
+
+
+def _require_list(value: object, name: str) -> list[object]:
+    """Return ``value`` as a list, or raise a named ``ValueError``.
+
+    The open wire shapes (a filter's ``items``, a detail's ``fields``/``rows``/
+    ``body``) can arrive as ``None`` or a scalar; fail loud with the field name,
+    the composition's own principle, rather than raise a bare ``TypeError`` deep
+    in a comprehension.
+    """
+    if not isinstance(value, list):
+        msg = f"table {name} must be a list, got {type(value).__name__}"
+        raise ValueError(msg)
+    return cast("list[object]", value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,13 +115,15 @@ class TableComposition:
         install_selection_sync(table)
         if not spec.has_chrome:
             return [table]
+        # The model registers itself as an observer of the table, so every
+        # selection write (gesture sync or agent apply_patch) folds into its full
+        # selection — no separate merge handler on RowSelectionChanged is needed.
         model = FilteredTableModel(
             all_rows=spec.rows,
             key_column=spec.key_column,
             search_columns=spec.search_columns(),
             table=table,
         )
-        table.add_handler(RowSelectionChanged, SelectionMergeHandler(model))
         children = cls._filter_controls(spec, model)
         children.append(table)
         cls._append_detail(spec, table, model, children)
@@ -172,8 +187,8 @@ class TableComposition:
         table_id: str, index: int, filt: dict[str, object], model: FilteredTableModel
     ) -> ComboElement:
         """Build a categorical combo mirroring its value and driving the filter."""
-        raw_items = filt.get("items", [])
-        items = [str(item) for item in cast("list[object]", raw_items)]
+        raw_items = _require_list(filt.get("items", []), "combo filter 'items'")
+        items = [str(item) for item in raw_items]
         raw_column = filt.get("column", 0)
         if isinstance(raw_column, bool) or not isinstance(raw_column, int):
             got = type(raw_column).__name__
@@ -223,9 +238,10 @@ class TableComposition:
     def _detail_content(spec: TableCompositionSpec) -> dict[str, str]:
         """Return per-row-id markdown detail content from the parallel arrays."""
         detail = spec.detail or {}
-        fields = [str(f) for f in cast("list[object]", detail.get("fields", []))]
-        detail_rows = cast("list[object]", detail.get("rows", []))
-        bodies = cast("list[object]", detail.get("body", []))
+        raw_fields = _require_list(detail.get("fields", []), "detail 'fields'")
+        fields = [str(f) for f in raw_fields]
+        detail_rows = _require_list(detail.get("rows", []), "detail 'rows'")
+        bodies = _require_list(detail.get("body", []), "detail 'body'")
         content: dict[str, str] = {}
         for index, row in enumerate(spec.rows):
             if not 0 <= spec.key_column < len(row):
