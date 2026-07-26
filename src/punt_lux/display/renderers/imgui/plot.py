@@ -88,6 +88,10 @@ class ImGuiPlotRenderer(LeafRenderer[PlotElement]):
         elif series_type == "scatter":
             implot.plot_scatter(label, x_data, y_data)
         elif series_type == "bar":
+            # imgui-bundle ships two plot_bars signatures across versions: newer
+            # takes (label, xs, ys, bar_size); older takes (label, values,
+            # bar_size). Try the explicit-x form, fall back to the y-only form so
+            # the renderer works against whichever binding is installed.
             try:
                 implot.plot_bars(label, x_data, y_data, 0.67)
             except TypeError:
