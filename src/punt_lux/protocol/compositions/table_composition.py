@@ -157,12 +157,15 @@ class TableComposition:
         produced no control with no feedback is worse than an error.
         """
         controls: list[Element] = []
+        num_columns = len(spec.columns)
         for index, filt in enumerate(spec.filters):
             kind = filt.get("type")
             if kind == "search":
                 controls.append(cls._search_input(spec.table_id, filt, model))
             elif kind == "combo":
-                controls.append(cls._combo(spec.table_id, index, filt, model))
+                controls.append(
+                    cls._combo(spec.table_id, index, filt, model, num_columns)
+                )
             else:
                 msg = f"unknown table filter type {kind!r} (want 'search' or 'combo')"
                 raise ValueError(msg)
@@ -184,7 +187,11 @@ class TableComposition:
 
     @staticmethod
     def _combo(
-        table_id: str, index: int, filt: dict[str, object], model: FilteredTableModel
+        table_id: str,
+        index: int,
+        filt: dict[str, object],
+        model: FilteredTableModel,
+        num_columns: int,
     ) -> ComboElement:
         """Build a categorical combo mirroring its value and driving the filter."""
         raw_items = _require_list(filt.get("items", []), "combo filter 'items'")
@@ -193,6 +200,12 @@ class TableComposition:
         if isinstance(raw_column, bool) or not isinstance(raw_column, int):
             got = type(raw_column).__name__
             msg = f"combo filter 'column' must be an int index, got {got}"
+            raise ValueError(msg)
+        if not 0 <= raw_column < num_columns:
+            msg = (
+                f"combo filter 'column' {raw_column} is out of range for "
+                f"{num_columns} columns"
+            )
             raise ValueError(msg)
         column = raw_column
         combo = ComboElement(

@@ -275,6 +275,18 @@ class TestDetailBinding:
         detail = next(c for c in group.children if isinstance(c, MarkdownElement))
         assert "Select a row" in detail.content
 
+    def test_agent_selection_patch_re_drives_the_detail(self) -> None:
+        # PR #283 HIGH: an agent apply_patch of selected_row_ids (not a gesture,
+        # no RowSelectionChanged) must re-drive the detail through the same path a
+        # gesture and a filter re-projection use — the selection observer.
+        group = self._master_detail()
+        detail = next(c for c in group.children if isinstance(c, MarkdownElement))
+        _select(_table(group), "a", anchor="a")
+        assert "about alpha" in detail.content
+        _table(group).apply_patch({"selected_row_ids": ["b"]})  # AGENT write
+        assert "about beta" in detail.content
+        assert "about alpha" not in detail.content
+
     def test_filtering_out_the_anchor_re_drives_the_detail(self) -> None:
         # A filter that hides the anchored row must not leave the panel showing
         # the vanished row's card (F6): _reproject re-drives the detail.
@@ -351,6 +363,18 @@ class TestFilterRobustness:
         assert isinstance(group, GroupElement)
         _change(_combo(group), True)  # a bool, not an index
         assert [row[0] for row in _table(group).rows] == ["a", "b"]
+
+    def test_combo_out_of_range_column_is_rejected(self) -> None:
+        # PR #283: an out-of-range combo column would empty the table the moment a
+        # non-"All" value is picked. Range-check at construction with a named error.
+        with pytest.raises(ValueError, match="out of range for 2 columns"):
+            TableComposition.build(
+                TableCompositionSpec(
+                    columns=("ID", "Status"),
+                    rows=(("a", "open"),),
+                    filters=({"type": "combo", "column": 5, "items": ["All"]},),
+                )
+            )
 
     def test_non_list_combo_items_is_rejected(self) -> None:
         # PR #283: an open wire shape can arrive as None/scalar — fail loud with

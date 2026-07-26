@@ -113,26 +113,30 @@ class FilteredTableModel:
     def _on_table_change(self, prop: str) -> None:
         """Fold a selection write into the full selection (the observer callback).
 
-        Fires for every ``selected_row_ids`` write — a gesture's built-in sync or
-        an agent ``apply_patch`` — so both reach the full selection. The merge is
-        visible-scoped and idempotent, so a re-projection's own write is a no-op
-        and a hidden selection is never dropped. Other property notifications
-        (``removed``) are ignored.
+        Fires for every ``selected_row_ids`` write — a gesture's built-in sync, an
+        agent ``apply_patch``, or a filter re-projection's own patch — so all three
+        reach the full selection *and* re-drive a bound detail through one shared
+        path. The merge is visible-scoped and idempotent, so a re-projection's own
+        write is a no-op and a hidden selection is never dropped. Other property
+        notifications (``removed``) are ignored.
         """
         if prop != "selected_row_ids":
             return
         self.on_selection_gesture(self._table.selected_row_ids)
+        if self._detail is not None:
+            self._detail.render_anchor(self._table.anchor_row_id)
 
     def visible_ids(self) -> frozenset[str]:
         """Return the ids of the rows the current filter leaves visible."""
         return frozenset(self._row_id(row) for row in self._visible_rows())
 
     def _reproject(self) -> None:
-        """Patch the table with the visible rows + projected selection, and detail.
+        """Patch the table with the visible rows + projected selection.
 
         The selection patch reseats the table's anchor onto a still-visible row
-        (or clears it), so a bound detail is re-driven from that anchor — the
-        panel never keeps showing a row the filter just hid.
+        (or clears it); the bound detail is re-driven from that anchor by the
+        ``selected_row_ids`` observer (``_on_table_change``) — the one shared
+        re-drive path — so the panel never keeps showing a row the filter hid.
         """
         visible = self._visible_rows()
         visible_ids = frozenset(self._row_id(row) for row in visible)
@@ -142,8 +146,6 @@ class FilteredTableModel:
                 "selected_row_ids": sorted(self._full_selection & visible_ids),
             }
         )
-        if self._detail is not None:
-            self._detail.render_anchor(self._table.anchor_row_id)
 
     def _visible_rows(self) -> tuple[tuple[object, ...], ...]:
         """Return the unfiltered rows that pass the search and combo predicates."""
