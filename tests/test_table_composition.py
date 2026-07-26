@@ -92,6 +92,29 @@ class TestBuilderShape:
         ]
         assert _table(group).selection_mode == "single"  # detail -> single
 
+    def test_table_id_seeds_the_synthesized_ids_so_two_tables_coexist(self) -> None:
+        # Two show_table compositions in one scene must not collide: a distinct
+        # table_id prefixes the group root, the grid, and every control id.
+        def group_for(table_id: str) -> GroupElement:
+            roots = TableComposition.build(
+                TableCompositionSpec(
+                    columns=("ID",),
+                    rows=(("1",),),
+                    filters=({"type": "search", "column": [0]},),
+                    table_id=table_id,
+                )
+            )
+            root = roots[0]
+            assert isinstance(root, GroupElement)
+            return root
+
+        left, right = group_for("left"), group_for("right")
+        assert left.id == "left-view"
+        assert right.id == "right-view"
+        left_ids = {left.id, *(c.id for c in left.children)}
+        right_ids = {right.id, *(c.id for c in right.children)}
+        assert left_ids.isdisjoint(right_ids), "no synthesized id may collide"
+
 
 class TestHubSideFiltering:
     def _explorer(self) -> GroupElement:
