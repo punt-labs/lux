@@ -18,7 +18,13 @@
   row set and full selection so filtering never forgets a hidden selection.
   `show_table` gained `key_column` and `table_id` parameters and builds the
   composed experience server-side; the beads browser and data-explorer are
-  rebuilt on the same composition.
+  rebuilt on the same composition. Columns auto-size proportionally to their
+  content when no explicit widths are given, and the grid reserves scroll
+  space so a detail panel stays visible below it. REST gained
+  `PUT /scenes/{id}/table` and `/dashboard` routes that construct the
+  composition server-side — pushing a composed table as plain JSON through
+  the generic render route cannot carry the Hub-side filter and detail
+  handlers, so table/dashboard callers must use the dedicated routes.
 - **Tree, plot, and draw migrated to the Element-ABC path.**
   The three kinds now self-validate at the Hub: a malformed plot series
   (non-string label, non-numeric coordinate), a wrong-schema draw command, or
