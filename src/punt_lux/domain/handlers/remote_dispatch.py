@@ -1,7 +1,7 @@
 """Remote-dispatch wrappers for two-tier handler systems.
 
 When the Hub and Display are separate processes, the display-side
-element factory wraps every interaction handler in ``remote_dispatch``
+element factory collapses each event bucket into a ``RemoteDispatchGroup``
 so that ``element.fire(event)`` on the Display side sends a
 ``RemoteEventHandlerInvocation`` to the Hub instead of executing the
 handler body. On the Hub side, the same handlers are decoded without

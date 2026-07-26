@@ -19,7 +19,7 @@
   `show_table` gained `key_column` and `table_id` parameters and builds the
   composed experience server-side; the beads browser and data-explorer are
   rebuilt on the same composition.
-- **Tree, plot, and draw migrated to the Element-ABC path (24 of 25 kinds).**
+- **Tree, plot, and draw migrated to the Element-ABC path.**
   The three kinds now self-validate at the Hub: a malformed plot series
   (non-string label, non-numeric coordinate), a wrong-schema draw command, or
   a label-less tree node is rejected back to the agent with an error naming
