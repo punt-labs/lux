@@ -22,6 +22,7 @@ from typing import TYPE_CHECKING, cast, final
 from imgui_bundle import imgui
 
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
+from punt_lux.display.renderers.imgui.table_column_weights import ColumnWeights
 from punt_lux.display.renderers.imgui.table_row_arbiter import TableSelectionArbiter
 from punt_lux.display.renderers.imgui.table_selection import TableRowSelection
 from punt_lux.display.renderers.imgui.table_sort import TableSort
@@ -86,8 +87,15 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
         return value
 
     def _setup_columns(self, elem: TableElement) -> None:
-        """Declare each column with its stretch weight (explicit or uniform)."""
-        widths = elem.column_widths
+        """Declare each column with its stretch weight.
+
+        Explicit ``column_widths`` win; otherwise the weights are proportioned to
+        the widest cell text per column so an id column is not stretched as wide
+        as a title, sparing the user a manual resize.
+        """
+        widths = elem.column_widths or ColumnWeights().for_content(
+            elem.columns, elem.rows
+        )
         for index, name in enumerate(elem.columns):
             weight = widths[index] if index < len(widths) else 1.0
             imgui.table_setup_column(name, _STRETCH, weight)
