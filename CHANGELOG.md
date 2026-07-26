@@ -4,6 +4,14 @@
 
 ### Added
 
+- **Geometry introspection.** `inspect_scene` (MCP and REST) accepts
+  `want_geometry`; the reply carries each painted element's on-screen
+  rectangle plus z-order — a paint-sequence number per element and a window
+  stacking index — read from the display's last completed frame. An element
+  that didn't paint (collapsed, clipped, closed) is absent from the map.
+  Geometry stays display-local state; the query only reads it. Capture costs
+  about 40 µs per frame for a 50-element scene. Agents can now verify size,
+  position, overlap, and stacking without a human looking at the screen.
 - **Inline image data renders.** An `image` element with base64 `data` now
   decodes and paints (content-hash cached), where it previously fell through
   to its alt text. A malformed payload degrades to alt text with one warning
