@@ -129,6 +129,19 @@ def test_a_genuine_change_still_fires_with_a_hidden_pending_id() -> None:
     assert set(fired[0].row_ids) == {"a", "c"}
 
 
+def test_seeded_storage_sets_only_the_selected_indices(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The ImGui work is O(selected): a fresh storage defaults to unselected, so
+    # only the selected display indices are set (b at index 1 is skipped).
+    imgui_mock = MagicMock()
+    monkeypatch.setattr("punt_lux.display.renderers.imgui.table.imgui", imgui_mock)
+    ImGuiTableRenderer._seeded_storage(("a", "b", "c"), frozenset({"a", "c"}))
+    storage = imgui_mock.SelectionBasicStorage.return_value
+    set_indices = [call.args[0] for call in storage.set_item_selected.call_args_list]
+    assert set_indices == [0, 2]
+
+
 def test_box_select_is_a_multi_only_affordance() -> None:
     # box_select1d (rubber-band a range) belongs to multi-select only; a
     # single-select scope must not enable it, and gets single_select instead.

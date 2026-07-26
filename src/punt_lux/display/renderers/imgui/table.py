@@ -172,9 +172,12 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
     ) -> imgui.SelectionBasicStorage:
         """Return a storage carrying the arbiter's effective selection.
 
-        Only the selected indices are set — a fresh storage defaults to unselected
-        — so seeding is O(selected), not O(rows), and stays cheap at grid scale.
-        The whole id set is still walked to map each id to its display index.
+        The scan is O(rows) — every display id is walked to find its index, the
+        only place an id maps to its ImGui ``SelectionUserData`` — while the ImGui
+        work is O(selected): a fresh storage defaults to unselected, so only the
+        selected indices are set. The scan is a cheap set-membership loop, not a
+        draw call, so it is orthogonal to the list clipper's O(visible) paint
+        bound the 10k-row story rests on.
         """
         storage = imgui.SelectionBasicStorage()
         for index, row_id in enumerate(display_ids):
