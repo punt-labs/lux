@@ -237,10 +237,12 @@ class TableElement(Element):
         self._notify_observers("selected_row_ids")
 
     def _set_anchor_row_id(self, value: object) -> None:
-        """Set the anchor row (the last-interacted row a detail sibling shows)."""
+        """Set the anchor (a detail sibling shows it) and notify, so an anchor-only
+        patch re-drives a bound detail (deferred + de-duped like the other setters)."""
         self._selection = self._selection.with_anchor(
             PatchField("anchor_row_id").as_str(value)
         )
+        self._notify_observers("selected_row_ids")
 
     def _set_tooltip(self, value: object) -> None:
         """Replace the tooltip text."""

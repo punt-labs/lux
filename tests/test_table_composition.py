@@ -346,6 +346,19 @@ class TestDetailBinding:
         group = self._master_detail()
         assert _table(group).scroll_reserve_lines > 0
 
+    def test_anchor_only_patch_re_drives_the_detail(self) -> None:
+        # PR #283: an anchor-only agent patch must re-drive the detail through the
+        # selection observer, not leave it stale until the next selection write.
+        group = self._master_detail()
+        table = _table(group)
+        detail = next(c for c in group.children if isinstance(c, MarkdownElement))
+        _select(table, "a", anchor="a")
+        assert "about alpha" in detail.content
+        detail.apply_patch({"content": "STALE"})  # force the detail out of sync
+        table.apply_patch({"anchor_row_id": "a"})  # anchor-only write
+        assert "about alpha" in detail.content
+        assert "STALE" not in detail.content
+
     def test_rows_only_patch_dropping_the_anchor_re_drives_the_detail(self) -> None:
         # PR #283: a rows-only patch that reconciles away the selected/anchored row
         # must re-drive the detail (via the _set_rows reconcile notification), not

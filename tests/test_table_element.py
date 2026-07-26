@@ -419,3 +419,28 @@ class TestRowsReconcileNotifiesObservers:
         table.apply_patch({"rows": [["a"], ["b"], ["c"]]})  # a survives, anchor a stays
         assert table.selected_row_ids == frozenset({"a"})
         assert seen == ["rows"]  # dataset signal only; selection unchanged
+
+    def test_anchor_only_patch_notifies_observers(self) -> None:
+        table = TableElement(
+            id="t",
+            columns=("ID",),
+            rows=(("a",), ("b",)),
+            selection_mode="single",
+            selected_row_ids=frozenset({"a"}),
+            anchor_row_id="a",
+        )
+        seen: list[str] = []
+        table.add_observer(seen.append)
+        table.apply_patch({"anchor_row_id": "a"})
+        assert seen == ["selected_row_ids"]
+
+    def test_selection_and_anchor_patch_notifies_once(self) -> None:
+        # Both setters queue "selected_row_ids"; the commit buffer de-dups, so a
+        # patch touching selection and anchor fires the observer exactly once.
+        table = TableElement(
+            id="t", columns=("ID",), rows=(("a",),), selection_mode="single"
+        )
+        seen: list[str] = []
+        table.add_observer(seen.append)
+        table.apply_patch({"selected_row_ids": ["a"], "anchor_row_id": "a"})
+        assert seen == ["selected_row_ids"]
