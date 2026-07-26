@@ -16,6 +16,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
+from punt_lux.display.geometry_capture import GeometryCapture
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.modal import ImGuiModalRenderer
 from punt_lux.display.server import DisplayServer
@@ -24,6 +25,16 @@ from punt_lux.protocol.elements.modal import ModalElement
 
 if TYPE_CHECKING:
     import pytest
+
+
+def _silence_geometry(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stub ``record_window`` — ``end`` records the popup rect through the real
+    ImGui window state, which these dismiss-semantics tests fake without a GL
+    frame; the real record would segfault, and none of them assert geometry."""
+
+    def record_window(_self: object, _element_id: str, _kind: str) -> None: ...
+
+    monkeypatch.setattr(GeometryCapture, "record_window", record_window)
 
 
 def _factory() -> ImGuiRendererFactory:
@@ -48,6 +59,7 @@ def _patch(monkeypatch: pytest.MonkeyPatch, imgui: MagicMock) -> None:
     imgui.is_window_focused.return_value = True
     imgui.is_key_pressed.return_value = False
     monkeypatch.setattr("punt_lux.display.renderers.imgui.modal.imgui", imgui)
+    _silence_geometry(monkeypatch)
 
 
 def test_open_frame_opens_popup(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -253,6 +265,7 @@ def test_title_change_on_open_modal_does_not_dismiss(
     monkeypatch.setattr(
         "punt_lux.display.renderers.imgui.modal.imgui", _IdentityImgui()
     )
+    _silence_geometry(monkeypatch)
     modal, seen = _capturing_modal(open=True)
     factory = _factory()
 

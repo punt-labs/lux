@@ -203,10 +203,11 @@ class ContainerRenderer:
         title = win.title or win.id
         expanded, _ = imgui.begin(f"{title}##{win.id}", flags=flags)
         if expanded:
-            # Record while the window is open, so its rect and begin-order are
-            # live — a legacy window reports geometry like the ABC window adapter,
-            # not the nothing a pure container records.
-            self._record_window(win.id, win.kind)
             for child in win.children:
                 self._render_child(child)
+            # Record after the children lay out but while the window is still
+            # current, so an auto-sized legacy window reports its settled rect and
+            # begin-order — matching the ABC window adapter, not the nothing a
+            # pure container records.
+            self._record_window(win.id, win.kind)
         imgui.end()

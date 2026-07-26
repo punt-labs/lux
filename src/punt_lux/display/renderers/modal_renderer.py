@@ -100,12 +100,12 @@ class ModalRenderer:
         visible, _p_open = imgui.begin_popup_modal(popup_id, closable)
 
         if visible:
-            # Record while the popup is open, so its rect and begin-order are
-            # live — a legacy modal wrapping a table reports its window geometry,
-            # matching the ABC modal adapter.
-            self._record_window(eid, elem.kind)
             for child in elem.children:
                 self._render_child(child)
+            # Record after the children lay out but while the popup is still
+            # current, so a legacy modal wrapping a table reports its settled
+            # window rect and begin-order — matching the ABC modal adapter.
+            self._record_window(eid, elem.kind)
             imgui.end_popup()
 
         if was_open and not visible:

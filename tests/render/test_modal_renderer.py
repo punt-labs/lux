@@ -143,6 +143,30 @@ def test_visible_modal_records_its_window_geometry(
     assert recorded == [("m", "modal")]
 
 
+def test_visible_modal_records_after_children_before_end_popup(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The children lay out first, then the settled rect is recorded, then the
+    # popup closes — recording before the children would capture the pre-layout
+    # width, the needle-column signal this feature exists to catch.
+    order: list[str] = []
+    imgui = MagicMock()
+    imgui.begin_popup_modal.return_value = (True, True)
+    imgui.end_popup.side_effect = lambda: order.append("end")
+    _patch(monkeypatch, imgui)
+    child = TextElement(id="c", content="hi")
+    modal = LegacyModalElement(id="m", title="Confirm", open=True, children=[child])
+
+    ModalRenderer(
+        WidgetState(),
+        lambda _msg: None,
+        lambda _child: order.append("child"),
+        lambda _i, _k: order.append("record"),
+    ).render(modal)
+
+    assert order == ["child", "record", "end"]
+
+
 def test_default_title_falls_back_to_id(monkeypatch: pytest.MonkeyPatch) -> None:
     imgui = MagicMock()
     imgui.begin_popup_modal.return_value = (False, False)

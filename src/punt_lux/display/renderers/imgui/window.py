@@ -73,19 +73,24 @@ class ImGuiWindowRenderer:
         return mask
 
     def paint(self) -> None:
-        """Record the window's painted rect; its body is its children.
+        """A window is a container; its body is its children, so paint no widget.
 
-        Runs inside the open window, so the recorded rect reflects the user's
-        drag and ImGui's auto-sizing — Display-local truth never re-pushed.
+        The rect is recorded in ``end`` after the children have laid out — the
+        skeleton runs ``paint`` before the children, so recording here would
+        capture the pre-layout size of an auto-sizing window.
         """
-        self._factory.geometry.record_window(self._elem.id, self._elem.kind)
 
     def end(self, *, opened: bool) -> None:
-        """Close the window and apply the tooltip.
+        """Record the settled rect, then close the window and apply the tooltip.
 
-        ``imgui.begin`` is always paired with ``imgui.end`` regardless of the
-        expanded/collapsed result, so ``end`` ignores ``opened``.
+        The record runs while the window is still current but after the children
+        have laid out, so an auto-sized window reports its final size and the
+        user's drag — Display-local truth never re-pushed. Only an expanded
+        window records; a collapsed one painted no content, matching the pure
+        containers that record nothing. ``imgui.begin`` is always paired with
+        ``imgui.end`` regardless, so the close is unconditional.
         """
-        _ = opened
+        if opened:
+            self._factory.geometry.record_window(self._elem.id, self._elem.kind)
         imgui.end()
         self._factory.apply_tooltip(self._elem)
