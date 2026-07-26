@@ -182,7 +182,7 @@ class TableElement(Element):
     def _set_rows(self, value: object) -> None:
         """Replace the rows and reconcile the selection to the live ids."""
         self._rows = self.rows_from_wire(value)
-        self._selection.reconcile(self._live_ids())
+        self._selection = self._selection.reconciled(self._live_ids())
 
     def _set_columns(self, value: object) -> None:
         """Replace the column headers."""
@@ -193,12 +193,20 @@ class TableElement(Element):
         self._flags = TableFlags.from_wire(self._str_list(value, "flags"))
 
     def _set_selected_row_ids(self, value: object) -> None:
-        """Replace the selection from an agent drive or the built-in handler."""
-        self._selection.set_selected_ids(frozenset(self._str_list(value, "selected")))
+        """Replace the selection from an agent drive or the built-in handler.
+
+        The ids are intersected with the live rows so a selection racing a rows
+        re-push never lands a ghost id in the authoritative set (which the
+        renderer would then read back as a spurious per-frame user change).
+        """
+        ids = frozenset(self._str_list(value, "selected")) & self._live_ids()
+        self._selection = self._selection.with_selection(ids)
 
     def _set_anchor_row_id(self, value: object) -> None:
         """Set the anchor row (the last-interacted row a detail sibling shows)."""
-        self._selection.set_anchor(PatchField("anchor_row_id").as_str(value))
+        self._selection = self._selection.with_anchor(
+            PatchField("anchor_row_id").as_str(value)
+        )
 
     def _set_tooltip(self, value: object) -> None:
         """Replace the tooltip text."""

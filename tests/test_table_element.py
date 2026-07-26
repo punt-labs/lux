@@ -72,6 +72,14 @@ class TestLevel1Serialization:
         assert isinstance(restored, TableElement)
         assert restored.key_column == 1
 
+    def test_key_column_absent_name_is_rejected_naming_it(self) -> None:
+        # A name that matches no column is a wire error naming the name — never a
+        # silent -1 the agent later sees echoed in a validate message.
+        with pytest.raises(ValueError, match="does not name a column"):
+            _decode(
+                {"kind": "table", "id": "t", "columns": ["ID"], "key_column": "Nope"}
+            )
+
     def test_flags_and_selection_survive(self) -> None:
         table = TableElement(
             id="t",
@@ -251,3 +259,35 @@ class TestSelectionSyncAndIntrospection:
         assert props["selected_row_ids"] == ["a"]
         assert props["anchor_row_id"] == "a"
         assert props["row_count"] == 1
+
+
+class TestPatchAtomicity:
+    def test_a_failed_multi_key_patch_rolls_back_the_selection(self) -> None:
+        # apply_patch is all-or-nothing: a patch that mutates rows (reconciling
+        # the selection) then fails on a later key must restore the ORIGINAL
+        # selection, not the half-reconciled one. The immutable selection model
+        # is what makes the shallow vars() rollback cover the composed state.
+        table = TableElement(
+            id="t",
+            columns=("ID",),
+            rows=(("a",), ("b",)),
+            selection_mode="multi",
+            selected_row_ids=frozenset({"a", "b"}),
+        )
+        with pytest.raises(ValueError, match="flags must be a list"):
+            # rows would drop "b" from the selection; flags then fails and rolls back.
+            table.apply_patch({"rows": [["a"]], "flags": "not-a-list"})
+        assert table.rows == (("a",), ("b",))
+        assert table.selected_row_ids == frozenset({"a", "b"})
+
+    def test_selected_ids_are_reconciled_against_live_rows(self) -> None:
+        # A ghost id (racing a rows re-push) must never land in the authority —
+        # the renderer's fire-if-changed would read it back as a spurious change.
+        table = TableElement(
+            id="t",
+            columns=("ID",),
+            rows=(("a",), ("b",)),
+            selection_mode="multi",
+        )
+        table.apply_patch({"selected_row_ids": ["a", "ghost"]})
+        assert table.selected_row_ids == frozenset({"a"})

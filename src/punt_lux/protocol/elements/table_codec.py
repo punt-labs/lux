@@ -158,8 +158,10 @@ class JsonTableDecoder:
     def _resolve_key_column(raw: object, columns: tuple[str, ...]) -> int:
         """Resolve a wire key-column (index or name) to a column index.
 
-        A name absent from ``columns`` resolves to ``-1`` so ``validate`` reports
-        it; a non-int, non-str value is a wire type error.
+        A name is resolved to its index; a name absent from ``columns`` is a wire
+        error naming the offending name (never a silent ``-1``). An int is kept
+        as-is so ``validate`` reports an out-of-range index against the agent's
+        own value. A non-int, non-str value is a wire type error.
         """
         if isinstance(raw, bool) or not isinstance(raw, int | str):
             got = type(raw).__name__
@@ -167,7 +169,10 @@ class JsonTableDecoder:
             raise ValueError(msg)
         if isinstance(raw, int):
             return raw
-        return columns.index(raw) if raw in columns else -1
+        if raw not in columns:
+            msg = f"key_column {raw!r} does not name a column ({list(columns)})"
+            raise ValueError(msg)
+        return columns.index(raw)
 
     @staticmethod
     def _decode_mode(raw: Mapping[str, object]) -> SelectionMode:

@@ -1,4 +1,4 @@
-"""TableSelectionModel — raw construction, per-mode verbs, reconcile, serialize."""
+"""TableSelectionModel — raw construction, immutable per-mode verbs, serialize."""
 
 from __future__ import annotations
 
@@ -23,60 +23,71 @@ class TestConstructionIsRaw:
         assert TableSelectionModel(mode="multi").is_selectable is True
 
 
-class TestSetSelectedIds:
+class TestWithSelection:
+    def test_returns_a_new_instance_leaving_the_original_untouched(self) -> None:
+        # Immutability is what keeps apply_patch's rollback honest.
+        original = TableSelectionModel(mode="multi")
+        updated = original.with_selection(frozenset({"a", "b"}))
+        assert updated is not original
+        assert original.selected_row_ids == frozenset()
+        assert updated.selected_row_ids == frozenset({"a", "b"})
+
     def test_none_mode_stays_empty(self) -> None:
-        model = TableSelectionModel(mode="none")
-        model.set_selected_ids(frozenset({"a", "b"}))
+        model = TableSelectionModel(mode="none").with_selection(frozenset({"a", "b"}))
         assert model.selected_row_ids == frozenset()
         assert model.anchor == ""
 
     def test_single_mode_keeps_one(self) -> None:
-        model = TableSelectionModel(mode="single")
-        model.set_selected_ids(frozenset({"a", "b", "c"}))
+        model = TableSelectionModel(mode="single").with_selection(
+            frozenset({"a", "b", "c"})
+        )
         assert len(model.selected_row_ids) == 1
 
     def test_multi_mode_keeps_the_whole_set(self) -> None:
-        model = TableSelectionModel(mode="multi")
-        model.set_selected_ids(frozenset({"a", "b", "c"}))
+        model = TableSelectionModel(mode="multi").with_selection(
+            frozenset({"a", "b", "c"})
+        )
         assert model.selected_row_ids == frozenset({"a", "b", "c"})
 
     def test_anchor_reseats_onto_a_selected_row(self) -> None:
-        model = TableSelectionModel(mode="multi", anchor="z")
-        model.set_selected_ids(frozenset({"a", "b"}))
+        model = TableSelectionModel(mode="multi", anchor="z").with_selection(
+            frozenset({"a", "b"})
+        )
         assert model.anchor == "a"  # reseated to the min selected id
 
 
-class TestSetAnchor:
+class TestWithAnchor:
     def test_keeps_an_anchor_inside_the_selection(self) -> None:
-        model = TableSelectionModel(mode="multi", selected=frozenset({"a", "b", "c"}))
-        model.set_anchor("c")
+        model = TableSelectionModel(
+            mode="multi", selected=frozenset({"a", "b", "c"})
+        ).with_anchor("c")
         assert model.anchor == "c"
 
     def test_drops_an_anchor_outside_the_selection(self) -> None:
-        model = TableSelectionModel(mode="multi", selected=frozenset({"a", "b"}))
-        model.set_anchor("z")
+        model = TableSelectionModel(
+            mode="multi", selected=frozenset({"a", "b"})
+        ).with_anchor("z")
         assert model.anchor == "a"  # reseated to a selected row
 
 
-class TestReconcile:
+class TestReconciled:
     def test_drops_departed_ids(self) -> None:
-        model = TableSelectionModel(mode="multi", selected=frozenset({"a", "b", "c"}))
-        model.reconcile(frozenset({"a", "c"}))
+        model = TableSelectionModel(
+            mode="multi", selected=frozenset({"a", "b", "c"})
+        ).reconciled(frozenset({"a", "c"}))
         assert model.selected_row_ids == frozenset({"a", "c"})
 
     def test_departed_anchor_reseats_to_a_survivor(self) -> None:
         model = TableSelectionModel(
             mode="multi", selected=frozenset({"a", "b"}), anchor="b"
-        )
-        model.reconcile(frozenset({"a"}))
+        ).reconciled(frozenset({"a"}))
         assert model.selected_row_ids == frozenset({"a"})
         assert model.anchor == "a"
 
     def test_all_departed_clears_the_anchor(self) -> None:
         model = TableSelectionModel(
             mode="multi", selected=frozenset({"a", "b"}), anchor="a"
-        )
-        model.reconcile(frozenset({"z"}))
+        ).reconciled(frozenset({"z"}))
         assert model.selected_row_ids == frozenset()
         assert model.anchor == ""
 
