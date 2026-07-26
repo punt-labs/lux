@@ -60,7 +60,10 @@ Add a `filters` array to the `table` element. Two types are available:
 
 ### Built-in Detail Panel (preferred)
 
-Add a `detail` object to the table for drill-down. The Hub binds a detail panel to the grid's selection: click a row and the Hub patches the panel with that row's fields and body text.
+Pass a `detail` object to `show_table` for drill-down (the basic `table`
+element is just a grid — `show_table` composes the detail panel as a sibling
+element). The Hub binds the composed panel to the grid's selection: click a
+row and the Hub patches the panel with that row's fields and body text.
 
 ### Separate Filter Elements (advanced)
 

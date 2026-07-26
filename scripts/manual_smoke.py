@@ -742,7 +742,7 @@ class SmokeRunner:
         )
 
     def _build_table(self) -> FrameSpec:
-        """Frame 5 — the basic data grid (multi-select, real column sort)."""
+        """Frame 5 — the basic data grid (single-select, real column sort)."""
         rows: tuple[tuple[object, ...], ...] = (
             ("lux-001", "open", "P0", "Render every element kind"),
             ("lux-002", "in_progress", "P1", "Add manual smoke test"),
