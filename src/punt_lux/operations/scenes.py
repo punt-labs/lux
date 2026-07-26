@@ -64,14 +64,19 @@ class SceneOperations:
         if isinstance(request, OpError):
             return request
         factory = self._element_factory(scope.connection_id)
-        # Wire-decode boundary: an undecodable element raises ``ValueError``; the
-        # operation never raises through its signature, so a decode failure
-        # becomes a rejection the adapter renders like any other.
+        # Wire-decode boundary: a malformed element raises ``ValueError`` (a bad
+        # value or unknown ``kind``) or ``TypeError`` (a wrong-typed wire shape,
+        # e.g. a table's ``handlers`` that is not a list) — the codecs raise both.
+        # The operation never raises through its signature, so either becomes a
+        # rejection the adapter renders like any other. ``KeyError`` is *not*
+        # caught here: the codecs read with ``.get`` and never raise it; the only
+        # ``KeyError`` in this stack is a store miss during ``install``, an engine
+        # bug to surface, not a caller's malformed submission.
         try:
             elements: list[WireElement] = [
                 factory.element_from_dict(e) for e in request.elements
             ]
-        except ValueError as exc:
+        except (ValueError, TypeError) as exc:
             return OpError(code="rejected", reason=str(exc))
         # WireElement is structurally the domain Element the store installs; the
         # cast bridges list invariance across that crossing (PY-TS-12).

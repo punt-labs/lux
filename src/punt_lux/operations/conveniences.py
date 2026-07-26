@@ -50,13 +50,14 @@ class ConvenienceOperations:
         if isinstance(request, OpError):
             return request
         # Construction boundary: the composition raises ``ValueError`` on a
-        # malformed filter/detail shape (the fail-loud guards). The operation
-        # never raises through its signature, so — like the wire-decode path in
-        # ``SceneOperations.render`` — that becomes a rejection the adapter
-        # renders, not a traceback out of the tool.
+        # malformed filter/detail shape (the fail-loud guards) and, like the
+        # codecs, may raise ``TypeError`` on a wrong-typed wire shape. The
+        # operation never raises through its signature, so — like the wire-decode
+        # path in ``SceneOperations.render`` — either becomes a rejection the
+        # adapter renders, not a traceback out of the tool.
         try:
             roots = TableComposition.build(request.to_spec())
-        except ValueError as exc:
+        except (ValueError, TypeError) as exc:
             return OpError(code="rejected", reason=str(exc))
         return self._scenes.install(
             cast("Sequence[DomainElement]", roots),
