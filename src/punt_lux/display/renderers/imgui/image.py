@@ -2,46 +2,33 @@
 """ImGuiImageRenderer — Renderer-Protocol adapter for ``ImageElement``.
 
 Paints through a per-paint ``ImageRenderer`` (which uploads path-sourced images
-through the factory's shared ``TextureCache`` and falls back to alt text) plus
-the shared tooltip pass the factory owns. An image is a leaf, so ``begin``
-proceeds and ``end`` is a no-op.
+through the factory's shared ``TextureCache`` and falls back to alt text).
+``LeafRenderer`` adds the shared tooltip pass and the geometry capture around it.
+The image plus its alt fallback can paint more than one item, so the widget is
+wrapped in an ImGui group; the captured rect then spans the whole leaf.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Self, final
+from typing import final
+
+from imgui_bundle import imgui
 
 from punt_lux.display.renderers.image_renderer import ImageRenderer
-
-if TYPE_CHECKING:
-    from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-    from punt_lux.protocol.elements.image import ImageElement
+from punt_lux.display.renderers.imgui.leaf import LeafRenderer
+from punt_lux.protocol.elements.image import ImageElement
 
 __all__ = ["ImGuiImageRenderer"]
 
 
 @final
-class ImGuiImageRenderer:
+class ImGuiImageRenderer(LeafRenderer[ImageElement]):
     """Paint an ImageElement via ImageRenderer + the shared tooltip pass."""
 
-    _elem: ImageElement
-    _factory: ImGuiRendererFactory
+    __slots__ = ()
 
-    def __new__(cls, elem: ImageElement, factory: ImGuiRendererFactory) -> Self:
-        self = super().__new__(cls)
-        self._elem = elem
-        self._factory = factory
-        return self
-
-    def begin(self) -> bool:
-        """Leaf — no surface to open; proceed to paint."""
-        return True
-
-    def paint(self) -> None:
-        """Upload/draw the image (texture or alt fallback) + the tooltip pass."""
+    def _paint_widget(self) -> None:
+        """Upload/draw the image (texture or alt fallback), grouped as one rect."""
+        imgui.begin_group()
         ImageRenderer(self._factory.texture_cache).render(self._elem)
-        self._factory.apply_tooltip(self._elem)
-
-    def end(self, *, opened: bool) -> None:
-        """Leaf — no surface to close."""
-        _ = opened
+        imgui.end_group()

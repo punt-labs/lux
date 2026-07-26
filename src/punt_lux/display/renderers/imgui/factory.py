@@ -110,21 +110,6 @@ class ImGuiRendererFactory:
         (SelectableElement, ImGuiSelectableRenderer),
     )
 
-    # Container kinds are not leaf-wrapped for geometry: the window-like ones
-    # record their own window rect, and a pure container has no single widget
-    # rect. Every other kind is a leaf whose renderer is wrapped so its item rect
-    # is captured right after it paints.
-    _CONTAINER_KINDS: ClassVar[frozenset[type]] = frozenset(
-        {
-            DialogElement,
-            ModalElement,
-            WindowElement,
-            GroupElement,
-            CollapsingHeaderElement,
-            TabBarElement,
-        }
-    )
-
     def __new__(
         cls,
         *,
@@ -180,16 +165,6 @@ class ImGuiRendererFactory:
     def apply_tooltip(self, elem: Element) -> None:
         """Paint ``elem``'s shared generic hover tooltip, if it has one."""
         _TOOLTIP.paint(elem)
-
-    def record_leaf_geometry(self, elem: AbcElement) -> None:
-        """Capture a leaf's painted item rect right after it paints.
-
-        Called by the render seam after a factory-backed element paints. A
-        container is skipped — a window-like one records its own window rect, and
-        a pure container has no single widget rect — so only leaves are captured.
-        """
-        if type(elem) not in self._CONTAINER_KINDS:
-            self._geometry.record_item(elem.id)
 
     def __call__(self, elem: object) -> Renderer:
         """Return the ImGui adapter for ``elem``, or raise if unsupported."""
