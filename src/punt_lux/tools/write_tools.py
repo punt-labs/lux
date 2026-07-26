@@ -14,8 +14,9 @@ value-import would freeze the production facade past that rebind (the shape
 
 from __future__ import annotations
 
-from typing import Any, get_args
+from typing import Any, Literal, get_args
 
+from punt_lux.domain.hub.scene_presentation import SceneLayout
 from punt_lux.operations import (
     DisplayModeRequest,
     FrameStatePatch,
@@ -58,12 +59,12 @@ def show(
     scene_id: str,
     elements: list[dict[str, Any]],
     title: str | None = None,
-    layout: str = "single",
+    layout: SceneLayout = "single",
     frame_id: str | None = None,
     frame_title: str | None = None,
     frame_size: list[int] | None = None,
     frame_flags: dict[str, bool] | None = None,
-    frame_layout: str | None = None,  # "tab" or "stack"
+    frame_layout: Literal["tab", "stack"] | None = None,
     frame_ttl_seconds: float | None = None,
 ) -> str:
     """Display a scene in the Lux window.

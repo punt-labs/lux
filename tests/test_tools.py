@@ -17,6 +17,7 @@ from punt_lux.domain.hub.hub_display import HubDisplay
 from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import ensure_writer, next_event
 from punt_lux.domain.hub.menu_registry import HubMenuRegistry
+from punt_lux.domain.hub.scene_presentation import SceneLayout
 from punt_lux.domain.ids import ConnectionId, ElementId, SceneId
 from punt_lux.domain.update import AddElement
 from punt_lux.operations import (
@@ -578,7 +579,9 @@ class TestShowTool:
         client = _mock_client()
         mock_get.return_value = client
 
-        result = show("s1", [], layout="diagonal")
+        # Cast past the SceneLayout type to simulate a wire caller sending an
+        # out-of-set value — the runtime parse must still reject it.
+        result = show("s1", [], layout=cast("SceneLayout", "diagonal"))
 
         assert result == (
             "error: layout must be single/rows/columns/grid, got 'diagonal'"
