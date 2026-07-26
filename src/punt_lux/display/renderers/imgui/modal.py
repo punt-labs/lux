@@ -94,17 +94,27 @@ class ImGuiModalRenderer:
         return visible
 
     def paint(self) -> None:
-        """No-op — the modal's only body is its children (default recursion)."""
+        """A modal is a container; its body is its children, so paint no widget.
+
+        The rect is recorded in ``end`` after the children have laid out — the
+        skeleton runs ``paint`` before the children, so recording here would
+        capture the pre-layout width, the very needle-column signal this feature
+        exists to catch.
+        """
 
     def end(self, *, opened: bool) -> None:
-        """Close the popup and route one ``ModalClosed`` for this frame's gesture.
+        """Record the settled rect, close the popup, route one ``ModalClosed``.
 
-        Two gestures dismiss: the ✕ (begin_popup_modal reports not-visible) and
-        Escape while focused (resolved here — real ImGui does not close a modal
-        on Escape). An outside click deliberately does NOT dismiss: a modal
-        blocks its background, chosen popover-vs-modal semantics.
+        The record runs while the popup is still current but after the children
+        have laid out, so the recorded width is the settled size that would have
+        caught the needle defect — an auto-sized ~20px column. Two gestures
+        dismiss: the ✕ (begin_popup_modal reports not-visible) and Escape while
+        focused (resolved here — real ImGui does not close a modal on Escape).
+        An outside click deliberately does NOT dismiss: a modal blocks its
+        background, chosen popover-vs-modal semantics.
         """
         if opened:
+            self._factory.geometry.record_window(self._elem.id, self._elem.kind)
             if self._escape_dismissed():
                 self._handle_external_close()
                 imgui.close_current_popup()

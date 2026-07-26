@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 from punt_lux.display.element_renderer import ElementRenderer
+from punt_lux.display.geometry_capture import GeometryCapture
 from punt_lux.display.renderers.imgui import (
     button as button_module,
     checkbox as checkbox_module,
@@ -26,8 +27,10 @@ from punt_lux.display.renderers.imgui.collapsing_header import (
 from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.group import ImGuiGroupRenderer
+from punt_lux.display.renderers.imgui.modal import ImGuiModalRenderer
 from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
+from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
 from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.protocol.elements.button import ButtonElement
@@ -35,8 +38,10 @@ from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.group import GroupElement
+from punt_lux.protocol.elements.modal import ModalElement
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.text import TextElement
+from punt_lux.protocol.elements.window import WindowElement
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.scene.widget_state import WidgetState
 
@@ -305,3 +310,84 @@ def test_dialog_popup_id_pins_identity_with_triple_hash(
 
     imgui.open_popup.assert_called_once_with("Confirm###dlg")
     imgui.begin_popup_modal.assert_called_once_with("Confirm###dlg", True)
+
+
+# -- geometry record timing: children lay out, THEN record, THEN close -------
+#
+# The Element render skeleton runs begin -> paint -> children -> end. An
+# auto-sizing window/modal/dialog only reaches its final rect after its children
+# lay out, so the record must run in end (after the children), not paint (before
+# them). These pin the order GL-free the way test_frame_geometry_timing does for
+# the frame rect: imgui is faked, GeometryCapture.record_window is spied, and a
+# "child" marker stands in for the children the skeleton renders between paint
+# and end. record before "child" would be the pre-layout-rect bug.
+
+
+def _spy_record(monkeypatch: pytest.MonkeyPatch, order: list[str]) -> None:
+    """Append "record" when any adapter records its window rect."""
+
+    def record_window(_self: object, _element_id: str, _kind: str) -> None:
+        order.append("record")
+
+    monkeypatch.setattr(GeometryCapture, "record_window", record_window)
+
+
+def test_window_adapter_records_after_children_before_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    order: list[str] = []
+    imgui = MagicMock()
+    imgui.begin.return_value = (True, True)
+    imgui.end.side_effect = lambda: order.append("end")
+    monkeypatch.setattr("punt_lux.display.renderers.imgui.window.imgui", imgui)
+    _spy_record(monkeypatch, order)
+    renderer = ImGuiWindowRenderer(WindowElement(id="w", title="P"), _factory())
+
+    opened = renderer.begin()
+    renderer.paint()  # a window's paint records nothing
+    order.append("child")  # the skeleton lays out children between paint and end
+    renderer.end(opened=opened)
+
+    assert order == ["child", "record", "end"]
+
+
+def test_modal_adapter_records_after_children_before_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    order: list[str] = []
+    imgui = MagicMock()
+    imgui.begin_popup_modal.return_value = (True, True)
+    imgui.is_window_focused.return_value = True
+    imgui.is_key_pressed.return_value = False  # Escape inert, popup stays open
+    imgui.end_popup.side_effect = lambda: order.append("end")
+    monkeypatch.setattr("punt_lux.display.renderers.imgui.modal.imgui", imgui)
+    _spy_record(monkeypatch, order)
+    renderer = ImGuiModalRenderer(
+        ModalElement(id="m", title="C", open=True), _factory()
+    )
+
+    opened = renderer.begin()
+    renderer.paint()
+    order.append("child")
+    renderer.end(opened=opened)
+
+    assert order == ["child", "record", "end"]
+
+
+def test_dialog_adapter_records_after_children_before_end(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    order: list[str] = []
+    imgui = MagicMock()
+    imgui.begin_popup_modal.return_value = (True, True)
+    imgui.end_popup.side_effect = lambda: order.append("end")
+    monkeypatch.setattr("punt_lux.display.renderers.imgui.dialog.imgui", imgui)
+    _spy_record(monkeypatch, order)
+    renderer = ImGuiDialogRenderer(DialogElement(id="d", title="C"), _factory())
+
+    opened = renderer.begin()
+    renderer.paint()
+    order.append("child")
+    renderer.end(opened=opened)
+
+    assert order == ["child", "record", "end"]

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, ClassVar, Self, TypeGuard
 
+from punt_lux.display.geometry_capture import GeometryCapture
 from punt_lux.display.renderers.imgui.button import ImGuiButtonRenderer
 from punt_lux.display.renderers.imgui.checkbox import ImGuiCheckboxRenderer
 from punt_lux.display.renderers.imgui.collapsing_header import (
@@ -78,6 +79,10 @@ class ImGuiRendererFactory:
     _widget_state: WidgetState
     _texture_cache: TextureCache
     _emit: Emit
+    # The one geometry capture the render loop writes and a query reads; owned
+    # here so a window-like adapter records through ``geometry`` with no render
+    # seam threading a recorder into per-frame adapter construction.
+    _geometry: GeometryCapture
 
     # Element type -> adapter constructor driving ``__call__``/``handles``
     # dispatch. Every adapter shares the ``(elem, factory)`` constructor shape.
@@ -116,6 +121,7 @@ class ImGuiRendererFactory:
         self._widget_state = widget_state
         self._texture_cache = texture_cache
         self._emit = emit
+        self._geometry = GeometryCapture()
         return self
 
     @property
@@ -141,6 +147,11 @@ class ImGuiRendererFactory:
     def emit(self) -> Emit:
         """Return the Display-tier emit channel (a no-op; clicks route to Hub)."""
         return self._emit
+
+    @property
+    def geometry(self) -> GeometryCapture:
+        """Return the render loop's geometry capture — one per Display."""
+        return self._geometry
 
     def handles(self, elem: object) -> TypeGuard[AbcElement]:
         """Return whether ``elem`` paints through one of this factory's adapters.

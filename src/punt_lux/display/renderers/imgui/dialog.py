@@ -85,11 +85,21 @@ class ImGuiDialogRenderer:
         return visible
 
     def paint(self) -> None:
-        """No-op — the dialog's only body is its children (default recursion)."""
+        """A dialog is a container; its body is its children, so paint no widget.
+
+        The rect is recorded in ``end`` after the children have laid out — the
+        skeleton runs ``paint`` before the children, so recording here would
+        capture the pre-layout size of an auto-sizing popup.
+        """
 
     def end(self, *, opened: bool) -> None:
-        """Close the popup (only if open), apply the tooltip, run the cascade."""
+        """Record the settled rect, close the popup, apply tooltip, run cascade.
+
+        The record runs while the popup is still current but after the children
+        have laid out, so an auto-sized dialog reports its settled size.
+        """
         if opened:
+            self._factory.geometry.record_window(self._elem.id, self._elem.kind)
             imgui.end_popup()
         if self._was_open and not opened:
             self._handle_external_close()

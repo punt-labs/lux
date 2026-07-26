@@ -26,6 +26,7 @@ from PIL import Image
 
 from punt_lux.display.domain_pump import DomainPump
 from punt_lux.display.element_renderer import ElementRenderer
+from punt_lux.display.frame_tiling import FrameTiling
 from punt_lux.display.glfw_window import GlfwWindow
 from punt_lux.display.idle_screen import render_idle
 from punt_lux.display.interaction_delivery import InteractionDelivery
@@ -278,6 +279,7 @@ class DisplayServer:
         self._scene_inspector = SceneInspector(
             scene_manager=self._scene_manager,
             domain_display=self._domain_display,
+            geometry=self._imgui_renderer_factory.geometry.recorder,
         )
         qd = self._query_dispatcher
         qd.register_handler("inspect_scene", self._scene_inspector.inspect)
@@ -1025,6 +1027,10 @@ class DisplayServer:
         # unframed scene surface — the Hub frames every scene at the boundary.
         self._render_frames(imgui)
 
+        # Promote this frame's rects into the snapshot the next frame's query
+        # reads (that query runs in poll_clients before the next render).
+        self._imgui_renderer_factory.geometry.complete()
+
     # Cascade layout: each new frame offsets from the previous one.
     _CASCADE_BASE_X = 30.0
     _CASCADE_BASE_Y = 40.0
@@ -1073,41 +1079,6 @@ class DisplayServer:
             f.minimized = False
         return True
 
-    @staticmethod
-    def _compute_tile_layout(
-        imgui: Any,
-        region: Any,
-        frames: list[Frame],
-    ) -> dict[str, tuple[float, float, float, float]]:
-        """Compute tiled positions for frames that fill the content region.
-
-        Returns a dict of frame_id -> (x, y, w, h).  Frames are arranged
-        in a grid with roughly equal-sized cells.
-        """
-        import math
-
-        n = len(frames)
-        if n == 0:
-            return {}
-        origin = imgui.get_cursor_screen_pos()
-        cols = math.ceil(math.sqrt(n))
-        rows = math.ceil(n / cols)
-        gap = 4.0
-        cell_w = (region.x - gap * (cols + 1)) / cols
-        cell_h = (region.y - gap * (rows + 1)) / rows
-        # Floor prevents zero/negative cells; frames may extend past the
-        # viewport when the window is very small, but ImGui scroll handles it.
-        cell_w = max(cell_w, 200.0)
-        cell_h = max(cell_h, 150.0)
-        result: dict[str, tuple[float, float, float, float]] = {}
-        for i, f in enumerate(frames):
-            col = i % cols
-            row = i // cols
-            x = origin.x + gap + col * (cell_w + gap)
-            y = origin.y + gap + row * (cell_h + gap)
-            result[f.frame_id] = (x, y, cell_w, cell_h)
-        return result
-
     def _render_single_frame(
         self,
         frame: Frame,
@@ -1147,16 +1118,18 @@ class DisplayServer:
             imgui.end()
             return "closed", hovered
         if not expanded:
-            # Collapse triangle clicked -- minimize to dock bar.
-            # Skip when docked: ImGui reports expanded=False during
-            # docking transitions.
+            # Collapse triangle clicked -- minimize to the dock bar, unless docked
+            # (ImGui transiently reports expanded=False mid-docking transition; a
+            # docked-collapsed frame still paints its tab, so it records below).
             if not imgui.is_window_docked():
                 imgui.set_window_collapsed(False)
                 imgui.end()
                 return "minimized", hovered
-            imgui.end()
-            return None, hovered
-        self._render_frame_contents(frame, imgui)
+        else:
+            self._render_frame_contents(frame, imgui)
+        # Record the painted rect after contents lay out, so an auto-resized frame
+        # captures its final size, not a stale one. Display-local, never Hub state.
+        self._imgui_renderer_factory.geometry.record_frame(frame.frame_id)
         imgui.end()
         return None, hovered
 
@@ -1171,9 +1144,7 @@ class DisplayServer:
         fitting = self._apply_fit_all()
         tile_layout: dict[str, tuple[float, float, float, float]] = {}
         if fitting:
-            tile_layout = self._compute_tile_layout(
-                imgui, region, list(sm.frames.values())
-            )
+            tile_layout = FrameTiling(list(sm.frames.values())).cells(imgui, region)
 
         closed_frames: list[str] = []
         minimized_frames: list[str] = []
@@ -1367,6 +1338,7 @@ class DisplayServer:
         # ``DomainPump.route_interaction`` silently dropped them.
         self._current_scene_id = scene_id
         self._element_renderer.current_scene_id = scene_id
+        self._imgui_renderer_factory.geometry.enter_scene(scene_id)
         scene = frame.scenes[scene_id]
         for elem in scene.elements:
             self._paint_element(elem)

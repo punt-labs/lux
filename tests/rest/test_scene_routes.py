@@ -152,6 +152,56 @@ def test_inspect_scene_want_mirror_binds_and_runs_the_mirror_branch() -> None:
     assert body["mirror"] == {"kind": "present", "present": True}
 
 
+def test_inspect_scene_want_geometry_binds_and_carries_the_painted_rects() -> None:
+    # The want_geometry query param binds at the REST tier and drives the proxied
+    # geometry read: the StubPort's block resolves to a present geometry with the
+    # element's painted rect and the frame rect.
+    geometry_reply = DisplayReplied(
+        {
+            "scene_id": "s1",
+            "geometry": {
+                "elements": {
+                    "t1": {
+                        "rect": {"x": 8.0, "y": 8.0, "width": 120.0, "height": 18.0},
+                        "paint_sequence": 0,
+                        "stack_index": 2,
+                    }
+                },
+                "anonymous": {
+                    "separator:1": {
+                        "rect": {"x": 0.0, "y": 30.0, "width": 100.0, "height": 1.0},
+                        "paint_sequence": 1,
+                        "stack_index": 2,
+                    }
+                },
+                "frame": {
+                    "rect": {"x": 0.0, "y": 0.0, "width": 640.0, "height": 480.0},
+                    "stack_index": 0,
+                },
+            },
+        }
+    )
+    client = make_client(display_port=StubPort(geometry_reply))
+    _render(client)
+    body = client.get("/scenes/s1", params={"want_geometry": "true"}).json()
+    assert body["geometry"]["kind"] == "present"
+    assert body["geometry"]["elements"]["t1"] == {
+        "rect": {"x": 8.0, "y": 8.0, "width": 120.0, "height": 18.0},
+        "paint_sequence": 0,
+        "stack_index": 2,
+    }
+    # The anonymous map crosses REST too, under its per-frame kind:sequence key.
+    assert body["geometry"]["anonymous"]["separator:1"] == {
+        "rect": {"x": 0.0, "y": 30.0, "width": 100.0, "height": 1.0},
+        "paint_sequence": 1,
+        "stack_index": 2,
+    }
+    assert body["geometry"]["frame"] == {
+        "rect": {"x": 0.0, "y": 0.0, "width": 640.0, "height": 480.0},
+        "stack_index": 0,
+    }
+
+
 def test_inspect_unknown_scene_is_404() -> None:
     client = make_client()
     assert client.get("/scenes/ghost").status_code == 404

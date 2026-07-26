@@ -8,18 +8,19 @@ streamable-HTTP ``/mcp`` endpoint.
 """
 
 # isort: skip_file
-# ORDER MATTERS: server.py creates the FastMCP `mcp` instance.
-# tools.py registers @mcp.tool() decorators at import time.
-# Importing tools.py before server.py would fail with NameError
-# because the `mcp` object would not exist yet.
+# ORDER MATTERS: server.py creates the FastMCP `mcp` instance, and tools.py
+# builds the OPERATIONS facade the tool modules reach through `_core`. The tool
+# modules register @mcp.tool() decorators at import time, so both must import
+# first — importing a tool module before server.py or tools.py would fail.
 
 from __future__ import annotations
 
 from punt_lux.tools.server import mcp
 
-from punt_lux.tools.tools import (
-    clear,
-    display_mode,
+# Importing read_tools.py registers the read-only introspection and getter tools.
+# Each tool module reaches the OPERATIONS facade through ``tools`` (as ``_core``),
+# so importing any of them builds that facade before the tool runs.
+from punt_lux.tools.read_tools import (
     get_display_info,
     get_theme,
     get_window_settings,
@@ -30,8 +31,14 @@ from punt_lux.tools.tools import (
     list_recent_events,
     list_scenes,
     ping,
-    register_tool,
     screenshot,
+)
+
+# Importing write_tools.py registers the state-changing render/settings/config tools.
+from punt_lux.tools.write_tools import (
+    clear,
+    display_mode,
+    register_tool,
     set_display_mode,
     set_frame_state,
     set_menu,

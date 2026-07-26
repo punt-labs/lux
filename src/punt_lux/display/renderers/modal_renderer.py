@@ -31,6 +31,8 @@ __all__ = ["ModalRenderer"]
 
 # Recurse a child element back through the owning ElementRenderer's dispatch.
 type RenderChildFn = Callable[[Element], None]
+# Record the modal window's painted rect and stack index (id, kind).
+type RecordWindowFn = Callable[[str, str], None]
 
 _MODAL_OPEN = 1
 _MODAL_CLOSED = 0
@@ -43,17 +45,20 @@ class ModalRenderer:
     _widget_state: WidgetState
     _emit_event: EmitEventFn
     _render_child: RenderChildFn
+    _record_window: RecordWindowFn
 
     def __new__(
         cls,
         widget_state: WidgetState,
         emit_event: EmitEventFn,
         render_child: RenderChildFn,
+        record_window: RecordWindowFn,
     ) -> Self:
         self = super().__new__(cls)
         self._widget_state = widget_state
         self._emit_event = emit_event
         self._render_child = render_child
+        self._record_window = record_window
         return self
 
     @property
@@ -97,6 +102,10 @@ class ModalRenderer:
         if visible:
             for child in elem.children:
                 self._render_child(child)
+            # Record after the children lay out but while the popup is still
+            # current, so a legacy modal wrapping a table reports its settled
+            # window rect and begin-order — matching the ABC modal adapter.
+            self._record_window(eid, elem.kind)
             imgui.end_popup()
 
         if was_open and not visible:

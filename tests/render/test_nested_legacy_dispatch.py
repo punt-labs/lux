@@ -16,10 +16,12 @@ without a GL context.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 from punt_lux.display.element_renderer import ElementRenderer
+from punt_lux.display.geometry_capture import GeometryCapture
 from punt_lux.display.renderers.imgui.button import ImGuiButtonRenderer
 from punt_lux.display.renderers.imgui.checkbox import ImGuiCheckboxRenderer
 from punt_lux.display.renderers.imgui.dialog import ImGuiDialogRenderer
@@ -31,11 +33,14 @@ from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.layout import LegacyGroupElement, LegacyWindowElement
+from punt_lux.protocol.elements.table import TableElement
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.scene.widget_state import WidgetState
 
 if TYPE_CHECKING:
+    from collections.abc import Generator
+
     import pytest
 
 
@@ -140,3 +145,53 @@ def test_render_element_runs_generic_tooltip_for_legacy_kinds(
 
     render_group.assert_called_once_with(group)
     tooltip.assert_called_once_with(group)
+
+
+def _spy_measuring(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, str]]:
+    """Replace GeometryCapture.measuring with a recorder that skips ImGui.
+
+    The real ``measuring`` opens an ImGui group (a GL call that segfaults
+    headless); the spy records the (id, kind) it was entered with instead, so a
+    legacy leaf's capture wiring is provable GL-free. ``monkeypatch`` restores the
+    real method at teardown.
+    """
+    entered: list[tuple[str, str]] = []
+
+    @contextmanager
+    def spy(_self: GeometryCapture, element_id: str, kind: str) -> Generator[None]:
+        entered.append((element_id, kind))
+        yield
+
+    monkeypatch.setattr(GeometryCapture, "measuring", spy)
+    return entered
+
+
+def test_legacy_leaf_records_geometry_through_measuring(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A legacy leaf (table) records its rect via the same measuring group the ABC
+    # leaf template uses, so a visibly painted table is IN the geometry map, not
+    # absent (which the contract reads as "did not paint").
+    er = _renderer()
+    monkeypatch.setattr(er, "_render_table", MagicMock())
+    monkeypatch.setattr(er.imgui_renderer_factory, "apply_tooltip", MagicMock())
+    entered = _spy_measuring(monkeypatch)
+
+    er.render_element(TableElement(id="tbl"))
+
+    assert entered == [("tbl", "table")]
+
+
+def test_legacy_container_records_no_geometry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A legacy container records nothing itself — its children record as they
+    # recurse — so measuring is never entered for the container.
+    er = _renderer()
+    monkeypatch.setattr(er, "_render_group", MagicMock())
+    monkeypatch.setattr(er.imgui_renderer_factory, "apply_tooltip", MagicMock())
+    entered = _spy_measuring(monkeypatch)
+
+    er.render_element(LegacyGroupElement(id="g", children=[]))
+
+    assert entered == []
