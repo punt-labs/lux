@@ -269,6 +269,14 @@ class TestElements:
         assert e.rows == []
         assert e.flags == ["borders", "row_bg"]
 
+    def test_legacy_table_bool_cell_validates(self):
+        # A boolean cell is a valid scalar (bool is listed explicitly though a
+        # subclass of int), matching the "boolean" the message names and the ABC.
+        e = LegacyTableElement(
+            id="tbl1", columns=["Name", "Active"], rows=[["x", True]]
+        )
+        assert e.validate() == ()
+
     def test_plot_element(self):
         series = (PlotSeries("y", "line", (1.0, 2.0, 3.0), (10.0, 20.0, 15.0)),)
         e = PlotElement(id="p1", title="Trend", series=series)

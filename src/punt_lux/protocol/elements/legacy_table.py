@@ -212,7 +212,10 @@ class LegacyTableElement:
         """Return one error per cell in ``row`` that the widget can't render."""
         errors: list[ValidationError] = []
         for col_index, cell in enumerate(row):
-            if not isinstance(cell, str | int | float | type(None)):
+            # ``bool`` is listed explicitly (though a subclass of ``int``) so the
+            # accepted set matches the "boolean" the message lists, and the ABC
+            # side's scalar contract.
+            if not isinstance(cell, str | bool | int | float | type(None)):
                 errors.append(
                     ValidationError(
                         element_id=self.id,
