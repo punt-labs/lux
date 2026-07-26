@@ -121,17 +121,17 @@ def test_two_overlapping_leaves_report_distinct_sequence_and_intersecting_rects(
     assert badge.rect.y < label.rect.y + label.rect.height
 
 
-def test_anonymous_leaves_get_distinct_keys_not_a_collision() -> None:
+def test_anonymous_leaves_get_distinct_keys_in_the_anonymous_map() -> None:
     # Two separators (empty id) in one scene must not overwrite a single "" entry:
-    # each keys by kind:paint_sequence, so both are readable with distinct rects
-    # and ordered sequences.
+    # each keys the anonymous map by kind:paint_sequence, so both are readable
+    # with distinct rects and ordered sequences.
     rec = GeometryRecorder()
     rec.record_element("s", _ref("", "separator"), _rect(y=10.0), 0)
     rec.record_element("s", _ref("", "separator"), _rect(y=40.0), 0)
     rec.complete()
     snap = rec.snapshot()
-    first = snap.element_for("s", "separator:0")
-    second = snap.element_for("s", "separator:1")
+    first = snap.anonymous_for("s", "separator:0")
+    second = snap.anonymous_for("s", "separator:1")
     assert first is not None
     assert second is not None
     assert first.rect.y == 10.0
@@ -139,14 +139,34 @@ def test_anonymous_leaves_get_distinct_keys_not_a_collision() -> None:
     assert second.paint_sequence > first.paint_sequence
 
 
-def test_named_element_keys_by_its_id_not_a_synthesized_key() -> None:
-    # A named element is unaffected by the anonymous-fallback: its key is its id.
+def test_named_element_keys_the_elements_map_by_its_id() -> None:
+    # A named element records into the elements map by its id, not the anonymous
+    # map — so nothing lands under a synthesized kind:sequence key.
     rec = GeometryRecorder()
     rec.record_element("s", _ref("submit", "button"), _rect(), 0)
     rec.complete()
     snap = rec.snapshot()
     assert snap.element_for("s", "submit") is not None
-    assert snap.element_for("s", "button:0") is None
+    assert snap.anonymous_for("s", "button:0") is None
+
+
+def test_user_id_that_reads_like_an_anonymous_key_does_not_collide() -> None:
+    # An element literally named "separator:0" AND an anonymous separator whose
+    # synthesized key is also "separator:0" coexist in one scene: the anonymous
+    # one records first (sequence 0 -> "separator:0"), the named one keys the
+    # elements map by the same string. Both live under the SAME key in DIFFERENT
+    # maps, so neither overwrites the other — the collision is unrepresentable.
+    rec = GeometryRecorder()
+    rec.record_element("s", _ref("", "separator"), _rect(y=50.0), 0)
+    rec.record_element("s", _ref("separator:0", "text"), _rect(y=5.0), 0)
+    rec.complete()
+    snap = rec.snapshot()
+    named = snap.element_for("s", "separator:0")
+    anon = snap.anonymous_for("s", "separator:0")
+    assert named is not None
+    assert anon is not None
+    assert named.rect.y == 5.0
+    assert anon.rect.y == 50.0
 
 
 def test_open_modal_window_stacks_above_the_frame_beneath_it() -> None:
@@ -205,6 +225,7 @@ def test_to_wire_carries_scene_elements_and_frame_with_z_order() -> None:
     rec.record_element(
         "s", _ref("title"), Rect(x=8.0, y=8.0, width=200.0, height=18.0), 3
     )
+    rec.record_element("s", _ref("", "separator"), _rect(y=30.0), 5)
     rec.record_element("other", _ref("hidden"), _rect(w=5.0, h=5.0), 4)
     rec.record_frame("f", Rect(x=0.0, y=0.0, width=800.0, height=600.0), 0)
     rec.complete()
@@ -215,6 +236,13 @@ def test_to_wire_carries_scene_elements_and_frame_with_z_order() -> None:
                 "rect": {"x": 8.0, "y": 8.0, "width": 200.0, "height": 18.0},
                 "paint_sequence": 0,
                 "stack_index": 3,
+            }
+        },
+        "anonymous": {
+            "separator:1": {
+                "rect": {"x": 0.0, "y": 30.0, "width": 10.0, "height": 10.0},
+                "paint_sequence": 1,
+                "stack_index": 5,
             }
         },
         "frame": {

@@ -52,10 +52,13 @@ class GeometryUnavailable(BaseModel):
 class GeometryPresent(BaseModel):
     """The painted geometry of the display's last completed frame.
 
-    ``elements`` maps each painted element id to its geometry — the screen rect,
-    the paint sequence, and the window stack index; an element not painted last
-    frame is absent. ``frame`` is the scene's frame geometry, or absent when that
-    frame was not painted.
+    ``elements`` maps each painted *named* element id to its geometry — the screen
+    rect, the paint sequence, and the window stack index. ``anonymous`` maps the
+    per-frame ``kind:sequence`` keys of elements with no id of their own (a
+    separator). The two maps are separate because element ids are unconstrained,
+    so a user id reading like ``separator:0`` must not collide with a synthesized
+    anonymous key. An element not painted last frame is absent from its map;
+    ``frame`` is the scene's frame geometry, or absent when it was not painted.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -63,25 +66,34 @@ class GeometryPresent(BaseModel):
     kind: Literal["present"] = "present"
     frame: FrameGeometry | None = None
     elements: dict[str, ElementGeometry] = Field(default_factory=dict)
+    anonymous: dict[str, ElementGeometry] = Field(default_factory=dict)
 
     @classmethod
     def from_block(cls, block: Mapping[str, object]) -> Self:
         """Decode the display's ``geometry`` reply block, raising on malformed."""
-        raw_elements = block.get("elements")
-        if not isinstance(raw_elements, Mapping):
-            msg = f"geometry 'elements' must be a mapping; got {raw_elements!r}"
-            raise ValueError(msg)
-        elements = {
-            str(eid): ElementGeometry.from_dict(cls._entry(entry))
-            for eid, entry in cast("Mapping[str, object]", raw_elements).items()
-        }
+        elements = cls._decode_map(block, "elements")
+        anonymous = cls._decode_map(block, "anonymous")
         raw_frame = block.get("frame")
         frame = (
             FrameGeometry.from_dict(cls._entry(raw_frame))
             if raw_frame is not None
             else None
         )
-        return cls(frame=frame, elements=elements)
+        return cls(frame=frame, elements=elements, anonymous=anonymous)
+
+    @classmethod
+    def _decode_map(
+        cls, block: Mapping[str, object], field: str
+    ) -> dict[str, ElementGeometry]:
+        """Decode one keyed geometry map from the block, raising a named error."""
+        raw = block.get(field)
+        if not isinstance(raw, Mapping):
+            msg = f"geometry {field!r} must be a mapping; got {raw!r}"
+            raise ValueError(msg)
+        return {
+            str(key): ElementGeometry.from_dict(cls._entry(entry))
+            for key, entry in cast("Mapping[str, object]", raw).items()
+        }
 
     @staticmethod
     def _entry(raw: object) -> dict[str, object]:

@@ -90,6 +90,7 @@ def test_inspect_returns_captured_geometry_when_requested() -> None:
                 "stack_index": 2,
             }
         },
+        "anonymous": {},
         "frame": {
             "rect": {"x": 0.0, "y": 0.0, "width": 640.0, "height": 480.0},
             "stack_index": 0,

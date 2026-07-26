@@ -41,6 +41,13 @@ _GEOMETRY_REPLY: dict[str, object] = {
                 "stack_index": 2,
             }
         },
+        "anonymous": {
+            "separator:1": {
+                "rect": {"x": 0.0, "y": 30.0, "width": 100.0, "height": 1.0},
+                "paint_sequence": 1,
+                "stack_index": 2,
+            }
+        },
         "frame": {
             "rect": {"x": 0.0, "y": 0.0, "width": 640.0, "height": 480.0},
             "stack_index": 0,
@@ -133,6 +140,13 @@ def test_inspect_scene_tool_carries_z_order_geometry(
             "t1": ElementGeometry(
                 rect=Rect(x=8.0, y=8.0, width=120.0, height=18.0),
                 paint_sequence=0,
+                stack_index=2,
+            )
+        },
+        anonymous={
+            "separator:1": ElementGeometry(
+                rect=Rect(x=0.0, y=30.0, width=100.0, height=1.0),
+                paint_sequence=1,
                 stack_index=2,
             )
         },

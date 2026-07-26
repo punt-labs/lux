@@ -14,12 +14,14 @@ An element present in a scene's tree but absent from the snapshot was not
 painted last frame — a collapsed header's child, a closed modal's child, a
 clipped row. Its absence reports that directly, never a zero rect.
 
-Named elements key by their id. An anonymous element — an empty id, which only a
-separator carries — keys by ``kind:paint_sequence`` (see :class:`ElementRef`), so
-two separators in a scene get distinct entries instead of colliding on the empty
-id. That key is per-frame, not a stable identity across frames: an agent reading
-an anonymous element's rect gets this frame's key, which is the honest truth of
-an element with no id of its own.
+Painted geometry lives in two maps so the id spaces cannot collide. A named
+element keys the ``elements`` map by its id. An anonymous element — an empty id,
+which only a separator carries — keys the separate ``anonymous`` map by
+``kind:paint_sequence`` (see :class:`ElementRef`). Element ids are unconstrained
+strings, so a user could name an element ``"separator:0"``; the two maps keep
+that from ever overwriting a synthesized anonymous key. An anonymous key is
+per-frame, not a stable identity across frames — the honest truth of an element
+with no id of its own — and reading it from the ``anonymous`` map carries that.
 """
 
 from __future__ import annotations
@@ -35,77 +37,100 @@ __all__ = ["ElementRef", "GeometryRecorder", "GeometrySnapshot"]
 
 @dataclass(frozen=True, slots=True)
 class ElementRef:
-    """An element's identity for geometry keying: its id, or a per-frame fallback.
+    """An element's identity for geometry keying, routing it to one of two maps.
 
-    A named element keys by its id. An anonymous element (empty id) has no stable
-    identity across frames, so it keys by ``kind:paint_sequence`` — unique because
-    the sequence is stamped once per record, and readable like the domain mirror's
-    ``separator:N``.
+    A named element (non-empty id) belongs in the ``elements`` map, keyed by its
+    id. An anonymous element (empty id) belongs in the ``anonymous`` map, keyed by
+    ``kind:paint_sequence`` — unique because the sequence is stamped once per
+    record, and readable like the domain mirror's ``separator:N``. Splitting the
+    maps makes a user id that reads like ``separator:0`` unable to collide with a
+    synthesized anonymous key: the collision is unrepresentable, not just rare.
     """
 
     id: str
     kind: str
 
-    def key(self, paint_sequence: int) -> str:
-        """Return the geometry-map key: the id when named, else ``kind:sequence``."""
-        return self.id or f"{self.kind}:{paint_sequence}"
+    @property
+    def is_named(self) -> bool:
+        """Return whether this element has an id of its own."""
+        return bool(self.id)
+
+    def anonymous_key(self, paint_sequence: int) -> str:
+        """Return the per-frame ``kind:sequence`` key for an anonymous element."""
+        return f"{self.kind}:{paint_sequence}"
 
 
 class GeometrySnapshot:
     """The painted geometry of one completed frame, keyed for per-scene readback.
 
-    Elements are keyed by ``(scene_id, element_id)`` because element ids are
-    unique only within their scene — two scenes may each hold a ``"submit"``
-    button, and their geometry must not overwrite one another.
+    Both maps key by ``(scene_id, key)`` because keys are unique only within their
+    scene — two scenes may each hold a ``"submit"`` button, and their geometry
+    must not overwrite one another. ``_elements`` holds named ids; ``_anonymous``
+    holds ``kind:sequence`` keys.
     """
 
     _elements: dict[tuple[str, str], ElementGeometry]
+    _anonymous: dict[tuple[str, str], ElementGeometry]
     _frames: dict[str, FrameGeometry]
-    __slots__ = ("_elements", "_frames")
+    __slots__ = ("_anonymous", "_elements", "_frames")
 
     def __new__(
         cls,
         elements: dict[tuple[str, str], ElementGeometry],
+        anonymous: dict[tuple[str, str], ElementGeometry],
         frames: dict[str, FrameGeometry],
     ) -> Self:
         self = super().__new__(cls)
         self._elements = dict(elements)
+        self._anonymous = dict(anonymous)
         self._frames = dict(frames)
         return self
 
     @classmethod
     def empty(cls) -> Self:
         """Return the snapshot that stands before any frame has completed."""
-        return cls({}, {})
+        return cls({}, {}, {})
 
     def element_for(self, scene_id: str, element_id: str) -> ElementGeometry | None:
-        """Return the element's painted geometry, or ``None`` if not painted.
+        """Return a named element's painted geometry, or ``None`` if not painted.
 
         Absence is the documented contract (PY-EH-8): an element in the scene
         tree but not painted last frame has no geometry, and the ``None`` says so.
         """
         return self._elements.get((scene_id, element_id))
 
+    def anonymous_for(self, scene_id: str, key: str) -> ElementGeometry | None:
+        """Return an anonymous element's geometry by its per-frame ``kind:seq`` key."""
+        return self._anonymous.get((scene_id, key))
+
     def frame_for(self, frame_id: str) -> FrameGeometry | None:
         """Return the frame window's painted geometry, or ``None`` if not painted."""
         return self._frames.get(frame_id)
 
     def to_wire(self, scene_id: str, frame_id: str) -> dict[str, object]:
-        """Return the geometry reply for one scene: element geometry plus the frame.
+        """Return the geometry reply for one scene: two element maps plus the frame.
 
-        ``elements`` maps each painted element id in ``scene_id`` to its geometry
-        dict (rect plus paint sequence and stack index); ``frame`` is the scene's
+        ``elements`` maps each painted named id in ``scene_id`` to its geometry
+        dict (rect plus paint sequence and stack index); ``anonymous`` maps the
+        synthesized ``kind:sequence`` keys the same way; ``frame`` is the scene's
         frame geometry, or ``None`` when that frame was not painted last frame.
         """
-        elements = {
-            element_id: geometry.to_dict()
-            for (sid, element_id), geometry in self._elements.items()
-            if sid == scene_id
-        }
         frame = self._frames.get(frame_id)
         return {
-            "elements": elements,
+            "elements": self._scene_wire(self._elements, scene_id),
+            "anonymous": self._scene_wire(self._anonymous, scene_id),
             "frame": frame.to_dict() if frame is not None else None,
+        }
+
+    @staticmethod
+    def _scene_wire(
+        source: dict[tuple[str, str], ElementGeometry], scene_id: str
+    ) -> dict[str, object]:
+        """Serialize one scene's slice of a keyed geometry map to wire dicts."""
+        return {
+            key: geometry.to_dict()
+            for (sid, key), geometry in source.items()
+            if sid == scene_id
         }
 
 
@@ -120,10 +145,12 @@ class GeometryRecorder:
     """
 
     _building_elements: dict[tuple[str, str], ElementGeometry]
+    _building_anonymous: dict[tuple[str, str], ElementGeometry]
     _building_frames: dict[str, FrameGeometry]
     _next_sequence: int
     _completed: GeometrySnapshot
     __slots__ = (
+        "_building_anonymous",
         "_building_elements",
         "_building_frames",
         "_completed",
@@ -133,6 +160,7 @@ class GeometryRecorder:
     def __new__(cls) -> Self:
         self = super().__new__(cls)
         self._building_elements = {}
+        self._building_anonymous = {}
         self._building_frames = {}
         self._next_sequence = 0
         self._completed = GeometrySnapshot.empty()
@@ -143,13 +171,19 @@ class GeometryRecorder:
     ) -> None:
         """Record one painted element's rect, paint order, and window stack index.
 
-        Keyed by ``ref.key`` so anonymous elements get a per-frame ``kind:sequence``
-        key rather than all colliding on the empty id.
+        A named element records into the ``elements`` map by its id; an anonymous
+        one records into the separate ``anonymous`` map by ``kind:sequence`` — so
+        a user id reading like ``separator:0`` and a synthesized anonymous key can
+        never overwrite one another.
         """
-        key = ref.key(self._next_sequence)
-        self._building_elements[scene_id, key] = ElementGeometry(
+        geometry = ElementGeometry(
             rect=rect, paint_sequence=self._next_sequence, stack_index=stack_index
         )
+        if ref.is_named:
+            self._building_elements[scene_id, ref.id] = geometry
+        else:
+            key = ref.anonymous_key(self._next_sequence)
+            self._building_anonymous[scene_id, key] = geometry
         self._next_sequence += 1
 
     def record_frame(self, frame_id: str, rect: Rect, stack_index: int) -> None:
@@ -166,9 +200,10 @@ class GeometryRecorder:
         paint-sequence counter restarts, so each frame's sequence starts at zero.
         """
         self._completed = GeometrySnapshot(
-            self._building_elements, self._building_frames
+            self._building_elements, self._building_anonymous, self._building_frames
         )
         self._building_elements = {}
+        self._building_anonymous = {}
         self._building_frames = {}
         self._next_sequence = 0
 

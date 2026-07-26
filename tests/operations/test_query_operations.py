@@ -265,6 +265,7 @@ def test_inspect_scene_both_facts_come_from_one_round_trip() -> None:
                         "stack_index": 2,
                     }
                 },
+                "anonymous": {},
                 "frame": {
                     "rect": {"x": 0.0, "y": 0.0, "width": 640.0, "height": 480.0},
                     "stack_index": 0,

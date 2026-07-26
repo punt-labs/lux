@@ -71,6 +71,13 @@ _GEOMETRY_BLOCK = {
                 "stack_index": 2,
             }
         },
+        "anonymous": {
+            "separator:1": {
+                "rect": {"x": 0.0, "y": 30.0, "width": 100.0, "height": 1.0},
+                "paint_sequence": 1,
+                "stack_index": 2,
+            }
+        },
         "frame": {
             "rect": {"x": 0.0, "y": 0.0, "width": 640.0, "height": 480.0},
             "stack_index": 0,
@@ -102,6 +109,13 @@ def test_geometry_present_carries_element_and_frame_rects() -> None:
             "t1": ElementGeometry(
                 rect=Rect(x=8.0, y=8.0, width=120.0, height=18.0),
                 paint_sequence=0,
+                stack_index=2,
+            )
+        },
+        anonymous={
+            "separator:1": ElementGeometry(
+                rect=Rect(x=0.0, y=30.0, width=100.0, height=1.0),
+                paint_sequence=1,
                 stack_index=2,
             )
         },
@@ -141,11 +155,37 @@ def test_geometry_unavailable_when_a_rect_is_malformed() -> None:
 
 
 def test_present_from_block_absent_frame_is_none() -> None:
-    present = GeometryPresent.from_block({"elements": {}, "frame": None})
+    present = GeometryPresent.from_block(
+        {"elements": {}, "anonymous": {}, "frame": None}
+    )
     assert present.frame is None
     assert present.elements == {}
+    assert present.anonymous == {}
+
+
+def test_present_from_block_decodes_the_anonymous_map() -> None:
+    present = GeometryPresent.from_block(
+        {
+            "elements": {},
+            "anonymous": {
+                "separator:0": {
+                    "rect": {"x": 0.0, "y": 5.0, "width": 80.0, "height": 1.0},
+                    "paint_sequence": 0,
+                    "stack_index": 1,
+                }
+            },
+            "frame": None,
+        }
+    )
+    assert present.elements == {}
+    assert present.anonymous["separator:0"].rect.y == 5.0
 
 
 def test_present_from_block_rejects_non_mapping_elements() -> None:
     with pytest.raises(ValueError, match="'elements' must be a mapping"):
-        GeometryPresent.from_block({"elements": [], "frame": None})
+        GeometryPresent.from_block({"elements": [], "anonymous": {}, "frame": None})
+
+
+def test_present_from_block_rejects_non_mapping_anonymous() -> None:
+    with pytest.raises(ValueError, match="'anonymous' must be a mapping"):
+        GeometryPresent.from_block({"elements": {}, "anonymous": [], "frame": None})
