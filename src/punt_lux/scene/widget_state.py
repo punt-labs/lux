@@ -42,6 +42,17 @@ class WidgetState:
     CONTINUOUS_EDIT_COMMITTED_SUFFIX: ClassVar[str] = ":continuous_edit_committed"
     CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX: ClassVar[str] = ":continuous_edit_commit_hub"
 
+    # Suffixes of a table's row-selection bridge slots, owned by the display's
+    # ``TableSelectionArbiter``. Durable across a re-push (off ``_SESSION_SUFFIXES``,
+    # like the continuous-edit quad) so a selection gesture in flight survives the
+    # Hub's confirming resend: pending = the fired set held optimistically through
+    # the gesture-to-re-push window, so a second gesture accumulates on the first
+    # instead of dropping it; honoured = the authoritative set observed last frame,
+    # the marker that tells the arbiter when the Hub value has moved on and the
+    # pending must be dropped in its favour.
+    ROW_SELECTION_PENDING_SUFFIX: ClassVar[str] = ":row_selection_pending"
+    ROW_SELECTION_HONOURED_SUFFIX: ClassVar[str] = ":row_selection_honoured"
+
     _state: dict[str, Any]
 
     def __new__(cls) -> Self:
@@ -126,7 +137,8 @@ class WidgetState:
         re-added tab bar re-honour the Hub active tab; clearing the shared
         continuous-edit buffer and commit-echo quad lets a re-added input_text,
         slider, or color_picker honour its fresh value instead of an earlier
-        commit's optimistic echo.
+        commit's optimistic echo; clearing the table selection bridge lets a
+        re-added table honour its fresh selection instead of a stale pending set.
         """
         if not element_id:
             return
@@ -139,6 +151,8 @@ class WidgetState:
         self.discard(f"{element_id}{self.CONTINUOUS_EDIT_EDITING_SUFFIX}")
         self.discard(f"{element_id}{self.CONTINUOUS_EDIT_COMMITTED_SUFFIX}")
         self.discard(f"{element_id}{self.CONTINUOUS_EDIT_COMMIT_HUB_SUFFIX}")
+        self.discard(f"{element_id}{self.ROW_SELECTION_PENDING_SUFFIX}")
+        self.discard(f"{element_id}{self.ROW_SELECTION_HONOURED_SUFFIX}")
 
     def reset_honoured(self) -> None:
         """Discard every tab-bar suppression slot, keeping durable user state.

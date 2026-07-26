@@ -7,9 +7,12 @@ paint. The grid renders in a native ImGui scroll region (no pager); a real
 Display-local sort reorders the *displayed* rows from ``table_get_sort_specs``;
 and a ``single``/``multi`` selection rides ``begin_multi_select`` with the
 int-``SelectionUserData`` ↔ ``row_id`` translation the ``TableRowSelection``
-arbiter owns. The selection is Hub-authoritative: the storage is seeded from
-``elem.selected_row_ids`` each frame, and a genuine user change fires
-``RowSelectionChanged`` for the Hub to record and re-push.
+arbiter owns. The selection is Hub-authoritative, but the storage is seeded from
+the ``TableSelectionArbiter``'s *effective* set, not the raw
+``elem.selected_row_ids``: through the gesture-to-re-push window the arbiter holds
+the fired picks so a rapid second gesture accumulates instead of dropping the
+first. A genuine user change fires ``RowSelectionChanged`` for the Hub to record
+and re-push.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from typing import TYPE_CHECKING, cast, final
 from imgui_bundle import imgui
 
 from punt_lux.display.renderers.imgui.leaf import LeafRenderer
+from punt_lux.display.renderers.imgui.table_row_arbiter import TableSelectionArbiter
 from punt_lux.display.renderers.imgui.table_selection import TableRowSelection
 from punt_lux.display.renderers.imgui.table_sort import TableSort
 from punt_lux.domain.ids import ClientId, ElementId, SceneId
@@ -126,8 +130,9 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
     ) -> None:
         """Paint a selectable grid and fire on a genuine user selection change."""
         display_ids = tuple(row_id for row_id, _ in pairs)
-        authoritative = elem.selected_row_ids
-        storage = self._seeded_storage(display_ids, authoritative)
+        arbiter = TableSelectionArbiter(self._factory.widget_state, elem.id)
+        seed = arbiter.effective_selection(elem.selected_row_ids)
+        storage = self._seeded_storage(display_ids, seed)
         flags = self._multi_select_flags(elem.selection_mode)
         io = imgui.begin_multi_select(flags, storage.size, len(display_ids))
         storage.apply_requests(io)
@@ -139,26 +144,32 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
         finally:
             io = imgui.end_multi_select()
             storage.apply_requests(io)
-        self._fire_if_changed(elem, display_ids, authoritative, storage, io)
+        self._fire_if_changed(elem, display_ids, seed, storage, io, arbiter)
+        arbiter.record_honoured(elem.selected_row_ids)
 
     @staticmethod
     def _seeded_storage(
-        display_ids: tuple[str, ...], authoritative: frozenset[str]
+        display_ids: tuple[str, ...], seed: frozenset[str]
     ) -> imgui.SelectionBasicStorage:
-        """Return a storage seeded from the Hub-authoritative selection this frame."""
+        """Return a storage seeded from the arbiter's effective selection."""
         storage = imgui.SelectionBasicStorage()
         for index, row_id in enumerate(display_ids):
-            storage.set_item_selected(index, row_id in authoritative)
+            storage.set_item_selected(index, row_id in seed)
         return storage
 
     @staticmethod
     def _multi_select_flags(mode: str) -> int:
-        """Return the multi-select scope flags for ``single`` or ``multi``."""
-        value = int(imgui.MultiSelectFlags_.clear_on_escape.value) | int(
-            imgui.MultiSelectFlags_.box_select1d.value
-        )
+        """Return the multi-select scope flags for ``single`` or ``multi``.
+
+        ``box_select1d`` (drag a rubber-band over a range) is a multi-select
+        affordance only; a single-select scope gets ``single_select`` instead, so
+        a rubber-band drag never toggles rows a single-select table can't hold.
+        """
+        value = int(imgui.MultiSelectFlags_.clear_on_escape.value)
         if mode == "single":
             value |= int(imgui.MultiSelectFlags_.single_select.value)
+        else:
+            value |= int(imgui.MultiSelectFlags_.box_select1d.value)
         return value
 
     def _paint_selectable_rows(
@@ -185,23 +196,30 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
         self,
         elem: TableElement,
         display_ids: tuple[str, ...],
-        authoritative: frozenset[str],
+        seed: frozenset[str],
         storage: imgui.SelectionBasicStorage,
         io: imgui.MultiSelectIO,
+        arbiter: TableSelectionArbiter,
     ) -> None:
-        """Fire ``RowSelectionChanged`` when the gesture changed the selection."""
+        """Fire ``RowSelectionChanged`` when the gesture changed the seeded set.
+
+        The change is judged against the *seeded* set (the arbiter's effective
+        selection), not the raw Hub value, so through the re-push window a held
+        pending set is not read back as a fresh per-frame user change.
+        """
         translator = TableRowSelection(display_ids)
         selected = frozenset(
             index for index in range(len(display_ids)) if storage.contains(index)
         )
         new_ids = translator.ids_for(selected)
-        if not translator.is_user_change(new_ids, authoritative):
+        if not translator.is_user_change(new_ids, seed):
             return
         anchor = translator.anchor_for(io.range_src_item, new_ids)
         if elem.flags.copy_id and anchor:
             # Click-to-copy the id: the anchor is the last-interacted row's
             # key value (the row_id), mirroring the legacy copy_id feature.
             imgui.set_clipboard_text(anchor)
+        arbiter.note_pending(new_ids)
         elem.fire(
             RowSelectionChanged(
                 scene_id=SceneId(_DISPLAY),
