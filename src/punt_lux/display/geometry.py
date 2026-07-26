@@ -13,16 +13,42 @@ completed frame and no lock guards it.
 An element present in a scene's tree but absent from the snapshot was not
 painted last frame — a collapsed header's child, a closed modal's child, a
 clipped row. Its absence reports that directly, never a zero rect.
+
+Named elements key by their id. An anonymous element — an empty id, which only a
+separator carries — keys by ``kind:paint_sequence`` (see :class:`ElementRef`), so
+two separators in a scene get distinct entries instead of colliding on the empty
+id. That key is per-frame, not a stable identity across frames: an agent reading
+an anonymous element's rect gets this frame's key, which is the honest truth of
+an element with no id of its own.
 """
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Self
 
 from punt_lux.protocol.geometry import Rect
 from punt_lux.protocol.painted_geometry import ElementGeometry, FrameGeometry
 
-__all__ = ["GeometryRecorder", "GeometrySnapshot"]
+__all__ = ["ElementRef", "GeometryRecorder", "GeometrySnapshot"]
+
+
+@dataclass(frozen=True, slots=True)
+class ElementRef:
+    """An element's identity for geometry keying: its id, or a per-frame fallback.
+
+    A named element keys by its id. An anonymous element (empty id) has no stable
+    identity across frames, so it keys by ``kind:paint_sequence`` — unique because
+    the sequence is stamped once per record, and readable like the domain mirror's
+    ``separator:N``.
+    """
+
+    id: str
+    kind: str
+
+    def key(self, paint_sequence: int) -> str:
+        """Return the geometry-map key: the id when named, else ``kind:sequence``."""
+        return self.id or f"{self.kind}:{paint_sequence}"
 
 
 class GeometrySnapshot:
@@ -113,10 +139,15 @@ class GeometryRecorder:
         return self
 
     def record_element(
-        self, scene_id: str, element_id: str, rect: Rect, stack_index: int
+        self, scene_id: str, ref: ElementRef, rect: Rect, stack_index: int
     ) -> None:
-        """Record one painted element's rect, paint order, and window stack index."""
-        self._building_elements[scene_id, element_id] = ElementGeometry(
+        """Record one painted element's rect, paint order, and window stack index.
+
+        Keyed by ``ref.key`` so anonymous elements get a per-frame ``kind:sequence``
+        key rather than all colliding on the empty id.
+        """
+        key = ref.key(self._next_sequence)
+        self._building_elements[scene_id, key] = ElementGeometry(
             rect=rect, paint_sequence=self._next_sequence, stack_index=stack_index
         )
         self._next_sequence += 1

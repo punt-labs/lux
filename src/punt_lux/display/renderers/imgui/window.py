@@ -78,7 +78,7 @@ class ImGuiWindowRenderer:
         Runs inside the open window, so the recorded rect reflects the user's
         drag and ImGui's auto-sizing — Display-local truth never re-pushed.
         """
-        self._factory.geometry.record_window(self._elem.id)
+        self._factory.geometry.record_window(self._elem.id, self._elem.kind)
 
     def end(self, *, opened: bool) -> None:
         """Close the window and apply the tooltip.

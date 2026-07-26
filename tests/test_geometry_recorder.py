@@ -8,12 +8,16 @@ report a comparable Z-order) are provable headless, without a live display.
 
 from __future__ import annotations
 
-from punt_lux.display.geometry import GeometryRecorder, GeometrySnapshot
+from punt_lux.display.geometry import ElementRef, GeometryRecorder, GeometrySnapshot
 from punt_lux.protocol.geometry import Rect
 
 
 def _rect(x: float = 0.0, y: float = 0.0, w: float = 10.0, h: float = 10.0) -> Rect:
     return Rect(x=x, y=y, width=w, height=h)
+
+
+def _ref(element_id: str, kind: str = "text") -> ElementRef:
+    return ElementRef(element_id, kind)
 
 
 def test_empty_snapshot_reports_nothing_painted() -> None:
@@ -24,7 +28,9 @@ def test_empty_snapshot_reports_nothing_painted() -> None:
 
 def test_recorded_element_reads_back_after_complete() -> None:
     rec = GeometryRecorder()
-    rec.record_element("scene", "btn", Rect(x=5.0, y=6.0, width=80.0, height=24.0), 0)
+    rec.record_element(
+        "scene", _ref("btn"), Rect(x=5.0, y=6.0, width=80.0, height=24.0), 0
+    )
     rec.complete()
     geom = rec.snapshot().element_for("scene", "btn")
     assert geom is not None
@@ -33,7 +39,7 @@ def test_recorded_element_reads_back_after_complete() -> None:
 
 def test_building_geometry_is_invisible_until_complete() -> None:
     rec = GeometryRecorder()
-    rec.record_element("scene", "btn", _rect(), 0)
+    rec.record_element("scene", _ref("btn"), _rect(), 0)
     # No complete() yet — the snapshot is still the empty last-completed frame.
     assert rec.snapshot().element_for("scene", "btn") is None
 
@@ -43,7 +49,7 @@ def test_needle_modal_reports_its_actual_painted_width() -> None:
     # geometry read. Record the painted width and assert it reads back.
     rec = GeometryRecorder()
     rec.record_element(
-        "dlg", "needle", Rect(x=100.0, y=100.0, width=20.0, height=40.0), 1
+        "dlg", _ref("needle"), Rect(x=100.0, y=100.0, width=20.0, height=40.0), 1
     )
     rec.complete()
     geom = rec.snapshot().element_for("dlg", "needle")
@@ -77,8 +83,8 @@ def test_overlapping_elements_report_distinguishable_paint_sequence() -> None:
     # Two elements painted one after the other take successive sequence numbers,
     # so a caller can tell which drew on top when they overlap.
     rec = GeometryRecorder()
-    rec.record_element("s", "under", _rect(), 0)
-    rec.record_element("s", "over", _rect(x=5.0), 0)
+    rec.record_element("s", _ref("under"), _rect(), 0)
+    rec.record_element("s", _ref("over"), _rect(x=5.0), 0)
     rec.complete()
     snap = rec.snapshot()
     under = snap.element_for("s", "under")
@@ -95,8 +101,12 @@ def test_two_overlapping_leaves_report_distinct_sequence_and_intersecting_rects(
     # (later on top) and their rects intersect, so an overlap assertion is
     # decidable — the reason the operator ruled Z-order in.
     rec = GeometryRecorder()
-    rec.record_element("s", "label", Rect(x=10.0, y=10.0, width=100.0, height=30.0), 0)
-    rec.record_element("s", "badge", Rect(x=60.0, y=20.0, width=80.0, height=30.0), 0)
+    rec.record_element(
+        "s", _ref("label"), Rect(x=10.0, y=10.0, width=100.0, height=30.0), 0
+    )
+    rec.record_element(
+        "s", _ref("badge"), Rect(x=60.0, y=20.0, width=80.0, height=30.0), 0
+    )
     rec.complete()
     snap = rec.snapshot()
     label = snap.element_for("s", "label")
@@ -111,12 +121,40 @@ def test_two_overlapping_leaves_report_distinct_sequence_and_intersecting_rects(
     assert badge.rect.y < label.rect.y + label.rect.height
 
 
+def test_anonymous_leaves_get_distinct_keys_not_a_collision() -> None:
+    # Two separators (empty id) in one scene must not overwrite a single "" entry:
+    # each keys by kind:paint_sequence, so both are readable with distinct rects
+    # and ordered sequences.
+    rec = GeometryRecorder()
+    rec.record_element("s", _ref("", "separator"), _rect(y=10.0), 0)
+    rec.record_element("s", _ref("", "separator"), _rect(y=40.0), 0)
+    rec.complete()
+    snap = rec.snapshot()
+    first = snap.element_for("s", "separator:0")
+    second = snap.element_for("s", "separator:1")
+    assert first is not None
+    assert second is not None
+    assert first.rect.y == 10.0
+    assert second.rect.y == 40.0
+    assert second.paint_sequence > first.paint_sequence
+
+
+def test_named_element_keys_by_its_id_not_a_synthesized_key() -> None:
+    # A named element is unaffected by the anonymous-fallback: its key is its id.
+    rec = GeometryRecorder()
+    rec.record_element("s", _ref("submit", "button"), _rect(), 0)
+    rec.complete()
+    snap = rec.snapshot()
+    assert snap.element_for("s", "submit") is not None
+    assert snap.element_for("s", "button:0") is None
+
+
 def test_open_modal_window_stacks_above_the_frame_beneath_it() -> None:
     # An open modal begins after the frame under it, so ImGui gives it a higher
     # begin-order; the geometry reply reports that as a higher stack index.
     rec = GeometryRecorder()
     rec.record_frame("frame", _rect(w=800.0, h=600.0), 0)
-    rec.record_element("frame", "confirm", _rect(w=200.0, h=100.0), 1)
+    rec.record_element("frame", _ref("confirm"), _rect(w=200.0, h=100.0), 1)
     rec.complete()
     snap = rec.snapshot()
     frame = snap.frame_for("frame")
@@ -128,11 +166,11 @@ def test_open_modal_window_stacks_above_the_frame_beneath_it() -> None:
 
 def test_paint_sequence_restarts_each_frame() -> None:
     rec = GeometryRecorder()
-    rec.record_element("s", "a", _rect(), 0)
-    rec.record_element("s", "b", _rect(), 0)
+    rec.record_element("s", _ref("a"), _rect(), 0)
+    rec.record_element("s", _ref("b"), _rect(), 0)
     rec.complete()
     # Next frame paints a single element — its sequence starts back at zero.
-    rec.record_element("s", "c", _rect(), 0)
+    rec.record_element("s", _ref("c"), _rect(), 0)
     rec.complete()
     first = rec.snapshot().element_for("s", "c")
     assert first is not None
@@ -141,8 +179,8 @@ def test_paint_sequence_restarts_each_frame() -> None:
 
 def test_element_ids_are_scoped_per_scene() -> None:
     rec = GeometryRecorder()
-    rec.record_element("a", "submit", _rect(), 0)
-    rec.record_element("b", "submit", _rect(x=99.0, y=99.0, w=50.0, h=50.0), 0)
+    rec.record_element("a", _ref("submit"), _rect(), 0)
+    rec.record_element("b", _ref("submit"), _rect(x=99.0, y=99.0, w=50.0, h=50.0), 0)
     rec.complete()
     snap = rec.snapshot()
     a = snap.element_for("a", "submit")
@@ -155,7 +193,7 @@ def test_element_ids_are_scoped_per_scene() -> None:
 
 def test_complete_forgets_the_prior_frame() -> None:
     rec = GeometryRecorder()
-    rec.record_element("s", "gone", _rect(w=1.0, h=1.0), 0)
+    rec.record_element("s", _ref("gone"), _rect(w=1.0, h=1.0), 0)
     rec.complete()
     # The next frame paints nothing; the element that vanished is absent.
     rec.complete()
@@ -164,8 +202,10 @@ def test_complete_forgets_the_prior_frame() -> None:
 
 def test_to_wire_carries_scene_elements_and_frame_with_z_order() -> None:
     rec = GeometryRecorder()
-    rec.record_element("s", "title", Rect(x=8.0, y=8.0, width=200.0, height=18.0), 3)
-    rec.record_element("other", "hidden", _rect(w=5.0, h=5.0), 4)
+    rec.record_element(
+        "s", _ref("title"), Rect(x=8.0, y=8.0, width=200.0, height=18.0), 3
+    )
+    rec.record_element("other", _ref("hidden"), _rect(w=5.0, h=5.0), 4)
     rec.record_frame("f", Rect(x=0.0, y=0.0, width=800.0, height=600.0), 0)
     rec.complete()
     wire = rec.snapshot().to_wire("s", "f")
@@ -186,7 +226,7 @@ def test_to_wire_carries_scene_elements_and_frame_with_z_order() -> None:
 
 def test_to_wire_frame_is_null_when_frame_not_painted() -> None:
     rec = GeometryRecorder()
-    rec.record_element("s", "title", Rect(x=1.0, y=1.0, width=2.0, height=2.0), 2)
+    rec.record_element("s", _ref("title"), Rect(x=1.0, y=1.0, width=2.0, height=2.0), 2)
     rec.complete()
     # The scene's frame "f" is a real frame id, but nothing recorded it this
     # frame, so its geometry is absent — reported as null, not a zero rect.

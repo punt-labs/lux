@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Self, cast
 
 import pytest
 
-from punt_lux.display.geometry import GeometryRecorder
+from punt_lux.display.geometry import ElementRef, GeometryRecorder
 from punt_lux.domain.display import Display
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import TextElement
@@ -75,7 +75,9 @@ def test_inspect_returns_captured_geometry_when_requested() -> None:
         )
     )
     geometry = GeometryRecorder()
-    geometry.record_element("s1", "t1", Rect(x=8.0, y=8.0, width=120.0, height=18.0), 2)
+    geometry.record_element(
+        "s1", ElementRef("t1", "text"), Rect(x=8.0, y=8.0, width=120.0, height=18.0), 2
+    )
     geometry.record_frame("s1", Rect(x=0.0, y=0.0, width=640.0, height=480.0), 0)
     geometry.complete()
 

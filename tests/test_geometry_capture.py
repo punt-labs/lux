@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, ClassVar, Self
 
 from punt_lux.display import geometry_capture
-from punt_lux.display.geometry import GeometryRecorder
+from punt_lux.display.geometry import ElementRef, GeometryRecorder
 from punt_lux.display.geometry_capture import GeometryCapture
 from punt_lux.protocol.geometry import Rect
 
@@ -32,7 +32,7 @@ def test_complete_promotes_through_to_the_recorder() -> None:
     # promote through the capture — the snapshot must reflect it.
     rect = Rect(x=1.0, y=2.0, width=3.0, height=4.0)
     capture.enter_scene("s1")
-    capture.recorder.record_element("s1", "e", rect, 0)
+    capture.recorder.record_element("s1", ElementRef("e", "text"), rect, 0)
     capture.complete()
     geom = capture.recorder.snapshot().element_for("s1", "e")
     assert geom is not None
@@ -123,7 +123,7 @@ def test_measuring_records_the_group_rect_not_a_tooltip_poison(
     capture = GeometryCapture()
     capture.enter_scene("s")
 
-    with capture.measuring("leaf"):
+    with capture.measuring("leaf", "text"):
         fake.set_item(_WIDGET)  # the widget paints its own item
         fake.set_tooltip("hint")  # a hovered tooltip overwrites the last item
     capture.complete()

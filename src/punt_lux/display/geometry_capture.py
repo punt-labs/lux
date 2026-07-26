@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Self
 
 from imgui_bundle import imgui
 
-from punt_lux.display.geometry import GeometryRecorder
+from punt_lux.display.geometry import ElementRef, GeometryRecorder
 from punt_lux.protocol.geometry import Rect
 
 if TYPE_CHECKING:
@@ -48,10 +48,13 @@ class GeometryCapture:
         """Set the scene being painted so recorded rects key to it."""
         self._current_scene_id = scene_id
 
-    def record_window(self, element_id: str) -> None:
-        """Record the current open window's rect and stack index for ``element_id``."""
+    def record_window(self, element_id: str, kind: str) -> None:
+        """Record the current open window's rect and stack index for the element."""
         self._recorder.record_element(
-            self._current_scene_id, element_id, self._window_rect(), self._stack_index()
+            self._current_scene_id,
+            ElementRef(element_id, kind),
+            self._window_rect(),
+            self._stack_index(),
         )
 
     def record_frame(self, frame_id: str) -> None:
@@ -59,7 +62,7 @@ class GeometryCapture:
         self._recorder.record_frame(frame_id, self._window_rect(), self._stack_index())
 
     @contextmanager
-    def measuring(self, element_id: str) -> Generator[None]:
+    def measuring(self, element_id: str, kind: str) -> Generator[None]:
         """Group a leaf's paint so its recorded rect spans it and outlives its tooltip.
 
         ``begin_group``/``end_group`` make ImGui's last-item data the group's
@@ -69,22 +72,28 @@ class GeometryCapture:
         (2) supersedes a hover tooltip's own last-item write: ``set_tooltip``
         paints into a separate window whose items do not inflate the parent
         group, so a hovered leaf still records the widget rect, not the cursor.
+
+        ``kind`` keys an anonymous leaf (an empty-id separator) — see
+        :class:`ElementRef`.
         """
         imgui.begin_group()
         try:
             yield
         finally:
             imgui.end_group()
-            self._record_item(element_id)
+            self._record_item(element_id, kind)
 
-    def _record_item(self, element_id: str) -> None:
+    def _record_item(self, element_id: str, kind: str) -> None:
         """Record the just-closed leaf group's rect and its window's stack index.
 
         The stack index is the window the leaf sits in, so a leaf inherits its
         window's front-to-back position.
         """
         self._recorder.record_element(
-            self._current_scene_id, element_id, self._item_rect(), self._stack_index()
+            self._current_scene_id,
+            ElementRef(element_id, kind),
+            self._item_rect(),
+            self._stack_index(),
         )
 
     def complete(self) -> None:

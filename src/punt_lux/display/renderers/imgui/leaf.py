@@ -44,9 +44,10 @@ class LeafRenderer[E: AbcElement](ABC):
 
     def paint(self) -> None:
         """Paint the widget and tooltip inside the group that records the rect."""
-        with self._factory.geometry.measuring(self._elem.id):
+        elem = cast("Element", self._elem)
+        with self._factory.geometry.measuring(elem.id, elem.kind):
             self._paint_widget()
-            self._factory.apply_tooltip(cast("Element", self._elem))
+            self._factory.apply_tooltip(elem)
 
     def end(self, *, opened: bool) -> None:
         """Leaf — no surface to close."""

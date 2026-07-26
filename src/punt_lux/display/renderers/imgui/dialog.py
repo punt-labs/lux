@@ -86,7 +86,7 @@ class ImGuiDialogRenderer:
 
     def paint(self) -> None:
         """Record the popup's painted rect; its body is its children."""
-        self._factory.geometry.record_window(self._elem.id)
+        self._factory.geometry.record_window(self._elem.id, self._elem.kind)
 
     def end(self, *, opened: bool) -> None:
         """Close the popup (only if open), apply the tooltip, run the cascade."""

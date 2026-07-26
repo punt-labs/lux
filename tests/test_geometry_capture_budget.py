@@ -17,7 +17,7 @@ import time
 
 import pytest
 
-from punt_lux.display.geometry import GeometryRecorder
+from punt_lux.display.geometry import ElementRef, GeometryRecorder
 from punt_lux.protocol.geometry import Rect
 
 # Leaves are captured per element now, so 50 painted elements a frame is a
@@ -31,13 +31,13 @@ _PER_FRAME_CEILING_S = 2.0e-3
 @pytest.mark.slow
 def test_capture_cost_stays_a_fraction_of_the_frame_budget() -> None:
     rect = Rect(x=1.0, y=2.0, width=100.0, height=20.0)
-    ids = [f"e{i}" for i in range(_ELEMENTS_PER_FRAME)]
+    refs = [ElementRef(f"e{i}", "text") for i in range(_ELEMENTS_PER_FRAME)]
     recorder = GeometryRecorder()
 
     start = time.perf_counter()
     for _ in range(_FRAMES):
-        for index, element_id in enumerate(ids):
-            recorder.record_element("scene", element_id, rect, index)
+        for index, ref in enumerate(refs):
+            recorder.record_element("scene", ref, rect, index)
         recorder.record_frame("win", rect, 0)
         recorder.complete()
     per_frame = (time.perf_counter() - start) / _FRAMES

@@ -78,7 +78,8 @@ class _CaptureSpy:
         return self
 
     @contextmanager
-    def measuring(self, element_id: str) -> Generator[None]:
+    def measuring(self, element_id: str, kind: str) -> Generator[None]:
+        _ = kind
         try:
             yield
         finally:
