@@ -336,6 +336,20 @@ class TestFilterRobustness:
         _change(_search(group), "alpha")
         assert [row[0] for row in _table(group).rows] == ["1"]
 
+    def test_search_all_out_of_range_columns_searches_all_columns(self) -> None:
+        # PR #283: search indices all out of range must not fail closed — they
+        # drop to () at build time, so the model falls open to every column.
+        group = TableComposition.build(
+            TableCompositionSpec(
+                columns=("ID", "Title"),
+                rows=(("1", "alpha"), ("2", "beta")),
+                filters=({"type": "search", "column": [5, 9]},),  # out of range
+            )
+        )[0]
+        assert isinstance(group, GroupElement)
+        _change(_search(group), "alpha")  # matched in Title via the fallback
+        assert [row[0] for row in _table(group).rows] == ["1"]
+
     def test_unknown_filter_type_is_rejected(self) -> None:
         with pytest.raises(ValueError, match="unknown table filter type"):
             TableComposition.build(

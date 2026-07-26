@@ -87,7 +87,13 @@ class TableCompositionSpec:
         return "multi" if self.filters else "none"
 
     def search_columns(self) -> tuple[int, ...]:
-        """Return the columns the search filter matches, ``()`` when none."""
+        """Return the *in-range* int columns the search filter matches, ``()`` if none.
+
+        Out-of-range indices are dropped here at build time (the same discipline
+        as the combo range check), so an all-out-of-range config yields ``()`` and
+        the model's search falls open to every column rather than matching nothing.
+        """
+        num_columns = len(self.columns)
         for spec in self.filters:
             if spec.get("type") == "search":
                 column = spec.get("column", [])
@@ -97,7 +103,11 @@ class TableCompositionSpec:
                     else [column]
                 )
                 return tuple(
-                    c for c in cols if isinstance(c, int) and not isinstance(c, bool)
+                    c
+                    for c in cols
+                    if isinstance(c, int)
+                    and not isinstance(c, bool)
+                    and 0 <= c < num_columns
                 )
         return ()
 

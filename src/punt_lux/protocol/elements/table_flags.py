@@ -40,16 +40,22 @@ class TableFlags:
     )
 
     @classmethod
-    def from_wire(cls, flags: Iterable[str]) -> Self:
-        """Build from a list of set-flag names; an unknown name raises ``ValueError``.
+    def from_wire(cls, flags: Iterable[object]) -> Self:
+        """Build from a list of set-flag names; a bad entry raises ``ValueError``.
 
         The wire form is the list of *enabled* flags — a name present means the
-        flag is on. A name outside the known set is a wire error, not a value to
-        ignore (PY-EH-1).
+        flag is on. Each entry must be a string, checked first so a mixed-type
+        list (``["striped", 1]``) is rejected cleanly rather than crashing
+        ``sorted`` on incomparable types; a name outside the known set is then a
+        wire error, not a value to ignore (PY-EH-1).
         """
-        known = set(cls._ORDER)
-        chosen = set(flags)
-        unknown = chosen - known
+        chosen: set[str] = set()
+        for flag in flags:
+            if not isinstance(flag, str):
+                msg = f"table flags must be strings, got {type(flag).__name__}"
+                raise ValueError(msg)
+            chosen.add(flag)
+        unknown = chosen - set(cls._ORDER)
         if unknown:
             msg = (
                 f"unknown table flag(s) {sorted(unknown)}; "

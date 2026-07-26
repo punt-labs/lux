@@ -41,3 +41,9 @@ class TestFromWire:
     def test_unknown_flag_raises(self) -> None:
         with pytest.raises(ValueError, match="unknown table flag"):
             TableFlags.from_wire(["borders", "striped"])
+
+    def test_mixed_type_flags_are_rejected_cleanly(self) -> None:
+        # A non-string entry must raise a named ValueError, not crash sorted() on
+        # incomparable types when building the unknown-flag message.
+        with pytest.raises(ValueError, match="table flags must be strings"):
+            TableFlags.from_wire(["borders", 1])
