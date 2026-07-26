@@ -89,11 +89,15 @@ class StubPort:
         return self._reply
 
 
-def make_facade(*, display_port: object) -> Operations:
-    """Build the real facade over fresh domain objects and the given port."""
+def make_facade(*, display_port: object, store: HubDisplay | None = None) -> Operations:
+    """Build the real facade over fresh domain objects and the given port.
+
+    ``store`` lets a caller hold the ``HubDisplay`` to inspect what an operation
+    installed; a fresh one is made when it is not supplied.
+    """
     inbox = ForbiddenInbox()
     return Operations.for_store(
-        HubDisplay(),
+        store if store is not None else HubDisplay(),
         Recorder(),
         hub=Hub(),
         client_registry=ClientRegistry(),
@@ -107,9 +111,15 @@ def make_facade(*, display_port: object) -> Operations:
     )
 
 
-def make_client(*, display_port: object | None = None) -> TestClient:
-    """Mount the real REST surface over a fake-backed facade on a bare app."""
+def make_client(
+    *, display_port: object | None = None, store: HubDisplay | None = None
+) -> TestClient:
+    """Mount the real REST surface over a fake-backed facade on a bare app.
+
+    Pass ``store`` to hold the ``HubDisplay`` the routes install into.
+    """
     port = display_port if display_port is not None else ForbiddenPort()
     app = FastAPI()
-    RestSurface(make_facade(display_port=port), scope=_TEST_SCOPE).mount(app)
+    facade = make_facade(display_port=port, store=store)
+    RestSurface(facade, scope=_TEST_SCOPE).mount(app)
     return TestClient(app)

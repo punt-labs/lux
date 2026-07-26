@@ -17,7 +17,9 @@ from punt_lux.operations import (
     ClientList,
     InspectScope,
     OpError,
+    RenderDashboardRequest,
     RenderRequest,
+    RenderTableRequest,
     SceneInspection,
     SceneList,
     SceneShown,
@@ -49,6 +51,18 @@ class SceneRoutes:
         router = APIRouter(tags=["scenes"])
         router.add_api_route(
             "/scenes/{scene_id}", self.render, methods=["PUT"], name="render"
+        )
+        router.add_api_route(
+            "/scenes/{scene_id}/table",
+            self.render_table,
+            methods=["PUT"],
+            name="render_table",
+        )
+        router.add_api_route(
+            "/scenes/{scene_id}/dashboard",
+            self.render_dashboard,
+            methods=["PUT"],
+            name="render_dashboard",
         )
         router.add_api_route(
             "/scenes/{scene_id}", self.update, methods=["PATCH"], name="update"
@@ -88,6 +102,35 @@ class SceneRoutes:
             )
             return self._errors.respond(OpError(code="invalid_request", reason=reason))
         return self._errors.respond(self._ops.render(request, scope=self._scope))
+
+    def render_table(self, scene_id: str, request: RenderTableRequest) -> SceneShown:
+        """Construct a composed table scene server-side; the path names it.
+
+        The Hub *constructs* the composition (its filter/selection/detail handlers
+        and ``FilteredTableModel``), so the chrome is live — unlike pushing a
+        pre-composed element tree through ``render``, whose JSON decode installs
+        only the built-in handlers and leaves the composition dead. The path
+        ``scene_id`` is authoritative; a body naming another scene is rejected.
+        """
+        if request.scene_id != scene_id:
+            reason = (
+                f"body scene_id {request.scene_id!r} must match the path {scene_id!r}"
+            )
+            return self._errors.respond(OpError(code="invalid_request", reason=reason))
+        return self._errors.respond(self._ops.render_table(request, scope=self._scope))
+
+    def render_dashboard(
+        self, scene_id: str, request: RenderDashboardRequest
+    ) -> SceneShown:
+        """Construct a dashboard scene server-side; the path names it."""
+        if request.scene_id != scene_id:
+            reason = (
+                f"body scene_id {request.scene_id!r} must match the path {scene_id!r}"
+            )
+            return self._errors.respond(OpError(code="invalid_request", reason=reason))
+        return self._errors.respond(
+            self._ops.render_dashboard(request, scope=self._scope)
+        )
 
     def update(self, scene_id: str, request: UpdateRequest) -> SceneShown:
         """Apply a patch batch to the scene named in the path."""
