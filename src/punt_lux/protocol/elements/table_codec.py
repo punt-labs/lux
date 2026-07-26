@@ -6,10 +6,11 @@ when ``RowSelectionChanged`` crosses back) and the tab_bar codec (the handler is
 a small serializable class beside the decoder, not the field-parameterised
 ``ApplyPatchOnChange``, because the selection carries a *set* plus an anchor).
 
-The ``key_column`` accepts a column index or a column name; a name is resolved to
-its index here, an absent name to ``-1`` so ``validate`` reports it (a selectable
-grid needs a real key column). ``rows``/``columns`` structural shape is a decode
-error; cell content is a ``validate`` concern (DES-039).
+The ``key_column`` accepts a column index or a column name; a name is resolved
+to its index here, and a name absent from ``columns`` is a decode error naming
+the offending name. An out-of-range *index* is kept for ``validate`` to report
+(a selectable grid needs a real key column). ``rows``/``columns`` structural
+shape is a decode error; cell content is a ``validate`` concern (DES-039).
 """
 
 from __future__ import annotations
