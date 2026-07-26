@@ -1,0 +1,487 @@
+%
+% patch_atomicity.tex
+%
+% A Z specification of the lux Element-ABC apply_patch boundary: an atomic,
+% all-or-nothing multi-field patch on a single element whose selection write
+% is observed by a composed Hub-side model (the filtered table's full
+% selection).  Formalises the rollback-atomicity discipline hardened across
+% two fix/review rounds -- a composed mutable model that the shallow vars()
+% snapshot could not restore, and an observer notified INSIDE the patch that a
+% later failing key could not un-fire -- so that ProB can enumerate every
+% patch shape and either confirm the atomicity invariant or produce the exact
+% offending trace.
+%
+% Source of record:
+%   src/punt_lux/domain/element_abc.py:202  -- Element.apply_patch: snapshot =
+%                                              dict(vars(self)); open the
+%                                              _notify_buffer; run _set_<key> per
+%                                              entry; on any raise restore
+%                                              vars(self) from the snapshot,
+%                                              discard the buffer (= None), and
+%                                              re-raise; on success flush the
+%                                              buffer, firing each deferred
+%                                              notification.
+%   src/punt_lux/domain/element_abc.py:260  -- _notify_observers: the single
+%                                              property-change fan-out point;
+%                                              inside a patch it APPENDS to
+%                                              _notify_buffer instead of firing,
+%                                              so notification is deferred to
+%                                              commit (round 2).
+%   src/punt_lux/protocol/elements/table.py:195 -- _set_selected_row_ids:
+%                                              reconciles the selection and
+%                                              notifies observers.
+%   src/punt_lux/protocol/elements/table_selection_model.py -- the composed
+%                                              selection state, IMMUTABLE so the
+%                                              shallow snapshot captures a value,
+%                                              not a shared reference (round 1).
+%   src/punt_lux/protocol/compositions/filtered_table_model.py:113 --
+%                                              _on_table_change: the observer
+%                                              that folds a selection write into
+%                                              the full selection (round 2).
+%
+% Type-check:  fuzz -t docs/patch_atomicity.tex
+% Model-check (see Section "Verification" for the exact goal predicates):
+%   probcli docs/patch_atomicity.tex -model_check -p DEFAULT_SETSIZE 2
+%   probcli docs/patch_atomicity.tex -model_check -nodead \
+%     -goal "phase=idle & {o|o:OBS & observed(o)/=fields(watches(o))} /= {}" \
+%     -p DEFAULT_SETSIZE 2
+%
+% Formatting follows the fuzz house rules: \quad~ for continuation indent
+% (never \t1..\t9), schema lines under 80 columns, predicates broken at
+% \land/\lor with the operator starting the continuation line.
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{The lux \texttt{apply\_patch} Atomicity Boundary: a Z Specification}
+\author{Formal model of the all-or-nothing patch discipline}
+\date{July 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+An agent patches a single Element-ABC element by sending a mapping of field
+names to new values.  \texttt{Element.apply\_patch} applies the entries in
+order, each through a \texttt{\_set\_<key>} setter, and promises
+\emph{all-or-nothing}: if any setter rejects its value, every field the patch
+already touched is restored and the element is left exactly as it was before
+the patch began.  A composed table also has an \emph{observer} --- the
+filtered table's Hub-side model --- that folds each selection write into a
+full selection spanning filter-hidden rows.  The property that must hold is
+that \emph{a rejected patch produces no observable change at all}: neither the
+element's fields nor any observer's state may differ from their pre-patch
+values, and a patch that succeeds must leave every observer reflecting the
+patch's final values.
+
+The same class of defect --- a rejected patch leaving an observable trace ---
+recurred across two fix/review rounds:
+
+\begin{enumerate}
+  \item the table's selection lived in a \emph{mutable} composed model, so the
+    shallow \texttt{dict(vars(self))} snapshot captured the model
+    \emph{reference}; a setter mutated that same object in place, and the
+    rollback restored a reference to an already-mutated model --- the field was
+    not restored;
+  \item the selection setter notified observers \emph{inside} the patch, so a
+    composed model folded the intermediate selection into its full selection
+    before a later key was rejected; the rollback restored the element's fields
+    but could not un-fire the notification --- the observer's state was not
+    restored.
+\end{enumerate}
+
+Round~1 was closed by making the composed selection model immutable, so each
+setter reassigns a new model and the shallow snapshot captures the old value,
+not a shared reference.  Round~2 is closed by \emph{deferring} observer
+notification: a setter queues its notifications, \texttt{apply\_patch} fires
+them only after the whole patch commits, and a rejected patch fires nothing.
+Both fixes survive here as fidelity variants (Section~\ref{sec:fidelity}) that
+reintroduce each defect to confirm the model still detects it.  Empirical
+round-by-round fixing kept missing an interleaving, so this document models the
+boundary as a finite state machine over a bounded patch, letting ProB
+enumerate every patch shape exhaustively.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [KEY, OBS]
+\end{zed}
+
+\texttt{KEY} is the set of field names a patch may set.  \texttt{OBS} is the
+set of registered observers; the filtered table's model is one such observer.
+Two of each suffice to exhibit a patch that sets one watched field and then
+fails on a second field, and an observer that watches the mutated field; the
+carriers are bounded by ProB's \texttt{DEFAULT\_SETSIZE}.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  GOODVAL ::= a | b
+\end{zed}
+
+The values a field may validly hold.  Two distinct values are enough to show a
+field \emph{changing} and then being restored: the pre-patch value and a new
+one a patch installs.
+
+\begin{zed}
+  PHASE ::= idle | applying
+\end{zed}
+
+The patch lifecycle.  \texttt{idle}: no patch in progress; the observable
+invariant must hold.  \texttt{applying}: a patch is mid-flight, so deferred
+notifications may legitimately not yet be reflected.
+
+A patch step either sets a known field to a valid value or names a value the
+setter rejects:
+
+\begin{zed}
+  STEP ::= setK \ldata KEY \cross GOODVAL \rdata | badK \ldata KEY \rdata
+\end{zed}
+
+\texttt{setK}: set field \texttt{k} to valid value \texttt{g} (the setter
+succeeds).  \texttt{badK}: set field \texttt{k} to a rejected value (the setter
+raises, triggering rollback).  Each constructor is an injection, and their
+ranges partition \texttt{STEP}, so a step is a set or a reject, never both, and
+the test $head~queue \in \ran setK$ distinguishes them.  Two projections
+recover a step's target and (for a set) its value:
+
+\begin{axdef}
+  stepKey : STEP \fun KEY \\
+  stepVal : STEP \pfun GOODVAL
+\where
+  \forall k : KEY; g : GOODVAL @ \\
+  \quad~ stepKey~(setK~(k, g)) = k \land stepVal~(setK~(k, g)) = g \\
+  \forall k : KEY @ stepKey~(badK~k) = k \\
+  \dom stepVal = \ran setK
+\end{axdef}
+
+\texttt{stepKey} is total --- every step names a target.  \texttt{stepVal} is
+defined exactly on the \texttt{setK} steps, because only a successful set
+carries an installed value.
+
+Each observer watches exactly one field; a selection observer watches the
+selection field.  The assignment is a fixed parameter of the system, left
+unconstrained so ProB explores every mapping --- including the ones where an
+observer watches the field a patch mutates, which is what makes the invariant
+detect a field left unrestored:
+
+\begin{axdef}
+  watches : OBS \fun KEY
+\end{axdef}
+
+The patch is a bounded sequence of steps; the bound keeps the carrier finite
+so ProB can enumerate every ordering:
+
+\begin{axdef}
+  maxlen : \nat
+\where
+  maxlen = 3
+\end{axdef}
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema, six components.  Its predicate carries only the
+length bound on the queue --- a structural constraint true in every design.
+The atomicity property (Section~\ref{sec:inv}) is deliberately \emph{absent}
+here, so a violating state stays reachable and ProB can find it.
+
+\begin{schema}{Patch}
+  phase : PHASE \\
+  fields : KEY \fun GOODVAL \\
+  snap : KEY \fun GOODVAL \\
+  observed : OBS \fun GOODVAL \\
+  pending : \power OBS \\
+  queue : \seq STEP
+\where
+  \# queue \leq maxlen
+\end{schema}
+
+\texttt{fields} is the element's current field values --- one value per field.
+\texttt{snap} is the rollback snapshot taken when a patch begins: the values
+\texttt{apply\_patch} restores on failure.  \texttt{observed} records, for each
+observer, the field value it has folded in --- the abstraction of the filtered
+model's full selection, which is a function of the selection value at the
+moment it was notified.  \texttt{pending} is the set of observers with a
+\emph{deferred} notification queued by the in-flight patch, fired only at
+commit.  \texttt{queue} is the unprocessed tail of the current patch.
+
+The observer's real fold is a set expression --- \texttt{(full $\setminus$
+visible) $\cup$ (write $\cap$ visible)} --- that preserves hidden selections.
+That detail is orthogonal to atomicity: what a rejected patch must not do is
+leave the observer having captured \emph{any} value it should not have.  The
+model therefore abstracts the fold to ``the field value the observer was last
+notified about'', because the defect is precisely that the observer captured an
+intermediate value a rollback could not withdraw.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Patch'
+\where
+  phase' = idle \\
+  fields' = (\lambda k : KEY @ a) \\
+  snap' = (\lambda k : KEY @ a) \\
+  observed' = (\lambda o : OBS @ a) \\
+  pending' = \emptyset \\
+  queue' = \langle \rangle
+\end{schema}
+
+A single initial state: no patch in progress, every field holds \texttt{a},
+every observer has folded \texttt{a} (so each observer already reflects its
+watched field), nothing is pending, and the queue is empty.
+
+% ============================================================
+\section{Building and Beginning a Patch}
+% ============================================================
+
+An agent builds a patch one step at a time while the element is idle, then
+begins applying it.  Building step-by-step --- rather than supplying a whole
+sequence at once --- keeps every input a single \texttt{STEP} over a finite
+carrier, so ProB enumerates the patch shapes without trying to enumerate
+arbitrary sequences.  \texttt{Enqueue} appends one step, up to the length
+bound; any step is admissible, including a \texttt{badK} that will later cause
+a rollback:
+
+\begin{schema}{Enqueue}
+  \Delta Patch \\
+  p? : STEP
+\where
+  phase = idle \\
+  \# queue < maxlen \\
+  queue' = queue \cat \langle p? \rangle \\
+  phase' = phase \\
+  fields' = fields \\
+  snap' = snap \\
+  observed' = observed \\
+  pending' = pending
+\end{schema}
+
+\texttt{BeginApply} starts the built patch: it takes the rollback snapshot ---
+a \emph{value} copy of the current fields, unmodified during the idle build ---
+and flips to \texttt{applying}.  The empty patch is admissible; it simply
+commits with nothing to do:
+
+\begin{schema}{BeginApply}
+  \Delta Patch
+\where
+  phase = idle \\
+  phase' = applying \\
+  snap' = fields \\
+  pending' = \emptyset \\
+  queue' = queue \\
+  fields' = fields \\
+  observed' = observed
+\end{schema}
+
+% ============================================================
+\section{Applying a Patch}
+\label{sec:apply}
+% ============================================================
+
+Each step processes the head of the queue.  A successful set installs the value
+and \emph{queues} the notification for every observer of that field, but does
+not fire it --- notification is deferred to commit:
+
+\begin{schema}{ApplyKey}
+  \Delta Patch
+\where
+  phase = applying \\
+  queue \neq \langle \rangle \\
+  head~queue \in \ran setK \\
+  fields' = fields \oplus \{ stepKey~(head~queue) \mapsto stepVal~(head~queue) \} \\
+  pending' = pending \cup \\
+  \quad~ \{ o : OBS | watches~o = stepKey~(head~queue) \} \\
+  queue' = tail~queue \\
+  phase' = phase \\
+  snap' = snap \\
+  observed' = observed
+\end{schema}
+
+When the queue is empty, the patch commits: every deferred notification fires,
+folding each pending observer's watched field --- now at its final committed
+value --- into the observer's state:
+
+\begin{schema}{CommitPatch}
+  \Delta Patch
+\where
+  phase = applying \\
+  queue = \langle \rangle \\
+  observed' = observed \oplus \\
+  \quad~ \{ o : pending @ o \mapsto fields~(watches~o) \} \\
+  phase' = idle \\
+  fields' = fields \\
+  snap' = snap \\
+  pending' = \emptyset \\
+  queue' = \langle \rangle
+\end{schema}
+
+A rejected step aborts the whole patch: the fields are restored from the
+snapshot, the deferred notifications are discarded unfired, and the rest of the
+batch is dropped.  Because nothing was ever fired, the observers are untouched
+--- the rejected patch produces no observable change:
+
+\begin{schema}{AbortPatch}
+  \Delta Patch
+\where
+  phase = applying \\
+  queue \neq \langle \rangle \\
+  head~queue \in \ran badK \\
+  fields' = snap \\
+  observed' = observed \\
+  pending' = \emptyset \\
+  queue' = \langle \rangle \\
+  phase' = idle \\
+  snap' = snap
+\end{schema}
+
+The three apply schemas partition every reachable \texttt{applying} state:
+whenever the queue is non-empty the head is a \texttt{setK} (\texttt{ApplyKey})
+or a \texttt{badK} (\texttt{AbortPatch}), and whenever it is empty
+\texttt{CommitPatch} is enabled.  With \texttt{BeginApply} enabled in every
+\texttt{idle} state, the machine never gets stuck (Section~\ref{sec:verify},
+deadlock-freedom).
+
+% ============================================================
+\section{The Invariant}
+\label{sec:inv}
+% ============================================================
+
+One safety property must hold across all reachable states.  It is stated here
+as a predicate over \texttt{Patch}; it is \emph{not} placed in the
+\texttt{Patch} schema, because a predicate placed there would be enforced as a
+guard on every successor, silently disabling any operation that would break it
+and thereby masking the very defect this model exists to catch.
+
+\paragraph{Invariant AT --- observable atomicity.}
+Whenever no patch is in progress, every observer reflects exactly its watched
+field's current value:
+\[
+  phase = idle \implies (\forall o : OBS @ observed~o = fields~(watches~o)).
+\]
+This one predicate captures both halves of the all-or-nothing contract, from
+opposite sides:
+
+\begin{itemize}
+  \item \emph{After a successful patch}, \texttt{CommitPatch} sets each pending
+    observer to its watched field's final value, and an observer whose field
+    the patch never touched is unchanged alongside an unchanged field --- so
+    \texttt{observed~o = fields~(watches~o)} for every observer.  Observers
+    reflect the patch's final values.
+  \item \emph{After a rejected patch}, \texttt{AbortPatch} restores every field
+    from the value snapshot and fires no notification, so both sides return to
+    their pre-patch values and remain equal.  The rejected patch produced no
+    observable change.
+\end{itemize}
+
+A design that breaks either fix breaks this equality at an \texttt{idle} state:
+round~2 leaves \texttt{observed~o} ahead of a restored \texttt{fields}, and
+round~1 leaves \texttt{fields} ahead of an untouched \texttt{observed}.  The
+invariant catches the divergence whichever side moved.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz -t docs/patch_atomicity.tex
+\end{verbatim}
+
+Invariant AT is checked by asking ProB whether its negation is
+\emph{reachable}.  A goal that is not found means the property holds on every
+reachable state:
+\begin{verbatim}
+  # Invariant AT (must report: goal NOT found)
+  probcli docs/patch_atomicity.tex -model_check -nodead \
+    -goal "phase=idle & {o|o:OBS & observed(o)/=fields(watches(o))} /= {}" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Deadlock-freedom is the state-space search with no goal; the machine is kept
+live by \texttt{BeginApply} in every idle state and by an apply schema while a
+patch is in progress, so a correct design never deadlocks:
+\begin{verbatim}
+  # Deadlock-freedom (must report: no deadlock, no invariant violation)
+  probcli docs/patch_atomicity.tex -model_check -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+At \texttt{DEFAULT\_SETSIZE 2} both searches are exhaustive at the full patch
+length (\texttt{maxlen} = 3): every reachable state is visited and every
+operation covered.  Both are re-run at \texttt{DEFAULT\_SETSIZE 3} with the
+patch length capped at 2 --- enough to exhibit the two length-two defect
+traces of Section~\ref{sec:fidelity} --- to confirm the result is not an
+artefact of the two-element carrier; that search too visits every state with
+no counter-example.  Raising both bounds at once (three-element carriers with
+length-three patches) is unnecessary: each defect trace is a length-two patch,
+and the two bounds are independent.
+
+% ============================================================
+\section{Fidelity: reproducing the two defects}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce the known defects proves nothing.  Each round
+corresponds to breaking one fix of the correct design; the correct spec above
+is what remains once both are fixed.  Each variant is a single-schema edit; the
+model checker is re-run with the AT goal, which must now be \emph{found}.
+
+\paragraph{Round 2 --- observer notified inside the patch.}
+Model eager notification: in \texttt{ApplyKey}, replace the deferred pair
+\begin{verbatim}
+  pending' = pending \cup {o : OBS | watches~o = stepKey~(head~queue)}
+  observed' = observed
+\end{verbatim}
+with an \emph{immediate} fold of the just-installed value into the observers of
+that field:
+\begin{verbatim}
+  observed' = observed \oplus
+    {o : OBS | watches~o = stepKey~(head~queue) @
+       o \mapsto stepVal~(head~queue)}
+  pending' = pending
+\end{verbatim}
+Now a patch that sets a watched field and then hits a \texttt{badK} step folds
+the intermediate value into the observer, \texttt{AbortPatch} restores the
+field but cannot un-fold the observer, and at the resulting \texttt{idle} state
+\texttt{observed~o} $\neq$ \texttt{fields~(watches~o)}: the AT goal is
+\emph{found}.
+
+\paragraph{Round 1 --- snapshot aliases a mutable model.}
+Model the shallow snapshot capturing a shared reference: in \texttt{ApplyKey},
+add the just-installed value to the snapshot as well, as an in-place mutation
+of the model the snapshot points at,
+\begin{verbatim}
+  snap' = snap \oplus {stepKey~(head~queue) \mapsto stepVal~(head~queue)}
+\end{verbatim}
+leaving the deferred notification correct.  Now a patch that sets a watched
+field and then hits a \texttt{badK} step reaches \texttt{AbortPatch}, which
+restores \texttt{fields' = snap} --- but \texttt{snap} was mutated alongside the
+field, so the field is \emph{not} restored, while the (correctly deferred)
+observer still holds the pre-patch value.  At the resulting \texttt{idle}
+state \texttt{fields~(watches~o)} $\neq$ \texttt{observed~o}: the AT goal is
+\emph{found} from the opposite side.
+
+Under the correct design neither trace exists: \texttt{ApplyKey} defers every
+notification and leaves \texttt{snap} untouched, \texttt{AbortPatch} restores a
+value snapshot and fires nothing, and \texttt{CommitPatch} folds only final
+committed values.  The reachability search for AT therefore returns \emph{goal
+not found} for the correct design and \emph{goal found} --- the two traces
+above --- for the corresponding buggy variant.  That difference is the evidence
+that the model detects the defects the code was changed, round by round, to
+prevent.
+
+\end{document}
