@@ -220,6 +220,19 @@ class TestHubSideFiltering:
         table.apply_patch({"rows": [["a", "open"], ["e", "open"]]})
         assert table.selected_row_ids == frozenset({"a"})
 
+    def test_dual_rows_and_selection_patch_keeps_the_selection(self) -> None:
+        # PR #283 HIGH: one apply_patch that sets BOTH rows and selected_row_ids
+        # must keep the patched selection — the rows notification's re-projection
+        # must not clobber it by projecting off the stale full selection.
+        group = self._explorer()
+        table = _table(group)
+        _change(_combo(group), 1)  # "open" filter active
+        table.apply_patch(
+            {"rows": [["e", "open"], ["f", "closed"]], "selected_row_ids": ["e"]}
+        )
+        assert [row[0] for row in table.rows] == ["e"]  # filter re-applied to new data
+        assert table.selected_row_ids == frozenset({"e"})  # patched selection kept
+
 
 class TestModelSeeding:
     def test_model_seeds_full_selection_from_the_table(self) -> None:

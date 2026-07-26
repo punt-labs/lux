@@ -143,12 +143,17 @@ class FilteredTableModel:
 
         The full selection reconciles against the new dataset — ids that vanished
         from the *data* leave it (a dataset change, unlike a filter, which keeps
-        hidden ids for restore). The re-project then re-applies the active filter
-        to the new rows.
+        hidden ids for restore) — then folds in the element's *committed*
+        ``selected_row_ids``. Reading the element's post-patch state makes a single
+        ``apply_patch`` that set BOTH rows and selection atomic regardless of which
+        notification the commit flushes first: the patched selection is honoured
+        instead of clobbered by a re-projection off the stale full selection. The
+        re-project then re-applies the active filter to the new rows.
         """
         self._all_rows = self._table.rows
         live = {self._row_id(row) for row in self._all_rows}
         self._full_selection &= live
+        self.on_selection_gesture(self._table.selected_row_ids)
         self._reproject()
 
     def visible_ids(self) -> frozenset[str]:
