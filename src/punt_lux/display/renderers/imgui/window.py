@@ -73,7 +73,12 @@ class ImGuiWindowRenderer:
         return mask
 
     def paint(self) -> None:
-        """No-op — the window's only body is its children (default recursion)."""
+        """Record the window's painted rect; its body is its children.
+
+        Runs inside the open window, so the recorded rect reflects the user's
+        drag and ImGui's auto-sizing — Display-local truth never re-pushed.
+        """
+        self._factory.geometry.record_window(self._elem.id)
 
     def end(self, *, opened: bool) -> None:
         """Close the window and apply the tooltip.

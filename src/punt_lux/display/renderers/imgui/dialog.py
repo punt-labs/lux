@@ -85,7 +85,8 @@ class ImGuiDialogRenderer:
         return visible
 
     def paint(self) -> None:
-        """No-op — the dialog's only body is its children (default recursion)."""
+        """Record the popup's painted rect; its body is its children."""
+        self._factory.geometry.record_window(self._elem.id)
 
     def end(self, *, opened: bool) -> None:
         """Close the popup (only if open), apply the tooltip, run the cascade."""

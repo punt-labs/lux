@@ -94,7 +94,12 @@ class ImGuiModalRenderer:
         return visible
 
     def paint(self) -> None:
-        """No-op — the modal's only body is its children (default recursion)."""
+        """Record the popup's painted rect; its body is its children.
+
+        Runs while the popup is open, so the recorded width is the signal that
+        would have caught the needle defect — an auto-sized ~20px column.
+        """
+        self._factory.geometry.record_window(self._elem.id)
 
     def end(self, *, opened: bool) -> None:
         """Close the popup and route one ``ModalClosed`` for this frame's gesture.
