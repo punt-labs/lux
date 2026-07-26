@@ -481,6 +481,15 @@ Filtering is **Hub-side**:
    selection from `FilteredTableModel.full_selection` (Decision 1), never a
    filter-truncated view.
 
+**The read path for `full_selection`.** Neither the introspection surface
+(`resolved_props` / `inspect_scene`) nor `RowSelectionChanged` carries it — both
+report only the element's *visible* projection. The composition delivers the true
+selection through its **business-publish handler**: that handler (the one Decision
+1 attaches to `RowSelectionChanged`) holds the `FilteredTableModel` and publishes
+`full_selection`, not `event.row_ids`, so the agent's subscription (`recv`) receives
+the full selection across hidden rows. Under a filter, `full_selection` is the
+agent-facing selection; the element's `selected_row_ids` is Display bookkeeping.
+
 The filter handler is generic (substring / exact match), so it is a reusable
 **composition-provided Hub-side handler**, not per-agent business logic — it does
 not round-trip to the agent. (An agent that needs a *custom* predicate — numeric
