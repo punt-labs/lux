@@ -131,7 +131,7 @@ When a handler mutates Hub-side state (e.g., dialog dismissed via `mark_removed`
 
 ### Key architectural boundary: protocol vs. rendering
 
-The **JSON protocol** (the `protocol/` package — `elements/`, `messages/`) is the API surface. Agents describe what they want as a tree of typed elements — tables, text, plots, groups, buttons, sliders, etc. The **rendering layer** (the `display/` package — `server.py`, `element_renderer.py`, `table_renderer.py`, `menu_manager.py`, `texture_cache.py`, `idle_screen.py`) consumes the protocol and paints ImGui widgets. Changes to the protocol are contract changes — every consumer (agents, tests, the display) depends on them. Changes to rendering are implementation — they affect only the display process.
+The **JSON protocol** (the `protocol/` package — `elements/`, `messages/`) is the API surface. Agents describe what they want as a tree of typed elements — tables, text, plots, groups, buttons, sliders, etc. The **rendering layer** (the `display/` package — `server.py`, the per-kind adapters in `display/renderers/imgui/`, `menu_manager.py`, `texture_cache.py`, `idle_screen.py`) consumes the protocol and paints ImGui widgets. Changes to the protocol are contract changes — every consumer (agents, tests, the display) depends on them. Changes to rendering are implementation — they affect only the display process.
 
 This separation means: protocol bugs break agents. Rendering bugs break the display. They overlap only when a new element kind is added (protocol + rendering in a single coordinated change).
 
@@ -156,14 +156,12 @@ path with remote handler wrapping and Hub-side re-dispatch.
 | Module | Responsibility |
 |--------|---------------|
 | `display/server.py` | ImGui render loop and coordinator — **~1,550 lines, still over the 300-line target; remaining debt from the original `display.py`** |
-| `display/element_renderer.py` | Per-element-kind ImGui dispatch — **~760 lines, still over target** |
-| `display/table_renderer.py` | Table widget with filters, search, row selection |
+| `display/renderers/imgui/` | Per-element-kind ImGui adapters (one module per kind; every leaf inherits `LeafRenderer`) |
 | `display/menu_manager.py` | Application menu bar |
 | `display/texture_cache.py` | Image texture upload (unbounded dict — no eviction policy yet; see `system.tex` §7 "No texture eviction") |
 | `display/idle_screen.py` | Idle splash when no scene is active |
-| `protocol/elements/*.py` | JSON element types (25 kinds; io-model kinds `text`, `button`, `checkbox`, `dialog` in dedicated modules with separate codecs; legacy kinds in family modules: basics, inputs, layout, graphics, table, plot_element) |
+| `protocol/elements/*.py` | JSON element types (25 kinds, all on the Element-ABC path — one module per kind with a sibling codec; the legacy family modules were deleted in B7) |
 | `protocol/messages/*.py` | Wire message types across modules: lifecycle, scene, menu, introspect, `observer` (Agent Subscribe), `remote_invocation` (D21 `RemoteEventHandlerInvocation`), registry |
-| `protocol/elements/codec.py` | `ElementCodec` registry — per-kind dispatch table |
 | `scene/manager.py` | `SceneManager` — scene state, frame composition |
 | `operations/` | The engine core: the `Operations` facade and its concern classes (scenes, queries, menus, display control, config, pub-sub) with typed request/result models — every surface calls these |
 | `rest/` | Typed FastAPI surface on luxd (`RestSurface`, five concern routers, one `OpError`→HTTP table) |
@@ -214,7 +212,7 @@ Default Python — procedural functions operating on dataclasses, `| None` every
 
 3. **Composition over inheritance** (PY-IC-1). Shared shapes — e.g., `[x, y]` point pairs across draw commands — become small typed value classes (`Point2`) composed into containing classes, not parent state. Helpers like `_strip_none` are module-level utility functions called from instance methods, not methods of a base class.
 
-4. **No `str` with a comment listing valid values.** Replace with `Literal[...]`. `layout: str = "rows"  # "rows" | "columns" | "paged"` → `layout: Literal["rows", "columns", "paged"] = "rows"`. The comment was the type system giving up; Literal is the actual type. Every `str` field with a comment listing values is a violation. Audit and fix when touching the file.
+4. **No `str` with a comment listing valid values.** Replace with `Literal[...]`. `layout: str = "rows"  # "rows" | "columns" | "grid"` → `layout: Literal["rows", "columns", "grid"] = "rows"`. The comment was the type system giving up; Literal is the actual type. Every `str` field with a comment listing values is a violation. Audit and fix when touching the file.
 
 5. **Reduce `| None` types.** Each Optional is a place the type system gave up. Per-field, ask: is this really "absent", or is it a discriminated state? `color: str | None = None` (meaning "renderer default") → `color: str = "#FFFFFF"`. `error: str | None = None` on a response → discriminated `OkResponse` vs `ErrorResponse`. `path | data` validated one-or-the-other → discriminated `PathImage` vs `DataImage`. Genuinely-optional attributes (e.g., `tooltip`) stay.
 
@@ -222,9 +220,9 @@ Default Python — procedural functions operating on dataclasses, `| None` every
 
 ### Module-size constraints
 
-**`display/server.py` (~1,550 lines) and `display/element_renderer.py` (~760 lines) must be decomposed further** — both are over the 300-line target. Any PR that adds rendering logic to either without extracting existing code will be rejected. The original `display.py` was 4,208 lines; PR #158 split it into the `display/` package; `server.py` still carries the bulk of the original mass (and has grown), while `element_renderer.py` has been reduced but is still over target.
+**`display/server.py` (~1,500 lines) must be decomposed further** — it is over the 300-line target. Any PR that adds rendering logic to it without extracting existing code will be rejected. The original `display.py` was 4,208 lines; PR #158 split it into the `display/` package; `server.py` still carries the bulk of the original mass. (`element_renderer.py` and the other legacy renderers were deleted with the legacy render path in B7.)
 
-**Protocol codec functions** — every `protocol/elements/*.py` and `protocol/messages/*.py` module still uses module-level `_<kind>_to_dict` / `_<kind>_from_dict` functions instead of methods on the dataclasses. Phase A (PRs #169, #170, #172) split the file but DID NOT fix the procedural codec pattern — same OO debt now spread across 11 family modules instead of 2. The draw-command surface (PR #176) is the one corner that fixed it. When you touch any of those files, fix the codec while you're there; do not file a follow-up bead.
+**Protocol codec debt — resolved by the element migration.** Every element kind now has a class-based codec beside its element module (`JsonXEncoder`/`JsonXDecoder`); the legacy family modules with module-level `_<kind>_to_dict` functions were deleted in B7. The remaining procedural corners live in `protocol/messages/*.py` — fix a message codec onto its class when you touch the file.
 
 **MCP tool boilerplate — resolved.** The missing abstraction this paragraph used to flag now exists: every tool in `tools/tools.py` (23) and `tools/subscribe_tools.py` (4) is a grep-provable parse-call-format adapter over the `Operations` facade, and the REST routes are the same adapters over HTTP. New capabilities are added as operations; the surfaces inherit them.
 
@@ -271,11 +269,11 @@ Bootstrap (first time only): run `make update-oo` to create the initial baseline
 
 ### What good testing means in this project
 
-Lux's biggest testing gap is the rendering layer. `display/server.py` and `display/element_renderer.py` are large and have no automated visual regression tests — correctness is verified manually by looking at the display. This means:
+Lux's biggest testing gap is the rendering layer. `display/server.py` is large and has no automated visual regression tests — correctness is verified manually by looking at the display. This means:
 
 - **Protocol tests are the primary safety net.** Every element kind must have tests that verify serialization roundtrips (build → serialize → deserialize → compare). Protocol changes without tests are unshippable.
 - **Scene tests verify composition.** Multiple elements in a scene, tab switching, window management, detail panels — these must be tested at the scene level even though visual rendering is manual.
-- **Further decomposing `display/server.py` and `display/element_renderer.py` is prerequisite for meaningful render tests.** Until each is split into testable units, the rendering layer remains undertested. Every change that includes extraction improves the testability of the codebase.
+- **Further decomposing `display/server.py` is prerequisite for meaningful render tests.** Until it is split into testable units, the rendering layer remains undertested. Every change that includes extraction improves the testability of the codebase.
 
 ### Key relationships
 
