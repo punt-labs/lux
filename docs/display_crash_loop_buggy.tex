@@ -339,49 +339,32 @@ inherited by composition.  \texttt{Respawn} abstracts that verified pair.
 \label{sec:verify}
 % ============================================================
 
-Type-checking is a \texttt{fuzz} pass:
+Type-checking is a \texttt{fuzz} pass on this variant:
 \begin{verbatim}
-  fuzz -t docs/display_crash_loop.tex
+  fuzz -t docs/display_crash_loop_buggy.tex
 \end{verbatim}
 
-Invariants 2 and 3 are state properties, checked by asking ProB whether their
-negation is \emph{reachable}.  A goal that is not found means the invariant holds
-on every reachable state:
+This file is a fidelity negative control, so its verification expectation is
+the \emph{inverse} of the canonical spec's: the crash-bound goal that is NOT
+found for \texttt{display\_crash\_loop.tex} must be FOUND here, with the
+deterministic crash-respawn loop as the counter-example trace:
 \begin{verbatim}
-  # Invariant 2 (must report: goal NOT found)
-  probcli docs/display_crash_loop.tex -model_check -nodead \
+  # Buggy variant (must report: goal FOUND -- the loop)
+  probcli docs/display_crash_loop_buggy.tex -model_check -nodead \
     -goal "crashes>1+(THRESHOLD-1)*card(crasher)" \
     -p DEFAULT_SETSIZE 2 -p MAX_INITIALISATIONS 20
-
-  # Invariant 3 (must report: goal NOT found)
-  probcli docs/display_crash_loop.tex -model_check -nodead \
-    -goal "quarantined - crasher /= {}" \
-    -p DEFAULT_SETSIZE 2 -p MAX_INITIALISATIONS 20
 \end{verbatim}
 
-The model also reaches the stable fixed point in which every crasher is
-quarantined, the worker is back in batching mode, and the Display is up --- the
-state the loop settles into.  That this state is reachable is a positive goal ProB
-finds:
-\begin{verbatim}
-  # Stable state reachable (must report: goal FOUND)
-  probcli docs/display_crash_loop.tex -model_check -nodead \
-    -goal "disp=up & mode=batching & crasher/={} & crasher<:quarantined" \
-    -p DEFAULT_SETSIZE 2 -p MAX_INITIALISATIONS 20
-\end{verbatim}
+The canonical spec's stable-state goal is unreachable here by construction:
+with the quarantine clause struck, \texttt{quarantined} never grows, so a
+non-empty \texttt{crasher} can never become a subset of it.  The directed
+search above, which halts the instant the loop overshoots the bound, is the
+runnable control.
 
-Invariant 1 is a transition property, established by the guards of
-\texttt{BatchCrash}, \texttt{IsolCrash}, and \texttt{IsolClean} and corroborated
-by ProB's operation-coverage report.  Invariant 4 is inherited from
-\texttt{display\_lifecycle.tex}.
-
-The \texttt{-nodead} flag is used deliberately.  Unlike the bind-race spec, whose
-liveness depends on never deadlocking, this model is \emph{meant} to terminate:
-the state in which every crasher is quarantined and the Display is up has no
-enabled operation, and that quiescence is the desired outcome, not a fault.  The
-\texttt{MAX\_INITIALISATIONS} bound is raised past the default four because
-\texttt{Init} is nondeterministic over \texttt{crasher} (one initial state per
-subset of \texttt{SCENE}), and every one must be explored.
+The \texttt{-nodead} flag and the raised \texttt{MAX\_INITIALISATIONS} bound
+carry over from the canonical spec: the search is goal-directed, and
+\texttt{Init} is nondeterministic over \texttt{crasher}, so every initial
+valuation must be explored.
 
 % ============================================================
 \section{Fidelity: reproducing the loops}
