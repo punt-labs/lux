@@ -1546,8 +1546,3 @@ class TestMessageRegistry:
             "unknown",
         }
         assert _registry.registered_types == expected_types
-
-
-# ---------------------------------------------------------------------------
-# ElementCodec
-# ---------------------------------------------------------------------------

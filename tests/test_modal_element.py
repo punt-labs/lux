@@ -1,7 +1,7 @@
 """Migration gate for the ABC ``modal`` — an interactive composite.
 
-Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation, the all-ABC fork gate,
-and the dismiss round trip. A user close routes to the Hub as a ``ModalClosed``
+Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation and the dismiss round
+trip. A user close routes to the Hub as a ``ModalClosed``
 interaction whose built-in handler drives ``model.close`` -> ``mark_removed``, so
 the removal cascade drops the modal from both tiers — the D21 path a dialog
 dismiss uses. Levels 2, 3, and 5 drive the real Hub/Display boundary — the pickle
@@ -137,7 +137,7 @@ class TestLevel1Serialization:
         assert modal.open is True
 
 
-# -- the all-ABC fork gate --------------------------------------------------
+# -- ABC decode nesting -----------------------------------------------------
 
 
 class TestForkGate:

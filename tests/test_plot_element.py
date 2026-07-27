@@ -257,7 +257,7 @@ class TestLevel3Crossing:
         assert plot._renderer_factory is factory
 
 
-# -- the all-ABC fork gate --------------------------------------------------
+# -- ABC decode nesting -----------------------------------------------------
 
 
 class TestForkGate:

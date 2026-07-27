@@ -1,6 +1,6 @@
 """Migration gate for the ABC ``tab_bar`` — an interactive tabbed container.
 
-Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation, the all-ABC fork gate,
+Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation,
 id-addressed reconciliation, the built-in state-sync, and the echo-suppression
 safety property. Levels 2, 3, and 5 drive the real Hub/Display boundary — never
 a stub. The Level-4 interactive and child-forwarding round trips live in the
@@ -81,13 +81,8 @@ def _decode(wire: Mapping[str, object]) -> object:
     return agent_element_factory().element_from_dict(cast("dict[str, Any]", dict(wire)))
 
 
-def _legacy_child() -> dict[str, object]:
-    """Return a still-legacy subtree — a paged group forks its container legacy.
-
-    Every leaf kind is migrated after B6, so the legacy fork path is exercised
-    through the one remaining legacy shape: a ``group`` whose ``paged`` layout
-    the ABC group cannot hold.
-    """
+def _paged_group_wire() -> dict[str, object]:
+    """Return a wire dict for a removed ``paged`` group — a decode rejection."""
     return {"kind": "group", "id": "lg", "layout": "paged", "children": []}
 
 
@@ -195,7 +190,7 @@ class TestLevel1Serialization:
         assert restored.tooltip is None
 
 
-# -- the all-ABC fork gate --------------------------------------------------
+# -- ABC decode nesting -----------------------------------------------------
 
 
 class TestForkGate:
@@ -206,7 +201,7 @@ class TestForkGate:
             "tabs": [
                 {
                     "label": "One",
-                    "children": [_legacy_child()],
+                    "children": [_paged_group_wire()],
                 }
             ],
         }

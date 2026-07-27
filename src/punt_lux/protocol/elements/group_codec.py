@@ -34,8 +34,8 @@ class JsonGroupDecoder:
     """Decode a wire dict to a fully-constructed ABC ``GroupElement``.
 
     Constructed with the tier's child decoder and the concrete element
-    class. ``is_all_abc`` is the gate the factory consults to decide
-    whether a ``group`` forks onto this decoder or the legacy container.
+    class. ``decode`` validates the layout and rejects the removed ``paged``
+    layout at the boundary (PY-EH-1).
     """
 
     _decode_element: DecodeElement

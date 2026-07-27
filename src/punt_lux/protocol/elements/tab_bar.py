@@ -53,9 +53,8 @@ class TabBarElement(Element):
     """A tabbed container that owns a Hub-authoritative active-tab selection.
 
     Holds only ABC children — the render template calls ``child.render()``,
-    which only ABC elements provide. The decoder decodes a ``tab_bar`` onto this
-    class only when its entire subtree is migrated-ABC; any legacy descendant
-    routes the whole subtree to the legacy form.
+    which every element provides. The decoder recurses each tab's children
+    through the tier dispatcher, which rejects an unknown child kind.
 
     PY-TS-14: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for an optional tooltip.

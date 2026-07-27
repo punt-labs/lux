@@ -47,9 +47,8 @@ class CollapsingHeaderElement(Element):
     """A collapsible section that owns a Hub-authoritative ``open`` flag.
 
     Holds only ABC children — the render template calls ``child.render()``,
-    which only ABC elements provide. The decoder guarantees this by decoding a
-    ``collapsing_header`` onto this class only when its entire subtree is
-    migrated-ABC; any legacy descendant routes the subtree to the legacy form.
+    which every element provides. The decoder recurses each child through the
+    tier dispatcher, which rejects an unknown child kind.
 
     PY-TS-14: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for an optional tooltip.

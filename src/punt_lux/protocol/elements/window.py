@@ -12,7 +12,7 @@ the element keeps only the initial :class:`WindowPlacement` an agent seeds and t
 Tree position governs an element's LIFECYCLE, never its GEOMETRY. ImGui's
 ``begin`` always creates a top-level window, so a window floats top-level whatever
 it nests in — its parent scopes when it is shown and removed, not where it draws.
-Nested in a plain container it renders as a legal-but-legacy on-screen escapee;
+Nested in a plain container it renders as a legal-but-unusual on-screen escapee;
 nested in a *modal* it is incoherent (the modal blocks its own escaped child) and
 forbidden — see ``ModalElement.validate``. Use a group or collapsing_header for a
 panel that must stay inside its parent's box.

@@ -1,7 +1,7 @@
 """Migration gate for the ABC ``collapsing_header`` — an interactive container.
 
-Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation, the all-ABC fork gate,
-the built-in state-sync, and the echo-suppression safety property. Levels 2,
+Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation, the built-in
+state-sync, and the echo-suppression safety property. Levels 2,
 3, and 5 drive the real Hub/Display boundary — the pickle scene wire and the
 ``DisplayServer`` receive/rebind path — never a stub. The Level-4 interactive and
 child-forwarding round trips live in the business-event-loop harness
@@ -163,7 +163,7 @@ class TestLevel1Serialization:
         assert header.open is True
 
 
-# -- the all-ABC fork gate --------------------------------------------------
+# -- ABC decode nesting -----------------------------------------------------
 
 
 class TestForkGate:
