@@ -423,6 +423,114 @@ class _PlainGroupRenderer:
     def end(self, *, opened: bool) -> None: ...
 
 
+class _Layout:
+    """A minimal columns layout model: columns left-to-right, items top-to-bottom.
+
+    Faithful to the fix's structure, deliberately simpler than ImGui: a per-child
+    block advances the column origin (``same_line`` past the previous column) and
+    resets to the row top, and items painted inside a block advance ``y``. Enough
+    to assert the two geometry invariants the defect broke — disjoint increasing
+    ``x`` across children and increasing ``y`` within one child.
+    """
+
+    _col_x: float
+    _col_w: float
+    _y: float
+    rects: dict[str, list[tuple[float, float, float, float]]]
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self._col_x = 0.0
+        self._col_w = 0.0
+        self._y = 0.0
+        self.rects = {}
+        return self
+
+    def next_column(self, *, first: bool) -> None:
+        """Open a column: after the first, ``same_line`` past the previous one."""
+        if not first:
+            self._col_x += self._col_w
+        self._col_w = 0.0
+        self._y = 0.0
+
+    def paint_item(self, elem_id: str, size: tuple[float, float]) -> None:
+        """Record one item at the cursor and advance ``y`` (vertical flow)."""
+        width, height = size
+        self.rects.setdefault(elem_id, []).append((self._col_x, self._y, width, height))
+        self._y += height
+        self._col_w = max(self._col_w, width)
+
+
+class _LayoutColumnsRenderer:
+    """A ``ColumnsRenderer`` that drives ``_Layout`` — one column per child block."""
+
+    _layout: _Layout
+
+    def __new__(cls, layout: _Layout) -> Self:
+        self = super().__new__(cls)
+        self._layout = layout
+        return self
+
+    def begin(self) -> bool:
+        return True
+
+    def paint(self) -> None: ...
+
+    def end(self, *, opened: bool) -> None: ...
+
+    def begin_child_block(self, *, first: bool) -> None:
+        self._layout.next_column(first=first)
+
+    def end_child_block(self) -> None: ...
+
+
+class _LayoutChildRenderer:
+    """A child ``Renderer`` painting its element's items with known sizes."""
+
+    _id: str
+    _layout: _Layout
+    _sizes: Mapping[str, list[tuple[float, float]]]
+
+    def __new__(
+        cls,
+        elem: Element,
+        layout: _Layout,
+        sizes: Mapping[str, list[tuple[float, float]]],
+    ) -> Self:
+        self = super().__new__(cls)
+        self._id = elem.id
+        self._layout = layout
+        self._sizes = sizes
+        return self
+
+    def begin(self) -> bool:
+        return True
+
+    def paint(self) -> None:
+        for size in self._sizes[self._id]:
+            self._layout.paint_item(self._id, size)
+
+    def end(self, *, opened: bool) -> None: ...
+
+
+class _LayoutFactory:
+    """A ``RendererFactory`` binding each child to a ``_LayoutChildRenderer``."""
+
+    _layout: _Layout
+    _sizes: Mapping[str, list[tuple[float, float]]]
+
+    def __new__(
+        cls, layout: _Layout, sizes: Mapping[str, list[tuple[float, float]]]
+    ) -> Self:
+        self = super().__new__(cls)
+        self._layout = layout
+        self._sizes = sizes
+        return self
+
+    def __call__(self, elem: object) -> Renderer:
+        return _LayoutChildRenderer(cast("Element", elem), self._layout, self._sizes)
+
+
 class TestColumnsBlockPainting:
     """The columns painter brackets each child in its own vertical block.
 
@@ -444,6 +552,31 @@ class TestColumnsBlockPainting:
             "render:b1",
             "end_block",
         ]
+
+    def test_columns_place_children_in_disjoint_increasing_x_columns(self) -> None:
+        # ``t1`` stands in for a multi-item child (a tree's label + two nodes);
+        # ``b1`` for a single-item child. The defect flowed a multi-item child's
+        # items along the row, so the collapsed tree's nodes landed at INCREASING
+        # x and the next column overlapped them. Assert the fixed geometry.
+        sizes: dict[str, list[tuple[float, float]]] = {
+            "t1": [(10.0, 5.0), (10.0, 5.0), (10.0, 5.0)],
+            "b1": [(20.0, 5.0)],
+        }
+        layout = _Layout()
+        group = _stack_group("columns")
+        group.bind_renderer_factory(_LayoutFactory(layout, sizes))
+        group._render_children(_LayoutColumnsRenderer(layout))
+
+        t1 = layout.rects["t1"]
+        b1 = layout.rects["b1"]
+        # The multi-item child's items grow DOWN one column: one x, increasing y.
+        assert {x for x, _y, _w, _h in t1} == {0.0}
+        assert [y for _x, y, _w, _h in t1] == [0.0, 5.0, 10.0]
+        # The second child is a disjoint column to the RIGHT, back at the row top —
+        # not chained below the first, not overlapping its x-range.
+        t1_right = max(x + w for x, _y, w, _h in t1)
+        assert b1[0][0] >= t1_right
+        assert b1[0][1] == 0.0
 
     def test_columns_requires_a_columns_renderer(self) -> None:
         group = _stack_group("columns")
