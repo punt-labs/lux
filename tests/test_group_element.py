@@ -9,12 +9,13 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Self, cast
 from unittest.mock import MagicMock
 
 import pytest
 
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
+from punt_lux.display.renderers.imgui.group import ImGuiGroupRenderer
 from punt_lux.display.server import DisplayServer
 from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.element_abc import Element as AbcElement
@@ -27,6 +28,7 @@ from punt_lux.protocol.elements import (
 )
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
+from punt_lux.protocol.renderer import ColumnsRenderer, Renderer
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 
 if TYPE_CHECKING:
@@ -335,3 +337,134 @@ class TestSceneInspectionRecursion:
         assert isinstance(paths, list)
         ids = {r["id"] for r in paths}
         assert ids == {"g1", "t1", "b1"}
+
+
+# -- columns block painting (unit) ------------------------------------------
+
+
+class _Recorder:
+    """Shared ordered event log for the columns-painter drive tests."""
+
+    events: list[str]
+
+    def __new__(cls) -> Self:
+        self = super().__new__(cls)
+        self.events = []
+        return self
+
+
+class _RecordingChildRenderer:
+    """A child ``Renderer`` that logs its element id when the skeleton renders it."""
+
+    _id: str
+    _rec: _Recorder
+
+    def __new__(cls, elem: Element, rec: _Recorder) -> Self:
+        self = super().__new__(cls)
+        self._id = elem.id
+        self._rec = rec
+        return self
+
+    def begin(self) -> bool:
+        self._rec.events.append(f"render:{self._id}")
+        return True
+
+    def paint(self) -> None: ...
+
+    def end(self, *, opened: bool) -> None: ...
+
+
+class _RecordingFactory:
+    """A ``RendererFactory`` binding each child to a ``_RecordingChildRenderer``."""
+
+    _rec: _Recorder
+
+    def __new__(cls, rec: _Recorder) -> Self:
+        self = super().__new__(cls)
+        self._rec = rec
+        return self
+
+    def __call__(self, elem: object) -> Renderer:
+        return _RecordingChildRenderer(cast("Element", elem), self._rec)
+
+
+class _SpyColumnsRenderer:
+    """A ``ColumnsRenderer`` that logs each child-block bracket in order."""
+
+    _rec: _Recorder
+
+    def __new__(cls, rec: _Recorder) -> Self:
+        self = super().__new__(cls)
+        self._rec = rec
+        return self
+
+    def begin(self) -> bool:
+        return True
+
+    def paint(self) -> None: ...
+
+    def end(self, *, opened: bool) -> None: ...
+
+    def begin_child_block(self, *, first: bool) -> None:
+        self._rec.events.append(f"begin_block(first={first})")
+
+    def end_child_block(self) -> None:
+        self._rec.events.append("end_block")
+
+
+class _PlainGroupRenderer:
+    """A base ``Renderer`` with no columns block surface — not a ColumnsRenderer."""
+
+    def begin(self) -> bool:
+        return True
+
+    def paint(self) -> None: ...
+
+    def end(self, *, opened: bool) -> None: ...
+
+
+class TestColumnsBlockPainting:
+    """The columns painter brackets each child in its own vertical block.
+
+    Regression for the horizontal-stack defect: an expandable child in a
+    columns group spread its content along one row. Each child must render
+    inside its own ``begin_group``/``end_group`` block so it grows DOWN.
+    """
+
+    def test_columns_brackets_each_child_in_its_own_block(self) -> None:
+        rec = _Recorder()
+        group = _stack_group("columns")
+        group.bind_renderer_factory(_RecordingFactory(rec))
+        group._render_children(_SpyColumnsRenderer(rec))
+        assert rec.events == [
+            "begin_block(first=True)",
+            "render:t1",
+            "end_block",
+            "begin_block(first=False)",
+            "render:b1",
+            "end_block",
+        ]
+
+    def test_columns_requires_a_columns_renderer(self) -> None:
+        group = _stack_group("columns")
+        # Premise: the plain renderer is a valid base Renderer lacking only the
+        # columns block surface, so the rejection is about the missing surface.
+        assert isinstance(_PlainGroupRenderer(), Renderer)
+        with pytest.raises(TypeError, match="ColumnsRenderer"):
+            group._render_children(_PlainGroupRenderer())
+
+    def test_rows_use_default_recursion_without_block_brackets(self) -> None:
+        rec = _Recorder()
+        group = _stack_group("rows")
+        group.bind_renderer_factory(_RecordingFactory(rec))
+        # Rows never require the columns surface: a plain Renderer is accepted
+        # and no per-child block bracket is emitted.
+        group._render_children(_PlainGroupRenderer())
+        assert rec.events == ["render:t1", "render:b1"]
+
+    def test_imgui_group_renderer_satisfies_columns_protocol(self) -> None:
+        # The renderer the display actually builds must satisfy the gate the
+        # group enforces for columns.
+        factory = _server()._imgui_renderer_factory
+        renderer = ImGuiGroupRenderer(_stack_group("columns"), factory)
+        assert isinstance(renderer, ColumnsRenderer)

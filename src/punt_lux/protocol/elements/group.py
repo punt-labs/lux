@@ -26,11 +26,12 @@ from punt_lux.domain.element_abc import Element
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.container_dispatch import dispatch
 from punt_lux.protocol.elements.group_codec import JsonGroupDecoder, JsonGroupEncoder
+from punt_lux.protocol.renderer import ColumnsRenderer
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-    from punt_lux.protocol.renderer import Emit, RendererFactory
+    from punt_lux.protocol.renderer import Emit, Renderer, RendererFactory
 
 __all__ = ["GroupElement"]
 
@@ -100,10 +101,36 @@ class GroupElement(Element):
         """Return the hover-tooltip text, or ``None`` for no tooltip."""
         return self._tooltip
 
-    # The render-visible children, remove_child (physical removal), and the
-    # validation-walk bridge all come from the Element ABC, which stores the
-    # tuple this group populates in ``__new__``. A rows/columns group needs no
-    # override — the layout surface is opened by the ImGui adapter's begin/end.
+    # remove_child (physical removal) and the validation-walk bridge come from
+    # the Element ABC, which stores the tuple this group populates in ``__new__``.
+
+    def _render_children(self, renderer: Renderer) -> None:
+        """Paint children; a columns group brackets each in its own vertical block.
+
+        A rows group stacks with the default recursion. A columns group places
+        children left-to-right, but a child whose expansion paints several items
+        must grow DOWN within its column rather than spread the row — so each
+        child renders inside its own ImGui block and the renderer advances to the
+        next column between blocks. The domain class drives the loop; the
+        ``ColumnsRenderer`` owns the ImGui (PY-IC-8), and a plain ``Renderer`` is
+        rejected here at the boundary, not deep in the loop with an opaque
+        ``AttributeError``.
+        """
+        if self._layout != "columns":
+            super()._render_children(renderer)
+            return
+        if not isinstance(renderer, ColumnsRenderer):
+            msg = (
+                f"group {self._id!r} columns layout requires a ColumnsRenderer "
+                f"(begin_child_block/end_child_block), got {type(renderer).__name__}"
+            )
+            raise TypeError(msg)
+        for index, child in enumerate(self._children()):
+            renderer.begin_child_block(first=index == 0)
+            try:
+                child.render()
+            finally:
+                renderer.end_child_block()
 
     # -- codec delegators ---------------------------------------------------
 
