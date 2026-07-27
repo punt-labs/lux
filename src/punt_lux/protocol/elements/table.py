@@ -22,15 +22,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal, Self, cast
 
 from punt_lux.domain.element_abc import Element
-from punt_lux.domain.handlers.decorators import PublishSink
 from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
 from punt_lux.domain.selection_interaction import RowSelectionChanged
 from punt_lux.domain.validation import ValidationError
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.patch_field import PatchField
 from punt_lux.protocol.elements.table_codec import (
-    JsonTableDecoder,
     JsonTableEncoder,
+    decode_table_from_dict,
 )
 from punt_lux.protocol.elements.table_flags import TableFlags
 from punt_lux.protocol.elements.table_selection_model import (
@@ -38,10 +37,7 @@ from punt_lux.protocol.elements.table_selection_model import (
     TableSelectionModel,
 )
 from punt_lux.protocol.elements.table_validation import TableValidator
-from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
-from punt_lux.protocol.standalone_row_selection_handler import (
-    build_standalone_row_selection_handler_decoder,
-)
+from punt_lux.protocol.elements.table_wire import TableWire
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -202,7 +198,7 @@ class TableElement(Element):
         selection write. Both notifications are deferred to patch commit like any
         other, so atomicity holds.
         """
-        self._rows = self.rows_from_wire(value)
+        self._rows = TableWire.rows_from_wire(value)
         before = self._selection
         self._selection = self._selection.reconciled(self._live_ids())
         self._notify_observers("rows")
@@ -214,11 +210,11 @@ class TableElement(Element):
 
     def _set_columns(self, value: object) -> None:
         """Replace the column headers."""
-        self._columns = self.columns_from_wire(value)
+        self._columns = TableWire.columns_from_wire(value)
 
     def _set_flags(self, value: object) -> None:
         """Replace the render flags from a wire name list."""
-        self._flags = TableFlags.from_wire(self._str_list(value, "flags"))
+        self._flags = TableFlags.from_wire(TableWire.str_list(value, "flags"))
 
     def _set_selected_row_ids(self, value: object) -> None:
         """Replace the selection from an agent drive or the built-in handler.
@@ -232,7 +228,8 @@ class TableElement(Element):
         the model the same way a gesture does, instead of being shadowed on the
         next re-projection.
         """
-        ids = frozenset(self._str_list(value, "selected_row_ids")) & self._live_ids()
+        wire_ids = TableWire.str_list(value, "selected_row_ids")
+        ids = frozenset(wire_ids) & self._live_ids()
         self._selection = self._selection.with_selection(ids)
         self._notify_observers("selected_row_ids")
 
@@ -261,43 +258,6 @@ class TableElement(Element):
             RemoteDispatchSpec(RowSelectionChanged, self.id, "row_selection_changed"),
         )
 
-    # -- wire coercion (shared by the codec and the patch path) -------------
-
-    @classmethod
-    def rows_from_wire(cls, value: object) -> tuple[tuple[object, ...], ...]:
-        """Coerce a wire ``rows`` value to a tuple of row tuples.
-
-        Structural shape is a decode-boundary concern: ``rows`` and each row must
-        be a list (else ``ValueError``). Cell *content* — ragged width, a
-        non-scalar cell — is left for ``validate`` to report per DES-039.
-        """
-        if not isinstance(value, list):
-            msg = f"rows must be a list of rows, got {type(value).__name__}"
-            raise ValueError(msg)
-        rows: list[tuple[object, ...]] = []
-        for index, row in enumerate(cast("list[object]", value)):
-            if not isinstance(row, list):
-                msg = f"row {index} must be a list of cells, got {type(row).__name__}"
-                raise ValueError(msg)
-            rows.append(tuple(cast("list[object]", row)))
-        return tuple(rows)
-
-    @classmethod
-    def columns_from_wire(cls, value: object) -> tuple[str, ...]:
-        """Coerce a wire ``columns`` value to a tuple of header strings."""
-        return tuple(cls._str_list(value, "columns"))
-
-    @staticmethod
-    def _str_list(value: object, field: str) -> list[str]:
-        """Return ``value`` as a list of strings or raise ``ValueError``."""
-        got = type(value).__name__
-        if not isinstance(value, list) or not all(
-            isinstance(item, str) for item in cast("list[object]", value)
-        ):
-            msg = f"{field} must be a list of strings, got {got}"
-            raise ValueError(msg)
-        return list(cast("list[str]", value))
-
     # -- self-validation ---------------------------------------------------
 
     def validate(self) -> tuple[ValidationError, ...]:
@@ -319,19 +279,11 @@ class TableElement(Element):
     def from_dict(cls, d: Mapping[str, object]) -> Self:
         """Construct a TableElement from a JSON-decoded mapping.
 
-        Wires a noop-only handler decoder so a table decoded with no ``handlers``
-        works without a real publish bus; a spec whose decorator chain invokes
-        ``publish`` raises via ``RaisingPublishSink``.
+        The decoder wiring (a noop-only handler decoder so a table with no
+        ``handlers`` decodes without a publish bus) lives in ``table_codec`` so
+        this stays a one-line delegator satisfying the ``Element`` Protocol.
         """
-        decoder = JsonTableDecoder(
-            renderer_factory=RAISING_FACTORY,
-            emit=NO_EMIT,
-            element_cls=cls,
-            handler_decoder=build_standalone_row_selection_handler_decoder(
-                cast("PublishSink", RaisingPublishSink("TableElement.from_dict")),
-            ),
-        )
-        return cast("Self", decoder.decode(d))
+        return cast("Self", decode_table_from_dict(cls, d))
 
     # -- introspection (Inspectable) ---------------------------------------
 

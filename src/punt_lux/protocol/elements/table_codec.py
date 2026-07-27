@@ -18,10 +18,17 @@ from __future__ import annotations
 import math
 from typing import TYPE_CHECKING, Self, cast
 
+from punt_lux.domain.handlers.decorators import PublishSink
 from punt_lux.domain.selection_interaction import RowSelectionChanged
+from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.element_wire import ElementWireContext
 from punt_lux.protocol.elements.table_flags import TableFlags
 from punt_lux.protocol.elements.table_selection_model import SelectionMode
+from punt_lux.protocol.elements.table_wire import TableWire
+from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
+from punt_lux.protocol.standalone_row_selection_handler import (
+    build_standalone_row_selection_handler_decoder,
+)
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
@@ -31,7 +38,12 @@ if TYPE_CHECKING:
     from punt_lux.protocol.handler_decoder import HandlerDecoder
     from punt_lux.protocol.renderer import Emit, RendererFactory
 
-__all__ = ["JsonTableDecoder", "JsonTableEncoder", "install_selection_sync"]
+__all__ = [
+    "JsonTableDecoder",
+    "JsonTableEncoder",
+    "decode_table_from_dict",
+    "install_selection_sync",
+]
 
 _SELECTION_MODES: frozenset[str] = frozenset({"none", "single", "multi"})
 _ROW_EVENT_TYPES: dict[str, type[RowSelectionChanged]] = {
@@ -115,13 +127,13 @@ class JsonTableDecoder:
     def decode(self, raw: Mapping[str, object]) -> TableElement:
         """Construct a TableElement from a JSON-decoded mapping."""
         ctx = ElementWireContext.for_kind("table")
-        columns = self._cls.columns_from_wire(raw.get("columns", []))
+        columns = TableWire.columns_from_wire(raw.get("columns", []))
         elem = self._cls(
             renderer_factory=self._rf,
             emit=self._emit,
             id=ctx.require_id(raw),
             columns=columns,
-            rows=self._cls.rows_from_wire(raw.get("rows", [])),
+            rows=TableWire.rows_from_wire(raw.get("rows", [])),
             flags=self._decode_flags(ctx, raw),
             column_widths=self._decode_column_widths(raw),
             key_column=self._resolve_key_column(raw.get("key_column", 0), columns),
@@ -283,3 +295,24 @@ class JsonTableEncoder:
         if elem.scroll_reserve_lines:
             payload["scroll_reserve_lines"] = elem.scroll_reserve_lines
         return payload
+
+
+def decode_table_from_dict(
+    cls: type[TableElement], d: Mapping[str, object]
+) -> TableElement:
+    """Decode a standalone TableElement (``TableElement.from_dict``'s body).
+
+    Wires a noop-only handler decoder so a table with no wire ``handlers`` decodes
+    without a real publish bus; a spec whose decorator chain invokes ``publish``
+    raises via ``RaisingPublishSink``. Kept here, beside the decoder, so the
+    element's ``from_dict`` stays a one-line Protocol-satisfying delegator.
+    """
+    decoder = JsonTableDecoder(
+        renderer_factory=RAISING_FACTORY,
+        emit=NO_EMIT,
+        element_cls=cls,
+        handler_decoder=build_standalone_row_selection_handler_decoder(
+            cast("PublishSink", RaisingPublishSink("TableElement.from_dict")),
+        ),
+    )
+    return decoder.decode(d)
