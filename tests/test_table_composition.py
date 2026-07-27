@@ -70,20 +70,17 @@ def _search(group: GroupElement) -> InputTextElement:
 
 class TestScrollReserve:
     def test_a_grid_without_a_detail_reserves_nothing(self) -> None:
-        from punt_lux.protocol.compositions.table_composition import (
-            _detail_reserve_lines,
-        )
+        from punt_lux.protocol.compositions.table_chrome import TableChrome
 
-        assert _detail_reserve_lines(None) == 0
+        assert TableChrome.detail_reserve_lines(None) == 0
 
     def test_reserve_is_proportioned_to_the_field_count_and_clamped(self) -> None:
-        from punt_lux.protocol.compositions.table_composition import (
-            _detail_reserve_lines,
-        )
+        from punt_lux.protocol.compositions.table_chrome import TableChrome
 
-        assert _detail_reserve_lines({"fields": []}) == 6  # clamped up to the min
-        assert _detail_reserve_lines({"fields": ["a", "b", "c", "d", "e"]}) == 9
-        assert _detail_reserve_lines({"fields": list("abcdefghijklmnop")}) == 16  # max
+        reserve = TableChrome.detail_reserve_lines
+        assert reserve({"fields": []}) == 6  # clamped up to the min
+        assert reserve({"fields": ["a", "b", "c", "d", "e"]}) == 9
+        assert reserve({"fields": list("abcdefghijklmnop")}) == 16  # max
 
 
 class TestBuilderShape:
