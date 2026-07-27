@@ -14,7 +14,13 @@ from typing import TYPE_CHECKING
 import pytest
 
 from punt_lux.hub_paths import HubPaths
-from punt_lux.operations import OpError, Pong, RenderRequest, SceneShown
+from punt_lux.operations import (
+    OpError,
+    Pong,
+    RenderRequest,
+    RenderTableRequest,
+    SceneShown,
+)
 from punt_lux.rest_client import LuxRestClient
 from punt_lux.rest_transport import HttpResponse, HubUnavailableError
 
@@ -77,6 +83,22 @@ def test_render_returns_the_typed_success() -> None:
     assert result == SceneShown(scene_id="s1")
     assert transport.method == "PUT"
     assert transport.path == "/scenes/s1"
+    assert transport.body is not None
+
+
+def test_render_table_targets_the_table_route() -> None:
+    transport = CannedTransport(
+        HttpResponse(status=200, body=b'{"kind":"ok","scene_id":"issues"}')
+    )
+    request = RenderTableRequest(
+        scene_id="issues",
+        columns=["ID", "Title"],
+        rows=[["i1", "one"]],
+    )
+    result = _client_over(transport).render_table(request)
+    assert result == SceneShown(scene_id="issues")
+    assert transport.method == "PUT"
+    assert transport.path == "/scenes/issues/table"
     assert transport.body is not None
 
 
@@ -215,6 +237,25 @@ def test_render_installs_a_scene_over_the_real_surface() -> None:
     client = _client_over(SurfaceTransport(make_client()))
     result = client.render(_render_request("alpha"))
     assert result == SceneShown(scene_id="alpha")
+
+
+def test_render_table_composes_a_live_scene_over_the_real_surface() -> None:
+    # The table route carries data; the Hub *constructs* the composition. The
+    # scene the surface installs holds the composed chrome (a group with the
+    # grid, search box, and combos), not the bare data — proof the route builds
+    # handlers rather than decoding a dead tree.
+    client = _client_over(SurfaceTransport(make_client()))
+    request = RenderTableRequest(
+        scene_id="issues",
+        columns=["ID", "Title", "Status"],
+        rows=[["i1", "one", "open"], ["i2", "two", "closed"]],
+        filters=[
+            {"type": "search", "column": [0, 1], "hint": "Filter..."},
+            {"type": "combo", "column": 2, "label": "Status", "items": ["All", "open"]},
+        ],
+    )
+    result = client.render_table(request)
+    assert result == SceneShown(scene_id="issues")
 
 
 def test_render_round_trips_a_space_bearing_scene_id() -> None:

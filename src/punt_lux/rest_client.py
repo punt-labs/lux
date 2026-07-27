@@ -16,14 +16,20 @@ from the HTTP status the shared REST error table produced.
 
 from __future__ import annotations
 
-import json
-from typing import TYPE_CHECKING, Self, cast, final
+from typing import TYPE_CHECKING, Self, final
 from urllib.parse import quote, urlencode
 
 from pydantic import BaseModel, ValidationError
 
 from punt_lux.hub_paths import HubPaths
-from punt_lux.operations import OpError, Pong, RenderRequest, SceneShown
+from punt_lux.operations import (
+    OpError,
+    Pong,
+    RenderRequest,
+    RenderTableRequest,
+    SceneShown,
+)
+from punt_lux.rest_error_body import ErrorBody
 from punt_lux.rest_loopback import LoopbackTransport
 from punt_lux.rest_transport import HttpTransport, HubUnavailableError
 
@@ -43,10 +49,6 @@ _CODE_BY_STATUS: dict[int, OpErrorCode] = {
     503: "display_unavailable",
     504: "timeout",
 }
-
-# A malformed-2xx fault names a short body preview so a stale/foreign server on
-# the old port is recognizable; bounded so a binary or huge body stays safe.
-_SNIPPET_LIMIT = 120
 
 
 @final
@@ -78,7 +80,22 @@ class LuxRestClient:
         id bearing spaces or reserved characters must not break the request-target.
         """
         segment = quote(request.scene_id, safe="")
-        return self._send("PUT", f"/scenes/{segment}", request, SceneShown)
+        return self._send(f"/scenes/{segment}", request, SceneShown)
+
+    def render_table(self, request: RenderTableRequest) -> SceneShown | OpError:
+        """Install a composed table scene through ``PUT /scenes/{scene_id}/table``.
+
+        The Hub *constructs* the composition — search box, status combos, the
+        grid, and a selection-bound detail panel wired through a shared
+        ``FilteredTableModel`` — so its chrome runs Hub-side and stays live. A
+        pre-composed tree pushed through ``render`` decodes to dead handlers; the
+        table route carries the data and lets the Hub build the handlers.
+
+        The scene id is a path segment, so it is percent-encoded, matching
+        ``render``.
+        """
+        segment = quote(request.scene_id, safe="")
+        return self._send(f"/scenes/{segment}/table", request, SceneShown)
 
     def ping(self, wait: float | None = None) -> Pong | OpError:
         """Round-trip a display ping through ``GET /display/ping``.
@@ -87,11 +104,18 @@ class LuxRestClient:
         display-leg budget); ``None`` omits it so luxd uses its standing budget.
         """
         suffix = f"?{urlencode({'timeout': wait})}" if wait is not None else ""
-        return self._send("GET", f"/display/ping{suffix}", None, Pong)
+        return self._send(f"/display/ping{suffix}", None, Pong)
 
     def _send[T: BaseModel](
-        self, method: str, path: str, body: BaseModel | None, ok: type[T]
+        self, path: str, body: BaseModel | None, ok: type[T]
     ) -> T | OpError:
+        """Send ``body`` to ``path`` and read the reply as ``ok`` or an ``OpError``.
+
+        The verb follows the body: this client writes scenes with a body (PUT)
+        and reads the display ping without one (GET), so the caller never repeats
+        a verb the body already implies.
+        """
+        method = "PUT" if body is not None else "GET"
         payload = body.model_dump_json().encode() if body is not None else None
         response = self._transport.request(method, path, payload)
         if 200 <= response.status < 300:
@@ -102,7 +126,7 @@ class LuxRestClient:
                 # stale ephemeral port answered by a foreign server makes this
                 # real. Defend it like the error path, not with a traceback, and
                 # name a short body preview so the wrong server is recognizable.
-                snippet = self._body_snippet(response.body)
+                snippet = ErrorBody(response.body).snippet()
                 tail = f": {snippet}" if snippet else ""
                 return OpError(
                     code="fault",
@@ -110,68 +134,5 @@ class LuxRestClient:
                 )
         return OpError(
             code=_CODE_BY_STATUS.get(response.status, "fault"),
-            reason=self._detail_of(response.status, response.body),
+            reason=ErrorBody(response.body).reason(response.status),
         )
-
-    @staticmethod
-    def _body_snippet(body: bytes) -> str:
-        """A one-line, printable, bounded preview of a raw body.
-
-        The ``errors="replace"`` decode never raises on binary bytes, non-printable
-        characters collapse to spaces, whitespace runs fold to one, and the result
-        is truncated so a huge body cannot bloat the reason.
-        """
-        text = body.decode(errors="replace")
-        printable = "".join(c if c.isprintable() else " " for c in text)
-        oneline = " ".join(printable.split())
-        if len(oneline) <= _SNIPPET_LIMIT:
-            return oneline
-        return oneline[:_SNIPPET_LIMIT] + "…"
-
-    @staticmethod
-    def _detail_of(status: int, body: bytes) -> str:
-        """Render an error body's human reason, never blank or ``None``.
-
-        An empty body falls back to the status line; a blank reason (empty
-        detail string, empty detail list) falls back to the decoded body. Since
-        the decoded body is non-blank here, the message always carries content.
-        """
-        text = body.decode(errors="replace")
-        if not text.strip():
-            return f"HTTP {status}"
-        reason = LuxRestClient._reason_in(text)
-        return reason if reason.strip() else text
-
-    @staticmethod
-    def _reason_in(text: str) -> str:
-        """Pull the human reason from a JSON error body, or the body itself.
-
-        ``text`` is the already-decoded body (``errors="replace"``), so parsing
-        it never raises on non-UTF-8 bytes (decoding those raw would escape as an
-        unhandled ``UnicodeDecodeError``). It is a JSON wire value narrowed here
-        (PY-TS-14): a semantic ``OpError`` sends a bare ``detail`` string; a
-        FastAPI binding rejection sends ``{loc, msg, type}`` items whose ``msg``
-        fields are joined. Anything else yields the text so its content survives.
-        """
-        try:
-            parsed: object = json.loads(text)
-        except json.JSONDecodeError:
-            return text
-        if not isinstance(parsed, dict):
-            return text
-        detail: object = cast("dict[str, object]", parsed).get("detail")
-        if isinstance(detail, str):
-            return detail
-        if isinstance(detail, list):
-            items = cast("list[object]", detail)
-            return "; ".join(map(LuxRestClient._item_message, items))
-        return text
-
-    @staticmethod
-    def _item_message(item: object) -> str:
-        """Render one located-error item as its ``msg``, or itself if not a dict."""
-        if not isinstance(item, dict):
-            return str(item)
-        fields = cast("dict[str, object]", item)
-        msg = fields.get("msg")
-        return str(msg) if msg is not None else str(fields)
