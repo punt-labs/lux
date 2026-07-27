@@ -223,8 +223,11 @@ arrive.
 authoritative for it; quarantine is a replication decision, not a deletion. What
 changes is that the scene is **excluded from replication**: the replicator skips
 it when draining a batch, and — the load-bearing change against the loop —
-`SendRecovery` never re-marks it. `recovery.py`'s `_remark` today re-marks
-`live_scene_ids()`; it must re-mark `live_scene_ids() \ quarantined` instead. That
+`SendRecovery` never re-marks it. `recovery.py`'s `_remark` today re-marks the
+union of `live_scene_ids()` and the drained batch's scenes — the batch term
+preserves the blanking of rootless or emptied scenes that were in flight when
+the send failed, and it must be kept. The change is to subtract the quarantined
+set from that union: `(live_scene_ids() | batch.scenes) \ quarantined`. That
 single exclusion is what breaks the feed to every respawned Display.
 
 **The quarantine record.** Quarantine is not a bare flag; it carries the evidence

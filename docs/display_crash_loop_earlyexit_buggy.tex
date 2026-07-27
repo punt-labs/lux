@@ -208,7 +208,11 @@ scene that crashes only while coalesced from escaping the tally.
   crasher' = crasher
 \end{schema}
 
-In isolation mode each scene is probed alone.  An intermittent crasher may crash
+In isolation mode each scene is probed alone.  The model gives probe
+operations only to scenes in \texttt{crasher}: a probe of a scene outside
+\texttt{crasher} changes nothing and threatens nothing, so it is abstracted
+away as a stutter step rather than modelled --- the isolation loop in the
+implementation does enumerate every live scene.  An intermittent crasher may crash
 this probe or render cleanly.  A crash is attributed to that one scene and
 quarantines it at the threshold; the worker stays in isolation.
 
