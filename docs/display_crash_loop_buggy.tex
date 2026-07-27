@@ -1,0 +1,357 @@
+%
+% display_crash_loop_buggy.tex
+%
+% THE FIDELITY NEGATIVE CONTROL for display_crash_loop.tex.  This is the
+% canonical spec with exactly one change: the quarantine clause is struck from
+% CrashRender, so a crash tallies the death but never quarantines the scene.
+% With that one clause gone the crash-respawn loop becomes reachable, and ProB
+% reaches "crashes > THRESHOLD * card(poison)" with the exact loop trace.  A
+% model that cannot reproduce the known defect proves nothing; this file is the
+% proof that the canonical model detects the loop the quarantine rule prevents.
+%
+% Do NOT treat this as a design artifact -- it models the BUGGY design on
+% purpose.  The canonical, verified model is display_crash_loop.tex.
+%
+% Type-check:  fuzz -t docs/display_crash_loop_buggy.tex
+% Model-check (must report: goal FOUND -- the loop):
+%   probcli docs/display_crash_loop_buggy.tex -model_check -nodead \
+%       -goal "crashes>THRESHOLD*card(poison)" \
+%       -p DEFAULT_SETSIZE 2 -p MAX_INITIALISATIONS 20 -p MAXINT 8
+%
+
+\documentclass[a4paper,10pt,fleqn]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{fuzz}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+
+\begin{document}
+
+\title{The lux Display Crash-Loop Quarantine: Fidelity Negative Control}
+\author{Buggy variant --- quarantine clause struck from CrashRender}
+\date{July 2026}
+\maketitle
+
+% ============================================================
+\section{Introduction}
+% ============================================================
+
+A scene that passes Hub-side self-validation can still crash the Display's
+renderer.  When it does, the Display process dies --- but the scene does not
+die with it.  It stays live in \texttt{HubDisplay}, the authoritative store, so
+the Hub's crash recovery re-marks it for repaint, the respawned Display receives
+it, and it crashes again.  Each respawn opens a fresh window that steals
+keyboard focus.  Nothing in this cycle attributes the death to the scene that
+caused it, so nothing stops the loop; the operator observed it live during the
+B5 demo, once every ten seconds, until the scenes were cleared by hand.
+
+The fix is a \emph{quarantine} rule: after a scene is attributed as the cause of
+repeated Display deaths, the Hub stops replicating it while keeping it in the
+store for inspection.  This document models the crash/attribute/quarantine
+lifecycle as a finite state machine, so ProB can confirm the two properties that
+matter --- a quarantined scene is never replicated, and the number of crashes is
+bounded (the loop terminates) --- and can reproduce the unbounded loop when the
+quarantine rule is removed.
+
+This spec is a companion to \texttt{display\_lifecycle.tex}, not an extension of
+it.  That spec proves that exactly one Display process owns the socket path
+under a two-lock discipline; this spec takes that single-owner Display as given
+and models what happens when the scene it renders is poisonous.  The two
+concerns are orthogonal: the bind-race spec governs \emph{who owns the socket},
+this spec governs \emph{whether a poison scene can loop the Display}.  Keeping
+them separate leaves the ProB-verified bind-race model untouched.
+
+% ============================================================
+\section{Basic Types}
+% ============================================================
+
+\begin{zed}
+  [SCENE]
+\end{zed}
+
+\texttt{SCENE} is the set of scenes an agent has installed in the store.  Two
+scenes suffice to exhibit a poison scene alongside a healthy one; three exercise
+attribution against several poison scenes at once.  The carrier is bounded by
+ProB's \texttt{DEFAULT\_SETSIZE}.
+
+% ============================================================
+\section{Free Types}
+% ============================================================
+
+\begin{zed}
+  DISPLAY ::= up | down
+\end{zed}
+
+The state of the single Display process: \texttt{up} while it is serving,
+\texttt{down} after a renderer crash has killed it and before it is respawned.
+That there is exactly one Display process is the guarantee proved in
+\texttt{display\_lifecycle.tex}; this model represents that one process's
+liveness and does not re-derive the singleton property.
+
+% ============================================================
+\section{Constants}
+% ============================================================
+
+\begin{axdef}
+  THRESHOLD : \nat_1
+\where
+  THRESHOLD = 2
+\end{axdef}
+
+\texttt{THRESHOLD} is the number of attributed deaths a scene must cause before
+it is quarantined.  It is two, not one: a single death admits a non-scene cause
+(memory pressure, a driver fault) that happened to coincide with a render, and
+must not quarantine an innocent scene.  Requiring the \emph{same} scene to be
+the sole suspect across two deaths excludes the one-off, while a genuinely poison
+scene --- which crashes the renderer on every render --- reaches the threshold
+deterministically.
+
+% ============================================================
+\section{State}
+% ============================================================
+
+The state is flat: one schema, five components.  Its predicate carries only
+\emph{structural} invariants --- a scene is quarantined only if it is poison and
+only once its tally has reached the threshold.  These hold by construction in
+every operation, so they act as coherence constraints, not as the safety
+property under test.  The safety property (Section~\ref{sec:inv}), that the
+crash count is bounded, is deliberately \emph{absent} here, so that a violating
+state remains reachable and ProB can find it in the buggy variant.
+
+\begin{schema}{Sys}
+  disp : DISPLAY \\
+  poison : \power SCENE \\
+  quarantined : \power SCENE \\
+  tally : SCENE \fun \nat \\
+  crashes : \nat
+\where
+  quarantined \subseteq poison \\
+  \forall s : SCENE @ s \in quarantined \implies tally~s \geq THRESHOLD
+\end{schema}
+
+\texttt{poison} is the set of scenes whose render crashes the Display --- an
+environmental fact fixed for the run, never mutated by any operation.  A scene is
+\texttt{poison} in the model exactly when the tree the agent installed hits the
+renderer defect; a healthy scene is simply not in this set.  \texttt{quarantined}
+is the set the Hub has stopped replicating.  \texttt{tally} counts the deaths
+attributed to each scene, and \texttt{crashes} counts Display deaths in total ---
+the quantity whose boundedness is the no-infinite-respawn property.
+
+% ============================================================
+\section{Initialization}
+% ============================================================
+
+\begin{schema}{Init}
+  Sys'
+\where
+  disp' = up \\
+  poison' \subseteq SCENE \\
+  quarantined' = \emptyset \\
+  tally' = (\lambda s : SCENE @ 0) \\
+  crashes' = 0
+\end{schema}
+
+The Display starts up, nothing is quarantined, every tally is zero, and no crash
+has happened.  \texttt{poison} is left free: ProB explores every valuation of
+which scenes are poisonous, so the checks cover the healthy-only case, the
+all-poison case, and every mix, in one run.
+
+% ============================================================
+\section{Operations}
+% ============================================================
+
+An agent renders a healthy scene without incident.  This operation changes
+nothing but records, by its guard, that a scene outside \texttt{poison} never
+crashes the Display and so is never quarantined:
+
+\begin{schema}{RenderHealthy}
+  \Xi Sys \\
+  s? : SCENE
+\where
+  disp = up \\
+  s? \notin poison
+\end{schema}
+
+The load-bearing operation is \texttt{CrashRender}: the Display renders a poison
+scene that has not been quarantined, the renderer crashes, the death is
+attributed to that one scene, and the scene is quarantined the instant its tally
+reaches the threshold.  Folding the attribution and the quarantine into the
+crash's own effect mirrors the design, where the recovery handler tallies and
+quarantines synchronously before the next render --- there is no free-floating
+``quarantine later'' step the scheduler could defer.
+
+\begin{schema}{CrashRender}
+  \Delta Sys \\
+  s? : SCENE
+\where
+  disp = up \\
+  s? \in poison \\
+  s? \notin quarantined \\
+  disp' = down \\
+  crashes' = crashes + 1 \\
+  tally' = tally \oplus \{ s? \mapsto tally~s? + 1 \} \\
+  quarantined' = quarantined \\
+  poison' = poison
+\end{schema}
+
+The guard \texttt{s? $\notin$ quarantined} is the whole quarantine defence: a
+scene already quarantined can never be the subject of \texttt{CrashRender}, so it
+can never crash the Display again.  The suspect here is a single scene,
+reflecting the design's isolation mode --- after the first death the replicator
+stops coalescing and sends one scene per cycle, so the scene in flight when the
+Display dies is the sole suspect and the tally can only ever accrue against the
+true culprit, never against an innocent scene that was co-batched with it.
+
+A crashed Display is respawned.  This corresponds to the reap-then-ensure pair
+that \texttt{display\_lifecycle.tex} proves yields exactly one socket owner; here
+it simply returns the one Display to \texttt{up}:
+
+\begin{schema}{Respawn}
+  \Delta Sys
+\where
+  disp = down \\
+  disp' = up \\
+  poison' = poison \\
+  quarantined' = quarantined \\
+  tally' = tally \\
+  crashes' = crashes
+\end{schema}
+
+The respawn backoff of the design --- which paces successive respawns so the
+pre-quarantine deaths are not a rapid focus-stealing burst --- is a timing
+policy, not a state-safety property: it changes \emph{when} \texttt{Respawn}
+fires, never \emph{whether} a reachable state violates an invariant.  It is
+therefore abstracted away here and specified in the design document, not modelled.
+
+% ============================================================
+\section{Invariants}
+\label{sec:inv}
+% ============================================================
+
+Three properties must hold across all reachable states.  They are stated here as
+predicates over \texttt{Sys}; how each is discharged is given in
+Section~\ref{sec:verify}.  None is placed in the \texttt{Sys} schema: a predicate
+placed there would be enforced as a guard on every successor, silently disabling
+any operation that would break it and thereby masking the very defect this model
+exists to catch.
+
+\paragraph{Invariant 1 --- quarantined is never replicated.}
+No quarantined scene is ever rendered.  This is a property of the transition
+relation, established by construction: the only operation that sends a scene to
+the Display and can crash it, \texttt{CrashRender}, is guarded by
+\texttt{s? $\notin$ quarantined}, and \texttt{RenderHealthy} never touches a
+poison scene at all.  A quarantined scene therefore never crosses to the Display.
+ProB's operation-coverage report corroborates that \texttt{CrashRender} never
+fires from a state in which its argument is quarantined.
+
+\paragraph{Invariant 2 --- crashes are bounded (no infinite respawn).}
+The total number of Display crashes never exceeds the threshold times the number
+of poison scenes:
+\[
+  crashes \leq THRESHOLD * \# poison.
+\]
+Each poison scene can be the subject of \texttt{CrashRender} only while it is not
+quarantined, and it is quarantined once its tally reaches \texttt{THRESHOLD} ---
+that is, after \texttt{THRESHOLD} crashes attributed to it.  So each poison scene
+contributes at most \texttt{THRESHOLD} crashes, and \texttt{crashes} increments
+only in \texttt{CrashRender}.  This is the no-infinite-respawn property: the loop
+can turn only a bounded number of times before every poison scene is quarantined
+and the Display stays up.
+
+\paragraph{Invariant 3 --- single Display.}
+At most one Display process is live at any time.  This model represents the
+Display as a single \texttt{DISPLAY}-valued component, so the property is
+structural here; its real content --- that the reap/ensure respawn yields exactly
+one socket owner and never two --- is proved in \texttt{display\_lifecycle.tex}
+and inherited by composition.  \texttt{Respawn} is the abstraction of that
+verified reap-then-ensure pair.
+
+% ============================================================
+\section{Verification}
+\label{sec:verify}
+% ============================================================
+
+Type-checking is a \texttt{fuzz} pass:
+\begin{verbatim}
+  fuzz -t docs/display_crash_loop.tex
+\end{verbatim}
+
+Invariant 2 is a state property, checked by asking ProB whether its negation is
+\emph{reachable}.  A goal that is not found means the invariant holds on every
+reachable state:
+\begin{verbatim}
+  # Invariant 2 (must report: goal NOT found)
+  probcli docs/display_crash_loop.tex -model_check -nodead \
+    -goal "crashes>THRESHOLD*card(poison)" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+The model also reaches the stable fixed point in which every poison scene is
+quarantined and the Display is up --- the state the loop settles into.  That this
+state is reachable is a positive goal that ProB finds:
+\begin{verbatim}
+  # Stable state reachable (must report: goal FOUND)
+  probcli docs/display_crash_loop.tex -model_check -nodead \
+    -goal "disp=up & poison/={} & poison<:quarantined" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Invariant 1 is a transition property, established by the guards of
+\texttt{CrashRender} and \texttt{RenderHealthy} as argued in
+Section~\ref{sec:inv} and corroborated by ProB's operation-coverage report.
+Invariant 3 is inherited from \texttt{display\_lifecycle.tex}.
+
+The \texttt{-nodead} flag is used deliberately.  Unlike the bind-race spec, whose
+liveness depends on never deadlocking, this model is \emph{meant} to terminate:
+the state in which every poison scene is quarantined and the Display is up has no
+enabled operation, and that quiescence is the desired outcome, not a fault.  The
+checks therefore search for the goal predicates rather than asserting
+deadlock-freedom.
+
+% ============================================================
+\section{Fidelity: reproducing the crash-respawn loop}
+\label{sec:fidelity}
+% ============================================================
+
+A model that cannot reproduce the known defect proves nothing.  The buggy variant
+is the current specification with one change: the quarantine clause is struck from
+\texttt{CrashRender}, so a crash tallies the death but never quarantines the
+scene.  Concretely, replace the conditional assignment to \texttt{quarantined'}
+with
+\[
+  quarantined' = quarantined,
+\]
+and, because the \texttt{Sys} coherence constraint
+\texttt{quarantined $\subseteq$ poison} still holds trivially (the set stays
+empty), the model still type-checks.  Now \texttt{quarantined} never grows, so the
+guard \texttt{s? $\notin$ quarantined} never excludes a poison scene, and the
+crash-respawn cycle
+
+\begin{enumerate}
+  \item \texttt{CrashRender}~$s$: the poison scene crashes the Display,
+    \texttt{disp = down}, \texttt{crashes} increments.
+  \item \texttt{Respawn}: \texttt{disp = up} again, \texttt{quarantined} still
+    empty.
+  \item \texttt{CrashRender}~$s$: the same scene crashes the same respawned
+    Display.
+\end{enumerate}
+
+repeats without bound.  For any initial state with a poison scene, ProB reaches
+\texttt{crashes > THRESHOLD * card(poison)} --- the same goal that is
+\emph{not found} for the fixed design is \emph{found}, with the loop trace above,
+for the buggy variant:
+\begin{verbatim}
+  # Buggy variant (must report: goal FOUND)
+  probcli docs/display_crash_loop_buggy.tex -model_check -nodead \
+    -goal "crashes>THRESHOLD*card(poison)" \
+    -p DEFAULT_SETSIZE 2
+\end{verbatim}
+
+Equivalently, the stable-state goal
+\texttt{disp=up \& poison/=\{\} \& poison<:quarantined} is \emph{not found} for the
+buggy variant --- with \texttt{quarantined} pinned empty, a non-empty
+\texttt{poison} can never be fully quarantined, so the loop never settles.  That
+difference --- the fixed design terminates and the buggy design does not --- is
+the evidence that the model detects the loop the quarantine rule was added to
+prevent.
+
+\end{document}
