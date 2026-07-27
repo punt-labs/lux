@@ -768,15 +768,6 @@ class TestEchoSuppressionLifecycle:
             selected=True, tab_id="tab-2", active="tab-1"
         )
 
-    def test_element_renderer_setter_rethreads_the_factory(self) -> None:
-        # Production wiring: the display sets the ElementRenderer's widget_state
-        # per scene; that re-thread must reach the ABC factory the tab bar paints
-        # through, or the honoured reset never touches the value it reads.
-        server = _server()
-        fresh = WidgetState()
-        server._element_renderer.widget_state = fresh
-        assert server._imgui_renderer_factory.widget_state is fresh
-
     def test_reset_does_not_over_suppress_a_genuine_switch(self) -> None:
         # Complement to the no-spurious-fire tests: the honoured reset must not
         # gag genuine switches. This drives the real re-push reset path, then —

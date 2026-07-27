@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
-from punt_lux.display.element_renderer import ElementRenderer
 from punt_lux.display.geometry_capture import GeometryCapture
 from punt_lux.display.renderers.imgui import (
     button as button_module,
@@ -31,8 +30,8 @@ from punt_lux.display.renderers.imgui.modal import ImGuiModalRenderer
 from punt_lux.display.renderers.imgui.tab_bar import ImGuiTabBarRenderer
 from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
-from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
+from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
@@ -42,7 +41,6 @@ from punt_lux.protocol.elements.modal import ModalElement
 from punt_lux.protocol.elements.tab_bar import TabBarElement
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.window import WindowElement
-from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.scene.widget_state import WidgetState
 
 if TYPE_CHECKING:
@@ -51,25 +49,6 @@ if TYPE_CHECKING:
 
 def _no_emit(_msg: object) -> None:
     """No-op Display-tier emit."""
-
-
-def _no_emit_event(_msg: RemoteEventHandlerInvocation) -> None:
-    """No-op interaction emit."""
-
-
-def _no_check_dirty(_window_id: str) -> bool:
-    return False
-
-
-def _element_renderer(widget_state: WidgetState) -> ElementRenderer:
-    return ElementRenderer(
-        widget_state=widget_state,
-        table_renderer=TableRenderer(
-            widget_state=widget_state, emit_event=_no_emit_event
-        ),
-        emit_event=_no_emit_event,
-        check_dirty_window=_no_check_dirty,
-    )
 
 
 def _factory(widget_state: WidgetState | None = None) -> ImGuiRendererFactory:
@@ -102,10 +81,9 @@ def test_factory_raises_for_unmigrated_kind() -> None:
 
 
 def test_introspection_element_kind_total_is_25() -> None:
-    # The four ABC kinds stay in the legacy dispatch tables during the fork's
-    # mixed period, so the honest total is 25 with no factory addend.
-    er = _element_renderer(WidgetState())
-    assert er.element_kind_count == 25
+    # Every kind is on the Element-ABC path, so the registry is the sole
+    # authority for how many kinds the Display can paint.
+    assert len(DEFAULT_ABC_REGISTRY.all_kinds) == 25
 
 
 # -- leaf adapters ---------------------------------------------------------
