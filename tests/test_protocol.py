@@ -714,8 +714,10 @@ class TestSerialization:
         d = message_to_dict(msg)
         assert d == {"type": "my_type"}
 
-    def test_unknown_element_kind_raises(self):
-        with pytest.raises(ValueError, match="no decoder for kind='bogus'"):
+    def test_scene_element_without_pickle_raises(self):
+        # Every scene element crosses as a base64 ``_pickled`` entry; a plain
+        # wire dict is a malformed scene, rejected by name at decode.
+        with pytest.raises(ValueError, match="must carry a '_pickled' entry"):
             message_from_dict(
                 {
                     "type": "scene",

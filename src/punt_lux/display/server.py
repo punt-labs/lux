@@ -220,12 +220,12 @@ class DisplayServer:
             menu_manager=self._menu_manager,
             scene_manager=self._scene_manager,
         )
-        # Install the luxd-tier element factory so inbound scene
-        # decoding (via reader.drain_typed → SceneMessage.from_dict →
-        # container_dispatch.dispatch.from_dict) routes through a real
-        # factory. The Display is not allowed to own business publish
-        # behavior; if a handler ever runs locally before remote wrapping,
-        # that path must fail loudly instead of silently dropping the publish.
+        # Bind a fail-loud decode factory to the shared container-dispatch
+        # target. Inbound scenes cross as pickles (SceneCodec), so the display
+        # never JSON-decodes a tree and this is not on the scene path; it is the
+        # sentinel for any JSON element decode here. The Display may not own
+        # business publish, so a container decoded through it fails loud
+        # (RaisingRendererFactory + RaisingPublishSink), never running locally.
         from punt_lux.display_client import no_op_emit
         from punt_lux.protocol.element_factory import JsonElementFactory
         from punt_lux.protocol.elements.container_dispatch import (
