@@ -9,23 +9,24 @@ visible window (so a 10k-row grid draws tens of rows, not all of them).
 
 from __future__ import annotations
 
-from typing import cast
 from unittest.mock import MagicMock
 
 import pytest
 from imgui_bundle import imgui
 
-from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
 from punt_lux.display.renderers.imgui.table import ImGuiTableRenderer
 from punt_lux.display.renderers.imgui.table_row_arbiter import TableSelectionArbiter
+from punt_lux.display.renderers.imgui.table_row_painter import TableRowPainter
 from punt_lux.domain.selection_interaction import RowSelectionChanged
 from punt_lux.protocol.elements.table import TableElement
 from punt_lux.protocol.elements.table_flags import TableFlags
 from punt_lux.scene.widget_state import WidgetState
 
+_PAINTER_IMGUI = "punt_lux.display.renderers.imgui.table_row_painter.imgui"
 
-def _renderer(elem: TableElement) -> ImGuiTableRenderer:
-    return ImGuiTableRenderer(elem, cast("ImGuiRendererFactory", MagicMock()))
+
+def _painter() -> TableRowPainter:
+    return TableRowPainter(WidgetState())
 
 
 def _arbiter(elem: TableElement) -> TableSelectionArbiter:
@@ -60,7 +61,7 @@ def test_copy_id_copies_the_anchor_key_on_a_user_change(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     imgui = MagicMock()
-    monkeypatch.setattr("punt_lux.display.renderers.imgui.table.imgui", imgui)
+    monkeypatch.setattr(_PAINTER_IMGUI, imgui)
     elem = TableElement(
         id="t",
         columns=("ID",),
@@ -70,7 +71,7 @@ def test_copy_id_copies_the_anchor_key_on_a_user_change(
     )
     display_ids = ("a", "b", "c")
     io = MagicMock(range_src_item=2)  # last-interacted row -> anchor "c"
-    _renderer(elem)._fire_if_changed(
+    _painter()._fire_if_changed(
         elem, display_ids, frozenset(), _storage({0, 2}), io, _arbiter(elem), ""
     )
     imgui.set_clipboard_text.assert_called_once_with("c")
@@ -80,10 +81,10 @@ def test_copy_id_off_does_not_touch_the_clipboard(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     imgui = MagicMock()
-    monkeypatch.setattr("punt_lux.display.renderers.imgui.table.imgui", imgui)
+    monkeypatch.setattr(_PAINTER_IMGUI, imgui)
     elem = TableElement(id="t", columns=("ID",), rows=(("a",),), selection_mode="multi")
     io = MagicMock(range_src_item=0)
-    _renderer(elem)._fire_if_changed(
+    _painter()._fire_if_changed(
         elem, ("a",), frozenset(), _storage({0}), io, _arbiter(elem), ""
     )
     imgui.set_clipboard_text.assert_not_called()
@@ -96,7 +97,7 @@ def test_copy_id_copies_on_a_same_row_reclick_without_firing(
     # set (no RowSelectionChanged), but copy_id still copies its id — legacy
     # click-again-to-copy parity.
     imgui = MagicMock()
-    monkeypatch.setattr("punt_lux.display.renderers.imgui.table.imgui", imgui)
+    monkeypatch.setattr(_PAINTER_IMGUI, imgui)
     elem = TableElement(
         id="t",
         columns=("ID",),
@@ -107,7 +108,7 @@ def test_copy_id_copies_on_a_same_row_reclick_without_firing(
     )
     fired: list[RowSelectionChanged] = []
     elem.add_handler(RowSelectionChanged, fired.append)
-    _renderer(elem)._fire_if_changed(
+    _painter()._fire_if_changed(
         elem,
         ("a",),
         frozenset({"a"}),  # seed already {a}, storage unchanged -> no set change
@@ -121,7 +122,7 @@ def test_copy_id_copies_on_a_same_row_reclick_without_firing(
 
 
 def test_same_row_reclick_decision() -> None:
-    decide = ImGuiTableRenderer._is_same_row_reclick
+    decide = TableRowPainter._is_same_row_reclick
     assert decide("a", frozenset({"a"})) is True  # the sole selection re-clicked
     assert decide("a", frozenset({"a", "b"})) is False  # not the whole selection
     assert decide("", frozenset({"a"})) is False  # no click this frame
@@ -137,7 +138,7 @@ def test_no_spurious_fire_for_a_non_representable_pending_id() -> None:
     elem = TableElement(id="t", columns=("ID",), rows=(("a",),), selection_mode="multi")
     fired: list[RowSelectionChanged] = []
     elem.add_handler(RowSelectionChanged, fired.append)
-    _renderer(elem)._fire_if_changed(
+    _painter()._fire_if_changed(
         elem,
         ("a",),
         frozenset({"a", "b"}),  # b is not in display_ids
@@ -157,7 +158,7 @@ def test_a_genuine_change_still_fires_with_a_hidden_pending_id() -> None:
     )
     fired: list[RowSelectionChanged] = []
     elem.add_handler(RowSelectionChanged, fired.append)
-    _renderer(elem)._fire_if_changed(
+    _painter()._fire_if_changed(
         elem,
         ("a", "c"),
         frozenset({"a", "b"}),
@@ -176,8 +177,8 @@ def test_seeded_storage_sets_only_the_selected_indices(
     # The ImGui work is O(selected): a fresh storage defaults to unselected, so
     # only the selected display indices are set (b at index 1 is skipped).
     imgui_mock = MagicMock()
-    monkeypatch.setattr("punt_lux.display.renderers.imgui.table.imgui", imgui_mock)
-    ImGuiTableRenderer._seeded_storage(("a", "b", "c"), frozenset({"a", "c"}))
+    monkeypatch.setattr(_PAINTER_IMGUI, imgui_mock)
+    TableRowPainter._seeded_storage(("a", "b", "c"), frozenset({"a", "c"}))
     storage = imgui_mock.SelectionBasicStorage.return_value
     set_indices = [call.args[0] for call in storage.set_item_selected.call_args_list]
     assert set_indices == [0, 2]
@@ -199,8 +200,8 @@ def test_box_select_is_a_multi_only_affordance() -> None:
     # single-select scope must not enable it, and gets single_select instead.
     box = int(imgui.MultiSelectFlags_.box_select1d.value)
     single = int(imgui.MultiSelectFlags_.single_select.value)
-    multi_flags = ImGuiTableRenderer._multi_select_flags("multi")
-    single_flags = ImGuiTableRenderer._multi_select_flags("single")
+    multi_flags = TableRowPainter._multi_select_flags("multi")
+    single_flags = TableRowPainter._multi_select_flags("single")
     assert multi_flags & box, "multi-select enables box-select"
     assert not single_flags & box, "single-select must not enable box-select"
     assert single_flags & single, "single-select sets the single_select flag"
@@ -213,13 +214,11 @@ def test_plain_grid_paints_only_the_clipper_window(
     # A 1000-row display-only grid must paint only the clipper's visible window,
     # not all 1000 rows — the design's 10k-row position depends on it.
     imgui = _imgui_with_clipper(visible=30)
-    monkeypatch.setattr("punt_lux.display.renderers.imgui.table.imgui", imgui)
-    rows = tuple((str(i),) for i in range(1000))
-    elem = TableElement(id="t", columns=("ID",), rows=rows)
+    monkeypatch.setattr(_PAINTER_IMGUI, imgui)
     pairs: list[tuple[str, tuple[object, ...]]] = [
         (str(i), (str(i),)) for i in range(1000)
     ]
-    _renderer(elem)._paint_plain(pairs, 1)
+    _painter().paint_plain(pairs, 1)
     imgui.ListClipper.return_value.begin.assert_called_once_with(1000)
     assert imgui.table_next_row.call_count == 30
 
@@ -230,17 +229,11 @@ def test_selectable_grid_clips_and_pins_the_range_source(
     # The selectable loop clips too, and force-includes the range source so a
     # shift-range drag whose anchor scrolled off screen still resolves.
     imgui = _imgui_with_clipper(visible=25)
-    monkeypatch.setattr("punt_lux.display.renderers.imgui.table.imgui", imgui)
-    elem = TableElement(
-        id="t",
-        columns=("ID",),
-        rows=tuple((str(i),) for i in range(1000)),
-        selection_mode="multi",
-    )
+    monkeypatch.setattr(_PAINTER_IMGUI, imgui)
     pairs: list[tuple[str, tuple[object, ...]]] = [
         (str(i), (str(i),)) for i in range(1000)
     ]
-    _renderer(elem)._paint_selectable_rows(pairs, 1, _storage(set()), 7)
+    _painter()._paint_selectable_rows(pairs, 1, _storage(set()), 7)
     imgui.ListClipper.return_value.include_item_by_index.assert_called_once_with(7)
     assert imgui.table_next_row.call_count == 25
 
@@ -250,9 +243,9 @@ def test_end_multi_select_runs_even_when_a_row_paint_raises(
 ) -> None:
     imgui = _imgui_with_clipper(visible=1)
     imgui.table_next_row.side_effect = RuntimeError("paint blew up")
-    monkeypatch.setattr("punt_lux.display.renderers.imgui.table.imgui", imgui)
+    monkeypatch.setattr(_PAINTER_IMGUI, imgui)
     elem = TableElement(id="t", columns=("ID",), rows=(("a",),), selection_mode="multi")
     with pytest.raises(RuntimeError, match="paint blew up"):
-        _renderer(elem)._paint_selectable(elem, [("a", ("a",))], 1)
+        _painter().paint_selectable(elem, [("a", ("a",))], 1)
     # The scope was still balanced despite the raise.
     imgui.end_multi_select.assert_called_once()
