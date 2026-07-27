@@ -62,29 +62,35 @@ tally.
 
 - **Batching mode (normal).** The worker coalesces dirty scenes into one
   `DrainedBatch` and sends them together, as it does today.
+- **Every death is attributed to its suspect set — no death is free.** The
+  suspect set is whatever was in flight when the Display died: in batching mode
+  that is the **whole batch**, in isolation mode it is the **single scene** being
+  probed. Each scene in the suspect set has its tally incremented. Attributing the
+  batched death too is what stops a scene that only ever crashes while coalesced
+  from escaping the tally forever.
 - **On the first send failure**, the worker switches to **isolation mode**: it
   stops coalescing and sends each live scene in its **own** send, checking the
-  connection is still alive between sends.
-- In isolation mode, when a send fails, the **suspect set is a single scene** —
-  the one whose send preceded the failure. That scene's tally is incremented.
+  connection is alive between sends. From here on every death has a singleton
+  suspect, so the tally converges on the true culprit rather than smearing across
+  the innocents that shared the first batch.
 - A scene that reaches **`ATTRIBUTION_THRESHOLD` (2)** attributed deaths within
   the rolling window **`ATTRIBUTION_WINDOW` (60 s)** is quarantined (Question 2).
   The window is the only decay: a death older than the window no longer counts
   toward the threshold. There is deliberately **no** tally reset on a clean send
   (see the rejected alternatives).
-- **Isolation-mode exit.** The worker returns to batching mode after **one full
-  clean pass**: a single isolation cycle in which every live scene is sent, each
-  in its own send, and none causes a Display death. One clean cycle — not one
-  clean send — because the point of isolation is to prove that *no* live scene is
-  currently poisonous; a single scene sending cleanly says nothing about the
-  others still to be probed. A full clean pass is that proof, so the worker can
-  resume coalescing. A quarantined scene is not part of the pass (it is not
-  replicated at all), so a poison scene that has been quarantined does not keep
-  the worker pinned in isolation.
+- **Isolation-mode exit — only on a stable interval.** The worker returns to
+  batching mode only after the Display has served for **`STABLE_INTERVAL`** with
+  **no death at all** — not after one clean pass, and not on a quarantine. Any
+  death, of any scene, restarts the interval. This is what catches an
+  *intermittently* poisonous scene: isolation persists across its clean renders
+  until it crashes enough times to be quarantined, instead of exiting the moment
+  it happens to render cleanly. A quarantined scene is not replicated, so once the
+  crashing scenes are all quarantined the interval finally elapses and the worker
+  resumes coalescing.
 
-**The two constants and their defaults.** `ATTRIBUTION_THRESHOLD` and
-`ATTRIBUTION_WINDOW` are named constants, not inline literals, so the policy is
-one place to read and to tune.
+**The three constants and their defaults.** `ATTRIBUTION_THRESHOLD`,
+`ATTRIBUTION_WINDOW`, and `STABLE_INTERVAL` are named constants, not inline
+literals, so the policy is one place to read and to tune.
 
 - **`ATTRIBUTION_THRESHOLD` = 2.** One isolated death admits a non-scene cause
   (memory pressure, a driver fault) that coincided with a render; requiring the
@@ -104,28 +110,43 @@ one place to read and to tune.
   The tally of a scene whose second death falls outside the window restarts from
   that death, not from zero-plus-one, so the window slides rather than resets
   abruptly.
+- **`STABLE_INTERVAL` ≥ `ATTRIBUTION_WINDOW` (so, 60 s).** The isolation-exit
+  interval is deliberately tied to the attribution window, and this tie is what
+  makes false-positive-freedom provable rather than merely likely. An innocent
+  scene gains a tally only from a *batched* death, and there is at most one
+  batched death per batching episode (the first death is what switches the worker
+  into isolation). A *second* batched death against the same innocent requires the
+  worker to have exited isolation and returned to batching — which happens only
+  after `STABLE_INTERVAL` with no death. Because that interval is at least one
+  attribution window, the innocent's first batched increment has aged out of the
+  window before any second batched increment can land. An innocent therefore never
+  holds more than one in-window attributed death, and `ATTRIBUTION_THRESHOLD` is
+  two, so an innocent is never quarantined. Setting `STABLE_INTERVAL` shorter than
+  the window would break exactly this argument.
 
-**The worst-case crash count.** A poison scene is quarantined after
-`ATTRIBUTION_THRESHOLD` *attributed* deaths, and attribution happens only in
-isolation mode. The very first death is still a *batched* death — it is what
-*triggers* the switch to isolation — so it is unattributed. The real worst case
-for a single poison scene is therefore `1 + ATTRIBUTION_THRESHOLD` crashes: the
-one batched death that trips isolation, then the attributed deaths that reach the
-threshold. Across a poison set it is `1 + ATTRIBUTION_THRESHOLD * |poison|` in the
-worst case. The formal model (`display_crash_loop.tex`) starts already in
-isolation — every `CrashRender` attributes a singleton — so it proves the tighter
-bound `ATTRIBUTION_THRESHOLD * |poison|`; the extra `+ 1` is the first batched
-death the model abstracts away. Either way the count is bounded, which is the
-no-infinite-respawn property.
+**The worst-case crash count.** Every death is attributed to its suspect set, so
+the first batched death already advances every scene it hit — including each
+poison scene — by one. Each poison scene then needs `ATTRIBUTION_THRESHOLD − 1`
+further *isolated* crashes to reach the threshold and be quarantined. The worst
+case for one poison episode is therefore `1 + (ATTRIBUTION_THRESHOLD − 1) *
+|poison|` crashes: the single batched death that trips isolation, then one further
+crash per poison scene (at `ATTRIBUTION_THRESHOLD` = 2). The formal model
+(`display_crash_loop.tex`) proves this bound directly, and it holds for an
+*intermittently* poisonous scene as well: isolation persists across its clean
+renders, so its isolated crashes still accumulate to the threshold. Either way the
+count is bounded, which is the no-infinite-respawn property.
 
-**Why isolation mode is the core of the rule.** Batching creates the one hard
+**Why isolation mode is the core of the rule.** Batching alone creates one hard
 false-positive: an innocent scene coalesced into the same batch as the poison
-scene is in the suspect set every time the batch is sent, so a naive per-batch
-tally would quarantine the innocent scene alongside the guilty one. Isolation
-mode removes the ambiguity structurally — the poison scene is the *only* scene in
-flight when the Display dies, so the tally can only ever accrue against the true
-culprit. The innocent co-batched scene sends cleanly in its own isolated cycle,
-never becomes a singleton suspect, and its stale tally ages out of the window.
+scene shares the batched death, so a per-batch tally with no further discipline
+would drive the innocent toward the threshold alongside the guilty scene.
+Isolation mode narrows the suspect set to one so that *after* the first death the
+tally can only accrue against the true culprit — the innocent never becomes a
+singleton suspect. That leaves exactly one way an innocent can be hit twice: two
+batched deaths in two batching episodes. The `STABLE_INTERVAL` ≥
+`ATTRIBUTION_WINDOW` tie closes that last gap, as the constants block above shows,
+so the innocent's lone batched increment always ages out before a second can
+arrive.
 
 **Alternatives considered and rejected.**
 
@@ -144,7 +165,23 @@ never becomes a singleton suspect, and its stale tally ages out of the window.
   it is exactly the transient false-positive case and it cannot separate
   co-batched scenes.
 - *Per-batch tally without isolation.* Rejected: quarantines innocent
-  co-batched scenes.
+  co-batched scenes — batched attribution is safe only because isolation narrows
+  every subsequent death to a singleton and the stable-interval exit caps an
+  innocent at one in-window batched increment.
+- *Attribute only isolation-mode deaths (batched deaths cost nothing).* Rejected:
+  a scene that crashes the Display only while coalesced with others — never as an
+  isolation singleton — would never accrue a tally, so it would crash, trip
+  isolation, render cleanly as a singleton, and loop forever. Every death must be
+  attributed to its suspect set for the tally to catch such a scene.
+- *Exit isolation on one clean pass, or on a quarantine.* Rejected: both let an
+  intermittently poisonous scene escape and both reopen the innocent false
+  positive. A one-clean-pass exit returns to batching the moment a flaky scene
+  renders cleanly, so its next crash is an unattributed batched death and the loop
+  never closes. Exit-on-quarantine returns to batching as soon as one culprit is
+  caught, which permits a second batched death — and a second innocent increment —
+  inside one attribution window. Only exit on a `STABLE_INTERVAL` ≥
+  `ATTRIBUTION_WINDOW` of no deaths at all both waits out a flaky scene and forces
+  any innocent's first increment to age out before a second can land.
 - *Reset a scene's tally to zero on any clean send.* Rejected: it reopens the
   loop for an *intermittently* poisonous scene. A scene that crashes the renderer
   on only some renders (a data-dependent or nondeterministic defect) would send
@@ -306,12 +343,17 @@ split them.
   respawn through the new `RespawnBackoff` and records the attribution for the
   suspect scene.
 - **`domain/hub/replicator.py`** — the two-mode (batching / isolation) send loop
-  and the mode transitions; on a send failure in isolation mode it identifies the
-  singleton suspect and asks the attribution object to tally it.
+  and the mode transitions; on a send failure it hands the attribution object the
+  suspect set (the whole batch in batching mode, the singleton being probed in
+  isolation mode) and consults it for the current mode and the isolation-exit
+  decision.
 - **A new attribution object** (e.g. `domain/hub/crash_attribution.py`) — owns the
-  per-scene tally, the window, the threshold, and the batching/isolation mode
-  decision. The attribution rule and its thresholds are behaviour on this data,
-  not module functions.
+  per-scene windowed tally, the threshold, the batching/isolation mode, and the
+  `STABLE_INTERVAL` exit decision. It attributes every death to its suspect set,
+  quarantines a scene at the threshold, and returns to batching only after a
+  death-free `STABLE_INTERVAL` (≥ `ATTRIBUTION_WINDOW`). The attribution rule, the
+  three constants, and the mode/exit policy are behaviour on this data, not module
+  functions.
 - **A new `RespawnBackoff`** (its own module or beside the attribution object) —
   owns the respawn delay growth and the serve-stably reset rule.
 - **The scene store** (`domain/hub/hub_display.py` / the scene entry it holds) —
@@ -337,10 +379,25 @@ The crash-loop lifecycle is a stateful protocol with a safety-critical
 termination property ("a poison scene cannot loop the Display forever"), so it is
 model-checked, not merely tested. The Z specification is the companion spec
 [`display_crash_loop.tex`](../display_crash_loop.tex): it models
-replicate → crash → attribute → quarantine, proves that a quarantined scene is
-never replicated and that the number of crashes is bounded (no infinite respawn),
-and carries the fidelity negative control — with the quarantine rule removed, the
-model reproduces the unbounded crash-respawn trace. It is kept as a companion to
+replicate → crash → attribute → quarantine with both send modes, batched
+attribution, an *intermittently* poisonous scene (one that renders cleanly on
+some isolation probes), and the stable-interval exit. ProB proves three
+properties: a quarantined scene is never replicated, the number of crashes is
+bounded even for a flaky scene (`crashes ≤ 1 + (ATTRIBUTION_THRESHOLD − 1) ·
+|crasher|`, the no-infinite-respawn property), and an innocent scene is never
+quarantined.
+
+The spec carries two fidelity negative controls, one per corrective clause, each
+striking exactly that clause and reproducing the loop it prevents.
+[`display_crash_loop_buggy.tex`](../display_crash_loop_buggy.tex) strikes the
+quarantine effect: the deterministic render → crash → respawn loop returns,
+unbounded. [`display_crash_loop_earlyexit_buggy.tex`](../display_crash_loop_earlyexit_buggy.tex)
+weakens the isolation-exit guard so the worker leaves isolation early and wipes
+the tally: the *intermittent*-crasher loop returns (`BatchCrash → Respawn →
+IsolExit → BatchCrash …`, the tally reset to zero each pass), which is the direct
+evidence that the `STABLE_INTERVAL` ≥ `ATTRIBUTION_WINDOW` tie is load-bearing.
+
+The spec is kept as a companion to
 [`display_lifecycle.tex`](../display_lifecycle.tex) rather than merged into it, so
 the ProB-verified bind-race model stays pristine: the bind-race spec governs *who
 owns the socket*, this spec governs *whether a poison scene can loop the Display*.

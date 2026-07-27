@@ -1,22 +1,24 @@
 %
-% display_crash_loop_buggy.tex
+% display_crash_loop_earlyexit_buggy.tex
 %
-% FIDELITY NEGATIVE CONTROL #1 for display_crash_loop.tex: the QUARANTINE
-% clause struck.  This is the canonical corrected model with one change --
-% BatchCrash and IsolCrash tally the death but never quarantine the scene
-% (quarantined stays empty).  With no quarantine, IsolCrash fires forever
-% against the same crasher and the crash-respawn loop is unbounded.  ProB
-% reaches "crashes > 1 + (THRESHOLD-1)*card(crasher)" -- the goal that is NOT
-% found for the fixed design.  This is the deterministic loop the quarantine
-% rule prevents.
+% FIDELITY NEGATIVE CONTROL #2 for display_crash_loop.tex: the STABLE-INTERVAL
+% EXIT clause struck.  This is the canonical corrected model with one change --
+% IsolExit's guard drops "crasher <: quarantined", so the worker may leave
+% isolation EARLY (the "one clean pass" exit) and wipe the tallies of scenes
+% still in play.  An intermittent crasher then never accumulates: it crashes
+% the batch (tallied), enters isolation, renders cleanly on its probe, IsolExit
+% fires early and wipes its tally, and the next batched death restarts the
+% cycle.  crashes grows without bound; ProB reaches
+% "crashes > 1 + (THRESHOLD-1)*card(crasher)".  This is the intermittent-crasher
+% loop the STABLE_INTERVAL >= ATTRIBUTION_WINDOW tie prevents.
 %
 % Do NOT treat this as a design artifact; the canonical, verified model is
-% display_crash_loop.tex.  See also display_crash_loop_earlyexit_buggy.tex,
-% the control for the stable-interval exit.
+% display_crash_loop.tex.  See also display_crash_loop_buggy.tex, the control
+% for the quarantine clause.
 %
-% Type-check:  fuzz -t docs/display_crash_loop_buggy.tex
+% Type-check:  fuzz -t docs/display_crash_loop_earlyexit_buggy.tex
 % Model-check (must report: goal FOUND -- the loop):
-%   probcli docs/display_crash_loop_buggy.tex -model_check -nodead \
+%   probcli docs/display_crash_loop_earlyexit_buggy.tex -model_check -nodead \
 %       -goal "crashes>1+(THRESHOLD-1)*card(crasher)" \
 %       -p DEFAULT_SETSIZE 2 -p MAX_INITIALISATIONS 20 -p MAXINT 8
 %
@@ -28,8 +30,8 @@
 
 \begin{document}
 
-\title{Crash-Loop Quarantine: Fidelity Control \#1 (quarantine struck)}
-\author{Buggy variant --- no scene is ever quarantined}
+\title{Crash-Loop Quarantine: Fidelity Control \#2 (early isolation exit)}
+\author{Buggy variant --- isolation left before the crashers are caught}
 \date{July 2026}
 \maketitle
 
@@ -200,7 +202,9 @@ scene that crashes only while coalesced from escaping the tally.
   tally' = \\
   \quad~ (\lambda s : SCENE @ \\
   \quad\quad~ \IF s \notin quarantined \THEN tally~s + 1 \ELSE tally~s) \\
-  quarantined' = quarantined \\
+  quarantined' = \\
+  \quad~ quarantined \cup \\
+  \quad\quad~ \{ s : SCENE | s \notin quarantined \land tally~s + 1 \geq THRESHOLD \} \\
   crasher' = crasher
 \end{schema}
 
@@ -219,7 +223,10 @@ quarantines it at the threshold; the worker stays in isolation.
   disp' = down \\
   crashes' = crashes + 1 \\
   tally' = tally \oplus \{ s? \mapsto tally~s? + 1 \} \\
-  quarantined' = quarantined \\
+  quarantined' = \\
+  \quad~ \IF tally~s? + 1 \geq THRESHOLD \\
+  \quad~ \THEN quarantined \cup \{ s? \} \\
+  \quad~ \ELSE quarantined \\
   mode' = mode \\
   crasher' = crasher
 \end{schema}
@@ -251,7 +258,6 @@ prior death once the display has been death-free for at least a window:
 \where
   disp = up \\
   mode = isolating \\
-  crasher \subseteq quarantined \\
   mode' = batching \\
   tally' = \\
   \quad~ (\lambda s : SCENE @ \IF s \in quarantined \THEN tally~s \ELSE 0) \\
