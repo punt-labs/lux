@@ -59,8 +59,9 @@ def inspect_scene(
 ) -> SceneInspection | OpError:
     """Return the element tree for a scene, read from the authoritative store.
 
-    Each element reports its render path ("abc" or "legacy") and resolved state
-    including defaults, so you verify what the Hub holds without inspecting pixels.
+    Each element reports its render path (constant "abc" — every kind is on the
+    Element-ABC path) and resolved state including defaults, so you verify what
+    the Hub holds without inspecting pixels.
     ``want_geometry`` also reads each painted element's screen rect and the frame
     rect from the last completed frame — an element not painted is absent. An
     unknown scene is a not_found error.

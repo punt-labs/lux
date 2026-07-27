@@ -1,16 +1,13 @@
 """Typed introspection records for the enriched ``inspect_scene`` query.
 
 The built-in ``inspect_scene`` returns each element's wire dict, which omits
-defaulted fields and hides whether the element object is on the Element-ABC
-path or the legacy dataclass path. These records add both signals so a
-migration test can assert "this element flipped to the ABC path and its value
-reads back" without inspecting pixels.
+defaulted fields. These records add the fully-resolved state so a test can
+assert "this element's value reads back" without inspecting pixels.
 
-Honesty of scope (this runs on the DISPLAY process): ``render_path`` reads the
-element object's type, and ``domain_mirror_present`` reads the display-side
-domain ``Display`` mirror. Neither reads the Hub's authoritative
-``HubDisplay`` (which lives in luxd) — that Hub-authority introspection is a
-later batch.
+Honesty of scope (this runs on the DISPLAY process): ``domain_mirror_present``
+reads the display-side domain ``Display`` mirror, not the Hub's authoritative
+``HubDisplay`` (which lives in luxd). ``render_path`` is constant ``"abc"`` now
+that every kind is on the Element-ABC path.
 """
 
 from __future__ import annotations
@@ -26,7 +23,10 @@ if TYPE_CHECKING:
 
 __all__ = ["ElementInspection", "RenderPath", "SceneInspection"]
 
-type RenderPath = Literal["abc", "legacy"]
+# Constant post-migration: every element is on the Element-ABC path. The field
+# is kept (its emitted value never changes, so no reader breaks); the type no
+# longer advertises a ``"legacy"`` value that can never occur.
+type RenderPath = Literal["abc"]
 
 
 class ElementInspection:
