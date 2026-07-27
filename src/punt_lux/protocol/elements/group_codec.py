@@ -85,7 +85,10 @@ class JsonGroupDecoder:
             )
             raise ValueError(msg)
         for field in ("pages", "page_source"):
-            if raw.get(field):
+            if field in raw:
+                # Reject on PRESENCE, not truthiness: an empty ``{"pages": []}``
+                # or ``{"page_source": ""}`` still names the removed paged layout
+                # and must not decode as a plain stack group.
                 msg = (
                     f"group {group_id!r}: {field!r} is no longer supported "
                     f"(the 'paged' layout was removed)"
@@ -99,10 +102,18 @@ class JsonGroupDecoder:
 
     @staticmethod
     def _as_list(raw: object) -> list[object]:
-        """Return ``raw`` as a list of wire objects, or empty when absent."""
-        if isinstance(raw, list):
-            return cast("list[object]", raw)
-        return []
+        """Return ``raw`` as a list; ``[]`` when absent, raising a present non-list.
+
+        Mirrors the window/modal codecs: an absent ``children`` is an empty group,
+        but a present non-list (``"children": 5``) is a malformed wire tree and
+        fails loud rather than silently dropping the subtree.
+        """
+        if raw is None:
+            return []
+        if not isinstance(raw, list):
+            msg = f"group children must be a list, got {type(raw).__name__}"
+            raise TypeError(msg)
+        return cast("list[object]", raw)
 
 
 class JsonGroupEncoder:

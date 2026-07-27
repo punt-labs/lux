@@ -31,6 +31,12 @@ _DELETED_CLASS_PICKLE = base64.b64encode(
     b"c__deleted_module__\nRenamedElement\n)\x81."
 ).decode()
 
+# A corrupt ``_pickled`` payload: ``b64decode`` raises ``binascii.Error`` — a
+# ``ValueError`` subclass — before ``pickle.loads`` ever runs. It is caught by the
+# existing ``ValueError`` arm, so no separate ``binascii.Error`` arm is needed;
+# a single-character string is invalid base64 (length is not a multiple of 4).
+_CORRUPT_BASE64 = "a"
+
 
 def _scene_wire(pickled_b64: str) -> dict[str, object]:
     """A minimal scene wire dict whose one element is a raw ``_pickled`` entry."""
@@ -55,12 +61,24 @@ def test_pickled_non_element_is_rejected_by_name() -> None:
         SceneCodec.decode(_scene_wire(not_an_element))
 
 
-def test_display_survives_an_undecodable_pickle_frame() -> None:
+def test_corrupt_base64_is_rejected_by_name() -> None:
+    """Corrupt base64 raises ``binascii.Error`` (a ``ValueError``), already caught."""
+    with pytest.raises(ValueError, match="_pickled is not decodable"):
+        SceneCodec.decode(_scene_wire(_CORRUPT_BASE64))
+
+
+@pytest.mark.parametrize(
+    "bad_pickle",
+    [_DELETED_CLASS_PICKLE, _CORRUPT_BASE64],
+    ids=["deleted-class", "corrupt-base64"],
+)
+def test_display_survives_an_undecodable_pickle_frame(bad_pickle: str) -> None:
     """A bad-pickle frame is recorded and the client dropped — the display lives.
 
     Drives the real socket boundary: the reader decodes the frame, ``_unpickle``
     raises the named ``ValueError``, and the boundary's ``except`` records it and
-    removes the client instead of letting an ``AttributeError`` kill the process.
+    removes the client instead of letting the underlying ``AttributeError`` /
+    ``binascii.Error`` kill the process.
     """
     tmpdir = tempfile.mkdtemp(prefix="lux-")
     sock_path = Path(tmpdir) / "d.sock"
@@ -78,7 +96,7 @@ def test_display_survives_an_undecodable_pickle_frame() -> None:
             server.accept_connections()
             assert isinstance(recv_message(client, timeout=2.0), ReadyMessage)
 
-            client.sendall(encode_frame(_scene_wire(_DELETED_CLASS_PICKLE)))
+            client.sendall(encode_frame(_scene_wire(bad_pickle)))
             server.poll_clients()  # must not raise — the display survives
 
             assert any(ctx == "message_parse" for _sev, _msg, ctx in errors)

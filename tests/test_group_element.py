@@ -173,6 +173,18 @@ class TestPagedRejection:
         with pytest.raises(ValueError, match="'page_source' is no longer supported"):
             _decode(wire)
 
+    def test_rejects_empty_pages_wire_field(self) -> None:
+        """An empty ``pages`` list is rejected on PRESENCE, not truthiness."""
+        wire = {"kind": "group", "id": "g", "layout": "rows", "pages": []}
+        with pytest.raises(ValueError, match="'pages' is no longer supported"):
+            _decode(wire)
+
+    def test_rejects_empty_page_source_wire_field(self) -> None:
+        """An empty ``page_source`` string is rejected on PRESENCE, not truthiness."""
+        wire = {"kind": "group", "id": "g", "layout": "rows", "page_source": ""}
+        with pytest.raises(ValueError, match="'page_source' is no longer supported"):
+            _decode(wire)
+
 
 # -- child-decode boundary --------------------------------------------------
 
@@ -203,6 +215,13 @@ class TestChildDecodeBoundary:
             "children": [{"kind": "window", "id": "w1", "children": 5}],
         }
         with pytest.raises(TypeError, match=r"group 'g1' child 0:.*must be a list"):
+            _decode(wire)
+
+    def test_group_present_non_list_children_fails_loud(self) -> None:
+        # A present non-list ``children`` on a group must fail loud like the other
+        # containers, not silently drop the subtree by decoding to an empty group.
+        wire = {"kind": "group", "id": "g1", "children": 5}
+        with pytest.raises(TypeError, match="group children must be a list"):
             _decode(wire)
 
 

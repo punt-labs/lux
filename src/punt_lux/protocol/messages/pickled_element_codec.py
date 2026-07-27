@@ -66,13 +66,18 @@ class PickledElementCodec:
         error boundary). A pickle naming a renamed or deleted class — a
         version-skewed Hub/Display pair, the stale-restart failure mode — raises
         ``AttributeError`` / ``ImportError`` (``ModuleNotFoundError``); a
-        structurally broken one raises ``TypeError``. All become the same named
-        rejection, and a pickle of a non-element is rejected here rather than
-        surfacing as an ``AttributeError`` later in ``_wrap_abc_elements``.
+        structurally broken one raises ``TypeError``. Corrupt base64 makes
+        ``b64decode`` raise ``binascii.Error``, which subclasses ``ValueError``
+        and so is already caught below — no separate arm is needed. All become
+        the same named rejection, and a pickle of a non-element is rejected here
+        rather than surfacing as an ``AttributeError`` later in
+        ``_wrap_abc_elements``.
         """
         if not isinstance(pickled, str):
             raise ValueError(f"scene element _pickled must be a str, got {pickled!r}")
         try:
+            # ``b64decode`` raises ``binascii.Error`` (a ``ValueError`` subclass)
+            # on corrupt base64; ``pickle.loads`` raises the rest.
             obj = pickle.loads(base64.b64decode(pickled))
         except (
             ValueError,
