@@ -92,8 +92,8 @@ class JsonModalDecoder:
             open=ctx.optional_bool(raw, "open", default=True),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),
         )
-        children = tuple(
-            self._decode(c) for c in self._require_list(raw.get("children"))
+        children = ctx.decode_children(
+            modal.id, self._require_list(raw.get("children")), self._decode
         )
         modal.install_children(children)
         modal.add_handler(ModalClosed, _DismissOnClose(modal))

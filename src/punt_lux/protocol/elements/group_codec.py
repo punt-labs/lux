@@ -63,7 +63,9 @@ class JsonGroupDecoder:
         group_id = ctx.require_id(raw)
         layout = ctx.optional_str(raw, "layout", default="rows")
         self._reject_removed_paged(group_id, layout, raw)
-        children = tuple(self._decode(c) for c in self._as_list(raw.get("children")))
+        children = ctx.decode_children(
+            group_id, self._as_list(raw.get("children")), self._decode
+        )
         return self._cls(
             id=group_id,
             layout=cast("Layout", layout),

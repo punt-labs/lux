@@ -14,7 +14,7 @@ class while letting each surface own its boundary semantics.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import Self, cast
 
@@ -28,11 +28,29 @@ class ElementWireContext:
     """Per-element decode context — prefix is ``{kind} element``."""
 
     _wire: WireContext
+    _kind: str
 
     @classmethod
     def for_kind(cls, kind: str) -> Self:
         """Build a context for decoding an element of the given wire kind."""
-        return cls(_wire=WireContext(_prefix=f"{kind} element"))
+        return cls(_wire=WireContext(_prefix=f"{kind} element"), _kind=kind)
+
+    def decode_children[T](
+        self,
+        container_id: str,
+        items: Iterable[object],
+        decode: Callable[[object], T],
+    ) -> tuple[T, ...]:
+        """Decode each contained item, naming this container on a child error.
+
+        A malformed grandchild raises a ``ValueError`` deep in the recursion;
+        re-raising it prefixed with this container's kind and id traces the
+        failure to the composite that carried it, not just to the offending leaf.
+        """
+        try:
+            return tuple(decode(item) for item in items)
+        except ValueError as exc:
+            raise ValueError(f"{self._kind} {container_id!r}: {exc}") from exc
 
     # --- required-field passthroughs to WireContext -----------------------
 

@@ -46,10 +46,12 @@ class JsonWindowDecoder:
     def decode(self, raw: Mapping[str, object]) -> WindowElement:
         """Construct a WindowElement, recursing children through the tier decoder."""
         ctx = ElementWireContext.for_kind("window")
-        raw_children = self._require_list(raw.get("children"))
-        children = tuple(self._decode(c) for c in raw_children)
+        window_id = ctx.require_id(raw)
+        children = ctx.decode_children(
+            window_id, self._require_list(raw.get("children")), self._decode
+        )
         return self._cls(
-            id=ctx.require_id(raw),
+            id=window_id,
             title=ctx.optional_str(raw, "title", default=""),
             placement=WindowPlacement.from_wire(raw),
             flags=WindowFlags.from_wire(raw),
@@ -80,9 +82,8 @@ class JsonWindowDecoder:
 class JsonWindowEncoder:
     """Encode an ABC ``WindowElement`` to its JSON-compatible wire dict.
 
-    Stateless. Emits the legacy window wire shape — ``title`` and the four
-    placement scalars and ``children`` always, each set flag only when on,
-    ``tooltip`` only when present — so an all-ABC window re-encodes byte-for-byte.
+    Stateless. Emits ``title``, the four placement scalars, and ``children``
+    always, each set flag only when on, and ``tooltip`` only when present.
     """
 
     __slots__ = ()

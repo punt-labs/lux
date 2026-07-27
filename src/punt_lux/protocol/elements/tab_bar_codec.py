@@ -90,13 +90,15 @@ class JsonTabBarDecoder:
     def decode(self, raw: Mapping[str, object]) -> TabBarElement:
         """Construct the tab bar, recursing tab children through the tier decoder."""
         ctx = ElementWireContext.for_kind("tab_bar")
+        bar_id = ctx.require_id(raw)
         tab_ids = TabIdSynthesizer()
-        tabs = tuple(
-            self._decode_tab(tab, tab_ids)
-            for tab in self._require_list(raw.get("tabs"))
+        tabs = ctx.decode_children(
+            bar_id,
+            self._require_list(raw.get("tabs")),
+            lambda tab: self._decode_tab(tab, tab_ids),
         )
         elem = self._cls(
-            id=ctx.require_id(raw),
+            id=bar_id,
             tabs=tabs,
             active_tab=ctx.optional_str(raw, "active_tab", default=""),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),
