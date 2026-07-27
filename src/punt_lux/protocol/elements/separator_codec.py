@@ -9,9 +9,7 @@ The decoder injects the tier's ``renderer_factory`` + ``emit`` at
 construction — off the display tier that is the fail-loud sentinel, which
 the Display rebinds post-receive. ``id`` is optional here: an anonymous
 separator omits it on the wire and decodes to the empty-string sentinel.
-Unlike the legacy dataclass codec, this encoder/decoder owns ``tooltip``
-directly (the legacy path relied on a generic replace that ABC kinds never
-reach).
+This encoder/decoder owns ``tooltip`` directly as its own wire field.
 """
 
 from __future__ import annotations
@@ -72,8 +70,7 @@ class JsonSeparatorEncoder:
     """Encode a ``SeparatorElement`` to its JSON-compatible wire dict.
 
     Stateless. ``id`` is omitted when it is the empty anonymous sentinel and
-    ``tooltip`` when absent, so the wire shape matches the legacy dataclass
-    codec byte-for-byte; ``kind`` is always emitted.
+    ``tooltip`` when absent; ``kind`` is always emitted.
     """
 
     __slots__ = ()

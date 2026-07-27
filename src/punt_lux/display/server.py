@@ -25,7 +25,6 @@ from typing import TYPE_CHECKING, Any, ClassVar, Self, cast
 from PIL import Image
 
 from punt_lux.display.domain_pump import DomainPump
-from punt_lux.display.element_renderer import ElementRenderer
 from punt_lux.display.frame_tiling import FrameTiling
 from punt_lux.display.glfw_window import GlfwWindow
 from punt_lux.display.idle_screen import render_idle
@@ -33,10 +32,8 @@ from punt_lux.display.interaction_delivery import InteractionDelivery
 from punt_lux.display.macos import hide_from_dock_and_cmd_tab
 from punt_lux.display.menu_manager import MenuManager
 from punt_lux.display.renderers.imgui.factory import ImGuiRendererFactory
-from punt_lux.display.table_renderer import TableRenderer
 from punt_lux.display.texture_cache import TextureCache
 from punt_lux.domain.display import Display
-from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.domain.ids import ClientId
 from punt_lux.paths import DisplayPaths
 from punt_lux.protocol import (
@@ -69,6 +66,7 @@ from punt_lux.protocol import (
     UnknownMessage,
 )
 from punt_lux.protocol.elements import Element
+from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.protocol.elements.dialog import DialogElement
 from punt_lux.protocol.elements.image import ImageElement
 from punt_lux.protocol.elements.markdown import MarkdownElement
@@ -136,7 +134,6 @@ class DisplayServer:
     _event_queue: list[RemoteEventHandlerInvocation]
     _interaction_delivery: InteractionDelivery
     _textures: TextureCache
-    _table_renderer: TableRenderer
     _widget_state: WidgetState
     _menu_manager: MenuManager
     _themes: list[Any]
@@ -152,7 +149,6 @@ class DisplayServer:
     _query_dispatcher: QueryDispatcher
     _scene_inspector: SceneInspector
     _display_paths: DisplayPaths
-    _element_renderer: ElementRenderer
     _imgui_renderer_factory: ImGuiRendererFactory
     _luxd_factory: Any  # JsonElementFactory, declared Any to avoid an import cycle
 
@@ -224,15 +220,14 @@ class DisplayServer:
             menu_manager=self._menu_manager,
             scene_manager=self._scene_manager,
         )
-        # Install the luxd-tier element factory so inbound scene
-        # decoding (via reader.drain_typed → SceneMessage.from_dict →
-        # container_dispatch.dispatch.from_dict) routes through a real
-        # factory. The Display is not allowed to own business publish
-        # behavior; if a handler ever runs locally before remote wrapping,
-        # that path must fail loudly instead of silently dropping the publish.
+        # Bind a fail-loud decode factory to the shared container-dispatch
+        # target. Inbound scenes cross as pickles (SceneCodec), so the display
+        # never JSON-decodes a tree and this is not on the scene path; it is the
+        # sentinel for any JSON element decode here. The Display may not own
+        # business publish, so a container decoded through it fails loud
+        # (RaisingRendererFactory + RaisingPublishSink), never running locally.
         from punt_lux.display_client import no_op_emit
         from punt_lux.protocol.element_factory import JsonElementFactory
-        from punt_lux.protocol.elements import build_element_codec
         from punt_lux.protocol.elements.container_dispatch import (
             dispatch as _container_dispatch,
         )
@@ -245,35 +240,21 @@ class DisplayServer:
                 "Any",
                 RaisingPublishSink("DisplayServer._luxd_factory"),
             ),
-            codec=build_element_codec(),
         )
         _container_dispatch.install_from_dict(self._luxd_factory.element_from_dict)
         self._event_queue = []
         self._textures = TextureCache()
         self._widget_state = WidgetState()  # active scene's state (swapped)
-        self._table_renderer = TableRenderer(
-            widget_state=self._widget_state,
-            emit_event=self._emit_event,
-        )
         self._screenshot_pending = None
         self._test_auto_click = test_auto_click
         self._start_time = time.time()
         self._current_scene_id = None
-        self._element_renderer = ElementRenderer(
-            widget_state=self._widget_state,
-            table_renderer=self._table_renderer,
-            emit_event=self._emit_event,
-            check_dirty_window=self._check_dirty_window,
-        )
         self._imgui_renderer_factory = ImGuiRendererFactory(
             widget_state=self._widget_state,
             texture_cache=self._textures,
             # Display-tier emit is a no-op; interactions route to the Hub.
             emit=lambda _msg: None,
         )
-        # Bind the factory so ElementRenderer's ``render_element`` resolves each
-        # migrated kind's adapter through it (the one dispatch authority).
-        self._element_renderer.imgui_renderer_factory = self._imgui_renderer_factory
 
         # Register display-specific query handlers that need ImGui state.
         self._scene_inspector = SceneInspector(
@@ -317,14 +298,6 @@ class DisplayServer:
         self._event_queue = [
             ev for ev in self._event_queue if ev.element_id not in stale
         ]
-
-    def _check_dirty_window(self, window_id: str) -> bool:
-        """Check and clear the dirty flag for a window element."""
-        dw = self._scene_manager.dirty_windows
-        if window_id in dw:
-            dw.discard(window_id)
-            return True
-        return False
 
     # -- font loading ------------------------------------------------------
 
@@ -743,9 +716,7 @@ class DisplayServer:
             "pid": os.getpid(),
             "uptime_seconds": round(time.time() - self._start_time, 1),
             "protocol_version": "1.0",
-            # Migrated ABC kinds still paint via the legacy dispatch tables during
-            # the fork, so the count needs no separate factory addend.
-            "element_kinds": self._element_renderer.element_kind_count,
+            "element_kinds": len(DEFAULT_ABC_REGISTRY.all_kinds),
         }
 
     def _query_get_window_settings(self, **_kwargs: Any) -> dict[str, Any]:
@@ -879,17 +850,14 @@ class DisplayServer:
             self._auto_click_buttons(msg)
 
     def _wrap_abc_elements(self, msg: SceneMessage) -> None:
-        """Rebind the real factory and wrap handlers on received ABC elements.
+        """Rebind the real factory and wrap handlers on received elements.
 
-        Each top-level ABC element and its ``_children()`` ABC subtree get
-        the Display's ``ImGuiRendererFactory`` and ``remote_dispatch`` handler
-        wrapping. ABC nested in a legacy container is NOT reached (audit C3).
+        Each top-level element and its ``_children()`` subtree get the Display's
+        ``ImGuiRendererFactory`` and ``remote_dispatch`` handler wrapping.
         """
         for elem in msg.elements:
-            # ABC subtrees only, by design pending the migration-strategy decision.
-            if isinstance(elem, AbcElement):
-                elem.bind_renderer_factory(self._imgui_renderer_factory)
-                elem.wrap_handlers_for_remote(self._emit_event)
+            elem.bind_renderer_factory(self._imgui_renderer_factory)
+            elem.wrap_handlers_for_remote(self._emit_event)
 
     def _route_to_domain_display(self, msg: SceneMessage) -> None:
         """Mirror basics-only scenes through Display.apply (PR 1 dual-write)."""
@@ -1329,15 +1297,13 @@ class DisplayServer:
         ws = self._scene_manager.widget_state_for(scene_id)
         if ws is not None:
             self._widget_state = ws
-            self._table_renderer.widget_state = ws
-            self._element_renderer.widget_state = ws
+            self._imgui_renderer_factory.widget_state = ws
         # ``_emit_event`` stamps scene_id from ``self._current_scene_id``
         # for any RemoteEventHandlerInvocation whose scene_id is None —
         # without this assignment, clicks inside framed scenes carried
         # whatever a prior frame's render last set (stale or None), so
         # ``DomainPump.route_interaction`` silently dropped them.
         self._current_scene_id = scene_id
-        self._element_renderer.current_scene_id = scene_id
         self._imgui_renderer_factory.geometry.enter_scene(scene_id)
         scene = frame.scenes[scene_id]
         for elem in scene.elements:
@@ -1345,15 +1311,12 @@ class DisplayServer:
 
     @trace
     def _paint_element(self, elem: Element) -> None:
-        """Dispatch one element to its renderer (ABC template or legacy path).
+        """Paint one element through its ABC ``render()`` template.
 
-        A migrated ABC element paints through its ``render()`` template
-        skeleton; every other kind takes the legacy ``ElementRenderer``.
+        Every kind is an Element-ABC subclass, so painting is a single
+        ``render()`` call.
         """
-        if isinstance(elem, AbcElement):
-            elem.render()
-        else:
-            self._element_renderer.render_element(elem)
+        elem.render()
 
     def _close_frame(self, frame_id: str, *, notify: bool = True) -> None:
         """Remove a frame and all its scenes.
@@ -1378,8 +1341,6 @@ class DisplayServer:
                 owner_sock = self._socket_server.fd_to_client.get(ofd)
                 if owner_sock is not None:
                     self._socket_server.send_to_client(owner_sock, close_event)
-
-    # Element rendering delegated to ElementRenderer -- see element_renderer.py.
 
     # -- event flushing ----------------------------------------------------
 

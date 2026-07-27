@@ -8,9 +8,8 @@ The decoder injects the tier's ``renderer_factory`` + ``emit`` at construction â
 off the display tier that is the fail-loud sentinel, which the Display rebinds
 post-receive. It hands ``path`` / ``data`` to the element unresolved; the
 element's constructor enforces the one-of (raising on "neither" or "both").
-Unlike the legacy dataclass codec, this encoder/decoder owns ``tooltip``
-directly (the legacy path relied on a generic replace that ABC kinds never
-reach) and the single-key source projection.
+This encoder/decoder owns ``tooltip`` directly and the single-key source
+projection.
 """
 
 from __future__ import annotations
@@ -77,9 +76,8 @@ class JsonImageEncoder:
     """Encode an ``ImageElement`` to its JSON-compatible wire dict.
 
     Stateless. The source contributes its single owned key (``path`` xor
-    ``data``); every other field is omitted when absent so the wire shape
-    matches the legacy dataclass codec byte-for-byte; ``kind`` and ``id`` are
-    always emitted.
+    ``data``); every other field is omitted when absent; ``kind`` and ``id``
+    are always emitted.
     """
 
     __slots__ = ()

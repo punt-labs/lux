@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+### Removed
+
+- **The legacy render path is gone** — the element migration's final step.
+  Every element kind renders through the Element-ABC / Hub-Display
+  architecture; the legacy dataclass classes, their codec registry, and the
+  four legacy display renderers (about 4,900 net lines) are deleted, with a
+  structural test guarding against reintroduction. **The `paged` group layout
+  is removed from the wire contract** (operator-ruled): an agent sending
+  `layout="paged"` or the `pages`/`page_source` fields gets a named rejection
+  explaining the removal. Native scrolling covers the use case; pagination
+  can return later as a purpose-built feature. The display also now survives
+  a version-skewed peer: an undecodable pickled element is rejected by name
+  instead of killing the display process, and container decode errors name
+  the parent container holding the bad child.
+
 ### Added
 
 - **The table migrated to the Element-ABC path — all 25 kinds now on the new

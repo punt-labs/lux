@@ -22,7 +22,6 @@ from typing import TYPE_CHECKING, Any, Self, cast
 from punt_lux.domain.hub.hub import hub
 from punt_lux.domain.ids import Topic
 from punt_lux.protocol.element_factory import JsonElementFactory
-from punt_lux.protocol.elements import build_element_codec
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 
 if TYPE_CHECKING:
@@ -93,5 +92,4 @@ def hub_element_factory(connection_id: ConnectionId) -> JsonElementFactory:
         renderer_factory=RaisingRendererFactory(),
         emit=_no_op_emit,
         publish_sink=cast("Any", HubPublishSink(connection_id)),
-        codec=build_element_codec(),
     )

@@ -1,7 +1,7 @@
 """Migration gate for the ABC ``modal`` — an interactive composite.
 
-Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation, the all-ABC fork gate,
-and the dismiss round trip. A user close routes to the Hub as a ``ModalClosed``
+Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation and the dismiss round
+trip. A user close routes to the Hub as a ``ModalClosed``
 interaction whose built-in handler drives ``model.close`` -> ``mark_removed``, so
 the removal cascade drops the modal from both tiers — the D21 path a dialog
 dismiss uses. Levels 2, 3, and 5 drive the real Hub/Display boundary — the pickle
@@ -29,13 +29,11 @@ from punt_lux.protocol.elements import (
     ButtonElement,
     CollapsingHeaderElement,
     GroupElement,
-    LegacyModalElement,
     ModalElement,
     ProgressElement,
     TextElement,
     WindowElement,
 )
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
@@ -139,25 +137,10 @@ class TestLevel1Serialization:
         assert modal.open is True
 
 
-# -- the all-ABC fork gate --------------------------------------------------
+# -- ABC decode nesting -----------------------------------------------------
 
 
 class TestForkGate:
-    def test_all_abc_modal_is_abc(self) -> None:
-        assert ContainerAbcGate.is_all_abc(_abc_modal().to_dict())
-
-    def test_legacy_child_forces_legacy(self) -> None:
-        wire = {
-            "kind": "modal",
-            "id": "m",
-            "title": "T",
-            "children": [
-                {"kind": "group", "id": "lg", "layout": "paged", "children": []}
-            ],
-        }
-        assert not ContainerAbcGate.is_all_abc(wire)
-        assert isinstance(_decode(wire), LegacyModalElement)
-
     def test_from_dict_rejects_non_abc_subtree(self) -> None:
         wire = {
             "kind": "modal",
@@ -169,23 +152,6 @@ class TestForkGate:
         }
         with pytest.raises(ValueError, match="paged"):
             ModalElement.from_dict(wire)
-
-    def test_modal_in_legacy_container_is_forced_legacy(self) -> None:
-        # A modal nested inside a legacy window (a legacy sibling table forces
-        # the window legacy) must itself decode legacy — an ABC container never
-        # nests inside a legacy render subtree.
-        wire = {
-            "kind": "window",
-            "id": "w",
-            "children": [
-                {"kind": "group", "id": "lg", "layout": "paged", "children": []},
-                _abc_modal().to_dict(),
-            ],
-        }
-        window = _decode(wire)
-        assert isinstance(window, HasChildElements)
-        modal = window.child_elements()[1]
-        assert isinstance(modal, LegacyModalElement)
 
 
 # -- self-validation --------------------------------------------------------
@@ -481,15 +447,6 @@ class TestLevel5Introspection:
         assert props["open"] is True
         assert props["title"] == "Confirm"
         assert props["children"] == ["t1", "b1"]
-
-    def test_legacy_modal_reports_legacy_render_path(self) -> None:
-        legacy = LegacyModalElement(
-            id="m",
-            title="T",
-            children=[TextElement(id="t1", content="x")],
-        )
-        resp = _inspect(_server(), legacy)
-        assert _record(resp, "m")["render_path"] == "legacy"
 
 
 class TestEncoderFactoryGuard:

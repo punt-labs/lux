@@ -25,8 +25,7 @@ from punt_lux.domain.interaction_errors import WrongKindError
 from punt_lux.domain.update import AddElement
 from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol import SceneMessage
-from punt_lux.protocol.elements import InputTextElement, build_element_codec
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
+from punt_lux.protocol.elements import InputTextElement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
@@ -92,13 +91,6 @@ class TestLevel1Serialization:
         )
         assert encoded == {"kind": "input_text", "id": "it", "label": "N", "value": "v"}
 
-    def test_absent_from_legacy_codec_table(self) -> None:
-        # No dual live path: the migrated kind leaves the ``ElementCodec`` table.
-        # A still-legacy kind (``table``) stays the negative control.
-        kinds = build_element_codec().registered_kinds
-        assert "input_text" not in kinds
-        assert "table" in kinds
-
 
 # -- wire-boundary rejection (reject, do not silently coerce) ----------------
 
@@ -132,20 +124,6 @@ class TestSelfValidation:
 
     def test_leaf_has_no_children(self) -> None:
         assert InputTextElement(id="it").child_elements() == ()
-
-
-# -- the all-ABC fork gate --------------------------------------------------
-
-
-class TestForkGate:
-    def test_input_text_is_a_migrated_abc_kind(self) -> None:
-        wire = {
-            "kind": "group",
-            "id": "g",
-            "layout": "rows",
-            "children": [{"kind": "input_text", "id": "it", "label": "N"}],
-        }
-        assert ContainerAbcGate.is_all_abc(wire)
 
 
 # -- Level 2: pickle scene wire ---------------------------------------------

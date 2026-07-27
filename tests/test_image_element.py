@@ -21,7 +21,6 @@ from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import GroupElement, ImageElement
-from punt_lux.protocol.elements.group_codec import JsonGroupDecoder
 from punt_lux.protocol.elements.image_source import DataImage, PathImage
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
@@ -218,7 +217,7 @@ class TestLevel3Crossing:
         assert image._renderer_factory is factory
 
 
-# -- the all-ABC fork gate --------------------------------------------------
+# -- ABC decode nesting -----------------------------------------------------
 
 
 class TestForkGate:
@@ -228,7 +227,6 @@ class TestForkGate:
             "id": "g1",
             "children": [{"kind": "image", "id": "i1", "path": "/a.png"}],
         }
-        assert JsonGroupDecoder.is_all_abc(wire)
         group = _decode(wire)
         assert isinstance(group, GroupElement)
         assert isinstance(group.children[0], ImageElement)

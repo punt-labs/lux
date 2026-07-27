@@ -24,8 +24,7 @@ from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol import SceneMessage
-from punt_lux.protocol.elements import ColorPickerElement, build_element_codec
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
+from punt_lux.protocol.elements import ColorPickerElement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
@@ -123,13 +122,6 @@ class TestLevel1Serialization:
         encoded = JsonEncoderFactory().encode(ColorPickerElement(id="cp", label="C"))
         assert encoded["kind"] == "color_picker"
         assert encoded["value"] == "#FFFFFF"
-
-    def test_absent_from_legacy_codec_table(self) -> None:
-        # No dual live path: the migrated kind leaves the ``ElementCodec`` table.
-        # A still-legacy kind (``table``) stays the negative control.
-        kinds = build_element_codec().registered_kinds
-        assert "color_picker" not in kinds
-        assert "table" in kinds
 
 
 # -- wire-boundary rejection (reject, do not silently coerce) ----------------
@@ -286,20 +278,6 @@ class TestShowRejectsInvalidColorPicker:
         assert result.startswith("error: scene not rendered")
         assert "[color_picker 'bad']" in result
         client.show.assert_not_called()
-
-
-# -- the all-ABC fork gate --------------------------------------------------
-
-
-class TestForkGate:
-    def test_color_picker_is_a_migrated_abc_kind(self) -> None:
-        wire = {
-            "kind": "group",
-            "id": "g",
-            "layout": "rows",
-            "children": [{"kind": "color_picker", "id": "cp", "label": "C"}],
-        }
-        assert ContainerAbcGate.is_all_abc(wire)
 
 
 # -- Level 2: pickle scene wire ---------------------------------------------

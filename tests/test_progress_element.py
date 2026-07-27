@@ -23,7 +23,6 @@ from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import GroupElement, ProgressElement
-from punt_lux.protocol.elements.group_codec import JsonGroupDecoder
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
@@ -233,7 +232,7 @@ class TestLevel3Crossing:
         assert progress._renderer_factory is factory
 
 
-# -- the all-ABC fork gate --------------------------------------------------
+# -- ABC decode nesting -----------------------------------------------------
 
 
 class TestForkGate:
@@ -243,7 +242,6 @@ class TestForkGate:
             "id": "g1",
             "children": [{"kind": "progress", "id": "p1", "fraction": 0.5}],
         }
-        assert JsonGroupDecoder.is_all_abc(wire)
         group = _decode(wire)
         assert isinstance(group, GroupElement)
         assert isinstance(group.children[0], ProgressElement)

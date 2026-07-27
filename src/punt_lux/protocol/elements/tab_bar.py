@@ -28,7 +28,6 @@ from punt_lux.domain.handlers.decorators import PublishSink
 from punt_lux.domain.remote_dispatch_spec import RemoteDispatchSpec
 from punt_lux.domain.validation import ValidationError
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.elements.container_dispatch import dispatch
 from punt_lux.protocol.elements.patch_field import PatchField
 from punt_lux.protocol.elements.tab import Tab
@@ -54,9 +53,8 @@ class TabBarElement(Element):
     """A tabbed container that owns a Hub-authoritative active-tab selection.
 
     Holds only ABC children — the render template calls ``child.render()``,
-    which only ABC elements provide. The decoder decodes a ``tab_bar`` onto this
-    class only when its entire subtree is migrated-ABC; any legacy descendant
-    routes the whole subtree to the legacy form.
+    which every element provides. The decoder recurses each tab's children
+    through the tier dispatcher, which rejects an unknown child kind.
 
     PY-TS-14: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for an optional tooltip.
@@ -220,16 +218,10 @@ class TabBarElement(Element):
     def from_dict(cls, d: Mapping[str, object]) -> Self:
         """Construct a TabBarElement from a JSON-decoded mapping.
 
-        Recurses children through the shared container dispatcher and rejects a
-        wire dict whose subtree is not all-ABC — the invariant belongs at this
-        type's own boundary (PY-EH-1). A wire ``publish`` handler resolves
+        Recurses children through the shared container dispatcher, which rejects
+        an unknown child kind (PY-EH-1). A wire ``publish`` handler resolves
         against a ``RaisingPublishSink`` so a stray publish fails loud.
         """
-        if not ContainerAbcGate.is_all_abc(d):
-            offending = ContainerAbcGate.first_non_abc_kind(d)
-            bar_id = d.get("id")
-            msg = f"tab_bar {bar_id!r} is not all-ABC — offending kind: {offending!r}"
-            raise ValueError(msg)
         decoder = JsonTabBarDecoder(
             decode_element=dispatch.from_dict,
             element_cls=cls,

@@ -1350,7 +1350,7 @@ class TestFrameLayoutPartitions:
         d = {
             "type": "scene",
             "id": "s1",
-            "elements": [{"kind": "text", "id": "t1", "content": "Hello"}],
+            "elements": [],
             "frame_id": "f1",
             "frame_layout": "bogus",
         }
@@ -1365,7 +1365,7 @@ class TestFrameLayoutPartitions:
         d = {
             "type": "scene",
             "id": "s1",
-            "elements": [{"kind": "text", "id": "t1", "content": "Hello"}],
+            "elements": [],
             "frame_id": "f1",
             "frame_layout": 42,
         }

@@ -122,9 +122,8 @@ class JsonRadioDecoder:
 class JsonRadioEncoder:
     """Encode a ``RadioElement`` to its JSON-compatible wire dict.
 
-    Stateless. ``tooltip`` is omitted when absent via ``strip_none`` so the wire
-    for a tooltip-less radio matches the prior dataclass codec byte-for-byte; a
-    present tooltip now round-trips (the legacy ``to_dict`` silently dropped it).
+    Stateless. ``tooltip`` is omitted when absent via ``strip_none``; a
+    present tooltip round-trips as its own wire field.
     """
 
     __slots__ = ()

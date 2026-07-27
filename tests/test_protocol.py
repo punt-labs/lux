@@ -14,7 +14,6 @@ from punt_lux.protocol import (
     ButtonElement,
     CheckboxElement,
     ClearMessage,
-    CollapsingHeaderElement,
     ColorPickerElement,
     ComboElement,
     ConnectMessage,
@@ -25,11 +24,6 @@ from punt_lux.protocol import (
     InputTextElement,
     IntrospectRequest,
     IntrospectResponse,
-    LegacyCollapsingHeaderElement,
-    LegacyGroupElement,
-    LegacyTabBarElement,
-    LegacyTableElement,
-    LegacyWindowElement,
     ListScenesRequest,
     ListScenesResponse,
     MarkdownElement,
@@ -53,8 +47,6 @@ from punt_lux.protocol import (
     SeparatorElement,
     SliderElement,
     SpinnerElement,
-    TableDetail,
-    TableFilter,
     TextElement,
     ThemeMessage,
     TreeElement,
@@ -158,67 +150,6 @@ class TestElements:
         assert e.layout == "rows"
         assert e.children == ()
 
-    def test_tab_bar_element(self):
-        e = LegacyTabBarElement(
-            id="tb1",
-            tabs=[{"label": "Tab A", "children": [TextElement(id="t1", content="A")]}],
-        )
-        assert e.kind == "tab_bar"
-        assert len(e.tabs) == 1
-
-    def test_collapsing_header_element(self):
-        e = LegacyCollapsingHeaderElement(
-            id="ch1",
-            label="Details",
-            default_open=True,
-            children=[TextElement(id="t1", content="inside")],
-        )
-        assert e.kind == "collapsing_header"
-        assert e.default_open is True
-        assert e.label == "Details"
-
-    def test_collapsing_header_defaults(self):
-        e = LegacyCollapsingHeaderElement(id="ch1")
-        assert e.label == ""
-        assert e.default_open is False
-        assert e.children == []
-
-    def test_window_element(self):
-        e = LegacyWindowElement(
-            id="w1",
-            title="Panel",
-            x=100,
-            y=50,
-            width=400,
-            height=300,
-            children=[TextElement(id="t1", content="inside")],
-        )
-        assert e.kind == "window"
-        assert e.title == "Panel"
-        assert e.x == 100
-        assert len(e.children) == 1
-
-    def test_window_element_defaults(self):
-        e = LegacyWindowElement(id="w1")
-        assert e.title == ""
-        assert e.x == 50.0
-        assert e.y == 50.0
-        assert e.width == 300.0
-        assert e.height == 200.0
-        assert e.no_move is False
-        assert e.no_resize is False
-        assert e.no_collapse is False
-        assert e.no_title_bar is False
-        assert e.no_scrollbar is False
-        assert e.auto_resize is False
-        assert e.children == []
-
-    def test_window_element_flags(self):
-        e = LegacyWindowElement(id="w1", no_move=True, no_resize=True, auto_resize=True)
-        assert e.no_move is True
-        assert e.no_resize is True
-        assert e.auto_resize is True
-
     def test_selectable_element(self):
         e = SelectableElement(id="s1", label="Item A", selected=True)
         assert e.kind == "selectable"
@@ -250,43 +181,6 @@ class TestElements:
     def test_tree_element_flat(self):
         e = TreeElement(id="tr1", label="Info", flat=True)
         assert e.flat is True
-
-    def test_table_element(self):
-        e = LegacyTableElement(
-            id="tbl1",
-            columns=["Name", "Score"],
-            rows=[["Alice", 95], ["Bob", 87]],
-            flags=["borders", "row_bg", "resizable"],
-        )
-        assert e.kind == "table"
-        assert e.columns == ["Name", "Score"]
-        assert len(e.rows) == 2
-        assert e.flags == ["borders", "row_bg", "resizable"]
-
-    def test_table_element_defaults(self):
-        e = LegacyTableElement(id="tbl1")
-        assert e.columns == []
-        assert e.rows == []
-        assert e.flags == ["borders", "row_bg"]
-
-    def test_legacy_table_bool_cell_validates(self):
-        # A boolean cell is a valid scalar (bool is listed explicitly though a
-        # subclass of int), matching the "boolean" the message names and the ABC.
-        e = LegacyTableElement(
-            id="tbl1", columns=["Name", "Active"], rows=[["x", True]]
-        )
-        assert e.validate() == ()
-
-    def test_legacy_table_tooltip_survives_the_roundtrip(self):
-        # The tooltip is a real field; it must not be silently dropped on the wire.
-        e = LegacyTableElement(id="tbl1", columns=["Name"], rows=[["x"]], tooltip="hi")
-        restored = LegacyTableElement.from_dict(e.to_dict())
-        assert restored.tooltip == "hi"
-
-    def test_legacy_table_absent_tooltip_stays_none(self):
-        e = LegacyTableElement(id="tbl1", columns=["Name"], rows=[["x"]])
-        restored = LegacyTableElement.from_dict(e.to_dict())
-        assert restored.tooltip is None
 
     def test_plot_element(self):
         series = (PlotSeries("y", "line", (1.0, 2.0, 3.0), (10.0, 20.0, 15.0)),)
@@ -820,8 +714,10 @@ class TestSerialization:
         d = message_to_dict(msg)
         assert d == {"type": "my_type"}
 
-    def test_unknown_element_kind_raises(self):
-        with pytest.raises(ValueError, match="Unknown element kind"):
+    def test_scene_element_without_pickle_raises(self):
+        # Every scene element crosses as a base64 ``_pickled`` entry; a plain
+        # wire dict is a malformed scene, rejected by name at decode.
+        with pytest.raises(ValueError, match="must carry a '_pickled' entry"):
             message_from_dict(
                 {
                     "type": "scene",
@@ -964,58 +860,6 @@ class TestSerialization:
         assert isinstance(grp.children[0], TextElement)
         assert isinstance(grp.children[1], ButtonElement)
 
-    def test_tab_bar_roundtrip(self):
-        # A legacy table child keeps the subtree off the all-ABC path, so
-        # the tab bar decodes onto the legacy dataclass whose tabs are dicts.
-        e = LegacyTabBarElement(
-            id="tb1",
-            tabs=[
-                {
-                    "label": "Tab 1",
-                    "children": [TextElement(id="t1", content="Content 1")],
-                },
-                {
-                    "label": "Tab 2",
-                    "children": [
-                        ButtonElement(id="b1", label="Action"),
-                        LegacyGroupElement(id="lgc", layout="paged"),
-                    ],
-                },
-            ],
-        )
-        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        tb = restored.elements[0]
-        assert isinstance(tb, LegacyTabBarElement)
-        assert len(tb.tabs) == 2
-        assert tb.tabs[0]["label"] == "Tab 1"
-        assert isinstance(tb.tabs[0]["children"][0], TextElement)
-        assert len(tb.tabs[1]["children"]) == 2
-
-    def test_collapsing_header_roundtrip(self):
-        # A legacy table child keeps the subtree off the all-ABC path, so
-        # the header decodes onto the legacy dataclass that carries ``default_open``.
-        e = LegacyCollapsingHeaderElement(
-            id="ch1",
-            label="Advanced",
-            default_open=True,
-            children=[
-                CheckboxElement(id="cb1", label="Debug"),
-                LegacyGroupElement(id="lgc", layout="paged"),
-            ],
-        )
-        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        ch = restored.elements[0]
-        assert isinstance(ch, LegacyCollapsingHeaderElement)
-        assert ch.label == "Advanced"
-        assert ch.default_open is True
-        assert len(ch.children) == 2
-
     def test_selectable_roundtrip(self):
         e = SelectableElement(id="s1", label="Option A", selected=True)
         scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
@@ -1078,113 +922,6 @@ class TestSerialization:
         tree = restored.elements[0]
         assert isinstance(tree, TreeElement)
         assert tree.nodes == ()
-
-    def test_table_roundtrip(self):
-        e = LegacyTableElement(
-            id="tbl1",
-            columns=["Name", "Score"],
-            rows=[["Alice", 95], ["Bob", 87]],
-            flags=["borders", "row_bg", "sortable"],
-        )
-        tbl = LegacyTableElement.from_dict(e.to_dict())
-        assert isinstance(tbl, LegacyTableElement)
-        assert tbl.columns == ["Name", "Score"]
-        assert tbl.rows == [["Alice", 95], ["Bob", 87]]
-        assert tbl.flags == ["borders", "row_bg", "sortable"]
-
-    def test_table_empty_roundtrip(self):
-        e = LegacyTableElement(id="tbl1")
-        tbl = LegacyTableElement.from_dict(e.to_dict())
-        assert isinstance(tbl, LegacyTableElement)
-        assert tbl.columns == []
-        assert tbl.rows == []
-
-    def test_table_with_filters_roundtrip(self):
-        e = LegacyTableElement(
-            id="tbl1",
-            columns=["ID", "Title", "Status"],
-            rows=[["1", "Fix bug", "open"], ["2", "Add feature", "closed"]],
-            filters=[
-                TableFilter(type="search", column_spec=[0, 1], hint="Search..."),
-                TableFilter(
-                    type="combo",
-                    column_spec=2,
-                    items=["All", "open", "closed"],
-                ),
-            ],
-        )
-        tbl = LegacyTableElement.from_dict(e.to_dict())
-        assert isinstance(tbl, LegacyTableElement)
-        assert tbl.filters is not None
-        assert len(tbl.filters) == 2
-        assert tbl.filters[0].type == "search"
-        assert tbl.filters[0].column == [0, 1]
-        assert tbl.filters[0].hint == "Search..."
-        assert tbl.filters[1].type == "combo"
-        assert tbl.filters[1].column == [2]  # int normalized to list
-        assert tbl.filters[1].items == ["All", "open", "closed"]
-
-    def test_table_with_detail_roundtrip(self):
-        e = LegacyTableElement(
-            id="tbl1",
-            columns=["ID", "Title"],
-            rows=[["1", "Fix bug"], ["2", "Add feature"]],
-            detail=TableDetail(
-                fields=["ID", "Status", "Owner"],
-                rows=[["1", "open", "alice"], ["2", "closed", "bob"]],
-                body=["Bug description", "Feature description"],
-            ),
-        )
-        tbl = LegacyTableElement.from_dict(e.to_dict())
-        assert isinstance(tbl, LegacyTableElement)
-        assert tbl.detail is not None
-        assert tbl.detail.fields == ["ID", "Status", "Owner"]
-        assert tbl.detail.rows == [["1", "open", "alice"], ["2", "closed", "bob"]]
-        assert tbl.detail.body == ["Bug description", "Feature description"]
-
-    def test_table_with_column_widths_roundtrip(self):
-        e = LegacyTableElement(
-            id="tbl1",
-            columns=["ID", "Title", "Status"],
-            rows=[["1", "Fix bug", "open"]],
-            column_widths=[1.0, 4.0, 2.0],
-        )
-        tbl = LegacyTableElement.from_dict(e.to_dict())
-        assert isinstance(tbl, LegacyTableElement)
-        assert tbl.column_widths == [1.0, 4.0, 2.0]
-
-    def test_table_filter_combo_requires_items(self):
-        with pytest.raises(ValueError, match="requires non-empty 'items'"):
-            TableFilter(type="combo", column_spec=0)
-
-    def test_table_filter_normalizes_column(self):
-        f = TableFilter(type="search", column_spec=3)
-        assert f.column == [3]
-
-    def test_table_detail_validates_parallel_arrays(self):
-        with pytest.raises(ValueError, match="rows/body length mismatch"):
-            TableDetail(fields=["A"], rows=[["x"]], body=["a", "b"])
-
-    def test_table_element_validates_column_widths(self):
-        with pytest.raises(ValueError, match="column_widths length"):
-            LegacyTableElement(
-                id="t",
-                columns=["A", "B"],
-                column_widths=[0.5],  # wrong length
-            )
-
-    def test_table_element_validates_detail_rows(self):
-        with pytest.raises(ValueError, match=r"detail\.rows length"):
-            LegacyTableElement(
-                id="t",
-                columns=["A"],
-                rows=[["x"], ["y"]],
-                detail=TableDetail(
-                    fields=["A"],
-                    rows=[["x"]],
-                    body=["desc"],
-                ),
-            )
 
     def test_plot_roundtrip(self):
         series = (
@@ -1290,85 +1027,6 @@ class TestSerialization:
         txt = restored.elements[0]
         assert isinstance(txt, TextElement)
         assert txt.tooltip is None
-
-    def test_collapsing_header_default_open_excluded_when_false(self):
-        e = LegacyCollapsingHeaderElement(id="ch1", label="Section")
-        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
-        d = message_to_dict(scene)
-        assert "default_open" not in d["elements"][0]
-
-    def test_nested_group_in_tab_bar_roundtrip(self):
-        inner = LegacyGroupElement(
-            id="g1",
-            layout="columns",
-            children=[
-                TextElement(id="t1", content="A"),
-                TextElement(id="t2", content="B"),
-            ],
-        )
-        # A legacy plot sibling keeps the tab bar's subtree off the
-        # all-ABC path, so it decodes legacy and forces the nested group legacy.
-        outer = LegacyTabBarElement(
-            id="tb1",
-            tabs=[
-                {
-                    "label": "Layout",
-                    "children": [
-                        inner,
-                        LegacyGroupElement(id="lgc", layout="paged"),
-                    ],
-                }
-            ],
-        )
-        scene = SceneMessage(id="s1", elements=[outer], frame_id="s1")
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        tb = restored.elements[0]
-        assert isinstance(tb, LegacyTabBarElement)
-        grp = tb.tabs[0]["children"][0]
-        # A group nested in a legacy container is forced legacy so an ABC
-        # container can never appear inside a legacy render subtree.
-        assert isinstance(grp, LegacyGroupElement)
-        assert len(grp.children) == 2
-
-    def test_window_with_legacy_child_forks_legacy_roundtrip(self):
-        # A not-yet-migrated child (table) forks the whole window legacy; the
-        # all-ABC window roundtrip is covered in test_window_element.py.
-        win = LegacyWindowElement(
-            id="w1",
-            title="Complex",
-            children=[
-                LegacyGroupElement(id="lgc", layout="paged"),
-                TextElement(id="t1", content="nested"),
-            ],
-        )
-        scene = SceneMessage(id="s1", elements=[win], frame_id="s1")
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        r_win = restored.elements[0]
-        assert isinstance(r_win, LegacyWindowElement)
-        assert r_win.children[0].kind == "group"
-
-    def test_deeply_nested_containers_roundtrip(self):
-        # An all-ABC subtree — a header holding a text — decodes onto the ABC
-        # path even when hand-built as a legacy group: the wire carries no
-        # legacy marker, so decode re-derives the path from the subtree.
-        leaf = TextElement(id="leaf", content="deep")
-        ch = CollapsingHeaderElement(id="ch1", label="Inner", children=[leaf])
-        grp = LegacyGroupElement(id="g1", children=[ch])
-        scene = SceneMessage(id="s1", elements=[grp], frame_id="s1")
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        r_grp = restored.elements[0]
-        assert isinstance(r_grp, GroupElement)
-        r_ch = r_grp.children[0]
-        assert isinstance(r_ch, CollapsingHeaderElement)
-        r_leaf = r_ch.children[0]
-        assert isinstance(r_leaf, TextElement)
-        assert r_leaf.content == "deep"
 
     def test_mixed_interactive_scene_roundtrip(self):
         original = SceneMessage(
@@ -1890,102 +1548,3 @@ class TestMessageRegistry:
             "unknown",
         }
         assert _registry.registered_types == expected_types
-
-
-# ---------------------------------------------------------------------------
-# ElementCodec
-# ---------------------------------------------------------------------------
-
-
-class TestElementCodec:
-    """Tests for the ElementCodec class introduced by the codec refactor."""
-
-    def test_isolated_codec_roundtrip(self) -> None:
-        """Create a fresh codec, register one kind, round-trip it."""
-        from punt_lux.protocol.elements.codec import ElementCodec
-
-        def _text_ser(e: TextElement) -> dict[str, Any]:
-            return {"kind": "text", "id": e.id, "content": e.content}
-
-        def _text_de(d: dict[str, Any]) -> TextElement:
-            return TextElement(id=d["id"], content=d.get("content", ""))
-
-        codec = ElementCodec()
-        codec.register("text", TextElement, _text_ser, _text_de)
-        d = codec.to_dict(TextElement(id="t1", content="hello"))
-        restored = codec.from_dict(d)
-        assert isinstance(restored, TextElement)
-        assert restored.content == "hello"
-
-    def test_duplicate_kind_registration_raises(self) -> None:
-        """Registering the same kind string twice is a ValueError."""
-        from punt_lux.protocol.elements.codec import ElementCodec
-
-        def _ser(e: TextElement) -> dict[str, Any]:
-            return {}
-
-        def _de(d: dict[str, Any]) -> TextElement:
-            return TextElement(id="x", content="")
-
-        codec = ElementCodec()
-        codec.register("text", TextElement, _ser, _de)
-        with pytest.raises(ValueError, match="Duplicate element registration"):
-            codec.register("text", TextElement, _ser, _de)
-
-    def test_duplicate_class_registration_raises(self) -> None:
-        """Registering the same class under a second kind is a ValueError."""
-        from punt_lux.protocol.elements.codec import ElementCodec
-
-        def _ser(e: TextElement) -> dict[str, Any]:
-            return {}
-
-        def _de(d: dict[str, Any]) -> TextElement:
-            return TextElement(id="x", content="")
-
-        codec = ElementCodec()
-        codec.register("text", TextElement, _ser, _de)
-        with pytest.raises(ValueError, match="Duplicate class registration"):
-            codec.register("text_alias", TextElement, _ser, _de)
-
-    def test_unknown_kind_raises_valueerror(self) -> None:
-        """Unregistered kind strings raise ValueError on decode."""
-        from punt_lux.protocol.elements.codec import ElementCodec
-
-        codec = ElementCodec()
-        with pytest.raises(ValueError, match="Unknown element kind"):
-            codec.from_dict({"kind": "bogus", "id": "x"})
-
-    def test_missing_kind_raises_valueerror(self) -> None:
-        """Missing, empty, or non-string 'kind' raises ValueError on decode."""
-        from punt_lux.protocol.elements.codec import ElementCodec
-
-        codec = ElementCodec()
-        with pytest.raises(ValueError, match="kind"):
-            codec.from_dict({"id": "t1"})
-        with pytest.raises(ValueError, match="kind"):
-            codec.from_dict({"kind": "", "id": "t1"})
-        with pytest.raises(ValueError, match="kind"):
-            codec.from_dict({"kind": 123, "id": "t1"})
-
-    def test_unknown_type_raises_typeerror(self) -> None:
-        """Unregistered classes raise TypeError on encode."""
-        from punt_lux.protocol.elements.codec import ElementCodec
-
-        codec = ElementCodec()
-        with pytest.raises(TypeError, match="Unknown element type"):
-            codec.to_dict(TextElement(id="t1", content="x"))
-
-    def test_registered_kinds_property(self) -> None:
-        """The registered_kinds property reflects what has been registered."""
-        from punt_lux.protocol.elements.codec import ElementCodec
-
-        def _ser(e: TextElement) -> dict[str, Any]:
-            return {}
-
-        def _de(d: dict[str, Any]) -> TextElement:
-            return TextElement(id="x", content="")
-
-        codec = ElementCodec()
-        assert codec.registered_kinds == frozenset()
-        codec.register("text", TextElement, _ser, _de)
-        assert codec.registered_kinds == frozenset({"text"})

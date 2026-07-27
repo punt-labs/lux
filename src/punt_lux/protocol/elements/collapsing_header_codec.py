@@ -83,14 +83,15 @@ class JsonCollapsingHeaderDecoder:
     def decode(self, raw: Mapping[str, object]) -> CollapsingHeaderElement:
         """Construct the header, recursing children through the tier decoder."""
         ctx = ElementWireContext.for_kind("collapsing_header")
-        children = tuple(
-            self._decode(c) for c in self._require_list(raw.get("children"))
+        header_id = ctx.require_id(raw)
+        children = ctx.decode_children(
+            header_id, self._require_list(raw.get("children")), self._decode
         )
         # ``default_open`` is the pre-migration wire name for ``open``; honour it
         # as an alias so older payloads still open the header. ``open`` wins.
         open_field = "open" if "open" in raw else "default_open"
         elem = self._cls(
-            id=ctx.require_id(raw),
+            id=header_id,
             label=ctx.optional_str(raw, "label", default=""),
             open=ctx.optional_bool(raw, open_field, default=False),
             children=children,

@@ -32,7 +32,6 @@ from punt_lux.protocol.elements import DrawElement, GroupElement
 from punt_lux.protocol.elements.draw_commands_line import Line
 from punt_lux.protocol.elements.draw_commands_shape import Rect
 from punt_lux.protocol.elements.draw_values import Color, Point2
-from punt_lux.protocol.elements.group_codec import JsonGroupDecoder
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
@@ -255,7 +254,7 @@ class TestLevel3Crossing:
         assert draw._renderer_factory is factory
 
 
-# -- the all-ABC fork gate --------------------------------------------------
+# -- ABC decode nesting -----------------------------------------------------
 
 
 class TestForkGate:
@@ -265,7 +264,6 @@ class TestForkGate:
             "id": "g1",
             "children": [{"kind": "draw", "id": "dr1"}],
         }
-        assert JsonGroupDecoder.is_all_abc(wire)
         group = _decode(wire)
         assert isinstance(group, GroupElement)
         assert isinstance(group.children[0], DrawElement)

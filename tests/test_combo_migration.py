@@ -23,11 +23,10 @@ from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol import SceneMessage
-from punt_lux.protocol.elements import ComboElement, build_element_codec
+from punt_lux.protocol.elements import ComboElement
 from punt_lux.protocol.elements.abc_kind_names import AbcKindNames
 from punt_lux.protocol.elements.abc_kind_verify import AbcKindVerifier
 from punt_lux.protocol.elements.abc_registry import AbcElementRegistry
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
@@ -116,13 +115,6 @@ class TestLevel1Serialization:
         encoded = JsonEncoderFactory().encode(ComboElement(id="co", items=["A", "B"]))
         assert encoded["kind"] == "combo"
         assert encoded["selected"] == 0
-
-    def test_absent_from_legacy_codec_table(self) -> None:
-        # No dual live path: the migrated kind leaves the ``ElementCodec`` table.
-        # A still-legacy kind (``table``) stays the negative control.
-        kinds = build_element_codec().registered_kinds
-        assert "combo" not in kinds
-        assert "table" in kinds
 
 
 # -- capability guard: combo cannot ship handler-less -----------------------
@@ -316,20 +308,6 @@ class TestPatchPath:
             c.apply_patch({"label": "new", "selected": 9})
         assert c.label == "orig"
         assert c.selected == 0
-
-
-# -- the all-ABC fork gate --------------------------------------------------
-
-
-class TestForkGate:
-    def test_combo_is_a_migrated_abc_kind(self) -> None:
-        wire = {
-            "kind": "group",
-            "id": "g",
-            "layout": "rows",
-            "children": [{"kind": "combo", "id": "co", "items": ["A"]}],
-        }
-        assert ContainerAbcGate.is_all_abc(wire)
 
 
 # -- Level 2: pickle scene wire ---------------------------------------------

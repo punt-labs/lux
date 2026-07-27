@@ -1,27 +1,30 @@
 # Element Migration Audit — Distributed Element-ABC / Hub-Display
 
-> **Superseded in part by [DES-041](../../DESIGN.md).** The migration
-> **strategy and sequencing** in this document — "incremental crossing,
-> big-bang deletion," mixed-scene coexistence, and the lowest-risk-first
-> "Batch 0–7" order — are replaced by DES-041: **fork, don't mix; duplicate on
-> need (new class gets the canonical name); order by testability (a container +
-> primitives first, complex widgets last).** The **per-element map** below
-> (which kinds are migrated, what "migrated" means per class, the display-only
-> vs interactive vs composite split) still holds; read the ordering and
-> coexistence recommendations as historical.
+> **COMPLETED — historical record.** The migration this audit planned is done:
+> all **25 of 25** element kinds are on the distributed Element-ABC / Hub-Display
+> path, and the legacy `SceneManager` + dual-write render path (the `Legacy*`
+> dataclasses, the `ElementCodec` table, the all-ABC fork gate, and the legacy
+> renderers) was **deleted in B7** (bead `lux-r18j`), the final batch of epic
+> `lux-xs7r`. This document is retained as the per-element map and design record.
+> The migration **strategy and sequencing** here — "incremental crossing,
+> big-bang deletion," mixed-scene coexistence, and the "Batch 0–7" order — were
+> superseded mid-flight by [DES-041](../../DESIGN.md) (**fork, don't mix; order
+> by testability**); read those, and every "migrated vs legacy" state below, as
+> history. The per-element map (what "migrated" means per class, the display-only
+> vs interactive vs composite split) still describes the shipped kinds.
 
-**Status:** read-only audit and proposed epic. No code changes.
-**Scope:** the 25 element kinds in `src/punt_lux/protocol/elements/` and their
-migration from the legacy `SceneManager` + dual-write path onto the Element ABC
-(`src/punt_lux/domain/element_abc.py`) and the `HubDisplay`/`apply` path.
+**Status:** completed migration — historical audit and design record.
+**Scope:** the 25 element kinds in `src/punt_lux/protocol/elements/`, all now on
+the Element ABC (`src/punt_lux/domain/element_abc.py`) and the `HubDisplay`/`apply`
+path; the legacy `SceneManager` + dual-write path they moved off is deleted.
 **Ground truth:** `docs/architecture/target/{target,ui-model,topology,element-contract,introspection-api}.md`
 and the code cited inline. Where a document disagrees with `target.md`, the
 target is authoritative.
 
-This audit is a design and sequencing map, not a line-by-line implementation
-plan. It identifies what is migrated, what "migrated" means per class, a
-defensible order, effort shape, the open design decisions that need operator
-ratification, and a proposed epic + child-bead structure.
+This audit was a design and sequencing map, not a line-by-line implementation
+plan. It identifies what "migrated" means per class, a defensible order, effort
+shape, the design decisions that needed operator ratification, and the epic +
+child-bead structure the work followed.
 
 ## 1. What "the ABC contract" actually is
 
@@ -139,22 +142,19 @@ The 25 kinds are the `Element` union at `__init__.py:130`.
 | 24 | `plot` | `PlotElement` (`plot_element.py:17`) | Legacy dataclass | Display-only | `series: list[dict]` — untyped (`plot_element.py:27`) |
 | 25 | `draw` | `DrawElement` (`graphics.py:27`) | Legacy dataclass | Display-only | typed draw-command family (curve/line/shape/text) |
 
-Summary: **this audit's original count was 4 migrated, 21 legacy.** Since then
-the migration has advanced to **19 migrated, 6 legacy** (batch B1 closed the
-display-only basics). Migrated: the io-model leaves `text`, `button`,
-`checkbox`, `dialog`; the display-only leaves `image`, `separator`, `progress`,
-`spinner`, `markdown` (B1 — image on a discriminated `PathImage`/`DataImage`
-source; separator anonymous ids via the `Anonymizable` Protocol); the four
-non-atomic mutable inputs `input_text`, `slider`, `color_picker`,
-`input_number` (all on the shared `ContinuousEditArbiter`); the three
-atomic-selection inputs `combo`, `radio`, `selectable` (all on the shared
-`ApplyPatchOnChange` value handler — combo/radio key an int index, selectable a
-bool); and the containers `group`, `tab_bar`, `collapsing_header`. The
-authoritative live status is [`migration/README.md`](migration/README.md)
-§"Where we are"; this table is the per-element analysis. The 6 remaining
-legacy: the stateful composites `window` and `modal` (B4), `tree`, the
-graphics pair `draw`/`plot` (B5), and `table` (B6 — selection becomes
-Hub-authoritative there).
+Summary: **this audit's original count was 4 migrated, 21 legacy; the terminal
+state is 25 migrated, 0 legacy.** The "Path today" column above records each
+kind's state at the time of the audit, not today — every kind now decodes,
+mutates, and renders through the Element-ABC path. The batches that carried them
+across: B1 the display-only basics (`image`, `separator`, `progress`, `spinner`,
+`markdown`); B2 the interactive value inputs (`input_text`, `slider`,
+`color_picker`, `input_number` on the shared `ContinuousEditArbiter`; `combo`,
+`radio`, `selectable` on the shared `ApplyPatchOnChange`); B3 the simple
+composites (`group`, `tab_bar`, `collapsing_header`); B4 the stateful composites
+(`window`, `modal`); B5 `tree`, `draw`, `plot`; B6 `table` (selection became
+Hub-authoritative); and B7 deleted the legacy path once every kind had crossed.
+The io-model leaves `text`, `button`, `checkbox`, `dialog` were the original
+four exemplars.
 
 ## 4. What "migrated" means per class
 

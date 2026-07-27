@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from punt_lux.protocol import (
     ButtonElement,
-    LegacyWindowElement,
     SceneMessage,
     SeparatorElement,
     TableElement,
@@ -109,17 +108,6 @@ class TestHandleSceneNew:
         assert frame.scene_order == ["s1"]
         assert frame.active_tab == "s1"
         assert isinstance(mgr._scene_widget_state.get("s1"), WidgetState)
-
-    def test_window_elements_marked_dirty(self) -> None:
-        """Window elements in a new scene are added to _dirty_windows."""
-        mgr, _ = _make_manager()
-        scene = _make_scene(
-            elements=[LegacyWindowElement(id="w1", children=[], title="Win")]
-        )
-
-        mgr.handle_framed_scene(scene, owner_fd=10)
-
-        assert "w1" in mgr._dirty_windows
 
 
 # -------------------------------------------------------------------
@@ -429,7 +417,6 @@ class TestClearAll:
         assert len(mgr.scene_to_frame) == 0
         assert len(mgr.scene_to_owner) == 0
         assert len(mgr._scene_widget_state) == 0
-        assert len(mgr._dirty_windows) == 0
 
     def test_clear_all_idempotent(self) -> None:
         """Calling clear_all on empty state does not fail."""

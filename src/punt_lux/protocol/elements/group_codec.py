@@ -1,14 +1,10 @@
 """JsonGroupDecoder + JsonGroupEncoder — wire codec for the ABC GroupElement.
 
-The decoder carries the **all-ABC gate** (``is_all_abc``, a pure function
-of the wire dict) that forks a ``group`` onto the ABC path: a wire
-``group`` decodes to :class:`GroupElement` only when its layout is a stack
-(rows / columns) and its whole subtree is migrated-ABC. Any legacy
-descendant, a ``paged`` layout, or paged wire fields force the subtree
-onto :class:`LegacyGroupElement`, which owns ``pages`` / ``page_source``;
-the ABC group has none. Child recursion is injected (the tier's
-``element_from_dict``) so a nested all-ABC group decodes exactly as the
-top-level factory would.
+A ``group`` renders only a ``rows`` or ``columns`` stack. The decoder
+validates the layout at the boundary (PY-EH-1) and rejects the removed
+``paged`` layout and its ``pages`` / ``page_source`` wire fields with a
+named error. Child recursion is injected (the tier's ``element_from_dict``)
+so a nested group decodes exactly as the top-level factory would.
 """
 
 from __future__ import annotations
@@ -16,7 +12,6 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Any, Self, cast
 
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.elements.container_dispatch import dispatch
 from punt_lux.protocol.elements.element_wire import ElementWireContext
 
@@ -27,17 +22,20 @@ if TYPE_CHECKING:
 __all__ = ["JsonGroupDecoder", "JsonGroupEncoder"]
 
 # Injected child decoder: the tier's ``element_from_dict`` bound method.
-# It takes a wire dict and returns the decoded element (ABC for an all-ABC
-# subtree). ``Any`` return matches the factory's heterogeneous element union.
+# It takes a wire dict and returns the decoded element. ``Any`` return
+# matches the factory's heterogeneous element union.
 type DecodeElement = Callable[[dict[str, Any]], object]
+
+# The two layouts a group renders. The removed ``paged`` layout is rejected.
+_STACK_LAYOUTS = frozenset({"rows", "columns"})
 
 
 class JsonGroupDecoder:
     """Decode a wire dict to a fully-constructed ABC ``GroupElement``.
 
     Constructed with the tier's child decoder and the concrete element
-    class. ``is_all_abc`` is the gate the factory consults to decide
-    whether a ``group`` forks onto this decoder or the legacy container.
+    class. ``decode`` validates the layout and rejects the removed ``paged``
+    layout at the boundary (PY-EH-1).
     """
 
     _decode_element: DecodeElement
@@ -54,32 +52,48 @@ class JsonGroupDecoder:
         self._cls = element_cls
         return self
 
-    @classmethod
-    def is_all_abc(cls, raw: Mapping[str, object]) -> bool:
-        """Return whether ``raw`` is an all-ABC, stack-layout group subtree."""
-        return ContainerAbcGate.is_all_abc(raw)
-
-    @classmethod
-    def first_non_abc_kind(cls, raw: Mapping[str, object]) -> str | None:
-        """Return the first reason ``raw`` forks legacy, or ``None`` if it is
-        an all-ABC stack group. A non-stack ``layout``, a legacy descendant
-        ``kind``, or non-empty ``pages`` / ``page_source`` (panels the ABC
-        group cannot hold) each fork legacy; empty paged fields decode ABC.
-        The recursive walk lives on the shared ``ContainerAbcGate``.
-        """
-        return ContainerAbcGate.first_non_abc_kind(raw)
-
     def decode(self, raw: Mapping[str, object]) -> GroupElement:
-        """Construct a GroupElement, recursing children through the tier decoder."""
+        """Construct a GroupElement, recursing children through the tier decoder.
+
+        Validates the layout at the boundary and rejects the removed ``paged``
+        layout and its ``pages`` / ``page_source`` wire fields with a named
+        error (PY-EH-1), before any child is decoded.
+        """
         ctx = ElementWireContext.for_kind("group")
-        children = tuple(self._decode(c) for c in self._as_list(raw.get("children")))
-        layout = cast("Layout", ctx.optional_str(raw, "layout", default="rows"))
+        group_id = ctx.require_id(raw)
+        layout = ctx.optional_str(raw, "layout", default="rows")
+        self._reject_removed_paged(group_id, layout, raw)
+        children = ctx.decode_children(
+            group_id, self._as_list(raw.get("children")), self._decode
+        )
         return self._cls(
-            id=ctx.require_id(raw),
-            layout=layout,
+            id=group_id,
+            layout=cast("Layout", layout),
             children=children,
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),
         )
+
+    @staticmethod
+    def _reject_removed_paged(
+        group_id: str, layout: str, raw: Mapping[str, object]
+    ) -> None:
+        """Raise if ``raw`` uses the removed paged layout or its wire fields."""
+        if layout not in _STACK_LAYOUTS:
+            msg = (
+                f"group {group_id!r}: unknown layout {layout!r}; expected "
+                f"'rows' or 'columns' (the 'paged' layout was removed)"
+            )
+            raise ValueError(msg)
+        for field in ("pages", "page_source"):
+            if field in raw:
+                # Reject on PRESENCE, not truthiness: an empty ``{"pages": []}``
+                # or ``{"page_source": ""}`` still names the removed paged layout
+                # and must not decode as a plain stack group.
+                msg = (
+                    f"group {group_id!r}: {field!r} is no longer supported "
+                    f"(the 'paged' layout was removed)"
+                )
+                raise ValueError(msg)
 
     def _decode(self, raw_child: object) -> Element:
         """Decode one wire child through the injected tier decoder."""
@@ -88,19 +102,25 @@ class JsonGroupDecoder:
 
     @staticmethod
     def _as_list(raw: object) -> list[object]:
-        """Return ``raw`` as a list of wire objects, or empty when absent."""
-        if isinstance(raw, list):
-            return cast("list[object]", raw)
-        return []
+        """Return ``raw`` as a list; ``[]`` when absent, raising a present non-list.
+
+        Mirrors the window/modal codecs: an absent ``children`` is an empty group,
+        but a present non-list (``"children": 5``) is a malformed wire tree and
+        fails loud rather than silently dropping the subtree.
+        """
+        if raw is None:
+            return []
+        if not isinstance(raw, list):
+            msg = f"group children must be a list, got {type(raw).__name__}"
+            raise TypeError(msg)
+        return cast("list[object]", raw)
 
 
 class JsonGroupEncoder:
     """Encode an ABC ``GroupElement`` to its JSON-compatible wire dict.
 
-    Stateless. Emits the identical wire shape the legacy group produced for
-    a rows/columns group — ``layout`` and ``children`` always, ``tooltip``
-    only when set (a stack group has no paged fields) — so an all-ABC group
-    re-encodes byte-for-byte.
+    Stateless. Emits ``layout`` and ``children`` always, ``tooltip`` only
+    when set — a group carries no other wire fields.
     """
 
     __slots__ = ()

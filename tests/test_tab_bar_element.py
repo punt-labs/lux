@@ -1,6 +1,6 @@
 """Migration gate for the ABC ``tab_bar`` — an interactive tabbed container.
 
-Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation, the all-ABC fork gate,
+Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation,
 id-addressed reconciliation, the built-in state-sync, and the echo-suppression
 safety property. Levels 2, 3, and 5 drive the real Hub/Display boundary — never
 a stub. The Level-4 interactive and child-forwarding round trips live in the
@@ -31,13 +31,11 @@ from punt_lux.domain.validation_walk import ElementTreeValidator, HasChildElemen
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import (
     ButtonElement,
-    LegacyTabBarElement,
     ProgressElement,
     Tab,
     TabBarElement,
     TextElement,
 )
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
@@ -83,13 +81,8 @@ def _decode(wire: Mapping[str, object]) -> object:
     return agent_element_factory().element_from_dict(cast("dict[str, Any]", dict(wire)))
 
 
-def _legacy_child() -> dict[str, object]:
-    """Return a still-legacy subtree — a paged group forks its container legacy.
-
-    Every leaf kind is migrated after B6, so the legacy fork path is exercised
-    through the one remaining legacy shape: a ``group`` whose ``paged`` layout
-    the ABC group cannot hold.
-    """
+def _paged_group_wire() -> dict[str, object]:
+    """Return a wire dict for a removed ``paged`` group — a decode rejection."""
     return {"kind": "group", "id": "lg", "layout": "paged", "children": []}
 
 
@@ -197,27 +190,10 @@ class TestLevel1Serialization:
         assert restored.tooltip is None
 
 
-# -- the all-ABC fork gate --------------------------------------------------
+# -- ABC decode nesting -----------------------------------------------------
 
 
 class TestForkGate:
-    def test_all_abc_tab_bar_is_abc(self) -> None:
-        assert ContainerAbcGate.is_all_abc(_abc_tab_bar().to_dict())
-
-    def test_legacy_child_forces_legacy(self) -> None:
-        wire = {
-            "kind": "tab_bar",
-            "id": "tb",
-            "tabs": [
-                {
-                    "label": "One",
-                    "children": [_legacy_child()],
-                }
-            ],
-        }
-        assert not ContainerAbcGate.is_all_abc(wire)
-        assert isinstance(_decode(wire), LegacyTabBarElement)
-
     def test_from_dict_rejects_non_abc_subtree(self) -> None:
         wire = {
             "kind": "tab_bar",
@@ -225,34 +201,12 @@ class TestForkGate:
             "tabs": [
                 {
                     "label": "One",
-                    "children": [_legacy_child()],
+                    "children": [_paged_group_wire()],
                 }
             ],
         }
         with pytest.raises(ValueError, match="paged"):
             TabBarElement.from_dict(wire)
-
-    def test_non_mapping_tab_surfaces_as_non_abc(self) -> None:
-        # A malformed tab entry must not be silently dropped: the gate has to
-        # report it as non-ABC so decode raises rather than treating the subtree
-        # as fully migrated.
-        wire = {"kind": "tab_bar", "id": "tb", "tabs": ["not-a-tab"]}
-        assert ContainerAbcGate.first_non_abc_kind(wire) is not None
-        assert not ContainerAbcGate.is_all_abc(wire)
-
-    def test_tab_bar_in_legacy_container_is_forced_legacy(self) -> None:
-        wire = {
-            "kind": "window",
-            "id": "w",
-            "children": [
-                _legacy_child(),
-                _abc_tab_bar().to_dict(),
-            ],
-        }
-        window = _decode(wire)
-        assert isinstance(window, HasChildElements)
-        tab_bar = window.child_elements()[1]
-        assert isinstance(tab_bar, LegacyTabBarElement)
 
 
 # -- malformed-wire rejection (reject, do not silently empty) ----------------
@@ -796,15 +750,6 @@ class TestEchoSuppressionLifecycle:
             selected=True, tab_id="tab-2", active="tab-1"
         )
 
-    def test_element_renderer_setter_rethreads_the_factory(self) -> None:
-        # Production wiring: the display sets the ElementRenderer's widget_state
-        # per scene; that re-thread must reach the ABC factory the tab bar paints
-        # through, or the honoured reset never touches the value it reads.
-        server = _server()
-        fresh = WidgetState()
-        server._element_renderer.widget_state = fresh
-        assert server._imgui_renderer_factory.widget_state is fresh
-
     def test_reset_does_not_over_suppress_a_genuine_switch(self) -> None:
         # Complement to the no-spurious-fire tests: the honoured reset must not
         # gag genuine switches. This drives the real re-push reset path, then —
@@ -875,14 +820,6 @@ class TestLevel5Introspection:
         tabs = props["tabs"]
         assert isinstance(tabs, list)
         assert [t["tab_id"] for t in tabs] == ["tab-1", "tab-2"]
-
-    def test_legacy_tab_bar_reports_legacy_render_path(self) -> None:
-        legacy = LegacyTabBarElement(
-            id="tb",
-            tabs=[{"label": "One", "children": [TextElement(id="t1", content="x")]}],
-        )
-        resp = _inspect(_server(), legacy)
-        assert _record(resp, "tb")["render_path"] == "legacy"
 
 
 class TestEncoderFactoryGuard:

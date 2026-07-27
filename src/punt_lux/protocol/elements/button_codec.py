@@ -142,8 +142,8 @@ class JsonButtonDecoder:
 class JsonButtonEncoder:
     """Encode a ``ButtonElement`` to its JSON-compatible wire dict.
 
-    Stateless. Default fields are omitted so the wire shape matches the
-    dataclass codec byte-for-byte.
+    Stateless. Default-valued fields are omitted; the rest are always
+    emitted.
     """
 
     __slots__ = ()

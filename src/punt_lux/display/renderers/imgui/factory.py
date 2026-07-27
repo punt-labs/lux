@@ -6,7 +6,7 @@ dispatches by element type to the per-kind adapter and shares one tooltip pass.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, Self, TypeGuard
+from typing import TYPE_CHECKING, ClassVar, Self
 
 from punt_lux.display.geometry_capture import GeometryCapture
 from punt_lux.display.renderers.imgui.button import ImGuiButtonRenderer
@@ -37,7 +37,6 @@ from punt_lux.display.renderers.imgui.text import ImGuiTextRenderer
 from punt_lux.display.renderers.imgui.tree import ImGuiTreeRenderer
 from punt_lux.display.renderers.imgui.window import ImGuiWindowRenderer
 from punt_lux.display.renderers.tooltip_painter import TooltipPainter
-from punt_lux.domain.element_abc import Element as AbcElement
 from punt_lux.protocol.elements.button import ButtonElement
 from punt_lux.protocol.elements.checkbox import CheckboxElement
 from punt_lux.protocol.elements.collapsing_header import CollapsingHeaderElement
@@ -89,8 +88,8 @@ class ImGuiRendererFactory:
     # seam threading a recorder into per-frame adapter construction.
     _geometry: GeometryCapture
 
-    # Element type -> adapter constructor driving ``__call__``/``handles``
-    # dispatch. Every adapter shares the ``(elem, factory)`` constructor shape.
+    # Element type -> adapter constructor driving ``__call__`` dispatch. Every
+    # adapter shares the ``(elem, factory)`` constructor shape.
     _DISPATCH: ClassVar[tuple[tuple[type, Callable[..., Renderer]], ...]] = (
         (TextElement, ImGuiTextRenderer),
         (ButtonElement, ImGuiButtonRenderer),
@@ -161,15 +160,6 @@ class ImGuiRendererFactory:
     def geometry(self) -> GeometryCapture:
         """Return the render loop's geometry capture — one per Display."""
         return self._geometry
-
-    def handles(self, elem: object) -> TypeGuard[AbcElement]:
-        """Return whether ``elem`` paints through one of this factory's adapters.
-
-        A boolean predicate (PY-EH-4) ``render_element`` branches on; every
-        dispatched type is an Element-ABC subclass, so a True answer narrows
-        ``elem`` to ``AbcElement`` (``__call__`` still raises for an unknown type).
-        """
-        return any(isinstance(elem, element_type) for element_type, _ in self._DISPATCH)
 
     def apply_tooltip(self, elem: Element) -> None:
         """Paint ``elem``'s shared generic hover tooltip, if it has one."""

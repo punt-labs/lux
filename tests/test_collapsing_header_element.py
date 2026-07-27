@@ -1,7 +1,7 @@
 """Migration gate for the ABC ``collapsing_header`` — an interactive container.
 
-Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation, the all-ABC fork gate,
-the built-in state-sync, and the echo-suppression safety property. Levels 2,
+Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation, the built-in
+state-sync, and the echo-suppression safety property. Levels 2,
 3, and 5 drive the real Hub/Display boundary — the pickle scene wire and the
 ``DisplayServer`` receive/rebind path — never a stub. The Level-4 interactive and
 child-forwarding round trips live in the business-event-loop harness
@@ -31,11 +31,9 @@ from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import (
     ButtonElement,
     CollapsingHeaderElement,
-    LegacyCollapsingHeaderElement,
     ProgressElement,
     TextElement,
 )
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
@@ -165,25 +163,10 @@ class TestLevel1Serialization:
         assert header.open is True
 
 
-# -- the all-ABC fork gate --------------------------------------------------
+# -- ABC decode nesting -----------------------------------------------------
 
 
 class TestForkGate:
-    def test_all_abc_header_is_abc(self) -> None:
-        assert ContainerAbcGate.is_all_abc(_abc_header().to_dict())
-
-    def test_legacy_child_forces_legacy(self) -> None:
-        wire = {
-            "kind": "collapsing_header",
-            "id": "ch",
-            "label": "S",
-            "children": [
-                {"kind": "group", "id": "lg", "layout": "paged", "children": []}
-            ],
-        }
-        assert not ContainerAbcGate.is_all_abc(wire)
-        assert isinstance(_decode(wire), LegacyCollapsingHeaderElement)
-
     def test_from_dict_rejects_non_abc_subtree(self) -> None:
         wire = {
             "kind": "collapsing_header",
@@ -195,23 +178,6 @@ class TestForkGate:
         }
         with pytest.raises(ValueError, match="paged"):
             CollapsingHeaderElement.from_dict(wire)
-
-    def test_header_in_legacy_container_is_forced_legacy(self) -> None:
-        # A header nested inside a legacy window (a legacy sibling table forces
-        # the window legacy) must itself decode legacy — an ABC container never
-        # nests inside a legacy render subtree.
-        wire = {
-            "kind": "window",
-            "id": "w",
-            "children": [
-                {"kind": "group", "id": "lg", "layout": "paged", "children": []},
-                _abc_header().to_dict(),
-            ],
-        }
-        window = _decode(wire)
-        assert isinstance(window, HasChildElements)
-        header = window.child_elements()[1]
-        assert isinstance(header, LegacyCollapsingHeaderElement)
 
 
 # -- self-validation --------------------------------------------------------
@@ -451,15 +417,6 @@ class TestLevel5Introspection:
         assert props["open"] is True
         assert props["label"] == "Section"
         assert props["children"] == ["t1", "b1"]
-
-    def test_legacy_header_reports_legacy_render_path(self) -> None:
-        legacy = LegacyCollapsingHeaderElement(
-            id="ch",
-            label="S",
-            children=[TextElement(id="t1", content="x")],
-        )
-        resp = _inspect(_server(), legacy)
-        assert _record(resp, "ch")["render_path"] == "legacy"
 
 
 class TestEncoderFactoryGuard:

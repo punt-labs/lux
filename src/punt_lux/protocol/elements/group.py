@@ -8,11 +8,9 @@ own. The render template drives its ImGui adapter's ``begin``/``end``
 (the layout choice lives in the renderer); ``paint`` is a no-op because a
 container's only body is its children.
 
-Only stack layouts (``rows`` / ``columns``) live on this class. The
-``paged`` layout stays entirely on :class:`LegacyGroupElement`, which
-owns the paged wire fields (``pages`` / ``page_source``) and the paged
-renderer; the all-ABC gate routes a ``paged`` group there (see
-:mod:`group_codec`), so an ABC ``GroupElement`` never carries them.
+A group renders only a ``rows`` or ``columns`` stack; the decoder rejects
+any other layout (and the removed ``pages`` / ``page_source`` wire fields)
+at the boundary (see :mod:`group_codec`).
 
 The codec body lives in ``group_codec.py`` (``JsonGroupEncoder`` /
 ``JsonGroupDecoder``); ``to_dict`` / ``from_dict`` remain here as thin
@@ -28,11 +26,12 @@ from punt_lux.domain.element_abc import Element
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
 from punt_lux.protocol.elements.container_dispatch import dispatch
 from punt_lux.protocol.elements.group_codec import JsonGroupDecoder, JsonGroupEncoder
+from punt_lux.protocol.renderer import ColumnsRenderer
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
 
-    from punt_lux.protocol.renderer import Emit, RendererFactory
+    from punt_lux.protocol.renderer import Emit, Renderer, RendererFactory
 
 __all__ = ["GroupElement"]
 
@@ -44,10 +43,8 @@ class GroupElement(Element):
 
     An ABC ``GroupElement`` holds only ABC children — the render template
     calls ``child.render()``, which only ABC elements provide. The wire
-    decoder guarantees this by decoding a ``group`` onto this class only
-    when its entire subtree is migrated-ABC and its layout is a stack
-    (rows / columns); any legacy descendant routes the whole subtree to
-    the legacy container instead.
+    decoder validates the layout is a stack (rows / columns) and recurses
+    each child through the tier decoder, which rejects an unknown kind.
 
     PY-TS-14: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for an optional tooltip.
@@ -104,10 +101,36 @@ class GroupElement(Element):
         """Return the hover-tooltip text, or ``None`` for no tooltip."""
         return self._tooltip
 
-    # The render-visible children, remove_child (physical removal), and the
-    # validation-walk bridge all come from the Element ABC, which stores the
-    # tuple this group populates in ``__new__``. A rows/columns group needs no
-    # override — the layout surface is opened by the ImGui adapter's begin/end.
+    # remove_child (physical removal) and the validation-walk bridge come from
+    # the Element ABC, which stores the tuple this group populates in ``__new__``.
+
+    def _render_children(self, renderer: Renderer) -> None:
+        """Paint children; a columns group brackets each in its own vertical block.
+
+        A rows group stacks with the default recursion. A columns group places
+        children left-to-right, but a child whose expansion paints several items
+        must grow DOWN within its column rather than spread the row — so each
+        child renders inside its own ImGui block and the renderer advances to the
+        next column between blocks. The domain class drives the loop; the
+        ``ColumnsRenderer`` owns the ImGui (PY-IC-8), and a plain ``Renderer`` is
+        rejected here at the boundary, not deep in the loop with an opaque
+        ``AttributeError``.
+        """
+        if self._layout != "columns":
+            super()._render_children(renderer)
+            return
+        if not isinstance(renderer, ColumnsRenderer):
+            msg = (
+                f"group {self._id!r} columns layout requires a ColumnsRenderer "
+                f"(begin_child_block/end_child_block), got {type(renderer).__name__}"
+            )
+            raise TypeError(msg)
+        for index, child in enumerate(self._children()):
+            renderer.begin_child_block(first=index == 0)
+            try:
+                child.render()
+            finally:
+                renderer.end_child_block()
 
     # -- codec delegators ---------------------------------------------------
 
@@ -120,19 +143,11 @@ class GroupElement(Element):
         """Construct a GroupElement from a JSON-decoded mapping.
 
         Recurses children through the shared container dispatcher (the
-        agent-side ``element_from_dict``), so an all-ABC subtree decodes
-        to ABC children exactly as the tier factory would. Rejects a wire
-        dict whose subtree is not all-ABC — the invariant belongs at this
-        type's own boundary, not only in the tier factory (PY-EH-1).
+        agent-side ``element_from_dict``), so a subtree decodes to ABC
+        children exactly as the tier factory would. The decoder validates the
+        layout at the boundary and rejects the removed ``paged`` layout
+        (PY-EH-1); an unknown child ``kind`` raises in the child recursion.
         """
-        if not JsonGroupDecoder.is_all_abc(d):
-            offending = JsonGroupDecoder.first_non_abc_kind(d)
-            group_id = d.get("id")
-            msg = (
-                f"group {group_id!r} is not an all-ABC stack group — "
-                f"offending kind or layout: {offending!r}"
-            )
-            raise ValueError(msg)
         decoder = JsonGroupDecoder(
             decode_element=dispatch.from_dict,
             element_cls=cls,

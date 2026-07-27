@@ -724,3 +724,15 @@
 {"ts":"2026-07-27T00:37:34Z","commit":"bb2478d","files_scored":377,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-07-27T00:46:54Z","commit":"b8d1276","files_scored":378,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
 {"ts":"2026-07-27T00:53:17Z","commit":"774af76","files_scored":378,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-27T02:38:23Z","commit":"c1a77b8","files_scored":378,"files_improved":1,"files_regressed":2,"verdict":"fail","deltas":{"src/punt_lux/protocol/elements/group.py":{"avg_complexity":[1.22,1.11],"module_size":[121.0,109.0]}}}
+{"ts":"2026-07-27T02:39:12Z","commit":"c1a77b8","files_scored":378,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-27T02:43:09Z","commit":"7793664","files_scored":374,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-27T03:06:50Z","commit":"32a9668","files_scored":374,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-27T03:48:28Z","commit":"40eee2e","files_scored":370,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-27T04:00:54Z","commit":"477018d","files_scored":370,"files_improved":2,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/protocol/elements/collapsing_header.py":{"module_size":[151.0,150.0]},"src/punt_lux/protocol/elements/tab_bar.py":{"module_size":[206.0,205.0]}}}
+{"ts":"2026-07-27T04:07:49Z","commit":"f6e7182","files_scored":370,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-27T04:25:44Z","commit":"1ad600c","files_scored":370,"files_improved":3,"files_regressed":0,"verdict":"pass","deltas":{"src/punt_lux/display/renderers/imgui/factory.py":{"avg_params":[0.78,0.75],"avg_complexity":[1.33,1.25],"module_size":[161.0,153.0]},"src/punt_lux/display/renderers/imgui/group.py":{"module_size":[45.0,44.0]},"src/punt_lux/tools/write_tools.py":{"module_size":[264.0,260.0]}}}
+{"ts":"2026-07-27T14:01:06Z","commit":"4bbdf20","files_scored":371,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-27T14:24:21Z","commit":"d62d579","files_scored":371,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-27T14:45:34Z","commit":"c2e34ec","files_scored":371,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}
+{"ts":"2026-07-27T14:55:53Z","commit":"ff19c4a","files_scored":371,"files_improved":0,"files_regressed":0,"verdict":"rebaseline","deltas":{}}

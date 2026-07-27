@@ -191,10 +191,11 @@ class ElementIndex:
 
     @staticmethod
     def _is_removed(elem: WireElement) -> bool:
-        """Return True if ``elem`` is a migrated ABC element flagged removed.
+        """Return True if ``elem`` is a removed ABC element.
 
-        Legacy wire dataclasses have no lifecycle flag; the ABC type is imported
-        lazily to avoid a circular import with ``element_abc``.
+        The ABC type is imported lazily to avoid a circular import with
+        ``element_abc``; the isinstance narrows the store's wire-element union to
+        the ABC type that carries the ``removed`` flag.
         """
         from punt_lux.domain.element_abc import Element as ElementABC
 

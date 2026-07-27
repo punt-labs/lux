@@ -12,7 +12,7 @@ the element keeps only the initial :class:`WindowPlacement` an agent seeds and t
 Tree position governs an element's LIFECYCLE, never its GEOMETRY. ImGui's
 ``begin`` always creates a top-level window, so a window floats top-level whatever
 it nests in — its parent scopes when it is shown and removed, not where it draws.
-Nested in a plain container it renders as a legal-but-legacy on-screen escapee;
+Nested in a plain container it renders as a legal-but-unusual on-screen escapee;
 nested in a *modal* it is incoherent (the modal blocks its own escaped child) and
 forbidden — see ``ModalElement.validate``. Use a group or collapsing_header for a
 panel that must stay inside its parent's box.
@@ -29,7 +29,6 @@ from typing import TYPE_CHECKING, Literal, Self, cast
 from punt_lux.domain.element_abc import Element
 from punt_lux.domain.validation import ValidationError
 from punt_lux.protocol.elements.abc_di_defaults import NO_EMIT, RAISING_FACTORY
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.elements.container_dispatch import dispatch
 from punt_lux.protocol.elements.patch_field import PatchField
 from punt_lux.protocol.elements.window_chrome import WindowFlags, WindowPlacement
@@ -167,15 +166,9 @@ class WindowElement(Element):
     def from_dict(cls, d: Mapping[str, object]) -> Self:
         """Construct a WindowElement from a JSON-decoded mapping.
 
-        Recurses children through the shared container dispatcher and rejects a
-        wire dict whose subtree is not all-ABC — the invariant belongs at this
-        type's own boundary, not only in the tier factory (PY-EH-1).
+        Recurses children through the shared container dispatcher, which rejects
+        an unknown child kind (PY-EH-1).
         """
-        if not ContainerAbcGate.is_all_abc(d):
-            offending = ContainerAbcGate.first_non_abc_kind(d)
-            window_id = d.get("id")
-            msg = f"window {window_id!r} is not all-ABC — offending kind: {offending!r}"
-            raise ValueError(msg)
         decoder = JsonWindowDecoder(decode_element=dispatch.from_dict, element_cls=cls)
         return cast("Self", decoder.decode(d))
 

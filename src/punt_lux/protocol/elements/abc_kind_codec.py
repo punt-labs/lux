@@ -20,9 +20,9 @@ class KindCodec:
     """One kind's wire codec: element class, decoder class, encoder.
 
     ``decoder_cls`` is a ``JsonXDecoder`` class constructed dynamically at the
-    wire boundary — the same dynamic dispatch ``ElementCodec`` performs — so it
-    is typed ``Any`` here (PY-TS-9). Owns ``encode`` so the three spec shapes
-    share one implementation rather than repeating the call (PY-OO-5).
+    wire boundary, so it is typed ``Any`` here (PY-TS-9). Owns ``encode`` so the
+    three spec shapes share one implementation rather than repeating the call
+    (PY-OO-5).
     """
 
     element_cls: type

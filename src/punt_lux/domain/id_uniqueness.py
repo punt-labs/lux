@@ -36,8 +36,8 @@ class DuplicateIdScanner:
 
     Stateless between calls. It recurses the same
     ``HasChildElements.child_elements()`` node set the validation walk and wire
-    serializer use — so a buried child reusing a root id, or one hidden in a
-    legacy tab or a paged group's off-screen panel, is caught.
+    serializer use — so a buried child reusing a root id, or one hidden in an
+    inactive tab or collapsed header, is caught.
     """
 
     __slots__ = ()

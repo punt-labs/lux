@@ -1,9 +1,8 @@
-"""Per-kind renderer classes for the basics + inputs element families.
+"""Per-kind ImGui renderer classes for the element families.
 
-Each kind owns a small class with a ``render(elem)`` method.  These
-replace the corresponding branches of ``ElementRenderer._RENDERERS``.
-Other element families still go through the dispatch table — they will
-migrate in subsequent PRs.
+Each kind owns a small class with a ``render(elem)`` method, resolved
+through the ``ImGuiRendererFactory`` and driven by the element's
+``render()`` template.
 """
 
 from __future__ import annotations

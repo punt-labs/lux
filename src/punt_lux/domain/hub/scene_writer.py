@@ -4,11 +4,10 @@ The Hub is the single authority for UI state; the ``update`` and ``clear`` MCP
 tools mutate ``HubDisplay`` first, then the Hub re-pushes to the Display. This
 writer owns that authoritative mutation.
 
-The write path above the seam is branch-free: it asks the store's ``WriteSeam``
-to realize each mutation uniformly through the ``FieldRealization`` contract — an
-ABC element (patched in place) or a legacy root (``replace`` + rebind) alike. A
-patch that would leave an element invalid, is not owned, names a forbidden or
-unknown field, or nests a legacy write is rejected in full, store untouched.
+The write path asks the store's ``WriteSeam`` to realize each mutation through
+the ``FieldRealization`` contract — an ABC element patched in place. A patch that
+would leave an element invalid, is not owned, or names a forbidden or unknown
+field is rejected in full, store untouched.
 """
 
 from __future__ import annotations
@@ -17,10 +16,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Self, final
 
-from punt_lux.domain.hub.deferral_errors import (
-    NestedLegacyWriteError,
-    StructuralFieldWriteError,
-)
+from punt_lux.domain.hub.deferral_errors import StructuralFieldWriteError
 from punt_lux.domain.hub.element_index import UnknownElementError, UnknownSceneError
 from punt_lux.domain.hub.ownership_error import HubOwnershipError
 from punt_lux.domain.hub.patch_batch import PatchBatch
@@ -96,7 +92,6 @@ class HubSceneWriter:
             except (
                 MalformedPatchError,
                 ImmutableFieldError,
-                NestedLegacyWriteError,
                 StructuralFieldWriteError,
                 HubOwnershipError,
                 UnknownElementError,
@@ -144,7 +139,7 @@ class HubSceneWriter:
         return realizations
 
     def _guard_removals(self, scope: SceneScope, removals: Sequence[ElementId]) -> None:
-        """Owner-check and structural-guard each present removal.
+        """Owner-check each present removal.
 
         An absent target is skipped, not rejected, because ``RemoveElement`` is
         idempotent — but the skip is logged so a mistyped id (``submit-buton``
@@ -160,7 +155,6 @@ class HubSceneWriter:
                 )
                 continue
             self._require_owner(scope, element_id)
-            seam.guard_removal(scope.scene_id, element_id)
 
     @staticmethod
     def _commit(realizations: Sequence[FieldRealization]) -> None:

@@ -12,7 +12,13 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from punt_lux.protocol.elements.tab import Tab
 
-__all__ = ["Emit", "Renderer", "RendererFactory", "TabContainerRenderer"]
+__all__ = [
+    "ColumnsRenderer",
+    "Emit",
+    "Renderer",
+    "RendererFactory",
+    "TabContainerRenderer",
+]
 
 
 type Emit = Callable[[object], None]
@@ -45,6 +51,23 @@ class TabContainerRenderer(Renderer, Protocol):
 
     def begin_tab(self, tab: Tab, *, active: str) -> bool: ...
     def end_tab(self, *, opened: bool) -> None: ...
+
+
+@runtime_checkable
+class ColumnsRenderer(Renderer, Protocol):
+    """A ``Renderer`` that brackets each child of a ``columns`` group as a block.
+
+    A columns group places its children left-to-right, but a child whose
+    expansion paints several items (an open tree, an expanded header) must grow
+    DOWN inside its own column rather than spread along the row. Each child
+    renders inside its own block; the renderer advances to the next column
+    between blocks. ``GroupElement._render_children`` drives the loop and this
+    sub-protocol owns the ImGui, so the domain class stays ImGui-free (PY-IC-8),
+    mirroring ``TabContainerRenderer`` for the tab bar.
+    """
+
+    def begin_child_block(self, *, first: bool) -> None: ...
+    def end_child_block(self) -> None: ...
 
 
 @runtime_checkable

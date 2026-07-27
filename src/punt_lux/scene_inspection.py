@@ -1,25 +1,19 @@
 """Typed introspection records for the enriched ``inspect_scene`` query.
 
 The built-in ``inspect_scene`` returns each element's wire dict, which omits
-defaulted fields and hides whether the element object is on the Element-ABC
-path or the legacy dataclass path. These records add both signals so a
-migration test can assert "this element flipped to the ABC path and its value
-reads back" without inspecting pixels.
+defaulted fields. These records add the fully-resolved state so a test can
+assert "this element's value reads back" without inspecting pixels.
 
-Honesty of scope (this runs on the DISPLAY process): ``render_path`` reads the
-element object's type, and ``domain_mirror_present`` reads the display-side
-domain ``Display`` mirror. Neither reads the Hub's authoritative
-``HubDisplay`` (which lives in luxd) — that Hub-authority introspection is a
-later batch.
+Honesty of scope (this runs on the DISPLAY process): ``domain_mirror_present``
+reads the display-side domain ``Display`` mirror, not the Hub's authoritative
+``HubDisplay`` (which lives in luxd). ``render_path`` is constant ``"abc"`` now
+that every kind is on the Element-ABC path.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, Self, cast
 
-from punt_lux.domain.element_abc import Element as ElementABC
-from punt_lux.domain.inspectable import Inspectable
-from punt_lux.domain.validation_walk import HasChildElements
 from punt_lux.protocol.elements import element_to_dict
 
 if TYPE_CHECKING:
@@ -29,22 +23,24 @@ if TYPE_CHECKING:
 
 __all__ = ["ElementInspection", "RenderPath", "SceneInspection"]
 
-type RenderPath = Literal["abc", "legacy"]
+# Constant post-migration: every element is on the Element-ABC path. The field
+# is kept (its emitted value never changes, so no reader breaks); the type no
+# longer advertises a ``"legacy"`` value that can never occur.
+type RenderPath = Literal["abc"]
 
 
 class ElementInspection:
     """One element's render path, mirror presence, and resolved state.
 
-    ``render_path`` is ``"abc"`` iff the element object is an Element-ABC
-    subclass, else ``"legacy"`` — the load-bearing flip signal.
+    ``render_path`` is always ``"abc"`` — every kind is on the Element-ABC path.
 
     ``domain_mirror_present`` is an HONEST display-side signal: whether the
     display-side dual-write pump routed this element into the display's domain
     ``Display`` mirror. It is NOT Hub authority; the display process cannot
     read the Hub's ``HubDisplay``.
 
-    ``props`` is the fully-resolved state (including defaulted fields the wire
-    dict omits) for migrated kinds; legacy kinds fall back to their wire dict.
+    ``props`` is the fully-resolved state, including defaulted fields the wire
+    dict omits.
     """
 
     _id: str
@@ -72,13 +68,13 @@ class ElementInspection:
 
     @classmethod
     def from_element(cls, element: Element, *, domain_mirror_present: bool) -> Self:
-        """Classify ``element`` and capture its resolved state."""
-        render_path: RenderPath = "abc" if isinstance(element, ElementABC) else "legacy"
-        props: Mapping[str, object] = (
-            element.resolved_props()
-            if isinstance(element, Inspectable)
-            else element_to_dict(element)
-        )
+        """Capture ``element``'s resolved state.
+
+        Every kind is on the Element-ABC path, so ``render_path`` is always
+        ``"abc"`` and the element resolves its own props.
+        """
+        render_path: RenderPath = "abc"
+        props: Mapping[str, object] = element.resolved_props()
         return cls(
             element_id=element.id,
             kind=element.kind,
@@ -161,6 +157,5 @@ class SceneInspection:
                 element, domain_mirror_present=element.id in self._mirror_ids
             ).to_dict()
         )
-        if isinstance(element, HasChildElements):
-            for child in element.child_elements():
-                self._append_records(cast("Element", child), sink)
+        for child in element.child_elements():
+            self._append_records(cast("Element", child), sink)

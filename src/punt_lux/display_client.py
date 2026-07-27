@@ -52,7 +52,7 @@ from punt_lux.protocol import (
     send_message,
 )
 from punt_lux.protocol.element_factory import JsonElementFactory
-from punt_lux.protocol.elements import build_element_codec, container_dispatch
+from punt_lux.protocol.elements import container_dispatch
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
 from punt_lux.send_timeout import set_send_timeout
 from punt_lux.tracing import trace
@@ -107,7 +107,6 @@ def _build_agent_side_factory() -> JsonElementFactory:
         renderer_factory=RaisingRendererFactory(),
         emit=no_op_emit,
         publish_sink=cast("Any", NoOpAgentSideSink()),
-        codec=build_element_codec(),
     )
 
 

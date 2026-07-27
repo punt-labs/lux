@@ -1,7 +1,7 @@
 """Migration gate for the ABC ``window`` — a display-only composite.
 
-Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation and the all-ABC fork
-gate. A window is deliberately NOT interactive: it carries no close affordance
+Levels 1-5 per ``tests/CLAUDE.md`` plus self-validation. A window is
+deliberately NOT interactive: it carries no close affordance
 and declares no remote interaction (ratified Decision 3/c), so there is no
 Level-4 dispatch leg — instead the no-close-affordance property is pinned
 explicitly so a future "add an X to windows" change must be a deliberate design
@@ -27,12 +27,10 @@ from punt_lux.domain.validation_walk import ElementTreeValidator, HasChildElemen
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import (
     ButtonElement,
-    LegacyWindowElement,
     ProgressElement,
     TextElement,
     WindowElement,
 )
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.elements.window_chrome import WindowFlags, WindowPlacement
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
@@ -85,13 +83,8 @@ def _decode(wire: Mapping[str, object]) -> object:
     return agent_element_factory().element_from_dict(cast("dict[str, Any]", dict(wire)))
 
 
-def _legacy_child() -> dict[str, object]:
-    """Return a still-legacy subtree — a paged group forks its container legacy.
-
-    Every leaf kind is migrated after B6, so the legacy fork path is exercised
-    through the one remaining legacy shape: a ``group`` whose ``paged`` layout
-    the ABC group cannot hold.
-    """
+def _paged_group_wire() -> dict[str, object]:
+    """Return a wire dict for a removed ``paged`` group — a decode rejection."""
     return {"kind": "group", "id": "lg", "layout": "paged", "children": []}
 
 
@@ -143,52 +136,18 @@ class TestLevel1Serialization:
         assert isinstance(window, WindowElement)
 
 
-# -- the all-ABC fork gate --------------------------------------------------
+# -- ABC decode nesting -----------------------------------------------------
 
 
 class TestForkGate:
-    def test_all_abc_window_is_abc(self) -> None:
-        assert ContainerAbcGate.is_all_abc(_abc_window().to_dict())
-
-    def test_legacy_child_forces_legacy(self) -> None:
-        wire = {
-            "kind": "window",
-            "id": "w",
-            "children": [_legacy_child()],
-        }
-        assert not ContainerAbcGate.is_all_abc(wire)
-        assert isinstance(_decode(wire), LegacyWindowElement)
-
     def test_from_dict_rejects_non_abc_subtree(self) -> None:
         wire = {
             "kind": "window",
             "id": "w",
-            "children": [_legacy_child()],
+            "children": [_paged_group_wire()],
         }
         with pytest.raises(ValueError, match="paged"):
             WindowElement.from_dict(wire)
-
-    def test_window_in_legacy_container_is_forced_legacy(self) -> None:
-        # A window nested inside a legacy tab_bar (a legacy sibling paged group
-        # forces the bar legacy) must itself decode legacy — an ABC container
-        # never nests inside a legacy render subtree.
-        wire = {
-            "kind": "tab_bar",
-            "id": "tb",
-            "tabs": [
-                {
-                    "label": "One",
-                    "children": [
-                        _legacy_child(),
-                        _abc_window().to_dict(),
-                    ],
-                }
-            ],
-        }
-        bar = _decode(wire)
-        assert isinstance(bar, HasChildElements)
-        window = bar.child_elements()[1]
-        assert isinstance(window, LegacyWindowElement)
 
 
 # -- the deliberate absence of a close affordance ---------------------------
@@ -413,13 +372,6 @@ class TestLevel5Introspection:
         assert props["width"] == 400
         assert props["flags"] == ["no_move"]
         assert props["children"] == ["t1", "b1"]
-
-    def test_legacy_window_reports_legacy_render_path(self) -> None:
-        legacy = LegacyWindowElement(
-            id="w", title="W", children=[TextElement(id="t1", content="x")]
-        )
-        resp = _inspect(_server(), legacy)
-        assert _record(resp, "w")["render_path"] == "legacy"
 
 
 class TestEncoderFactoryGuard:

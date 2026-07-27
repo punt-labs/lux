@@ -23,7 +23,6 @@ from punt_lux.domain.anonymizable import Anonymizable
 from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import GroupElement, SeparatorElement
-from punt_lux.protocol.elements.group_codec import JsonGroupDecoder
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
@@ -172,7 +171,7 @@ class TestLevel3Crossing:
         assert separator._renderer_factory is factory
 
 
-# -- the all-ABC fork gate --------------------------------------------------
+# -- ABC decode nesting -----------------------------------------------------
 
 
 class TestForkGate:
@@ -182,7 +181,6 @@ class TestForkGate:
             "id": "g1",
             "children": [{"kind": "separator", "id": "s1"}],
         }
-        assert JsonGroupDecoder.is_all_abc(wire)
         group = _decode(wire)
         assert isinstance(group, GroupElement)
         assert isinstance(group.children[0], SeparatorElement)

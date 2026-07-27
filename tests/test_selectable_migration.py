@@ -30,11 +30,10 @@ from punt_lux.domain.ids import ClientId, ElementId, SceneId
 from punt_lux.domain.interaction import ValueChanged
 from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol import SceneMessage
-from punt_lux.protocol.elements import SelectableElement, build_element_codec
+from punt_lux.protocol.elements import SelectableElement
 from punt_lux.protocol.elements.abc_kind_names import AbcKindNames
 from punt_lux.protocol.elements.abc_kind_verify import AbcKindVerifier
 from punt_lux.protocol.elements.abc_registry import AbcElementRegistry
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
@@ -116,13 +115,6 @@ class TestLevel1Serialization:
         encoded = JsonEncoderFactory().encode(SelectableElement(id="se", label="Item"))
         assert encoded["kind"] == "selectable"
         assert encoded["selected"] is False
-
-    def test_absent_from_legacy_codec_table(self) -> None:
-        # No dual live path: the migrated kind leaves the ``ElementCodec`` table.
-        # A still-legacy kind (``table``) stays the negative control.
-        kinds = build_element_codec().registered_kinds
-        assert "selectable" not in kinds
-        assert "table" in kinds
 
 
 # -- capability guard: selectable cannot ship handler-less ------------------
@@ -225,20 +217,6 @@ class TestPatchPath:
         with pytest.raises(TypeError, match="selected"):
             s.apply_patch({"selected": "on"})
         assert s.selected is True
-
-
-# -- the all-ABC fork gate --------------------------------------------------
-
-
-class TestForkGate:
-    def test_selectable_is_a_migrated_abc_kind(self) -> None:
-        wire = {
-            "kind": "group",
-            "id": "g",
-            "layout": "rows",
-            "children": [{"kind": "selectable", "id": "row", "label": "Item"}],
-        }
-        assert ContainerAbcGate.is_all_abc(wire)
 
 
 # -- Level 2: pickle scene wire ---------------------------------------------

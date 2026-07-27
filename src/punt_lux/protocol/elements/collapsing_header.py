@@ -28,7 +28,6 @@ from punt_lux.protocol.elements.collapsing_header_codec import (
     JsonCollapsingHeaderDecoder,
     JsonCollapsingHeaderEncoder,
 )
-from punt_lux.protocol.elements.container_abc_gate import ContainerAbcGate
 from punt_lux.protocol.elements.container_dispatch import dispatch
 from punt_lux.protocol.elements.patch_field import PatchField
 from punt_lux.protocol.raising_publish_sink import RaisingPublishSink
@@ -48,9 +47,8 @@ class CollapsingHeaderElement(Element):
     """A collapsible section that owns a Hub-authoritative ``open`` flag.
 
     Holds only ABC children — the render template calls ``child.render()``,
-    which only ABC elements provide. The decoder guarantees this by decoding a
-    ``collapsing_header`` onto this class only when its entire subtree is
-    migrated-ABC; any legacy descendant routes the subtree to the legacy form.
+    which every element provides. The decoder recurses each child through the
+    tier dispatcher, which rejects an unknown child kind.
 
     PY-TS-14: ``tooltip`` stays ``str | None`` — absence is the documented
     contract for an optional tooltip.
@@ -158,20 +156,11 @@ class CollapsingHeaderElement(Element):
     def from_dict(cls, d: Mapping[str, object]) -> Self:
         """Construct a CollapsingHeaderElement from a JSON-decoded mapping.
 
-        Recurses children through the shared container dispatcher and rejects a
-        wire dict whose subtree is not all-ABC — the invariant belongs at this
-        type's own boundary, not only in the tier factory (PY-EH-1). A wire
-        ``publish`` handler resolves against a ``RaisingPublishSink`` so a stray
-        publish on this no-tier path fails loud rather than silently.
+        Recurses children through the shared container dispatcher, which rejects
+        an unknown child kind (PY-EH-1). A wire ``publish`` handler resolves
+        against a ``RaisingPublishSink`` so a stray publish on this no-tier path
+        fails loud rather than silently.
         """
-        if not ContainerAbcGate.is_all_abc(d):
-            offending = ContainerAbcGate.first_non_abc_kind(d)
-            header_id = d.get("id")
-            msg = (
-                f"collapsing_header {header_id!r} is not all-ABC — "
-                f"offending kind: {offending!r}"
-            )
-            raise ValueError(msg)
         decoder = JsonCollapsingHeaderDecoder(
             decode_element=dispatch.from_dict,
             element_cls=cls,
