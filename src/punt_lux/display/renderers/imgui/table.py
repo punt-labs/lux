@@ -180,17 +180,20 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
         seed = arbiter.effective_selection(elem.selected_row_ids)
         storage = self._seeded_storage(display_ids, seed)
         flags = self._multi_select_flags(elem.selection_mode)
+        clicked_id = ""
         io = imgui.begin_multi_select(flags, storage.size, len(display_ids))
         storage.apply_requests(io)
         # end_multi_select must run even if a row paint raises, or the ImGui
         # multi-select scope stays open and the next frame is corrupt — the same
         # finally discipline begin_table/end_table has.
         try:
-            self._paint_selectable_rows(pairs, num_cols, storage, io.range_src_item)
+            clicked_id = self._paint_selectable_rows(
+                pairs, num_cols, storage, io.range_src_item
+            )
         finally:
             io = imgui.end_multi_select()
             storage.apply_requests(io)
-        self._fire_if_changed(elem, display_ids, seed, storage, io, arbiter)
+        self._fire_if_changed(elem, display_ids, seed, storage, io, arbiter, clicked_id)
         arbiter.record_honoured(elem.selected_row_ids)
 
     @staticmethod
@@ -233,28 +236,33 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
         num_cols: int,
         storage: imgui.SelectionBasicStorage,
         range_src: int,
-    ) -> None:
+    ) -> str:
         """Paint each visible row as a span-all-columns selectable, index-tagged.
 
         Only the clipper's visible window is painted; ``range_src`` (the ImGui
         multi-select range source) is force-included so a shift-range drag whose
         anchor scrolled out of view still resolves. The tag is the row's absolute
         display-order index, so the index-to-row_id translation is unaffected by
-        which rows the clipper drew.
+        which rows the clipper drew. Returns the id of the row clicked this frame
+        (or ``""``), so the caller can honour a same-row re-click copy_id — a click
+        that changes no selection set.
         """
+        clicked_id = ""
         for index in self._visible_indices(len(pairs), ensure=range_src):
-            _row_id, row = pairs[index]
+            row_id, row = pairs[index]
             imgui.table_next_row()
             imgui.table_next_column()
             imgui.set_next_item_selection_user_data(index)
-            imgui.selectable(
+            if imgui.selectable(
                 f"{self._cell_text(row, 0)}##row_{index}",
                 storage.contains(index),
                 _SPAN_ALL,
-            )
+            ):
+                clicked_id = row_id
             for col in range(1, num_cols):
                 imgui.table_next_column()
                 imgui.text(self._cell_text(row, col))
+        return clicked_id
 
     def _fire_if_changed(
         self,
@@ -264,6 +272,7 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
         storage: imgui.SelectionBasicStorage,
         io: imgui.MultiSelectIO,
         arbiter: TableSelectionArbiter,
+        clicked_id: str,
     ) -> None:
         """Fire ``RowSelectionChanged`` when the gesture changed the seeded set.
 
@@ -274,6 +283,10 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
         spuriously (the ghost class, entering through the pending set). Those
         non-representable ids survive in the arbiter's pending for restore, but
         never participate in the fire decision.
+
+        A click that changes no set still copies the row id when it re-clicks the
+        row that IS the whole selection (legacy click-again-to-copy) — a
+        display-local convenience, so nothing fires authoritatively.
         """
         representable = seed & frozenset(display_ids)
         translator = TableRowSelection(display_ids)
@@ -282,6 +295,10 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
         )
         new_ids = translator.ids_for(selected)
         if not translator.is_user_change(new_ids, representable):
+            if elem.flags.copy_id and self._is_same_row_reclick(
+                clicked_id, representable
+            ):
+                imgui.set_clipboard_text(clicked_id)
             return
         anchor = translator.anchor_for(io.range_src_item, new_ids)
         if elem.flags.copy_id and anchor:
@@ -300,6 +317,12 @@ class ImGuiTableRenderer(LeafRenderer[TableElement]):
                 anchor=anchor,
             )
         )
+
+    @staticmethod
+    def _is_same_row_reclick(clicked_id: str, representable: frozenset[str]) -> bool:
+        """Return whether the click landed on the row that is already the whole
+        selection — the set did not change, but a copy_id re-click still copies."""
+        return clicked_id != "" and representable == frozenset({clicked_id})
 
     @staticmethod
     def _cell_text(row: tuple[object, ...], col: int) -> str:

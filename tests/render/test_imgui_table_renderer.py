@@ -71,7 +71,7 @@ def test_copy_id_copies_the_anchor_key_on_a_user_change(
     display_ids = ("a", "b", "c")
     io = MagicMock(range_src_item=2)  # last-interacted row -> anchor "c"
     _renderer(elem)._fire_if_changed(
-        elem, display_ids, frozenset(), _storage({0, 2}), io, _arbiter(elem)
+        elem, display_ids, frozenset(), _storage({0, 2}), io, _arbiter(elem), ""
     )
     imgui.set_clipboard_text.assert_called_once_with("c")
 
@@ -84,9 +84,48 @@ def test_copy_id_off_does_not_touch_the_clipboard(
     elem = TableElement(id="t", columns=("ID",), rows=(("a",),), selection_mode="multi")
     io = MagicMock(range_src_item=0)
     _renderer(elem)._fire_if_changed(
-        elem, ("a",), frozenset(), _storage({0}), io, _arbiter(elem)
+        elem, ("a",), frozenset(), _storage({0}), io, _arbiter(elem), ""
     )
     imgui.set_clipboard_text.assert_not_called()
+
+
+def test_copy_id_copies_on_a_same_row_reclick_without_firing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # PR #283: re-clicking the row that is already the whole selection changes no
+    # set (no RowSelectionChanged), but copy_id still copies its id — legacy
+    # click-again-to-copy parity.
+    imgui = MagicMock()
+    monkeypatch.setattr("punt_lux.display.renderers.imgui.table.imgui", imgui)
+    elem = TableElement(
+        id="t",
+        columns=("ID",),
+        rows=(("a",),),
+        flags=TableFlags(copy_id=True),
+        selection_mode="single",
+        selected_row_ids=frozenset({"a"}),
+    )
+    fired: list[RowSelectionChanged] = []
+    elem.add_handler(RowSelectionChanged, fired.append)
+    _renderer(elem)._fire_if_changed(
+        elem,
+        ("a",),
+        frozenset({"a"}),  # seed already {a}, storage unchanged -> no set change
+        _storage({0}),
+        MagicMock(range_src_item=0),
+        _arbiter(elem),
+        "a",  # the click landed on row a
+    )
+    imgui.set_clipboard_text.assert_called_once_with("a")
+    assert fired == []
+
+
+def test_same_row_reclick_decision() -> None:
+    decide = ImGuiTableRenderer._is_same_row_reclick
+    assert decide("a", frozenset({"a"})) is True  # the sole selection re-clicked
+    assert decide("a", frozenset({"a", "b"})) is False  # not the whole selection
+    assert decide("", frozenset({"a"})) is False  # no click this frame
+    assert decide("a", frozenset()) is False  # nothing selected
 
 
 def test_no_spurious_fire_for_a_non_representable_pending_id() -> None:
@@ -105,6 +144,7 @@ def test_no_spurious_fire_for_a_non_representable_pending_id() -> None:
         _storage({0}),
         MagicMock(range_src_item=0),
         _arbiter(elem),
+        "",
     )
     assert fired == []
 
@@ -124,6 +164,7 @@ def test_a_genuine_change_still_fires_with_a_hidden_pending_id() -> None:
         _storage({0, 1}),
         MagicMock(range_src_item=1),
         _arbiter(elem),
+        "",
     )
     assert len(fired) == 1
     assert set(fired[0].row_ids) == {"a", "c"}
