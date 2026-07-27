@@ -69,9 +69,9 @@ tally.
   the one whose send preceded the failure. That scene's tally is incremented.
 - A scene that reaches **`ATTRIBUTION_THRESHOLD` (2)** attributed deaths within
   the rolling window **`ATTRIBUTION_WINDOW` (60 s)** is quarantined (Question 2).
-- **Any clean send of a scene resets its tally to zero** — a scene that renders
-  without killing the Display has proven itself survivable, and stale suspicion
-  must not accumulate across unrelated incidents.
+  The window is the only decay: a death older than the window no longer counts
+  toward the threshold. There is deliberately **no** tally reset on a clean send
+  (see the rejected alternatives).
 - **Isolation-mode exit.** The worker returns to batching mode after **one full
   clean pass**: a single isolation cycle in which every live scene is sent, each
   in its own send, and none causes a Display death. One clean cycle — not one
@@ -105,14 +105,27 @@ one place to read and to tune.
   that death, not from zero-plus-one, so the window slides rather than resets
   abruptly.
 
+**The worst-case crash count.** A poison scene is quarantined after
+`ATTRIBUTION_THRESHOLD` *attributed* deaths, and attribution happens only in
+isolation mode. The very first death is still a *batched* death — it is what
+*triggers* the switch to isolation — so it is unattributed. The real worst case
+for a single poison scene is therefore `1 + ATTRIBUTION_THRESHOLD` crashes: the
+one batched death that trips isolation, then the attributed deaths that reach the
+threshold. Across a poison set it is `1 + ATTRIBUTION_THRESHOLD * |poison|` in the
+worst case. The formal model (`display_crash_loop.tex`) starts already in
+isolation — every `CrashRender` attributes a singleton — so it proves the tighter
+bound `ATTRIBUTION_THRESHOLD * |poison|`; the extra `+ 1` is the first batched
+death the model abstracts away. Either way the count is bounded, which is the
+no-infinite-respawn property.
+
 **Why isolation mode is the core of the rule.** Batching creates the one hard
 false-positive: an innocent scene coalesced into the same batch as the poison
 scene is in the suspect set every time the batch is sent, so a naive per-batch
 tally would quarantine the innocent scene alongside the guilty one. Isolation
 mode removes the ambiguity structurally — the poison scene is the *only* scene in
 flight when the Display dies, so the tally can only ever accrue against the true
-culprit. The innocent co-batched scene sends cleanly in its own isolated cycle
-and has its tally reset.
+culprit. The innocent co-batched scene sends cleanly in its own isolated cycle,
+never becomes a singleton suspect, and its stale tally ages out of the window.
 
 **Alternatives considered and rejected.**
 
@@ -132,6 +145,17 @@ and has its tally reset.
   co-batched scenes.
 - *Per-batch tally without isolation.* Rejected: quarantines innocent
   co-batched scenes.
+- *Reset a scene's tally to zero on any clean send.* Rejected: it reopens the
+  loop for an *intermittently* poisonous scene. A scene that crashes the renderer
+  on only some renders (a data-dependent or nondeterministic defect) would send
+  cleanly between crashes, and each clean send would reset its tally, so it would
+  never reach the threshold — the Display would crash and respawn forever, exactly
+  the loop this design exists to kill. Time-decay of stale suspicion is instead
+  provided by the sliding `ATTRIBUTION_WINDOW`: an old, unrelated death ages out
+  of the window, while repeated deaths inside the window still accumulate. The
+  window discards suspicion by *age*, which is correct; a clean-send reset would
+  discard it by a *survival* signal that an intermittent crasher does not honestly
+  give.
 
 ## Question 2 — quarantine semantics
 

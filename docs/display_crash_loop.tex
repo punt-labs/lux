@@ -267,6 +267,15 @@ only in \texttt{CrashRender}.  This is the no-infinite-respawn property: the loo
 can turn only a bounded number of times before every poison scene is quarantined
 and the Display stays up.
 
+The model attributes every crash to a single scene --- it starts, in effect, in
+the design's isolation mode.  The implementation reaches isolation only after a
+first \emph{batched} death that is unattributed (it is what triggers the switch),
+so the implementation's worst case is \texttt{1 + THRESHOLD * \# poison}: the one
+batched death plus the attributed deaths modelled here.  The model abstracts that
+leading \texttt{+ 1} away because it does not change the property under test ---
+the crash count is bounded either way --- and abstracting it keeps the model
+focused on the quarantine rule that supplies the bound.
+
 \paragraph{Invariant 3 --- single Display.}
 At most one Display process is live at any time.  This model represents the
 Display as a single \texttt{DISPLAY}-valued component, so the property is
