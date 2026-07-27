@@ -77,6 +77,16 @@ class TestReconciled:
         ).reconciled(frozenset({"a", "c"}))
         assert model.selected_row_ids == frozenset({"a", "c"})
 
+    def test_surviving_anchor_is_kept(self) -> None:
+        # The bug: reconciled reseated to the least id even when the anchor
+        # survived, so a filter reproject jumped a bound detail off the
+        # last-interacted row on every filter change.
+        model = TableSelectionModel(
+            mode="multi", selected=frozenset({"a", "b"}), anchor="b"
+        ).reconciled(frozenset({"a", "b", "c"}))
+        assert model.selected_row_ids == frozenset({"a", "b"})
+        assert model.anchor == "b"  # kept, not reseated to the least id "a"
+
     def test_departed_anchor_reseats_to_a_survivor(self) -> None:
         model = TableSelectionModel(
             mode="multi", selected=frozenset({"a", "b"}), anchor="b"

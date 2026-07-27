@@ -96,13 +96,15 @@ class TableSelectionModel:
     def reconciled(self, live_ids: frozenset[str]) -> Self:
         """Return a new model dropping selected ids no longer present.
 
-        Called when the element's rows change (a removed row leaves the
-        selection); the anchor reseats onto a survivor or clears.
+        Called when the element's rows change. A *surviving* anchor is kept — the
+        last-interacted row a detail tracks must not jump on an unrelated rows
+        change (a filter reproject patches rows without an anchor) — matching
+        ``_normalized`` / ``with_anchor``; only an anchor whose row was removed
+        reseats onto a survivor or clears.
         """
         selected = self._selected & live_ids
-        return type(self)(
-            mode=self._mode, selected=selected, anchor=self._reseat(selected)
-        )
+        anchor = self._anchor if self._anchor in selected else self._reseat(selected)
+        return type(self)(mode=self._mode, selected=selected, anchor=anchor)
 
     @classmethod
     def _normalized(
