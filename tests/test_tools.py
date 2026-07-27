@@ -427,7 +427,7 @@ class TestElementFromDict:
         assert elem.tooltip is None
 
     def test_unknown_kind_raises(self) -> None:
-        with pytest.raises(ValueError, match="Unknown element kind"):
+        with pytest.raises(ValueError, match="no decoder for kind='bogus'"):
             agent_element_factory().element_from_dict({"kind": "bogus", "id": "x"})
 
 
@@ -800,30 +800,6 @@ class TestShowTool:
         assert "[table 'first']" in result
         assert "[table 'second']" in result
         assert "2 validation error(s):" in result
-        client.show.assert_not_called()
-
-    @patch("punt_lux.domain.hub.clients.client_registry.get")
-    def test_show_rejects_bad_table_on_group_page(self, mock_get: MagicMock) -> None:
-        # A group's non-active pages are still installed into the scene, so a
-        # bad table hidden on a page must be caught end-to-end through show() —
-        # the exact "invalid element on a non-active page" case GroupElement's
-        # paged child exposure exists to cover.
-        client = _mock_client()
-        mock_get.return_value = client
-
-        result = show(
-            "s1",
-            [
-                {
-                    "kind": "group",
-                    "id": "g1",
-                    "children": [{"kind": "text", "id": "nav", "content": "page 1"}],
-                    "pages": [[_bad_table("on_page")]],
-                },
-            ],
-        )
-        assert result.startswith("error: scene not rendered")
-        assert "[table 'on_page']" in result
         client.show.assert_not_called()
 
 

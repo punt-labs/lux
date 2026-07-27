@@ -172,18 +172,6 @@ class TestForkGate:
     def test_all_abc_header_is_abc(self) -> None:
         assert ContainerAbcGate.is_all_abc(_abc_header().to_dict())
 
-    def test_legacy_child_forces_legacy(self) -> None:
-        wire = {
-            "kind": "collapsing_header",
-            "id": "ch",
-            "label": "S",
-            "children": [
-                {"kind": "group", "id": "lg", "layout": "paged", "children": []}
-            ],
-        }
-        assert not ContainerAbcGate.is_all_abc(wire)
-        assert isinstance(_decode(wire), LegacyCollapsingHeaderElement)
-
     def test_from_dict_rejects_non_abc_subtree(self) -> None:
         wire = {
             "kind": "collapsing_header",
@@ -195,23 +183,6 @@ class TestForkGate:
         }
         with pytest.raises(ValueError, match="paged"):
             CollapsingHeaderElement.from_dict(wire)
-
-    def test_header_in_legacy_container_is_forced_legacy(self) -> None:
-        # A header nested inside a legacy window (a legacy sibling table forces
-        # the window legacy) must itself decode legacy — an ABC container never
-        # nests inside a legacy render subtree.
-        wire = {
-            "kind": "window",
-            "id": "w",
-            "children": [
-                {"kind": "group", "id": "lg", "layout": "paged", "children": []},
-                _abc_header().to_dict(),
-            ],
-        }
-        window = _decode(wire)
-        assert isinstance(window, HasChildElements)
-        header = window.child_elements()[1]
-        assert isinstance(header, LegacyCollapsingHeaderElement)
 
 
 # -- self-validation --------------------------------------------------------

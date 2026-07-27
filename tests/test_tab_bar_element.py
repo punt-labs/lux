@@ -204,20 +204,6 @@ class TestForkGate:
     def test_all_abc_tab_bar_is_abc(self) -> None:
         assert ContainerAbcGate.is_all_abc(_abc_tab_bar().to_dict())
 
-    def test_legacy_child_forces_legacy(self) -> None:
-        wire = {
-            "kind": "tab_bar",
-            "id": "tb",
-            "tabs": [
-                {
-                    "label": "One",
-                    "children": [_legacy_child()],
-                }
-            ],
-        }
-        assert not ContainerAbcGate.is_all_abc(wire)
-        assert isinstance(_decode(wire), LegacyTabBarElement)
-
     def test_from_dict_rejects_non_abc_subtree(self) -> None:
         wire = {
             "kind": "tab_bar",
@@ -239,20 +225,6 @@ class TestForkGate:
         wire = {"kind": "tab_bar", "id": "tb", "tabs": ["not-a-tab"]}
         assert ContainerAbcGate.first_non_abc_kind(wire) is not None
         assert not ContainerAbcGate.is_all_abc(wire)
-
-    def test_tab_bar_in_legacy_container_is_forced_legacy(self) -> None:
-        wire = {
-            "kind": "window",
-            "id": "w",
-            "children": [
-                _legacy_child(),
-                _abc_tab_bar().to_dict(),
-            ],
-        }
-        window = _decode(wire)
-        assert isinstance(window, HasChildElements)
-        tab_bar = window.child_elements()[1]
-        assert isinstance(tab_bar, LegacyTabBarElement)
 
 
 # -- malformed-wire rejection (reject, do not silently empty) ----------------

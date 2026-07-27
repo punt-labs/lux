@@ -26,7 +26,6 @@ from punt_lux.protocol.elements import (
     LegacyGroupElement,
     TextElement,
 )
-from punt_lux.protocol.elements.group_codec import JsonGroupDecoder
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
@@ -97,103 +96,16 @@ class TestLevel1Serialization:
         }
 
 
-# -- the all-ABC fork gate --------------------------------------------------
+# -- the group's paged rejection --------------------------------------------
 
 
-def _inner_abc_group() -> dict[str, Any]:
-    """Return a fresh wire dict for an all-ABC rows group with one text child."""
-    return {
-        "kind": "group",
-        "id": "inner",
-        "children": [{"kind": "text", "id": "t", "content": "x"}],
-    }
+class TestPagedRejection:
+    """The removed ``paged`` layout is rejected at the decode boundary.
 
-
-def _legacy_child_wire() -> dict[str, Any]:
-    """Return a legacy-kind child that forces its enclosing subtree legacy.
-
-    Every leaf kind is migrated after B6, so the legacy fork is exercised through
-    the one remaining legacy shape: a ``group`` whose ``paged`` layout the ABC
-    group cannot hold.
+    A group renders only ``rows`` or ``columns``; the decoder rejects any
+    other layout and the removed ``pages`` / ``page_source`` wire fields with
+    a named error, on both the tier-factory and standalone ``from_dict`` paths.
     """
-    return {"kind": "group", "id": "lg", "layout": "paged", "children": []}
-
-
-# Each always-legacy container kind wrapping an all-ABC inner group, paired with
-# the concrete legacy class the whole tree must decode to. A ``group`` becomes
-# legacy only alongside a legacy sibling; ``tab_bar`` has no ABC form yet, so it is
-# always legacy and forces any nested group legacy too. ``collapsing_header``,
-# ``modal``, and ``window`` are now conditionally-ABC and carry their own fork-gate
-# coverage in their per-kind migration-gate tests.
-_LEGACY_CONTAINER_CASES: tuple[tuple[str, dict[str, Any], type], ...] = (
-    (
-        "legacy_group",
-        {
-            "kind": "group",
-            "id": "o",
-            "children": [_legacy_child_wire(), _inner_abc_group()],
-        },
-        LegacyGroupElement,
-    ),
-)
-
-
-class TestForkGate:
-    def test_all_abc_stack_group_is_abc(self) -> None:
-        assert JsonGroupDecoder.is_all_abc(_stack_group("rows").to_dict())
-
-    def test_legacy_child_forces_legacy(self) -> None:
-        wire = {
-            "kind": "group",
-            "children": [_legacy_child_wire()],
-        }
-        assert not JsonGroupDecoder.is_all_abc(wire)
-        assert isinstance(_decode(wire | {"id": "g"}), LegacyGroupElement)
-
-    def test_paged_layout_stays_legacy(self) -> None:
-        wire = {
-            "kind": "group",
-            "id": "g",
-            "layout": "paged",
-            "children": [{"kind": "text", "id": "t", "content": "x"}],
-        }
-        assert not JsonGroupDecoder.is_all_abc(wire)
-        assert isinstance(_decode(wire), LegacyGroupElement)
-
-    def test_nonempty_paged_fields_force_legacy(self) -> None:
-        # A rows-layout group carrying real paged data forks legacy so its
-        # panels are not dropped by the ABC group (which has no paged fields).
-        with_pages = {
-            "kind": "group",
-            "id": "g",
-            "layout": "rows",
-            "children": [],
-            "pages": [[{"kind": "text", "id": "p", "content": "panel"}]],
-        }
-        assert not JsonGroupDecoder.is_all_abc(with_pages)
-        with_source = {
-            "kind": "group",
-            "id": "g",
-            "layout": "rows",
-            "children": [],
-            "page_source": "combo1",
-        }
-        assert not JsonGroupDecoder.is_all_abc(with_source)
-
-    def test_empty_paged_fields_decode_abc(self) -> None:
-        # Present-but-empty pages/page_source carry no panels, so nothing is
-        # dropped and the group correctly decodes ABC (the truthiness gate is
-        # intentional, not a falsy-key oversight).
-        wire = {
-            "kind": "group",
-            "id": "g",
-            "layout": "rows",
-            "children": [{"kind": "text", "id": "t", "content": "x"}],
-            "pages": [],
-            "page_source": "",
-        }
-        assert JsonGroupDecoder.is_all_abc(wire)
-        assert isinstance(_decode(wire), GroupElement)
 
     def test_nested_all_abc_group_stays_abc(self) -> None:
         wire = {
@@ -211,78 +123,54 @@ class TestForkGate:
         assert isinstance(outer, GroupElement)
         assert isinstance(outer.children[0], GroupElement)
 
-    @pytest.mark.parametrize(
-        ("wire", "expected"),
-        [(wire, cls) for _, wire, cls in _LEGACY_CONTAINER_CASES],
-        ids=[name for name, _, _ in _LEGACY_CONTAINER_CASES],
-    )
-    def test_all_abc_group_in_legacy_container_is_forced_legacy(
-        self, wire: dict[str, Any], expected: type
-    ) -> None:
-        """An all-ABC group nested in any legacy container decodes legacy.
-
-        Every legacy container kind — legacy group, tab_bar, window,
-        collapsing_header, modal — must route a nested all-ABC group onto
-        ``LegacyGroupElement`` (its ``child_elements()`` walk exposes it),
-        never leaving an ABC container inside a legacy render subtree.
-        """
-        decoded = _decode(wire)
-        assert isinstance(decoded, expected)
-        assert isinstance(decoded, HasChildElements)
-        nested = decoded.child_elements()
-        assert any(isinstance(child, LegacyGroupElement) for child in nested)
-
-    def test_deep_buried_legacy_forces_whole_tree_legacy(self) -> None:
-        """A legacy leaf two groups deep forces the entire tree legacy."""
-        wire = {
-            "kind": "group",
-            "id": "outer",
-            "layout": "rows",
-            "children": [
-                {
-                    "kind": "group",
-                    "id": "inner",
-                    "layout": "rows",
-                    "children": [_legacy_child_wire()],
-                }
-            ],
-        }
-        assert not JsonGroupDecoder.is_all_abc(wire)
-        assert isinstance(_decode(wire), LegacyGroupElement)
-
-    def test_is_all_abc_rejects_non_mapping_child(self) -> None:
-        """A non-mapping child yields False so the tree forks legacy (F6)."""
-        wire = {"kind": "group", "children": ["not-a-dict"]}
-        assert not JsonGroupDecoder.is_all_abc(wire)
-
-    def test_is_all_abc_survives_unhashable_child_kind(self) -> None:
-        """An unhashable child ``kind`` fails closed, never raising TypeError.
-
-        A malformed child like ``{"kind": {}}`` or ``{"kind": []}`` would make
-        the ``kind in frozenset`` membership test raise; the gate must report it
-        as non-ABC and fork legacy instead of crashing mid-walk.
-        """
-        bad_kinds: tuple[object, ...] = ({}, [])
-        for bad_kind in bad_kinds:
-            wire = {"kind": "group", "children": [{"kind": bad_kind}]}
-            assert not JsonGroupDecoder.is_all_abc(wire)
-
-    def test_from_dict_rejects_non_abc_subtree(self) -> None:
-        """GroupElement.from_dict guards the all-ABC invariant at its boundary."""
-        wire = {"kind": "group", "id": "g", "children": [_legacy_child_wire()]}
-        with pytest.raises(ValueError, match="paged"):
-            GroupElement.from_dict(wire)
-
     def test_from_dict_rejects_paged_layout(self) -> None:
-        """A paged layout is not a stack group — from_dict rejects it."""
+        """A paged layout is not a stack group — from_dict rejects it by name."""
         wire = {
             "kind": "group",
             "id": "g",
             "layout": "paged",
             "children": [{"kind": "text", "id": "t", "content": "x"}],
         }
-        with pytest.raises(ValueError, match="paged"):
+        with pytest.raises(ValueError, match="unknown layout 'paged'"):
             GroupElement.from_dict(wire)
+
+    def test_factory_rejects_paged_layout(self) -> None:
+        """The tier factory rejects a paged group, never silently coercing it."""
+        wire = {"kind": "group", "id": "g", "layout": "paged", "children": []}
+        with pytest.raises(ValueError, match="'paged' layout was removed"):
+            _decode(wire)
+
+    def test_factory_rejects_nested_paged_group(self) -> None:
+        """A paged group nested inside a stack group is rejected too."""
+        wire = {
+            "kind": "group",
+            "id": "outer",
+            "children": [{"kind": "group", "id": "inner", "layout": "paged"}],
+        }
+        with pytest.raises(ValueError, match="'paged' layout was removed"):
+            _decode(wire)
+
+    def test_rejects_pages_wire_field(self) -> None:
+        """The removed ``pages`` wire field is rejected on a stack group."""
+        wire = {
+            "kind": "group",
+            "id": "g",
+            "layout": "rows",
+            "pages": [[{"kind": "text", "id": "p", "content": "x"}]],
+        }
+        with pytest.raises(ValueError, match="'pages' is no longer supported"):
+            _decode(wire)
+
+    def test_rejects_page_source_wire_field(self) -> None:
+        """The removed ``page_source`` wire field is rejected on a stack group."""
+        wire = {
+            "kind": "group",
+            "id": "g",
+            "layout": "rows",
+            "page_source": "combo1",
+        }
+        with pytest.raises(ValueError, match="'page_source' is no longer supported"):
+            _decode(wire)
 
 
 # -- Level 2: pickle scene wire ---------------------------------------------

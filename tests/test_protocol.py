@@ -821,7 +821,7 @@ class TestSerialization:
         assert d == {"type": "my_type"}
 
     def test_unknown_element_kind_raises(self):
-        with pytest.raises(ValueError, match="Unknown element kind"):
+        with pytest.raises(ValueError, match="no decoder for kind='bogus'"):
             message_from_dict(
                 {
                     "type": "scene",
@@ -963,58 +963,6 @@ class TestSerialization:
         assert len(grp.children) == 2
         assert isinstance(grp.children[0], TextElement)
         assert isinstance(grp.children[1], ButtonElement)
-
-    def test_tab_bar_roundtrip(self):
-        # A legacy table child keeps the subtree off the all-ABC path, so
-        # the tab bar decodes onto the legacy dataclass whose tabs are dicts.
-        e = LegacyTabBarElement(
-            id="tb1",
-            tabs=[
-                {
-                    "label": "Tab 1",
-                    "children": [TextElement(id="t1", content="Content 1")],
-                },
-                {
-                    "label": "Tab 2",
-                    "children": [
-                        ButtonElement(id="b1", label="Action"),
-                        LegacyGroupElement(id="lgc", layout="paged"),
-                    ],
-                },
-            ],
-        )
-        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        tb = restored.elements[0]
-        assert isinstance(tb, LegacyTabBarElement)
-        assert len(tb.tabs) == 2
-        assert tb.tabs[0]["label"] == "Tab 1"
-        assert isinstance(tb.tabs[0]["children"][0], TextElement)
-        assert len(tb.tabs[1]["children"]) == 2
-
-    def test_collapsing_header_roundtrip(self):
-        # A legacy table child keeps the subtree off the all-ABC path, so
-        # the header decodes onto the legacy dataclass that carries ``default_open``.
-        e = LegacyCollapsingHeaderElement(
-            id="ch1",
-            label="Advanced",
-            default_open=True,
-            children=[
-                CheckboxElement(id="cb1", label="Debug"),
-                LegacyGroupElement(id="lgc", layout="paged"),
-            ],
-        )
-        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        ch = restored.elements[0]
-        assert isinstance(ch, LegacyCollapsingHeaderElement)
-        assert ch.label == "Advanced"
-        assert ch.default_open is True
-        assert len(ch.children) == 2
 
     def test_selectable_roundtrip(self):
         e = SelectableElement(id="s1", label="Option A", selected=True)
@@ -1296,60 +1244,6 @@ class TestSerialization:
         scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
         d = message_to_dict(scene)
         assert "default_open" not in d["elements"][0]
-
-    def test_nested_group_in_tab_bar_roundtrip(self):
-        inner = LegacyGroupElement(
-            id="g1",
-            layout="columns",
-            children=[
-                TextElement(id="t1", content="A"),
-                TextElement(id="t2", content="B"),
-            ],
-        )
-        # A legacy plot sibling keeps the tab bar's subtree off the
-        # all-ABC path, so it decodes legacy and forces the nested group legacy.
-        outer = LegacyTabBarElement(
-            id="tb1",
-            tabs=[
-                {
-                    "label": "Layout",
-                    "children": [
-                        inner,
-                        LegacyGroupElement(id="lgc", layout="paged"),
-                    ],
-                }
-            ],
-        )
-        scene = SceneMessage(id="s1", elements=[outer], frame_id="s1")
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        tb = restored.elements[0]
-        assert isinstance(tb, LegacyTabBarElement)
-        grp = tb.tabs[0]["children"][0]
-        # A group nested in a legacy container is forced legacy so an ABC
-        # container can never appear inside a legacy render subtree.
-        assert isinstance(grp, LegacyGroupElement)
-        assert len(grp.children) == 2
-
-    def test_window_with_legacy_child_forks_legacy_roundtrip(self):
-        # A not-yet-migrated child (table) forks the whole window legacy; the
-        # all-ABC window roundtrip is covered in test_window_element.py.
-        win = LegacyWindowElement(
-            id="w1",
-            title="Complex",
-            children=[
-                LegacyGroupElement(id="lgc", layout="paged"),
-                TextElement(id="t1", content="nested"),
-            ],
-        )
-        scene = SceneMessage(id="s1", elements=[win], frame_id="s1")
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        r_win = restored.elements[0]
-        assert isinstance(r_win, LegacyWindowElement)
-        assert r_win.children[0].kind == "group"
 
     def test_deeply_nested_containers_roundtrip(self):
         # An all-ABC subtree — a header holding a text — decodes onto the ABC

@@ -146,18 +146,6 @@ class TestForkGate:
     def test_all_abc_modal_is_abc(self) -> None:
         assert ContainerAbcGate.is_all_abc(_abc_modal().to_dict())
 
-    def test_legacy_child_forces_legacy(self) -> None:
-        wire = {
-            "kind": "modal",
-            "id": "m",
-            "title": "T",
-            "children": [
-                {"kind": "group", "id": "lg", "layout": "paged", "children": []}
-            ],
-        }
-        assert not ContainerAbcGate.is_all_abc(wire)
-        assert isinstance(_decode(wire), LegacyModalElement)
-
     def test_from_dict_rejects_non_abc_subtree(self) -> None:
         wire = {
             "kind": "modal",
@@ -169,23 +157,6 @@ class TestForkGate:
         }
         with pytest.raises(ValueError, match="paged"):
             ModalElement.from_dict(wire)
-
-    def test_modal_in_legacy_container_is_forced_legacy(self) -> None:
-        # A modal nested inside a legacy window (a legacy sibling table forces
-        # the window legacy) must itself decode legacy — an ABC container never
-        # nests inside a legacy render subtree.
-        wire = {
-            "kind": "window",
-            "id": "w",
-            "children": [
-                {"kind": "group", "id": "lg", "layout": "paged", "children": []},
-                _abc_modal().to_dict(),
-            ],
-        }
-        window = _decode(wire)
-        assert isinstance(window, HasChildElements)
-        modal = window.child_elements()[1]
-        assert isinstance(modal, LegacyModalElement)
 
 
 # -- self-validation --------------------------------------------------------

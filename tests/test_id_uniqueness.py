@@ -293,26 +293,6 @@ class TestShowRejectsNestedDuplicates:
         )
 
     @patch(_CLIENT_GET)
-    def test_show_rejects_dup_in_legacy_group_page(self, mock_get: MagicMock) -> None:
-        client = _mock_client()
-        mock_get.return_value = client
-        # A paged layout forks the group legacy; the dup hides on an off-screen page.
-        _assert_show_rejects_dup(
-            client,
-            "dup-legacy-group-page",
-            [
-                {
-                    "kind": "group",
-                    "id": "g",
-                    "layout": "paged",
-                    "children": [{"kind": "text", "id": "dup", "content": "nav"}],
-                    "pages": [[{"kind": "text", "id": "dup", "content": "page"}]],
-                }
-            ],
-            "dup",
-        )
-
-    @patch(_CLIENT_GET)
     def test_show_rejects_dup_in_collapsing_header(self, mock_get: MagicMock) -> None:
         client = _mock_client()
         mock_get.return_value = client

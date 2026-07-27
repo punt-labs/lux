@@ -150,15 +150,6 @@ class TestForkGate:
     def test_all_abc_window_is_abc(self) -> None:
         assert ContainerAbcGate.is_all_abc(_abc_window().to_dict())
 
-    def test_legacy_child_forces_legacy(self) -> None:
-        wire = {
-            "kind": "window",
-            "id": "w",
-            "children": [_legacy_child()],
-        }
-        assert not ContainerAbcGate.is_all_abc(wire)
-        assert isinstance(_decode(wire), LegacyWindowElement)
-
     def test_from_dict_rejects_non_abc_subtree(self) -> None:
         wire = {
             "kind": "window",
@@ -167,28 +158,6 @@ class TestForkGate:
         }
         with pytest.raises(ValueError, match="paged"):
             WindowElement.from_dict(wire)
-
-    def test_window_in_legacy_container_is_forced_legacy(self) -> None:
-        # A window nested inside a legacy tab_bar (a legacy sibling paged group
-        # forces the bar legacy) must itself decode legacy — an ABC container
-        # never nests inside a legacy render subtree.
-        wire = {
-            "kind": "tab_bar",
-            "id": "tb",
-            "tabs": [
-                {
-                    "label": "One",
-                    "children": [
-                        _legacy_child(),
-                        _abc_window().to_dict(),
-                    ],
-                }
-            ],
-        }
-        bar = _decode(wire)
-        assert isinstance(bar, HasChildElements)
-        window = bar.child_elements()[1]
-        assert isinstance(window, LegacyWindowElement)
 
 
 # -- the deliberate absence of a close affordance ---------------------------

@@ -22,7 +22,6 @@ from punt_lux.display_client import agent_element_factory
 from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol import SceneMessage
 from punt_lux.protocol.elements import GroupElement, SpinnerElement
-from punt_lux.protocol.elements.group_codec import JsonGroupDecoder
 from punt_lux.protocol.encoder_factory import JsonEncoderFactory
 from punt_lux.protocol.messages import message_from_dict, message_to_dict
 from punt_lux.protocol.renderers.raising import RaisingRendererFactory
@@ -205,7 +204,6 @@ class TestForkGate:
             "id": "g1",
             "children": [{"kind": "spinner", "id": "sp1"}],
         }
-        assert JsonGroupDecoder.is_all_abc(wire)
         group = _decode(wire)
         assert isinstance(group, GroupElement)
         assert isinstance(group.children[0], SpinnerElement)
