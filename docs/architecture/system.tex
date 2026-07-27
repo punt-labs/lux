@@ -530,31 +530,23 @@ Topics --- \texttt{openTicket}, \texttt{closeTicket},
 Lux.  This is the business-event channel, not the interface-replication
 path.
 
-\subsection{Migrated vs.\ Still-Legacy}
+\subsection{Element-ABC and the Display Role}
 
 \begin{center}
 \begin{tabular}{lp{9.5cm}}
 \toprule
-\textbf{State} & \textbf{What it covers} \\
+\textbf{Role} & \textbf{What it covers} \\
 \midrule
-\textbf{Migrated}     & The fifteen Element-ABC kinds: \texttt{text},
-  \texttt{button}, \texttt{checkbox}, \texttt{dialog}, \texttt{progress},
-  \texttt{input\_text}, \texttt{input\_number}, \texttt{slider},
-  \texttt{color\_picker}, \texttt{combo}, \texttt{radio},
-  \texttt{selectable}, \texttt{group}, \texttt{collapsing\_header}, and
-  \texttt{tab\_bar}.  Three of these --- \texttt{group},
-  \texttt{collapsing\_header}, \texttt{tab\_bar} --- are ABC containers,
-  migrated only when their whole subtree is ABC.  \texttt{HubDisplay}
-  authority with ownership and cascade removal, the D21 four-event path,
-  the frame lifecycle, and Agent Subscribe/Publish are all in this
-  column. \\
-\textbf{Transitional} & The Display process, which runs the D21 event path
-  yet still owns rendering, scene tabs, frames, and its own diagnostic
-  buffers as in the legacy design. \\
-\textbf{Legacy}       & The ten not-yet-migrated element kinds as frozen
-  dataclasses: \texttt{markdown}, \texttt{image}, \texttt{separator},
-  \texttt{spinner}, \texttt{draw}, \texttt{plot}, \texttt{table},
-  \texttt{tree}, \texttt{window}, and \texttt{modal}. \\
+\textbf{Element-ABC}  & All twenty-five element kinds.  Every kind decodes,
+  mutates, and renders through the Element-ABC path; the pre-migration
+  frozen-dataclass model and its fork were deleted in B7.  Three kinds ---
+  \texttt{group}, \texttt{collapsing\_header}, \texttt{tab\_bar} --- are ABC
+  containers holding ABC children.  \texttt{HubDisplay} authority with
+  ownership and cascade removal, the D21 four-event path, the frame
+  lifecycle, and Agent Subscribe/Publish are all in this column. \\
+\textbf{Display}      & The Display process runs the D21 event path and owns
+  rendering, scene tabs, frames, and its own diagnostic buffers --- a
+  decomposition of the one engine, not a second authority. \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -657,16 +649,16 @@ compatibility rather than disconnecting the peer.
 \subsection{Element Kinds}
 
 The wire layer exposes twenty-five element kinds plus the non-element
-\texttt{Patch} payload used by \msg{UpdateMessage}.  Fifteen kinds are on
-the Element-ABC path (Section \S\ref{sec:hubdisplay}); the remaining ten
-are frozen, slotted dataclasses registered into \texttt{ElementCodec}.
-The \texttt{Element} union is assembled in
+\texttt{Patch} payload used by \msg{UpdateMessage}.  All twenty-five are on
+the Element-ABC path (Section \S\ref{sec:hubdisplay}); the pre-migration
+frozen-dataclass model and its \texttt{ElementCodec} dispatch table were
+deleted in B7.  The \texttt{Element} union is assembled in
 \modpath{protocol/elements/\_\_init\_\_.py}.
 
-An ABC kind serializes two ways.  Its Level-1 form is a plain JSON dict
+Every kind serializes two ways.  Its Level-1 form is a plain JSON dict
 through its per-kind codec; its wire form crossing the Hub-to-Display
 boundary is a base64-encoded pickled entry inside the \msg{SceneMessage}
-codec.  A legacy kind crosses as a plain dict either way.
+codec, which preserves the Hub-side handlers the Display re-wraps.
 
 \begin{longtable}{llp{6cm}}
 \toprule
@@ -680,11 +672,11 @@ codec.  A legacy kind crosses as a plain dict either way.
 \texttt{basics}    & \elem{text}              & Content plus style
               (heading, caption, success, error, code); optional
               \field{color} hex string.  ABC. \\
-            & \elem{markdown}          & CommonMark via imgui\_md.  Legacy. \\
-            & \elem{image}             & File path or base64 data.  Legacy. \\
-            & \elem{separator}         & Visual divider.  Legacy. \\
+            & \elem{markdown}          & CommonMark via imgui\_md.  ABC. \\
+            & \elem{image}             & File path or base64 data.  ABC. \\
+            & \elem{separator}         & Visual divider.  ABC. \\
             & \elem{progress}          & Fraction bar with label.  ABC. \\
-            & \elem{spinner}           & Loading indicator.  Legacy. \\
+            & \elem{spinner}           & Loading indicator.  ABC. \\
 \midrule
 \texttt{inputs}    & \elem{button}            & Label, action, disabled;
               \field{arrow} and \field{small} variants.  ABC. \\
@@ -704,26 +696,26 @@ codec.  A legacy kind crosses as a plain dict either way.
 \texttt{dialog}    & \elem{dialog}            & Dialog root with title,
               children, handlers, and a model-backed lifecycle.  ABC. \\
 \midrule
-\texttt{layout}    & \elem{group}             & Row, column, or paged
-              layout.  ABC container. \\
+\texttt{layout}    & \elem{group}             & Row or column layout.
+              ABC container. \\
             & \elem{collapsing\_header} & Expandable section; fires
               \texttt{HeaderToggled}.  ABC container. \\
             & \elem{tab\_bar}          & Tabbed container; fires
               \texttt{TabChanged}.  ABC container. \\
             & \elem{window}            & Movable, resizable floating panel.
-              Legacy. \\
+              ABC container. \\
             & \elem{tree}              & Recursive node hierarchy;
-              \field{flat} flag.  Legacy. \\
+              \field{flat} flag.  ABC. \\
             & \elem{modal}             & Modal popup; emits \texttt{"closed"}.
-              Legacy. \\
+              ABC container. \\
 \midrule
 \texttt{graphics}  & \elem{draw}              & Canvas with typed draw
-              commands (\S\ref{sec:draw-commands}).  Legacy. \\
+              commands (\S\ref{sec:draw-commands}).  ABC. \\
             & \elem{plot}              & ImPlot: line, scatter, bar series.
-              Legacy. \\
+              ABC. \\
 \midrule
 \texttt{table}     & \elem{table}             & Columns, rows, built-in
-              filters, detail panel, pagination.  Legacy. \\
+              filters and detail panel.  ABC. \\
 \bottomrule
 \end{longtable}
 
@@ -1023,8 +1015,8 @@ The display-facing tools live in \modpath{tools/tools.py} and
 \multicolumn{2}{l}{\textbf{Introspection (Hub-authoritative)}} \\
 \midrule
 \tool{inspect\_scene} & \texttt{inspect\_scene} --- a scene's element tree
-  from the store, with each element's \field{render\_path}
-  (\texttt{"abc"} or \texttt{"legacy"}) and \field{resolved\_props}. \\
+  from the store, with each element's \field{render\_path} (constant
+  \texttt{"abc"}) and \field{resolved\_props}. \\
 \tool{list\_scenes}   & \texttt{list\_scenes} --- every live scene and
   frame from the store. \\
 \tool{list\_clients}  & \texttt{list\_clients} --- the Hub's sessions and
