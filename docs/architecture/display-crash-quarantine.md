@@ -1,6 +1,9 @@
 # Display Crash-Loop Quarantine
 
-**Status:** design for the crash-respawn quarantine (bead lux-88ka).
+**Status:** designed and ProB-verified; **implementation deferred** (operator
+ruling 2026-07-27 — keep the design, build it if the need re-appears). The
+companion model is [`display_crash_loop.tex`](../display_crash_loop.tex) with
+two fidelity controls; bead lux-88ka tracks the deferred implementation.
 
 ## The defect
 
