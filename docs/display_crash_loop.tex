@@ -96,9 +96,11 @@ governs \emph{whether a poison scene can loop the Display}.
 \end{zed}
 
 \texttt{SCENE} is the set of scenes an agent has installed in the store.  Two
-scenes suffice to exhibit a poison scene alongside an innocent one; three
-exercise attribution against several crashers at once.  The carrier is bounded by
-ProB's \texttt{DEFAULT\_SETSIZE}.
+scenes suffice to exhibit a poison scene alongside an innocent one and are the
+canonical check size; three exercise attribution against several crashers at once,
+and Invariants~2 and~3 are re-confirmed at \texttt{DEFAULT\_SETSIZE 3} as well
+(Section~\ref{sec:verify}).  The carrier is bounded by ProB's
+\texttt{DEFAULT\_SETSIZE}.
 
 % ============================================================
 \section{Free Types}
@@ -282,8 +284,18 @@ prior death once the display has been death-free for at least a window:
   crashes' = crashes
 \end{schema}
 
-A crashed Display is respawned.  This corresponds to the reap-then-ensure pair
-that \texttt{display\_lifecycle.tex} proves yields exactly one socket owner:
+The guard \texttt{crasher $\subseteq$ quarantined} is a \emph{clock-free
+abstraction} of the timed \texttt{STABLE\_INTERVAL} exit: rather than track wall
+time, the model exits isolation exactly when nothing non-quarantined remains to
+crash.  The two coincide only under the assumption that a crasher crashes at least
+once per interval --- then a crash always resets the interval before it elapses,
+so the timed exit fires only after the last crasher is quarantined, which is what
+this guard encodes.  The abstraction is therefore \emph{strictly stronger} than
+the timed exit: it cannot represent a scene that spaces its crashes beyond the
+interval and so escapes un-quarantined (Invariant~2).  That escape is a tolerated
+transient, not a loop, so leaving it out of the model costs no fidelity for the
+property under test --- but it is why the bound is stated per episode, not
+globally.
 
 \begin{schema}{Respawn}
   \Delta Sys
@@ -320,7 +332,7 @@ operations that send a scene to the Display --- are each guarded by
 \texttt{$\notin$ quarantined} on the scene they touch.  ProB's operation-coverage
 report corroborates that none fires against a quarantined scene.
 
-\paragraph{Invariant 2 --- crashes are bounded (no infinite respawn).}
+\paragraph{Invariant 2 --- crashes are bounded per episode (no fast respawn loop).}
 The total number of Display crashes never exceeds one batched death plus the
 isolated deaths needed to drive each crasher to the threshold:
 \[
@@ -334,8 +346,22 @@ every crasher's tally to one, so each crasher then needs at most
 \texttt{THRESHOLD} $-$ \texttt{1} \texttt{IsolCrash} deaths to reach the
 threshold.  \texttt{IsolClean} adds no crash, so an \emph{intermittent} crasher
 --- which interleaves clean probes --- reaches the same bound: isolation persists
-across its clean renders, so its crashes still accumulate.  This is the
-no-infinite-respawn property.
+across its clean renders, so its crashes still accumulate.
+
+This bound is \emph{per isolation episode}, and it holds for exactly the scenes the
+model represents: a crasher that crashes at least once per stable interval, so
+that isolation is never left until the crasher is quarantined.  A scene that
+spaced its crashes further apart than the stable interval would, in the timed
+design, be left in isolation to render cleanly until the interval elapsed, exit
+un-quarantined with its tally aged out, and crash again in a later episode from a
+clean tally --- never quarantined, one crash per interval, unbounded over time.
+That scene is \emph{deliberately tolerated as a transient} (see the design
+document): the attribution window classifies crashes more than a window apart as
+unrelated, so a rare crasher is indistinguishable from a string of independent
+one-offs, and quarantining it would mean quarantining genuine transients.  It is
+out of this model's scope by construction (see the note at \texttt{IsolExit}), and
+it is a backoff-paced trickle, not a loop.  The property proved here is therefore
+precisely: no respawn loop \emph{faster} than one crash per stable interval.
 
 \paragraph{Invariant 3 --- an innocent scene is never quarantined.}
 A scene that is not a crasher is never quarantined:
@@ -389,6 +415,18 @@ finds:
   probcli docs/display_crash_loop.tex -model_check -nodead \
     -goal "disp=up & mode=batching & crasher/={} & crasher<:quarantined" \
     -p DEFAULT_SETSIZE 2 -p MAX_INITIALISATIONS 20
+\end{verbatim}
+
+Invariants 2 and 3 are re-confirmed at the next carrier size, to check they do not
+depend on there being only two scenes:
+\begin{verbatim}
+  # Invariants 2 and 3 at setsize 3 (must report: goal NOT found)
+  probcli docs/display_crash_loop.tex -model_check -nodead \
+    -goal "crashes>1+(THRESHOLD-1)*card(crasher)" \
+    -p DEFAULT_SETSIZE 3 -p MAX_INITIALISATIONS 40
+  probcli docs/display_crash_loop.tex -model_check -nodead \
+    -goal "quarantined - crasher /= {}" \
+    -p DEFAULT_SETSIZE 3 -p MAX_INITIALISATIONS 40
 \end{verbatim}
 
 Invariant 1 is a transition property, established by the guards of

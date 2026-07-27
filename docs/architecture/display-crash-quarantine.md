@@ -124,17 +124,37 @@ literals, so the policy is one place to read and to tune.
   two, so an innocent is never quarantined. Setting `STABLE_INTERVAL` shorter than
   the window would break exactly this argument.
 
-**The worst-case crash count.** Every death is attributed to its suspect set, so
-the first batched death already advances every scene it hit — including each
-poison scene — by one. Each poison scene then needs `ATTRIBUTION_THRESHOLD − 1`
-further *isolated* crashes to reach the threshold and be quarantined. The worst
-case for one poison episode is therefore `1 + (ATTRIBUTION_THRESHOLD − 1) *
-|poison|` crashes: the single batched death that trips isolation, then one further
-crash per poison scene (at `ATTRIBUTION_THRESHOLD` = 2). The formal model
-(`display_crash_loop.tex`) proves this bound directly, and it holds for an
-*intermittently* poisonous scene as well: isolation persists across its clean
-renders, so its isolated crashes still accumulate to the threshold. Either way the
-count is bounded, which is the no-infinite-respawn property.
+**The worst-case crash count, per isolation episode.** Every death is attributed
+to its suspect set, so the first batched death already advances every scene it
+hit — including each poison scene — by one. Each poison scene then needs
+`ATTRIBUTION_THRESHOLD − 1` further *isolated* crashes to reach the threshold and
+be quarantined. The worst case for one isolation episode is therefore `1 +
+(ATTRIBUTION_THRESHOLD − 1) * |poison|` crashes: the single batched death that
+trips isolation, then one further crash per poison scene (at
+`ATTRIBUTION_THRESHOLD` = 2). This bound holds **per episode**, for any scene that
+crashes at least once per `STABLE_INTERVAL` — including an intermittent scene whose
+clean stretches stay shorter than the interval, since isolation persists across
+its clean renders and its crashes accumulate to the threshold within the one
+episode. That covers the actual B5 defect, a scene that crashes on essentially
+every render.
+
+**The deliberately tolerated case: a scene that crashes slower than the
+interval.** A scene whose crashes are spaced *further apart* than
+`STABLE_INTERVAL` is a different matter, and the design treats it as a **transient,
+on purpose**. Such a scene crashes in a batch (tally 1), the worker isolates,
+the scene then renders cleanly for a full `STABLE_INTERVAL`, isolation exits and
+its tally ages out of the window, and a later crash starts over from tally 1. It
+is **never quarantined**, and its crash count is therefore **not** bounded by the
+per-episode formula — it crashes about once per `STABLE_INTERVAL`, indefinitely,
+each such crash rate-limited by `RespawnBackoff`. This is the correct trade, not a
+gap: the `ATTRIBUTION_WINDOW` exists precisely to classify two deaths more than a
+window apart as *unrelated*, so a scene that only crashes once every few minutes
+is, by the same rule, indistinguishable from a string of independent transient
+one-offs. Quarantining it would mean quarantining genuine transients — a scene
+that crashed once an hour ago and once now — which is the false positive the
+window was built to avoid. The no-infinite-respawn guarantee is thus precisely:
+**no respawn loop faster than once per `STABLE_INTERVAL`**; a slower, backoff-paced
+trickle from a rare crasher is tolerated by design.
 
 **Why isolation mode is the core of the rule.** Batching alone creates one hard
 false-positive: an innocent scene coalesced into the same batch as the poison
@@ -382,10 +402,17 @@ model-checked, not merely tested. The Z specification is the companion spec
 replicate → crash → attribute → quarantine with both send modes, batched
 attribution, an *intermittently* poisonous scene (one that renders cleanly on
 some isolation probes), and the stable-interval exit. ProB proves three
-properties: a quarantined scene is never replicated, the number of crashes is
-bounded even for a flaky scene (`crashes ≤ 1 + (ATTRIBUTION_THRESHOLD − 1) ·
-|crasher|`, the no-infinite-respawn property), and an innocent scene is never
-quarantined.
+properties: a quarantined scene is never replicated, the per-episode crash count
+is bounded (`crashes ≤ 1 + (ATTRIBUTION_THRESHOLD − 1) · |crasher|`, the
+no-infinite-respawn property), and an innocent scene is never quarantined. The
+bound holds for an intermittent scene whose clean stretches stay shorter than the
+interval — the case the model represents. The model abstracts the timed
+`STABLE_INTERVAL` exit by its clock-free consequence (`IsolExit` is enabled once
+no non-quarantined crasher remains), which is sound exactly under the
+once-per-interval assumption; the deliberately tolerated slower-than-interval
+transient — never quarantined, crashing once per interval — is out of the model's
+scope by construction, and is a tolerated behaviour, not a loop, so it needs no
+clock in the model.
 
 The spec carries two fidelity negative controls, one per corrective clause, each
 striking exactly that clause and reproducing the loop it prevents.
