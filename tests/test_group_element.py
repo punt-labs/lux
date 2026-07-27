@@ -174,6 +174,38 @@ class TestPagedRejection:
             _decode(wire)
 
 
+# -- child-decode boundary --------------------------------------------------
+
+
+class TestChildDecodeBoundary:
+    """A malformed child names its parent container and slot, never AttributeErrors.
+
+    Every wire-shape failure inside a container's children — a non-mapping child
+    or a wrong-typed shape a decoder rejects with ``TypeError`` — is caught at the
+    child-decode boundary and re-raised naming the parent kind, id, and index.
+    """
+
+    def test_non_mapping_child_names_parent_and_index(self) -> None:
+        # A bare ``42`` where an element belongs must not reach ``d.get`` and
+        # escape as an AttributeError — it becomes a named, parent-prefixed
+        # TypeError (a non-mapping is a wire-shape error, not a bad value).
+        wire = {"kind": "group", "id": "g1", "children": [42]}
+        with pytest.raises(TypeError, match=r"group 'g1' child 0:.*mapping"):
+            _decode(wire)
+
+    def test_type_error_child_shape_is_parent_prefixed(self) -> None:
+        # The nested window rejects a non-list ``children`` with a TypeError; the
+        # enclosing group prefixes it with its own kind, id, and the slot, and the
+        # shape distinction survives as a TypeError.
+        wire = {
+            "kind": "group",
+            "id": "g1",
+            "children": [{"kind": "window", "id": "w1", "children": 5}],
+        }
+        with pytest.raises(TypeError, match=r"group 'g1' child 0:.*must be a list"):
+            _decode(wire)
+
+
 # -- Level 2: pickle scene wire ---------------------------------------------
 
 

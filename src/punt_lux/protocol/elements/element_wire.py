@@ -41,16 +41,24 @@ class ElementWireContext:
         items: Iterable[object],
         decode: Callable[[object], T],
     ) -> tuple[T, ...]:
-        """Decode each contained item, naming this container on a child error.
+        """Decode each contained item, naming this container and slot on a failure.
 
-        A malformed grandchild raises a ``ValueError`` deep in the recursion;
-        re-raising it prefixed with this container's kind and id traces the
-        failure to the composite that carried it, not just to the offending leaf.
+        A malformed child raises deep in the recursion — a bad value or unknown
+        kind (``ValueError``) or a wrong-typed wire shape such as a non-mapping
+        child or a non-list ``children`` (``TypeError``). Both are re-raised as
+        their own class, prefixed with this container's kind, id, and the child
+        index, so the failure keeps its value/shape distinction and traces to the
+        exact slot of the composite that carried it, not just to the offending
+        leaf.
         """
-        try:
-            return tuple(decode(item) for item in items)
-        except ValueError as exc:
-            raise ValueError(f"{self._kind} {container_id!r}: {exc}") from exc
+        decoded: list[T] = []
+        for index, item in enumerate(items):
+            try:
+                decoded.append(decode(item))
+            except (ValueError, TypeError) as exc:
+                prefixed = f"{self._kind} {container_id!r} child {index}: {exc}"
+                raise type(exc)(prefixed) from exc
+        return tuple(decoded)
 
     # --- required-field passthroughs to WireContext -----------------------
 

@@ -13,15 +13,14 @@ silently drop catalog handlers, both wire-path silent failures.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Self
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any, Self, cast
 
 from punt_lux.protocol.elements.abc_kind_spec import TierBinding
 from punt_lux.protocol.elements.abc_kind_table import DEFAULT_ABC_REGISTRY
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from punt_lux.domain.element_abc import Element as AbcElement
     from punt_lux.domain.handlers.decorators import PublishSink
     from punt_lux.protocol.elements.abc_kind_spec import KindDecoder
@@ -76,16 +75,22 @@ class JsonElementFactory:
             raise ValueError(msg)
         return decoder(raw)
 
-    def element_from_dict(self, d: dict[str, Any]) -> Any:
+    def element_from_dict(self, d: object) -> Any:
         """Deserialize a wire dict to its Element-ABC class.
 
-        Validates ``kind`` at the boundary, then dispatches to the per-kind
+        Validates the wire shape at the boundary, then dispatches to the per-kind
         decoder (leaf or container); a container recurses its children through
-        this same method. A missing, empty, non-string, or unknown ``kind``
-        raises ``ValueError``.
+        this same method. A non-mapping wire (a bare ``42`` or list where an
+        element belongs) raises ``TypeError``, and a missing, empty, non-string,
+        or unknown ``kind`` raises ``ValueError`` — the child decode never reaches
+        ``d.get`` on a non-mapping and escapes as an ``AttributeError``.
         """
-        kind = d.get("kind")
+        if not isinstance(d, Mapping):
+            msg = f"element wire must be a mapping, got {type(d).__name__}"
+            raise TypeError(msg)
+        raw = cast("Mapping[str, object]", d)
+        kind = raw.get("kind")
         if not isinstance(kind, str) or not kind:
             msg = "Element missing or invalid 'kind' field"
             raise ValueError(msg)
-        return self.decode(d)
+        return self.decode(raw)
