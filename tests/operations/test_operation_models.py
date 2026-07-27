@@ -214,6 +214,90 @@ def test_render_table_parse_falls_back_on_missing_columns() -> None:
     assert result.reason
 
 
+def test_render_table_to_spec_defaults_key_column_and_table_id() -> None:
+    request = RenderTableRequest.parse(
+        {"scene_id": "s", "columns": ["ID", "Name"], "rows": [["1", "a"]]}
+    )
+    assert isinstance(request, RenderTableRequest)
+    spec = request.to_spec()
+    assert spec.key_column == 0
+    assert spec.table_id == "table"
+
+
+def test_render_table_to_spec_resolves_a_key_column_name_to_its_index() -> None:
+    request = RenderTableRequest.parse(
+        {
+            "scene_id": "s",
+            "columns": ["ID", "Name"],
+            "rows": [["1", "a"]],
+            "key_column": "Name",
+            "table_id": "issues",
+        }
+    )
+    assert isinstance(request, RenderTableRequest)
+    spec = request.to_spec()
+    assert spec.key_column == 1  # "Name" is column index 1
+    assert spec.table_id == "issues"
+
+
+def test_render_table_to_spec_keeps_an_int_key_column() -> None:
+    request = RenderTableRequest.parse(
+        {
+            "scene_id": "s",
+            "columns": ["ID", "Name"],
+            "rows": [["1", "a"]],
+            "key_column": 1,
+        }
+    )
+    assert isinstance(request, RenderTableRequest)
+    assert request.to_spec().key_column == 1
+
+
+def test_render_table_parse_rejects_a_key_column_name_absent_from_columns() -> None:
+    result = RenderTableRequest.parse(
+        {
+            "scene_id": "s",
+            "columns": ["ID", "Name"],
+            "rows": [["1", "a"]],
+            "key_column": "Missing",
+        }
+    )
+    assert isinstance(result, OpError)
+    assert "does not name a column" in result.reason
+
+
+def test_render_table_parse_rejects_an_empty_table_id() -> None:
+    result = RenderTableRequest.parse(
+        {"scene_id": "s", "columns": ["A"], "rows": [["x"]], "table_id": ""}
+    )
+    assert isinstance(result, OpError)
+    assert "table_id must be a non-empty identifier" in result.reason
+
+
+def test_render_table_parse_rejects_a_whitespace_table_id() -> None:
+    # None synthesizes "table"; an explicit blank would make the table anonymous.
+    result = RenderTableRequest.parse(
+        {"scene_id": "s", "columns": ["A"], "rows": [["x"]], "table_id": "   "}
+    )
+    assert isinstance(result, OpError)
+    assert "table_id must be a non-empty identifier" in result.reason
+
+
+def test_render_table_parse_rejects_a_bool_key_column() -> None:
+    # bool subclasses int, so Pydantic would coerce True -> column index 1; a
+    # before-validator rejects it outright.
+    result = RenderTableRequest.parse(
+        {
+            "scene_id": "s",
+            "columns": ["ID", "Name"],
+            "rows": [["1", "a"]],
+            "key_column": True,
+        }
+    )
+    assert isinstance(result, OpError)
+    assert "bool" in result.reason
+
+
 def test_render_dashboard_parse_falls_back_and_names_the_missing_field() -> None:
     result = RenderDashboardRequest.parse(
         {"scene_id": "s", "metrics": [{"label": "x"}]}

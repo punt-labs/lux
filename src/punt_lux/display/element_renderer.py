@@ -234,10 +234,10 @@ class ElementRenderer:
     # -- table / modal rendering -----------------------------------------------
 
     def _render_table(self, elem: Element) -> None:
-        """Delegate table rendering to the extracted TableRenderer."""
-        from punt_lux.protocol import TableElement
+        """Delegate legacy table rendering to the extracted TableRenderer."""
+        from punt_lux.protocol import LegacyTableElement
 
-        table = cast("TableElement", elem)
+        table = cast("LegacyTableElement", elem)
         scene_id = self._current_scene_id or ""
         self._table_renderer.render(table, scene_id)
 

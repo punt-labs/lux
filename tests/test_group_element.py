@@ -24,7 +24,6 @@ from punt_lux.protocol.elements import (
     ButtonElement,
     GroupElement,
     LegacyGroupElement,
-    TableElement,
     TextElement,
 )
 from punt_lux.protocol.elements.group_codec import JsonGroupDecoder
@@ -110,9 +109,14 @@ def _inner_abc_group() -> dict[str, Any]:
     }
 
 
-def _table_wire() -> dict[str, Any]:
-    """Return a legacy-kind child that forces its enclosing subtree legacy."""
-    return {"kind": "table", "id": "tbl", "columns": ["A"], "rows": []}
+def _legacy_child_wire() -> dict[str, Any]:
+    """Return a legacy-kind child that forces its enclosing subtree legacy.
+
+    Every leaf kind is migrated after B6, so the legacy fork is exercised through
+    the one remaining legacy shape: a ``group`` whose ``paged`` layout the ABC
+    group cannot hold.
+    """
+    return {"kind": "group", "id": "lg", "layout": "paged", "children": []}
 
 
 # Each always-legacy container kind wrapping an all-ABC inner group, paired with
@@ -124,7 +128,11 @@ def _table_wire() -> dict[str, Any]:
 _LEGACY_CONTAINER_CASES: tuple[tuple[str, dict[str, Any], type], ...] = (
     (
         "legacy_group",
-        {"kind": "group", "id": "o", "children": [_table_wire(), _inner_abc_group()]},
+        {
+            "kind": "group",
+            "id": "o",
+            "children": [_legacy_child_wire(), _inner_abc_group()],
+        },
         LegacyGroupElement,
     ),
 )
@@ -137,7 +145,7 @@ class TestForkGate:
     def test_legacy_child_forces_legacy(self) -> None:
         wire = {
             "kind": "group",
-            "children": [{"kind": "table", "id": "t", "columns": ["A"], "rows": []}],
+            "children": [_legacy_child_wire()],
         }
         assert not JsonGroupDecoder.is_all_abc(wire)
         assert isinstance(_decode(wire | {"id": "g"}), LegacyGroupElement)
@@ -235,7 +243,7 @@ class TestForkGate:
                     "kind": "group",
                     "id": "inner",
                     "layout": "rows",
-                    "children": [_table_wire()],
+                    "children": [_legacy_child_wire()],
                 }
             ],
         }
@@ -261,8 +269,8 @@ class TestForkGate:
 
     def test_from_dict_rejects_non_abc_subtree(self) -> None:
         """GroupElement.from_dict guards the all-ABC invariant at its boundary."""
-        wire = {"kind": "group", "id": "g", "children": [_table_wire()]}
-        with pytest.raises(ValueError, match="table"):
+        wire = {"kind": "group", "id": "g", "children": [_legacy_child_wire()]}
+        with pytest.raises(ValueError, match="paged"):
             GroupElement.from_dict(wire)
 
     def test_from_dict_rejects_paged_layout(self) -> None:
@@ -426,8 +434,8 @@ class TestLevel5Introspection:
         assert props["children"] == ["t1", "b1"]
 
     def test_mixed_group_reports_legacy_render_path(self) -> None:
-        table = TableElement(id="tbl", columns=["A"], rows=[["x"]])
-        legacy_group = LegacyGroupElement(id="g1", children=[table])
+        child = TextElement(id="t1", content="x")
+        legacy_group = LegacyGroupElement(id="g1", children=[child])
         resp = _inspect(_server(), legacy_group)
         assert _record(resp, "g1")["render_path"] == "legacy"
 

@@ -32,6 +32,8 @@ def show_table(
     filters: list[dict[str, Any]] | None = None,
     detail: dict[str, Any] | None = None,
     flags: list[str] | None = None,
+    key_column: int | str = 0,
+    table_id: str | None = None,
     title: str | None = None,
     frame_id: str | None = None,
     frame_title: str | None = None,
@@ -39,8 +41,11 @@ def show_table(
     """Display a filterable data table with optional detail panel.
 
     This is a convenience wrapper around ``show()`` for the most common
-    pattern: a searchable, filterable table with drill-down detail.
-    Filters and detail run at 60fps in the display — zero round trips.
+    pattern: a searchable, filterable table with drill-down detail. The
+    Hub composes a search box, status combos, the grid, and a
+    selection-bound detail panel from primitives; filtering and detail
+    binding run Hub-side (the packaged default), so a selection hidden by
+    a filter reappears when the filter is cleared.
 
     Args:
         scene_id: Unique identifier for this scene.
@@ -66,6 +71,13 @@ def show_table(
         flags: Table flags (default: ["borders", "row_bg"]).
             Available: "borders", "row_bg", "resizable", "sortable",
             "copy_id" (copy first column to clipboard on row select).
+        key_column: The column whose value is each row's stable id — a
+            column index or a column name (default: 0, the first column).
+            Selection and detail address rows by this id, so it survives a
+            reorder. Pick a column with unique, non-empty values.
+        table_id: Identity of the composed table within the scene (default:
+            "table"). Set a distinct id for each table when a scene holds
+            more than one, so their synthesized control ids do not collide.
         title: Window title.
         frame_id: Target frame for tab isolation (e.g., "beads-lux").
         frame_title: Display title for the frame (e.g., "Beads: lux").
@@ -107,6 +119,8 @@ def show_table(
             "filters": filters,
             "detail": detail,
             "flags": flags,
+            "key_column": key_column,
+            "table_id": table_id,
             "title": title,
             "frame_id": frame_id,
             "frame_title": frame_title,

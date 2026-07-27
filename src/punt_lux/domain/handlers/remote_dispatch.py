@@ -1,16 +1,15 @@
 """Remote-dispatch wrappers for two-tier handler systems.
 
 When the Hub and Display are separate processes, the display-side
-element factory wraps every interaction handler in ``remote_dispatch``
+element factory collapses each event bucket into a ``RemoteDispatchGroup``
 so that ``element.fire(event)`` on the Display side sends a
 ``RemoteEventHandlerInvocation`` to the Hub instead of executing the
 handler body. On the Hub side, the same handlers are decoded without
 wrapping and execute directly.
 
-Two event types (``ButtonClicked``, ``ValueChanged``) on both tiers.
-The wrapping is the distribution concern — handler code,
-``element.fire()``, and the catalog factories are identical on both
-sides.
+Every interactive event type crosses on both tiers. The wrapping is the
+distribution concern — handler code, ``element.fire()``, and the catalog
+factories are identical on both sides.
 """
 
 from __future__ import annotations
@@ -24,16 +23,17 @@ from punt_lux.domain.container_interaction import (
     ModalClosed,
     TabChanged,
 )
+from punt_lux.domain.selection_interaction import RowSelectionChanged
 from punt_lux.protocol.messages.remote_invocation import RemoteEventHandlerInvocation
 from punt_lux.tracing import trace
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from punt_lux.domain.event_kinds import EventKind
     from punt_lux.domain.event_protocol import Event, Handler
-    from punt_lux.domain.interaction import EventKind
 
-__all__ = ["RemoteDispatchGroup", "remote_dispatch"]
+__all__ = ["RemoteDispatchGroup"]
 
 _log = logging.getLogger(__name__)
 
@@ -104,24 +104,31 @@ class RemoteDispatchGroup:
             ValueChanged,
         )
 
-        if isinstance(event, ValueChanged):
-            value: object = event.value
-        elif isinstance(event, ButtonClicked):
-            value = True
-        elif isinstance(event, HeaderToggled):
-            value = event.open
-        elif isinstance(event, TabChanged):
-            value = event.tab_id
-        elif isinstance(event, ModalClosed):
-            # A dismissal has no payload; the Hub builder ignores the value.
-            value = None
-        else:
-            _log.warning(
-                "RemoteDispatchGroup unrecognized event type %s for element_id=%s",
-                type(event).__name__,
-                self._element_id,
-            )
-            return
+        # Each kind states its own wire payload — a value-per-type match, not
+        # an if-ladder — so a new interactive kind is one more ``case``.
+        match event:
+            case ValueChanged():
+                value: object = event.value
+            case ButtonClicked():
+                value = True
+            case HeaderToggled():
+                value = event.open
+            case TabChanged():
+                value = event.tab_id
+            case RowSelectionChanged():
+                # A set + an anchor: the payload carries both so the Hub can
+                # rebuild the selection and name the last-interacted row.
+                value = {"row_ids": list(event.row_ids), "anchor": event.anchor}
+            case ModalClosed():
+                # A dismissal has no payload; the Hub builder ignores the value.
+                value = None
+            case _:
+                _log.warning(
+                    "RemoteDispatchGroup unrecognized event type %s for element_id=%s",
+                    type(event).__name__,
+                    self._element_id,
+                )
+                return
 
         _log.debug(
             "remote_dispatch sending element_id=%s action=%s "
@@ -140,41 +147,3 @@ class RemoteDispatchGroup:
                 value=value,
             )
         )
-
-
-def remote_dispatch(
-    inner: Handler[Event],
-    send: SendFn,
-    element_id: str,
-    action: str,
-    event_kind: EventKind = "button_clicked",
-) -> Handler[Event]:
-    """Wrap one handler in a one-item ``RemoteDispatchGroup``.
-
-    The returned callable remains compatible with existing call sites,
-    but the transport wrapper is the grouped form used for the Display
-    copy: one event bucket, one remote message, one authoritative Hub
-    dispatch.
-
-    Parameters
-    ----------
-    inner:
-        The real handler being wrapped. Captured but never called
-        on the Display side — execution happens on the Hub.
-    send:
-        The Display's socket-write callable.
-    element_id:
-        The element this handler is bound to.
-    action:
-        The action string for the ``RemoteEventHandlerInvocation``
-        (typically ``element_id`` or a catalog-derived name).
-    event_kind:
-        The event kind discriminator for Hub-side dispatch.
-    """
-    return RemoteDispatchGroup(
-        handlers=(inner,),
-        send=send,
-        element_id=element_id,
-        action=action,
-        event_kind=event_kind,
-    )

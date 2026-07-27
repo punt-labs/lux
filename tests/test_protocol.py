@@ -28,6 +28,7 @@ from punt_lux.protocol import (
     LegacyCollapsingHeaderElement,
     LegacyGroupElement,
     LegacyTabBarElement,
+    LegacyTableElement,
     LegacyWindowElement,
     ListScenesRequest,
     ListScenesResponse,
@@ -53,7 +54,6 @@ from punt_lux.protocol import (
     SliderElement,
     SpinnerElement,
     TableDetail,
-    TableElement,
     TableFilter,
     TextElement,
     ThemeMessage,
@@ -252,7 +252,7 @@ class TestElements:
         assert e.flat is True
 
     def test_table_element(self):
-        e = TableElement(
+        e = LegacyTableElement(
             id="tbl1",
             columns=["Name", "Score"],
             rows=[["Alice", 95], ["Bob", 87]],
@@ -264,10 +264,29 @@ class TestElements:
         assert e.flags == ["borders", "row_bg", "resizable"]
 
     def test_table_element_defaults(self):
-        e = TableElement(id="tbl1")
+        e = LegacyTableElement(id="tbl1")
         assert e.columns == []
         assert e.rows == []
         assert e.flags == ["borders", "row_bg"]
+
+    def test_legacy_table_bool_cell_validates(self):
+        # A boolean cell is a valid scalar (bool is listed explicitly though a
+        # subclass of int), matching the "boolean" the message names and the ABC.
+        e = LegacyTableElement(
+            id="tbl1", columns=["Name", "Active"], rows=[["x", True]]
+        )
+        assert e.validate() == ()
+
+    def test_legacy_table_tooltip_survives_the_roundtrip(self):
+        # The tooltip is a real field; it must not be silently dropped on the wire.
+        e = LegacyTableElement(id="tbl1", columns=["Name"], rows=[["x"]], tooltip="hi")
+        restored = LegacyTableElement.from_dict(e.to_dict())
+        assert restored.tooltip == "hi"
+
+    def test_legacy_table_absent_tooltip_stays_none(self):
+        e = LegacyTableElement(id="tbl1", columns=["Name"], rows=[["x"]])
+        restored = LegacyTableElement.from_dict(e.to_dict())
+        assert restored.tooltip is None
 
     def test_plot_element(self):
         series = (PlotSeries("y", "line", (1.0, 2.0, 3.0), (10.0, 20.0, 15.0)),)
@@ -959,7 +978,7 @@ class TestSerialization:
                     "label": "Tab 2",
                     "children": [
                         ButtonElement(id="b1", label="Action"),
-                        TableElement(id="sel1", columns=["A"], rows=[["x"]]),
+                        LegacyGroupElement(id="lgc", layout="paged"),
                     ],
                 },
             ],
@@ -984,7 +1003,7 @@ class TestSerialization:
             default_open=True,
             children=[
                 CheckboxElement(id="cb1", label="Debug"),
-                TableElement(id="sel1", columns=["A"], rows=[["x"]]),
+                LegacyGroupElement(id="lgc", layout="paged"),
             ],
         )
         scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
@@ -1061,35 +1080,27 @@ class TestSerialization:
         assert tree.nodes == ()
 
     def test_table_roundtrip(self):
-        e = TableElement(
+        e = LegacyTableElement(
             id="tbl1",
             columns=["Name", "Score"],
             rows=[["Alice", 95], ["Bob", 87]],
             flags=["borders", "row_bg", "sortable"],
         )
-        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        tbl = restored.elements[0]
-        assert isinstance(tbl, TableElement)
+        tbl = LegacyTableElement.from_dict(e.to_dict())
+        assert isinstance(tbl, LegacyTableElement)
         assert tbl.columns == ["Name", "Score"]
         assert tbl.rows == [["Alice", 95], ["Bob", 87]]
         assert tbl.flags == ["borders", "row_bg", "sortable"]
 
     def test_table_empty_roundtrip(self):
-        e = TableElement(id="tbl1")
-        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        tbl = restored.elements[0]
-        assert isinstance(tbl, TableElement)
+        e = LegacyTableElement(id="tbl1")
+        tbl = LegacyTableElement.from_dict(e.to_dict())
+        assert isinstance(tbl, LegacyTableElement)
         assert tbl.columns == []
         assert tbl.rows == []
 
     def test_table_with_filters_roundtrip(self):
-        e = TableElement(
+        e = LegacyTableElement(
             id="tbl1",
             columns=["ID", "Title", "Status"],
             rows=[["1", "Fix bug", "open"], ["2", "Add feature", "closed"]],
@@ -1102,12 +1113,8 @@ class TestSerialization:
                 ),
             ],
         )
-        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        tbl = restored.elements[0]
-        assert isinstance(tbl, TableElement)
+        tbl = LegacyTableElement.from_dict(e.to_dict())
+        assert isinstance(tbl, LegacyTableElement)
         assert tbl.filters is not None
         assert len(tbl.filters) == 2
         assert tbl.filters[0].type == "search"
@@ -1118,7 +1125,7 @@ class TestSerialization:
         assert tbl.filters[1].items == ["All", "open", "closed"]
 
     def test_table_with_detail_roundtrip(self):
-        e = TableElement(
+        e = LegacyTableElement(
             id="tbl1",
             columns=["ID", "Title"],
             rows=[["1", "Fix bug"], ["2", "Add feature"]],
@@ -1128,30 +1135,22 @@ class TestSerialization:
                 body=["Bug description", "Feature description"],
             ),
         )
-        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        tbl = restored.elements[0]
-        assert isinstance(tbl, TableElement)
+        tbl = LegacyTableElement.from_dict(e.to_dict())
+        assert isinstance(tbl, LegacyTableElement)
         assert tbl.detail is not None
         assert tbl.detail.fields == ["ID", "Status", "Owner"]
         assert tbl.detail.rows == [["1", "open", "alice"], ["2", "closed", "bob"]]
         assert tbl.detail.body == ["Bug description", "Feature description"]
 
     def test_table_with_column_widths_roundtrip(self):
-        e = TableElement(
+        e = LegacyTableElement(
             id="tbl1",
             columns=["ID", "Title", "Status"],
             rows=[["1", "Fix bug", "open"]],
             column_widths=[1.0, 4.0, 2.0],
         )
-        scene = SceneMessage(id="s1", elements=[e], frame_id="s1")
-        d = message_to_dict(scene)
-        restored = message_from_dict(d)
-        assert isinstance(restored, SceneMessage)
-        tbl = restored.elements[0]
-        assert isinstance(tbl, TableElement)
+        tbl = LegacyTableElement.from_dict(e.to_dict())
+        assert isinstance(tbl, LegacyTableElement)
         assert tbl.column_widths == [1.0, 4.0, 2.0]
 
     def test_table_filter_combo_requires_items(self):
@@ -1168,7 +1167,7 @@ class TestSerialization:
 
     def test_table_element_validates_column_widths(self):
         with pytest.raises(ValueError, match="column_widths length"):
-            TableElement(
+            LegacyTableElement(
                 id="t",
                 columns=["A", "B"],
                 column_widths=[0.5],  # wrong length
@@ -1176,7 +1175,7 @@ class TestSerialization:
 
     def test_table_element_validates_detail_rows(self):
         with pytest.raises(ValueError, match=r"detail\.rows length"):
-            TableElement(
+            LegacyTableElement(
                 id="t",
                 columns=["A"],
                 rows=[["x"], ["y"]],
@@ -1316,7 +1315,7 @@ class TestSerialization:
                     "label": "Layout",
                     "children": [
                         inner,
-                        TableElement(id="sel1", columns=["A"], rows=[["x"]]),
+                        LegacyGroupElement(id="lgc", layout="paged"),
                     ],
                 }
             ],
@@ -1340,7 +1339,7 @@ class TestSerialization:
             id="w1",
             title="Complex",
             children=[
-                TableElement(id="tbl", columns=["A"], rows=[["x"]]),
+                LegacyGroupElement(id="lgc", layout="paged"),
                 TextElement(id="t1", content="nested"),
             ],
         )
@@ -1350,7 +1349,7 @@ class TestSerialization:
         assert isinstance(restored, SceneMessage)
         r_win = restored.elements[0]
         assert isinstance(r_win, LegacyWindowElement)
-        assert r_win.children[0].kind == "table"
+        assert r_win.children[0].kind == "group"
 
     def test_deeply_nested_containers_roundtrip(self):
         # An all-ABC subtree — a header holding a text — decodes onto the ABC

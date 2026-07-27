@@ -17,7 +17,7 @@ from punt_lux.__main__ import app
 from punt_lux.apps.beads import BeadsBrowser
 from punt_lux.operations import OpError, RenderRequest, SceneShown
 from punt_lux.operations.models.render import FrameSpec
-from punt_lux.protocol import TextElement
+from punt_lux.protocol import GroupElement, TableElement, TextElement
 from punt_lux.rest_transport import HubUnavailableError
 from punt_lux.show import BeadsBoard
 
@@ -323,11 +323,15 @@ class TestBuildBeadsElements:
     def test_nonempty_issues_returns_table(self) -> None:
         active = [i for i in _ISSUES if i["status"] in {"open", "in_progress"}]
         elements = BeadsBrowser().build_elements((active, None))
+        # The board is a composition: one group root with the grid + chrome.
         assert len(elements) == 1
-        assert elements[0].kind == "table"
-        assert elements[0].id == "table"
-        assert len(elements[0].rows) == 2
-        assert elements[0].columns == ["ID", "Title", "Status", "P", "Type"]
+        root = elements[0]
+        assert root.kind == "group"
+        assert isinstance(root, GroupElement)
+        table = next(c for c in root.children if isinstance(c, TableElement))
+        assert table.id == "table"
+        assert len(table.rows) == 2
+        assert list(table.columns) == ["ID", "Title", "Status", "P", "Type"]
 
     def test_error_returns_visible_error_element(self) -> None:
         """When bd fails, surface the reason instead of 'No active issues'."""

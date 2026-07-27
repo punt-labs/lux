@@ -64,6 +64,24 @@ def test_render_dashboard_installs_metric_and_table_sections() -> None:
     assert store.resolve(SceneId("dash"), ElementId("dashboard-table")).kind == "table"
 
 
+def test_render_table_rejects_a_bad_filter_shape_without_raising() -> None:
+    # The composition's fail-loud guards raise ValueError; render_table must fold
+    # that into an OpError (no traceback out of show_table), like the render path.
+    store = HubDisplay()
+    request = RenderTableRequest.parse(
+        {
+            "scene_id": "tbl",
+            "columns": ["A"],
+            "rows": [["x"]],
+            "filters": [{"type": "slider", "column": 0}],  # unknown filter type
+        }
+    )
+    result = _conveniences(store).render_table(request, scope=_LOCAL)
+    assert isinstance(result, OpError)
+    assert result.code == "rejected"
+    assert "unknown table filter type" in result.reason
+
+
 def test_render_table_passes_an_op_error_straight_through() -> None:
     error = OpError(code="invalid_request", reason="bad")
     assert _conveniences(HubDisplay()).render_table(error, scope=_LOCAL) is error

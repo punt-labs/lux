@@ -40,7 +40,7 @@ You need:
 
 ## Phase 2: Design the Filters
 
-**Prefer built-in table filters** (DES-018) — these run at 60fps in the display server with zero round trips. Use separate filter elements + `recv()`/`update()` only when you need custom logic that built-in filters can't handle (e.g., numeric ranges, cross-field filters, external lookups).
+**Prefer the packaged `show_table` filters** — the Hub composes a search box, status combos, the grid, and a selection-bound detail panel from primitives and filters Hub-side (the packaged default): the grid always shows exactly the rows the Hub holds, and a selection hidden by a filter reappears when the filter is cleared. Use separate filter elements + `recv()`/`update()` only when you need custom logic the packaged filters can't handle (e.g., numeric ranges, cross-field filters, external lookups).
 
 ### Built-in Filters (preferred)
 
@@ -60,7 +60,10 @@ Add a `filters` array to the `table` element. Two types are available:
 
 ### Built-in Detail Panel (preferred)
 
-Add a `detail` object to the table for drill-down. This renders a list/detail view with fields and body text, driven entirely by data — no round trips.
+Pass a `detail` object to `show_table` for drill-down (the basic `table`
+element is just a grid — `show_table` composes the detail panel as a sibling
+element). The Hub binds the composed panel to the grid's selection: click a
+row and the Hub patches the panel with that row's fields and body text.
 
 ### Separate Filter Elements (advanced)
 
@@ -76,62 +79,63 @@ For filters that built-in types can't handle (numeric ranges, sliders, cross-fie
 
 Build the element tree following the data explorer pattern.
 
-### Pattern: Table with Built-in Filters + Detail
+### Pattern: `show_table` with Filters + Detail
 
-A single `table` element with `filters` and `detail` gives you a complete data explorer with zero round trips — search, filter, row selection, and detail panel all run at 60fps in the display server.
+Call the `show_table` tool with `columns`/`rows`/`filters`/`detail`. The Hub
+composes a search box, status combos, the grid, and a selection-bound detail
+panel from primitives and wires the Hub-side filter and detail handlers — search,
+filter, row selection, and detail all work without your `recv()`/`update()` loop.
+(Pass `filters`/`detail` to `show_table`, not to a raw `table` element in
+`show()`: the basic `table` element is a grid alone; the chrome is composed.)
 
 ### Reference Example
 
-This is the canonical form — a searchable, filterable list of issues with drill-down detail. Adapt freely to any tabular data: search results, log entries, test cases, inventory, API responses.
+This is the canonical form — a searchable, filterable list of issues with
+drill-down detail. Adapt freely to any tabular data: search results, log entries,
+test cases, inventory, API responses.
 
-```json
-{
-  "scene_id": "data-explorer",
-  "title": "Issue Explorer",
-  "elements": [
-    {
-      "kind": "table", "id": "data-table",
-      "columns": ["ID", "Title", "Status", "Priority", "Assignee"],
-      "rows": [
+```python
+show_table(
+    scene_id="data-explorer",
+    title="Issue Explorer",
+    columns=["ID", "Title", "Status", "Priority", "Assignee"],
+    rows=[
         ["ISS-001", "Fix login timeout", "Open", "P1", "alice"],
         ["ISS-002", "Add dark mode", "In Progress", "P2", "bob"],
         ["ISS-003", "Update API docs", "Open", "P3", "carol"],
         ["ISS-004", "Memory leak in worker", "Open", "P0", "alice"],
-        ["ISS-005", "Refactor auth module", "Closed", "P2", "bob"]
-      ],
-      "filters": [
+        ["ISS-005", "Refactor auth module", "Closed", "P2", "bob"],
+    ],
+    filters=[
         {"type": "search", "column": [0, 1], "hint": "Filter by ID or title..."},
         {"type": "combo", "column": 2, "items": ["All", "Open", "In Progress", "Closed"], "label": "Status"},
-        {"type": "combo", "column": 3, "items": ["All", "P0", "P1", "P2", "P3"], "label": "Priority"}
-      ],
-      "detail": {
+        {"type": "combo", "column": 3, "items": ["All", "P0", "P1", "P2", "P3"], "label": "Priority"},
+    ],
+    detail={
         "fields": ["ID", "Status", "Priority", "Assignee", "Created"],
         "rows": [
-          ["ISS-001", "Open", "P1", "alice", "2026-03-01"],
-          ["ISS-002", "In Progress", "P2", "bob", "2026-03-02"],
-          ["ISS-003", "Open", "P3", "carol", "2026-03-03"],
-          ["ISS-004", "Open", "P0", "alice", "2026-03-04"],
-          ["ISS-005", "Closed", "P2", "bob", "2026-03-05"]
+            ["ISS-001", "Open", "P1", "alice", "2026-03-01"],
+            ["ISS-002", "In Progress", "P2", "bob", "2026-03-02"],
+            ["ISS-003", "Open", "P3", "carol", "2026-03-03"],
+            ["ISS-004", "Open", "P0", "alice", "2026-03-04"],
+            ["ISS-005", "Closed", "P2", "bob", "2026-03-05"],
         ],
         "body": [
-          "The login flow times out after 30s on slow connections...",
-          "Add system-wide dark mode toggle with persistent preference.",
-          "API docs are outdated after the v2 migration.",
-          "Worker process leaks ~10MB/hour under sustained load.",
-          "Auth module has accumulated tech debt — extract into clean service."
-        ]
-      },
-      "flags": ["borders", "row_bg"]
-    }
-  ]
-}
+            "The login flow times out after 30s on slow connections...",
+            "Add system-wide dark mode toggle with persistent preference.",
+            "API docs are outdated after the v2 migration.",
+            "Worker process leaks ~10MB/hour under sustained load.",
+            "Auth module has accumulated tech debt — extract into clean service.",
+        ],
+    },
+)
 ```
 
 ### Layout Adaptations
 
 - **No categorical fields**: Skip combo filters, use only text search
 - **Many categories**: Use `tab_bar` with one tab per major category instead of a combo filter
-- **Large data sets** (50+ rows): Paginate — show first N rows, add "Next" / "Previous" buttons
+- **Large data sets** (50+ rows): the grid scrolls natively — no pager needed; a Display-side clipper draws only the visible rows
 - **Hierarchical data**: Use `tree` elements instead of a flat table
 - **Side-by-side detail**: Use `group` with `layout: "columns"` to place the table and detail panel next to each other instead of stacked
 
@@ -141,11 +145,11 @@ Call `set_theme("imgui_colors_light")` before showing — light themes work best
 
 ## Phase 5: Interaction
 
-With built-in filters and detail, the data explorer is fully interactive without any `recv()`/`update()` loop. Tell the user:
+With the packaged `show_table` filters and detail, the data explorer is fully interactive without any `recv()`/`update()` loop. Tell the user:
 
-- **Search** and **filter dropdowns** work instantly (no round trips)
+- **Search** and **filter dropdowns** filter the grid Hub-side (the grid shows exactly the rows that match)
 - **Click any row** to see its full details in the side panel
-- The result count updates automatically as filters narrow the view
+- A selection hidden by a filter reappears when the filter is cleared
 
 ### When recv/update IS needed
 

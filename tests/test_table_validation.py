@@ -9,6 +9,8 @@ integration are covered in ``tests/domain/test_validation_walk.py`` and
 
 from __future__ import annotations
 
+import pytest
+
 from punt_lux.protocol.elements.layout import LegacyGroupElement
 from punt_lux.protocol.elements.table import TableElement
 
@@ -83,14 +85,11 @@ class TestTableValidate:
     def test_empty_table_is_valid(self) -> None:
         assert TableElement(id="empty").validate() == ()
 
-    def test_non_list_row_reports_error_not_crash(self) -> None:
-        # A scalar row would make ``len(row)`` raise TypeError; the guard
-        # turns it into an actionable error instead of a crash.
-        table = TableElement(id="scalars", columns=["A"], rows=[1, 2])  # type: ignore[list-item]  # deliberately malformed
-        errors = table.validate()
-        assert len(errors) == 2
-        assert all("is not a list of cells" in e.message for e in errors)
-        assert errors[0].element_kind == "table"
+    def test_non_list_row_is_rejected_at_decode(self) -> None:
+        # Structural shape is a decode-boundary concern for the ABC grid: a
+        # non-list row is rejected there, not deferred to validate (DES-039).
+        with pytest.raises(ValueError, match="must be a list of cells"):
+            TableElement.from_dict({"kind": "table", "id": "scalars", "rows": [1, 2]})
 
     def test_zero_columns_with_nonempty_row_is_a_mismatch(self) -> None:
         table = TableElement(id="empty_cols", columns=[], rows=[["x"]])
@@ -110,33 +109,23 @@ class TestTableValidate:
         assert "1 column(s)" in messages
         assert "dict" in messages
 
-    def test_null_rows_reports_error_not_crash(self) -> None:
+    def test_null_rows_is_rejected_at_decode(self) -> None:
         # ``{"rows": null}`` decodes to ``None`` (dict.get returns the present
-        # value, not the default); ``len``/iteration would crash without the
-        # guard. It must be reported like any other malformation.
-        table = TableElement(id="nr", columns=["A"], rows=None)  # type: ignore[arg-type]  # wire present-null
-        errors = table.validate()
-        assert len(errors) == 1
-        assert "rows must be a list of rows" in errors[0].message
-        assert errors[0].element_kind == "table"
+        # value, not the default); the ABC grid rejects it at the wire boundary.
+        with pytest.raises(ValueError, match="rows must be a list of rows"):
+            TableElement.from_dict({"kind": "table", "id": "nr", "rows": None})
 
-    def test_null_columns_reports_error_not_crash(self) -> None:
-        table = TableElement(id="nc", columns=None, rows=[["x"]])  # type: ignore[arg-type]  # wire present-null
-        errors = table.validate()
-        assert len(errors) == 1
-        assert "columns must be a list of column names" in errors[0].message
+    def test_null_columns_is_rejected_at_decode(self) -> None:
+        with pytest.raises(ValueError, match="columns must be a list of strings"):
+            TableElement.from_dict({"kind": "table", "id": "nc", "columns": None})
 
-    def test_scalar_rows_field_reports_error_not_crash(self) -> None:
-        table = TableElement(id="sr", columns=["A"], rows=5)  # type: ignore[arg-type]  # deliberately malformed
-        errors = table.validate()
-        assert len(errors) == 1
-        assert "rows must be a list of rows" in errors[0].message
+    def test_scalar_rows_field_is_rejected_at_decode(self) -> None:
+        with pytest.raises(ValueError, match="rows must be a list of rows"):
+            TableElement.from_dict({"kind": "table", "id": "sr", "rows": 5})
 
-    def test_scalar_columns_field_reports_error_not_crash(self) -> None:
-        table = TableElement(id="sc", columns=3, rows=[["x"]])  # type: ignore[arg-type]  # deliberately malformed
-        errors = table.validate()
-        assert len(errors) == 1
-        assert "columns must be a list of column names" in errors[0].message
+    def test_scalar_columns_field_is_rejected_at_decode(self) -> None:
+        with pytest.raises(ValueError, match="columns must be a list of strings"):
+            TableElement.from_dict({"kind": "table", "id": "sc", "columns": 3})
 
 
 class TestGroupChildElements:

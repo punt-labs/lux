@@ -51,6 +51,7 @@ class AbcKindVerifier:
             "dialog",
             "collapsing_header",
             "tab_bar",
+            "table",
         }
     )
     SUGAR_KINDS: ClassVar[frozenset[str]] = frozenset({"button"})

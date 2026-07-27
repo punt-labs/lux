@@ -85,6 +85,16 @@ def _decode(wire: Mapping[str, object]) -> object:
     return agent_element_factory().element_from_dict(cast("dict[str, Any]", dict(wire)))
 
 
+def _legacy_child() -> dict[str, object]:
+    """Return a still-legacy subtree — a paged group forks its container legacy.
+
+    Every leaf kind is migrated after B6, so the legacy fork path is exercised
+    through the one remaining legacy shape: a ``group`` whose ``paged`` layout
+    the ABC group cannot hold.
+    """
+    return {"kind": "group", "id": "lg", "layout": "paged", "children": []}
+
+
 def _server() -> DisplayServer:
     raw_dir = tempfile.mkdtemp(prefix="lux-")
     return DisplayServer(socket_path=str(Path(raw_dir) / "display.sock"))
@@ -144,7 +154,7 @@ class TestForkGate:
         wire = {
             "kind": "window",
             "id": "w",
-            "children": [{"kind": "table", "id": "t", "columns": ["A"], "rows": []}],
+            "children": [_legacy_child()],
         }
         assert not ContainerAbcGate.is_all_abc(wire)
         assert isinstance(_decode(wire), LegacyWindowElement)
@@ -153,15 +163,15 @@ class TestForkGate:
         wire = {
             "kind": "window",
             "id": "w",
-            "children": [{"kind": "table", "id": "t", "columns": ["A"], "rows": []}],
+            "children": [_legacy_child()],
         }
-        with pytest.raises(ValueError, match="table"):
+        with pytest.raises(ValueError, match="paged"):
             WindowElement.from_dict(wire)
 
     def test_window_in_legacy_container_is_forced_legacy(self) -> None:
-        # A window nested inside a legacy tab_bar (a legacy sibling table forces
-        # the bar legacy) must itself decode legacy — an ABC container never nests
-        # inside a legacy render subtree.
+        # A window nested inside a legacy tab_bar (a legacy sibling paged group
+        # forces the bar legacy) must itself decode legacy — an ABC container
+        # never nests inside a legacy render subtree.
         wire = {
             "kind": "tab_bar",
             "id": "tb",
@@ -169,7 +179,7 @@ class TestForkGate:
                 {
                     "label": "One",
                     "children": [
-                        {"kind": "table", "id": "t", "columns": ["A"], "rows": []},
+                        _legacy_child(),
                         _abc_window().to_dict(),
                     ],
                 }

@@ -130,6 +130,46 @@ def test_render_rejects_an_undecodable_element_without_raising() -> None:
     assert recorder.dirtied == []
 
 
+def test_render_rejects_a_type_error_wire_shape_without_raising() -> None:
+    # A wrong-typed wire shape raises TypeError (not ValueError) in the codec —
+    # here a table's ``handlers`` that is not a list. The decode boundary must
+    # catch it too, so show() returns a rejection, not a traceback/500.
+    store, recorder = HubDisplay(), _Recorder()
+    request = RenderRequest.parse(
+        {
+            "scene_id": "s1",
+            "elements": [
+                {
+                    "kind": "table",
+                    "id": "t1",
+                    "columns": ["A"],
+                    "rows": [["x"]],
+                    "handlers": "not-a-list",
+                }
+            ],
+        }
+    )
+    result = _ops(store, recorder).render(request, scope=_LOCAL)
+    assert isinstance(result, OpError)
+    assert result.code == "rejected"
+    assert "handlers" in result.reason
+    assert recorder.dirtied == []
+
+
+def test_render_rejects_a_legacy_missing_id_without_raising() -> None:
+    # A legacy dataclass decoder indexes required fields directly (d["id"]), so a
+    # legacy-only wire (a paged group) missing id raises KeyError, not ValueError.
+    # The decode boundary must catch it too, or malformed input becomes a 500.
+    store, recorder = HubDisplay(), _Recorder()
+    request = RenderRequest.parse(
+        {"scene_id": "s1", "elements": [{"kind": "group", "layout": "paged"}]}
+    )
+    result = _ops(store, recorder).render(request, scope=_LOCAL)
+    assert isinstance(result, OpError)
+    assert result.code == "rejected"
+    assert recorder.dirtied == []
+
+
 def test_update_sets_a_field_and_marks_dirty() -> None:
     store, recorder = HubDisplay(), _Recorder()
     _seed_header(store, is_open=False)

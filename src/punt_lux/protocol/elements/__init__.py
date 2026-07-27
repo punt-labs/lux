@@ -52,6 +52,12 @@ from punt_lux.protocol.elements.layout import (
     LegacyTabBarElement,
     LegacyWindowElement,
 )
+from punt_lux.protocol.elements.legacy_table import (
+    LegacyTableElement,
+    TableDetail,
+    TableFilter,
+    register_codecs as _register_table,
+)
 from punt_lux.protocol.elements.markdown import MarkdownElement
 from punt_lux.protocol.elements.modal import ModalElement
 from punt_lux.protocol.elements.plot import PlotElement
@@ -63,12 +69,7 @@ from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.spinner import SpinnerElement
 from punt_lux.protocol.elements.tab import Tab
 from punt_lux.protocol.elements.tab_bar import TabBarElement
-from punt_lux.protocol.elements.table import (
-    TableDetail,
-    TableElement,
-    TableFilter,
-    register_codecs as _register_table,
-)
+from punt_lux.protocol.elements.table import TableElement
 from punt_lux.protocol.elements.text import TextElement
 from punt_lux.protocol.elements.tree import TreeElement
 from punt_lux.protocol.elements.window import WindowElement
@@ -92,6 +93,7 @@ __all__ = [
     "LegacyGroupElement",
     "LegacyModalElement",
     "LegacyTabBarElement",
+    "LegacyTableElement",
     "LegacyWindowElement",
     "MarkdownElement",
     "ModalElement",
@@ -144,6 +146,7 @@ Element = (
     | SelectableElement
     | TreeElement
     | TableElement
+    | LegacyTableElement
     | PlotElement
     | ProgressElement
     | SpinnerElement

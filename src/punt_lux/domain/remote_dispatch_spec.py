@@ -17,9 +17,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from punt_lux.domain.event_kinds import EventKind
     from punt_lux.domain.event_protocol import WireEvent
     from punt_lux.domain.ids import ClientId, ElementId, SceneId
-    from punt_lux.domain.interaction import EventKind
 
 __all__ = ["RemoteDispatchSpec"]
 

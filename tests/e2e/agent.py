@@ -30,6 +30,7 @@ from punt_lux.domain.hub.hub_factory import hub_element_factory
 from punt_lux.domain.hub.inbox import drain_inbox, ensure_writer, next_event
 from punt_lux.domain.ids import ClientId, ConnectionId, ElementId, SceneId, Topic
 from punt_lux.domain.interaction import ButtonClicked, ValueChanged
+from punt_lux.domain.selection_interaction import RowSelectionChanged
 from punt_lux.domain.update import AddElement, SetProperty
 from punt_lux.domain.validation_walk import ElementTreeValidator
 from punt_lux.protocol.elements.button import ButtonElement
@@ -44,6 +45,7 @@ from punt_lux.protocol.elements.radio import RadioElement
 from punt_lux.protocol.elements.selectable import SelectableElement
 from punt_lux.protocol.elements.slider import SliderElement
 from punt_lux.protocol.elements.tab_bar import TabBarElement
+from punt_lux.protocol.elements.table import TableElement
 
 from .scenario import (
     COLOR_COMMIT_VALUE,
@@ -338,6 +340,15 @@ class SimulatedAgent:
                 owner_id=ClientId("__display__"),
                 tab_id=self._other_tab(element),
             )
+        if isinstance(element, TableElement):
+            row_ids, anchor = self._table_range(element)
+            return RowSelectionChanged(
+                scene_id=SceneId("__display__"),
+                element_id=ElementId(element.id),
+                owner_id=ClientId("__display__"),
+                row_ids=row_ids,
+                anchor=anchor,
+            )
         if isinstance(element, ModalElement):
             # A dismissal carries no payload — the close itself is the event.
             return ModalClosed(
@@ -356,6 +367,20 @@ class SimulatedAgent:
                 return tab.tab_id
         msg = f"tab_bar {element.id!r} has no tab to switch to"
         raise ValueError(msg)
+
+    @staticmethod
+    def _table_range(element: TableElement) -> tuple[tuple[str, ...], str]:
+        """Return the (row_ids, anchor) a range gesture over the grid selects.
+
+        Models a shift/box gesture: the first and last rows, anchored on the
+        last-touched (last) row — deterministic so the scenario's expected
+        payload agrees with the crossed invocation.
+        """
+        ids = [element.row_id(row) for row in element.rows]
+        if not ids:
+            msg = f"table {element.id!r} has no rows to select"
+            raise ValueError(msg)
+        return (ids[0], ids[-1]), ids[-1]
 
     def _event_type_for(self, element: AbcElement) -> type[Event]:
         """Return the interaction event type the target fires."""
@@ -377,6 +402,8 @@ class SimulatedAgent:
             return HeaderToggled
         if isinstance(element, TabBarElement):
             return TabChanged
+        if isinstance(element, TableElement):
+            return RowSelectionChanged
         if isinstance(element, ModalElement):
             return ModalClosed
         msg = f"no interaction event type for element kind of {element.id!r}"

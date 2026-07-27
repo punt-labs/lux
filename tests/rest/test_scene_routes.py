@@ -4,7 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, cast
 
+from punt_lux.domain.element import Element as WireElement
+from punt_lux.domain.element_abc import Element as AbcElement
+from punt_lux.domain.hub.hub_display import HubDisplay
+from punt_lux.domain.ids import ElementId, SceneId
+from punt_lux.domain.interaction import ValueChanged
 from punt_lux.operations.display_reply import DisplayReplied
+from punt_lux.protocol.compositions import TableComposition, TableCompositionSpec
 
 from ._fakes import StubPort, make_client
 
@@ -13,6 +19,12 @@ if TYPE_CHECKING:
     from httpx import Response
 
 _TEXT = {"kind": "text", "id": "t1", "content": "hi"}
+_TABLE_BODY = {
+    "scene_id": "issues",
+    "columns": ["ID", "Status"],
+    "rows": [["1", "open"]],
+    "filters": [{"type": "search", "column": [0]}],
+}
 
 
 def _render(client: TestClient, scene_id: str = "s1") -> Response:
@@ -223,3 +235,68 @@ def test_a_non_owning_rest_call_creates_no_phantom_client() -> None:
     client.get("/menus")
     client.get("/scenes")
     assert client.get("/clients").json()["clients"] == []
+
+
+def test_render_table_route_installs_the_live_composition() -> None:
+    # The MCP surface's show_table works because render_table CONSTRUCTS the
+    # composition (its filter handlers + FilteredTableModel) server-side. REST now
+    # offers the same, so a REST-pushed composed table has live chrome.
+    store = HubDisplay()
+    client = make_client(store=store)
+    resp = client.put("/scenes/issues/table", json=_TABLE_BODY)
+    assert resp.status_code == 200
+    search = cast(
+        "AbcElement", store.resolve(SceneId("issues"), ElementId("table-search"))
+    )
+    # the search input carries the composition's SearchFilterHandler on top of its
+    # built-in value mirror — two ValueChanged handlers, live chrome.
+    assert search.handler_count(ValueChanged) == 2
+
+
+def test_replacing_a_composed_scene_does_not_leak_the_old_model() -> None:
+    # The poller re-pushes every ~3s, replacing the scene each time. Each push
+    # builds fresh elements + FilteredTableModel + observers; the old ones — a
+    # table<->model observer CYCLE — must die with the replace, not accumulate.
+    import gc
+    import weakref
+
+    store = HubDisplay()
+    client = make_client(store=store)
+    client.put("/scenes/issues/table", json=_TABLE_BODY)
+    old_table = store.resolve(SceneId("issues"), ElementId("table"))
+    ref = weakref.ref(old_table)
+    del old_table
+    client.put("/scenes/issues/table", json=_TABLE_BODY)  # replace with fresh build
+    gc.collect()
+    assert ref() is None, "the replaced table (and its observer cycle) leaked"
+
+
+def test_render_table_route_rejects_a_body_scene_id_that_differs() -> None:
+    client = make_client()
+    resp = client.put("/scenes/path-id/table", json={**_TABLE_BODY, "scene_id": "body"})
+    assert resp.status_code == 422
+    assert "path-id" in resp.json()["detail"]
+
+
+def test_generic_render_of_composed_json_loses_the_composition_handlers() -> None:
+    # The defect (owner 'rest', HubDisplay.replace_scene): pushing a composition as
+    # wire JSON through the generic render decodes it with built-in handlers only —
+    # the constructed filter handlers are not wire-expressible. The /table route is
+    # the fix; this pins the contrast that motivates it.
+    roots = TableComposition.build(
+        TableCompositionSpec(
+            columns=("ID", "Status"),
+            rows=(("1", "open"),),
+            filters=({"type": "search", "column": [0]},),
+        )
+    )
+    wire = [cast("WireElement", r).to_dict() for r in roots]
+    store = HubDisplay()
+    client = make_client(store=store)
+    resp = client.put("/scenes/issues", json={"scene_id": "issues", "elements": wire})
+    assert resp.status_code == 200
+    search = cast(
+        "AbcElement", store.resolve(SceneId("issues"), ElementId("table-search"))
+    )
+    # The constructed SearchFilterHandler was stripped on decode — dead chrome.
+    assert search.handler_count(ValueChanged) < 2

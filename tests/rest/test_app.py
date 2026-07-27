@@ -24,15 +24,15 @@ _SCOPE = Scope(ConnectionId("rest-test"))
 # Operations that live in the facade but are not routed over REST, each with the
 # design's reason. publish/subscribe/unsubscribe/receive are session-scoped and
 # blocked on the REST session decision — a connection-less REST publish in one
-# fixed scope can never deliver, so it is not exposed; the two conveniences
-# compose a tree and are standing MCP tools; drop_session is session lifecycle.
+# fixed scope can never deliver, so it is not exposed; drop_session is session
+# lifecycle. render_table/render_dashboard ARE routed: a composed table must be
+# CONSTRUCTED server-side (its handlers + model are not wire-expressible), so a
+# REST caller pushing composed JSON through the generic render gets dead chrome.
 _MCP_ONLY = {
     "publish",
     "subscribe",
     "unsubscribe",
     "receive",
-    "render_table",
-    "render_dashboard",
     "drop_session",
 }
 

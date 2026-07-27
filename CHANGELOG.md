@@ -4,7 +4,28 @@
 
 ### Added
 
-- **Tree, plot, and draw migrated to the Element-ABC path (24 of 25 kinds).**
+- **The table migrated to the Element-ABC path — all 25 kinds now on the new
+  architecture.** The core `table` is a basic data grid: columns, rows, a
+  `key_column` attribute (index or column name) giving every row a stable id,
+  and a `selection_mode` of `none`, `single`, or `multi`. Row selection is
+  Hub-authoritative and survives sorting, filtering, and row reordering
+  because it names key values, never positions. Multi-select uses ImGui's
+  native API (ctrl/shift/box gestures); column sort now actually works (the
+  legacy flag drew arrows that did nothing); the built-in 10-row pager is
+  replaced by native scrolling. Filter bars, search boxes, and detail panels
+  are no longer table features — they are compositions of existing elements
+  wired through Hub-side handlers, with `FilteredTableModel` holding the full
+  row set and full selection so filtering never forgets a hidden selection.
+  `show_table` gained `key_column` and `table_id` parameters and builds the
+  composed experience server-side; the beads browser and data-explorer are
+  rebuilt on the same composition. Columns auto-size proportionally to their
+  content when no explicit widths are given, and the grid reserves scroll
+  space so a detail panel stays visible below it. REST gained
+  `PUT /scenes/{id}/table` and `/dashboard` routes that construct the
+  composition server-side — pushing a composed table as plain JSON through
+  the generic render route cannot carry the Hub-side filter and detail
+  handlers, so table/dashboard callers must use the dedicated routes.
+- **Tree, plot, and draw migrated to the Element-ABC path.**
   The three kinds now self-validate at the Hub: a malformed plot series
   (non-string label, non-numeric coordinate), a wrong-schema draw command, or
   a label-less tree node is rejected back to the agent with an error naming

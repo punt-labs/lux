@@ -7,9 +7,9 @@ import time
 from typing import TYPE_CHECKING, Any, Self
 
 from punt_lux.protocol import (
+    LegacyTableElement,
     RemoteEventHandlerInvocation,
     TableDetail,
-    TableElement,
     TableFilter,
 )
 from punt_lux.scene import WidgetState
@@ -51,7 +51,7 @@ class TableRenderer:
 
     # -- public entry point ----------------------------------------------------
 
-    def render(self, table: TableElement, scene_id: str) -> None:
+    def render(self, table: LegacyTableElement, scene_id: str) -> None:
         """Render a complete table element with filters, pagination, and detail."""
         from imgui_bundle import imgui
 

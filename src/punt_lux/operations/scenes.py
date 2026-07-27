@@ -22,6 +22,7 @@ if TYPE_CHECKING:
 
     from punt_lux.domain.element import Element as DomainElement
     from punt_lux.domain.hub.hub_display import HubDisplay
+    from punt_lux.domain.hub.scene_presentation import ScenePresentation
     from punt_lux.operations.models.patches import UpdateRequest
     from punt_lux.operations.models.render import RenderRequest
     from punt_lux.operations.ports import DirtyMarker, ElementFactoryFor
@@ -63,31 +64,60 @@ class SceneOperations:
         if isinstance(request, OpError):
             return request
         factory = self._element_factory(scope.connection_id)
-        # Wire-decode boundary: an undecodable element raises ``ValueError``; the
-        # operation never raises through its signature, so a decode failure
-        # becomes a rejection the adapter renders like any other.
+        # Wire-decode boundary: a malformed element raises ``ValueError`` (a bad
+        # value or unknown ``kind``), ``TypeError`` (a wrong-typed wire shape, e.g.
+        # a table's ``handlers`` that is not a list), or ``KeyError`` (a legacy
+        # dataclass decoder indexes a required field directly — ``d["id"]`` —
+        # until B7). The operation never raises through its signature, so each
+        # becomes a rejection the adapter renders. This catch wraps only the
+        # decode, not ``install`` below, so a store-miss ``KeyError`` still
+        # surfaces as the engine bug it is. This is the SocketServer boundary's
+        # family.
         try:
             elements: list[WireElement] = [
                 factory.element_from_dict(e) for e in request.elements
             ]
-        except ValueError as exc:
+        except (ValueError, KeyError, TypeError) as exc:
             return OpError(code="rejected", reason=str(exc))
-        rejection = SubmissionGate().first_rejection(
-            SceneId(request.scene_id), elements
+        # WireElement is structurally the domain Element the store installs; the
+        # cast bridges list invariance across that crossing (PY-TS-12).
+        return self.install(
+            cast("Sequence[DomainElement]", elements),
+            scene_id=request.scene_id,
+            presentation=request.presentation(),
+            ttl_seconds=request.frame_ttl(),
+            scope=scope,
         )
+
+    def install(
+        self,
+        elements: Sequence[DomainElement],
+        *,
+        scene_id: str,
+        presentation: ScenePresentation,
+        ttl_seconds: float | None,
+        scope: Scope,
+    ) -> SceneShown | OpError:
+        """Validate a built element tree and install it, or return why it was refused.
+
+        The shared install path for both the wire-decode surface (``render``) and
+        the Hub-side conveniences that *construct* their tree as objects
+        (``ConvenienceOperations``): the same self-validation walk runs, the same
+        ``show_scene`` installs, so a constructed scene is downstream-indistinguishable
+        from a decoded one (target.md — the Hub decodes *or constructs* typed UI).
+        """
+        rejection = SubmissionGate().first_rejection(SceneId(scene_id), elements)
         if rejection is not None:
             return OpError(code="rejected", reason=rejection)
         self._display.show_scene(
             scope.connection_id,
-            SceneId(request.scene_id),
-            # WireElement is structurally the domain Element the store installs;
-            # the cast bridges list invariance across that crossing (PY-TS-12).
-            cast("Sequence[DomainElement]", elements),
-            request.presentation(),
-            ttl_seconds=request.frame_ttl(),
+            SceneId(scene_id),
+            elements,
+            presentation,
+            ttl_seconds=ttl_seconds,
         )
-        self._replicator.mark_dirty(SceneId(request.scene_id))
-        return SceneShown(scene_id=request.scene_id)
+        self._replicator.mark_dirty(SceneId(scene_id))
+        return SceneShown(scene_id=scene_id)
 
     def update(
         self, scene_id: str, request: UpdateRequest | OpError, *, scope: Scope

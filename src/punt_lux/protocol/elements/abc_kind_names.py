@@ -55,6 +55,7 @@ class AbcKindNames:
             "tree",
             "plot",
             "draw",
+            "table",
         }
     )
 

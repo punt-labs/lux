@@ -105,6 +105,7 @@ class JsonInputTextDecoder:
             value=ctx.optional_str(raw, "value", default=""),
             hint=ctx.optional_str(raw, "hint", default=""),
             tooltip=ctx.optional_nullable_str(raw, "tooltip"),
+            autofocus=ctx.optional_bool(raw, "autofocus", default=False),
         )
         elem.add_handler(ValueChanged, _UpdateTextHandler(elem))
         self._install_handlers(elem, raw)
@@ -184,4 +185,6 @@ class JsonInputTextEncoder:
             d["hint"] = elem.hint
         if elem.tooltip is not None:
             d["tooltip"] = elem.tooltip
+        if elem.autofocus:
+            d["autofocus"] = True
         return d
