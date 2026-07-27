@@ -7,9 +7,8 @@ remain as short delegators so the runtime-checkable
 
 The decoder injects the tier's ``renderer_factory`` + ``emit`` at
 construction — off the display tier that is the fail-loud sentinel, which
-the Display rebinds post-receive. Unlike the legacy dataclass codec, this
-encoder/decoder owns ``tooltip`` directly (the legacy path relied on a
-generic replace that ABC kinds never reach).
+the Display rebinds post-receive. This encoder/decoder owns ``tooltip``
+directly as its own wire field.
 """
 
 from __future__ import annotations
@@ -70,8 +69,8 @@ class JsonMarkdownDecoder:
 class JsonMarkdownEncoder:
     """Encode a ``MarkdownElement`` to its JSON-compatible wire dict.
 
-    Stateless. ``tooltip`` is omitted when absent so the wire shape matches
-    the legacy dataclass codec byte-for-byte; ``content`` is always emitted.
+    Stateless. ``tooltip`` is omitted when absent; ``content`` is always
+    emitted.
     """
 
     __slots__ = ()

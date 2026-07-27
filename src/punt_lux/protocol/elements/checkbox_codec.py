@@ -132,8 +132,8 @@ class JsonCheckboxDecoder:
 class JsonCheckboxEncoder:
     """Encode a ``CheckboxElement`` to its JSON-compatible wire dict.
 
-    Stateless. ``tooltip`` is omitted when absent so the wire shape
-    matches the prior dataclass codec byte-for-byte.
+    Stateless. ``tooltip`` is omitted when absent; every other field is
+    always emitted.
     """
 
     __slots__ = ()

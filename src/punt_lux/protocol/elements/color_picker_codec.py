@@ -166,8 +166,7 @@ class JsonColorPickerEncoder:
     """Encode a ``ColorPickerElement`` to its JSON-compatible wire dict.
 
     Stateless. ``alpha`` and ``picker`` are emitted only when ``True`` and
-    ``tooltip`` only when present, so the tooltip-absent wire shape matches the
-    prior dataclass codec byte-for-byte; a present ``tooltip`` is carried for
+    ``tooltip`` only when present; a present ``tooltip`` is carried for
     parity with input_text / slider / checkbox.
     """
 

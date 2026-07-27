@@ -76,8 +76,7 @@ class JsonDrawEncoder:
     """Encode a ``DrawElement`` to its JSON-compatible wire dict.
 
     Stateless. ``bg_color`` and ``tooltip`` are omitted when absent; the
-    remaining fields are always emitted so the wire shape matches the legacy
-    dataclass codec.
+    remaining fields are always emitted.
     """
 
     __slots__ = ()

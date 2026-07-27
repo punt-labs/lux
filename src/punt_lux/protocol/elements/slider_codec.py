@@ -161,10 +161,8 @@ class JsonSliderEncoder:
     """Encode a ``SliderElement`` to its JSON-compatible wire dict.
 
     Stateless. ``integer`` is emitted only when ``True`` and ``tooltip`` only
-    when present, so the wire shape matches the prior dataclass codec
-    byte-for-byte in the tooltip-absent case; a present ``tooltip`` is now
-    carried (the legacy dataclass codec dropped it — this activates it for
-    parity with input_text / checkbox).
+    when present; a present ``tooltip`` is carried for parity with
+    input_text / checkbox.
     """
 
     __slots__ = ()

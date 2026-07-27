@@ -75,7 +75,7 @@ class JsonPlotEncoder:
     """Encode a ``PlotElement`` to its JSON-compatible wire dict.
 
     Stateless. ``tooltip`` is omitted when absent; the remaining fields are
-    always emitted so the wire shape matches the legacy dataclass codec.
+    always emitted.
     """
 
     __slots__ = ()

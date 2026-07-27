@@ -163,9 +163,8 @@ class JsonInputTextDecoder:
 class JsonInputTextEncoder:
     """Encode an ``InputTextElement`` to its JSON-compatible wire dict.
 
-    Stateless. ``hint`` and ``tooltip`` are omitted when absent so the wire
-    shape matches the prior dataclass codec byte-for-byte; ``value`` is always
-    emitted.
+    Stateless. ``hint`` and ``tooltip`` are omitted when absent; ``value``
+    is always emitted.
     """
 
     __slots__ = ()

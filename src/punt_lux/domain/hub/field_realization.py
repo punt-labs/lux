@@ -32,9 +32,9 @@ __all__ = ["AbcFieldRealization", "FieldRealization"]
 class FieldRealization(Protocol):
     """A staged field mutation: rank a candidate, commit, or restore.
 
-    The writer treats every target uniformly through this contract, never learning
-    whether an element is ABC or legacy. ``rejection`` decides the batch before any
-    ``commit`` runs; ``restore`` undoes a commit when a later target fails.
+    The writer treats every target uniformly through this contract:
+    ``rejection`` decides the batch before any ``commit`` runs; ``restore``
+    undoes a commit when a later target fails.
     """
 
     def rejection(self) -> WriteRejected | None:

@@ -65,19 +65,19 @@ class SceneOperations:
             return request
         factory = self._element_factory(scope.connection_id)
         # Wire-decode boundary: a malformed element raises ``ValueError`` (a bad
-        # value or unknown ``kind``), ``TypeError`` (a wrong-typed wire shape, e.g.
-        # a table's ``handlers`` that is not a list), or ``KeyError`` (a legacy
-        # dataclass decoder indexes a required field directly — ``d["id"]`` —
-        # until B7). The operation never raises through its signature, so each
+        # value or unknown ``kind``) or ``TypeError`` (a wrong-typed wire shape,
+        # e.g. a table's ``handlers`` that is not a list). Every ABC decoder
+        # reports an absent required field as a named ``ValueError`` rather than
+        # indexing the wire mapping directly, so a decode never raises
+        # ``KeyError``. The operation never raises through its signature, so each
         # becomes a rejection the adapter renders. This catch wraps only the
         # decode, not ``install`` below, so a store-miss ``KeyError`` still
-        # surfaces as the engine bug it is. This is the SocketServer boundary's
-        # family.
+        # surfaces as the engine bug it is.
         try:
             elements: list[WireElement] = [
                 factory.element_from_dict(e) for e in request.elements
             ]
-        except (ValueError, KeyError, TypeError) as exc:
+        except (ValueError, TypeError) as exc:
             return OpError(code="rejected", reason=str(exc))
         # WireElement is structurally the domain Element the store installs; the
         # cast bridges list invariance across that crossing (PY-TS-12).
