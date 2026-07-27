@@ -112,7 +112,7 @@ class HubDisplay:
         self._children = ChildIndex()
         self._clients = HubClientRegistry()
         self._frames = ScenePresentationRegistry()
-        self._seam = WriteSeam(self._index, self._children)
+        self._seam = WriteSeam(self._index)
         self._remover = SubtreeRemover(
             self._index, self._owners, self._roots, self._children
         )

@@ -6,10 +6,7 @@ import logging
 from collections.abc import Mapping, Sequence
 from typing import Self
 
-from punt_lux.protocol import (
-    LegacyWindowElement,
-    SceneMessage,
-)
+from punt_lux.protocol import SceneMessage
 from punt_lux.scene.element_walk import SceneTreeWalk
 from punt_lux.scene.frame import Frame
 from punt_lux.scene.frame_book import FrameBook
@@ -32,7 +29,6 @@ class SceneManager:
 
     _book: FrameBook
     _scene_widget_state: dict[str, WidgetState]
-    _dirty_windows: set[str]
     _on_scene_replaced: OnSceneReplacedFn
     _walk: SceneTreeWalk
 
@@ -44,7 +40,6 @@ class SceneManager:
         self = super().__new__(cls)
         self._book = FrameBook()
         self._scene_widget_state = {}
-        self._dirty_windows = set()
         self._on_scene_replaced = on_scene_replaced
         self._walk = SceneTreeWalk()
         return self
@@ -97,10 +92,6 @@ class SceneManager:
         """Transfer a departed client's framed scenes to a surviving co-owner."""
         self._book.reassign_scenes_of(departed_fd, orphan_fd)
 
-    @property
-    def dirty_windows(self) -> set[str]:
-        return self._dirty_windows
-
     # -- public API --------------------------------------------------------
 
     def handle_framed_scene(self, msg: SceneMessage, owner_fd: int) -> None:
@@ -142,9 +133,6 @@ class SceneManager:
             self._scene_widget_state[msg.id] = WidgetState()
             frame.active_tab = msg.id
             self._book.set_frame(msg.id, frame.frame_id)
-            for elem in msg.elements:
-                if isinstance(elem, LegacyWindowElement):
-                    self._dirty_windows.add(elem.id)
         else:
             self._replace_scene_state(msg, old_scene)
 
@@ -194,7 +182,6 @@ class SceneManager:
         """Remove all scenes, frames, and associated state."""
         self._book.clear()
         self._scene_widget_state.clear()
-        self._dirty_windows.clear()
 
     def widget_state_for(self, scene_id: str) -> WidgetState | None:
         """Return the WidgetState for a scene, or None."""

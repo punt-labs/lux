@@ -3,11 +3,9 @@
 Two invariants guard the walk:
 
 - **Container coverage.** ``collect_ids`` recurses every ``HasChildElements``
-  container via the Protocol, but ``find`` descends legacy containers through
-  an explicit ladder. If a legacy container kind is missing from that ladder,
-  ``find`` cannot reach a child ``collect_ids`` reports — a patch on that child
-  becomes a silent no-op. The structural test parametrizes over EVERY legacy
-  container kind so a future kind cannot reintroduce the gap.
+  container via the Protocol, and ``find`` descends the same subtree. A child
+  ``collect_ids`` reports must be reachable by ``find`` too, or a patch on that
+  child becomes a silent no-op.
 
 - **Physical removal.** A remove routed to an ABC container drops the child from
   the parent's tuple, so the render walk over ``_children()`` no longer paints
@@ -16,65 +14,29 @@ Two invariants guard the walk:
 
 from __future__ import annotations
 
-import pytest
-
 from punt_lux.domain.element_abc import Element as ABCElement
-from punt_lux.protocol import (
-    Element,
-    GroupElement,
-    LegacyCollapsingHeaderElement,
-    LegacyGroupElement,
-    LegacyModalElement,
-    LegacyTabBarElement,
-    LegacyWindowElement,
-    TextElement,
-)
-from punt_lux.scene.element_walk import AbcNode, ListSlot, SceneTreeWalk
+from punt_lux.protocol import GroupElement, TextElement
+from punt_lux.scene.element_walk import AbcNode, SceneTreeWalk
 
 
-def _legacy_containers_with_child(child: TextElement) -> list[tuple[str, Element]]:
-    """Return one instance of every legacy HasChildElements kind wrapping ``child``.
+def test_find_reaches_nested_child_in_abc_container() -> None:
+    """A child ``collect_ids`` reports in an ABC container is reachable by ``find``.
 
-    ``TreeElement`` is excluded on purpose — its nodes are plain mappings, so
-    ``child_elements()`` returns ``()`` and it never carries element children.
+    ``collect_ids`` recurses containers via the ``HasChildElements`` Protocol and
+    ``find`` descends the same subtree; the two must agree or a patch on a nested
+    child becomes a silent no-op.
     """
-    return [
-        ("group", LegacyGroupElement(id="p", children=[child])),
-        (
-            "tab_bar",
-            LegacyTabBarElement(id="p", tabs=[{"label": "T", "children": [child]}]),
-        ),
-        ("window", LegacyWindowElement(id="p", children=[child], title="W")),
-        ("collapsing_header", LegacyCollapsingHeaderElement(id="p", children=[child])),
-        ("modal", LegacyModalElement(id="p", children=[child])),
-    ]
-
-
-_CHILD = TextElement(id="c1", content="x")
-
-
-@pytest.mark.parametrize(
-    "container",
-    [c for _, c in _legacy_containers_with_child(_CHILD)],
-    ids=[name for name, _ in _legacy_containers_with_child(_CHILD)],
-)
-def test_find_reaches_child_in_every_legacy_container(container: Element) -> None:
-    """``find`` reaches a nested child in EVERY legacy container kind.
-
-    A missing branch in ``_legacy_child_lists`` makes ``find`` return None for a
-    child that ``collect_ids`` reports — the exact walk-coverage gap that has
-    recurred. Parametrizing over the whole container set turns any future
-    omission into a hard failure here.
-    """
+    child = TextElement(id="c1", content="x")
+    container = GroupElement(id="p", children=(child,))
     walk = SceneTreeWalk()
 
     # ``collect_ids`` reports the child (Protocol recursion) ...
     assert "c1" in walk.collect_ids(container)
-    # ... so ``find`` must be able to reach it too.
+    # ... so ``find`` must reach it too — as a nested AbcNode.
     location = walk.find([container], "c1")
     assert location is not None
     assert location.element.id == "c1"
-    assert isinstance(location, ListSlot)
+    assert isinstance(location, AbcNode)
 
 
 class TestAbcRemovalIsPhysical:

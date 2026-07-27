@@ -3,32 +3,24 @@
 Splits the recursive tree helpers out of :class:`SceneManager` so the
 state machine owns scene lifecycle and this module owns tree navigation.
 
-Removal is physical in BOTH element models: a legacy element is popped
-from its parent list, an ABC element is dropped from its parent's child
-tuple. The Display renders whatever ``_children()`` returns, so a detached
-element stops painting at once — the Hub store and the Display replica
-agree that "detached" means "gone", never "flagged but still rendered".
+Removal is physical: a scene-root element is popped from the scene's root
+list, a nested element is dropped from its parent's child tuple. The Display
+renders whatever ``_children()`` returns, so a detached element stops painting
+at once — the Hub store and the Display replica agree that "detached" means
+"gone", never "flagged but still rendered".
 
-``ListSlot`` (a legacy list + index) and ``AbcNode`` (an ABC element + its
+``ListSlot`` (the scene-root list + index) and ``AbcNode`` (an element + its
 parent container) are the two location kinds; each owns how to apply a
-set-patch and how to detach, so the caller never branches on the model.
+set-patch and how to detach, so the caller never branches on where it sits.
 """
 
 from __future__ import annotations
 
-from dataclasses import replace
 from typing import TYPE_CHECKING, Any, Self, cast, final
 
 from punt_lux.domain.element_abc import Element as ABCElement
 from punt_lux.domain.validation_walk import HasChildElements
-from punt_lux.protocol import (
-    Element,
-    LegacyCollapsingHeaderElement,
-    LegacyGroupElement,
-    LegacyModalElement,
-    LegacyTabBarElement,
-    LegacyWindowElement,
-)
+from punt_lux.protocol import Element
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -38,11 +30,10 @@ __all__ = ["AbcNode", "ElementLocation", "ListSlot", "SceneTreeWalk"]
 
 @final
 class ListSlot:
-    """A located element at a mutable index in a legacy container's list.
+    """A located element at a mutable index in the scene's root list.
 
-    A set-patch rebinds the slot (a frozen legacy dataclass is replaced; an
-    ABC leaf nested in a legacy list mutates in place and the slot rebinds
-    to the same object). A remove pops the element out of its parent list.
+    A set-patch mutates the element in place (``apply_patch``); a remove pops
+    it out of the root list.
     """
 
     __slots__ = ("_index", "_parent")
@@ -62,17 +53,16 @@ class ListSlot:
         return self._parent[self._index]
 
     def apply_set(self, fields: Mapping[str, Any]) -> Element:
-        """Apply ``fields`` to the slotted element; return the result."""
+        """Apply ``fields`` to the slotted element in place; return the result."""
         elem = self._parent[self._index]
-        if isinstance(elem, ABCElement):
-            elem.apply_patch(fields)
-            return elem
-        updated = replace(elem, **fields)
-        self._parent[self._index] = updated
-        return updated
+        if not isinstance(elem, ABCElement):
+            msg = "scene-root element is not a mutable ABC Element"
+            raise TypeError(msg)
+        elem.apply_patch(fields)
+        return elem
 
     def detach(self) -> Element:
-        """Pop the element out of its parent list and return it."""
+        """Pop the element out of the scene's root list and return it."""
         return self._parent.pop(self._index)
 
 
@@ -124,9 +114,9 @@ type ElementLocation = ListSlot | AbcNode
 class SceneTreeWalk:
     """Navigate a scene's element tree — find, collect ids, locate for patch.
 
-    Stateless: one instance is as good as any other. Legacy containers are
-    descended through their mutable backing lists (so a found legacy element
-    can be rebound or popped); ABC containers through ``HasChildElements``.
+    Stateless: one instance is as good as any other. Containers are descended
+    through ``HasChildElements``; a scene-root match is a :class:`ListSlot`, a
+    nested match an :class:`AbcNode`.
     """
 
     __slots__ = ()
@@ -137,9 +127,8 @@ class SceneTreeWalk:
     def collect_ids(self, element: object) -> list[str]:
         """Collect every element id in a subtree, including the root.
 
-        Recurses containers of both models uniformly via
-        ``HasChildElements`` — so an ABC group's nested children are
-        reported, not skipped.
+        Recurses containers uniformly via ``HasChildElements`` — so an ABC
+        group's nested children are reported, not skipped.
         """
         ids: list[str] = []
         eid = getattr(element, "id", None)
@@ -153,27 +142,16 @@ class SceneTreeWalk:
     def find(self, elements: list[Element], target_id: str) -> ElementLocation | None:
         """Locate ``target_id`` within ``elements``, or return ``None``.
 
-        A direct member is a :class:`ListSlot` (``elements`` is a mutable
-        list). A match deeper in an ABC container is an :class:`AbcNode`;
-        deeper in a legacy container, a :class:`ListSlot` over that
-        container's backing list.
+        A direct member is a :class:`ListSlot` (``elements`` is the scene's
+        mutable root list). A match deeper in a container is an :class:`AbcNode`.
         """
         for index, element in enumerate(elements):
             if getattr(element, "id", None) == target_id:
                 return ListSlot(elements, index)
-            found = self._descend(element, target_id)
-            if found is not None:
-                return found
-        return None
-
-    def _descend(self, element: object, target_id: str) -> ElementLocation | None:
-        """Search ``element``'s children for ``target_id`` in either model."""
-        if isinstance(element, ABCElement):
-            return self._find_in_abc(element, target_id)
-        for child_list in self._legacy_child_lists(element):
-            found = self.find(child_list, target_id)
-            if found is not None:
-                return found
+            if isinstance(element, ABCElement):
+                found = self._find_in_abc(element, target_id)
+                if found is not None:
+                    return found
         return None
 
     def _find_in_abc(self, element: ABCElement, target_id: str) -> AbcNode | None:
@@ -191,23 +169,3 @@ class SceneTreeWalk:
             if found is not None:
                 return found
         return None
-
-    def _legacy_child_lists(self, element: object) -> list[list[Element]]:
-        """Return the mutable backing child lists of a legacy container.
-
-        Legacy mutation needs the actual list to pop or rebind an entry.
-        Every legacy ``HasChildElements`` kind must appear here — an omission
-        makes ``find`` unable to reach a child ``collect_ids`` reports.
-        """
-        if isinstance(element, LegacyGroupElement):
-            lists: list[list[Element]] = [element.children]
-            lists.extend(element.pages)
-            return lists
-        if isinstance(
-            element,
-            (LegacyCollapsingHeaderElement, LegacyWindowElement, LegacyModalElement),
-        ):
-            return [element.children]
-        if isinstance(element, LegacyTabBarElement):
-            return [tab.get("children", []) for tab in element.tabs]
-        return []

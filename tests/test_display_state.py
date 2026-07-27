@@ -18,7 +18,6 @@ from punt_lux.protocol import (
     CheckboxElement,
     ClearMessage,
     Element,
-    LegacyWindowElement,
     MenuMessage,
     PingMessage,
     RegisterMenuMessage,
@@ -794,39 +793,6 @@ class TestMultiScene:
 
         server._handle_message(sock, _make_scene(scene_id="s2"))
         assert server._scene_manager.frames["s2"].active_tab == "s2"
-
-    def test_same_scene_id_does_not_dirty_windows(self) -> None:
-        """Re-sending a scene with the same ID should not force window positions."""
-        server = _make_server()
-        sock = _mock_sock()
-        win = LegacyWindowElement(id="w1", title="Panel", x=10, y=10)
-        scene = SceneMessage(id="s1", elements=[win], frame_id="s1")
-
-        server._handle_message(sock, scene)
-        assert "w1" in server._scene_manager._dirty_windows
-
-        # Consume the dirty flag (simulates first render)
-        server._scene_manager._dirty_windows.clear()
-
-        # Same scene ID again — windows should NOT be re-dirtied
-        server._handle_message(sock, scene)
-        assert "w1" not in server._scene_manager._dirty_windows
-
-    def test_new_scene_id_dirties_windows(self) -> None:
-        """A new scene ID should mark windows dirty for initial positioning."""
-        server = _make_server()
-        sock = _mock_sock()
-        win = LegacyWindowElement(id="w1", title="Panel", x=10, y=10)
-
-        server._handle_message(
-            sock, SceneMessage(id="s1", elements=[win], frame_id="s1")
-        )
-        server._scene_manager._dirty_windows.clear()
-
-        server._handle_message(
-            sock, SceneMessage(id="s2", elements=[win], frame_id="s2")
-        )
-        assert "w1" in server._scene_manager._dirty_windows
 
     def test_dismiss_drains_events_for_dismissed_scene(self) -> None:
         """Dismissing a scene removes its unique events from the queue."""

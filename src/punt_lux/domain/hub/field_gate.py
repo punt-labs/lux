@@ -1,12 +1,12 @@
 """FieldGate — refuse a field patch that names a forbidden field, before dispatch.
 
 Two field-name classes may never be written through the narrow ``update`` path,
-uniformly for both element models, so the gate runs ahead of the ABC/legacy seam:
+so the gate runs ahead of the field-realization seam:
 
 - **Immutable** (``id``/``kind``): changing either is a remove-and-add — ``id`` is
   the store index key, ``kind`` selects the renderer.
-- **Structural** (``children``/``pages``/``tabs``): these carry child Elements. The
-  value-replacement seam rebinds only the root's index entry, so such a write
+- **Structural** (``children``/``tabs``): these carry child Elements. The
+  value-replacement seam rebinds only the addressed element, so such a write
   defers to ``show`` — which reinstalls the subtree — rather than desyncing it.
 """
 
@@ -26,9 +26,9 @@ __all__ = ["FieldGate"]
 
 _IMMUTABLE_FIELDS = frozenset({"id", "kind"})
 # A patch naming several forbidden fields is rejected on a fixed precedence — id,
-# then kind, then children, pages, tabs — so the reported field never varies across
-# runs. Both sets are closed: migration only removes legacy kinds, none can join.
-_STRUCTURAL_FIELDS = frozenset({"children", "pages", "tabs"})
+# then kind, then children, then tabs — so the reported field never varies across
+# runs.
+_STRUCTURAL_FIELDS = frozenset({"children", "tabs"})
 
 
 @final
@@ -45,11 +45,7 @@ class FieldGate:
             immutable: Literal["id", "kind"] = "id" if "id" in keys else "kind"
             raise ImmutableFieldError(element_id=element_id, field=immutable)
         if _STRUCTURAL_FIELDS & keys:
-            structural: Literal["children", "pages", "tabs"] = (
-                "children"
-                if "children" in keys
-                else "pages"
-                if "pages" in keys
-                else "tabs"
+            structural: Literal["children", "tabs"] = (
+                "children" if "children" in keys else "tabs"
             )
             raise StructuralFieldWriteError(element_id=element_id, field=structural)
